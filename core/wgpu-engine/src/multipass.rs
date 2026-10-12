@@ -318,7 +318,14 @@ impl Work {
     fn next_chunk(&mut self, max_units: f64, force: bool) -> Option<(Rect, Range<usize>)> {
         let n = self.call.dab_count();
         let splittable = self.call.dabs_splittable();
-        next_chunk_generic(&mut self.cursor, self.footprint, n, splittable, max_units, force)
+        next_chunk_generic(
+            &mut self.cursor,
+            self.footprint,
+            n,
+            splittable,
+            max_units,
+            force,
+        )
     }
 
     fn remaining_units(&self) -> f64 {
@@ -546,7 +553,12 @@ pub(super) struct Multipass {
     chunks_run: u64,
 }
 
-fn storage(device: &wgpu::Device, label: &str, size: u64, extra: wgpu::BufferUsages) -> wgpu::Buffer {
+fn storage(
+    device: &wgpu::Device,
+    label: &str,
+    size: u64,
+    extra: wgpu::BufferUsages,
+) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: size.max(16),
@@ -585,23 +597,28 @@ impl Multipass {
     fn new(e: &Engine, cfg: MultipassConfig) -> Multipass {
         let device = &e.device;
         let layer_bytes = e.layer_bytes();
-        let scale = if cfg.draft_scale == 0 { 2 } else { cfg.draft_scale };
+        let scale = if cfg.draft_scale == 0 {
+            2
+        } else {
+            cfg.draft_scale
+        };
         let (draft_w, draft_h) = draft_dims(e.width, e.height, scale);
         let tiles_x = (e.width + TILE - 1) / TILE;
         let tiles_y = (e.height + TILE - 1) / TILE;
         let slot_bytes = (TILE * TILE * 4) as u64;
         let slot_capacity = 64;
 
-        let draft_stamp_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("draft stamp"),
-            entries: &[
-                storage_entry(0, true),
-                storage_entry(1, false),
-                texture_entry(2, true),
-                texture_entry(3, false),
-                uniform_entry(4, false),
-            ],
-        });
+        let draft_stamp_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("draft stamp"),
+                entries: &[
+                    storage_entry(0, true),
+                    storage_entry(1, false),
+                    texture_entry(2, true),
+                    texture_entry(3, false),
+                    uniform_entry(4, false),
+                ],
+            });
         let draft_masked_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("draft masked"),
@@ -630,12 +647,27 @@ impl Multipass {
                 uniform_entry(4, false),
             ],
         });
-        let draft_stamp_pipeline =
-            make_pipeline(device, "draft stamp", DRAFT_STAMP_WGSL, &draft_stamp_layout, &[]);
-        let draft_masked_pipeline =
-            make_pipeline(device, "draft masked", DRAFT_MASKED_WGSL, &draft_masked_layout, &[]);
-        let display_pipeline =
-            make_pipeline(device, "multipass display", DISPLAY_WGSL, &display_layout, &[]);
+        let draft_stamp_pipeline = make_pipeline(
+            device,
+            "draft stamp",
+            DRAFT_STAMP_WGSL,
+            &draft_stamp_layout,
+            &[],
+        );
+        let draft_masked_pipeline = make_pipeline(
+            device,
+            "draft masked",
+            DRAFT_MASKED_WGSL,
+            &draft_masked_layout,
+            &[],
+        );
+        let display_pipeline = make_pipeline(
+            device,
+            "multipass display",
+            DISPLAY_WGSL,
+            &display_layout,
+            &[],
+        );
         let r8 = wgpu::TextureFormat::R8Unorm;
         let storage_dst = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
 
@@ -647,8 +679,18 @@ impl Multipass {
             scale,
             draft_w,
             draft_h,
-            display: storage(device, "multipass display", layer_bytes, wgpu::BufferUsages::empty()),
-            base: storage(device, "multipass base", layer_bytes, wgpu::BufferUsages::empty()),
+            display: storage(
+                device,
+                "multipass display",
+                layer_bytes,
+                wgpu::BufferUsages::empty(),
+            ),
+            base: storage(
+                device,
+                "multipass base",
+                layer_bytes,
+                wgpu::BufferUsages::empty(),
+            ),
             draft: storage(
                 device,
                 "multipass draft",
@@ -739,8 +781,10 @@ impl Multipass {
                 if interval < 100.0 {
                     self.frame_ms.add(interval, 0.1);
                 }
-                self.eta
-                    .observe_duty(self.refine_busy_since_frame, interval.max(self.frame_period()));
+                self.eta.observe_duty(
+                    self.refine_busy_since_frame,
+                    interval.max(self.frame_period()),
+                );
             }
         }
         self.last_frame_start = Some(now);
@@ -756,7 +800,10 @@ impl Multipass {
         if self.cfg.frame_ms > 0.0 {
             return self.cfg.frame_ms as f64;
         }
-        self.frame_ms.get().unwrap_or(1000.0 / 60.0).clamp(4.0, 50.0)
+        self.frame_ms
+            .get()
+            .unwrap_or(1000.0 / 60.0)
+            .clamp(4.0, 50.0)
     }
 
     /// Tiles `(tx0, ty0, tx1, ty1)` (exclusive ends) overlapping `r`.
@@ -800,13 +847,25 @@ fn draft_dims(width: i32, height: i32, scale: u32) -> (i32, i32) {
 }
 
 /// Copies rectangle `r` (inside the layer) between two layer-sized buffers.
-fn copy_rect(encoder: &mut wgpu::CommandEncoder, src: &wgpu::Buffer, dst: &wgpu::Buffer, r: Rect, width: i32) {
+fn copy_rect(
+    encoder: &mut wgpu::CommandEncoder,
+    src: &wgpu::Buffer,
+    dst: &wgpu::Buffer,
+    r: Rect,
+    width: i32,
+) {
     if r.is_empty() {
         return;
     }
     let row = width as u64 * 4;
     if r.w == width {
-        encoder.copy_buffer_to_buffer(src, r.y as u64 * row, dst, r.y as u64 * row, r.h as u64 * row);
+        encoder.copy_buffer_to_buffer(
+            src,
+            r.y as u64 * row,
+            dst,
+            r.y as u64 * row,
+            r.h as u64 * row,
+        );
         return;
     }
     for y in r.y..r.y + r.h {
@@ -940,7 +999,9 @@ impl Engine {
     /// The displayed quality parameter of the tile containing layer pixel (x, y), 0..1 (1 = the
     /// final result is on screen, or nothing is pending there). Tests and diagnostics.
     pub fn multipass_tile_quality(&self, x: i32, y: i32) -> f32 {
-        let Some(mp) = self.mp.as_ref() else { return 1.0 };
+        let Some(mp) = self.mp.as_ref() else {
+            return 1.0;
+        };
         if x < 0 || y < 0 || x >= self.width || y >= self.height {
             return 1.0;
         }
@@ -951,7 +1012,9 @@ impl Engine {
     /// Estimated wait until the final result for the tile containing (x, y) lands, in frames of the
     /// measured frame period (0 when nothing is pending there).
     pub fn multipass_tile_eta_frames(&self, x: i32, y: i32) -> f64 {
-        let Some(mp) = self.mp.as_ref() else { return 0.0 };
+        let Some(mp) = self.mp.as_ref() else {
+            return 0.0;
+        };
         if x < 0 || y < 0 || x >= self.width || y >= self.height {
             return 0.0;
         }
@@ -1116,7 +1179,11 @@ impl Engine {
             // when the draft buffer is empty anyway).
             // The tier's scale is the floor; measured draft cost coarsens it (to 8 at most) when
             // drafts eat too much of the frame, and relaxes back toward the floor when cheap.
-            let floor = if mp.cfg.draft_scale == 0 { 2 } else { mp.cfg.draft_scale };
+            let floor = if mp.cfg.draft_scale == 0 {
+                2
+            } else {
+                mp.cfg.draft_scale
+            };
             mp.scale = mp.scale.max(floor);
             let period = mp.frame_period();
             if let Some(ms) = mp.draft_ms.get() {
@@ -1134,7 +1201,12 @@ impl Engine {
             }
             let (dw, dh) = draft_dims(e.width, e.height, mp.scale);
             if (dw, dh) != (mp.draft_w, mp.draft_h) {
-                mp.draft = storage(&e.device, "multipass draft", dw as u64 * dh as u64 * 8, wgpu::BufferUsages::empty());
+                mp.draft = storage(
+                    &e.device,
+                    "multipass draft",
+                    dw as u64 * dh as u64 * 8,
+                    wgpu::BufferUsages::empty(),
+                );
                 mp.draft_w = dw;
                 mp.draft_h = dh;
             }
@@ -1371,7 +1443,11 @@ impl Engine {
                 if secondary.is_empty() {
                     secondary.push(GpuSecondaryDab::zeroed());
                 }
-                if mp.draft_mask.as_ref().is_none_or(|m| m.hash != c0.mask.hash) {
+                if mp
+                    .draft_mask
+                    .as_ref()
+                    .is_none_or(|m| m.hash != c0.mask.hash)
+                {
                     mp.draft_mask = Some(MipTex::new(&self.device, &self.queue, &c0.mask));
                 }
                 let r8f = wgpu::TextureFormat::R8Unorm;
@@ -1380,7 +1456,16 @@ impl Engine {
                     Some(g) => (&g.data, g.width, g.height),
                     None => (&white, 1, 1),
                 };
-                Engine::ensure_tex(&self.device, &self.queue, &mut mp.draft_grain, "draft grain", gw, gh, r8f, gd);
+                Engine::ensure_tex(
+                    &self.device,
+                    &self.queue,
+                    &mut mp.draft_grain,
+                    "draft grain",
+                    gw,
+                    gh,
+                    r8f,
+                    gd,
+                );
                 let (sd, sw, sh): (&[u8], u32, u32) = match &c0.secondary_mask {
                     Some(g) => (&g.data, g.width, g.height),
                     None => (&white, 1, 1),
@@ -1400,7 +1485,8 @@ impl Engine {
                 self.queue.write_buffer(&mp.draft_dabs.buffer, 0, bytes);
                 let sbytes: &[u8] = bytemuck::cast_slice(&secondary);
                 mp.draft_secondary.ensure(&self.device, sbytes.len() as u64);
-                self.queue.write_buffer(&mp.draft_secondary.buffer, 0, sbytes);
+                self.queue
+                    .write_buffer(&mp.draft_secondary.buffer, 0, sbytes);
                 let sp = c0.substrate;
                 let has_grain = c0.grain.is_some();
                 let mask = mp.draft_mask.as_ref().unwrap();
@@ -1413,7 +1499,11 @@ impl Engine {
                     grain_scale: if has_grain { c0.grain_scale } else { 1.0 },
                     grain_phase_x: if has_grain { c0.grain_phase.0 } else { 0.0 },
                     grain_phase_y: if has_grain { c0.grain_phase.1 } else { 0.0 },
-                    has_secondary: if c0.secondary_mask.is_some() { 1.0 } else { 0.0 },
+                    has_secondary: if c0.secondary_mask.is_some() {
+                        1.0
+                    } else {
+                        0.0
+                    },
                     has_substrate: if sp.enabled { 1.0 } else { 0.0 },
                     has_paint_height: if sp.has_paint_height { 1.0 } else { 0.0 },
                     substrate_base_height: sp.base_height.clamp(0.0, 1.0),
@@ -1525,9 +1615,13 @@ impl Engine {
             };
             let head = mp.sched.head_mut(pass).expect("picked head");
             let kind = head.payload.call.kind();
-            let ms_per_unit = mp.ms_per_unit[kind].get().unwrap_or(DEFAULT_MS_PER_UNIT).max(1e-9);
+            let ms_per_unit = mp.ms_per_unit[kind]
+                .get()
+                .unwrap_or(DEFAULT_MS_PER_UNIT)
+                .max(1e-9);
             if mp.chunk_overhead_ms.get().is_none() {
-                mp.chunk_overhead_ms.add(self.mp_measure_submit_overhead(), 1.0);
+                mp.chunk_overhead_ms
+                    .add(self.mp_measure_submit_overhead(), 1.0);
             }
             let overhead = mp.chunk_overhead_ms.get().unwrap_or(0.0);
             // Chunks of at most half what is left (after the fixed per-chunk cost), so one
@@ -1592,7 +1686,12 @@ impl Engine {
 
     /// One chunk of the head final item of `pass`: exactly the dispatch the call makes with
     /// multipass off, restricted to `chunk`'s pixels and dab range. Returns its work units.
-    fn mp_exec_final(&mut self, mp: &mut Multipass, pass: usize, chunk: Option<(Rect, Range<usize>)>) -> f64 {
+    fn mp_exec_final(
+        &mut self,
+        mp: &mut Multipass,
+        pass: usize,
+        chunk: Option<(Rect, Range<usize>)>,
+    ) -> f64 {
         let head = mp.sched.head_mut(pass).expect("head");
         let call = head.payload.call.clone();
         let subst_tex = head.payload.subst_tex.clone();
@@ -1608,13 +1707,25 @@ impl Engine {
         match call.as_ref() {
             Call::Stamp(c) => {
                 let b = (ballast > 1).then(|| mp.ballast_buffer(self));
-                self.mp_exec_stamp(c, &subst_tex, &paint_tex, chunk, b.as_ref().map(|b| (b, ballast - 1)));
+                self.mp_exec_stamp(
+                    c,
+                    &subst_tex,
+                    &paint_tex,
+                    chunk,
+                    b.as_ref().map(|b| (b, ballast - 1)),
+                );
             }
             Call::Masked(c) => {
                 // An empty region: stamp_masked_dabs submits nothing then either.
                 if let Some(ch) = chunk {
                     let b = (ballast > 1).then(|| mp.ballast_buffer(self));
-                    self.mp_exec_masked(c, &subst_tex, &paint_tex, ch, b.as_ref().map(|b| (b, ballast - 1)));
+                    self.mp_exec_masked(
+                        c,
+                        &subst_tex,
+                        &paint_tex,
+                        ch,
+                        b.as_ref().map(|b| (b, ballast - 1)),
+                    );
                 }
             }
         }
@@ -1639,11 +1750,15 @@ impl Engine {
         if use_stroke_max {
             self.ensure_stroke_state(&mut encoder);
         }
-        if let Some((r, range)) = chunk.as_ref().filter(|(r, range)| !r.is_empty() && !range.is_empty()) {
+        if let Some((r, range)) = chunk
+            .as_ref()
+            .filter(|(r, range)| !r.is_empty() && !range.is_empty())
+        {
             let dabs = &c.dabs[range.clone()];
             let dab_bytes: &[u8] = bytemuck::cast_slice(dabs);
             self.dab_buffer.ensure(&self.device, dab_bytes.len() as u64);
-            self.queue.write_buffer(&self.dab_buffer.buffer, 0, dab_bytes);
+            self.queue
+                .write_buffer(&self.dab_buffer.buffer, 0, dab_bytes);
             let [cr, cg, cb, ca] = argb_to_rgba_f(c.color);
             let s = c.substrate;
             let pc = StampUniform {
@@ -1675,46 +1790,55 @@ impl Engine {
             } else {
                 &self.placeholder_state
             };
-            let make_bind = |target: &wgpu::Buffer, state: &wgpu::Buffer, uniform: &wgpu::Buffer| {
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("stamp"),
-                    layout: &self.stamp_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.dab_buffer.buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: target.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: tv(subst_tex),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: tv(paint_tex),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: state.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: uniform.as_entire_binding(),
-                        },
-                    ],
-                })
-            };
+            let make_bind =
+                |target: &wgpu::Buffer, state: &wgpu::Buffer, uniform: &wgpu::Buffer| {
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("stamp"),
+                        layout: &self.stamp_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.dab_buffer.buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: target.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: tv(subst_tex),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: tv(paint_tex),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 4,
+                                resource: state.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 5,
+                                resource: uniform.as_entire_binding(),
+                            },
+                        ],
+                    })
+                };
             let bind = make_bind(&self.layer, state, &self.stamp_uniform);
             let extra = ballast.map(|(buffer, n)| {
-                let scratch_uniform = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("ballast params"),
-                    contents: bytemuck::bytes_of(&StampUniform { stroke_max: 0.0, ..pc }),
-                    usage: wgpu::BufferUsages::UNIFORM,
-                });
-                (make_bind(buffer, &self.placeholder_state, &scratch_uniform), n)
+                let scratch_uniform =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("ballast params"),
+                            contents: bytemuck::bytes_of(&StampUniform {
+                                stroke_max: 0.0,
+                                ..pc
+                            }),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                        });
+                (
+                    make_bind(buffer, &self.placeholder_state, &scratch_uniform),
+                    n,
+                )
             });
             let groups = (
                 (r.w as u32).div_ceil(self.stamp_tile),
@@ -1765,7 +1889,16 @@ impl Engine {
             Some(g) => (&g.data, g.width, g.height),
             None => (&white, 1, 1),
         };
-        Self::ensure_tex(&self.device, &self.queue, &mut self.grain_tex, "grain", gw, gh, r8, gd);
+        Self::ensure_tex(
+            &self.device,
+            &self.queue,
+            &mut self.grain_tex,
+            "grain",
+            gw,
+            gh,
+            r8,
+            gd,
+        );
         let (sd, sw, sh): (&[u8], u32, u32) = match &c.secondary_mask {
             Some(g) => (&g.data, g.width, g.height),
             None => (&white, 1, 1),
@@ -1786,7 +1919,8 @@ impl Engine {
         let dabs = &c.dabs[range.clone()];
         let dab_bytes: &[u8] = bytemuck::cast_slice(dabs);
         self.dab_buffer.ensure(&self.device, dab_bytes.len() as u64);
-        self.queue.write_buffer(&self.dab_buffer.buffer, 0, dab_bytes);
+        self.queue
+            .write_buffer(&self.dab_buffer.buffer, 0, dab_bytes);
         let dummy = [GpuSecondaryDab::zeroed()];
         let has_secondary = c.secondary_mask.is_some();
         let secondary: &[GpuSecondaryDab] = if has_secondary {
@@ -1830,56 +1964,58 @@ impl Engine {
         };
         self.queue
             .write_buffer(&self.masked_uniform, 0, bytemuck::bytes_of(&pc));
-        let make_bind = |target: &wgpu::Buffer| self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("stamp masked"),
-            layout: &self.masked_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.dab_buffer.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: target.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: tv(&self.mask_tex),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: tv(&self.grain_tex),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: tv(&self.secondary_mask_tex),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: self.secondary_buffer.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: tv(subst_tex),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: tv(paint_tex),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: self.masked_uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 9,
-                    resource: wgpu::BindingResource::Sampler(&self.linear_clamp),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 10,
-                    resource: wgpu::BindingResource::Sampler(&self.nearest_repeat),
-                },
-            ],
-        });
+        let make_bind = |target: &wgpu::Buffer| {
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("stamp masked"),
+                layout: &self.masked_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.dab_buffer.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: target.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: tv(&self.mask_tex),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: tv(&self.grain_tex),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: tv(&self.secondary_mask_tex),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: self.secondary_buffer.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: tv(subst_tex),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: tv(paint_tex),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: self.masked_uniform.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: wgpu::BindingResource::Sampler(&self.linear_clamp),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 10,
+                        resource: wgpu::BindingResource::Sampler(&self.nearest_repeat),
+                    },
+                ],
+            })
+        };
         let bind = make_bind(&self.layer);
         let extra = ballast.map(|(buffer, n)| (make_bind(buffer), n));
         let groups = (
@@ -1984,7 +2120,13 @@ impl Engine {
             } else {
                 let stride = e.width as usize * 4;
                 let display = mp.display.clone();
-                if e.read_region_into(&display, r, out, stride, (r.y as usize * stride) + r.x as usize * 4) {
+                if e.read_region_into(
+                    &display,
+                    r,
+                    out,
+                    stride,
+                    (r.y as usize * stride) + r.x as usize * 4,
+                ) {
                     e.dirty = Rect::default();
                     Some((r.x, r.y, r.w, r.h))
                 } else {
@@ -2032,7 +2174,11 @@ impl Engine {
             let eta = mp.eta.eta_ms(*backlog);
             // A landed tile (nothing queued over it) shows exactly its base: its own draft is
             // cleared, and it must not pull a still-drafting neighbour's texels in either.
-            let live_neighbours = if mp.tiles[t].pending > 0 { mp.live_neighbours(t) } else { 0 };
+            let live_neighbours = if mp.tiles[t].pending > 0 {
+                mp.live_neighbours(t)
+            } else {
+                0
+            };
             let tile = &mut mp.tiles[t];
             if finish {
                 if tile.anim.landing.is_some() {
@@ -2046,12 +2192,19 @@ impl Engine {
             let edge = f + q * (1.0 + REVEAL_BAND - f);
             // Unchanged on screen: new content, a running ease or a visible reveal step recomposite.
             let unchanged = tile.anim.landing.is_none()
-                && tile.shown_edge.is_some_and(|e| (e - edge).abs() < EDGE_EPSILON);
+                && tile
+                    .shown_edge
+                    .is_some_and(|e| (e - edge).abs() < EDGE_EPSILON);
             if unchanged {
                 continue;
             }
             tile.shown_edge = Some(edge);
-            let r = Rect::new((t as i32 % mp.tiles_x) * TILE, (t as i32 / mp.tiles_x) * TILE, TILE, TILE);
+            let r = Rect::new(
+                (t as i32 % mp.tiles_x) * TILE,
+                (t as i32 / mp.tiles_x) * TILE,
+                TILE,
+                TILE,
+            );
             list.push(TileParam {
                 x: r.x,
                 y: r.y,
@@ -2126,7 +2279,8 @@ impl Engine {
             self.queue.submit([encoder.finish()]);
         }
         let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        mp.compose_ms.add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
+        mp.compose_ms
+            .add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
     }
 }
 
@@ -2158,7 +2312,12 @@ impl Multipass {
         for dy in -1..=1 {
             for dx in -1..=1 {
                 let (nx, ny) = (tx + dx, ty + dy);
-                if (dx, dy) == (0, 0) || nx < 0 || ny < 0 || nx >= self.tiles_x || ny >= self.tiles_y {
+                if (dx, dy) == (0, 0)
+                    || nx < 0
+                    || ny < 0
+                    || nx >= self.tiles_x
+                    || ny >= self.tiles_y
+                {
                     continue;
                 }
                 if self.tiles[(ny * self.tiles_x + nx) as usize].pending > 0 {
@@ -2191,8 +2350,19 @@ impl Multipass {
         if s >= self.slot_capacity {
             let slot_bytes = (TILE * TILE * 4) as u64;
             let capacity = self.slot_capacity * 2;
-            let grown = storage(&e.device, "multipass snapshots", slot_bytes * capacity as u64, wgpu::BufferUsages::empty());
-            encoder.copy_buffer_to_buffer(&self.snaps, 0, &grown, 0, slot_bytes * self.slot_capacity as u64);
+            let grown = storage(
+                &e.device,
+                "multipass snapshots",
+                slot_bytes * capacity as u64,
+                wgpu::BufferUsages::empty(),
+            );
+            encoder.copy_buffer_to_buffer(
+                &self.snaps,
+                0,
+                &grown,
+                0,
+                slot_bytes * self.slot_capacity as u64,
+            );
             self.snaps = grown;
             self.slot_capacity = capacity;
         }
@@ -2201,7 +2371,14 @@ impl Multipass {
 
     fn ballast_buffer(&mut self, e: &Engine) -> wgpu::Buffer {
         self.ballast
-            .get_or_insert_with(|| storage(&e.device, "refinement ballast", e.layer_bytes(), wgpu::BufferUsages::empty()))
+            .get_or_insert_with(|| {
+                storage(
+                    &e.device,
+                    "refinement ballast",
+                    e.layer_bytes(),
+                    wgpu::BufferUsages::empty(),
+                )
+            })
             .clone()
     }
 }
@@ -2225,7 +2402,12 @@ fn next_chunk_generic(
     let rect = |bx: i32, by: i32, nbx: i32, nby: i32| {
         let x = f.x + bx * BLOCK;
         let y = f.y + by * BLOCK;
-        Rect::new(x, y, (nbx * BLOCK).min(f.x + f.w - x), (nby * BLOCK).min(f.y + f.h - y))
+        Rect::new(
+            x,
+            y,
+            (nbx * BLOCK).min(f.x + f.w - x),
+            (nby * BLOCK).min(f.y + f.h - y),
+        )
     };
     if c.bx == 0 && c.dab == 0 {
         let row_units = block_px * bw as f64 * n as f64;
@@ -2302,7 +2484,8 @@ mod tests {
         loop {
             guard += 1;
             assert!(guard < 100_000);
-            let got = next_chunk_generic(&mut cursor, footprint, n, splittable, budget(guard), true);
+            let got =
+                next_chunk_generic(&mut cursor, footprint, n, splittable, budget(guard), true);
             let Some((r, range)) = got else { break };
             let bx0 = (r.x - footprint.x) / BLOCK;
             let by0 = (r.y - footprint.y) / BLOCK;
@@ -2325,7 +2508,11 @@ mod tests {
                     for budget in [1.0, 300.0, 256.0 * 5.0, 1e5, 1e9] {
                         let seen = cursor_cover(fw, fh, n, splittable, budget);
                         for s in &seen {
-                            assert_eq!(s, &(0..n).collect::<Vec<_>>(), "{fw}x{fh} n={n} split={splittable} budget={budget}");
+                            assert_eq!(
+                                s,
+                                &(0..n).collect::<Vec<_>>(),
+                                "{fw}x{fh} n={n} split={splittable} budget={budget}"
+                            );
                         }
                     }
                 }
@@ -2342,12 +2529,19 @@ mod tests {
             for n in [3usize, 17] {
                 for splittable in [false, true] {
                     let mut next = |_| {
-                        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                        [1.0, 300.0, 256.0 * 2.5, 256.0 * 40.0, f64::INFINITY][(seed >> 60) as usize % 5]
+                        seed = seed
+                            .wrapping_mul(6364136223846793005)
+                            .wrapping_add(1442695040888963407);
+                        [1.0, 300.0, 256.0 * 2.5, 256.0 * 40.0, f64::INFINITY]
+                            [(seed >> 60) as usize % 5]
                     };
                     let seen = cursor_cover_with(fw, fh, n, splittable, &mut next);
                     for s in &seen {
-                        assert_eq!(s, &(0..n).collect::<Vec<_>>(), "{fw}x{fh} n={n} split={splittable}");
+                        assert_eq!(
+                            s,
+                            &(0..n).collect::<Vec<_>>(),
+                            "{fw}x{fh} n={n} split={splittable}"
+                        );
                     }
                 }
             }
@@ -2369,8 +2563,13 @@ mod tests {
             max_chunk_px: 256,
         };
         assert_eq!(MultipassConfig::from_floats(&c.to_floats()), c);
-        assert_eq!(MultipassConfig::from_floats(&[]), MultipassConfig::default());
-        assert_eq!(MultipassConfig::from_floats(&[1.0, 2.0, 0.9]).edge_fraction, 0.5);
+        assert_eq!(
+            MultipassConfig::from_floats(&[]),
+            MultipassConfig::default()
+        );
+        assert_eq!(
+            MultipassConfig::from_floats(&[1.0, 2.0, 0.9]).edge_fraction,
+            0.5
+        );
     }
 }
-

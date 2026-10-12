@@ -165,16 +165,26 @@ fn resident_gpu_commit_matches_full_upload_across_undo() {
             let session = res.begin(&mut new, &truth);
             let mut got = truth.clone();
             paint(&mut new, dabs, &mut got);
-            assert_eq!(got, want, "[{name}] {step}: resident result differs from full upload");
+            assert_eq!(
+                got, want,
+                "[{name}] {step}: resident result differs from full upload"
+            );
             history.push(std::mem::replace(&mut truth, got));
             let g = res.bump();
             assert!(new.commit_layer(LAYER, session, g), "[{name}] {step}");
             // The resident copy must equal the committed layer exactly.
-            assert_eq!(new.read_all().unwrap(), truth, "[{name}] {step}: resident copy");
+            assert_eq!(
+                new.read_all().unwrap(),
+                truth,
+                "[{name}] {step}: resident copy"
+            );
         }
         // One upload for the first stroke and one after the undo; every other stroke bound.
         assert_eq!(res.uploads, 2, "[{name}]");
-        eprintln!("[{name}] 4 strokes + undo: {} uploads, all byte-identical", res.uploads);
+        eprintln!(
+            "[{name}] 4 strokes + undo: {} uploads, all byte-identical",
+            res.uploads
+        );
     }
 }
 
@@ -192,7 +202,13 @@ fn resident_cpu_commit_refresh_matches_full_upload_across_undo() {
         let mut res = Resident::new();
         res.bump();
         let strokes: Vec<Vec<GpuDab>> = (0..4)
-            .map(|i| stroke(&mut rng, 25, (10.0 + i as f32 * 20.0, 40.0 + i as f32 * 20.0)))
+            .map(|i| {
+                stroke(
+                    &mut rng,
+                    25,
+                    (10.0 + i as f32 * 20.0, 40.0 + i as f32 * 20.0),
+                )
+            })
             .collect();
         let plan = ["s0", "s1", "undo", "s2", "s3"];
         let mut next = 0;
@@ -211,7 +227,12 @@ fn resident_cpu_commit_refresh_matches_full_upload_across_undo() {
             assert_eq!(got, want, "[{name}] {step}");
             // The CPU commit: the preview, nudged inside the stroke and at one pixel outside it.
             let mut committed = got.clone();
-            for v in committed.iter_mut().skip(4 * (W as usize * 40 + 30)).step_by(97).take(50) {
+            for v in committed
+                .iter_mut()
+                .skip(4 * (W as usize * 40 + 30))
+                .step_by(97)
+                .take(50)
+            {
                 *v = v.wrapping_add(1);
             }
             let (ox, oy) = (W - 2, H - 3);
@@ -221,8 +242,15 @@ fn resident_cpu_commit_refresh_matches_full_upload_across_undo() {
             let extra = change_rect(&truth, &committed);
             history.push(std::mem::replace(&mut truth, committed));
             let g = res.bump();
-            assert!(new.refresh_layer(LAYER, session, g, &truth, extra), "[{name}] {step}");
-            assert_eq!(new.read_all().unwrap(), truth, "[{name}] {step}: refreshed copy");
+            assert!(
+                new.refresh_layer(LAYER, session, g, &truth, extra),
+                "[{name}] {step}"
+            );
+            assert_eq!(
+                new.read_all().unwrap(),
+                truth,
+                "[{name}] {step}: refreshed copy"
+            );
         }
         assert_eq!(res.uploads, 2, "[{name}]");
     }
@@ -257,19 +285,31 @@ fn stale_generation_tainted_copy_and_invalidation_all_miss() {
         assert_ne!(session, 0);
         // A fresh bind of the same generation hits (nothing painted yet).
         assert_ne!(e.bind_layer(LAYER, 10), 0, "[{name}]");
-        assert_eq!(e.bind_layer(LAYER, 11), 0, "[{name}] other generation must miss");
+        assert_eq!(
+            e.bind_layer(LAYER, 11),
+            0,
+            "[{name}] other generation must miss"
+        );
         // Painting taints: the copy no longer matches generation 10.
         let session = e.bind_layer(LAYER, 10);
         let mut buf = s.clone();
         paint(&mut e, &stroke(&mut Rng(1), 5, (0.0, 50.0)), &mut buf);
-        assert_eq!(e.bind_layer(LAYER, 10), 0, "[{name}] tainted copy must miss");
+        assert_eq!(
+            e.bind_layer(LAYER, 10),
+            0,
+            "[{name}] tainted copy must miss"
+        );
         // A commit from a superseded session is refused.
         assert!(!e.commit_layer(LAYER, session + 1000, 12), "[{name}]");
         assert!(e.commit_layer(LAYER, session, 12), "[{name}]");
         assert_eq!(e.resident_generation(LAYER), Some(12), "[{name}]");
         // Invalidation always wins.
         assert!(e.invalidate_layer(LAYER));
-        assert_eq!(e.bind_layer(LAYER, 12), 0, "[{name}] invalidated copy must miss");
+        assert_eq!(
+            e.bind_layer(LAYER, 12),
+            0,
+            "[{name}] invalidated copy must miss"
+        );
         assert_eq!(e.resident_generation(LAYER), None);
         // A commit after invalidation cannot resurrect it.
         assert!(!e.commit_layer(LAYER, session, 13), "[{name}]");
@@ -289,7 +329,10 @@ fn rebinding_supersedes_an_older_session() {
         let second = e.upload_layer(LAYER, 1, &s);
         assert_ne!(first, second);
         // The late commit of the first stroke must not retag the second stroke's copy.
-        assert!(!e.refresh_layer(LAYER, first, 2, &buf, (0, 0, W, H)), "[{name}]");
+        assert!(
+            !e.refresh_layer(LAYER, first, 2, &buf, (0, 0, W, H)),
+            "[{name}]"
+        );
         assert!(!e.commit_layer(LAYER, first, 2), "[{name}]");
         assert_eq!(e.resident_generation(LAYER), Some(1));
     }
@@ -326,12 +369,19 @@ fn legacy_upload_and_clear_leave_resident_layers_alone() {
         let s = seed(&mut Rng(12));
         assert_ne!(e.upload_layer(LAYER, 7, &s), 0);
         assert!(e.clear());
-        assert!(e.read_all().unwrap().iter().all(|v| *v == 0), "[{name}] scratch cleared");
+        assert!(
+            e.read_all().unwrap().iter().all(|v| *v == 0),
+            "[{name}] scratch cleared"
+        );
         let other = seed(&mut Rng(13));
         assert!(e.upload(&other));
         let mut buf = other.clone();
         paint(&mut e, &stroke(&mut Rng(3), 5, (0.0, 60.0)), &mut buf);
-        assert_ne!(e.bind_layer(LAYER, 7), 0, "[{name}] resident layer untouched");
+        assert_ne!(
+            e.bind_layer(LAYER, 7),
+            0,
+            "[{name}] resident layer untouched"
+        );
         assert_eq!(e.read_all().unwrap(), s, "[{name}]");
     }
 }
@@ -343,21 +393,59 @@ fn dirty_rect_readback_reports_and_copies_only_the_rect() {
         let mut e = engine(b);
         let s = seed(&mut Rng(4));
         assert_ne!(e.upload_layer(LAYER, 1, &s), 0);
-        assert_eq!(e.dirty_rect(), (0, 0, 0, 0), "[{name}] bound layer starts clean");
+        assert_eq!(
+            e.dirty_rect(),
+            (0, 0, 0, 0),
+            "[{name}] bound layer starts clean"
+        );
         let d = GpuDab::legacy(40.0, 30.0, 5.0, 1.0, 0.0);
-        assert!(e.stamp_dabs(&[d], 0xFFFFFFFF, 1.0, false, SubstrateParams::default(), false));
+        assert!(e.stamp_dabs(
+            &[d],
+            0xFFFFFFFF,
+            1.0,
+            false,
+            SubstrateParams::default(),
+            false
+        ));
         // dabRegion: floor(35)..ceil(45)+1 in both axes, dispatched as one 16x16 workgroup.
         assert_eq!(e.dirty_rect(), (35, 25, 16, 16), "[{name}]");
         let mut buf = vec![0x5Au8; (W * H * 4) as usize];
-        assert_eq!(e.readback_rect(&mut buf), Some((35, 25, 16, 16)), "[{name}]");
+        assert_eq!(
+            e.readback_rect(&mut buf),
+            Some((35, 25, 16, 16)),
+            "[{name}]"
+        );
         let at = |x: i32, y: i32| ((y * W + x) * 4) as usize;
-        assert_eq!(&buf[at(40, 30)..at(40, 30) + 4], &[255, 255, 255, 255], "[{name}]");
-        assert_eq!(&buf[at(34, 30)..at(34, 30) + 4], &[0x5A; 4], "[{name}] left of rect");
-        assert_eq!(&buf[at(51, 30)..at(51, 30) + 4], &[0x5A; 4], "[{name}] right of rect");
-        assert_eq!(&buf[at(40, 24)..at(40, 24) + 4], &[0x5A; 4], "[{name}] above rect");
+        assert_eq!(
+            &buf[at(40, 30)..at(40, 30) + 4],
+            &[255, 255, 255, 255],
+            "[{name}]"
+        );
+        assert_eq!(
+            &buf[at(34, 30)..at(34, 30) + 4],
+            &[0x5A; 4],
+            "[{name}] left of rect"
+        );
+        assert_eq!(
+            &buf[at(51, 30)..at(51, 30) + 4],
+            &[0x5A; 4],
+            "[{name}] right of rect"
+        );
+        assert_eq!(
+            &buf[at(40, 24)..at(40, 24) + 4],
+            &[0x5A; 4],
+            "[{name}] above rect"
+        );
         // Inside the rect but untouched by the dab: the layer's own pixels came back.
-        assert_eq!(&buf[at(35, 25)..at(35, 25) + 4], &s[at(35, 25)..at(35, 25) + 4]);
-        assert_eq!(e.readback_rect(&mut buf), Some((0, 0, 0, 0)), "[{name}] now clean");
+        assert_eq!(
+            &buf[at(35, 25)..at(35, 25) + 4],
+            &s[at(35, 25)..at(35, 25) + 4]
+        );
+        assert_eq!(
+            e.readback_rect(&mut buf),
+            Some((0, 0, 0, 0)),
+            "[{name}] now clean"
+        );
         // read_region agrees with read_all for narrow and wide rectangles.
         let all = e.read_all().unwrap();
         for (x, y, w, h) in [(35, 25, 11, 11), (0, 10, W, 7), (3, 0, 90, H)] {
@@ -372,7 +460,10 @@ fn dirty_rect_readback_reports_and_copies_only_the_rect() {
                 );
             }
         }
-        assert!(!e.read_region(W - 2, 0, 5, 5, &mut vec![0u8; 100]), "[{name}] out of bounds");
+        assert!(
+            !e.read_region(W - 2, 0, 5, 5, &mut vec![0u8; 100]),
+            "[{name}] out of bounds"
+        );
     }
 }
 
@@ -396,7 +487,16 @@ fn color_smudge_taints_the_whole_layer() {
             charge_decay_rate: 0.0,
             pickup_rate: 0.0,
         };
-        assert!(e.color_smudge(&[dab(20.0), dab(24.0), dab(28.0)], 0, 6.0, 0.5, true, 0, 0.0, None));
+        assert!(e.color_smudge(
+            &[dab(20.0), dab(24.0), dab(28.0)],
+            0,
+            6.0,
+            0.5,
+            true,
+            0,
+            0.0,
+            None
+        ));
         assert_eq!(e.bind_layer(LAYER, 1), 0, "[{name}]");
         let committed = e.read_all().unwrap();
         assert!(e.refresh_layer(LAYER, session, 2, &committed, (0, 0, 0, 0)));

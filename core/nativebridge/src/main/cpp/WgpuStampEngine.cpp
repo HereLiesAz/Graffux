@@ -68,6 +68,13 @@ struct Api {
     bool (*readHeight)(GfxWgpuEngine*, float*, int32_t);
     bool (*depositHeight)(GfxWgpuEngine*, const float*, int32_t, float, float);
     bool (*shadeRelief)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, float, float, float);
+    // Optional, all or nothing: impasto v2's wet material simulation.
+    bool (*wetBegin)(GfxWgpuEngine*, const uint32_t*, const float*, const float*, int32_t,
+                     const uint32_t*, int32_t, int32_t, const float*, int32_t);
+    bool (*wetBuffer)(GfxWgpuEngine*, int32_t, const float*, int32_t);
+    bool (*wetOp)(GfxWgpuEngine*, int32_t, const float*, int32_t);
+    bool (*wetRead)(GfxWgpuEngine*, uint32_t*, float*, float*, int32_t);
+    bool (*wetReadFlags)(GfxWgpuEngine*, uint32_t*, int32_t);
     // Optional (per-device tuning, telemetry): an older library creates untuned and reports
     // no GPU info or timings, so telemetry falls back to CPU wall time.
     GfxWgpuEngine* (*createTuned)(int32_t, int32_t, int32_t, int32_t, bool);
@@ -139,6 +146,12 @@ void load() {
                              optional(lib, "gfx_wgpu_deposit_height", a.depositHeight) &&
                              optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
+        const bool wet = optional(lib, "gfx_wgpu_wet_begin", a.wetBegin) &&
+                         optional(lib, "gfx_wgpu_wet_buffer", a.wetBuffer) &&
+                         optional(lib, "gfx_wgpu_wet_op", a.wetOp) &&
+                         optional(lib, "gfx_wgpu_wet_read", a.wetRead) &&
+                         optional(lib, "gfx_wgpu_wet_read_flags", a.wetReadFlags);
+        if (!wet) a.wetBegin = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_create_tuned", a.createTuned);
         optional(lib, "gfx_wgpu_gpu_info", a.gpuInfo);
         optional(lib, "gfx_wgpu_take_pass_timings", a.takePassTimings);
@@ -336,6 +349,34 @@ bool WgpuStampEngine::shadeImpastoRelief(int x, int y, int w, int h, float azimu
                                          float elevationDeg, float strength) {
     return supportsImpasto() &&
            gApi.shadeRelief(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
+}
+
+bool WgpuStampEngine::supportsWet() const {
+    return engine_ != nullptr && gApi.wetBegin != nullptr;
+}
+
+bool WgpuStampEngine::wetBegin(const uint32_t* raw, const float* height, const float* wetness,
+                               size_t count, const uint32_t* active, size_t tiles, int tileSize,
+                               const float* media, size_t mediaCount) {
+    return supportsWet() &&
+           gApi.wetBegin(engine_, raw, height, wetness, static_cast<int32_t>(count), active,
+                         static_cast<int32_t>(tiles), tileSize, media, static_cast<int32_t>(mediaCount));
+}
+
+bool WgpuStampEngine::wetBuffer(int which, const float* data, size_t count) {
+    return supportsWet() && gApi.wetBuffer(engine_, which, data, static_cast<int32_t>(count));
+}
+
+bool WgpuStampEngine::wetOp(int op, const float* args, size_t count) {
+    return supportsWet() && gApi.wetOp(engine_, op, args, static_cast<int32_t>(count));
+}
+
+bool WgpuStampEngine::wetRead(uint32_t* raw, float* height, float* wetness, size_t count) {
+    return supportsWet() && gApi.wetRead(engine_, raw, height, wetness, static_cast<int32_t>(count));
+}
+
+bool WgpuStampEngine::wetReadFlags(uint32_t* out, size_t count) {
+    return supportsWet() && gApi.wetReadFlags(engine_, out, static_cast<int32_t>(count));
 }
 
 size_t WgpuStampEngine::multipassStats(double* out, size_t count) {

@@ -1323,8 +1323,31 @@ one pixel in place (`shade`), then reads back the layer and the height. Both sha
 `ImpastoEngine.deposit` and `ImpastoRegionShader.shade` step for step; `tests/impasto.rs` checks them
 against a CPU reference. The height map is updated only when the whole session succeeds.
 
-Still CPU: Impasto v2 (the wet material simulation), Impasto under a selection, live impasto shading,
-alpha-locked Basic Brush strokes, and any device where wgpu cannot start. Substrate rendering
+**Impasto v2, the wet material simulation, commits and replays on the GPU (`GpuImpastoV2Stroke`).**
+The layer's canonical state (raw unlit pigment, height, wetness, active wet tiles, per-tile media) goes
+to the engine once (`wetBegin`), and one session runs DrawingEngine's v2 order:
+
+1. Material already wet advances to the stroke's first recorded sample: height levelling, pigment
+   transport, then wetness diffusion and drying with each tile's medium.
+2. The colour is stamped into the raw pigment (raw → layer, stamp, layer → raw) and kept through the
+   selection's coverage (feather mask, or the hard clip as 0/1).
+3. Height and reservoir transfer, and the wetness deposit, follow the dabs; their per-dab flags give
+   the contact region, whose tiles then record the stroke's medium.
+4. One fixed post-contact settle (pigment, wetness, levelling), only while anything is wet.
+5. The state is read back, and the touched region's lit presentation is rebuilt from the raw pigment
+   over the previous display (`shade_material`).
+
+The solvers live in `core/wgpu-engine/src/shaders/wet.wgsl`; `tests/wet.rs` checks each against a
+line-for-line CPU reference. Pigment transport and height levelling update pixels in place, so the CPU
+references (`WetMaterialTransport.advanceArgb`, `ImpastoEngine.levelWetHeight`) visit their edges in four
+phases (horizontal edges from even x, from odd x, then vertical from even y, from odd y). Edges within a
+phase share no pixel, so the GPU runs a phase in parallel and gives the CPU's result: pigment transport
+exactly, levelling to float rounding. The material transfer's per-dab reservoir pickup budget, a running
+sum on the CPU, is a prefix sum over the dab's box in the same raster order. Only the smooth substrate is
+modelled (substrate rendering has no production caller). The layer's state changes only when the whole
+session succeeds.
+
+Still CPU: Impasto v1 under a selection, live impasto shading, alpha-locked Basic Brush strokes, and any device where wgpu cannot start. Substrate rendering
 (`SubstrateRenderContext`) has no production caller yet, so nothing reaches its CPU path. The commit waits for calibration to stop (`stopCalibrationForCanvas`) on its worker,
 never on the touch path.
 

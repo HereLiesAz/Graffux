@@ -377,7 +377,12 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 // ---- Dirty-rect readback and resident layers ---------------------------------------------
 
 /// Runs `f` with `array` borrowed as bytes (no copy back).
-fn with_bytes<R>(env: &mut JNIEnv, array: &JByteArray, fallback: R, f: impl FnOnce(&[u8]) -> R) -> R {
+fn with_bytes<R>(
+    env: &mut JNIEnv,
+    array: &JByteArray,
+    fallback: R,
+    f: impl FnOnce(&[u8]) -> R,
+) -> R {
     if array.is_null() {
         return fallback;
     }
@@ -409,8 +414,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
         }
         let result = {
             // SAFETY: no other JNI call happens while the elements are borrowed.
-            let Ok(mut elements) =
-                (unsafe { env.get_array_elements(&out, ReleaseMode::CopyBack) })
+            let Ok(mut elements) = (unsafe { env.get_array_elements(&out, ReleaseMode::CopyBack) })
             else {
                 return false;
             };
@@ -477,7 +481,9 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
         let Some(e) = (unsafe { engine(handle) }) else {
             return 0;
         };
-        with_bytes(&mut env, &rgba, 0, |b| e.upload_layer(key as u64, generation as u64, b))
+        with_bytes(&mut env, &rgba, 0, |b| {
+            e.upload_layer(key as u64, generation as u64, b)
+        })
     })
 }
 
@@ -516,7 +522,13 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
             return false;
         };
         with_bytes(&mut env, &rgba, false, |b| {
-            e.refresh_layer(key as u64, session as u64, generation as u64, b, (x, y, w, h))
+            e.refresh_layer(
+                key as u64,
+                session as u64,
+                generation as u64,
+                b,
+                (x, y, w, h),
+            )
         })
     })
 }

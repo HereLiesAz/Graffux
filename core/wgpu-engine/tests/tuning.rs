@@ -11,7 +11,13 @@ fn dabs() -> Vec<GpuDab> {
     (0..24)
         .map(|i| {
             let f = i as f32;
-            let mut d = GpuDab::legacy(5.0 + f * 3.1, 7.0 + (f * 1.7) % 45.0, 2.0 + f % 9.0, 0.7, f * 15.0);
+            let mut d = GpuDab::legacy(
+                5.0 + f * 3.1,
+                7.0 + (f * 1.7) % 45.0,
+                2.0 + f % 9.0,
+                0.7,
+                f * 15.0,
+            );
             d.color_r = 0.9;
             d.color_g = 0.2 + f / 40.0;
             d.color_b = 0.4;
@@ -41,7 +47,14 @@ fn paint(e: &mut Engine) -> Vec<u8> {
     };
     assert!(e.clear());
     let d = dabs();
-    assert!(e.stamp_dabs(&d[..12], 0xFF336699, 0.5, false, SubstrateParams::default(), true));
+    assert!(e.stamp_dabs(
+        &d[..12],
+        0xFF336699,
+        0.5,
+        false,
+        SubstrateParams::default(),
+        true
+    ));
     assert!(e.stamp_masked_dabs(&d[12..], 0xFF993366, 0.5, &params));
     e.read_all().unwrap()
 }
@@ -95,10 +108,16 @@ fn pass_timings_follow_timestamp_support() {
         assert!(info.contains("engine=wgpu"), "{info}");
         assert!(info.contains("renderer="), "{info}");
         let (timestamps, _) = e.gpu_timestamps();
-        assert!(info.contains(&format!("timestamps={}", timestamps as u8)), "{info}");
+        assert!(
+            info.contains(&format!("timestamps={}", timestamps as u8)),
+            "{info}"
+        );
         paint(&mut e);
         let samples = e.take_pass_timings();
-        let stamps = samples.iter().filter(|(k, _)| *k == PassKind::Stamp).count();
+        let stamps = samples
+            .iter()
+            .filter(|(k, _)| *k == PassKind::Stamp)
+            .count();
         eprintln!("[{name}] timestamps={timestamps} samples={samples:?}");
         if timestamps {
             // A pass whose timestamps a driver reports as non-increasing is dropped, so allow fewer.
@@ -106,7 +125,10 @@ fn pass_timings_follow_timestamp_support() {
         } else {
             assert!(samples.is_empty());
         }
-        assert!(e.take_pass_timings().is_empty(), "[{name}] drain did not reset");
+        assert!(
+            e.take_pass_timings().is_empty(),
+            "[{name}] drain did not reset"
+        );
     }
 }
 
@@ -120,7 +142,14 @@ fn many_passes_resolve_without_failing() {
     let d = dabs();
     assert!(e.clear());
     for _ in 0..300 {
-        assert!(e.stamp_dabs(&d[..4], 0xFF000000, 1.0, true, SubstrateParams::default(), false));
+        assert!(e.stamp_dabs(
+            &d[..4],
+            0xFF000000,
+            1.0,
+            true,
+            SubstrateParams::default(),
+            false
+        ));
     }
     let samples = e.take_pass_timings();
     if e.gpu_timestamps().0 {

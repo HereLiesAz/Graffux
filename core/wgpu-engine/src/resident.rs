@@ -161,7 +161,14 @@ impl<B> ResidentSet<B> {
     /// Adds a new entry (the caller checked `key` is absent), evicting least-recently-used entries
     /// other than `protect` until it fits the budget. Returns the evicted buffers so the caller can
     /// drop them. A single entry larger than the whole budget is still admitted, alone.
-    pub fn insert(&mut self, key: u64, buffer: B, bytes: u64, tag: Tag, protect: Option<u64>) -> Vec<B> {
+    pub fn insert(
+        &mut self,
+        key: u64,
+        buffer: B,
+        bytes: u64,
+        tag: Tag,
+        protect: Option<u64>,
+    ) -> Vec<B> {
         debug_assert!(self.get(key).is_none());
         let evicted = self.evict_until(bytes, protect.or(Some(key)));
         self.clock += 1;

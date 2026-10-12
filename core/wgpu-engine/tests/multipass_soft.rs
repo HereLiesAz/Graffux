@@ -40,7 +40,10 @@ fn red(img: &[u8], w: i32, x: i32, y: i32) -> i32 {
 
 /// Largest jump between neighbouring pixels along the row through `y`, over `x0..x1`.
 fn max_step(img: &[u8], w: i32, y: i32, x0: i32, x1: i32) -> i32 {
-    (x0..x1 - 1).map(|x| (red(img, w, x + 1, y) - red(img, w, x, y)).abs()).max().unwrap_or(0)
+    (x0..x1 - 1)
+        .map(|x| (red(img, w, x + 1, y) - red(img, w, x, y)).abs())
+        .max()
+        .unwrap_or(0)
 }
 
 /// A soft falloff, not a flat fill: the profile from the centre outward keeps falling across many
@@ -49,14 +52,21 @@ fn assert_falloff(tag: &str, img: &[u8], w: i32, cx: i32, cy: i32, r: i32) {
     let prof: Vec<i32> = (0..r).map(|d| red(img, w, cx + d, cy)).collect();
     let mut levels = prof.clone();
     levels.dedup();
-    assert!(levels.len() >= (r as usize / 4).min(20), "[{tag}] flat draft: {prof:?}");
+    assert!(
+        levels.len() >= (r as usize / 4).min(20),
+        "[{tag}] flat draft: {prof:?}"
+    );
     let inner = prof[r as usize / 5];
     let outer = prof[(r as usize * 4) / 5];
     assert!(inner - outer >= 20, "[{tag}] no falloff: {prof:?}");
 }
 
 fn mp(scale: u32) -> MultipassConfig {
-    MultipassConfig { enabled: true, draft_scale: scale, ..MultipassConfig::default() }
+    MultipassConfig {
+        enabled: true,
+        draft_scale: scale,
+        ..MultipassConfig::default()
+    }
 }
 
 #[test]
@@ -71,7 +81,14 @@ fn stroke_start_draft_of_a_large_soft_round_keeps_its_falloff() {
             assert!(e.upload(&bg));
             let mut shown = bg.clone();
             // The first batch of the stroke: no refinement has run, nothing is measured yet.
-            assert!(e.stamp_dabs(&[soft(100.0, 100.0, r, 1.0, hardness)], 0, hardness, false, SubstrateParams::default(), true));
+            assert!(e.stamp_dabs(
+                &[soft(100.0, 100.0, r, 1.0, hardness)],
+                0,
+                hardness,
+                false,
+                SubstrateParams::default(),
+                true
+            ));
             assert!(e.readback(&mut shown));
             let tag = format!("{name} h={hardness} r={r} scale={scale} draft");
             assert_falloff(&tag, &shown, w, 100, 100, r as i32);
@@ -80,7 +97,10 @@ fn stroke_start_draft_of_a_large_soft_round_keeps_its_falloff() {
             let fin = e.read_all().unwrap();
             let fin_step = max_step(&fin, w, 100, 0, w);
             // No hard edge the final does not have.
-            assert!(draft_step <= fin_step * 2 + 6, "[{tag}] hard edge: draft step {draft_step} vs final {fin_step}");
+            assert!(
+                draft_step <= fin_step * 2 + 6,
+                "[{tag}] hard edge: draft step {draft_step} vs final {fin_step}"
+            );
         }
     }
 }
@@ -101,7 +121,14 @@ fn held_pointer_build_up_draft_is_soft_and_the_layer_matches_off() {
             let s = SubstrateParams::default();
             let mut t = 0.0;
             for i in 0..15 {
-                assert!(e.stamp_dabs(&[soft(20.0 + i as f32 * 1.9, 32.0, 12.0, 0.5, 0.05)], 0, 0.05, false, s, true));
+                assert!(e.stamp_dabs(
+                    &[soft(20.0 + i as f32 * 1.9, 32.0, 12.0, 0.5, 0.05)],
+                    0,
+                    0.05,
+                    false,
+                    s,
+                    true
+                ));
                 t += 8.0;
                 e.set_multipass_clock(Some(t));
                 e.refine(0.001);
@@ -109,7 +136,14 @@ fn held_pointer_build_up_draft_is_soft_and_the_layer_matches_off() {
             }
             // The pointer rests: repeated build-up dabs at one spot, refinement starved.
             for _ in 0..25 {
-                assert!(e.stamp_dabs(&[soft(46.6, 32.0, 12.0, 0.5, 0.05)], 0, 0.05, true, s, false));
+                assert!(e.stamp_dabs(
+                    &[soft(46.6, 32.0, 12.0, 0.5, 0.05)],
+                    0,
+                    0.05,
+                    true,
+                    s,
+                    false
+                ));
                 t += 8.0;
                 e.set_multipass_clock(Some(t));
                 e.refine(0.001);
@@ -124,10 +158,18 @@ fn held_pointer_build_up_draft_is_soft_and_the_layer_matches_off() {
         assert_eq!(layer, off, "[{name}] layer differs from multipass off");
         let live_step = max_step(&live, w, 32, 20, 80);
         let fin_step = max_step(&off, w, 32, 20, 80);
-        assert!(live_step <= fin_step * 2 + 6, "[{name}] held draft has a hard edge: {live_step} vs {fin_step}");
+        assert!(
+            live_step <= fin_step * 2 + 6,
+            "[{name}] held draft has a hard edge: {live_step} vs {fin_step}"
+        );
         // Held build-up is shown, not trimmed away: the draft's disc is as wide as the final's.
         let wide = |img: &[u8]| (0..h).filter(|&y| red(img, w, 47, y) > 60).count() as i32;
-        assert!((wide(&live) - wide(&off)).abs() <= 3, "[{name}] draft {} rows vs final {}", wide(&live), wide(&off));
+        assert!(
+            (wide(&live) - wide(&off)).abs() <= 3,
+            "[{name}] draft {} rows vs final {}",
+            wide(&live),
+            wide(&off)
+        );
     }
 }
 
@@ -168,7 +210,14 @@ fn masked_draft_of_a_soft_tip_keeps_its_falloff_at_any_size() {
             };
             assert!(e.stamp_masked_dabs(&[d], 0, 0.0, &p));
             assert!(e.readback(&mut shown));
-            assert_falloff(&format!("{name} masked r={r} scale={scale}"), &shown, w, 100, 100, r as i32);
+            assert_falloff(
+                &format!("{name} masked r={r} scale={scale}"),
+                &shown,
+                w,
+                100,
+                100,
+                r as i32,
+            );
         }
     }
 }

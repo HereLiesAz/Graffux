@@ -75,7 +75,11 @@ impl SchedulerConfig {
     /// overtake_ms`, no thresholds.
     pub fn new(passes: usize, overtake_ms: f64) -> SchedulerConfig {
         let passes = passes.max(2);
-        let rate = if overtake_ms > 0.0 { 1.0 / overtake_ms } else { 0.0 };
+        let rate = if overtake_ms > 0.0 {
+            1.0 / overtake_ms
+        } else {
+            0.0
+        };
         SchedulerConfig {
             passes,
             base_weight: (0..passes).map(|k| (passes - 1 - k) as f64).collect(),
@@ -238,9 +242,7 @@ impl<P> Scheduler<P> {
             if !self.eligible(pass, head.seq) {
                 continue;
             }
-            let p = self
-                .cfg
-                .effective_priority(pass, now_ms - head.enqueued_ms);
+            let p = self.cfg.effective_priority(pass, now_ms - head.enqueued_ms);
             let better = match best {
                 None => true,
                 // Strictly higher priority wins; ties keep the lower pass (seen first).
@@ -357,11 +359,7 @@ mod tests {
     }
 
     fn submit_all(s: &mut Scheduler<f64>, now: f64, costs: &[f64]) -> u64 {
-        let specs = costs
-            .iter()
-            .enumerate()
-            .map(|(k, &c)| spec(k, c))
-            .collect();
+        let specs = costs.iter().enumerate().map(|(k, &c)| spec(k, c)).collect();
         s.submit(now, specs)
     }
 
@@ -489,7 +487,12 @@ mod tests {
         let mut frames = 0;
         while s.pending_refinement() > 0 {
             let mut log = Vec::new();
-            s.run_refinement(1000.0 + frames as f64 * 16.0, 0.0, |_| {}, unit_exec(&mut log));
+            s.run_refinement(
+                1000.0 + frames as f64 * 16.0,
+                0.0,
+                |_| {},
+                unit_exec(&mut log),
+            );
             frames += 1;
             assert!(frames < 1000);
         }
@@ -501,7 +504,9 @@ mod tests {
     fn per_dab_ordering_holds_under_random_interleavings() {
         let mut rng = 0x1234_5678_9abc_def0u64;
         let mut next = || {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (rng >> 33) as f64 / (1u64 << 31) as f64
         };
         let mut s = Scheduler::new(SchedulerConfig::new(4, 30.0));
@@ -509,13 +514,22 @@ mod tests {
         let check = |seq: u64, pass: usize, done: &mut std::collections::HashMap<u64, usize>| {
             let prev = done.get(&seq).copied();
             // Pass k runs only after pass k-1 (passes here are all present).
-            assert_eq!(prev.map_or(0, |p| p + 1), pass, "seq {seq} pass {pass} after {prev:?}");
+            assert_eq!(
+                prev.map_or(0, |p| p + 1),
+                pass,
+                "seq {seq} pass {pass} after {prev:?}"
+            );
             done.insert(seq, pass);
         };
         for frame in 0..300 {
             let now = frame as f64 * 16.0 + next() * 10.0;
             for _ in 0..(next() * 3.0) as usize {
-                let costs = [1.0, 1.0 + next() * 4.0, 1.0 + next() * 4.0, 1.0 + next() * 8.0];
+                let costs = [
+                    1.0,
+                    1.0 + next() * 4.0,
+                    1.0 + next() * 4.0,
+                    1.0 + next() * 8.0,
+                ];
                 submit_all(&mut s, now, &costs);
             }
             let budget = next() * 12.0;
@@ -594,7 +608,10 @@ mod tests {
             );
         }
         let drafts = s.take_drafts();
-        assert_eq!(drafts.iter().map(Vec::len).collect::<Vec<_>>(), vec![2, 3, 1]);
+        assert_eq!(
+            drafts.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
         assert_eq!(s.take_batch(1, 100.0).len(), 1);
     }
 
@@ -643,8 +660,14 @@ mod tests {
         // wait plus the overtake time plus one frame.
         let overtake = 50.0;
         let (w1, w2, first) = run(overtake);
-        assert!(first.unwrap() as f64 * frame_ms <= overtake + frame_ms, "first {first:?}");
-        assert!(w2 <= w1 + overtake + frame_ms, "pass-2 wait {w2} vs pass-1 wait {w1}");
+        assert!(
+            first.unwrap() as f64 * frame_ms <= overtake + frame_ms,
+            "first {first:?}"
+        );
+        assert!(
+            w2 <= w1 + overtake + frame_ms,
+            "pass-2 wait {w2} vs pass-1 wait {w1}"
+        );
     }
 
     /// When capacity suffices on average, aging gives an absolute bound on any item's wait even
