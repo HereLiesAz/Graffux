@@ -213,8 +213,16 @@ internal class DrawingEngine(
             // The GPU paints the stroke (GpuStampCommit). Impasto and substrate strokes carry CPU
             // material state (height, wetness, substrate relief) the GPU commit doesn't model yet,
             // so they, and a device with no usable GPU, take the CPU renderer below.
-            gpuStampStroke(bitmap, stroke, brush, mapped, brushScale, heightMap, substrate)?.let { painted ->
-                return SelectionMask.feather(bitmap, keepInside(bitmap, painted, paintClip), clipPath, featherRadius)
+            val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
+            val gpuPainted = if (gpuEligible) {
+                GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
+            } else {
+                null
+            }
+            gpuPainted?.let { painted ->
+                return SelectionMask.feather(
+                    bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
+                )
             }
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)
@@ -685,78 +693,6 @@ internal class DrawingEngine(
             ),
             clipPath, featherRadius,
         )
-    }
-
-    /**
-     * [stroke] painted onto a copy of [bitmap] on the GPU, unclipped; null when the stroke needs
-     * the CPU renderer (impasto, substrate) or the GPU is unavailable. Same dab lists as the CPU
-     * branch below, so the two only ever differ in the rasterizer.
-     */
-    @Suppress("LongParameterList")
-    private fun gpuStampStroke(
-        bitmap: Bitmap,
-        stroke: StrokeCommand,
-        brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
-        mapped: List<androidx.compose.ui.geometry.Offset>,
-        brushScale: Float,
-        heightMap: FloatArray?,
-        substrate: SubstrateRenderContext?,
-    ): Bitmap? {
-        if (substrate != null || (brush.impastoThicknessRate > 0f && heightMap != null)) return null
-        val target = SafeBitmap.copy(bitmap) ?: return null
-        val diameterPx = stroke.brushSize * brushScale
-        val mappedSamples = if (stroke.brushSamples.size == mapped.size) {
-            stroke.brushSamples.mapIndexed { index, sample ->
-                sample.copy(x = mapped[index].x, y = mapped[index].y, predicted = false)
-            }
-        } else {
-            emptyList()
-        }
-        val tile: (List<Dab>) -> List<Dab> = { dabs ->
-            if (stroke.wrapAroundMode) wrapTiledDabs(dabs, target.width, target.height) else dabs
-        }
-        val needsDynamicDabs = brush.dynamics.isNotEmpty() ||
-            brush.maskedBrush?.dynamics?.isNotEmpty() == true || brush.taper.isActive() ||
-            brush.contact.isActive() || brush.airbrushDabsPerSecond > 0f
-        val (movementDabs, heldDabs) = if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
-            tile(BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)) to
-                if (brush.airbrushDabsPerSecond > 0f) {
-                    tile(
-                        AirbrushEngine.heldDabs(
-                            mappedSamples, diameterPx, brush, brush.airbrushDabsPerSecond,
-                            brush.airbrushStillnessRadiusPx, stroke.seed,
-                        ),
-                    )
-                } else {
-                    emptyList()
-                }
-        } else {
-            val pts = ArrayList<Float>(mapped.size * 2)
-            mapped.forEach { pts.add(it.x); pts.add(it.y) }
-            tile(BrushStamps.dabs(CatmullRom.densify(pts), diameterPx, brush, stroke.seed)) to emptyList()
-        }
-        val painted = GpuStampCommit.render(
-            target, movementDabs, heldDabs, brush, stroke.brushColor, stroke.secondaryBrushColor,
-            stroke.flow, stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-        )
-        if (!painted) target.recycle()
-        return target.takeIf { painted }
-    }
-
-    /** [painted] kept only inside [clip]; [base]'s pixels everywhere else. No clip: [painted]. */
-    private fun keepInside(base: Bitmap, painted: Bitmap, clip: android.graphics.Path?): Bitmap {
-        if (clip == null) return painted
-        val out = SafeBitmap.copy(base) ?: return painted
-        val canvas = android.graphics.Canvas(out)
-        SelectionMask.clip(canvas, clip)
-        canvas.drawBitmap(
-            painted, 0f, 0f,
-            android.graphics.Paint().apply {
-                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
-            },
-        )
-        painted.recycle()
-        return out
     }
 
     private fun lerpArgb(a: Int, b: Int, t: Float): Int {

@@ -1,6 +1,17 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.util.Log
+import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
+import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
+import com.hereliesaz.graffitixr.common.model.CatmullRom
+import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.GrainBehavior
@@ -21,6 +32,81 @@ import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
  * left partly painted and the caller must start over from the pristine base.
  */
 internal object GpuStampCommit {
+
+    private const val TAG = "GpuStampCommit"
+
+    /**
+     * [stroke] painted onto a copy of [bitmap] on the GPU, unclipped; null when the GPU is
+     * unavailable. Same dab lists as DrawingEngine's CPU branch, so the two only ever differ in the
+     * rasterizer. The caller excludes impasto and substrate strokes, whose CPU material state the
+     * GPU commit doesn't model.
+     */
+    fun paintStroke(
+        bitmap: Bitmap,
+        stroke: StrokeCommand,
+        brush: AzphaltBrush,
+        mapped: List<Offset>,
+        brushScale: Float,
+    ): Bitmap? {
+        val target = SafeBitmap.copy(bitmap)
+        val (movementDabs, heldDabs) = canonicalDabs(stroke, brush, mapped, brushScale, bitmap.width, bitmap.height)
+        val painted = target != null && render(
+            target, movementDabs, heldDabs, brush, stroke.brushColor, stroke.secondaryBrushColor,
+            stroke.flow, stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+        )
+        if (!painted) target?.recycle()
+        return target.takeIf { painted }
+    }
+
+    /** [painted] kept only inside [clip]; [base]'s pixels everywhere else. No clip: [painted]. */
+    fun keepInside(base: Bitmap, painted: Bitmap, clip: Path?): Bitmap {
+        val out = clip?.let { SafeBitmap.copy(base) } ?: return painted
+        val canvas = Canvas(out)
+        SelectionMask.clip(canvas, clip)
+        canvas.drawBitmap(painted, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) })
+        painted.recycle()
+        return out
+    }
+
+    /** The stroke's movement and held (airbrush) dabs, as DrawingEngine's CPU branch builds them. */
+    @Suppress("LongParameterList")
+    private fun canonicalDabs(
+        stroke: StrokeCommand,
+        brush: AzphaltBrush,
+        mapped: List<Offset>,
+        brushScale: Float,
+        width: Int,
+        height: Int,
+    ): Pair<List<Dab>, List<Dab>> {
+        val diameterPx = stroke.brushSize * brushScale
+        val tile: (List<Dab>) -> List<Dab> = { dabs ->
+            if (stroke.wrapAroundMode) wrapTiledDabs(dabs, width, height) else dabs
+        }
+        val mappedSamples = if (stroke.brushSamples.size == mapped.size) {
+            stroke.brushSamples.mapIndexed { index, sample ->
+                sample.copy(x = mapped[index].x, y = mapped[index].y, predicted = false)
+            }
+        } else {
+            emptyList()
+        }
+        val needsDynamicDabs = brush.dynamics.isNotEmpty() ||
+            brush.maskedBrush?.dynamics?.isNotEmpty() == true || brush.taper.isActive() ||
+            brush.contact.isActive() || brush.airbrushDabsPerSecond > 0f
+        if (!needsDynamicDabs || mappedSamples.isEmpty()) {
+            val pts = ArrayList<Float>(mapped.size * 2)
+            mapped.forEach { pts.add(it.x); pts.add(it.y) }
+            return tile(BrushStamps.dabs(CatmullRom.densify(pts), diameterPx, brush, stroke.seed)) to emptyList()
+        }
+        val held = if (brush.airbrushDabsPerSecond > 0f) {
+            AirbrushEngine.heldDabs(
+                mappedSamples, diameterPx, brush, brush.airbrushDabsPerSecond,
+                brush.airbrushStillnessRadiusPx, stroke.seed,
+            )
+        } else {
+            emptyList()
+        }
+        return tile(BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)) to tile(held)
+    }
 
     @Suppress("LongParameterList")
     fun render(
@@ -51,6 +137,7 @@ internal object GpuStampCommit {
                 ) &&
                 engine.readback(target)
         } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+            Log.w(TAG, "GPU stamp commit failed; the CPU renderer takes this stroke", e)
             false
         } finally {
             engine.destroy()
