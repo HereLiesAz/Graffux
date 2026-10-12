@@ -142,6 +142,12 @@ internal class WetnessReplayState private constructor(
         )
     }
 
+    /** Takes the state a GPU simulation step handed back ([wetness], one value per pixel). */
+    fun restore(wetness: FloatArray, lastUptimeMillis: Long?) {
+        field.replaceWith(wetness)
+        this.lastUptimeMillis = lastUptimeMillis
+    }
+
     fun markThrough(uptimeMillis: Long?) {
         if (uptimeMillis != null) lastUptimeMillis = uptimeMillis
     }

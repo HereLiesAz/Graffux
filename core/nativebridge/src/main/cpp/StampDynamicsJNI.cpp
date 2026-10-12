@@ -281,3 +281,97 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeShadeImpastoRel
     if (!engine) return JNI_FALSE;
     return engine->shadeImpastoRelief(x, y, w, h, azimuthDeg, elevationDeg, strength) ? JNI_TRUE : JNI_FALSE;
 }
+
+// Impasto v2, the wet material simulation (StampEngine's optional wet* methods; JNI_FALSE when the
+// engine lacks them). Kotlin's Int arrays carry the straight ARGB words and flags.
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetBegin(
+        JNIEnv* env, jobject, jlong handle, jintArray raw, jfloatArray height, jfloatArray wetness,
+        jintArray active, jint tileSize, jfloatArray media) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !raw || !height || !wetness || !active || !media) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(raw);
+    if (env->GetArrayLength(height) < count || env->GetArrayLength(wetness) < count) return JNI_FALSE;
+    const jsize tiles = env->GetArrayLength(active);
+    const jsize mediaCount = env->GetArrayLength(media);
+    jint* rawData = env->GetIntArrayElements(raw, nullptr);
+    jfloat* heightData = env->GetFloatArrayElements(height, nullptr);
+    jfloat* wetData = env->GetFloatArrayElements(wetness, nullptr);
+    jint* activeData = env->GetIntArrayElements(active, nullptr);
+    jfloat* mediaData = env->GetFloatArrayElements(media, nullptr);
+    const bool ok = rawData && heightData && wetData && activeData && mediaData &&
+                    engine->wetBegin(reinterpret_cast<const uint32_t*>(rawData), heightData, wetData,
+                                     static_cast<size_t>(count),
+                                     reinterpret_cast<const uint32_t*>(activeData),
+                                     static_cast<size_t>(tiles), tileSize, mediaData,
+                                     static_cast<size_t>(mediaCount));
+    if (mediaData) env->ReleaseFloatArrayElements(media, mediaData, JNI_ABORT);
+    if (activeData) env->ReleaseIntArrayElements(active, activeData, JNI_ABORT);
+    if (wetData) env->ReleaseFloatArrayElements(wetness, wetData, JNI_ABORT);
+    if (heightData) env->ReleaseFloatArrayElements(height, heightData, JNI_ABORT);
+    if (rawData) env->ReleaseIntArrayElements(raw, rawData, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetBuffer(
+        JNIEnv* env, jobject, jlong handle, jint which, jfloatArray data) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine) return JNI_FALSE;
+    if (!data) return engine->wetBuffer(which, nullptr, 0) ? JNI_TRUE : JNI_FALSE;
+    const jsize count = env->GetArrayLength(data);
+    jfloat* values = env->GetFloatArrayElements(data, nullptr);
+    if (!values) return JNI_FALSE;
+    const bool ok = engine->wetBuffer(which, values, static_cast<size_t>(count));
+    env->ReleaseFloatArrayElements(data, values, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetOp(
+        JNIEnv* env, jobject, jlong handle, jint op, jfloatArray args) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine) return JNI_FALSE;
+    if (!args) return engine->wetOp(op, nullptr, 0) ? JNI_TRUE : JNI_FALSE;
+    const jsize count = env->GetArrayLength(args);
+    jfloat* values = env->GetFloatArrayElements(args, nullptr);
+    if (!values) return JNI_FALSE;
+    const bool ok = engine->wetOp(op, values, static_cast<size_t>(count));
+    env->ReleaseFloatArrayElements(args, values, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetRead(
+        JNIEnv* env, jobject, jlong handle, jintArray raw, jfloatArray height, jfloatArray wetness) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !raw || !height || !wetness) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(raw);
+    if (env->GetArrayLength(height) < count || env->GetArrayLength(wetness) < count) return JNI_FALSE;
+    jint* rawData = env->GetIntArrayElements(raw, nullptr);
+    jfloat* heightData = env->GetFloatArrayElements(height, nullptr);
+    jfloat* wetData = env->GetFloatArrayElements(wetness, nullptr);
+    const bool ok = rawData && heightData && wetData &&
+                    engine->wetRead(reinterpret_cast<uint32_t*>(rawData), heightData, wetData,
+                                    static_cast<size_t>(count));
+    // Copy back only on success; abandon the buffers otherwise.
+    const jint mode = ok ? 0 : JNI_ABORT;
+    if (wetData) env->ReleaseFloatArrayElements(wetness, wetData, mode);
+    if (heightData) env->ReleaseFloatArrayElements(height, heightData, mode);
+    if (rawData) env->ReleaseIntArrayElements(raw, rawData, mode);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetReadFlags(
+        JNIEnv* env, jobject, jlong handle, jintArray out) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !out) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(out);
+    jint* data = env->GetIntArrayElements(out, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->wetReadFlags(reinterpret_cast<uint32_t*>(data), static_cast<size_t>(count));
+    env->ReleaseIntArrayElements(out, data, ok ? 0 : JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}

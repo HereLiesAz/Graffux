@@ -99,6 +99,22 @@ fn read(e: &mut Engine) -> (Vec<u32>, Vec<f32>, Vec<f32>) {
     (raw, height, wet)
 }
 
+fn ctl(e: &mut Engine, dabs: usize) -> Vec<u32> {
+    let mut out = vec![0u32; (COLS * ROWS) as usize * 2 + dabs];
+    assert!(e.wet_read_ctl(&mut out));
+    out
+}
+
+fn dab_flags(e: &mut Engine, dabs: usize) -> Vec<u32> {
+    ctl(e, dabs)[(COLS * ROWS) as usize * 2..].to_vec()
+}
+
+fn want_active(s: &State, dabs: &[MaterialDab]) -> Vec<bool> {
+    let mut w = s.clone();
+    cpu_deposit(&mut w.wet, &mut w.active, dabs, 0.3, 0.5, None);
+    w.active
+}
+
 fn assert_close(name: &str, what: &str, got: &[f32], want: &[f32], tol: f32) {
     let mut worst = 0f32;
     for (g, w) in got.iter().zip(want) {
@@ -558,8 +574,7 @@ fn transfer_matches_the_cpu_reference() {
                 m.substrate,
                 0.8
             ));
-            let mut flags = vec![0u32; dabs.len()];
-            assert!(e.wet_read_dab_flags(&mut flags));
+            let flags = dab_flags(&mut e, dabs.len());
             let (_, height, _) = read(&mut e);
 
             let mut want = s.height.clone();
@@ -587,8 +602,11 @@ fn wetness_deposit_matches_the_cpu_reference() {
         begin(&mut e, &s);
         assert!(e.wet_set_dabs(&dabs));
         assert!(e.wet_deposit(0.3, 0.5));
-        let mut flags = vec![0u32; dabs.len()];
-        assert!(e.wet_read_dab_flags(&mut flags));
+        let flags = dab_flags(&mut e, dabs.len());
+        let ctl = ctl(&mut e, 0);
+        for (t, a) in want_active(&s, &dabs).iter().enumerate() {
+            assert_eq!(ctl[t] != 0, *a, "[{name}] active tile {t} after deposit");
+        }
         let (_, _, wet) = read(&mut e);
 
         let mut want = s.clone();

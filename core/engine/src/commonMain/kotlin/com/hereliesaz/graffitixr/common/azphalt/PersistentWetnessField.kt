@@ -191,6 +191,23 @@ class PersistentWetnessField(
         )
     }
 
+    /**
+     * Replaces the whole channel with [values] (one per pixel, row-major), activating exactly the
+     * tiles holding wetness: the state a GPU simulation step hands back. Inactive tiles are always
+     * dry, so clearing the active ones first empties the field.
+     */
+    fun replaceWith(values: FloatArray) {
+        require(values.size == width * height) { "PersistentWetnessField.replaceWith needs width*height values" }
+        clearActiveWetness()
+        for (y in 0 until height) {
+            val row = y * width
+            for (x in 0 until width) {
+                val value = values[row + x]
+                if (value > 0f) addWetness(x, y, value)
+            }
+        }
+    }
+
     /** Clears only active tiles and returns the field to the idle state. */
     fun clearActiveWetness() {
         if (activeCount == 0) return

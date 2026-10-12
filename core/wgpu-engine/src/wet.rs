@@ -46,7 +46,7 @@ impl MaterialDab {
 /// Floats per tile in the media table: viscosity, yield-like strength, levelling rate, drying
 /// rate, base roughness, wet specular strength, then two unused (sanitized `PaintMedium` values).
 pub const WET_MEDIA_FLOATS: usize = 8;
-/// Dab flag bits from [`Engine::wet_read_dab_flags`].
+/// Dab flag bits from [`Engine::wet_read_ctl`].
 pub const WET_FLAG_HEIGHT: u32 = 1;
 pub const WET_FLAG_WETNESS: u32 = 2;
 
@@ -361,12 +361,16 @@ impl Engine {
     }
 
     /// Converts the raw pigment into the (premultiplied) layer, for stamping the stroke's colour.
+    /// Like [`Engine::upload`], this seeds a new stroke: stroke-max state starts from this layer.
     pub fn wet_raw_to_layer(&mut self) -> bool {
-        self.mp_drain();
+        self.mp_session_ending();
+        self.detach();
         let all = Rect::new(0, 0, self.width, self.height);
         let ok = self.wet_run(Entry::RawToLayer, all, |_| {});
-        self.note_write(all);
-        ok
+        self.mark_fully_dirty();
+        self.stroke_state_dirty = true;
+        self.mp_session_started();
+        ok && self.ok()
     }
 
     /// Converts the layer back into raw pigment after stamping.
@@ -447,19 +451,17 @@ impl Engine {
         })
     }
 
-    /// One flag word per dab ([`WET_FLAG_HEIGHT`], [`WET_FLAG_WETNESS`]).
-    pub fn wet_read_dab_flags(&mut self, out: &mut [u32]) -> bool {
+    /// The control words: each tile's active flag (row-major, nonzero = active), as many zero
+    /// words, then one flag word per current dab ([`WET_FLAG_HEIGHT`], [`WET_FLAG_WETNESS`]).
+    /// Reads `out.len()` words, at most the tiles' two sets plus the dabs.
+    pub fn wet_read_ctl(&mut self, out: &mut [u32]) -> bool {
         let Some(gpu) = self.wet.as_ref() else {
             return false;
         };
-        let count = gpu.dab_count.min(out.len());
-        if count == 0 {
-            return self.ok();
-        }
+        let count = (gpu.tiles as usize * 2 + gpu.dab_count).min(out.len());
         let src = gpu.ctl.clone();
-        let offset = gpu.tiles as u64 * 8;
         let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut out[..count]);
-        self.wet_read_bytes(&src, offset, bytes) && self.ok()
+        self.wet_read_bytes(&src, 0, bytes) && self.ok()
     }
 
     /// `WetMaterialTransport.advanceArgb` on the raw pigment.

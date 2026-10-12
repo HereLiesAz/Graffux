@@ -287,6 +287,163 @@ pub unsafe extern "C" fn gfx_wgpu_shade_relief(
     })
 }
 
+// ---- Impasto v2: the wet material simulation (wet.rs) -------------------------------------
+
+/// [`Engine::wet_begin`]: `count` pixels of straight-ARGB `raw`, `height` and `wetness`; `tiles`
+/// active flags; `media_count` media floats.
+///
+/// # Safety
+/// Every pointer must cover its stated count.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_wet_begin(
+    e: *mut Engine,
+    raw: *const u32,
+    height: *const f32,
+    wetness: *const f32,
+    count: i32,
+    active: *const u32,
+    tiles: i32,
+    tile_size: i32,
+    media: *const f32,
+    media_count: i32,
+) -> bool {
+    guard(false, || {
+        if raw.is_null()
+            || height.is_null()
+            || wetness.is_null()
+            || active.is_null()
+            || media.is_null()
+            || count <= 0
+            || tiles <= 0
+            || media_count <= 0
+        {
+            return false;
+        }
+        let n = count as usize;
+        engine(e).is_some_and(|e| {
+            e.wet_begin(
+                slice(raw, n),
+                slice(height, n),
+                slice(wetness, n),
+                slice(active, tiles as usize),
+                tile_size,
+                slice(media, media_count as usize),
+            )
+        })
+    })
+}
+
+/// Replaces one simulation input: `which` 0 = the media table, 1 = the selection coverage (null =
+/// no selection), 2 = the dabs (`MaterialDab`, 8 floats each).
+///
+/// # Safety
+/// `data` must point to `count` floats, or be null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_wet_buffer(
+    e: *mut Engine,
+    which: i32,
+    data: *const f32,
+    count: i32,
+) -> bool {
+    guard(false, || {
+        let floats = slice(data, count.max(0) as usize);
+        engine(e).is_some_and(|e| match which {
+            0 => e.wet_set_media(floats),
+            1 => e.wet_set_coverage((!data.is_null()).then_some(floats)),
+            2 => e.wet_set_dabs(bytemuck::cast_slice(&floats[..floats.len() / 8 * 8])),
+            _ => false,
+        })
+    })
+}
+
+/// One simulation step, its arguments as floats (integers exactly): 0 raw -> layer, 1 layer ->
+/// raw, 2 save raw, 3 blend selection, 4 transfer (hardness, rate, height response, deposition,
+/// pickup, substrate response, initial load), 5 wetness deposit (hardness, rate), 6 pigment
+/// transport (dt, rate, iterations), 7 wetness advance (dt, drying, transport, tile drying 0/1),
+/// 8 levelling (dt, iterations, x, y, w, h), 9 shade (x, y, w, h, azimuth, elevation, relief,
+/// use wetness 0/1).
+///
+/// # Safety
+/// `args` must point to `count` floats, or be null with `count` 0.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_wet_op(
+    e: *mut Engine,
+    op: i32,
+    args: *const f32,
+    count: i32,
+) -> bool {
+    guard(false, || {
+        let a = slice(args, count.max(0) as usize);
+        let need = [0, 0, 0, 0, 7, 2, 3, 4, 6, 8];
+        if op < 0 || op as usize >= need.len() || a.len() < need[op as usize] {
+            return false;
+        }
+        let i = |k: usize| a[k] as i32;
+        engine(e).is_some_and(|e| match op {
+            0 => e.wet_raw_to_layer(),
+            1 => e.wet_layer_to_raw(),
+            2 => e.wet_save_raw_before(),
+            3 => e.wet_blend_selection(),
+            4 => e.wet_transfer(a[0], a[1], a[2], a[3], a[4], a[5], a[6]),
+            5 => e.wet_deposit(a[0], a[1]),
+            6 => e.wet_pigment(a[0], a[1], i(2)),
+            7 => e.wet_advance(a[0], a[1], a[2], a[3] != 0.0),
+            8 => e.wet_level(a[0], i(1), i(2), i(3), i(4), i(5)),
+            _ => e.wet_shade(i(0), i(1), i(2), i(3), a[4], a[5], a[6], a[7] != 0.0),
+        })
+    })
+}
+
+/// [`Engine::wet_read`] into `count`-pixel arrays.
+///
+/// # Safety
+/// Every pointer must cover `count` writable values.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_wet_read(
+    e: *mut Engine,
+    raw: *mut u32,
+    height: *mut f32,
+    wetness: *mut f32,
+    count: i32,
+) -> bool {
+    guard(false, || {
+        if raw.is_null() || height.is_null() || wetness.is_null() || count <= 0 {
+            return false;
+        }
+        let n = count as usize;
+        // SAFETY: the caller passes `count` writable values in each array.
+        let (raw, height, wetness) = unsafe {
+            (
+                std::slice::from_raw_parts_mut(raw, n),
+                std::slice::from_raw_parts_mut(height, n),
+                std::slice::from_raw_parts_mut(wetness, n),
+            )
+        };
+        engine(e).is_some_and(|e| e.wet_read(raw, height, wetness))
+    })
+}
+
+/// [`Engine::wet_read_ctl`]: tile active flags, as many zero words, then the dab flags.
+///
+/// # Safety
+/// `out` must point to `count` writable words.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_wet_read_flags(
+    e: *mut Engine,
+    out: *mut u32,
+    count: i32,
+) -> bool {
+    guard(false, || {
+        if out.is_null() || count <= 0 {
+            return false;
+        }
+        // SAFETY: the caller passes `count` writable words.
+        let out = unsafe { std::slice::from_raw_parts_mut(out, count as usize) };
+        engine(e).is_some_and(|e| e.wet_read_ctl(out))
+    })
+}
+
 /// # Safety
 /// `dabs` must point to `count` 64-byte `GpuDab` records; `substrate` may be null.
 #[no_mangle]

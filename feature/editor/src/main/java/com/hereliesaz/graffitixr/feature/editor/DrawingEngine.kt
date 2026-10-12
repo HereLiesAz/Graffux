@@ -209,9 +209,9 @@ internal class DrawingEngine(
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         stroke.stampBrush?.let { brush ->
-            // The GPU paints the stroke (GpuStampCommit). Impasto and substrate strokes carry CPU
-            // material state (height, wetness, substrate relief) the GPU commit doesn't model yet,
-            // so they, and a device with no usable GPU, take the CPU renderer below.
+            // The GPU paints the stroke (GpuStampCommit, GpuImpastoStroke, GpuImpastoV2Stroke).
+            // Substrate strokes carry CPU relief state the GPU doesn't model yet, so they, Impasto v1
+            // under a selection, and a device with no usable GPU take the CPU renderer below.
             // Impasto v1 runs on the GPU too (GpuImpastoStroke): colour, height deposit and relief in
             // one engine session. Not yet under a selection: the CPU deposits and shades outside it
             // while clipping only the colour, which the GPU session doesn't reproduce.
@@ -222,6 +222,17 @@ internal class DrawingEngine(
                 GpuImpastoStroke.paintStroke(bitmap, stroke, brush, mapped, brushScale, heightMap)?.let { painted ->
                     return SelectionMask.feather(bitmap, painted, clipPath, featherRadius)
                 }
+            }
+            // Impasto v2, the wet material simulation, on the GPU (GpuImpastoV2Stroke): the whole
+            // contact, settle and presentation in one engine session, selection included.
+            val impastoV2OnGpu = substrate == null && heightMap != null && brush.impastoThicknessRate > 0f &&
+                heightMap.size == bitmap.width * bitmap.height && brush.impastoMaterial.sanitized().usesV2
+            if (impastoV2OnGpu && heightMap != null) {
+                GpuImpastoV2Stroke.paintStroke(
+                    bitmap, stroke, brush, mapped, brushScale,
+                    ImpastoV2Layer(heightMap, wetnessState, impastoMaterialState),
+                    StrokeSelection(clipPath, featherRadius),
+                )?.let { return it }
             }
             val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
             val gpuPainted = if (gpuEligible) {

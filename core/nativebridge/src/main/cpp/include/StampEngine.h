@@ -190,6 +190,21 @@ public:
                                       float /*thickness*/) { return false; }
     virtual bool shadeImpastoRelief(int /*x*/, int /*y*/, int /*w*/, int /*h*/, float /*azimuthDeg*/,
                                     float /*elevationDeg*/, float /*strength*/) { return false; }
+    // Impasto v2, the wet material simulation (optional; false = unsupported, and the caller takes
+    // the CPU path). graffux_wgpu's gfx_wgpu_wet_* documents the arguments: the state is straight
+    // ARGB raw pigment, height and wetness per pixel, an active flag per tile and a media table;
+    // wetBuffer replaces the media (0), selection coverage (1, null = none) or dabs (2); wetOp runs
+    // one numbered step.
+    virtual bool supportsWet() const { return false; }
+    virtual bool wetBegin(const uint32_t* /*raw*/, const float* /*height*/, const float* /*wetness*/,
+                          size_t /*count*/, const uint32_t* /*active*/, size_t /*tiles*/, int /*tileSize*/,
+                          const float* /*media*/, size_t /*mediaCount*/) { return false; }
+    virtual bool wetBuffer(int /*which*/, const float* /*data*/, size_t /*count*/) { return false; }
+    virtual bool wetOp(int /*op*/, const float* /*args*/, size_t /*count*/) { return false; }
+    virtual bool wetRead(uint32_t* /*raw*/, float* /*height*/, float* /*wetness*/, size_t /*count*/) {
+        return false;
+    }
+    virtual bool wetReadFlags(uint32_t* /*out*/, size_t /*count*/) { return false; }
     // ---- Optional: direct display (graffux_wgpu.h gfx_wgpu_direct_*) -------------------------
     // The engine presents the live stroke into a surface made from `window` (the overlay
     // SurfaceView's), straight from its GPU buffers. Defaults: unsupported, callers keep readback

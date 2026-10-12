@@ -80,6 +80,14 @@ public:
     bool depositImpastoHeight(const float* dabs, size_t dabCount, float hardness, float thickness) override;
     bool shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                             float strength) override;
+    bool supportsWet() const override;
+    bool wetBegin(const uint32_t* raw, const float* height, const float* wetness, size_t count,
+                  const uint32_t* active, size_t tiles, int tileSize, const float* media,
+                  size_t mediaCount) override;
+    bool wetBuffer(int which, const float* data, size_t count) override;
+    bool wetOp(int op, const float* args, size_t count) override;
+    bool wetRead(uint32_t* raw, float* height, float* wetness, size_t count) override;
+    bool wetReadFlags(uint32_t* out, size_t count) override;
     uint32_t directCapabilities() const override;
     bool directAttach(ANativeWindow* window, int width, int height) override;
     void directDetach() override;

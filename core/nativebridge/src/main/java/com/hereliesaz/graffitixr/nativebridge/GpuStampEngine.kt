@@ -40,6 +40,27 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         private const val RECT_INTS = 4
         private const val AFFINE_FLOATS = 6
 
+        // Impasto v2 wet simulation (graffux_wgpu gfx_wgpu_wet_*): buffers for [wetBuffer], steps
+        // for [wetOp] (argument lists in the Rust docs), control words from [wetReadControl].
+        const val WET_MEDIA = 0
+        const val WET_COVERAGE = 1
+        const val WET_DABS = 2
+        const val WET_RAW_TO_LAYER = 0
+        const val WET_LAYER_TO_RAW = 1
+        const val WET_SAVE_RAW = 2
+        const val WET_BLEND_SELECTION = 3
+        const val WET_TRANSFER = 4
+        const val WET_DEPOSIT = 5
+        const val WET_PIGMENT = 6
+        const val WET_ADVANCE = 7
+        const val WET_LEVEL = 8
+        const val WET_SHADE = 9
+        const val WET_FLAG_HEIGHT = 1
+        const val WET_FLAG_WETNESS = 2
+        /** Floats per tile in the media table; [WET_DAB_FLOATS] per dab. */
+        const val WET_MEDIA_FLOATS = 8
+        const val WET_DAB_FLOATS = 8
+
         /**
          * Every live wgpu native handle (checked out by an engine or pooled). Touched only on
          * [GpuRenderThread], so resident-layer refreshes and invalidations can reach whichever
@@ -436,6 +457,58 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         return onGpu {
             nativeShadeImpastoRelief(nativeHandle, x, y, w, h, lightAzimuthDeg, lightElevationDeg, strength)
         }
+    }
+
+    /**
+     * Impasto v2 on the GPU: hands the wet material simulation the layer's canonical state --
+     * straight ARGB [raw] pigment, [height] and [wetness] (one value per layer pixel), each
+     * [tileSize] tile's [active] flag (row-major, nonzero = active) and the [media] table
+     * ([WET_MEDIA_FLOATS] per tile). False when the library has no wet support (the caller then
+     * takes the CPU path) or on failure.
+     */
+    @Synchronized
+    @Suppress("LongParameterList")
+    fun wetBegin(
+        raw: IntArray,
+        height: FloatArray,
+        wetness: FloatArray,
+        active: IntArray,
+        tileSize: Int,
+        media: FloatArray,
+    ): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeWetBegin(nativeHandle, raw, height, wetness, active, tileSize, media) }
+    }
+
+    /** Replaces one wet input: [WET_MEDIA], [WET_COVERAGE] (null = no selection) or [WET_DABS]. */
+    @Synchronized
+    fun wetBuffer(which: Int, data: FloatArray?): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeWetBuffer(nativeHandle, which, data) }
+    }
+
+    /** Runs one wet simulation step ([WET_RAW_TO_LAYER] .. [WET_SHADE]) with its float arguments. */
+    @Synchronized
+    fun wetOp(op: Int, vararg args: Float): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeWetOp(nativeHandle, op, args) }
+    }
+
+    /** Reads the wet state back into [raw], [height] and [wetness] (one value per layer pixel). */
+    @Synchronized
+    fun wetRead(raw: IntArray, height: FloatArray, wetness: FloatArray): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeWetRead(nativeHandle, raw, height, wetness) }
+    }
+
+    /**
+     * The wet control words into [out]: each tile's active flag, as many zero words, then one flag
+     * word per dab ([WET_FLAG_HEIGHT], [WET_FLAG_WETNESS]).
+     */
+    @Synchronized
+    fun wetReadControl(out: IntArray): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeWetReadFlags(nativeHandle, out) }
     }
 
     /** Historical stroke-level paint entry point. */
@@ -956,6 +1029,15 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeShadeImpastoRelief(
         handle: Long, x: Int, y: Int, w: Int, h: Int, azimuthDeg: Float, elevationDeg: Float, strength: Float,
     ): Boolean
+    @Suppress("LongParameterList")
+    private external fun nativeWetBegin(
+        handle: Long, raw: IntArray, height: FloatArray, wetness: FloatArray, active: IntArray, tileSize: Int,
+        media: FloatArray,
+    ): Boolean
+    private external fun nativeWetBuffer(handle: Long, which: Int, data: FloatArray?): Boolean
+    private external fun nativeWetOp(handle: Long, op: Int, args: FloatArray): Boolean
+    private external fun nativeWetRead(handle: Long, raw: IntArray, height: FloatArray, wetness: FloatArray): Boolean
+    private external fun nativeWetReadFlags(handle: Long, out: IntArray): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(
         handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean,
