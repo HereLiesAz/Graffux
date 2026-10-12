@@ -37,7 +37,9 @@ struct Params {
     stroke_max: f32,
     layer_width: i32,
     layer_height: i32,
-    _pad: u32,
+    // 0 = SRC_OVER, 1 = erase (DST_OUT by the dab's alpha), 2 = SRC_ATOP (alpha lock). Not in
+    // stamp.comp: the GLES/Vulkan engines never erased or alpha-locked on the GPU.
+    mode: u32,
 };
 
 @group(0) @binding(0) var<storage, read> dabs: array<Dab>;
@@ -54,6 +56,17 @@ fn layer_load(p: vec2<i32>) -> vec4<f32> {
 
 fn layer_store(p: vec2<i32>, c: vec4<f32>) {
     layer_px[p.y * pc.layer_width + p.x] = pack4x8unorm(c);
+}
+
+// One dab's (or the stroke's strongest) colour at alpha `a` composited onto `dst` by pc.mode.
+fn composite(src_rgb: vec3<f32>, a: f32, dst: vec4<f32>) -> vec4<f32> {
+    if (pc.mode == 1u) {
+        return dst * (1.0 - a);
+    }
+    if (pc.mode == 2u) {
+        return vec4<f32>(src_rgb * a * dst.a + dst.rgb * (1.0 - a), dst.a);
+    }
+    return vec4<f32>(src_rgb * a + dst.rgb * (1.0 - a), a + dst.a * (1.0 - a));
 }
 
 fn stamp_coverage(dist_from_center: f32, radius: f32, hardness: f32) -> f32 {
@@ -139,8 +152,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (src_a <= 0.0) { continue; }
 
         if (sequential) {
-            dst = vec4<f32>(src_rgb * src_a + dst.rgb * (1.0 - src_a), src_a + dst.a * (1.0 - src_a));
-            dst = round(dst * 255.0) / 255.0;
+            dst = round(composite(src_rgb, src_a, dst) * 255.0) / 255.0;
         } else if (src_a > best_a) {
             best_a = src_a;
             best_rgb = src_rgb;
@@ -153,15 +165,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let base = select(unpack4x8unorm(state.x), dst, state.y == 0u);
         let prev_a = bitcast<f32>(state.y);
         if (best_a <= prev_a) { return; }
-        var out_px = vec4<f32>(best_rgb * best_a + base.rgb * (1.0 - best_a), best_a + base.a * (1.0 - best_a));
-        out_px = round(out_px * 255.0) / 255.0;
+        let out_px = round(composite(best_rgb, best_a, base) * 255.0) / 255.0;
         stroke_state[idx] = vec2<u32>(pack4x8unorm(base), bitcast<u32>(best_a));
         layer_store(pixel, out_px);
         return;
     }
     if (!sequential && best_a > 0.0) {
-        dst = vec4<f32>(best_rgb * best_a + dst.rgb * (1.0 - best_a), best_a + dst.a * (1.0 - best_a));
-        dst = round(dst * 255.0) / 255.0;
+        dst = round(composite(best_rgb, best_a, dst) * 255.0) / 255.0;
     }
     layer_store(pixel, dst);
 }

@@ -382,6 +382,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBeginStroke(JNI
     return engine && engine->beginStroke() ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampMode(JNIEnv*, jobject, jlong handle,
+                                                                             jint mode) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->setStampMode(mode) ? JNI_TRUE : JNI_FALSE;
+}
+
 // Selection at commit (StampEngine's optional selection methods; JNI_FALSE when unsupported).
 
 extern "C" JNIEXPORT jboolean JNICALL

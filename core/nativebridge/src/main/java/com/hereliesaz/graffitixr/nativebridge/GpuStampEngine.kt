@@ -53,8 +53,17 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         private var documentEpoch = -1
 
         private const val RECT_INTS = 4
-        private const val AFFINE_FLOATS = 6
 
+        /** Round dabs paint over the layer (setStampMode). */
+        const val STAMP_OVER = 0
+
+        /** Round dabs erase the layer: the eraser (setStampMode). */
+        const val STAMP_ERASE = 1
+
+        /** Round dabs paint only where the layer has alpha: alpha lock (setStampMode). */
+        const val STAMP_ATOP = 2
+
+        private const val AFFINE_FLOATS = 6
 
         /**
          * Every live wgpu native handle (checked out by an engine or pooled). Touched only on
@@ -563,6 +572,16 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     fun beginStroke(): Boolean {
         if (!isInitialized) return false
         return onGpu { nativeBeginStroke(nativeHandle) }
+    }
+
+    /**
+     * How round dabs composite from here on: [STAMP_OVER] (default), [STAMP_ERASE] (the eraser) or
+     * [STAMP_ATOP] (alpha lock). False when the library lacks it.
+     */
+    @Synchronized
+    fun setStampMode(mode: Int): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeSetStampMode(nativeHandle, mode) }
     }
 
     /** Historical stroke-level paint entry point. */
@@ -1105,6 +1124,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         handle: Long, x: Int, y: Int, w: Int, h: Int, azimuthDeg: Float, elevationDeg: Float, strength: Float,
     ): Boolean
     private external fun nativeBeginStroke(handle: Long): Boolean
+    private external fun nativeSetStampMode(handle: Long, mode: Int): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(
         handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean,

@@ -228,6 +228,9 @@ public:
     // Starts a new stroke on the layer as it is (stroke-max state restarts, pixels kept), so one
     // engine can replay many strokes. Optional; false = unsupported (re-upload instead).
     virtual bool beginStroke() { return false; }
+    // How round dabs composite: 0 paint over, 1 erase, 2 alpha lock (SRC_ATOP). Optional; false =
+    // unsupported or an unknown mode.
+    virtual bool setStampMode(int /*mode*/) { return false; }
     virtual bool supportsWet() const { return false; }
     virtual bool wetBegin(const uint32_t* /*raw*/, const float* /*height*/, const float* /*wetness*/,
                           size_t /*count*/, const uint32_t* /*active*/, size_t /*tiles*/, int /*tileSize*/,

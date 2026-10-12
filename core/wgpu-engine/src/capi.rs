@@ -168,6 +168,15 @@ pub unsafe extern "C" fn gfx_wgpu_clear(e: *mut Engine) -> bool {
     guard(false, || engine(e).is_some_and(|e| e.clear()))
 }
 
+/// [`Engine::set_stamp_mode`]: 0 paint over, 1 erase, 2 alpha lock.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_stamp_mode(e: *mut Engine, mode: u32) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.set_stamp_mode(mode)))
+}
+
 /// [`Engine::begin_stroke`].
 ///
 /// # Safety

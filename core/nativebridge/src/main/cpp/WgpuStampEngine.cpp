@@ -86,6 +86,7 @@ struct Api {
     bool (*readDisplay)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, uint8_t*, size_t);
     // Optional: a new stroke on the layer as it is.
     bool (*beginStroke)(GfxWgpuEngine*);
+    bool (*setStampMode)(GfxWgpuEngine*, uint32_t);
     // Optional, all or nothing: impasto v2's wet material simulation.
     bool (*wetBegin)(GfxWgpuEngine*, const uint32_t*, const float*, const float*, int32_t,
                      const uint32_t*, int32_t, int32_t, const float*, int32_t);
@@ -165,6 +166,7 @@ void load() {
                              optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
+        optional(lib, "gfx_wgpu_set_stamp_mode", a.setStampMode);
         const bool display = optional(lib, "gfx_wgpu_shade_relief_display", a.shadeReliefDisplay) &&
                              optional(lib, "gfx_wgpu_read_display", a.readDisplay);
         if (!display) a.shadeReliefDisplay = nullptr;  // all or nothing
@@ -438,6 +440,11 @@ bool WgpuStampEngine::shadeImpastoReliefToDisplay(int x, int y, int w, int h, fl
 
 bool WgpuStampEngine::readImpastoDisplay(int x, int y, int w, int h, uint8_t* out, size_t len) {
     return engine_ != nullptr && gApi.shadeReliefDisplay != nullptr && gApi.readDisplay(engine_, x, y, w, h, out, len);
+}
+
+bool WgpuStampEngine::setStampMode(int mode) {
+    return engine_ != nullptr && gApi.setStampMode != nullptr && mode >= 0 &&
+           gApi.setStampMode(engine_, static_cast<uint32_t>(mode));
 }
 
 bool WgpuStampEngine::beginStroke() {

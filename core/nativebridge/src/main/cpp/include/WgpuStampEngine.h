@@ -81,6 +81,7 @@ public:
     bool shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                             float strength) override;
     bool beginStroke() override;
+    bool setStampMode(int mode) override;
     bool shadeImpastoReliefToDisplay(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                                      float strength) override;
     bool readImpastoDisplay(int x, int y, int w, int h, uint8_t* out, size_t len) override;
