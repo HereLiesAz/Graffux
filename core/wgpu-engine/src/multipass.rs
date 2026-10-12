@@ -1781,7 +1781,7 @@ impl Engine {
                 stroke_max: if use_stroke_max { 1.0 } else { 0.0 },
                 layer_width: self.width,
                 layer_height: self.height,
-                _pad: 0,
+                mode: super::STAMP_OVER,
             };
             self.queue
                 .write_buffer(&self.stamp_uniform, 0, bytemuck::bytes_of(&pc));

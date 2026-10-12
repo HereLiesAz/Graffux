@@ -233,8 +233,17 @@ struct StampUniform {
     stroke_max: f32,
     layer_width: i32,
     layer_height: i32,
-    _pad: u32,
+    /// How a dab composites onto the layer (round shader): [`STAMP_OVER`], [`STAMP_ERASE`] or
+    /// [`STAMP_ATOP`].
+    mode: u32,
 }
+
+/// Round dabs paint over the layer (SRC_OVER).
+pub const STAMP_OVER: u32 = 0;
+/// Round dabs erase the layer (DST_OUT by the dab's alpha: the eraser).
+pub const STAMP_ERASE: u32 = 1;
+/// Round dabs paint only where the layer has alpha (SRC_ATOP: alpha lock).
+pub const STAMP_ATOP: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Default)]
@@ -428,6 +437,8 @@ pub struct Engine {
     doc_gen: u64,
     /// Undo snapshots (undo.rs): pre-stroke rectangles of document layers.
     snapshots: undo::Snapshots,
+    /// The round shader's composite ([`Engine::set_stamp_mode`]).
+    stamp_mode: u32,
     staging: wgpu::Buffer,
     stroke_state: Option<wgpu::Buffer>,
     stroke_state_dirty: bool,
@@ -869,6 +880,7 @@ impl Engine {
             doc_mode: false,
             doc_gen: 0,
             snapshots: Default::default(),
+            stamp_mode: STAMP_OVER,
             staging,
             stroke_state: None,
             stroke_state_dirty: true,
@@ -1240,6 +1252,20 @@ impl Engine {
         }
     }
 
+    /// Sets how the round shader's dabs composite until changed ([`STAMP_OVER`] by default):
+    /// erase and alpha lock bypass multipass, whose draft shader only paints over. False for an
+    /// unknown mode.
+    pub fn set_stamp_mode(&mut self, mode: u32) -> bool {
+        if mode > STAMP_ATOP {
+            return false;
+        }
+        if mode != self.stamp_mode {
+            self.mp_drain();
+            self.stamp_mode = mode;
+        }
+        true
+    }
+
     /// `StampEngine::stampDabs`. `build_up` = sequential SRC_OVER in submission order; otherwise
     /// each pixel's strongest dab wins, across this call only or -- with `stroke_max` -- across
     /// every call since the last upload()/clear().
@@ -1255,7 +1281,7 @@ impl Engine {
         if dabs.is_empty() {
             return false;
         }
-        if self.mp_on() {
+        if self.mp_on() && self.stamp_mode == STAMP_OVER {
             return self
                 .mp_submit_stamp(dabs, color_argb, hardness, build_up, substrate, stroke_max);
         }
@@ -1292,7 +1318,7 @@ impl Engine {
                 stroke_max: if use_stroke_max { 1.0 } else { 0.0 },
                 layer_width: self.width,
                 layer_height: self.height,
-                _pad: 0,
+                mode: self.stamp_mode,
             };
             self.queue
                 .write_buffer(&self.stamp_uniform, 0, bytemuck::bytes_of(&pc));

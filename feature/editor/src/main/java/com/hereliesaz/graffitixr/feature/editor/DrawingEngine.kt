@@ -720,13 +720,13 @@ internal class DrawingEngine(
             return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
 
-        // Basic Brush paints on the GPU, the same dab runs its live stroke stamped (GpuBasicStroke).
-        // Alpha lock reads the layer's existing alpha, which the GPU stamp has no mode for, so an
-        // alpha-locked stroke, and a device with no usable GPU, take the CPU renderer below.
+        // Basic Brush and Eraser paint on the GPU, the same dab runs the live stroke stamped
+        // (GpuBasicStroke); alpha lock is the GPU's SRC_ATOP. A failed GPU call still takes the CPU
+        // renderer below until the CPU renderers go.
         if (replay != null) {
             return replay.paint(bitmap, stroke) { GpuBasicStroke.paintOnto(it, stroke, mapped, brushScale, bitmap) }
         }
-        if (stroke.tool == Tool.BRUSH && !stroke.alphaLock) {
+        if (stroke.tool == Tool.BRUSH || stroke.tool == Tool.ERASER) {
             GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale)?.let { painted ->
                 return SelectionMask.feather(
                     bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
@@ -877,8 +877,9 @@ internal class DrawingEngine(
 }
 
 /**
- * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush or Basic Brush
- * stroke, no selection, no Impasto, substrate, alpha lock or tool that reads the pixels on the CPU.
+ * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush, Basic Brush (alpha
+ * lock included) or Eraser stroke, no selection, Impasto, substrate or tool that reads the pixels
+ * on the CPU.
  */
 private fun replaysOnSession(
     stroke: StrokeCommand,
@@ -886,8 +887,11 @@ private fun replaysOnSession(
     substrate: SubstrateRenderContext?,
 ) =
     stroke.selection == null && stroke.warpHandles == null && !stroke.fillSelection && !stroke.clearAll &&
-        stroke.inkStroke == null && stroke.tool == Tool.BRUSH && substrate == null &&
-        (stroke.stampBrush?.let { !(it.impastoThicknessRate > 0f && heightMap != null) } ?: !stroke.alphaLock)
+        stroke.inkStroke == null && substrate == null &&
+        (stroke.tool == Tool.ERASER || stroke.tool == Tool.BRUSH && replaysStamp(stroke, heightMap))
+
+private fun replaysStamp(stroke: StrokeCommand, heightMap: FloatArray?) =
+    stroke.stampBrush?.let { !(it.impastoThicknessRate > 0f && heightMap != null) } ?: true
 
 private fun bitmapPixels(bitmap: Bitmap): IntArray =
     IntArray(bitmap.width * bitmap.height).also { pixels ->
