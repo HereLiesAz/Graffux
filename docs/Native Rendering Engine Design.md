@@ -1277,6 +1277,18 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    complexity as the rest of Color Smudge's Vulkan path, but a port of an existing, tested CPU
    reference rather than new surface area invented at the shader layer.
 
+**Stamp-brush commit and replay are GPU (`GpuStampCommit`).** `DrawingEngine`'s stamp-brush branch
+stamps the stroke's canonical dab list (the same `BrushStamps.dynamicDabs`/`AirbrushEngine.heldDabs`
+or `BrushStamps.dabs(CatmullRom.densify(..))` lists the CPU branch builds) through wgpu with the live
+stroke's per-dab resolution, shader choice, masks and grain, then reads back once. Commit and
+undo/redo replay both go through it, so the committed layer is the GPU's paint and matches the live
+stroke's rasterizer instead of being re-rendered on the CPU (which took seconds on a large canvas and
+left the layer without the stroke meanwhile). A selection keeps only the inside of the clip; feathering
+is unchanged. Still CPU: Impasto and substrate strokes (their height, wetness and relief state is CPU
+material simulation), Basic Brush (`ImageProcessor.applyToolToBitmap`), and any device where wgpu
+cannot start. The commit waits for calibration to stop (`stopCalibrationForCanvas`) on its worker,
+never on the touch path.
+
 Each phase keeps the *other* two paths (commit-time and undo/redo replay) correct by construction:
 until a tool is ported, `DrawingEngine`/`ImageProcessor` keep being the single source of truth for
 it, exactly as today. Nothing above proposes touching the `StrokeCommand`/co-op/undo model itself

@@ -366,7 +366,7 @@ internal fun gpuPipelineUsesMaskedShader(
  *  independent of any individual dab's radius -- `stamp_masked.comp` scales it per dab via UV
  *  sampling using that dab's own radius/tipRatio, the same way [BrushTipMaskCache]'s square
  *  [BrushTipMaskCache.tipMask] source is scaled into a non-square CPU dab bitmap per call. */
-private const val GPU_MASK_REFERENCE_SIZE = 128
+internal const val GPU_MASK_REFERENCE_SIZE = 128
 
 /** Joins an installed brush asset's extension id and its `assetIndex` within that extension's own
  *  usable brush assets (see [com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.InstalledBrushAsset])
