@@ -276,6 +276,21 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   `putBase`, because baking old strokes leaves the pixels unchanged. A commit is adopted, and the
   copy refreshed, only when the generation and the base bitmap are still the ones the stroke
   bound.
+- **The document engine (Android).** Live strokes and their commits paint on one native handle
+  that outlives its strokes (`GpuStampEngine.initDocument`), so its resident layers stay on the GPU
+  between strokes instead of travelling with whichever pooled handle a stroke got. It is leased to
+  one stroke at a time: the stroke's engine instance takes the lease, and its `destroy()` gives it
+  back instead of pooling the handle. Nothing holds the lease while idle (strokes are no longer
+  pre-warmed with an engine; binding the layer at stroke start is a resident hit). A holder that
+  never returns it cannot hang later strokes: past two seconds a stroke takes an ordinary pooled
+  engine and logs it. The handle is replaced when the layer size or engine tuning changes, dropped
+  after a failed call, and closed for calibration (`trimPool(closeDocument = true)`). Undo/redo
+  replay keeps its own engines until GPU undo replaces replay.
+- **Document store (wgpu, `docstore.rs`).** The same resident set in document mode: layers are
+  canonical, never evicted or invalidated by cache policy, carry engine-owned generations, and a
+  stroke binds and commits its layer in place (the commit reports the painted rectangle). Reads and
+  writes are explicit rectangles (`GpuDocumentLayers`). This is the store the GPU-canonical layers
+  build on; the editor does not enter document mode yet.
 - **Replay on one engine (Android).** `DrawingEngine.composite` (undo/redo rebuilds, stroke
   baking) paints runs of plain stamp-brush and Basic Brush strokes through one
   `GpuReplaySession`: one upload before the run, `begin_stroke` between strokes (stroke-max state

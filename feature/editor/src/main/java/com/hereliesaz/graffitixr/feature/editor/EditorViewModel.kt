@@ -1250,9 +1250,11 @@ class EditorViewModel @Inject constructor(
         if (logInit) Breadcrumbs.record("canvas engine init start ${width}x$height")
         return try {
             val engine = GpuStampEngine(collectTelemetry = true)
-            // wgpu keeps layers resident across strokes: [resident] binds (or uploads) the layer's
-            // GPU copy by content generation; anything else, or a failure there, seeds the old way.
-            val ready = engine.init(width, height) &&
+            // The document engine (one native handle for the whole document, leased to one stroke at
+            // a time; this engine's destroy() hands it back): its resident layers survive between
+            // strokes. [resident] binds (or uploads) the layer's GPU copy by content generation;
+            // anything else, or a failure there, seeds the old way.
+            val ready = engine.initDocument(width, height) &&
                 (resident?.invoke(engine) == true || engine.upload(seed))
             if (logInit) {
                 canvasEngineLogged = true
@@ -1345,21 +1347,11 @@ class EditorViewModel @Inject constructor(
             val base = SafeBitmap.copy(work) ?: return@launch
             if (!isActive) return@launch
             val tuning = EngineTuning()
-            var residentStroke: ResidentStroke? = null
-            // Calibration owns the GPU while it runs; the stroke stops it, as it always did.
-            val engine = if (com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.isCalibrating()) {
-                null
-            } else {
-                createSeededGpuEngine(work.width, work.height, work) { engine ->
-                    residentStroke = engine.beginResidentStroke(
-                        work, GpuLayerResidency.layerKey(layerId), residentGeneration,
-                    )
-                    residentStroke != null
-                }
-            }
+            // No engine is prewarmed: the document engine is leased to one stroke at a time, and an
+            // idle lease would hold up the previous stroke's commit and calibration. Binding the
+            // layer at stroke start is a resident hit on the document engine, no upload.
             val built = PrewarmedStroke(
-                layerId, source, residentGeneration, StrokeCopies(work, base),
-                engine?.let { BoundEngine(it, residentStroke) }, tuning,
+                layerId, source, residentGeneration, StrokeCopies(work, base), null, tuning,
             )
             val stale = synchronized(prewarmLock) {
                 if (!isActive) {

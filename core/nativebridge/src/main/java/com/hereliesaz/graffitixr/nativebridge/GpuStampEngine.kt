@@ -37,35 +37,24 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         /** The GPU engine's name in feel reports and stroke data (the only backend: wgpu). */
         const val BACKEND_LABEL = "wgpu"
 
+        /**
+         * The open document's engine (wgpu): one native handle that lives across strokes, so the
+         * layers it holds stay on the GPU instead of travelling with whichever pooled handle a
+         * stroke happened to get. One stroke uses it at a time: [initDocument] takes the lease,
+         * that instance's [destroy] gives it back. Replaced when the layer size or the engine
+         * tuning changes; closed by [closeDocument].
+         */
+        private val documentLease = java.util.concurrent.Semaphore(1)
+        private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
+        private const val TAG = "GpuStampEngine"
+        private val documentLock = Any()
+        private var documentHandle = 0L
+        private var documentKey: PoolKey? = null
+        private var documentEpoch = -1
+
         private const val RECT_INTS = 4
         private const val AFFINE_FLOATS = 6
 
-        // Impasto v2 wet simulation (graffux_wgpu gfx_wgpu_wet_*): buffers for [wetBuffer], steps
-        // for [wetOp] (argument lists in the Rust docs), control words from [wetReadControl].
-        // Document store layer ops (nativeDocLayer).
-        private const val DOC_PUT = 0
-        private const val DOC_CLEAR = 1
-        private const val DOC_COPY = 3
-        private const val DOC_GENERATION = 4
-
-        const val WET_MEDIA = 0
-        const val WET_COVERAGE = 1
-        const val WET_DABS = 2
-        const val WET_RAW_TO_LAYER = 0
-        const val WET_LAYER_TO_RAW = 1
-        const val WET_SAVE_RAW = 2
-        const val WET_BLEND_SELECTION = 3
-        const val WET_TRANSFER = 4
-        const val WET_DEPOSIT = 5
-        const val WET_PIGMENT = 6
-        const val WET_ADVANCE = 7
-        const val WET_LEVEL = 8
-        const val WET_SHADE = 9
-        const val WET_FLAG_HEIGHT = 1
-        const val WET_FLAG_WETNESS = 2
-        /** Floats per tile in the media table; [WET_DAB_FLOATS] per dab. */
-        const val WET_MEDIA_FLOATS = 8
-        const val WET_DAB_FLOATS = 8
 
         /**
          * Every live wgpu native handle (checked out by an engine or pooled). Touched only on
@@ -151,12 +140,36 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             override fun end(handle: Long) = helper().nativeDirectEndStroke(handle)
         })
 
+        /**
+         * Destroys every pooled handle and, with [closeDocument], the document engine too (document
+         * closed, or calibration needs the GPU) -- waiting for its lease, so a stroke in flight
+         * finishes first; the next stroke reopens it.
+         */
         @JvmStatic
-        fun trimPool() {
-            val cached = synchronized(poolLock) {
-                if (pooledHandles.isEmpty()) return
-                buildList { while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst()) }
+        fun trimPool(closeDocument: Boolean = false) {
+            // Detached under its lease: whoever holds it finishes its stroke on the old handle first.
+            val document = if (!closeDocument) {
+                0L
+            } else {
+                documentLease.acquire()
+                try {
+                    synchronized(documentLock) {
+                        documentHandle.also {
+                            documentHandle = 0L
+                            documentKey = null
+                        }
+                    }
+                } finally {
+                    documentLease.release()
+                }
             }
+            val cached = synchronized(poolLock) {
+                buildList {
+                    while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst())
+                    if (document != 0L) add(CachedHandle(PoolKey(0, 0), document))
+                }
+            }
+            if (cached.isEmpty()) return
             val destroyer = helper()
             GpuRenderThread.post {
                 cached.forEach {
@@ -332,12 +345,17 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     // (issues #434, #438). Now destroy() waits for the in-flight call, and any call after it sees a
     // zero handle and returns false, which the batch already treats as "fall back to the CPU".
     @Volatile private var nativeHandle: Long = 0L
+    /** This instance holds the document engine's lease ([initDocument]); destroy() returns it. */
+    private var documentLeased = false
     private var poolKey: PoolKey? = null
     private var healthy = true
     private var substrateHeightUploaded = false
     private var paintHeightUploaded = false
 
     val isInitialized: Boolean get() = nativeHandle != 0L
+
+    /** The native handle, for [GpuDocumentLayers] (same module); 0 when not initialized. */
+    internal val handleForDocument: Long get() = nativeHandle
 
     /**
      * Creates (or reuses a pooled) wgpu engine for a [width]x[height] layer. False = no usable GPU
@@ -351,6 +369,71 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         if (width <= 0 || height <= 0) return false
         val key = PoolKey(width, height)
         return reusePooled(key) || createNative(key)
+    }
+
+    /**
+     * Attaches this instance to the document engine for a [width]x[height] layer, waiting for any
+     * other holder to finish (blocking: call off the main thread). Unlike [init] the layer is not
+     * cleared and the engine's resident layers persist; [destroy] gives the engine back rather than
+     * pooling it. False = no usable GPU here.
+     */
+    @Synchronized
+    fun initDocument(width: Int, height: Int): Boolean {
+        destroy()
+        substrateHeightUploaded = false
+        paintHeightUploaded = false
+        // A holder that never gave the lease back must not hang every later stroke: past the bound
+        // the stroke paints on an ordinary pooled engine (still the GPU), and says so.
+        val leased = width > 0 && height > 0 &&
+            documentLease.tryAcquire(DOCUMENT_LEASE_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (!leased) {
+            if (width > 0 && height > 0) {
+                android.util.Log.w(TAG, "document engine busy for ${DOCUMENT_LEASE_WAIT_MS}ms; using a pooled engine")
+            }
+            return width > 0 && height > 0 && init(width, height)
+        }
+        val handle = try {
+            documentHandleFor(PoolKey(width, height))
+        } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+            documentLease.release()
+            throw e
+        }
+        if (handle == 0L) {
+            documentLease.release()
+        } else {
+            nativeHandle = handle
+            poolKey = null
+            healthy = true
+            documentLeased = true
+            // Multipass settings can change between strokes; a pooled handle re-applies them on reuse.
+            onGpu { applyMultipass(handle) }
+        }
+        return handle != 0L
+    }
+
+    /** The document handle for [key], (re)created when absent, resized or under stale tuning. */
+    private fun documentHandleFor(key: PoolKey): Long = synchronized(documentLock) {
+        val stale = documentHandle != 0L && (documentKey != key || documentEpoch != tuningEpoch)
+        if (stale) {
+            destroyHandle(documentHandle)
+            documentHandle = 0L
+        }
+        if (documentHandle == 0L) {
+            nativeCreationCount.incrementAndGet()
+            val created = onGpu {
+                val handle = nativeInit(key.width, key.height)
+                if (handle != 0L) {
+                    liveWgpuHandles.add(handle)
+                    applyMultipass(handle)
+                }
+                handle
+            }
+            if (created != 0L) onCreated(created)
+            documentHandle = created
+            documentKey = key
+            documentEpoch = tuningEpoch
+        }
+        documentHandle
     }
 
     /** Takes a pooled handle for [key] and clears it for a new stroke; false = none usable. */
@@ -473,82 +556,6 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     }
 
     /**
-     * Document store: this engine keeps the open document's layers on the GPU as their canonical
-     * copy (core/wgpu-engine docstore.rs). Call once after [init]. False when the library lacks it.
-     */
-    @Synchronized
-    fun docOpen(): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeDocOpen(nativeHandle) }
-    }
-
-    /** Writes the whole of layer [key] from [bitmap] (creating it); its new generation, 0 = failure. */
-    @Synchronized
-    fun docPut(key: Long, bitmap: Bitmap): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocLayer(nativeHandle, DOC_PUT, key, 0L, bitmap) }
-    }
-
-    /** A transparent layer [key] (created if new); its new generation, 0 = failure. */
-    @Synchronized
-    fun docClear(key: Long): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocLayer(nativeHandle, DOC_CLEAR, key, 0L, null) }
-    }
-
-    /** Layer [src] duplicated into [dst] on the GPU; [dst]'s new generation, 0 = failure. */
-    @Synchronized
-    fun docCopy(src: Long, dst: Long): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocLayer(nativeHandle, DOC_COPY, dst, src, null) }
-    }
-
-    /** Layer [key]'s current generation, 0 if the store doesn't hold it. */
-    @Synchronized
-    fun docGeneration(key: Long): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocLayer(nativeHandle, DOC_GENERATION, key, 0L, null) }
-    }
-
-    /** Writes [rect] ({x, y, w, h}) of layer [key] from the same rectangle of [bitmap]. */
-    @Synchronized
-    fun docWrite(key: Long, bitmap: Bitmap, rect: IntArray): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocWrite(nativeHandle, key, bitmap, rect) }
-    }
-
-    /** Forgets layer [key]. */
-    @Synchronized
-    fun docDrop(key: Long): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeDocDrop(nativeHandle, key) }
-    }
-
-    /** Starts a stroke on layer [key]; the stroke's session, 0 = failure. */
-    @Synchronized
-    fun docBind(key: Long): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocBind(nativeHandle, key) }
-    }
-
-    /**
-     * Commits the stroke [session] on layer [key] in place; [rect] receives the {x, y, w, h} it
-     * painted. The layer's new generation, 0 if [session] is no longer the layer's stroke.
-     */
-    @Synchronized
-    fun docCommit(key: Long, session: Long, rect: IntArray): Long {
-        if (!isInitialized) return 0L
-        return onGpu { nativeDocCommit(nativeHandle, key, session, rect) }
-    }
-
-    /** Reads [rect] of layer [key] into the same rectangle of [bitmap] (a full-layer mirror). */
-    @Synchronized
-    fun docRead(key: Long, bitmap: Bitmap, rect: IntArray): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeDocRead(nativeHandle, key, bitmap, rect) }
-    }
-
-    /**
      * Starts a new stroke on the layer as it is: stroke-max state restarts from these pixels, as
      * after [upload], without replacing them. False when the library lacks it (re-upload instead).
      */
@@ -556,58 +563,6 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     fun beginStroke(): Boolean {
         if (!isInitialized) return false
         return onGpu { nativeBeginStroke(nativeHandle) }
-    }
-
-    /**
-     * Impasto v2 on the GPU: hands the wet material simulation the layer's canonical state --
-     * straight ARGB [raw] pigment, [height] and [wetness] (one value per layer pixel), each
-     * [tileSize] tile's [active] flag (row-major, nonzero = active) and the [media] table
-     * ([WET_MEDIA_FLOATS] per tile). False when the library has no wet support (the caller then
-     * takes the CPU path) or on failure.
-     */
-    @Synchronized
-    @Suppress("LongParameterList")
-    fun wetBegin(
-        raw: IntArray,
-        height: FloatArray,
-        wetness: FloatArray,
-        active: IntArray,
-        tileSize: Int,
-        media: FloatArray,
-    ): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeWetBegin(nativeHandle, raw, height, wetness, active, tileSize, media) }
-    }
-
-    /** Replaces one wet input: [WET_MEDIA], [WET_COVERAGE] (null = no selection) or [WET_DABS]. */
-    @Synchronized
-    fun wetBuffer(which: Int, data: FloatArray?): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeWetBuffer(nativeHandle, which, data) }
-    }
-
-    /** Runs one wet simulation step ([WET_RAW_TO_LAYER] .. [WET_SHADE]) with its float arguments. */
-    @Synchronized
-    fun wetOp(op: Int, vararg args: Float): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeWetOp(nativeHandle, op, args) }
-    }
-
-    /** Reads the wet state back into [raw], [height] and [wetness] (one value per layer pixel). */
-    @Synchronized
-    fun wetRead(raw: IntArray, height: FloatArray, wetness: FloatArray): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeWetRead(nativeHandle, raw, height, wetness) }
-    }
-
-    /**
-     * The wet control words into [out]: each tile's active flag, as many zero words, then one flag
-     * word per dab ([WET_FLAG_HEIGHT], [WET_FLAG_WETNESS]).
-     */
-    @Synchronized
-    fun wetReadControl(out: IntArray): Boolean {
-        if (!isInitialized) return false
-        return onGpu { nativeWetReadFlags(nativeHandle, out) }
     }
 
     /** Historical stroke-level paint entry point. */
@@ -1022,6 +977,27 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         paintHeightUploaded = false
         if (handle == 0L) return
         drainGpuTimings(handle)
+        if (documentLeased) {
+            // The document engine outlives its strokes: give the lease back, keep the handle --
+            // unless a call on it failed, in which case the next lease starts on a fresh one.
+            documentLeased = false
+            nativeHandle = 0L
+            if (!healthy) {
+                synchronized(documentLock) {
+                    if (documentHandle == handle) {
+                        destroyHandle(handle)
+                        documentHandle = 0L
+                        documentKey = null
+                    }
+                }
+            }
+            healthy = true
+            lastReadbackRect = null
+            readbackPixels = 0L
+            multipassEnabled = false
+            documentLease.release()
+            return
+        }
         val key = poolKey
         nativeHandle = 0L
         poolKey = null
@@ -1129,22 +1105,6 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         handle: Long, x: Int, y: Int, w: Int, h: Int, azimuthDeg: Float, elevationDeg: Float, strength: Float,
     ): Boolean
     private external fun nativeBeginStroke(handle: Long): Boolean
-    private external fun nativeDocOpen(handle: Long): Boolean
-    private external fun nativeDocLayer(handle: Long, op: Int, key: Long, other: Long, bitmap: Bitmap?): Long
-    private external fun nativeDocWrite(handle: Long, key: Long, bitmap: Bitmap, rect: IntArray): Long
-    private external fun nativeDocDrop(handle: Long, key: Long): Boolean
-    private external fun nativeDocBind(handle: Long, key: Long): Long
-    private external fun nativeDocCommit(handle: Long, key: Long, session: Long, rect: IntArray): Long
-    private external fun nativeDocRead(handle: Long, key: Long, bitmap: Bitmap, rect: IntArray): Boolean
-    @Suppress("LongParameterList")
-    private external fun nativeWetBegin(
-        handle: Long, raw: IntArray, height: FloatArray, wetness: FloatArray, active: IntArray, tileSize: Int,
-        media: FloatArray,
-    ): Boolean
-    private external fun nativeWetBuffer(handle: Long, which: Int, data: FloatArray?): Boolean
-    private external fun nativeWetOp(handle: Long, op: Int, args: FloatArray): Boolean
-    private external fun nativeWetRead(handle: Long, raw: IntArray, height: FloatArray, wetness: FloatArray): Boolean
-    private external fun nativeWetReadFlags(handle: Long, out: IntArray): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(
         handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean,

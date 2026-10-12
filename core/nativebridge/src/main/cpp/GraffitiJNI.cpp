@@ -1577,14 +1577,14 @@ static bool gfxRect(JNIEnv* env, jintArray rect, int32_t out[4]) {
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocOpen(JNIEnv*, jobject, jlong handle) {
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocOpen(JNIEnv*, jobject, jlong handle) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->isInitialized() && engine->docOpen() ? JNI_TRUE : JNI_FALSE;
 }
 
 // op: 0 put (whole `bitmap`), 1 clear, 3 copy layer `other` into `key`, 4 generation.
 JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocLayer(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocLayer(
         JNIEnv* env, jobject, jlong handle, jint op, jlong key, jlong other, jobject bitmap) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return 0;
@@ -1603,7 +1603,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocLayer(
 
 // Writes `rect` of layer `key` from the same rectangle of the full-layer `bitmap`.
 JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocWrite(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocWrite(
         JNIEnv* env, jobject, jlong handle, jlong key, jobject bitmap, jintArray rect) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     int32_t r[4];
@@ -1623,13 +1623,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocWrite(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocDrop(JNIEnv*, jobject, jlong handle, jlong key) {
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocDrop(JNIEnv*, jobject, jlong handle, jlong key) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->isInitialized() && engine->docLayerDrop(static_cast<uint64_t>(key)) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocBind(JNIEnv*, jobject, jlong handle, jlong key) {
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocBind(JNIEnv*, jobject, jlong handle, jlong key) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return 0;
     return static_cast<jlong>(engine->docLayerBind(static_cast<uint64_t>(key)));
@@ -1637,7 +1637,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocBind(JNIEnv*
 
 // `rect` (int[4]) receives the {x, y, w, h} the stroke painted.
 JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocCommit(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocCommit(
         JNIEnv* env, jobject, jlong handle, jlong key, jlong session, jintArray rect) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || rect == nullptr || env->GetArrayLength(rect) < 4) return 0;
@@ -1653,7 +1653,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocCommit(
 
 // Reads `rect` of layer `key` into the same rectangle of the full-layer `bitmap`.
 JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocRead(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocRead(
         JNIEnv* env, jobject, jlong handle, jlong key, jobject bitmap, jintArray rect) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     int32_t r[4];
