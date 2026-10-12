@@ -344,6 +344,7 @@ pub unsafe extern "C" fn gfx_wgpu_selection_op(e: *mut Engine, op: i32) -> bool 
                 let r = e.stroke_rect();
                 e.confine_stroke(r.x, r.y, r.w, r.h, op == 2)
             }
+            3 => e.restore_stroke_shadow(),
             _ => false,
         })
     })

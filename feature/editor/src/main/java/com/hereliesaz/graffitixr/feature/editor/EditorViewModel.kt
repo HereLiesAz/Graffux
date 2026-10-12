@@ -882,6 +882,11 @@ class EditorViewModel @Inject constructor(
     // StrokeCommand (which is what undo/redo replays).
     private var strokeAlphaLock: Boolean = false
 
+    /** The live Color Smudge preview's engine and the stroke it serves (smudgeLiveOnGpu). */
+    private val smudgeLiveLock = Any()
+    private var smudgeLiveEngine: GpuStampEngine? = null
+    private var smudgeLiveGeneration = -1L
+
     /** The live stroke is the Eraser: it erases on the GPU like the Basic Brush paints. */
     private var strokeErasing: Boolean = false
     /** Captured at stroke start for the same reason as [strokeAlphaLock] -- previously re-read live
@@ -5345,13 +5350,18 @@ class EditorViewModel @Inject constructor(
                             wrapAround = false,
                             paintColor = paintColor,
                         )
-                        val pixels = IntArray(work.width * work.height)
-                        work.getPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
-                        ColorSmudgeEngine.apply(
-                            pixels, work.width, work.height, mapped, settings,
-                            samples = mappedSamples, strokeSeed = seed, sampleSource = null,
+                        val plans = ColorSmudgeEngine.resolvePlans(
+                            mapped, work.width, work.height, settings, mappedSamples, seed,
                         )
-                        work.setPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
+                        if (!smudgeLiveOnGpu(original, generation, work, plans, settings)) {
+                            val pixels = IntArray(work.width * work.height)
+                            work.getPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
+                            ColorSmudgeEngine.apply(
+                                pixels, work.width, work.height, mapped, settings,
+                                samples = mappedSamples, strokeSeed = seed, sampleSource = null,
+                            )
+                            work.setPixels(pixels, 0, work.width, 0, 0, work.width, work.height)
+                        }
                     }
                     else -> {}
                 }
@@ -8974,6 +8984,50 @@ class EditorViewModel @Inject constructor(
      * stroke lifetime elsewhere, so this must never leak.
      */
 
+    /**
+     * The live Color Smudge preview on the GPU: the stroke's own engine holds the layer as the stroke
+     * found it (its shadow), and each resample puts that back and smudges the whole recorded stroke
+     * again with the commit's plans (GpuColorSmudge), reading back only what the strokes touched.
+     * False when the GPU can't, and the caller smudges on the CPU.
+     */
+    private fun smudgeLiveOnGpu(
+        original: Bitmap,
+        generation: Long,
+        work: Bitmap,
+        plans: List<ColorSmudgeEngine.ResolvedPlan>,
+        settings: ColorSmudgeEngine.Settings,
+    ): Boolean = synchronized(smudgeLiveLock) {
+        val engine = smudgeLiveEngine?.takeIf { smudgeLiveGeneration == generation }
+            ?: startSmudgeLive(original, generation)
+        val shown = engine != null && runCatching {
+            com.hereliesaz.graffitixr.nativebridge.GpuSelection(engine).restoreShadow() &&
+                GpuColorSmudge.stamp(engine, plans, settings, null, work.width, work.height) &&
+                engine.readback(work)
+        }.getOrDefault(false)
+        if (!shown) releaseSmudgeLive()
+        shown
+    }
+
+    /** A pooled engine holding [original] as its stroke shadow, for [generation]'s live smudge. */
+    private fun startSmudgeLive(original: Bitmap, generation: Long): GpuStampEngine? {
+        releaseSmudgeLive()
+        val engine = runCatching { GpuStampEngine() }.getOrNull()
+        val ready = engine != null && runCatching {
+            engine.init(original.width, original.height) && engine.upload(original) &&
+                com.hereliesaz.graffitixr.nativebridge.GpuSelection(engine).takeShadow()
+        }.getOrDefault(false)
+        if (!ready) engine?.destroy()
+        return engine?.takeIf { ready }?.also {
+            smudgeLiveEngine = it
+            smudgeLiveGeneration = generation
+        }
+    }
+
+    private fun releaseSmudgeLive() = synchronized(smudgeLiveLock) {
+        smudgeLiveEngine?.destroy()
+        smudgeLiveEngine = null
+    }
+
     /** Resets Basic Brush's per-stroke Catmull-Rom window. */
     private fun resetLiveCurveState() = synchronized(liveCurveLock) {
         liveCurveWindow.clear()
@@ -9156,6 +9210,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun clearTransientStrokeState() {
+        releaseSmudgeLive()
         residentTicket = null
         strokeWorkingBitmap = null
         strokeWorkingCanvas = null

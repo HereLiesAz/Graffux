@@ -124,3 +124,17 @@ fn confine_matches_the_cpu_commit_and_stays_in_the_stroke() {
         }
     }
 }
+
+#[test]
+fn restore_puts_the_layer_back_to_its_shadow() {
+    for (name, mut e) in engines() {
+        let before = base();
+        assert!(e.upload(&before));
+        assert!(e.take_stroke_shadow());
+        paint(&mut e);
+        assert_ne!(e.read_all().unwrap(), before, "[{name}] painted");
+        assert!(e.restore_stroke_shadow());
+        assert_eq!(e.read_all().unwrap(), before, "[{name}] restored");
+        assert!(e.stroke_rect().is_empty(), "[{name}] stroke restarts");
+    }
+}

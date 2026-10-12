@@ -6,7 +6,6 @@ import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoEngine
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoRegionShader
-import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
 import com.hereliesaz.graffitixr.common.azphalt.ImpastoMaterialStrokeState
 import com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField
 import com.hereliesaz.graffitixr.common.azphalt.SubstrateProfile
@@ -15,7 +14,6 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
-import com.hereliesaz.graffitixr.nativebridge.ColorSmudgeDab
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.ink.InkAffine
@@ -642,26 +640,8 @@ internal class DrawingEngine(
             // wetness runs on the wet simulation of the same engine (GpuWetSmudge): material advance,
             // the smudge on the canvas wetness, the selection confined on the GPU, the settle tick.
             // A failed stage discards the possibly-partial target and recomputes on the CPU below.
-            val baseMode = if (settings.mode == ColorSmudgeEngine.Mode.SMEAR) 0 else 1
-            val mode = baseMode + if (settings.mixingModel == MaterialMixingModel.PIGMENT_RYB) 2 else 0
-            fun smudgeOn(engine: GpuStampEngine): Boolean = plans.all { plan ->
-                plan.dabs.size < 2 || engine.colorSmudge(
-                    plan.dabs.map { dab ->
-                        ColorSmudgeDab(
-                            dab.x, dab.y, dab.smudgeRate, dab.colorRate,
-                            dab.opacity, dab.smudgeRadius,
-                            dab.colorRateMultiplier, dab.distanceDeltaPx,
-                        )
-                    },
-                    mode, settings.radiusPx, settings.feathering,
-                    settings.smearAlpha, settings.paintColor, settings.dilution,
-                    baseColorRate = settings.colorRate,
-                    chargeDecayRate = settings.chargeDecayRate,
-                    pickupRate = settings.pickupRate,
-                    sampleSource = sampleSource,
-                    sampleSourceWidth = width, sampleSourceHeight = height,
-                )
-            }
+            fun smudgeOn(engine: GpuStampEngine) =
+                GpuColorSmudge.stamp(engine, plans, settings, sampleSource, width, height)
             val wetSelection = stroke.selection?.takeIf { clipPath != null }?.let { selection ->
                 GpuWetSmudge.Selection { engine ->
                     GpuStrokeSelection.prepare(
