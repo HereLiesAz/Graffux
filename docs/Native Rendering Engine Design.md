@@ -1298,15 +1298,25 @@ call's (movement, held) dab counts go on the command (`StrokeCommand.stampBatche
 over what is already there, and a masked tip without build-up combines dabs within one call. A live
 stroke that wasn't on the GPU, or carries Impasto, commits by painting its recorded dabs as below.
 
+**Basic Brush commits and replays on the GPU too (`GpuBasicStroke`).** The live stroke stamps one run
+of round dabs per Catmull-Rom segment; `GpuBasicStroke.runs` places exactly those from the recorded
+points, pressures and widths (`BrushDynamics.segmentWidths`). Live, commit and replay all stamp through
+`stampResolvedDabs` with stroke-wide max (`strokeMax`), so overlapping segments never stack opacity:
+the same whole-stroke opacity ceiling the CPU replay composites. Feathering becomes dab hardness
+(`1 - feathering`). It used to be dropped live on the GPU, while the CPU blurred it. At the stroke's
+end `handOffLiveBasic` takes the live engine, and the commit stamps the queued runs and the segments
+the live window never reached (always the last one) before reading back once. Alpha lock reads the
+layer's existing alpha, which the GPU stamp has no mode for, so alpha-locked strokes stay on the CPU.
+
 **Stamp-brush commit and replay are GPU (`GpuStampCommit`).** `DrawingEngine`'s stamp-brush branch
 stamps the stroke's dab list (`StrokeDabs`, shared with the CPU branch) through wgpu with the live
 stroke's per-dab resolution, shader choice, masks and grain, then reads back once. Commit and
 undo/redo replay both go through it, so the committed layer is the GPU's paint and matches the live
 stroke's rasterizer instead of being re-rendered on the CPU (which took seconds on a large canvas and
 left the layer without the stroke meanwhile). A selection keeps only the inside of the clip; feathering
-is unchanged. Still CPU: Impasto and substrate strokes (their height, wetness and relief state is CPU
-material simulation), Basic Brush (`ImageProcessor.applyToolToBitmap`), and any device where wgpu
-cannot start. The commit waits for calibration to stop (`stopCalibrationForCanvas`) on its worker,
+is unchanged. Still CPU: Impasto strokes (their height, wetness and relief state is CPU material simulation),
+alpha-locked Basic Brush strokes, and any device where wgpu cannot start. Substrate rendering
+(`SubstrateRenderContext`) has no production caller yet, so nothing reaches its CPU path. The commit waits for calibration to stop (`stopCalibrationForCanvas`) on its worker,
 never on the touch path.
 
 Each phase keeps the *other* two paths (commit-time and undo/redo replay) correct by construction:

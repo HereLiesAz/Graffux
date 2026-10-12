@@ -658,6 +658,16 @@ internal class DrawingEngine(
             return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
 
+        // Basic Brush paints on the GPU, the same dab runs its live stroke stamped (GpuBasicStroke).
+        // Alpha lock reads the layer's existing alpha, which the GPU stamp has no mode for, so an
+        // alpha-locked stroke, and a device with no usable GPU, take the CPU renderer below.
+        if (stroke.tool == Tool.BRUSH && !stroke.alphaLock) {
+            GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale)?.let { painted ->
+                return SelectionMask.feather(
+                    bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
+                )
+            }
+        }
         return SelectionMask.feather(
             bitmap,
             ImageProcessor.applyToolToBitmap(

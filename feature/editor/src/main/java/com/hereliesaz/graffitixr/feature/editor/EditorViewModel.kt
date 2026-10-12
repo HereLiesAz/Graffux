@@ -243,6 +243,7 @@ private const val MAX_ALPHA = 255
 
 /** Display frames between publishing the committed stroke and clearing the live overlay. */
 private const val OVERLAY_HANDOFF_FRAMES = 2
+private const val ALPHA_MAX_F = 255f
 
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
 // a stroke's before/after tile deltas. 64 matches Krita's own hardcoded tile dimension
@@ -6371,6 +6372,12 @@ class EditorViewModel @Inject constructor(
         } else {
             // Real-time path: the working bitmap already contains the complete stroke.
             val workBitmap = strokeWorkingBitmap!!
+            // Basic Brush painting live on the GPU: its commit finishes the stroke on that engine.
+            val basicHandoff = if (state.activeTool == Tool.BRUSH && stampBrushForStroke == null && !strokeAlphaLock) {
+                handOffLiveBasic(workBitmap)
+            } else {
+                null
+            }
             val command = StrokeCommand(
                 path = points,
                 brushSamples = brushSamples,
@@ -6426,7 +6433,10 @@ class EditorViewModel @Inject constructor(
                 rebuildJobs[layerId]?.cancel()
                 rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
                     try {
-                        val committed = drawingEngine.applySingleStroke(base, command)
+                        // The live GPU layer when the live stroke painted on the GPU; otherwise (or
+                        // if finishing it fails) the stroke painted again from its recorded dabs.
+                        val committed = basicHandoff?.let { finishLiveBasic(it, base, command) }
+                            ?: drawingEngine.applySingleStroke(base, command)
                         val residentChanged = residentChangedRect(ticket, base, committed)
                         withContext(dispatchers.main) {
                             _uiState.update { s ->
@@ -6458,6 +6468,15 @@ class EditorViewModel @Inject constructor(
                 }
                 _liveStroke.update { it.copy(layerId = null, bitmap = null) }
                 scheduleDiskSave(layerId, workBitmap, layer.uri)
+            }
+            // The commit returns the handed-off engine, even one cancelled before it ran (an undo).
+            basicHandoff?.let { handoff ->
+                val commitJob = rebuildJobs[layerId]
+                if (base != null && commitJob != null) {
+                    commitJob.invokeOnCompletion { handoff.engine.destroy() }
+                } else {
+                    handoff.engine.destroy()
+                }
             }
         }
 
@@ -6762,6 +6781,78 @@ class EditorViewModel @Inject constructor(
             }
         } finally {
             engine.destroy()
+        }
+    }
+
+    /** A live Basic Brush stroke's GPU engine and unpainted runs, taken over by its commit. */
+    private class LiveBasicHandoff(
+        val engine: GpuStampEngine,
+        val work: Bitmap,
+        /** The live worker, possibly still stamping onto [engine]. */
+        val worker: Job?,
+        /** Runs generated but not yet stamped. */
+        val leftover: List<List<BrushDab>>,
+        /** Segments whose runs were generated live (stamped or in [leftover]). */
+        val generatedRuns: Int,
+    )
+
+    /**
+     * Takes the live Basic Brush engine (so clearTransientStrokeState doesn't destroy it) and its
+     * queued runs; null when the live stroke wasn't painting on the GPU. Main thread, at the end.
+     */
+    private fun handOffLiveBasic(work: Bitmap): LiveBasicHandoff? = synchronized(liveCurveLock) {
+        synchronized(basicLiveLock) {
+            strokeGpuEngine?.takeIf { strokeGpuActive }?.let { engine ->
+                strokeGpuEngine = null
+                strokeGpuActive = false
+                LiveBasicHandoff(
+                    engine, work, basicGpuJob, basicPendingDabs.drain().map { it.second }, liveCurveFinalizedCount,
+                )
+            }
+        }
+    }
+
+    /**
+     * The committed layer straight from the live Basic Brush GPU layer: waits for the live worker,
+     * stamps the queued runs and the segments the live window never reached (the last one, or a
+     * whole stroke too short to fill it), reads back once, and applies the selection the way
+     * DrawingEngine does. Null when a stage fails; the caller then paints the stroke again.
+     */
+    private suspend fun finishLiveBasic(handoff: LiveBasicHandoff, base: Bitmap, command: StrokeCommand): Bitmap? {
+        val work = handoff.work.takeIf { !it.isRecycled && it.width == base.width && it.height == base.height }
+        return try {
+            handoff.worker?.join()
+            val canvasW = command.canvasSize.width
+            val canvasH = command.canvasSize.height
+            val mapped = ImageProcessor.mapScreenToBitmap(
+                command.path, canvasW, canvasH, base.width, base.height,
+                command.layerScale, command.layerOffset, command.layerRotationZ,
+            )
+            val brushScale = ImageProcessor.screenToBitmapScale(
+                canvasW, canvasH, base.width, base.height, command.layerScale,
+            )
+            val runs = GpuBasicStroke.runs(
+                mapped, command.brushSize * brushScale, command.pressures, command.wrapAroundMode,
+                base.width, base.height,
+            )
+            val missing = handoff.leftover + runs.drop(handoff.generatedRuns)
+            val paint = BasicPaint.of(command.brushColor, command.opacity, command.feathering)
+            work?.takeIf { GpuBasicStroke.stampRuns(handoff.engine, missing, paint) && handoff.engine.readback(it) }
+                ?.let { SafeBitmap.copy(it) }
+                ?.let { painted ->
+                    val clipPath = SelectionMask.bitmapPath(
+                        command.selection, base.width, base.height,
+                        command.layerScale, command.layerOffset, command.layerRotationZ,
+                    )
+                    val featherRadius = SelectionMask.featherRadius(
+                        command.selection, base.width, base.height, command.layerScale,
+                    )
+                    val paintClip = SelectionMask.paintClip(clipPath, featherRadius)
+                    val kept = GpuStampCommit.keepInside(base, painted, paintClip)
+                    SelectionMask.feather(base, kept, clipPath, featherRadius)
+                }
+        } finally {
+            handoff.engine.destroy()
         }
     }
 
@@ -8631,12 +8722,27 @@ class EditorViewModel @Inject constructor(
         synchronized(basicLiveLock) {
             if (basicGpuJob?.isActive == true) return
             val paintSnapshot = Paint(paint).apply { style = Paint.Style.FILL }
+            // The same colour/opacity/edge the commit and replay stamp with (BasicPaint): the
+            // paint's alpha already carries the colour's alpha times the stroke's opacity.
+            val gpuPaint = BasicPaint(
+                colorArgb = paintSnapshot.color,
+                flow = paintSnapshot.alpha / ALPHA_MAX_F,
+                hardness = (1f - _uiState.value.brushFeathering).coerceIn(0f, 1f),
+            )
             basicGpuJob = viewModelScope.launch(dispatchers.default) {
                 while (true) {
-                    val groups = synchronized(basicLiveLock) {
-                        if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
-                        basicPendingDabs.drain()
+                    // Drained together with the engine, under liveCurveLock then basicLiveLock (the
+                    // order feedLiveCurvePoint takes them): the stroke's end hands the engine to its
+                    // commit and takes whatever is still queued, so a batch either paints on that
+                    // engine before the hand-off or belongs to the commit.
+                    val drained = synchronized(liveCurveLock) {
+                        synchronized(basicLiveLock) {
+                            if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
+                            basicPendingDabs.drain() to strokeGpuEngine?.takeIf { strokeGpuActive }
+                        }
                     }
+                    val groups = drained.first
+                    val engine = drained.second
                     if (groups.isEmpty()) {
                         synchronized(basicLiveLock) {
                             if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
@@ -8651,33 +8757,18 @@ class EditorViewModel @Inject constructor(
                     val latencyId = groups.lastOrNull()?.first ?: -1L
                     val dabGroups = groups.map { it.second }
                     if (latencyId >= 0L) basicLatencyTracker.markSubmitted(latencyId)
-                    if (strokeGeneration != generation || strokeLayerId != layerId) return@launch
 
-                    var gpuHandled = false
-                    // Preserve the historical one-stampDabs-call-per-curve-run max-combine
-                    // semantics, but defer readback until all groups currently coalesced by the
-                    // worker have been submitted. Thus scheduling is coalesced without changing
-                    // brush appearance, and software presentation pays one readback per drain.
-                    synchronized(liveCurveLock) {
-                        if (strokeGeneration == generation && strokeLayerId == layerId && strokeGpuActive) {
-                            val engine = strokeGpuEngine
-                            if (engine != null) {
-                                val baseAlpha = (paintSnapshot.color ushr 24) and 0xFF
-                                val combinedAlpha = (baseAlpha * paintSnapshot.alpha / 255).coerceIn(0, 255)
-                                val colorForGpu = (combinedAlpha shl 24) or (paintSnapshot.color and 0x00FFFFFF)
-                                var allSubmitted = true
-                                for (group in dabGroups) {
-                                    if (!engine.stampDabs(group, colorForGpu, 1f)) {
-                                        allSubmitted = false
-                                        break
-                                    }
-                                }
-                                gpuHandled = allSubmitted && engine.readback(targetBitmap)
-                                if (!gpuHandled && strokeGpuEngine === engine) {
-                                    strokeGpuActive = false
-                                    strokeGpuEngine = null
-                                    engine.destroy()
-                                }
+                    // Dabs combine by stroke-wide max, so the drained runs go in as they are and
+                    // the readback is paid once per drain.
+                    val gpuHandled = engine != null &&
+                        GpuBasicStroke.stampRuns(engine, dabGroups, gpuPaint) &&
+                        engine.readback(targetBitmap)
+                    if (engine != null && !gpuHandled) {
+                        synchronized(liveCurveLock) {
+                            if (strokeGpuEngine === engine) {
+                                strokeGpuActive = false
+                                strokeGpuEngine = null
+                                engine.destroy()
                             }
                         }
                     }
