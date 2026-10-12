@@ -286,7 +286,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeShadeImpastoRel
 // engine lacks them). Kotlin's Int arrays carry the straight ARGB words and flags.
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetBegin(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetBegin(
         JNIEnv* env, jobject, jlong handle, jintArray raw, jfloatArray height, jfloatArray wetness,
         jintArray active, jint tileSize, jfloatArray media) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
@@ -315,7 +315,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetBegin(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetBuffer(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetBuffer(
         JNIEnv* env, jobject, jlong handle, jint which, jfloatArray data) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine) return JNI_FALSE;
@@ -329,7 +329,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetBuffer(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetOp(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetOp(
         JNIEnv* env, jobject, jlong handle, jint op, jfloatArray args) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine) return JNI_FALSE;
@@ -343,7 +343,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetOp(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetRead(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetRead(
         JNIEnv* env, jobject, jlong handle, jintArray raw, jfloatArray height, jfloatArray wetness) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !raw || !height || !wetness) return JNI_FALSE;
@@ -364,7 +364,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetRead(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeWetReadFlags(
+Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetReadFlags(
         JNIEnv* env, jobject, jlong handle, jintArray out) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !out) return JNI_FALSE;
@@ -380,4 +380,26 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBeginStroke(JNIEnv*, jobject, jlong handle) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->beginStroke() ? JNI_TRUE : JNI_FALSE;
+}
+
+// Selection at commit (StampEngine's optional selection methods; JNI_FALSE when unsupported).
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSetSelection(
+        JNIEnv* env, jclass, jlong handle, jbyteArray coverage) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine) return JNI_FALSE;
+    if (!coverage) return engine->setSelection(nullptr, 0) ? JNI_TRUE : JNI_FALSE;
+    const jsize len = env->GetArrayLength(coverage);
+    jbyte* data = env->GetByteArrayElements(coverage, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->setSelection(reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len));
+    env->ReleaseByteArrayElements(coverage, data, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSelectionOp(JNIEnv*, jclass, jlong handle, jint op) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->selectionOp(op) ? JNI_TRUE : JNI_FALSE;
 }

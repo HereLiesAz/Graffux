@@ -75,6 +75,7 @@
     <ID>TooGenericExceptionCaught:NativeCrashHandler.kt$NativeCrashHandler$t: Throwable</ID>
     <ID>TooGenericExceptionCaught:SlamManager.kt$SlamManager$e: Exception</ID>
     <ID>TooManyFunctions:SlamManager.kt$SlamManager</ID>
+    <ID>LargeClass:GpuStampEngine.kt$GpuStampEngine</ID>
     <ID>TooManyFunctions:GpuStampEngine.kt$GpuStampEngine</ID>
   </CurrentIssues>
 </SmellBaseline>

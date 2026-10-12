@@ -81,6 +81,15 @@ public:
     bool shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                             float strength) override;
     bool beginStroke() override;
+    bool setSelection(const uint8_t* coverage, size_t len) override;
+    bool selectionOp(int op) override;
+    bool docOpen() override;
+    uint64_t docLayer(int op, uint64_t key, uint64_t other, const int* rect, const uint8_t* rgba,
+                      size_t len) override;
+    bool docLayerDrop(uint64_t key) override;
+    uint64_t docLayerBind(uint64_t key) override;
+    uint64_t docLayerCommit(uint64_t key, uint64_t session, int* outRect) override;
+    bool docLayerRead(uint64_t key, int x, int y, int w, int h, uint8_t* out, size_t len) override;
     bool supportsWet() const override;
     bool wetBegin(const uint32_t* raw, const float* height, const float* wetness, size_t count,
                   const uint32_t* active, size_t tiles, int tileSize, const float* media,

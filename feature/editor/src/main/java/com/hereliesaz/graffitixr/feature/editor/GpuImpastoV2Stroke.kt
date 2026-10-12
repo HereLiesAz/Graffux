@@ -13,6 +13,7 @@ import com.hereliesaz.graffitixr.common.azphalt.WetMaterialTransport
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
+import com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -208,11 +209,11 @@ internal object GpuImpastoV2Stroke {
             coverage: FloatArray?,
         ): Result? {
             val begun = engine.init(width, height) &&
-                engine.wetBegin(
+                GpuWetSimulation(engine).begin(
                     work.rawColor, heightMap, wetness?.snapshot() ?: FloatArray(width * height),
                     activeTiles(), tileSize, mediaTable(),
                 ) &&
-                engine.wetBuffer(GpuStampEngine.WET_COVERAGE, coverage) &&
+                GpuWetSimulation(engine).buffer(GpuWetSimulation.COVERAGE, coverage) &&
                 advanceToStroke(engine) &&
                 paint(engine)
             val contact = if (begun) contact(engine) else null
@@ -226,10 +227,10 @@ internal object GpuImpastoV2Stroke {
 
         /** Each tile's effective medium (ImpastoMaterialReplayState.mediumAt), sanitized. */
         private fun mediaTable(): FloatArray {
-            val out = FloatArray(tiles * GpuStampEngine.WET_MEDIA_FLOATS)
+            val out = FloatArray(tiles * GpuWetSimulation.MEDIA_FLOATS)
             for (t in 0 until tiles) {
                 val m = work.mediumAt((t % cols) * tileSize, (t / cols) * tileSize, medium).sanitized()
-                val o = t * GpuStampEngine.WET_MEDIA_FLOATS
+                val o = t * GpuWetSimulation.MEDIA_FLOATS
                 out[o] = m.viscosity
                 out[o + M_YIELD] = m.yieldLikeStrength
                 out[o + M_LEVELING] = m.levelingRate
@@ -251,12 +252,12 @@ internal object GpuImpastoV2Stroke {
                 val dt = (requireNotNull(next) - requireNotNull(previous)) / MILLIS_PER_SECOND
                 preContact = activeBounds(state)
                 ok = level(engine, dt, preContact) &&
-                    engine.wetOp(
-                        GpuStampEngine.WET_PIGMENT, dt, WetnessReplayState.DEFAULT_PIGMENT_TRANSPORT_RATE,
+                    GpuWetSimulation(engine).op(
+                        GpuWetSimulation.PIGMENT, dt, WetnessReplayState.DEFAULT_PIGMENT_TRANSPORT_RATE,
                         WetMaterialTransport.DEFAULT_ITERATIONS.toFloat(),
                     ) &&
-                    engine.wetOp(
-                        GpuStampEngine.WET_ADVANCE, dt, medium.dryingRate,
+                    GpuWetSimulation(engine).op(
+                        GpuWetSimulation.ADVANCE, dt, medium.dryingRate,
                         WetnessReplayState.DEFAULT_TRANSPORT_RATE, 1f,
                     )
             }
@@ -266,19 +267,19 @@ internal object GpuImpastoV2Stroke {
 
         /** The colour stamped into the raw pigment, kept only through the selection. */
         private fun paint(engine: GpuStampEngine): Boolean =
-            engine.wetOp(GpuStampEngine.WET_SAVE_RAW) &&
-                engine.wetOp(GpuStampEngine.WET_RAW_TO_LAYER) &&
+            GpuWetSimulation(engine).op(GpuWetSimulation.SAVE_RAW) &&
+                GpuWetSimulation(engine).op(GpuWetSimulation.RAW_TO_LAYER) &&
                 GpuStampCommit.stampOnto(engine, batches, StampPaint.of(stroke, brush)) &&
-                engine.wetOp(GpuStampEngine.WET_LAYER_TO_RAW) &&
-                engine.wetOp(GpuStampEngine.WET_BLEND_SELECTION)
+                GpuWetSimulation(engine).op(GpuWetSimulation.LAYER_TO_RAW) &&
+                GpuWetSimulation(engine).op(GpuWetSimulation.BLEND_SELECTION)
 
         private class Contact(val region: DirtyRegion?, val wet: Boolean)
 
         /** Height transfer and wetness deposit; the touched region and whether anything is wet. */
         private fun contact(engine: GpuStampEngine): Contact? {
-            val flat = FloatArray(dabs.size * GpuStampEngine.WET_DAB_FLOATS)
+            val flat = FloatArray(dabs.size * GpuWetSimulation.DAB_FLOATS)
             dabs.forEachIndexed { i, d ->
-                val o = i * GpuStampEngine.WET_DAB_FLOATS
+                val o = i * GpuWetSimulation.DAB_FLOATS
                 flat[o] = d.x
                 flat[o + 1] = d.y
                 flat[o + D_RADIUS] = d.radius
@@ -287,15 +288,15 @@ internal object GpuImpastoV2Stroke {
                 flat[o + D_CONTACT] = d.contactDepth
             }
             val control = IntArray(tiles * 2 + dabs.size)
-            val ok = engine.wetBuffer(GpuStampEngine.WET_DABS, flat) &&
-                engine.wetOp(
-                    GpuStampEngine.WET_TRANSFER, brush.hardness, brush.impastoThicknessRate, medium.heightResponse,
+            val ok = GpuWetSimulation(engine).buffer(GpuWetSimulation.DABS, flat) &&
+                GpuWetSimulation(engine).op(
+                    GpuWetSimulation.TRANSFER, brush.hardness, brush.impastoThicknessRate, medium.heightResponse,
                     medium.depositionRate, medium.pickupRate, medium.substrateResponse, config.initialLoad,
                 ) &&
-                (wetness == null || engine.wetOp(
-                    GpuStampEngine.WET_DEPOSIT, brush.hardness, config.wetness * brush.impastoThicknessRate,
+                (wetness == null || GpuWetSimulation(engine).op(
+                    GpuWetSimulation.DEPOSIT, brush.hardness, config.wetness * brush.impastoThicknessRate,
                 )) &&
-                engine.wetReadControl(control)
+                GpuWetSimulation(engine).readControl(control)
             val wet = (0 until tiles).any { control[it] != 0 }
             return if (ok) Contact(touched(dabs, control, tiles * 2, width, height), wet) else null
         }
@@ -303,14 +304,16 @@ internal object GpuImpastoV2Stroke {
         /** The contacted tiles take the stroke's medium; then the fixed post-contact settle. */
         private fun settle(engine: GpuStampEngine, contact: DirtyRegion?, wet: Boolean): Boolean {
             work.recordMedium(contact, medium)
-            var ok = engine.wetBuffer(GpuStampEngine.WET_MEDIA, mediaTable())
+            var ok = GpuWetSimulation(engine).buffer(GpuWetSimulation.MEDIA, mediaTable())
             if (ok && wetness != null && wet) {
                 val dt = WetnessReplayState.DEFAULT_SETTLE_SECONDS
-                ok = engine.wetOp(
-                    GpuStampEngine.WET_PIGMENT, dt, WetnessReplayState.DEFAULT_PIGMENT_TRANSPORT_RATE,
+                ok = GpuWetSimulation(engine).op(
+                    GpuWetSimulation.PIGMENT, dt, WetnessReplayState.DEFAULT_PIGMENT_TRANSPORT_RATE,
                     WetMaterialTransport.DEFAULT_ITERATIONS.toFloat(),
                 ) &&
-                    engine.wetOp(GpuStampEngine.WET_ADVANCE, dt, 0f, WetnessReplayState.DEFAULT_TRANSPORT_RATE, 0f) &&
+                    GpuWetSimulation(engine).op(
+                        GpuWetSimulation.ADVANCE, dt, 0f, WetnessReplayState.DEFAULT_TRANSPORT_RATE, 0f,
+                    ) &&
                     level(engine, dt, contact)
                 times.second?.let { lastUptime = it }
             }
@@ -319,8 +322,8 @@ internal object GpuImpastoV2Stroke {
 
         private fun level(engine: GpuStampEngine, dt: Float, region: DirtyRegion?): Boolean {
             val r = (region ?: DirtyRegion(0, 0, width, height)).clampTo(width, height)
-            return r.isEmpty || engine.wetOp(
-                GpuStampEngine.WET_LEVEL, dt, ImpastoEngine.DEFAULT_LEVELING_ITERATIONS.toFloat(),
+            return r.isEmpty || GpuWetSimulation(engine).op(
+                GpuWetSimulation.LEVEL, dt, ImpastoEngine.DEFAULT_LEVELING_ITERATIONS.toFloat(),
                 r.left.toFloat(), r.top.toFloat(), r.width.toFloat(), r.height.toFloat(),
             )
         }
@@ -332,10 +335,10 @@ internal object GpuImpastoV2Stroke {
             val shade = unionOf(preContact, contact)?.let {
                 DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1).clampTo(width, height)
             }
-            val ok = engine.wetRead(result.rawOut, result.heightOut, result.wetOut) &&
+            val ok = GpuWetSimulation(engine).read(result.rawOut, result.heightOut, result.wetOut) &&
                 engine.upload(display) &&
-                (shade == null || shade.isEmpty || engine.wetOp(
-                    GpuStampEngine.WET_SHADE, shade.left.toFloat(), shade.top.toFloat(), shade.width.toFloat(),
+                (shade == null || shade.isEmpty || GpuWetSimulation(engine).op(
+                    GpuWetSimulation.SHADE, shade.left.toFloat(), shade.top.toFloat(), shade.width.toFloat(),
                     shade.height.toFloat(), IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
                     IMPASTO_LIGHT_STRENGTH, if (wetness != null) 1f else 0f,
                 )) &&

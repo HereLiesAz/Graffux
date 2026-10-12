@@ -221,6 +221,9 @@ class CalibrationCoordinator(
     }
 
     private suspend fun calibrate(force: Boolean) {
+        // Calibration's engines and the canvas's never coexist: close the document engine (it
+        // waits for a stroke in flight to finish; the next stroke reopens it).
+        com.hereliesaz.graffitixr.nativebridge.GpuStampEngine.trimPool(closeDocument = true)
         val info = probe.identity()
         val stored = info?.takeIf { it.isKnown && !force }?.let { store.load(it.identityKey) }
         _state.value = when {
