@@ -296,6 +296,50 @@ pub unsafe extern "C" fn gfx_wgpu_shade_relief(
     })
 }
 
+// ---- Selection at commit (selection.rs) --------------------------------------------------
+
+/// [`Engine::set_selection`] from `len` coverage bytes, or [`Engine::clear_selection`] when
+/// `coverage` is null.
+///
+/// # Safety
+/// `coverage` must point to `len` readable bytes, or be null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_selection(
+    e: *mut Engine,
+    coverage: *const u8,
+    len: usize,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| {
+            if coverage.is_null() {
+                e.clear_selection();
+                true
+            } else {
+                e.set_selection(slice(coverage, len))
+            }
+        })
+    })
+}
+
+/// `op` 0: [`Engine::take_stroke_shadow`]; 1: [`Engine::confine_stroke`] over the stroke's own
+/// rectangle with the hard clip; 2: the same, feathered.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_selection_op(e: *mut Engine, op: i32) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| match op {
+            0 => e.take_stroke_shadow(),
+            1 | 2 => {
+                let r = e.stroke_rect();
+                e.confine_stroke(r.x, r.y, r.w, r.h, op == 2)
+            }
+            _ => false,
+        })
+    })
+}
+
 // ---- Document store (docstore.rs): canonical GPU layers ------------------------------------
 
 /// [`Engine::doc_open`].

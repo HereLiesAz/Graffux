@@ -381,3 +381,25 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBeginStroke(JNI
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->beginStroke() ? JNI_TRUE : JNI_FALSE;
 }
+
+// Selection at commit (StampEngine's optional selection methods; JNI_FALSE when unsupported).
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSetSelection(
+        JNIEnv* env, jclass, jlong handle, jbyteArray coverage) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine) return JNI_FALSE;
+    if (!coverage) return engine->setSelection(nullptr, 0) ? JNI_TRUE : JNI_FALSE;
+    const jsize len = env->GetArrayLength(coverage);
+    jbyte* data = env->GetByteArrayElements(coverage, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->setSelection(reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len));
+    env->ReleaseByteArrayElements(coverage, data, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSelectionOp(JNIEnv*, jclass, jlong handle, jint op) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->selectionOp(op) ? JNI_TRUE : JNI_FALSE;
+}

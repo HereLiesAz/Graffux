@@ -1129,6 +1129,8 @@ class EditorViewModel @Inject constructor(
     private val stampGeneratedHeldDabs = ArrayList<Dab>()
     private var stampAirbrushConsumedSampleCount: Int = 0
     private var stampGpuEngine: GpuStampEngine? = null
+    /** The live stamp stroke's selection, prepared on its engine for the GPU commit (GpuStrokeSelection). */
+    private var stampGpuSelection: GpuStrokeSelection.Prepared? = null
     private var stampGpuActive: Boolean = false
     private var stampGpuUsesMaskedPipeline: Boolean = false
     private var stampGpuMaskAlpha8: ByteArray? = null
@@ -1158,6 +1160,8 @@ class EditorViewModel @Inject constructor(
     // stampLiveBitmap) since it's set once, early, by onStrokeStart's async setup — the same
     // `workBitmap` local that later becomes strokeWorkingBitmap.
     private var strokeGpuEngine: GpuStampEngine? = null
+    /** The live Basic Brush stroke's selection, prepared on its engine for the GPU commit. */
+    private var strokeGpuSelection: GpuStrokeSelection.Prepared? = null
     private var strokeGpuActive: Boolean = false
     // Basic Brush now uses the same one-worker/lossless-coalescing scheduling contract as Azphalt
     // stamp brushes. Its geometry is still the existing Catmull-Rom -> round-dab path; only the
@@ -4721,6 +4725,13 @@ class EditorViewModel @Inject constructor(
                     null
                 }
                 val gpuReady = gpuEngine != null
+                // The selection confines the stroke on the GPU at commit: its coverage goes to the
+                // engine and the engine keeps the layer as it is, before any dab lands.
+                val gpuSelection = gpuEngine?.let {
+                    GpuStrokeSelection.prepare(
+                        it, strokeSelection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
+                    )
+                }
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
                 // copy of the layer's committed base, never the shared instance itself, so a
                 // discarded/failed live preview can never corrupt it) plus a second, display-only
@@ -4811,6 +4822,7 @@ class EditorViewModel @Inject constructor(
                         // comment for why an unlocked write here would leave that read unsafe.
                         synchronized(stampLiveLock) {
                             stampGpuEngine = if (gpuReady) gpuEngine else null
+                            stampGpuSelection = gpuSelection
                             stampGpuActive = gpuReady
                             stampGpuDirect = wgpuDirectStarted
                         }
@@ -4964,6 +4976,13 @@ class EditorViewModel @Inject constructor(
                 residentStroke = null
                 null
             }
+            // The selection confines the stroke on the GPU at commit (see GpuStrokeSelection).
+            val createdGpuSelection = createdGpuEngine?.let {
+                GpuStrokeSelection.prepare(
+                    it, strokeSelection, workBitmap.width, workBitmap.height,
+                    layer.scale, layer.offset, layer.rotationZ,
+                )
+            }
             val gpuEngine = synchronized(liveCurveLock) {
                 if (generation != strokeGeneration || strokeLayerId != layerId) {
                     createdGpuEngine?.destroy()
@@ -4974,6 +4993,7 @@ class EditorViewModel @Inject constructor(
                     // is cheap to call defensively and a leaked GPU device is not).
                     strokeGpuEngine?.destroy()
                     strokeGpuEngine = createdGpuEngine
+                    strokeGpuSelection = createdGpuSelection
                     strokeGpuActive = createdGpuEngine != null
                     residentTicket = residentStroke?.takeIf { createdGpuEngine != null }?.let {
                         ResidentTicket(generation, layerId, originalBitmap, it)
@@ -6435,7 +6455,7 @@ class EditorViewModel @Inject constructor(
                         val live = basicHandoff?.let { finishLiveBasic(it, base, command) }
                         val committed = live ?: drawingEngine.applySingleStroke(base, command)
                         // Unselected, the live GPU layer is exactly what was committed.
-                        val gpuCommitted = live != null && command.selection == null
+                        val gpuCommitted = live != null
                         val residentChanged = residentChangedRect(ticket, base, committed)
                         withContext(dispatchers.main) {
                             _uiState.update { s ->
@@ -6632,7 +6652,7 @@ class EditorViewModel @Inject constructor(
                 // finishing it fails) the stroke painted again from its recorded dabs.
                 finishLiveStamp(handoff, base, command, brush)
                     ?.also { live ->
-                        gpuCommitted = command.selection == null
+                        gpuCommitted = true
                         materialWorking?.replaceRawColor(bitmapPixels(live))
                     }
                     ?: drawingEngine.applySingleStroke(
@@ -6737,6 +6757,8 @@ class EditorViewModel @Inject constructor(
         val leftover: Pair<List<Dab>, List<Dab>>,
         /** The whole stroke's (movement, held) stamping calls, flattened; see StrokeCommand. */
         val batches: List<Int>,
+        /** The stroke's selection, prepared on [engine] at its start; null without one. */
+        val selection: GpuStrokeSelection.Prepared? = null,
     )
 
     /**
@@ -6755,7 +6777,10 @@ class EditorViewModel @Inject constructor(
             stampGpuEngine = null
             stampGpuActive = false
         }
-        LiveStampHandoff(engine, stampLiveBitmap, stampGpuJob, movement to held, stampBatchLog.toList())
+        LiveStampHandoff(
+            engine, stampLiveBitmap, stampGpuJob, movement to held, stampBatchLog.toList(),
+            stampGpuSelection.takeIf { engine != null },
+        )
     }
 
     /**
@@ -6774,25 +6799,25 @@ class EditorViewModel @Inject constructor(
         val work = handoff.work?.takeIf { !it.isRecycled && it.width == base.width && it.height == base.height }
         return try {
             handoff.worker?.join()
-            val painted = work?.takeIf {
+            // The selection confines the stroke on the GPU before the one readback. A selection the
+            // stroke couldn't prepare on its engine leaves the commit to the replay path, which masks.
+            work?.takeIf {
                 GpuStampCommit.stampOnto(engine, listOf(handoff.leftover), StampPaint.of(command, brush)) &&
+                    confinedOnGpu(engine, command, handoff.selection) &&
                     engine.readback(it)
             }?.let { SafeBitmap.copy(it) }
-            painted?.let {
-                val clipPath = SelectionMask.bitmapPath(
-                    command.selection, base.width, base.height,
-                    command.layerScale, command.layerOffset, command.layerRotationZ,
-                )
-                val featherRadius = SelectionMask.featherRadius(
-                    command.selection, base.width, base.height, command.layerScale,
-                )
-                val paintClip = SelectionMask.paintClip(clipPath, featherRadius)
-                SelectionMask.feather(base, GpuStampCommit.keepInside(base, it, paintClip), clipPath, featherRadius)
-            }
         } finally {
             engine.destroy()
         }
     }
+
+    /** [command]'s selection applied to its stroke on [engine] (true when it has none). */
+    private fun confinedOnGpu(
+        engine: GpuStampEngine,
+        command: StrokeCommand,
+        prepared: GpuStrokeSelection.Prepared?,
+    ): Boolean = command.selection?.isUsable != true ||
+        prepared != null && GpuStrokeSelection.confine(engine, prepared)
 
     /** A live Basic Brush stroke's GPU engine and unpainted runs, taken over by its commit. */
     private class LiveBasicHandoff(
@@ -6804,6 +6829,8 @@ class EditorViewModel @Inject constructor(
         val leftover: List<List<BrushDab>>,
         /** Segments whose runs were generated live (stamped or in [leftover]). */
         val generatedRuns: Int,
+        /** The stroke's selection, prepared on [engine] at its start; null without one. */
+        val selection: GpuStrokeSelection.Prepared? = null,
     )
 
     /**
@@ -6817,6 +6844,7 @@ class EditorViewModel @Inject constructor(
                 strokeGpuActive = false
                 LiveBasicHandoff(
                     engine, work, basicGpuJob, basicPendingDabs.drain().map { it.second }, liveCurveFinalizedCount,
+                    strokeGpuSelection,
                 )
             }
         }
@@ -6847,20 +6875,11 @@ class EditorViewModel @Inject constructor(
             )
             val missing = handoff.leftover + runs.drop(handoff.generatedRuns)
             val paint = BasicPaint.of(command.brushColor, command.opacity, command.feathering)
-            work?.takeIf { GpuBasicStroke.stampRuns(handoff.engine, missing, paint) && handoff.engine.readback(it) }
-                ?.let { SafeBitmap.copy(it) }
-                ?.let { painted ->
-                    val clipPath = SelectionMask.bitmapPath(
-                        command.selection, base.width, base.height,
-                        command.layerScale, command.layerOffset, command.layerRotationZ,
-                    )
-                    val featherRadius = SelectionMask.featherRadius(
-                        command.selection, base.width, base.height, command.layerScale,
-                    )
-                    val paintClip = SelectionMask.paintClip(clipPath, featherRadius)
-                    val kept = GpuStampCommit.keepInside(base, painted, paintClip)
-                    SelectionMask.feather(base, kept, clipPath, featherRadius)
-                }
+            work?.takeIf {
+                GpuBasicStroke.stampRuns(handoff.engine, missing, paint) &&
+                    confinedOnGpu(handoff.engine, command, handoff.selection) &&
+                    handoff.engine.readback(it)
+            }?.let { SafeBitmap.copy(it) }
         } finally {
             handoff.engine.destroy()
         }

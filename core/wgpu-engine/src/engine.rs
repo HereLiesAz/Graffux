@@ -28,6 +28,9 @@ mod impasto;
 pub use impasto::{height_region, HeightDab, IMPASTO_WGSL};
 #[path = "docstore.rs"]
 mod docstore;
+#[path = "selection.rs"]
+mod selection;
+pub use selection::SELECTION_WGSL;
 #[path = "wet.rs"]
 mod wet;
 pub use wet::{MaterialDab, WET_FLAG_HEIGHT, WET_FLAG_WETNESS, WET_MEDIA_FLOATS, WET_WGSL};
@@ -412,6 +415,8 @@ pub struct Engine {
     session: u64,
     next_session: u64,
     residents: ResidentSet<wgpu::Buffer>,
+    /// The selection mask and stroke shadow (selection.rs), created on first use.
+    selection: Option<selection::SelectionGpu>,
     /// Document mode (docstore.rs): resident layers are canonical, never evicted.
     doc_mode: bool,
     /// The document store's generation counter.
@@ -852,6 +857,7 @@ impl Engine {
             session: 0,
             next_session: 1,
             residents: ResidentSet::new(DEFAULT_BUDGET_BYTES),
+            selection: None,
             doc_mode: false,
             doc_gen: 0,
             staging,

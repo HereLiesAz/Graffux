@@ -291,6 +291,16 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   stroke binds and commits its layer in place (the commit reports the painted rectangle). Reads and
   writes are explicit rectangles (`GpuDocumentLayers`). This is the store the GPU-canonical layers
   build on; the editor does not enter document mode yet.
+- **Selection at commit on the GPU (`selection.rs`, `GpuStrokeSelection`).** A live stroke under a
+  selection uploads the selection's per-pixel coverage to its engine at the stroke's start (the
+  antialiased clip, or the feathered mask; rasterized once per selection, size and layer transform,
+  and cached) and the engine keeps a copy of the layer as it is. At commit, before the one readback,
+  the paint is blended back over that copy through the coverage: `lerp(before, painted, m)` for a
+  hard selection, `painted·m` over `before` for a feathered one -- the composites the CPU commit made
+  with `GpuStampCommit.keepInside` and `SelectionMask.feather`, which the live commits no longer
+  call. The committed layer is then exactly the GPU's, so the resident copy is retagged rather than
+  re-uploaded under a selection too. `tests/selection.rs` checks both composites against a CPU
+  reference.
 - **Replay on one engine (Android).** `DrawingEngine.composite` (undo/redo rebuilds, stroke
   baking) paints runs of plain stamp-brush and Basic Brush strokes through one
   `GpuReplaySession`: one upload before the run, `begin_stroke` between strokes (stroke-max state

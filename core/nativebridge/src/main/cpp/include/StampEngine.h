@@ -195,6 +195,11 @@ public:
     // ARGB raw pigment, height and wetness per pixel, an active flag per tile and a media table;
     // wetBuffer replaces the media (0), selection coverage (1, null = none) or dabs (2); wetOp runs
     // one numbered step.
+    // Selection at commit (optional; false = unsupported): the selection's per-pixel coverage
+    // (null clears it), and selectionOp 0 = keep the layer as the stroke starts, 1 = confine the
+    // stroke to the selection (hard clip), 2 = the same, feathered.
+    virtual bool setSelection(const uint8_t* /*coverage*/, size_t /*len*/) { return false; }
+    virtual bool selectionOp(int /*op*/) { return false; }
     // Document store (optional; false/0 = unsupported): layers kept on the GPU as their canonical
     // copy. docLayer ops: 0 put (whole layer), 1 clear, 2 write rect, 3 copy `other` into `key`,
     // 4 generation; each returns the layer's new generation, 0 on failure.

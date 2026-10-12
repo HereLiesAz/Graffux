@@ -75,6 +75,9 @@ struct Api {
     uint64_t (*docLayerBind)(GfxWgpuEngine*, uint64_t);
     uint64_t (*docLayerCommit)(GfxWgpuEngine*, uint64_t, uint64_t, int32_t*);
     bool (*docLayerRead)(GfxWgpuEngine*, uint64_t, int32_t, int32_t, int32_t, int32_t, uint8_t*, size_t);
+    // Optional, all or nothing: selection at commit.
+    bool (*setSelection)(GfxWgpuEngine*, const uint8_t*, size_t);
+    bool (*selectionOp)(GfxWgpuEngine*, int32_t);
     // Optional: a new stroke on the layer as it is.
     bool (*beginStroke)(GfxWgpuEngine*);
     // Optional, all or nothing: impasto v2's wet material simulation.
@@ -156,6 +159,9 @@ void load() {
                              optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
+        const bool selection = optional(lib, "gfx_wgpu_set_selection", a.setSelection) &&
+                               optional(lib, "gfx_wgpu_selection_op", a.selectionOp);
+        if (!selection) a.setSelection = nullptr;  // all or nothing
         const bool doc = optional(lib, "gfx_wgpu_doc_open", a.docOpen) &&
                          optional(lib, "gfx_wgpu_doc_layer", a.docLayer) &&
                          optional(lib, "gfx_wgpu_doc_layer_drop", a.docLayerDrop) &&
@@ -394,6 +400,14 @@ uint64_t WgpuStampEngine::docLayerCommit(uint64_t key, uint64_t session, int* ou
 
 bool WgpuStampEngine::docLayerRead(uint64_t key, int x, int y, int w, int h, uint8_t* out, size_t len) {
     return engine_ != nullptr && gApi.docOpen != nullptr && gApi.docLayerRead(engine_, key, x, y, w, h, out, len);
+}
+
+bool WgpuStampEngine::setSelection(const uint8_t* coverage, size_t len) {
+    return engine_ != nullptr && gApi.setSelection != nullptr && gApi.setSelection(engine_, coverage, len);
+}
+
+bool WgpuStampEngine::selectionOp(int op) {
+    return engine_ != nullptr && gApi.setSelection != nullptr && gApi.selectionOp(engine_, op);
 }
 
 bool WgpuStampEngine::beginStroke() {
