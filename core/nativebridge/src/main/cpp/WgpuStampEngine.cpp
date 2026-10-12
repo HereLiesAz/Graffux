@@ -63,6 +63,11 @@ struct Api {
     int32_t (*refine)(GfxWgpuEngine*, float);
     bool (*flush)(GfxWgpuEngine*);
     size_t (*multipassStats)(GfxWgpuEngine*, double*, size_t);
+    // Optional, all or nothing: impasto v1 height and relief.
+    bool (*uploadHeight)(GfxWgpuEngine*, const float*, int32_t);
+    bool (*readHeight)(GfxWgpuEngine*, float*, int32_t);
+    bool (*depositHeight)(GfxWgpuEngine*, const float*, int32_t, float, float);
+    bool (*shadeRelief)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, float, float, float);
     // Optional (per-device tuning, telemetry): an older library creates untuned and reports
     // no GPU info or timings, so telemetry falls back to CPU wall time.
     GfxWgpuEngine* (*createTuned)(int32_t, int32_t, int32_t, int32_t, bool);
@@ -129,6 +134,11 @@ void load() {
                                optional(lib, "gfx_wgpu_flush", a.flush) &&
                                optional(lib, "gfx_wgpu_multipass_stats", a.multipassStats);
         if (!multipass) a.setMultipass = nullptr;  // all or nothing
+        const bool impasto = optional(lib, "gfx_wgpu_upload_height", a.uploadHeight) &&
+                             optional(lib, "gfx_wgpu_read_height", a.readHeight) &&
+                             optional(lib, "gfx_wgpu_deposit_height", a.depositHeight) &&
+                             optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
+        if (!impasto) a.uploadHeight = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_create_tuned", a.createTuned);
         optional(lib, "gfx_wgpu_gpu_info", a.gpuInfo);
         optional(lib, "gfx_wgpu_take_pass_timings", a.takePassTimings);
@@ -301,6 +311,31 @@ int WgpuStampEngine::refine(float budgetMs) {
 bool WgpuStampEngine::flushMultipass() {
     if (engine_ == nullptr || gApi.setMultipass == nullptr) return true;
     return gApi.flush(engine_);
+}
+
+bool WgpuStampEngine::supportsImpasto() const {
+    return engine_ != nullptr && gApi.uploadHeight != nullptr;
+}
+
+bool WgpuStampEngine::uploadImpastoHeight(const float* heights, size_t count) {
+    return supportsImpasto() && heights != nullptr &&
+           gApi.uploadHeight(engine_, heights, static_cast<int32_t>(count));
+}
+
+bool WgpuStampEngine::readImpastoHeight(float* out, size_t count) {
+    return supportsImpasto() && out != nullptr && gApi.readHeight(engine_, out, static_cast<int32_t>(count));
+}
+
+bool WgpuStampEngine::depositImpastoHeight(const float* dabs, size_t dabCount, float hardness,
+                                           float thickness) {
+    return supportsImpasto() &&
+           gApi.depositHeight(engine_, dabs, static_cast<int32_t>(dabCount), hardness, thickness);
+}
+
+bool WgpuStampEngine::shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg,
+                                         float elevationDeg, float strength) {
+    return supportsImpasto() &&
+           gApi.shadeRelief(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
 }
 
 size_t WgpuStampEngine::multipassStats(double* out, size_t count) {

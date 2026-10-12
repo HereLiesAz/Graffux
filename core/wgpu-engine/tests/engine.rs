@@ -98,6 +98,7 @@ fn shaders_validate_with_naga() {
         ("draft_stamp", graffux_wgpu::engine::DRAFT_STAMP_WGSL),
         ("draft_masked", graffux_wgpu::engine::DRAFT_MASKED_WGSL),
         ("display", graffux_wgpu::engine::DISPLAY_WGSL),
+        ("impasto", graffux_wgpu::engine::IMPASTO_WGSL),
     ] {
         let module = naga::front::wgsl::parse_str(src)
             .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));

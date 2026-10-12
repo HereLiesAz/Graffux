@@ -23,6 +23,9 @@ pub use multipass::{
 };
 #[path = "direct.rs"]
 pub mod direct;
+#[path = "impasto.rs"]
+mod impasto;
+pub use impasto::{height_region, HeightDab, IMPASTO_WGSL};
 
 
 /// Default stamp workgroup edge (16x16 = 256 invocations). Overridable per GPU family through
@@ -408,6 +411,8 @@ pub struct Engine {
     staging: wgpu::Buffer,
     stroke_state: Option<wgpu::Buffer>,
     stroke_state_dirty: bool,
+    /// Impasto height and its pipelines (impasto.rs), created on first use.
+    impasto: Option<impasto::ImpastoGpu>,
     placeholder_state: wgpu::Buffer,
     dab_buffer: GrowBuffer,
     secondary_buffer: GrowBuffer,
@@ -830,6 +835,7 @@ impl Engine {
             staging,
             stroke_state: None,
             stroke_state_dirty: true,
+            impasto: None,
             placeholder_state,
             dab_buffer,
             secondary_buffer,

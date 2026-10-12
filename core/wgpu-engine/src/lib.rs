@@ -18,7 +18,8 @@ pub mod timing;
 pub use wgpu;
 
 pub use engine::{
-    BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab,
-    MaskedParams, MultipassConfig, MultipassStats, SubstrateParams, DEFAULT_STAMP_TILE,
+    height_region, BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, EngineOptions, GpuDab,
+    GpuSecondaryDab, HeightDab, MaskedParams, MultipassConfig, MultipassStats, SubstrateParams,
+    DEFAULT_STAMP_TILE, IMPASTO_WGSL,
 };
 pub use timing::PassKind;

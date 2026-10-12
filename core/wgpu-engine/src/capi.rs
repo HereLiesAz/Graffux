@@ -6,7 +6,7 @@
 use std::ffi::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use crate::engine::{
+use crate::engine::{HeightDab, 
     BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
     MultipassStats, SubstrateParams,
     EngineOptions,
@@ -208,6 +208,73 @@ pub unsafe extern "C" fn gfx_wgpu_upload_paint_height(
         }
         engine(e).is_some_and(|e| {
             e.upload_paint_height(slice(data, (width * height) as usize), width, height)
+        })
+    })
+}
+
+/// Impasto height: `data` must point to `width*height` floats (the layer's size).
+///
+/// # Safety
+/// `data` must point to `width*height` floats.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_upload_height(e: *mut Engine, data: *const f32, count: i32) -> bool {
+    guard(false, || {
+        if data.is_null() || count <= 0 {
+            return false;
+        }
+        engine(e).is_some_and(|e| e.upload_height(slice(data, count as usize)))
+    })
+}
+
+/// # Safety
+/// `out` must point to `count` writable floats, at least the layer's pixel count.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_read_height(e: *mut Engine, out: *mut f32, count: i32) -> bool {
+    guard(false, || {
+        if out.is_null() || count <= 0 {
+            return false;
+        }
+        // SAFETY: the caller passes `count` writable floats.
+        let out = unsafe { std::slice::from_raw_parts_mut(out, count as usize) };
+        engine(e).is_some_and(|e| e.read_height(out))
+    })
+}
+
+/// # Safety
+/// `dabs` must point to `count` 16-byte `HeightDab` records (x, y, radius, strength).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_deposit_height(
+    e: *mut Engine,
+    dabs: *const HeightDab,
+    count: i32,
+    hardness: f32,
+    thickness: f32,
+) -> bool {
+    guard(false, || {
+        if count < 0 {
+            return false;
+        }
+        engine(e).is_some_and(|e| e.deposit_height(slice(dabs, count as usize), hardness, thickness))
+    })
+}
+
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_shade_relief(
+    e: *mut Engine,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    light_azimuth_deg: f32,
+    light_elevation_deg: f32,
+    strength: f32,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| {
+            e.shade_relief(x, y, w, h, light_azimuth_deg, light_elevation_deg, strength)
         })
     })
 }

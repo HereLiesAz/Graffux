@@ -18,15 +18,31 @@ import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
 
+/** How a stamp stroke's dabs are coloured and textured: everything but the dabs themselves. */
+internal data class StampPaint(
+    val brush: AzphaltBrush,
+    val colorArgb: Int,
+    val secondaryColorArgb: Int,
+    val flow: Float,
+    val shape: Bitmap?,
+    val grain: Bitmap?,
+    val maskShape: Bitmap?,
+    val seed: Long,
+) {
+    companion object {
+        fun of(stroke: StrokeCommand, brush: AzphaltBrush) = StampPaint(
+            brush, stroke.brushColor, stroke.secondaryBrushColor, stroke.flow,
+            stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+        )
+    }
+}
+
 /**
- * A stamp-brush stroke's committed pixels, rendered on the GPU (wgpu): the stroke's canonical dab
- * list stamped through the same shaders, with the same per-dab resolution, as the live stroke
- * (EditorViewModel.renderStampLive), then read back once. Commit and undo/redo replay both reach
- * this through DrawingEngine, so the committed layer is the GPU's paint, not a CPU re-render.
- *
- * Movement dabs go in one call, held (airbrush) dabs in a second with build-up on, matching the
- * live split. [render] returns false when the GPU is unavailable or a stage fails; [target] is then
- * left partly painted and the caller must start over from the pristine base.
+ * Stamp-brush paint on the GPU (wgpu), through the same shaders and per-dab resolution as the live
+ * stroke (EditorViewModel.renderStampLive). [stampOnto] finishes a live stroke on its own engine;
+ * [paintStroke] renders a recorded stroke from scratch for undo/redo replay (and for a commit whose
+ * live stroke wasn't on the GPU). Each batch stamps its movement dabs, then its held (airbrush) dabs
+ * with build-up on, in the order the live stroke did.
  */
 internal object GpuStampCommit {
 
@@ -50,10 +66,8 @@ internal object GpuStampCommit {
         val height = bitmap.height
         val (movementDabs, heldDabs) = StrokeDabs.recorded(stroke, brush, mapped, brushScale, width, height)
             ?: (StrokeDabs.fromPath(stroke, brush, mapped, brushScale, width, height) to emptyList())
-        val painted = target != null && render(
-            target, movementDabs, heldDabs, brush, stroke.brushColor, stroke.secondaryBrushColor,
-            stroke.flow, stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-        )
+        val batches = StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
+        val painted = target != null && render(target, batches, StampPaint.of(stroke, brush))
         if (!painted) target?.recycle()
         return target.takeIf { painted }
     }
@@ -68,21 +82,12 @@ internal object GpuStampCommit {
         return out
     }
 
-    @Suppress("LongParameterList")
-    fun render(
-        target: Bitmap,
-        movementDabs: List<Dab>,
-        heldDabs: List<Dab>,
-        brush: AzphaltBrush,
-        colorArgb: Int,
-        secondaryColorArgb: Int,
-        flow: Float,
-        shape: Bitmap?,
-        grain: Bitmap?,
-        maskShape: Bitmap?,
-        seed: Long,
-    ): Boolean {
-        if (movementDabs.isEmpty() && heldDabs.isEmpty()) return true
+    /**
+     * [batches] stamped onto [target] on a fresh engine, then read back once. False when the GPU is
+     * unavailable or a stage fails; [target] is then left partly painted.
+     */
+    private fun render(target: Bitmap, batches: List<Pair<List<Dab>, List<Dab>>>, paint: StampPaint): Boolean {
+        if (batches.all { (m, h) -> m.isEmpty() && h.isEmpty() }) return true
         // Calibration's engines and the canvas's never coexist (GpuCalibration.stopForCanvas).
         // This runs on a commit worker, never on the touch path, so waiting here delays only the
         // commit, not the stroke on screen.
@@ -91,10 +96,7 @@ internal object GpuStampCommit {
         return engine != null && try {
             engine.init(target.width, target.height) &&
                 engine.upload(target) &&
-                stampAll(
-                    engine, movementDabs, heldDabs, brush, colorArgb, secondaryColorArgb,
-                    flow, shape, grain, maskShape, seed,
-                ) &&
+                stampOnto(engine, batches, paint) &&
                 engine.readback(target)
         } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
             Log.w(TAG, "GPU stamp commit failed; the CPU renderer takes this stroke", e)
@@ -104,63 +106,50 @@ internal object GpuStampCommit {
         }
     }
 
-    @Suppress("LongParameterList")
-    private fun stampAll(
-        engine: GpuStampEngine,
-        movementDabs: List<Dab>,
-        heldDabs: List<Dab>,
-        brush: AzphaltBrush,
-        colorArgb: Int,
-        secondaryColorArgb: Int,
-        flow: Float,
-        shape: Bitmap?,
-        grain: Bitmap?,
-        maskShape: Bitmap?,
-        seed: Long,
-    ): Boolean {
-        val baseFlow = flow.coerceIn(0f, 1f)
-        if (!gpuPipelineUsesMaskedShader(brush, shape, grain)) {
-            fun resolve(dab: Dab) = ResolvedBrushDab(
-                x = dab.x,
-                y = dab.y,
-                radius = dab.radius,
-                alpha = dab.alpha,
-                angleDeg = dab.angleDeg,
-                colorArgb = StampBrushRenderer.resolvedColor(colorArgb, secondaryColorArgb, brush, dab),
-                flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
-                hardness = dab.hardness,
-                contactDepth = dab.contactDepth,
-            )
-            return (movementDabs.isEmpty() ||
-                engine.stampResolvedDabs(movementDabs.map(::resolve), buildUp = brush.buildUp, strokeMax = true)) &&
-                (heldDabs.isEmpty() || engine.stampResolvedDabs(heldDabs.map(::resolve), buildUp = true))
+    /** [batches] stamped onto [engine]'s layer in order. Doesn't read back. */
+    fun stampOnto(engine: GpuStampEngine, batches: List<Pair<List<Dab>, List<Dab>>>, paint: StampPaint): Boolean {
+        val brush = paint.brush
+        val baseFlow = paint.flow.coerceIn(0f, 1f)
+        if (gpuPipelineUsesMaskedShader(brush, paint.shape, paint.grain)) {
+            val stamper = MaskedStamper(engine, paint, baseFlow)
+            return batches.all { (movement, held) -> stamper.stampAll(movement, held) }
         }
-        return MaskedStamper(engine, brush, colorArgb, secondaryColorArgb, baseFlow, shape, grain, maskShape, seed)
-            .stampAll(movementDabs, heldDabs)
+        fun resolve(dab: Dab) = ResolvedBrushDab(
+            x = dab.x,
+            y = dab.y,
+            radius = dab.radius,
+            alpha = dab.alpha,
+            angleDeg = dab.angleDeg,
+            colorArgb = StampBrushRenderer.resolvedColor(paint.colorArgb, paint.secondaryColorArgb, brush, dab),
+            flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
+            hardness = dab.hardness,
+            contactDepth = dab.contactDepth,
+        )
+        return batches.all { (movement, held) ->
+            (movement.isEmpty() ||
+                engine.stampResolvedDabs(movement.map(::resolve), buildUp = brush.buildUp, strokeMax = true)) &&
+                (held.isEmpty() || engine.stampResolvedDabs(held.map(::resolve), buildUp = true))
+        }
     }
 }
 
 /** The masked-shader half of [GpuStampCommit]: tip, grain and secondary masks resolved once. */
-@Suppress("LongParameterList")
 private class MaskedStamper(
     private val engine: GpuStampEngine,
-    private val brush: AzphaltBrush,
-    private val colorArgb: Int,
-    private val secondaryColorArgb: Int,
+    paint: StampPaint,
     private val baseFlow: Float,
-    shape: Bitmap?,
-    grain: Bitmap?,
-    maskShape: Bitmap?,
-    seed: Long,
 ) {
+    private val brush = paint.brush
+    private val colorArgb = paint.colorArgb
+    private val secondaryColorArgb = paint.secondaryColorArgb
     private val mask = alphaChannelBytes(
-        BrushTipMaskCache.tipMask(shape, GPU_MASK_REFERENCE_SIZE, GPU_MASK_REFERENCE_SIZE, brush.hardness),
+        BrushTipMaskCache.tipMask(paint.shape, GPU_MASK_REFERENCE_SIZE, GPU_MASK_REFERENCE_SIZE, brush.hardness),
     )
-    private val grainResolution = resolveGrainTileAndPhase(grain, brush, seed)
+    private val grainResolution = resolveGrainTileAndPhase(paint.grain, brush, paint.seed)
     private val grainAlpha8 = grainResolution.tile?.let(::alphaChannelBytes)
     private val secondaryMask = brush.maskedBrush?.let {
         alphaChannelBytes(
-            BrushTipMaskCache.tipMask(maskShape, GPU_MASK_REFERENCE_SIZE, GPU_MASK_REFERENCE_SIZE, it.hardness),
+            BrushTipMaskCache.tipMask(paint.maskShape, GPU_MASK_REFERENCE_SIZE, GPU_MASK_REFERENCE_SIZE, it.hardness),
         )
     }
     private val secondaryMaskSize = if (secondaryMask != null) GPU_MASK_REFERENCE_SIZE else 0

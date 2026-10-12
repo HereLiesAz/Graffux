@@ -180,6 +180,16 @@ public:
     virtual bool flushMultipass() { return true; }
     // Diagnostics doubles written (0 = unsupported).
     virtual size_t multipassStats(double* /*out*/, size_t /*count*/) { return 0; }
+
+    // Impasto v1 (optional; false = unsupported, and the caller takes the CPU path). The height is
+    // one float per layer pixel, row-major; dabs are (x, y, radius, strength) quadruples.
+    virtual bool supportsImpasto() const { return false; }
+    virtual bool uploadImpastoHeight(const float* /*heights*/, size_t /*count*/) { return false; }
+    virtual bool readImpastoHeight(float* /*out*/, size_t /*count*/) { return false; }
+    virtual bool depositImpastoHeight(const float* /*dabs*/, size_t /*dabCount*/, float /*hardness*/,
+                                      float /*thickness*/) { return false; }
+    virtual bool shadeImpastoRelief(int /*x*/, int /*y*/, int /*w*/, int /*h*/, float /*azimuthDeg*/,
+                                    float /*elevationDeg*/, float /*strength*/) { return false; }
     // ---- Optional: direct display (graffux_wgpu.h gfx_wgpu_direct_*) -------------------------
     // The engine presents the live stroke into a surface made from `window` (the overlay
     // SurfaceView's), straight from its GPU buffers. Defaults: unsupported, callers keep readback

@@ -212,6 +212,17 @@ internal class DrawingEngine(
             // The GPU paints the stroke (GpuStampCommit). Impasto and substrate strokes carry CPU
             // material state (height, wetness, substrate relief) the GPU commit doesn't model yet,
             // so they, and a device with no usable GPU, take the CPU renderer below.
+            // Impasto v1 runs on the GPU too (GpuImpastoStroke): colour, height deposit and relief in
+            // one engine session. Not yet under a selection: the CPU deposits and shades outside it
+            // while clipping only the colour, which the GPU session doesn't reproduce.
+            val impastoV1OnGpu = substrate == null && paintClip == null && heightMap != null &&
+                brush.impastoThicknessRate > 0f && heightMap.size == bitmap.width * bitmap.height &&
+                !brush.impastoMaterial.sanitized().usesV2
+            if (impastoV1OnGpu && heightMap != null) {
+                GpuImpastoStroke.paintStroke(bitmap, stroke, brush, mapped, brushScale, heightMap)?.let { painted ->
+                    return SelectionMask.feather(bitmap, painted, clipPath, featherRadius)
+                }
+            }
             val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
             val gpuPainted = if (gpuEligible) {
                 GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
@@ -345,17 +356,26 @@ internal class DrawingEngine(
             val recorded = StrokeDabs.recorded(stroke, brush, mapped, brushScale, target.width, target.height)
             if (recorded != null) {
                 val (movementDabs, heldDabs) = recorded
-                StampBrushRenderer.paintDabs(
-                    stampCanvas, movementDabs, brush, stroke.brushColor, stroke.flow,
-                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                    stroke.secondaryBrushColor, substrate = substrate,
-                )
-                if (heldDabs.isNotEmpty()) {
+                // Held dabs follow the live stroke's interleaving (StrokeDabs.batches); without
+                // any, the movement dabs go in one call, the CPU's whole-stroke max-combine.
+                val batches = if (heldDabs.isEmpty()) {
+                    listOf(movementDabs to heldDabs)
+                } else {
+                    StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
+                }
+                for ((movement, held) in batches) {
                     StampBrushRenderer.paintDabs(
-                        stampCanvas, heldDabs, brush, stroke.brushColor, stroke.flow,
+                        stampCanvas, movement, brush, stroke.brushColor, stroke.flow,
                         stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                        stroke.secondaryBrushColor, allowBuildUp = true, substrate = substrate,
+                        stroke.secondaryBrushColor, substrate = substrate,
                     )
+                    if (held.isNotEmpty()) {
+                        StampBrushRenderer.paintDabs(
+                            stampCanvas, held, brush, stroke.brushColor, stroke.flow,
+                            stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+                            stroke.secondaryBrushColor, allowBuildUp = true, substrate = substrate,
+                        )
+                    }
                 }
                 paintedDabs = movementDabs + heldDabs
             } else if (stroke.wrapAroundMode) {
@@ -649,6 +669,16 @@ internal class DrawingEngine(
             return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
 
+        // Basic Brush paints on the GPU, the same dab runs its live stroke stamped (GpuBasicStroke).
+        // Alpha lock reads the layer's existing alpha, which the GPU stamp has no mode for, so an
+        // alpha-locked stroke, and a device with no usable GPU, take the CPU renderer below.
+        if (stroke.tool == Tool.BRUSH && !stroke.alphaLock) {
+            GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale)?.let { painted ->
+                return SelectionMask.feather(
+                    bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
+                )
+            }
+        }
         return SelectionMask.feather(
             bitmap,
             ImageProcessor.applyToolToBitmap(
