@@ -14,6 +14,7 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.ink.InkAffine
@@ -142,12 +143,22 @@ internal class DrawingEngine(
         /** An Impasto v2 stroke's live engine, checkpointed at this material state. */
         liveWet: LiveWetEngine? = null,
     ): Bitmap {
-        val result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
+        val epoch = GpuDeviceLoss.epoch()
+        var result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, otherLayers = { otherLayers },
             heightMap = heightMap, wetnessState = wetnessState,
             impastoMaterialState = impastoMaterialState, liveWet = liveWet,
         )
+        // A GPU stroke that failed because the device was lost (a failed GPU call leaves the layer
+        // as it was) paints once more on a fresh engine; the live engine died with the device.
+        if (result === base && command.tool != Tool.LIQUIFY && GpuDeviceLoss.since(epoch)) {
+            result = applyTool(
+                base, command, otherLayers = { otherLayers },
+                heightMap = heightMap, wetnessState = wetnessState,
+                impastoMaterialState = impastoMaterialState,
+            )
+        }
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
             impastoMaterialState.replaceRawColor(bitmapPixels(result))
         }

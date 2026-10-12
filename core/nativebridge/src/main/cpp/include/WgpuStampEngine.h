@@ -70,6 +70,7 @@ public:
     bool invalidateLayer(uint64_t key) override;
     void invalidateAllLayers() override;
     void setResidentBudget(uint64_t bytes) override;
+    bool deviceLost() const override;
     bool setMultipass(const float* params, size_t count) override;
     int refine(float budgetMs) override;
     bool flushMultipass() override;

@@ -1110,6 +1110,15 @@ pub unsafe extern "C" fn gfx_wgpu_invalidate_all_layers(e: *mut Engine) {
     })
 }
 
+/// Whether the engine's device was lost: every later call fails and the engine must be replaced.
+///
+/// # Safety
+/// `e` must be a live engine.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_device_lost(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.device_lost()))
+}
+
 /// # Safety
 /// `e` must be a live engine.
 #[no_mangle]

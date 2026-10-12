@@ -70,8 +70,23 @@ class GpuTuningController private constructor(context: Context) {
         thermal.start(scope)
     }
 
+    /**
+     * `onTrimMemory`: the resident budget shrinks with the pressure ([MemoryPressureScaler]); off
+     * screen the pooled engines (pure caches) go, and near this process's eviction the document
+     * engine too (the next stroke reopens it and uploads its layer).
+     */
+    fun onTrimMemory(level: Int) {
+        budgetProvider.onTrimMemory(level)
+        when {
+            level >= MemoryPressureScaler.TRIM_MODERATE ->
+                scope.launch { GpuStampEngine.trimPool(closeDocument = true) }
+            level >= MemoryPressureScaler.TRIM_UI_HIDDEN -> GpuStampEngine.trimPool()
+        }
+    }
+
     /** The app is on screen again: resume calibration, thermal polling and the hint session. */
     fun onAppVisible() {
+        budgetProvider.onMemoryRelieved()
         coordinator.onAppVisible()
         thermal.start(scope)
         scope.launch { hints.start() }

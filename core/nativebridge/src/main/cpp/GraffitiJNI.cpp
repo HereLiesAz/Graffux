@@ -1822,6 +1822,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetResidentBudg
     if (engine && engine->isInitialized() && bytes >= 0) engine->setResidentBudget(static_cast<uint64_t>(bytes));
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDeviceLost(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->deviceLost() ? JNI_TRUE : JNI_FALSE;
+}
+
 // ---- Multipass rendering (wgpu only, experimental; StampEngine.h defaults to unsupported) ----
 
 JNIEXPORT jboolean JNICALL

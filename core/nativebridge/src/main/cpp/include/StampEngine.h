@@ -170,6 +170,8 @@ public:
     virtual bool invalidateLayer(uint64_t /*key*/) { return false; }
     virtual void invalidateAllLayers() {}
     virtual void setResidentBudget(uint64_t /*bytes*/) {}
+    /** The GPU device was lost (driver reset): every later call fails; replace the engine. */
+    virtual bool deviceLost() const { return false; }
 
     // ---- Optional: multipass rendering (experimental) -----------------------------------------
     // Draft now, full quality in the time left over; see graffux_wgpu.h. Defaults: unsupported, and

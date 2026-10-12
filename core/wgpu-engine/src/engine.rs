@@ -425,6 +425,9 @@ pub struct Engine {
     queue: wgpu::Queue,
     adapter_info: wgpu::AdapterInfo,
     error: Arc<AtomicBool>,
+    /// Set by the device-lost callback: the driver dropped the device (reset, background
+    /// reclaim). Every later call fails; the caller recreates the engine from its CPU copies.
+    lost: Arc<AtomicBool>,
     width: i32,
     height: i32,
     /// The layer every dispatch binds: `scratch`, or the active resident layer's buffer.
@@ -740,6 +743,15 @@ impl Engine {
         limits: &wgpu::Limits,
         stamp_tile: u32,
     ) -> Engine {
+        let lost = Arc::new(AtomicBool::new(false));
+        {
+            let (lost, error) = (lost.clone(), error.clone());
+            device.set_device_lost_callback(move |reason, message| {
+                log::error!("graffux-wgpu: device lost ({reason:?}): {message}");
+                lost.store(true, Ordering::SeqCst);
+                error.store(true, Ordering::SeqCst);
+            });
+        }
         let layer_bytes = width as u64 * height as u64 * 4;
         // Buffers are zero-initialized by wgpu, so a fresh layer is already transparent.
         let layer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -896,6 +908,7 @@ impl Engine {
             queue,
             adapter_info,
             error,
+            lost,
             width,
             height,
             layer: layer.clone(),
@@ -1145,6 +1158,17 @@ impl Engine {
 
     fn ok(&self) -> bool {
         !self.error.load(Ordering::SeqCst)
+    }
+
+    /// Whether the device was lost (see `lost`). Polls first so a pending loss is reported.
+    pub fn device_lost(&self) -> bool {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        self.lost.load(Ordering::SeqCst)
+    }
+
+    /// Destroys the device as a driver reset would: the device-lost path, for tests.
+    pub fn simulate_device_loss(&self) {
+        self.device.destroy();
     }
 
     fn mark_fully_dirty(&mut self) {

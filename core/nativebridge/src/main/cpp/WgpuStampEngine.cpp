@@ -58,6 +58,7 @@ struct Api {
     bool (*invalidateLayer)(GfxWgpuEngine*, uint64_t);
     void (*invalidateAllLayers)(GfxWgpuEngine*);
     void (*setResidentBudget)(GfxWgpuEngine*, uint64_t);
+    bool (*deviceLost)(GfxWgpuEngine*);
     // Optional (multipass rendering): absent in an older library; then multipass is unsupported.
     bool (*setMultipass)(GfxWgpuEngine*, const float*, size_t);
     int32_t (*refine)(GfxWgpuEngine*, float);
@@ -148,6 +149,7 @@ void load() {
               resolve(lib, "gfx_wgpu_adapter_description", a.adapterDescription);
     if (gLoaded) {
         optional(lib, "gfx_wgpu_readback_rect", a.readbackRect);
+        optional(lib, "gfx_wgpu_device_lost", a.deviceLost);
         const bool resident = optional(lib, "gfx_wgpu_bind_layer", a.bindLayer) &&
                               optional(lib, "gfx_wgpu_upload_layer", a.uploadLayer) &&
                               optional(lib, "gfx_wgpu_commit_layer", a.commitLayer) &&
@@ -343,6 +345,10 @@ bool WgpuStampEngine::invalidateLayer(uint64_t key) {
 
 void WgpuStampEngine::invalidateAllLayers() {
     if (supportsResidentLayers()) gApi.invalidateAllLayers(engine_);
+}
+
+bool WgpuStampEngine::deviceLost() const {
+    return engine_ != nullptr && gApi.deviceLost != nullptr && gApi.deviceLost(engine_);
 }
 
 void WgpuStampEngine::setResidentBudget(uint64_t bytes) {

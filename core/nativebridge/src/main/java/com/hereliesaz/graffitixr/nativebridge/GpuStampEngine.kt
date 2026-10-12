@@ -273,6 +273,10 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         @Volatile var tuningEpoch: Int = 0
             private set
 
+        /** The document handle shares the lost driver: [documentHandleFor] replaces it. */
+        @Volatile private var documentLost = false
+
+
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
@@ -428,7 +432,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     /** The document handle for [key], (re)created when absent, resized or under stale tuning. */
     private fun documentHandleFor(key: PoolKey): Long = synchronized(documentLock) {
-        val stale = documentHandle != 0L && (documentKey != key || documentEpoch != tuningEpoch)
+        val stale = documentHandle != 0L && (documentKey != key || documentEpoch != tuningEpoch || documentLost)
+        documentLost = false
         if (stale) {
             destroyHandle(documentHandle)
             documentHandle = 0L
@@ -1002,6 +1007,13 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         paintHeightUploaded = false
         if (handle == 0L) return
         drainGpuTimings(handle)
+        // Every stroke's end asks (queued, behind its work) whether the device survived it; a lost
+        // one discards every engine, this one included, wherever it is about to go.
+        GpuRenderThread.post {
+            if (handle in liveWgpuHandles && runCatching { nativeDeviceLost(handle) }.getOrDefault(false)) {
+                onDeviceLost()
+            }
+        }
         if (documentLeased) {
             // The document engine outlives its strokes: give the lease back, keep the handle --
             // unless a call on it failed, in which case the next lease starts on a fresh one.
@@ -1086,6 +1098,22 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         val result = block()
         sink.onPass(kind.ordinal, System.nanoTime() - start, false)
         return result
+    }
+
+    /** Render thread: a handle reported its device lost. */
+    private fun onDeviceLost() {
+        android.util.Log.w(TAG, "GPU device lost; discarding every engine")
+        documentLost = true
+        val pooled = synchronized(poolLock) {
+            buildList { while (pooledHandles.isNotEmpty()) add(pooledHandles.removeFirst().handle) }
+        }
+        pooled.forEach {
+            liveWgpuHandles.remove(it)
+            multipassHandles.remove(it)
+            directDisplay.handleDestroyed(it)
+            nativeDestroy(it)
+        }
+        GpuDeviceLoss.report()
     }
 
     /** Destroys [handle] later, on the render thread, leaving the live-handle registry. */
@@ -1194,6 +1222,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeFlushMultipass(handle: Long): Boolean
     private external fun nativeMultipassStats(handle: Long): DoubleArray?
     private external fun nativeSetResidentBudget(handle: Long, bytes: Long)
+    private external fun nativeDeviceLost(handle: Long): Boolean
     private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
     private external fun nativeGpuInfo(handle: Long): String?
     private external fun nativeTakePassTimings(handle: Long): LongArray?

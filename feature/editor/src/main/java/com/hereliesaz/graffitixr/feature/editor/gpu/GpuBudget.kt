@@ -37,15 +37,17 @@ data class ThermalSnapshot(
 /**
  * How much extra GPU work the device can afford right now: the calibrated [GpuTier] scaled by
  * thermal state. [scale] = 1 is the tier as calibrated, 0 = draft only / no optional work.
+ * [memory] (1 = no pressure, [MemoryPressureScaler]) further shrinks the resident-layer budget.
  */
 data class GpuBudget(
     val tier: GpuTier,
     val thermal: ThermalSnapshot,
     val scale: Float,
+    val memory: Float = 1f,
 ) {
     /** Resident-layer budget for the wgpu engine, never below [MIN_RESIDENT_MIB]. */
     val residentBudgetBytes: Long
-        get() = (tier.residentBudgetMiB * scale).toLong().coerceAtLeast(MIN_RESIDENT_MIB) * MIB
+        get() = (tier.residentBudgetMiB * scale * memory).toLong().coerceAtLeast(MIN_RESIDENT_MIB) * MIB
 
     /** Dispatch batch size the scheduler may use, at least 1. */
     val dispatchBatchSize: Int
@@ -136,10 +138,46 @@ class ThermalGpuBudgetProvider(initialTier: GpuTier = GpuTierTable.default) : Gp
     override val budget: StateFlow<GpuBudget> = state.asStateFlow()
 
     // Read-modify-write through update {} so a concurrent setTier/onThermal cannot drop the other's field.
-    fun setTier(tier: GpuTier) = state.update { budgetOf(tier, it.thermal) }
+    fun setTier(tier: GpuTier) = state.update { budgetOf(tier, it.thermal, it.memory) }
 
-    fun onThermal(thermal: ThermalSnapshot) = state.update { budgetOf(it.tier, thermal) }
+    fun onThermal(thermal: ThermalSnapshot) = state.update { budgetOf(it.tier, thermal, it.memory) }
 
-    private fun budgetOf(tier: GpuTier, thermal: ThermalSnapshot) =
-        GpuBudget(tier, thermal, ThermalBudgetScaler.scale(thermal))
+    /** An `onTrimMemory` level: the memory factor only ever falls until [onMemoryRelieved]. */
+    fun onTrimMemory(level: Int) = state.update {
+        it.copy(memory = minOf(it.memory, MemoryPressureScaler.factor(level)))
+    }
+
+    /** The app is visible again: memory pressure no longer scales the budget. */
+    fun onMemoryRelieved() = state.update { it.copy(memory = 1f) }
+
+    private fun budgetOf(tier: GpuTier, thermal: ThermalSnapshot, memory: Float) =
+        GpuBudget(tier, thermal, ThermalBudgetScaler.scale(thermal), memory)
+}
+
+/**
+ * `ComponentCallbacks2.onTrimMemory` levels as a resident-budget factor, pure so it is testable.
+ * While running, moderate/low/critical pressure halve, quarter and floor the budget; in the
+ * background, the same as the system's eviction order nears this process. Leaving the screen alone
+ * ([TRIM_UI_HIDDEN]) is not pressure. Resident layers are caches of the CPU layers: shrinking only
+ * costs re-uploads.
+ */
+object MemoryPressureScaler {
+    const val TRIM_RUNNING_MODERATE = 5
+    const val TRIM_RUNNING_LOW = 10
+    const val TRIM_RUNNING_CRITICAL = 15
+    const val TRIM_UI_HIDDEN = 20
+    const val TRIM_BACKGROUND = 40
+    const val TRIM_MODERATE = 60
+    private const val HALF = 0.5f
+    private const val QUARTER = 0.25f
+
+    fun factor(level: Int): Float = when {
+        level >= TRIM_MODERATE -> 0f
+        level >= TRIM_BACKGROUND -> QUARTER
+        level >= TRIM_UI_HIDDEN -> 1f
+        level >= TRIM_RUNNING_CRITICAL -> 0f
+        level >= TRIM_RUNNING_LOW -> QUARTER
+        level >= TRIM_RUNNING_MODERATE -> HALF
+        else -> 1f
+    }
 }

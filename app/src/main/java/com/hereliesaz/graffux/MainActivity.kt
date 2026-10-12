@@ -177,6 +177,12 @@ class MainActivity : ComponentActivity() {
         GpuTuningController.get(this).onAppHidden()
         super.onStop()
     }
+
+    // Memory pressure shrinks the GPU's resident layer copies (caches of the CPU layers).
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        GpuTuningController.get(this).onTrimMemory(level)
+    }
 }
 
 /**
