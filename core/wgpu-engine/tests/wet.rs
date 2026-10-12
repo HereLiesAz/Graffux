@@ -807,3 +807,37 @@ fn shading_into_the_display_keeps_the_layer() {
         }
     }
 }
+
+#[test]
+fn checkpoint_restore_puts_back_the_saved_state() {
+    for (name, mut e) in engines() {
+        let s = state(21);
+        assert!(
+            !e.wet_checkpoint_restore(),
+            "[{name}] restore without a wet state"
+        );
+        begin(&mut e, &s);
+        assert!(
+            !e.wet_checkpoint_restore(),
+            "[{name}] restore without a checkpoint"
+        );
+        assert!(e.wet_checkpoint_save());
+        let saved = read(&mut e);
+        let saved_ctl = ctl(&mut e, 0);
+        // A whole stroke's worth of change: transfer, deposit, transport, advance.
+        let dabs = stroke(7);
+        assert!(e.wet_set_dabs(&dabs));
+        assert!(e.wet_transfer(0.4, 0.7, 0.9, 0.8, 0.6, 0.3, 0.8));
+        assert!(e.wet_deposit(0.4, 0.7));
+        assert!(e.wet_pigment(0.5, 0.5, 2));
+        assert!(e.wet_advance(0.5, 0.3, 0.4, true));
+        assert_ne!(read(&mut e), saved, "[{name}] the stroke changed nothing");
+        assert!(e.wet_checkpoint_restore());
+        assert_eq!(read(&mut e), saved, "[{name}] restored state");
+        assert_eq!(ctl(&mut e, 0), saved_ctl, "[{name}] restored flags");
+        // Restorable again: the checkpoint survives a restore.
+        assert!(e.wet_advance(0.5, 0.3, 0.4, true));
+        assert!(e.wet_checkpoint_restore());
+        assert_eq!(read(&mut e), saved, "[{name}] second restore");
+    }
+}

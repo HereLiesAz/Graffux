@@ -975,6 +975,13 @@ class EditorViewModel @Inject constructor(
      */
     private var stampGpuWetLive = false
     private var stampGpuWetBatches = 0
+
+    /**
+     * The material state ([liveWetKey]) the live v2 engine checkpointed at the stroke's start;
+     * null without a checkpoint. The commit restarts from it on that engine when the layer's
+     * material is still the same objects.
+     */
+    private var stampGpuWetCheckpoint: List<Any?>? = null
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     private var stampShapeForStroke: Bitmap? = null
@@ -4578,6 +4585,7 @@ class EditorViewModel @Inject constructor(
             stampLiveShadedBitmap = null
             stampGpuImpastoHeight = false
             stampGpuWetLive = false
+            stampGpuWetCheckpoint = null
             stampLivePreStrokeBase = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
             // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
@@ -4736,6 +4744,15 @@ class EditorViewModel @Inject constructor(
                             SelectionMask.featherRadius(strokeSelection, work.width, work.height, layer.scale),
                         ),
                     )
+                // The live start's upload, kept on the GPU for the commit (stampGpuWetCheckpoint).
+                val wetCheckpoint = if (
+                    gpuWetLive && com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation(gpuEngine)
+                        .op(com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation.CHECKPOINT_SAVE)
+                ) {
+                    liveWetKey(layerId, layer)
+                } else {
+                    null
+                }
                 // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
                 // `work` from before this stroke's first dab, needed to fully re-composite a live
                 // plain-round stroke from scratch every frame.
@@ -4785,6 +4802,7 @@ class EditorViewModel @Inject constructor(
                             stampGpuSelection = gpuSelection
                             stampGpuImpastoHeight = gpuImpastoHeight
                             stampGpuWetLive = gpuWetLive
+                            stampGpuWetCheckpoint = wetCheckpoint
                             stampGpuWetBatches = 0
                             stampGpuActive = gpuReady
                             stampGpuDirect = wgpuDirectStarted
@@ -6364,6 +6382,9 @@ class EditorViewModel @Inject constructor(
         // silently resurrects the just-undone stroke's pixels. Cancelling whatever was previously
         // in flight for this layer before starting is the same discipline every other publisher
         // here already follows.
+        // The live v2 engine restarts from its checkpoint only if the material it checkpointed is
+        // still the layer's (no commit, undo or rebuild landed during the stroke).
+        val liveWet = handoff.wet?.takeIf { sameMaterial(it.key, layerId, layer) }
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             // Route through the same DrawingEngine.applySingleStroke every other tool's commit and
@@ -6389,6 +6410,7 @@ class EditorViewModel @Inject constructor(
                         base, command, otherLayers, heightWorking,
                         wetnessState = wetnessWorking,
                         impastoMaterialState = materialWorking,
+                        liveWet = liveWet?.also { handoff.worker?.join() },
                     )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 strokeLog("commit: cancelled before publish")
@@ -6487,6 +6509,7 @@ class EditorViewModel @Inject constructor(
         }
         // A commit cancelled before it finished the live stroke (an undo) still returns its engine.
         handoff.engine?.let { engine -> rebuildJobs[layerId]?.invokeOnCompletion { engine.destroy() } }
+        handoff.wet?.let { wet -> rebuildJobs[layerId]?.invokeOnCompletion { wet.engine.destroy() } }
     }
 
     /** The live stroke's [painted] rectangle as it was before the stroke, kept on the GPU. */
@@ -6513,6 +6536,7 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The live stroke's GPU engine and leftover dabs, taken over by its commit at the stroke's end. */
+    @Suppress("LongParameterList")
     private class LiveStampHandoff(
         /** Null when the live stroke wasn't painting on the GPU, or carries Impasto (CPU shading). */
         val engine: GpuStampEngine?,
@@ -6525,9 +6549,24 @@ class EditorViewModel @Inject constructor(
         val batches: List<Int>,
         /** The stroke's selection, prepared on [engine] at its start; null without one. */
         val selection: GpuStrokeSelection.Prepared? = null,
+        /** A live Impasto v2 stroke's engine and checkpoint (never alongside [engine]). */
+        val wet: LiveWetEngine? = null,
     ) {
         /** What the finished stroke painted (the engine's stroke rectangle), set by the commit. */
         var paintedRect: DirtyRegion? = null
+    }
+
+    /**
+     * The identities of [layerId]'s canonical material objects: equal (element by element, `===`)
+     * only while no commit, undo or rebuild has replaced any of them.
+     */
+    private fun liveWetKey(layerId: String, layer: Layer): List<Any?> =
+        listOf(layer.bitmap, layer.heightMap) + layerStore.materialIdentity(layerId)
+
+    /** [key] still describes [layerId]'s material ([liveWetKey], compared by identity). */
+    private fun sameMaterial(key: List<Any?>, layerId: String, layer: Layer): Boolean {
+        val now = liveWetKey(layerId, layer)
+        return key.size == now.size && key.indices.all { key[it] === now[it] }
     }
 
     /**
@@ -6542,13 +6581,17 @@ class EditorViewModel @Inject constructor(
             stampBatchLog.add(held.size)
         }
         val engine = stampGpuEngine?.takeIf { stampGpuActive && stampLiveHeightMap == null && stampLiveBitmap != null }
-        if (engine != null) {
+        // A live v2 stroke's engine, checkpointed at its start: its commit restarts there.
+        val checkpoint = stampGpuWetCheckpoint
+        val wetEngine = stampGpuEngine?.takeIf { engine == null && stampGpuActive && checkpoint != null }
+        if (engine != null || wetEngine != null) {
             stampGpuEngine = null
             stampGpuActive = false
         }
         LiveStampHandoff(
             engine, stampLiveBitmap, stampGpuJob, movement to held, stampBatchLog.toList(),
             stampGpuSelection.takeIf { engine != null },
+            wetEngine?.let { LiveWetEngine(it, requireNotNull(checkpoint)) },
         )
     }
 

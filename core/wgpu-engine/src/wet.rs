@@ -128,6 +128,8 @@ pub(super) struct WetGpu {
     cols: i32,
     tiles: u32,
     use_coverage: bool,
+    /// Raw, fields, active/next flags + load slot, media as [`Engine::wet_checkpoint_save`] left them.
+    checkpoint: Option<[wgpu::Buffer; 4]>,
 }
 
 /// What Color Smudge binds to read and write the canvas wetness (engine.rs `color_smudge`).
@@ -208,7 +210,17 @@ impl WetGpu {
             cols,
             tiles,
             use_coverage: false,
+            checkpoint: None,
         }
+    }
+
+    fn checkpoint_sizes(&self) -> [u64; 4] {
+        [
+            self.raw.size(),
+            self.fields.size(),
+            (self.tiles as u64 * 2 + 1) * 4,
+            self.media.size(),
+        ]
     }
 
     fn resource<'a>(&'a self, binding: u32, layer: &'a wgpu::Buffer) -> wgpu::BindingResource<'a> {
@@ -401,6 +413,57 @@ impl Engine {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&gpu.raw, 0, &gpu.raw_before, 0, gpu.raw.size());
         self.queue.submit([encoder.finish()]);
+        self.ok()
+    }
+
+    /// Keeps the wet state (raw pigment, height, wetness, tile flags, media) on the GPU, so a later
+    /// [`Engine::wet_checkpoint_restore`] restarts from it without an upload. A live preview saves
+    /// right after [`Engine::wet_begin`]; the commit restores on the same engine.
+    pub fn wet_checkpoint_save(&mut self) -> bool {
+        let Some(gpu) = self.wet.as_mut() else {
+            return false;
+        };
+        let sizes = gpu.checkpoint_sizes();
+        if gpu.checkpoint.is_none() {
+            let make = |size: u64| {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("wet checkpoint"),
+                    size,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                })
+            };
+            gpu.checkpoint = Some(sizes.map(make));
+        }
+        let saved = gpu.checkpoint.as_ref().expect("made");
+        let live = [&gpu.raw, &gpu.fields, &gpu.ctl, &gpu.media];
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        for ((from, to), size) in live.iter().zip(saved).zip(sizes) {
+            encoder.copy_buffer_to_buffer(from, 0, to, 0, size);
+        }
+        self.queue.submit([encoder.finish()]);
+        self.ok()
+    }
+
+    /// Puts back the state [`Engine::wet_checkpoint_save`] kept, as [`Engine::wet_begin`] would
+    /// (no selection, no dabs). False without a checkpoint.
+    pub fn wet_checkpoint_restore(&mut self) -> bool {
+        let Some(gpu) = self.wet.as_mut() else {
+            return false;
+        };
+        let Some(saved) = gpu.checkpoint.as_ref() else {
+            return false;
+        };
+        let sizes = gpu.checkpoint_sizes();
+        let live = [&gpu.raw, &gpu.fields, &gpu.ctl, &gpu.media];
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        for ((from, to), size) in saved.iter().zip(live).zip(sizes) {
+            encoder.copy_buffer_to_buffer(from, 0, to, 0, size);
+        }
+        self.queue.submit([encoder.finish()]);
+        gpu.use_coverage = false;
+        gpu.dab_count = 0;
+        gpu.dab_region = Rect::default();
         self.ok()
     }
 

@@ -198,6 +198,15 @@ internal class LayerStore {
     fun impastoMaterialStateCopyOrNull(layerId: String): ImpastoMaterialReplayState? =
         (liveImpastoMaterial[layerId] ?: impastoMaterialBases[layerId])?.copyForWork()
 
+    /**
+     * The stored height, wetness and Impasto material objects for [layerId]. Every write replaces
+     * the object, so equal identities mean unchanged state (a live stroke's checkpoint test).
+     */
+    fun materialIdentity(layerId: String): List<Any?> = listOf(
+        heightBases[layerId], wetnessBases[layerId], liveWetness[layerId],
+        impastoMaterialBases[layerId], liveImpastoMaterial[layerId],
+    )
+
     fun clearLiveImpastoMaterial(layerId: String) {
         liveImpastoMaterial.remove(layerId)
     }

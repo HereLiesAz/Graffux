@@ -1406,6 +1406,15 @@ to the engine once (`wetBegin`), and one session runs DrawingEngine's v2 order:
 5. The state is read back, and the touched region's lit presentation is rebuilt from the raw pigment
    over the previous display (`shade_material`).
 
+**The commit restarts on the live engine.** A live v2 stroke uploads the same state at its start and
+checkpoints it on the GPU (wet op 11: raw, height + wetness, tile flags, media copied aside). At
+finger-up the commit takes that engine and restores the checkpoint (wet op 12) on a fresh stroke
+(`beginStroke`) instead of creating a second engine and uploading again: one upload per stroke, not
+two. The CPU state stays canonical. The restart is taken only while the layer's material objects
+(`LayerStore.materialIdentity`, the layer's bitmap and height map) are the very ones the checkpoint
+was built from; a commit, undo or rebuild landing mid-stroke, or a failed restore, sends the stroke to
+a fresh engine as before.
+
 The solvers live in `core/wgpu-engine/src/shaders/wet.wgsl`; `tests/wet.rs` checks each against a
 line-for-line CPU reference. Pigment transport and height levelling update pixels in place, so the CPU
 references (`WetMaterialTransport.advanceArgb`, `ImpastoEngine.levelWetHeight`) visit their edges in four

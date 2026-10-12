@@ -637,7 +637,7 @@ pub unsafe extern "C" fn gfx_wgpu_wet_buffer(
 /// transport (dt, rate, iterations), 7 wetness advance (dt, drying, transport, tile drying 0/1),
 /// 8 levelling (dt, iterations, x, y, w, h), 9 shade (x, y, w, h, azimuth, elevation, relief,
 /// use wetness 0/1, optionally into the display buffer 0/1), 10 Color Smudge on the canvas
-/// wetness (on 0/1, [`Engine::set_smudge_wetness`]).
+/// wetness (on 0/1, [`Engine::set_smudge_wetness`]), 11 save the wet checkpoint, 12 restore it.
 ///
 /// # Safety
 /// `args` must point to `count` floats, or be null with `count` 0.
@@ -650,7 +650,7 @@ pub unsafe extern "C" fn gfx_wgpu_wet_op(
 ) -> bool {
     guard(false, || {
         let a = slice(args, count.max(0) as usize);
-        let need = [0, 0, 0, 0, 7, 2, 3, 4, 6, 8, 1];
+        let need = [0, 0, 0, 0, 7, 2, 3, 4, 6, 8, 1, 0, 0];
         if op < 0 || op as usize >= need.len() || a.len() < need[op as usize] {
             return false;
         }
@@ -666,6 +666,8 @@ pub unsafe extern "C" fn gfx_wgpu_wet_op(
             7 => e.wet_advance(a[0], a[1], a[2], a[3] != 0.0),
             8 => e.wet_level(a[0], i(1), i(2), i(3), i(4), i(5)),
             10 => e.set_smudge_wetness(a[0] != 0.0),
+            11 => e.wet_checkpoint_save(),
+            12 => e.wet_checkpoint_restore(),
             _ => e.wet_shade(
                 i(0),
                 i(1),

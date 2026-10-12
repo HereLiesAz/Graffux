@@ -24,7 +24,16 @@ internal class ImpastoV2Layer(
     val heightMap: FloatArray,
     val wetness: WetnessReplayState?,
     val material: ImpastoMaterialReplayState?,
+    /** The live preview's engine, checkpointed at this state; null paints on a fresh engine. */
+    val live: LiveWetEngine? = null,
 )
+
+/**
+ * A live v2 stroke's engine handed to its commit: its wet state was checkpointed
+ * ([GpuWetSimulation.CHECKPOINT_SAVE]) right after the live start uploaded [key]'s material, so the
+ * commit restores it instead of uploading again. The live owner destroys [engine].
+ */
+internal class LiveWetEngine(val engine: GpuStampEngine, val key: List<Any?>)
 
 /** The stroke's selection: its clip path and feather radius in layer pixels. */
 internal class StrokeSelection(val clipPath: Path?, val featherRadius: Float)
@@ -68,14 +77,16 @@ internal object GpuImpastoV2Stroke {
         val target = if (usable) SafeBitmap.copy(bitmap) else null
         // The CPU reads recorded time only from samples that map 1:1 onto the path.
         val samples = stroke.brushSamples.takeIf { it.size == mapped.size }
-        val session = target?.let {
-            Session(
-                it, stroke, brush, material.copyForWork(), wetness,
-                StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches), movementDabs + heldDabs,
-                samples?.firstOrNull()?.uptimeMillis to samples?.lastOrNull()?.uptimeMillis,
-            )
-        }
-        val result = session?.run(bitmap, layer.heightMap, coverage(selection, width, height))
+        val batches = StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
+        val times = samples?.firstOrNull()?.uptimeMillis to samples?.lastOrNull()?.uptimeMillis
+        val mask = coverage(selection, width, height)
+        // On the live engine first; a failed restart leaves the stroke to a fresh session.
+        val (session, result) = (listOfNotNull(layer.live?.engine) + null).asSequence().map { engine ->
+            val s = target?.let {
+                Session(it, stroke, brush, material.copyForWork(), wetness, batches, movementDabs + heldDabs, times)
+            }
+            s to s?.run(bitmap, layer.heightMap, mask, engine)
+        }.firstOrNull { it.second != null } ?: (null to null)
         if (session == null || result == null) {
             target?.recycle()
             return null
@@ -187,32 +198,49 @@ internal object GpuImpastoV2Stroke {
         private var lastUptime: Long? = wetness?.lastUptimeMillis
         private var preContact: DirtyRegion? = null
 
-        fun run(display: Bitmap, heightMap: FloatArray, coverage: FloatArray?): Result? {
-            // Calibration's engines and the canvas's never coexist (GpuCalibration.stopForCanvas);
-            // this runs on a commit worker, never on the touch path.
-            GpuTuningController.stopCalibrationForCanvas()
-            val engine = runCatching { GpuStampEngine() }.getOrNull() ?: return null
+        /**
+         * The stroke on [live] (the live preview's engine, restarted from its checkpoint), or on a
+         * fresh engine without one. [live] stays its owner's. Null on failure.
+         */
+        fun run(display: Bitmap, heightMap: FloatArray, coverage: FloatArray?, live: GpuStampEngine?): Result? {
+            if (live == null) {
+                // Calibration's engines and the canvas's never coexist (GpuCalibration.stopForCanvas);
+                // this runs on a commit worker, never on the touch path.
+                GpuTuningController.stopCalibrationForCanvas()
+            }
+            val engine = live ?: runCatching { GpuStampEngine() }.getOrNull() ?: return null
             return try {
-                simulate(engine, display, heightMap, coverage)
+                simulate(engine, display, heightMap, coverage, restart = live != null)
             } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
-                Log.w(TAG, "GPU Impasto v2 stroke failed; the CPU renderer takes this stroke", e)
+                Log.w(TAG, "GPU Impasto v2 stroke failed (live engine: ${live != null})", e)
                 null
             } finally {
-                engine.destroy()
+                if (live == null) engine.destroy()
             }
         }
 
+        @Suppress("LongParameterList")
         private fun simulate(
             engine: GpuStampEngine,
             display: Bitmap,
             heightMap: FloatArray,
             coverage: FloatArray?,
+            restart: Boolean,
         ): Result? {
-            val begun = engine.init(width, height) &&
-                GpuWetSimulation(engine).begin(
-                    work.rawColor, heightMap, wetness?.snapshot() ?: FloatArray(width * height),
-                    activeTiles(), tileSize, mediaTable(),
-                ) &&
+            // The wet state the stroke starts from: restored from the live checkpoint on a new
+            // stroke of the live engine (multipass drained, stroke-max fresh), or uploaded.
+            val started = if (restart) {
+                engine.beginStroke() &&
+                    GpuWetSimulation(engine).op(GpuWetSimulation.CHECKPOINT_RESTORE) &&
+                    GpuWetSimulation(engine).buffer(GpuWetSimulation.MEDIA, mediaTable())
+            } else {
+                engine.init(width, height) &&
+                    GpuWetSimulation(engine).begin(
+                        work.rawColor, heightMap, wetness?.snapshot() ?: FloatArray(width * height),
+                        activeTiles(), tileSize, mediaTable(),
+                    )
+            }
+            val begun = started &&
                 GpuWetSimulation(engine).buffer(GpuWetSimulation.COVERAGE, coverage) &&
                 advanceToStroke(engine) &&
                 paint(engine)
