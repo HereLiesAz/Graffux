@@ -68,6 +68,13 @@ struct Api {
     bool (*readHeight)(GfxWgpuEngine*, float*, int32_t);
     bool (*depositHeight)(GfxWgpuEngine*, const float*, int32_t, float, float);
     bool (*shadeRelief)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, float, float, float);
+    // Optional, all or nothing: the document store.
+    bool (*docOpen)(GfxWgpuEngine*);
+    uint64_t (*docLayer)(GfxWgpuEngine*, int32_t, uint64_t, uint64_t, const int32_t*, const uint8_t*, size_t);
+    bool (*docLayerDrop)(GfxWgpuEngine*, uint64_t);
+    uint64_t (*docLayerBind)(GfxWgpuEngine*, uint64_t);
+    uint64_t (*docLayerCommit)(GfxWgpuEngine*, uint64_t, uint64_t, int32_t*);
+    bool (*docLayerRead)(GfxWgpuEngine*, uint64_t, int32_t, int32_t, int32_t, int32_t, uint8_t*, size_t);
     // Optional: a new stroke on the layer as it is.
     bool (*beginStroke)(GfxWgpuEngine*);
     // Optional, all or nothing: impasto v2's wet material simulation.
@@ -149,6 +156,13 @@ void load() {
                              optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
+        const bool doc = optional(lib, "gfx_wgpu_doc_open", a.docOpen) &&
+                         optional(lib, "gfx_wgpu_doc_layer", a.docLayer) &&
+                         optional(lib, "gfx_wgpu_doc_layer_drop", a.docLayerDrop) &&
+                         optional(lib, "gfx_wgpu_doc_layer_bind", a.docLayerBind) &&
+                         optional(lib, "gfx_wgpu_doc_layer_commit", a.docLayerCommit) &&
+                         optional(lib, "gfx_wgpu_doc_layer_read", a.docLayerRead);
+        if (!doc) a.docOpen = nullptr;  // all or nothing
         const bool wet = optional(lib, "gfx_wgpu_wet_begin", a.wetBegin) &&
                          optional(lib, "gfx_wgpu_wet_buffer", a.wetBuffer) &&
                          optional(lib, "gfx_wgpu_wet_op", a.wetOp) &&
@@ -352,6 +366,34 @@ bool WgpuStampEngine::shadeImpastoRelief(int x, int y, int w, int h, float azimu
                                          float elevationDeg, float strength) {
     return supportsImpasto() &&
            gApi.shadeRelief(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
+}
+
+bool WgpuStampEngine::docOpen() {
+    return engine_ != nullptr && gApi.docOpen != nullptr && gApi.docOpen(engine_);
+}
+
+uint64_t WgpuStampEngine::docLayer(int op, uint64_t key, uint64_t other, const int* rect,
+                                   const uint8_t* rgba, size_t len) {
+    if (engine_ == nullptr || gApi.docOpen == nullptr) return 0;
+    return gApi.docLayer(engine_, op, key, other, rect, rgba, len);
+}
+
+bool WgpuStampEngine::docLayerDrop(uint64_t key) {
+    return engine_ != nullptr && gApi.docOpen != nullptr && gApi.docLayerDrop(engine_, key);
+}
+
+uint64_t WgpuStampEngine::docLayerBind(uint64_t key) {
+    if (engine_ == nullptr || gApi.docOpen == nullptr) return 0;
+    return gApi.docLayerBind(engine_, key);
+}
+
+uint64_t WgpuStampEngine::docLayerCommit(uint64_t key, uint64_t session, int* outRect) {
+    if (engine_ == nullptr || gApi.docOpen == nullptr) return 0;
+    return gApi.docLayerCommit(engine_, key, session, outRect);
+}
+
+bool WgpuStampEngine::docLayerRead(uint64_t key, int x, int y, int w, int h, uint8_t* out, size_t len) {
+    return engine_ != nullptr && gApi.docOpen != nullptr && gApi.docLayerRead(engine_, key, x, y, w, h, out, len);
 }
 
 bool WgpuStampEngine::beginStroke() {

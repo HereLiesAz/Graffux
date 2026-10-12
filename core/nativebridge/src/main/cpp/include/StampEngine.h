@@ -195,6 +195,17 @@ public:
     // ARGB raw pigment, height and wetness per pixel, an active flag per tile and a media table;
     // wetBuffer replaces the media (0), selection coverage (1, null = none) or dabs (2); wetOp runs
     // one numbered step.
+    // Document store (optional; false/0 = unsupported): layers kept on the GPU as their canonical
+    // copy. docLayer ops: 0 put (whole layer), 1 clear, 2 write rect, 3 copy `other` into `key`,
+    // 4 generation; each returns the layer's new generation, 0 on failure.
+    virtual bool docOpen() { return false; }
+    virtual uint64_t docLayer(int /*op*/, uint64_t /*key*/, uint64_t /*other*/, const int* /*rect*/,
+                              const uint8_t* /*rgba*/, size_t /*len*/) { return 0; }
+    virtual bool docLayerDrop(uint64_t /*key*/) { return false; }
+    virtual uint64_t docLayerBind(uint64_t /*key*/) { return 0; }
+    virtual uint64_t docLayerCommit(uint64_t /*key*/, uint64_t /*session*/, int* /*outRect*/) { return 0; }
+    virtual bool docLayerRead(uint64_t /*key*/, int /*x*/, int /*y*/, int /*w*/, int /*h*/, uint8_t* /*out*/,
+                              size_t /*len*/) { return false; }
     // Starts a new stroke on the layer as it is (stroke-max state restarts, pixels kept), so one
     // engine can replay many strokes. Optional; false = unsupported (re-upload instead).
     virtual bool beginStroke() { return false; }

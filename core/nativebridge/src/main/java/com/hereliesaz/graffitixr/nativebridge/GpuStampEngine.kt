@@ -42,6 +42,12 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
         // Impasto v2 wet simulation (graffux_wgpu gfx_wgpu_wet_*): buffers for [wetBuffer], steps
         // for [wetOp] (argument lists in the Rust docs), control words from [wetReadControl].
+        // Document store layer ops (nativeDocLayer).
+        private const val DOC_PUT = 0
+        private const val DOC_CLEAR = 1
+        private const val DOC_COPY = 3
+        private const val DOC_GENERATION = 4
+
         const val WET_MEDIA = 0
         const val WET_COVERAGE = 1
         const val WET_DABS = 2
@@ -464,6 +470,82 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         return onGpu {
             nativeShadeImpastoRelief(nativeHandle, x, y, w, h, lightAzimuthDeg, lightElevationDeg, strength)
         }
+    }
+
+    /**
+     * Document store: this engine keeps the open document's layers on the GPU as their canonical
+     * copy (core/wgpu-engine docstore.rs). Call once after [init]. False when the library lacks it.
+     */
+    @Synchronized
+    fun docOpen(): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeDocOpen(nativeHandle) }
+    }
+
+    /** Writes the whole of layer [key] from [bitmap] (creating it); its new generation, 0 = failure. */
+    @Synchronized
+    fun docPut(key: Long, bitmap: Bitmap): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocLayer(nativeHandle, DOC_PUT, key, 0L, bitmap) }
+    }
+
+    /** A transparent layer [key] (created if new); its new generation, 0 = failure. */
+    @Synchronized
+    fun docClear(key: Long): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocLayer(nativeHandle, DOC_CLEAR, key, 0L, null) }
+    }
+
+    /** Layer [src] duplicated into [dst] on the GPU; [dst]'s new generation, 0 = failure. */
+    @Synchronized
+    fun docCopy(src: Long, dst: Long): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocLayer(nativeHandle, DOC_COPY, dst, src, null) }
+    }
+
+    /** Layer [key]'s current generation, 0 if the store doesn't hold it. */
+    @Synchronized
+    fun docGeneration(key: Long): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocLayer(nativeHandle, DOC_GENERATION, key, 0L, null) }
+    }
+
+    /** Writes [rect] ({x, y, w, h}) of layer [key] from the same rectangle of [bitmap]. */
+    @Synchronized
+    fun docWrite(key: Long, bitmap: Bitmap, rect: IntArray): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocWrite(nativeHandle, key, bitmap, rect) }
+    }
+
+    /** Forgets layer [key]. */
+    @Synchronized
+    fun docDrop(key: Long): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeDocDrop(nativeHandle, key) }
+    }
+
+    /** Starts a stroke on layer [key]; the stroke's session, 0 = failure. */
+    @Synchronized
+    fun docBind(key: Long): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocBind(nativeHandle, key) }
+    }
+
+    /**
+     * Commits the stroke [session] on layer [key] in place; [rect] receives the {x, y, w, h} it
+     * painted. The layer's new generation, 0 if [session] is no longer the layer's stroke.
+     */
+    @Synchronized
+    fun docCommit(key: Long, session: Long, rect: IntArray): Long {
+        if (!isInitialized) return 0L
+        return onGpu { nativeDocCommit(nativeHandle, key, session, rect) }
+    }
+
+    /** Reads [rect] of layer [key] into the same rectangle of [bitmap] (a full-layer mirror). */
+    @Synchronized
+    fun docRead(key: Long, bitmap: Bitmap, rect: IntArray): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeDocRead(nativeHandle, key, bitmap, rect) }
     }
 
     /**
@@ -1047,6 +1129,13 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         handle: Long, x: Int, y: Int, w: Int, h: Int, azimuthDeg: Float, elevationDeg: Float, strength: Float,
     ): Boolean
     private external fun nativeBeginStroke(handle: Long): Boolean
+    private external fun nativeDocOpen(handle: Long): Boolean
+    private external fun nativeDocLayer(handle: Long, op: Int, key: Long, other: Long, bitmap: Bitmap?): Long
+    private external fun nativeDocWrite(handle: Long, key: Long, bitmap: Bitmap, rect: IntArray): Long
+    private external fun nativeDocDrop(handle: Long, key: Long): Boolean
+    private external fun nativeDocBind(handle: Long, key: Long): Long
+    private external fun nativeDocCommit(handle: Long, key: Long, session: Long, rect: IntArray): Long
+    private external fun nativeDocRead(handle: Long, key: Long, bitmap: Bitmap, rect: IntArray): Boolean
     @Suppress("LongParameterList")
     private external fun nativeWetBegin(
         handle: Long, raw: IntArray, height: FloatArray, wetness: FloatArray, active: IntArray, tileSize: Int,

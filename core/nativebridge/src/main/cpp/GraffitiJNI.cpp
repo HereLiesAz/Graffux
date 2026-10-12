@@ -1563,6 +1563,117 @@ static uint8_t* gfxLockLayerBitmap(JNIEnv* env, graffux::StampEngine* engine, jo
     return static_cast<uint8_t*>(pixels);
 }
 
+// ---- Document store (StampEngine's optional doc* methods; wgpu only) -----------------------
+// Layer images cross as full-layer ARGB_8888 bitmaps (gfxLockLayerBitmap's requirements); a rect
+// read or write touches only that rectangle of the bitmap. Generations come back as jlong (0 =
+// failure or unsupported).
+
+static bool gfxRect(JNIEnv* env, jintArray rect, int32_t out[4]) {
+    if (rect == nullptr || env->GetArrayLength(rect) < 4) return false;
+    jint v[4];
+    env->GetIntArrayRegion(rect, 0, 4, v);
+    for (int i = 0; i < 4; i++) out[i] = v[i];
+    return true;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocOpen(JNIEnv*, jobject, jlong handle) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->isInitialized() && engine->docOpen() ? JNI_TRUE : JNI_FALSE;
+}
+
+// op: 0 put (whole `bitmap`), 1 clear, 3 copy layer `other` into `key`, 4 generation.
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocLayer(
+        JNIEnv* env, jobject, jlong handle, jint op, jlong key, jlong other, jobject bitmap) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return 0;
+    if (op != 0) {
+        return static_cast<jlong>(engine->docLayer(op, static_cast<uint64_t>(key), static_cast<uint64_t>(other),
+                                                   nullptr, nullptr, 0));
+    }
+    if (bitmap == nullptr) return 0;
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
+    if (!pixels) return 0;
+    const uint64_t generation = engine->docLayer(0, static_cast<uint64_t>(key), 0, nullptr, pixels, capacity);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return static_cast<jlong>(generation);
+}
+
+// Writes `rect` of layer `key` from the same rectangle of the full-layer `bitmap`.
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocWrite(
+        JNIEnv* env, jobject, jlong handle, jlong key, jobject bitmap, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    int32_t r[4];
+    if (!engine || !engine->isInitialized() || !gfxRect(env, rect, r) || r[2] <= 0 || r[3] <= 0) return 0;
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
+    if (!pixels) return 0;
+    const size_t stride = static_cast<size_t>(engine->width()) * 4;
+    std::vector<uint8_t> block(static_cast<size_t>(r[2]) * r[3] * 4);
+    for (int32_t row = 0; row < r[3]; row++) {
+        memcpy(block.data() + static_cast<size_t>(row) * r[2] * 4,
+               pixels + static_cast<size_t>(r[1] + row) * stride + static_cast<size_t>(r[0]) * 4,
+               static_cast<size_t>(r[2]) * 4);
+    }
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return static_cast<jlong>(engine->docLayer(2, static_cast<uint64_t>(key), 0, r, block.data(), block.size()));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocDrop(JNIEnv*, jobject, jlong handle, jlong key) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->isInitialized() && engine->docLayerDrop(static_cast<uint64_t>(key)) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocBind(JNIEnv*, jobject, jlong handle, jlong key) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return 0;
+    return static_cast<jlong>(engine->docLayerBind(static_cast<uint64_t>(key)));
+}
+
+// `rect` (int[4]) receives the {x, y, w, h} the stroke painted.
+JNIEXPORT jlong JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocCommit(
+        JNIEnv* env, jobject, jlong handle, jlong key, jlong session, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized() || rect == nullptr || env->GetArrayLength(rect) < 4) return 0;
+    int32_t r[4] = {0, 0, 0, 0};
+    const uint64_t generation =
+        engine->docLayerCommit(static_cast<uint64_t>(key), static_cast<uint64_t>(session), r);
+    if (generation != 0) {
+        const jint values[4] = {r[0], r[1], r[2], r[3]};
+        env->SetIntArrayRegion(rect, 0, 4, values);
+    }
+    return static_cast<jlong>(generation);
+}
+
+// Reads `rect` of layer `key` into the same rectangle of the full-layer `bitmap`.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDocRead(
+        JNIEnv* env, jobject, jlong handle, jlong key, jobject bitmap, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    int32_t r[4];
+    if (!engine || !engine->isInitialized() || !gfxRect(env, rect, r) || r[2] <= 0 || r[3] <= 0) return JNI_FALSE;
+    std::vector<uint8_t> block(static_cast<size_t>(r[2]) * r[3] * 4);
+    if (!engine->docLayerRead(static_cast<uint64_t>(key), r[0], r[1], r[2], r[3], block.data(), block.size())) {
+        return JNI_FALSE;
+    }
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
+    if (!pixels) return JNI_FALSE;
+    const size_t stride = static_cast<size_t>(engine->width()) * 4;
+    for (int32_t row = 0; row < r[3]; row++) {
+        memcpy(pixels + static_cast<size_t>(r[1] + row) * stride + static_cast<size_t>(r[0]) * 4,
+               block.data() + static_cast<size_t>(row) * r[2] * 4, static_cast<size_t>(r[2]) * 4);
+    }
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return JNI_TRUE;
+}
+
 // `rect` (int[4], may be null) receives the {x, y, w, h} actually copied.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadbackRect(JNIEnv* env, jobject, jlong handle, jobject outBitmap, jintArray rect) {

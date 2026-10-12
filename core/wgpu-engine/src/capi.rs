@@ -296,6 +296,125 @@ pub unsafe extern "C" fn gfx_wgpu_shade_relief(
     })
 }
 
+// ---- Document store (docstore.rs): canonical GPU layers ------------------------------------
+
+/// [`Engine::doc_open`].
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_doc_open(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.doc_open()))
+}
+
+/// One document-layer call returning a generation (0 = failure): `op` 0 put (whole layer from
+/// `rgba`, `len` bytes), 1 clear, 2 write `rect` from `rgba`, 3 copy layer `other` into `key`,
+/// 4 current generation.
+///
+/// # Safety
+/// `rgba` must point to `len` readable bytes (may be null for ops that take none); `rect` to four
+/// ints for op 2.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_doc_layer(
+    e: *mut Engine,
+    op: i32,
+    key: u64,
+    other: u64,
+    rect: *const i32,
+    rgba: *const u8,
+    len: usize,
+) -> u64 {
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        let data = slice(rgba, len);
+        match op {
+            0 => e.doc_layer_put(key, data),
+            1 => e.doc_layer_clear(key),
+            2 => {
+                let r = slice(rect, 4);
+                if r.len() < 4 {
+                    return 0;
+                }
+                e.doc_layer_write(key, r[0], r[1], r[2], r[3], data)
+            }
+            3 => e.doc_layer_copy(other, key),
+            4 => e.doc_layer_gen(key),
+            _ => 0,
+        }
+    })
+}
+
+/// [`Engine::doc_layer_drop`].
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_doc_layer_drop(e: *mut Engine, key: u64) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.doc_layer_drop(key)))
+}
+
+/// [`Engine::doc_layer_bind`]: the stroke session, 0 on failure.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_doc_layer_bind(e: *mut Engine, key: u64) -> u64 {
+    guard(0, || engine(e).map_or(0, |e| e.doc_layer_bind(key)))
+}
+
+/// [`Engine::doc_layer_commit`]: writes `{x, y, w, h}` into `out_rect` and returns the new
+/// generation, 0 when the session is no longer the layer's stroke.
+///
+/// # Safety
+/// `out_rect` must point to four writable ints.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_doc_layer_commit(
+    e: *mut Engine,
+    key: u64,
+    session: u64,
+    out_rect: *mut i32,
+) -> u64 {
+    guard(0, || {
+        if out_rect.is_null() {
+            return 0;
+        }
+        let Some((generation, r)) = engine(e).and_then(|e| e.doc_layer_commit(key, session)) else {
+            return 0;
+        };
+        // SAFETY: the caller passes four writable ints.
+        let out = unsafe { std::slice::from_raw_parts_mut(out_rect, 4) };
+        out.copy_from_slice(&[r.x, r.y, r.w, r.h]);
+        generation
+    })
+}
+
+/// [`Engine::doc_layer_read`] of `[x, x + w) x [y, y + h)` into `out` (`w*h*4` bytes).
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_doc_layer_read(
+    e: *mut Engine,
+    key: u64,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    out: *mut u8,
+    len: usize,
+) -> bool {
+    guard(false, || {
+        if out.is_null() {
+            return false;
+        }
+        // SAFETY: the caller passes `len` writable bytes.
+        let out = unsafe { std::slice::from_raw_parts_mut(out, len) };
+        engine(e).is_some_and(|e| e.doc_layer_read(key, x, y, w, h, out))
+    })
+}
+
 // ---- Impasto v2: the wet material simulation (wet.rs) -------------------------------------
 
 /// [`Engine::wet_begin`]: `count` pixels of straight-ARGB `raw`, `height` and `wetness`; `tiles`

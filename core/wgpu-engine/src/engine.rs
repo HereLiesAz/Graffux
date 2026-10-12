@@ -26,6 +26,8 @@ pub mod direct;
 #[path = "impasto.rs"]
 mod impasto;
 pub use impasto::{height_region, HeightDab, IMPASTO_WGSL};
+#[path = "docstore.rs"]
+mod docstore;
 #[path = "wet.rs"]
 mod wet;
 pub use wet::{MaterialDab, WET_FLAG_HEIGHT, WET_FLAG_WETNESS, WET_MEDIA_FLOATS, WET_WGSL};
@@ -410,6 +412,10 @@ pub struct Engine {
     session: u64,
     next_session: u64,
     residents: ResidentSet<wgpu::Buffer>,
+    /// Document mode (docstore.rs): resident layers are canonical, never evicted.
+    doc_mode: bool,
+    /// The document store's generation counter.
+    doc_gen: u64,
     staging: wgpu::Buffer,
     stroke_state: Option<wgpu::Buffer>,
     stroke_state_dirty: bool,
@@ -846,6 +852,8 @@ impl Engine {
             session: 0,
             next_session: 1,
             residents: ResidentSet::new(DEFAULT_BUDGET_BYTES),
+            doc_mode: false,
+            doc_gen: 0,
             staging,
             stroke_state: None,
             stroke_state_dirty: true,
@@ -2064,6 +2072,10 @@ impl Engine {
     /// The CPU layer `key` changed outside the engine: forget the resident copy (or, if it is the
     /// active layer, mark it so no bind can match it). True if the engine held it.
     pub fn invalidate_layer(&mut self, key: u64) -> bool {
+        // Document mode: a layer is canonical, not a cache; only doc_layer_drop removes it.
+        if self.doc_mode {
+            return false;
+        }
         if self.active_key == Some(key) {
             self.mp_discard_pending();
             if let Some(e) = self.residents.get_mut(key) {
@@ -2077,6 +2089,10 @@ impl Engine {
 
     /// Forgets every resident layer (memory pressure, document switch).
     pub fn invalidate_all_layers(&mut self) {
+        // Document mode: a layer is canonical, not a cache; only doc_layer_drop removes it.
+        if self.doc_mode {
+            return;
+        }
         if self.active_key.is_some() {
             self.mp_discard_pending();
         }
@@ -2087,6 +2103,10 @@ impl Engine {
     /// Sets the resident-layer memory budget in bytes and evicts down to it (the active layer is
     /// kept even if it alone exceeds the budget).
     pub fn set_resident_budget(&mut self, bytes: u64) {
+        // Document mode: layers are canonical; memory policy belongs to the caller.
+        if self.doc_mode {
+            return;
+        }
         let evicted = self.residents.set_budget(bytes, self.active_key);
         drop(evicted);
     }
