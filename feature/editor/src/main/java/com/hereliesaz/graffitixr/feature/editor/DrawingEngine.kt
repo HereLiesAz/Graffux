@@ -17,6 +17,7 @@ import com.hereliesaz.graffitixr.nativebridge.SlamManager
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.ink.InkAffine
+import com.hereliesaz.graffitixr.feature.editor.ink.InkGpuRaster
 import com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
@@ -222,20 +223,26 @@ internal class DrawingEngine(
             stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height, stroke.layerScale
         )
         // Jetpack Ink utensil (Ink Pen, Marker, ...): the command carries the finished Ink
-        // stroke, which is rendered as-is through Ink's own CanvasStrokeRenderer — the pixels
+        // stroke, which is rendered as-is through Ink's own CanvasStrokeRenderer on the hardware
+        // canvas (InkGpuRaster) — the pixels
         // committed and replayed are Ink's, matching what its InProgressStrokesView showed live.
         // Everything around the paint is the editor's usual discipline: the selection clip (and
         // its feather), alpha lock and wrap-around, all read off the recorded command.
         stroke.inkStroke?.let { ink ->
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
-            val inkCanvas = android.graphics.Canvas(target)
-            SelectionMask.clip(inkCanvas, paintClip)
             val worldToBitmap = InkAffine.worldToBitmap(
                 stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
                 stroke.layerScale, stroke.layerOffset.x, stroke.layerOffset.y, stroke.layerRotationZ,
             )
-            InkStrokes.draw(inkCanvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode)
-            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
+            // On Android's hardware canvas (InkGpuRaster): the layer, then the stroke clipped to the
+            // selection. A failed render leaves the layer as it was.
+            val painted = InkGpuRaster.render(bitmap.width, bitmap.height) { canvas ->
+                canvas.drawBitmap(bitmap, 0f, 0f, null)
+                val saved = canvas.save()
+                SelectionMask.clip(canvas, paintClip)
+                InkStrokes.draw(canvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode)
+                canvas.restoreToCount(saved)
+            } ?: return bitmap
+            return SelectionMask.feather(bitmap, painted, clipPath, featherRadius)
         }
         stroke.stampBrush?.let { brush ->
             // The GPU paints every stamp stroke: Impasto v1 (GpuImpastoStroke: colour, height deposit
