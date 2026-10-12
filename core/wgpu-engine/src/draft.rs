@@ -77,7 +77,11 @@ pub struct FeatherEdge {
 impl FeatherEdge {
     pub fn for_hardness(hardness: f32, f: f32) -> FeatherEdge {
         let h = hardness.clamp(0.0, 1.0);
-        let outer = if h >= 0.999 { (h + 0.001).min(1.0) } else { 1.0 };
+        let outer = if h >= 0.999 {
+            (h + 0.001).min(1.0)
+        } else {
+            1.0
+        };
         let core = h.min(outer);
         let f = clamp_edge_fraction(f);
         FeatherEdge {
@@ -125,7 +129,13 @@ pub fn min_draft_radius(scale: u32) -> f32 {
 /// A dab as the draft shaders take it: always "resolved" (its own colour, alpha, flow and
 /// hardness), widened to [`min_draft_radius`] with its alpha scaled down to keep the paint total.
 /// `tip_ratio_slot` carries hardness for round tips and the tip ratio for masked ones.
-pub fn draft_dab(d: &GpuDab, call_color_argb: u32, call_hardness: f32, scale: u32, masked: bool) -> GpuDab {
+pub fn draft_dab(
+    d: &GpuDab,
+    call_color_argb: u32,
+    call_hardness: f32,
+    scale: u32,
+    masked: bool,
+) -> GpuDab {
     let mut out = *d;
     if d.resolved < 0.5 {
         out.color_r = ((call_color_argb >> 16) & 0xFF) as f32 / 255.0;
@@ -217,7 +227,13 @@ mod tests {
                 }
             }
             let feather = outer - core;
-            for f in [EDGE_FRACTION_MIN, EDGE_FRACTION_DEFAULT, EDGE_FRACTION_MAX, 0.0, 0.9] {
+            for f in [
+                EDGE_FRACTION_MIN,
+                EDGE_FRACTION_DEFAULT,
+                EDGE_FRACTION_MAX,
+                0.0,
+                0.9,
+            ] {
                 let rc = coarse_radius(radius, h, f);
                 let tol = radius / 10_000.0 * 2.0;
                 assert!(
@@ -229,7 +245,10 @@ mod tests {
             }
             // The default sits at 0.4 of the feather.
             let rc = coarse_radius(radius, h, EDGE_FRACTION_DEFAULT);
-            assert!((rc - (core + 0.4 * feather)).abs() <= radius / 5000.0, "h={h}");
+            assert!(
+                (rc - (core + 0.4 * feather)).abs() <= radius / 5000.0,
+                "h={h}"
+            );
         }
     }
 
@@ -260,7 +279,10 @@ mod tests {
     fn mip_chain_halves_to_one_pixel() {
         let img: Vec<u8> = (0..64).map(|i| (i * 4) as u8).collect();
         let chain = mip_chain(&img, 8, 8);
-        assert_eq!(chain.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(), vec![(8, 8), (4, 4), (2, 2), (1, 1)]);
+        assert_eq!(
+            chain.iter().map(|c| (c.1, c.2)).collect::<Vec<_>>(),
+            vec![(8, 8), (4, 4), (2, 2), (1, 1)]
+        );
         let avg: u32 = img.iter().map(|&v| v as u32).sum::<u32>() / 64;
         assert!((chain[3].0[0] as i32 - avg as i32).abs() <= 2);
     }

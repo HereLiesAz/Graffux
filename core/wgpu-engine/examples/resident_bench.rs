@@ -41,7 +41,14 @@ fn frame_dabs(i: usize, w: i32, h: i32) -> Vec<GpuDab> {
 }
 
 fn stamp(e: &mut Engine, dabs: &[GpuDab]) {
-    assert!(e.stamp_dabs(dabs, 0xFFE04020, 0.5, false, SubstrateParams::default(), true));
+    assert!(e.stamp_dabs(
+        dabs,
+        0xFFE04020,
+        0.5,
+        false,
+        SubstrateParams::default(),
+        true
+    ));
 }
 
 fn median(mut v: Vec<Duration>) -> f64 {
@@ -50,17 +57,31 @@ fn median(mut v: Vec<Duration>) -> f64 {
 }
 
 fn main() {
-    let args: Vec<i32> = std::env::args().skip(1).filter_map(|a| a.parse().ok()).collect();
-    let (w, h) = (*args.first().unwrap_or(&2048), *args.get(1).unwrap_or(&2048));
-    let layer: Vec<u8> = (0..(w * h * 4) as usize).map(|i| (i * 31 % 251) as u8).collect();
+    let args: Vec<i32> = std::env::args()
+        .skip(1)
+        .filter_map(|a| a.parse().ok())
+        .collect();
+    let (w, h) = (
+        *args.first().unwrap_or(&2048),
+        *args.get(1).unwrap_or(&2048),
+    );
+    let layer: Vec<u8> = (0..(w * h * 4) as usize)
+        .map(|i| (i * 31 % 251) as u8)
+        .collect();
     let mut out = layer.clone();
-    println!("layer {w}x{h} ({} MiB), {ITER} iterations, median ms", w as usize * h as usize * 4 >> 20);
+    println!(
+        "layer {w}x{h} ({} MiB), {ITER} iterations, median ms",
+        w as usize * h as usize * 4 >> 20
+    );
     for (name, backends) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         let Some(mut e) = Engine::with_backends(w, h, backends) else {
             println!("[{name}] no adapter -- skipped");
             continue;
         };
-        println!("[{name}] {}  (SOFTWARE RENDERER numbers)", e.adapter_description());
+        println!(
+            "[{name}] {}  (SOFTWARE RENDERER numbers)",
+            e.adapter_description()
+        );
         let dabs = frame_dabs(0, w, h);
         // Warm-up: pipelines, buffers, staging.
         e.upload(&layer);
@@ -99,8 +120,18 @@ fn main() {
 
         // Per-frame cost inside a stroke.
         let row_band = |d: &[GpuDab]| {
-            let top = d.iter().map(|d| (d.y - d.radius).floor() as i32).min().unwrap().max(0);
-            let bottom = d.iter().map(|d| (d.y + d.radius).ceil() as i32 + 1).max().unwrap().min(h);
+            let top = d
+                .iter()
+                .map(|d| (d.y - d.radius).floor() as i32)
+                .min()
+                .unwrap()
+                .max(0);
+            let bottom = d
+                .iter()
+                .map(|d| (d.y + d.radius).ceil() as i32 + 1)
+                .max()
+                .unwrap()
+                .min(h);
             (top, bottom - top)
         };
         let mut band = vec![0u8; (w * h * 4) as usize];
@@ -127,8 +158,14 @@ fn main() {
             "[{name}] first dab   before (upload + full readback): {:8.2}",
             median(before)
         );
-        println!("[{name}] first dab   after, resident hit            : {:8.2}", median(hit));
-        println!("[{name}] first dab   after, miss (upload_layer)     : {:8.2}", median(miss));
+        println!(
+            "[{name}] first dab   after, resident hit            : {:8.2}",
+            median(hit)
+        );
+        println!(
+            "[{name}] first dab   after, miss (upload_layer)     : {:8.2}",
+            median(miss)
+        );
         println!(
             "[{name}] per frame   before (full-width row band)   : {:8.2}",
             median(frame_before)
@@ -139,4 +176,3 @@ fn main() {
         );
     }
 }
-

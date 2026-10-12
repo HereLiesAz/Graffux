@@ -19,7 +19,8 @@ pub use wgpu;
 
 pub use engine::{
     height_region, BackendChoice, BenchmarkInfo, ColorSmudgeDab, Engine, EngineOptions, GpuDab,
-    GpuSecondaryDab, HeightDab, MaskedParams, MultipassConfig, MultipassStats, SubstrateParams,
-    DEFAULT_STAMP_TILE, IMPASTO_WGSL,
+    GpuSecondaryDab, HeightDab, MaskedParams, MaterialDab, MultipassConfig, MultipassStats,
+    SubstrateParams, DEFAULT_STAMP_TILE, IMPASTO_WGSL, WET_FLAG_HEIGHT, WET_FLAG_WETNESS,
+    WET_MEDIA_FLOATS, WET_WGSL,
 };
 pub use timing::PassKind;

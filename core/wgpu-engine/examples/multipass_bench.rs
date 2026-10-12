@@ -20,7 +20,9 @@
 use std::time::{Duration, Instant};
 
 use graffux_wgpu::wgpu::Backends;
-use graffux_wgpu::{Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig, SubstrateParams};
+use graffux_wgpu::{
+    Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig, SubstrateParams,
+};
 
 const FRAME_MS: f64 = 1000.0 / 60.0;
 
@@ -53,7 +55,9 @@ struct Assets {
 fn assets() -> Assets {
     let mut s = 12345u64;
     let mut rnd = || {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (s >> 40) as f32 / (1u64 << 24) as f32
     };
     let n = 128u32;
@@ -65,7 +69,9 @@ fn assets() -> Assets {
             ((1.0 - d).clamp(0.0, 1.0).powf(0.6) * (0.5 + 0.5 * rnd()) * 255.0) as u8
         })
         .collect();
-    let grain = (0..64 * 64).map(|_| (120.0 + rnd() * 135.0) as u8).collect();
+    let grain = (0..64 * 64)
+        .map(|_| (120.0 + rnd() * 135.0) as u8)
+        .collect();
     let secondary = (0..32 * 32)
         .map(|i| {
             let (x, y) = ((i % 32) as f32 - 15.5, (i / 32) as f32 - 15.5);
@@ -249,20 +255,32 @@ fn run(
 }
 
 fn main() {
-    let args: Vec<usize> = std::env::args().skip(1).filter_map(|a| a.parse().ok()).collect();
-    let (w, h) = (*args.first().unwrap_or(&1536) as i32, *args.get(1).unwrap_or(&1024) as i32);
+    let args: Vec<usize> = std::env::args()
+        .skip(1)
+        .filter_map(|a| a.parse().ok())
+        .collect();
+    let (w, h) = (
+        *args.first().unwrap_or(&1536) as i32,
+        *args.get(1).unwrap_or(&1024) as i32,
+    );
     let frames = *args.get(2).unwrap_or(&120);
     let a = assets();
     println!(
         "SOFTWARE RENDERER RESULTS (Mesa, no GPU). Layer {w}x{h}, a {frames}-frame drag at 60 Hz. \
          Times in ms."
     );
-    for (bname, backends) in [("vulkan (lavapipe)", Backends::VULKAN), ("gl (llvmpipe)", Backends::GL)] {
+    for (bname, backends) in [
+        ("vulkan (lavapipe)", Backends::VULKAN),
+        ("gl (llvmpipe)", Backends::GL),
+    ] {
         if Engine::with_backends(8, 8, backends).is_none() {
             println!("\n[{bname}] no adapter -- skipped");
             continue;
         }
-        if std::env::var("BENCH_BACKEND").ok().is_some_and(|b| !bname.starts_with(b.as_str())) {
+        if std::env::var("BENCH_BACKEND")
+            .ok()
+            .is_some_and(|b| !bname.starts_with(b.as_str()))
+        {
             continue;
         }
         println!("\n## {bname}\n");
@@ -271,8 +289,16 @@ fn main() {
         );
         println!("|---|---|---|---|---|---|---|---|---|---|---|");
         let only = std::env::var("BENCH_ONLY").ok();
-        for brush in [Brush::SoftRound, Brush::MaskedTextured, Brush::Bristles, Brush::HeavyMasked] {
-            if only.as_deref().is_some_and(|o| !brush.name().starts_with(o)) {
+        for brush in [
+            Brush::SoftRound,
+            Brush::MaskedTextured,
+            Brush::Bristles,
+            Brush::HeavyMasked,
+        ] {
+            if only
+                .as_deref()
+                .is_some_and(|o| !brush.name().starts_with(o))
+            {
                 continue;
             }
             let base = MultipassConfig {
@@ -301,13 +327,25 @@ fn main() {
                     "| {} | {}{} | {:.1} | {:.1} | {:.1} | {:.2} | {} | {} | {} | {} | {} |",
                     brush.name(),
                     mode,
-                    if mp { format!(" (draft 1/{})", r.scale) } else { String::new() },
+                    if mp {
+                        format!(" (draft 1/{})", r.scale)
+                    } else {
+                        String::new()
+                    },
                     pct(&r.visible_ms, 0.5),
                     pct(&r.visible_ms, 0.95),
                     pct(&r.visible_ms, 1.0),
                     pct(&r.batch_ms, 0.5),
-                    if mp { format!("{:.0}", r.layer_done_ms) } else { "0 (in the frame)".into() },
-                    if mp { format!("{:.0}", r.settled_ms) } else { "-".into() },
+                    if mp {
+                        format!("{:.0}", r.layer_done_ms)
+                    } else {
+                        "0 (in the frame)".into()
+                    },
+                    if mp {
+                        format!("{:.0}", r.settled_ms)
+                    } else {
+                        "-".into()
+                    },
                     opt(r.draft_ms),
                     opt(r.compose_ms),
                     opt(r.present_ms),

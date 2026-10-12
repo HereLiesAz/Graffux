@@ -26,7 +26,9 @@ pub mod direct;
 #[path = "impasto.rs"]
 mod impasto;
 pub use impasto::{height_region, HeightDab, IMPASTO_WGSL};
-
+#[path = "wet.rs"]
+mod wet;
+pub use wet::{MaterialDab, WET_FLAG_HEIGHT, WET_FLAG_WETNESS, WET_MEDIA_FLOATS, WET_WGSL};
 
 /// Default stamp workgroup edge (16x16 = 256 invocations). Overridable per GPU family through
 /// [`EngineOptions::stamp_tile`], which reaches the WGSL as the `STAMP_TILE` override constant.
@@ -413,6 +415,8 @@ pub struct Engine {
     stroke_state_dirty: bool,
     /// Impasto height and its pipelines (impasto.rs), created on first use.
     impasto: Option<impasto::ImpastoGpu>,
+    /// Impasto v2's wet material simulation (wet.rs), created by `wet_begin`.
+    wet: Option<wet::WetGpu>,
     placeholder_state: wgpu::Buffer,
     dab_buffer: GrowBuffer,
     secondary_buffer: GrowBuffer,
@@ -628,7 +632,11 @@ impl Engine {
                 && limits.max_compute_workgroup_size_x >= tile
                 && limits.max_compute_workgroup_size_y >= tile
         };
-        let wanted = if options.stamp_tile == 8 { 8 } else { DEFAULT_STAMP_TILE };
+        let wanted = if options.stamp_tile == 8 {
+            8
+        } else {
+            DEFAULT_STAMP_TILE
+        };
         let stamp_tile = if fits(wanted) { wanted } else { 8 };
         if !fits(stamp_tile) || limits.max_storage_buffers_per_shader_stage < 3 {
             return None;
@@ -637,7 +645,8 @@ impl Engine {
         // requested -- there is no f16 shader path yet (Kotlin GpuTierTable keeps it off).
         let timing_features = if options.timestamps {
             adapter.features()
-                & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
+                & (wgpu::Features::TIMESTAMP_QUERY
+                    | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
         } else {
             wgpu::Features::empty()
         };
@@ -815,8 +824,13 @@ impl Engine {
             &masked_layout,
             &tile_constant,
         );
-        let smudge_pipeline =
-            make_pipeline(&device, "color smudge", COLOR_SMUDGE_WGSL, &smudge_layout, &[]);
+        let smudge_pipeline = make_pipeline(
+            &device,
+            "color smudge",
+            COLOR_SMUDGE_WGSL,
+            &smudge_layout,
+            &[],
+        );
         let timer = GpuTimer::new(&device, &queue);
 
         Engine {
@@ -836,6 +850,7 @@ impl Engine {
             stroke_state: None,
             stroke_state_dirty: true,
             impasto: None,
+            wet: None,
             placeholder_state,
             dab_buffer,
             secondary_buffer,
@@ -974,7 +989,9 @@ impl Engine {
                 if tex.width == width && tex.height == height && tex.hash == fnv1a(data) {
                     return;
                 }
-                *tex = Arc::new(Self::make_tex(device, queue, label, width, height, format, data));
+                *tex = Arc::new(Self::make_tex(
+                    device, queue, label, width, height, format, data,
+                ));
             }
         }
     }
@@ -1202,7 +1219,8 @@ impl Engine {
             return false;
         }
         if self.mp_on() {
-            return self.mp_submit_stamp(dabs, color_argb, hardness, build_up, substrate, stroke_max);
+            return self
+                .mp_submit_stamp(dabs, color_argb, hardness, build_up, substrate, stroke_max);
         }
         let use_stroke_max = stroke_max && !build_up;
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -1699,7 +1717,13 @@ impl Engine {
         }
         let stride = self.width as usize * 4;
         let src = self.layer.clone();
-        if !self.read_region_into(&src, r, out, stride, (r.y as usize * stride) + r.x as usize * 4) {
+        if !self.read_region_into(
+            &src,
+            r,
+            out,
+            stride,
+            (r.y as usize * stride) + r.x as usize * 4,
+        ) {
             return None;
         }
         self.dirty = Rect::default();
@@ -1718,7 +1742,8 @@ impl Engine {
     /// inside the layer or `out` is too small.
     pub fn read_region(&mut self, x: i32, y: i32, w: i32, h: i32, out: &mut [u8]) -> bool {
         let r = Rect::new(x, y, w, h);
-        if r.is_empty() || r.clamp(self.width, self.height) != r || out.len() < (w * h * 4) as usize {
+        if r.is_empty() || r.clamp(self.width, self.height) != r || out.len() < (w * h * 4) as usize
+        {
             return false;
         }
         // Reads the layer itself, so queued multipass work must land first.
@@ -1866,7 +1891,10 @@ impl Engine {
         let session = self.next_session;
         self.next_session += 1;
         self.residents.touch(key);
-        let e = self.residents.get_mut(key).expect("activate: key is resident");
+        let e = self
+            .residents
+            .get_mut(key)
+            .expect("activate: key is resident");
         e.session = session;
         e.touched = Rect::default();
         self.layer = e.buffer.clone();
@@ -1916,8 +1944,13 @@ impl Engine {
             });
             // The previous active layer's stroke is over once another layer is uploaded, so only
             // the new key is protected from eviction.
-            let evicted = self.residents.insert(key, buffer, bytes, Tag::Invalid, None);
-            if self.active_key.is_some_and(|k| self.residents.get(k).is_none()) {
+            let evicted = self
+                .residents
+                .insert(key, buffer, bytes, Tag::Invalid, None);
+            if self
+                .active_key
+                .is_some_and(|k| self.residents.get(k).is_none())
+            {
                 self.detach();
             }
             drop(evicted);
@@ -1974,9 +2007,10 @@ impl Engine {
         }
         // Multipass: the CPU commit supersedes queued refinement of this stroke. It is dropped, not
         // drained (nothing waits for it), and its footprint joins the re-uploaded rectangle.
-        let accepted = self.residents.get(key).is_some_and(|e| {
-            e.session == session && session != 0 && e.tag != Tag::Invalid
-        });
+        let accepted = self
+            .residents
+            .get(key)
+            .is_some_and(|e| e.session == session && session != 0 && e.tag != Tag::Invalid);
         let dropped = if accepted && self.active_key == Some(key) {
             self.mp_discard_pending()
         } else {

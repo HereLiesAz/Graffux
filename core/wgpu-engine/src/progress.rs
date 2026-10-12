@@ -78,7 +78,8 @@ impl EtaEstimator {
     /// Over the last `period_ms` of wall time, refinement ran for `busy_ms`.
     pub fn observe_duty(&mut self, busy_ms: f64, period_ms: f64) {
         if period_ms > 0.0 {
-            self.duty.add((busy_ms / period_ms).clamp(0.0, 1.0), self.alpha);
+            self.duty
+                .add((busy_ms / period_ms).clamp(0.0, 1.0), self.alpha);
         }
     }
 
@@ -257,7 +258,11 @@ mod tests {
             e.observe_duty(8.0, 16.0);
         }
         // 0.8^20 of the old rate is left in the average: within 5% of the new truth.
-        assert!((e.eta_ms(1000.0) - 80.0).abs() < 4.0, "{}", e.eta_ms(1000.0));
+        assert!(
+            (e.eta_ms(1000.0) - 80.0).abs() < 4.0,
+            "{}",
+            e.eta_ms(1000.0)
+        );
     }
 
     /// A steady load on a synthetic device: the ETA predicted for each submission when it is queued
@@ -332,7 +337,10 @@ mod tests {
                     let before = t.quality(now, &p);
                     t.land(now, &p);
                     let after = t.quality(now, &p);
-                    assert!((after - before).abs() < 1e-6, "step at landing: {before} -> {after}");
+                    assert!(
+                        (after - before).abs() < 1e-6,
+                        "step at landing: {before} -> {after}"
+                    );
                     landed = true;
                 }
                 if step == 20 {

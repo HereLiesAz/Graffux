@@ -545,27 +545,33 @@ object ImpastoEngine {
             movedEdges++
         }
 
+        // Four edge phases per iteration (horizontal from even x, odd x, vertical from even y,
+        // odd y): edges within a phase share no pixel, so the GPU solver runs each phase in
+        // parallel and matches this reference exactly.
         repeat(count) {
-            for ((tx, ty) in active) {
-                val tileLeft = tx * tileSize
-                val tileTop = ty * tileSize
-                val left = max(bounds.left, tileLeft)
-                val top = max(bounds.top, tileTop)
-                val right = min(bounds.right, min(width, tileLeft + tileSize))
-                val bottom = min(bounds.bottom, min(imgHeight, tileTop + tileSize))
-                if (left >= right || top >= bottom) continue
+            for (phase in 0 until LEVEL_EDGE_PHASES) {
+                for ((tx, ty) in active) {
+                    val tileLeft = tx * tileSize
+                    val tileTop = ty * tileSize
+                    val left = max(bounds.left, tileLeft)
+                    val top = max(bounds.top, tileTop)
+                    val right = min(bounds.right, min(width, tileLeft + tileSize))
+                    val bottom = min(bounds.bottom, min(imgHeight, tileTop + tileSize))
+                    if (left >= right || top >= bottom) continue
 
-                for (y in top until bottom) {
-                    var idx = y * width + left
-                    for (x in left until right) {
-                        visited++
-                        if (x + 1 < bounds.right && tileActive(x + 1, y)) {
-                            exchange(idx, x, y, idx + 1, x + 1, y)
+                    for (y in top until bottom) {
+                        var idx = y * width + left
+                        for (x in left until right) {
+                            if (phase == 0) visited++
+                            if (phase < 2) {
+                                if (x % 2 == phase && x + 1 < bounds.right && tileActive(x + 1, y)) {
+                                    exchange(idx, x, y, idx + 1, x + 1, y)
+                                }
+                            } else if (y % 2 == phase - 2 && y + 1 < bounds.bottom && tileActive(x, y + 1)) {
+                                exchange(idx, x, y, idx + width, x, y + 1)
+                            }
+                            idx++
                         }
-                        if (y + 1 < bounds.bottom && tileActive(x, y + 1)) {
-                            exchange(idx, x, y, idx + width, x, y + 1)
-                        }
-                        idx++
                     }
                 }
             }
@@ -690,5 +696,6 @@ object ImpastoEngine {
     private const val MIN_WET_ROUGHNESS = 0.08f
     const val DEFAULT_LEVELING_ITERATIONS = 2
     const val MAX_LEVELING_ITERATIONS = 4
+    private const val LEVEL_EDGE_PHASES = 4
 
 }

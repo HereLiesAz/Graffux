@@ -13,7 +13,10 @@
 //! `target/multipass-png/` for a look; they are not committed.
 
 use graffux_wgpu::wgpu::Backends;
-use graffux_wgpu::{ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig, SubstrateParams};
+use graffux_wgpu::{
+    ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
+    SubstrateParams,
+};
 
 const W: i32 = 131;
 const H: i32 = 97;
@@ -200,7 +203,9 @@ fn assets() -> Assets {
         heights: (0..3)
             .map(|_| (0..W * H).map(|_| rng.f() * 0.6).collect())
             .collect(),
-        substrates: (0..3).map(|_| (0..64).map(|_| rng.byte()).collect()).collect(),
+        substrates: (0..3)
+            .map(|_| (0..64).map(|_| rng.byte()).collect())
+            .collect(),
     }
 }
 
@@ -313,7 +318,11 @@ fn multipass_off_is_unchanged_and_on_matches_it_byte_for_byte() {
             assert!(toggled.set_multipass(on(2)));
             assert!(toggled.set_multipass(MultipassConfig::default()));
             run(&mut toggled, &session, &a, None);
-            assert_eq!(toggled.read_all().unwrap(), expected, "[{name}] seed {seed}: toggled off");
+            assert_eq!(
+                toggled.read_all().unwrap(),
+                expected,
+                "[{name}] seed {seed}: toggled off"
+            );
 
             // On, with different interleavings and budgets, and different draft scales: the layer
             // is always exactly the multipass-off layer, and after a flush so is the display.
@@ -323,10 +332,16 @@ fn multipass_off_is_unchanged_and_on_matches_it_byte_for_byte() {
                 let mut shown = run(&mut e, &session, &a, Some(seed * 100 + k));
                 let got = e.read_all().unwrap();
                 let diff = got.iter().zip(&expected).filter(|(x, y)| x != y).count();
-                assert_eq!(diff, 0, "[{name}] seed {seed} interleaving {k}: {diff} bytes differ");
+                assert_eq!(
+                    diff, 0,
+                    "[{name}] seed {seed} interleaving {k}: {diff} bytes differ"
+                );
                 assert!(e.flush());
                 assert!(e.readback(&mut shown));
-                assert!(shown == expected, "[{name}] seed {seed} interleaving {k}: display != layer");
+                assert!(
+                    shown == expected,
+                    "[{name}] seed {seed} interleaving {k}: display != layer"
+                );
             }
         }
     }
@@ -368,7 +383,10 @@ fn drafts_show_on_the_first_readback_and_the_display_lands_exactly_on_the_layer(
         assert_eq!(stats.pending_drafts, 0, "[{name}] every draft ran");
         assert_eq!(stats.pending_refinement, 5, "[{name}] no final work yet");
         let changed = shown.iter().zip(&base).filter(|(x, y)| x != y).count();
-        assert!(changed > 1000, "[{name}] the draft is visible at once ({changed} bytes changed)");
+        assert!(
+            changed > 1000,
+            "[{name}] the draft is visible at once ({changed} bytes changed)"
+        );
         // Frames 8 ms apart; refinement gets a small slice each frame.
         let mut t = 0.0;
         let mut prev = shown.clone();
@@ -398,12 +416,27 @@ fn drafts_show_on_the_first_readback_and_the_display_lands_exactly_on_the_layer(
             }
             assert!(frames < 2000);
         }
-        let bad: Vec<usize> = shown.iter().zip(&expected).enumerate().filter(|(_, (x, y))| x != y).map(|(i, _)| i / 4).collect();
+        let bad: Vec<usize> = shown
+            .iter()
+            .zip(&expected)
+            .enumerate()
+            .filter(|(_, (x, y))| x != y)
+            .map(|(i, _)| i / 4)
+            .collect();
         if !bad.is_empty() {
-            panic!("[{name}] {} px differ, first {:?}", bad.len(), bad.iter().take(8).map(|p| (p % W as usize, p / W as usize)).collect::<Vec<_>>());
+            panic!(
+                "[{name}] {} px differ, first {:?}",
+                bad.len(),
+                bad.iter()
+                    .take(8)
+                    .map(|p| (p % W as usize, p / W as usize))
+                    .collect::<Vec<_>>()
+            );
         }
         assert_eq!(e.read_all().unwrap(), expected);
-        eprintln!("[{name}] converged in {frames} frames, largest per-frame step {max_step} levels");
+        eprintln!(
+            "[{name}] converged in {frames} frames, largest per-frame step {max_step} levels"
+        );
     }
 }
 
@@ -474,9 +507,15 @@ fn landing_is_monotonic_and_continuous_per_pixel() {
                 let v = f[i] as i32;
                 // Toward the target, never overshooting (1 level of rounding slack).
                 if to >= from {
-                    assert!(v + 1 >= prev && v <= to + 1, "[{name}] px {i}: {from}->{to} went {prev}->{v}");
+                    assert!(
+                        v + 1 >= prev && v <= to + 1,
+                        "[{name}] px {i}: {from}->{to} went {prev}->{v}"
+                    );
                 } else {
-                    assert!(v <= prev + 1 && v + 1 >= to, "[{name}] px {i}: {from}->{to} went {prev}->{v}");
+                    assert!(
+                        v <= prev + 1 && v + 1 >= to,
+                        "[{name}] px {i}: {from}->{to} went {prev}->{v}"
+                    );
                 }
                 worst_step = worst_step.max((v - prev).unsigned_abs() as u8);
                 prev = v;
@@ -611,7 +650,12 @@ fn draft_of_a_textured_masked_brush_correlates_with_its_final_and_pngs_are_writt
                 assert!(r_draft > 0.8, "[{name}] {label} 1/{scale}: {r_draft}");
                 let mut row: Vec<&[u8]> = stages.iter().map(Vec::as_slice).collect();
                 row.push(&fin);
-                write_strip(&dir.join(format!("{name}-{label}-draft{scale}.png")), &row, w, h);
+                write_strip(
+                    &dir.join(format!("{name}-{label}-draft{scale}.png")),
+                    &row,
+                    w,
+                    h,
+                );
             }
         }
     }
@@ -657,7 +701,11 @@ fn write_strip(path: &std::path::Path, images: &[&[u8]], w: i32, h: i32) {
         for &b in data {
             c ^= b as u32;
             for _ in 0..8 {
-                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
             }
         }
         !c
@@ -693,7 +741,14 @@ fn resident_refresh_drops_queued_work_and_stays_exact() {
         let s = e.upload_layer(7, 1, &base);
         assert!(s != 0);
         let dabs = random_dabs(&mut rng, 8, W, H);
-        assert!(e.stamp_dabs(&dabs, 0xFF102030, 0.5, false, SubstrateParams::default(), true));
+        assert!(e.stamp_dabs(
+            &dabs,
+            0xFF102030,
+            0.5,
+            false,
+            SubstrateParams::default(),
+            true
+        ));
         let mut out = base.clone();
         assert!(e.readback(&mut out));
         assert!(e.multipass_stats().pending_refinement > 0);
@@ -707,13 +762,19 @@ fn resident_refresh_drops_queued_work_and_stays_exact() {
         // resident copy still holds the (unchanged) base, exactly like the plain refresh path.
         let mut plain = engine(b, W, H);
         let ps = plain.upload_layer(7, 1, &base);
-        assert!(plain.stamp_dabs(&dabs, 0xFF102030, 0.5, false, SubstrateParams::default(), true));
+        assert!(plain.stamp_dabs(
+            &dabs,
+            0xFF102030,
+            0.5,
+            false,
+            SubstrateParams::default(),
+            true
+        ));
         assert!(plain.refresh_layer(7, ps, 2, &committed, (0, 0, 0, 0)));
         assert!(plain.bind_layer(7, 2) != 0);
         assert_eq!(got, plain.read_all().unwrap(), "[{name}]");
     }
 }
-
 
 /// Main's per-device stamp workgroup (8x8 on some GPU families): multipass chunks stay exact.
 #[test]
@@ -731,6 +792,9 @@ fn multipass_matches_plain_with_an_8x8_stamp_tile() {
         assert_eq!(e.stamp_tile(), 8);
         assert!(e.set_multipass(on(2)));
         run(&mut e, &session, &a, Some(77));
-        assert!(e.read_all().unwrap() == off.read_all().unwrap(), "[{name}] tile 8");
+        assert!(
+            e.read_all().unwrap() == off.read_all().unwrap(),
+            "[{name}] tile 8"
+        );
     }
 }

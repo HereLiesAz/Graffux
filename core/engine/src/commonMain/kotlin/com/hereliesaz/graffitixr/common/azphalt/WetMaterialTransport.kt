@@ -8,7 +8,10 @@ import kotlin.math.roundToInt
  * Work is proportional to [PersistentWetnessField.activeTileCount]. Only pixels in already-active
  * wet tiles participate and an edge crossing into an inactive tile is skipped, matching the
  * wetness solver's explicit tile-boundary contract. Each undirected neighbour edge is processed
- * once (right + down). Channel transfer is equal/opposite integer mass, so every exchange
+ * once per iteration, in four phases (horizontal edges from even x, from odd x, then vertical from
+ * even y, from odd y). Edges within a phase share no pixel, so the order inside a phase cannot
+ * change the result: the GPU solver (core/wgpu-engine `wet.wgsl`) runs each phase in parallel and
+ * matches this reference exactly. Channel transfer is equal/opposite integer mass, so every exchange
  * conserves the summed ARGB channel values exactly before ordinary 0..255 bounds.
  *
  * This deliberately is not a fluid solver. It is a small deterministic diffusion proxy whose job
@@ -54,35 +57,40 @@ object WetMaterialTransport {
         val iterationRate = transportRate.coerceIn(0f, 1f) * dt / count
 
         repeat(count) {
-            for ((tx, ty) in active) {
-                val left = tx * tileSize
-                val top = ty * tileSize
-                val right = minOf(width, left + tileSize)
-                val bottom = minOf(height, top + tileSize)
+            for (phase in 0 until EDGE_PHASES) {
+                for ((tx, ty) in active) {
+                    val left = tx * tileSize
+                    val top = ty * tileSize
+                    val right = minOf(width, left + tileSize)
+                    val bottom = minOf(height, top + tileSize)
 
-                for (y in top until bottom) {
-                    var index = y * width + left
-                    for (x in left until right) {
-                        visited++
-                        if (x + 1 < width && isActive(x + 1, y, tileSize, columns, activeIds)) {
-                            val mobility = ((wetness.wetnessAt(x, y) + wetness.wetnessAt(x + 1, y)) * 0.5f)
-                                .coerceIn(0f, 1f)
-                            val step = (iterationRate * mobility).coerceIn(0f, MAX_EDGE_STEP)
-                            if (step > 0f) {
-                                exchangeArgb(pixels, index, index + 1, step)
-                                edges++
+                    for (y in top until bottom) {
+                        var index = y * width + left
+                        for (x in left until right) {
+                            if (phase == 0) visited++
+                            if (phase < 2) {
+                                if (x % 2 == phase && x + 1 < width && isActive(x + 1, y, tileSize, columns, activeIds)) {
+                                    val mobility = ((wetness.wetnessAt(x, y) + wetness.wetnessAt(x + 1, y)) * 0.5f)
+                                        .coerceIn(0f, 1f)
+                                    val step = (iterationRate * mobility).coerceIn(0f, MAX_EDGE_STEP)
+                                    if (step > 0f) {
+                                        exchangeArgb(pixels, index, index + 1, step)
+                                        edges++
+                                    }
+                                }
+                            } else if (y % 2 == phase - 2 && y + 1 < height &&
+                                isActive(x, y + 1, tileSize, columns, activeIds)
+                            ) {
+                                val mobility = ((wetness.wetnessAt(x, y) + wetness.wetnessAt(x, y + 1)) * 0.5f)
+                                    .coerceIn(0f, 1f)
+                                val step = (iterationRate * mobility).coerceIn(0f, MAX_EDGE_STEP)
+                                if (step > 0f) {
+                                    exchangeArgb(pixels, index, index + width, step)
+                                    edges++
+                                }
                             }
+                            index++
                         }
-                        if (y + 1 < height && isActive(x, y + 1, tileSize, columns, activeIds)) {
-                            val mobility = ((wetness.wetnessAt(x, y) + wetness.wetnessAt(x, y + 1)) * 0.5f)
-                                .coerceIn(0f, 1f)
-                            val step = (iterationRate * mobility).coerceIn(0f, MAX_EDGE_STEP)
-                            if (step > 0f) {
-                                exchangeArgb(pixels, index, index + width, step)
-                                edges++
-                            }
-                        }
-                        index++
                     }
                 }
             }
@@ -133,4 +141,5 @@ object WetMaterialTransport {
     const val DEFAULT_ITERATIONS = 2
     const val MAX_ITERATIONS = 4
     private const val MAX_EDGE_STEP = 0.25f
+    private const val EDGE_PHASES = 4
 }
