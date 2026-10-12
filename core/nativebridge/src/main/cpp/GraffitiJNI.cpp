@@ -1563,6 +1563,42 @@ static uint8_t* gfxLockLayerBitmap(JNIEnv* env, graffux::StampEngine* engine, jo
     return static_cast<uint8_t*>(pixels);
 }
 
+// ---- Live impasto display (StampEngine's optional methods; wgpu only) ----------------------
+
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuImpastoDisplay_nativeShade(
+        JNIEnv*, jclass, jlong handle, jint x, jint y, jint w, jint h, jfloat azimuthDeg, jfloat elevationDeg,
+        jfloat strength) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    return engine && engine->isInitialized() &&
+                   engine->shadeImpastoReliefToDisplay(x, y, w, h, azimuthDeg, elevationDeg, strength)
+               ? JNI_TRUE
+               : JNI_FALSE;
+}
+
+// Reads `rect` of the display buffer into the same rectangle of the full-layer `bitmap`.
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuImpastoDisplay_nativeRead(
+        JNIEnv* env, jclass, jlong handle, jobject bitmap, jintArray rect) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized() || rect == nullptr || env->GetArrayLength(rect) < 4) return JNI_FALSE;
+    jint r[4];
+    env->GetIntArrayRegion(rect, 0, 4, r);
+    if (r[2] <= 0 || r[3] <= 0) return JNI_FALSE;
+    std::vector<uint8_t> block(static_cast<size_t>(r[2]) * r[3] * 4);
+    if (!engine->readImpastoDisplay(r[0], r[1], r[2], r[3], block.data(), block.size())) return JNI_FALSE;
+    size_t capacity = 0;
+    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
+    if (!pixels) return JNI_FALSE;
+    const size_t stride = static_cast<size_t>(engine->width()) * 4;
+    for (jint row = 0; row < r[3]; row++) {
+        memcpy(pixels + static_cast<size_t>(r[1] + row) * stride + static_cast<size_t>(r[0]) * 4,
+               block.data() + static_cast<size_t>(row) * r[2] * 4, static_cast<size_t>(r[2]) * 4);
+    }
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return JNI_TRUE;
+}
+
 // ---- Document store (StampEngine's optional doc* methods; wgpu only) -----------------------
 // Layer images cross as full-layer ARGB_8888 bitmaps (gfxLockLayerBitmap's requirements); a rect
 // read or write touches only that rectangle of the bitmap. Generations come back as jlong (0 =

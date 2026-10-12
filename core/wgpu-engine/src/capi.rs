@@ -340,6 +340,25 @@ pub unsafe extern "C" fn gfx_wgpu_selection_op(e: *mut Engine, op: i32) -> bool 
     })
 }
 
+/// [`Engine::stroke_rect`]: writes `{x, y, w, h}` into `out`.
+///
+/// # Safety
+/// `out` must point to four writable ints.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_stroke_rect(e: *mut Engine, out: *mut i32) -> bool {
+    guard(false, || {
+        if out.is_null() {
+            return false;
+        }
+        let Some(r) = engine(e).map(|e| e.stroke_rect()) else {
+            return false;
+        };
+        // SAFETY: the caller passes four writable ints.
+        unsafe { std::slice::from_raw_parts_mut(out, 4) }.copy_from_slice(&[r.x, r.y, r.w, r.h]);
+        true
+    })
+}
+
 // ---- Document store (docstore.rs): canonical GPU layers ------------------------------------
 
 /// [`Engine::doc_open`].
@@ -534,7 +553,7 @@ pub unsafe extern "C" fn gfx_wgpu_wet_buffer(
 /// pickup, substrate response, initial load), 5 wetness deposit (hardness, rate), 6 pigment
 /// transport (dt, rate, iterations), 7 wetness advance (dt, drying, transport, tile drying 0/1),
 /// 8 levelling (dt, iterations, x, y, w, h), 9 shade (x, y, w, h, azimuth, elevation, relief,
-/// use wetness 0/1).
+/// use wetness 0/1, optionally into the display buffer 0/1).
 ///
 /// # Safety
 /// `args` must point to `count` floats, or be null with `count` 0.
@@ -562,7 +581,17 @@ pub unsafe extern "C" fn gfx_wgpu_wet_op(
             6 => e.wet_pigment(a[0], a[1], i(2)),
             7 => e.wet_advance(a[0], a[1], a[2], a[3] != 0.0),
             8 => e.wet_level(a[0], i(1), i(2), i(3), i(4), i(5)),
-            _ => e.wet_shade(i(0), i(1), i(2), i(3), a[4], a[5], a[6], a[7] != 0.0),
+            _ => e.wet_shade(
+                i(0),
+                i(1),
+                i(2),
+                i(3),
+                a[4],
+                a[5],
+                a[6],
+                a[7] != 0.0,
+                a.get(8).is_some_and(|&v| v != 0.0),
+            ),
         })
     })
 }
@@ -613,6 +642,54 @@ pub unsafe extern "C" fn gfx_wgpu_wet_read_flags(
         // SAFETY: the caller passes `count` writable words.
         let out = unsafe { std::slice::from_raw_parts_mut(out, count as usize) };
         engine(e).is_some_and(|e| e.wet_read_ctl(out))
+    })
+}
+
+/// [`Engine::shade_relief_to_display`].
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_shade_relief_display(
+    e: *mut Engine,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    light_azimuth_deg: f32,
+    light_elevation_deg: f32,
+    strength: f32,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| {
+            e.shade_relief_to_display(x, y, w, h, light_azimuth_deg, light_elevation_deg, strength)
+        })
+    })
+}
+
+/// [`Engine::read_display`] of `[x, x + w) x [y, y + h)` into `out` (`w*h*4` bytes).
+///
+/// # Safety
+/// `out` must point to `len` writable bytes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_read_display(
+    e: *mut Engine,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    out: *mut u8,
+    len: usize,
+) -> bool {
+    guard(false, || {
+        if out.is_null() {
+            return false;
+        }
+        // SAFETY: the caller passes `len` writable bytes.
+        let out = unsafe { std::slice::from_raw_parts_mut(out, len) };
+        engine(e).is_some_and(|e| e.read_display(x, y, w, h, out))
     })
 }
 

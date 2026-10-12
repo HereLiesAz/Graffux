@@ -232,3 +232,44 @@ fn height_region_is_the_union_of_the_cpu_boxes_clamped() {
     // x: -7..=14 and y: 0..=14 inclusive, clamped to the layer.
     assert_eq!((r.x, r.y, r.w, r.h), (0, 0, 15, 15));
 }
+
+/// Shading into the display buffer gives the in-place shade's pixels over the region and leaves the
+/// layer (the raw paint) untouched, so a live stroke can shade again after more height lands.
+#[test]
+fn shading_into_the_display_keeps_the_raw_layer() {
+    for (name, mut e) in engines() {
+        let mut rng = Rng(9);
+        let mut layer = vec![0u8; (W * H * 4) as usize];
+        for p in layer.chunks_exact_mut(4) {
+            for c in 0..3 {
+                p[c] = (rng.f() * 255.0) as u8;
+            }
+            p[3] = 255;
+        }
+        let mut height = vec![0f32; (W * H) as usize];
+        cpu_deposit(&mut height, &dabs(&mut rng, 20), 0.4, 0.5);
+        assert!(e.upload(&layer) && e.upload_height(&height));
+        let (x, y, w, h) = (4, 6, 40, 30);
+        assert!(e.shade_relief_to_display(x, y, w, h, 135.0, 45.0, 1.0));
+        let mut shown = vec![0u8; (w * h * 4) as usize];
+        assert!(e.read_display(x, y, w, h, &mut shown));
+        assert_eq!(
+            e.read_all().unwrap(),
+            layer,
+            "[{name}] the raw layer changed"
+        );
+        assert!(e.shade_relief(x, y, w, h, 135.0, 45.0, 1.0));
+        let in_place = e.read_all().unwrap();
+        for row in 0..h {
+            for col in 0..w {
+                let s = ((row * w + col) * 4) as usize;
+                let d = (((y + row) * W + x + col) * 4) as usize;
+                assert_eq!(
+                    &shown[s..s + 4],
+                    &in_place[d..d + 4],
+                    "[{name}] ({col},{row})"
+                );
+            }
+        }
+    }
+}

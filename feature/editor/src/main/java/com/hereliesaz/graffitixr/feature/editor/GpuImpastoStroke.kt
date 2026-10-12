@@ -89,7 +89,7 @@ internal object GpuImpastoStroke {
     }
 
     /** (x, y, radius, strength) per dab, strength being the CPU increment's per-dab factor. */
-    private fun flatHeightDabs(dabs: List<Dab>): FloatArray {
+    fun flatHeightDabs(dabs: List<Dab>): FloatArray {
         val out = FloatArray(dabs.size * HEIGHT_DAB_FLOATS)
         dabs.forEachIndexed { i, d ->
             val o = i * HEIGHT_DAB_FLOATS

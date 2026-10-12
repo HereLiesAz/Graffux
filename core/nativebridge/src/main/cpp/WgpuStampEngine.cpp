@@ -78,6 +78,10 @@ struct Api {
     // Optional, all or nothing: selection at commit.
     bool (*setSelection)(GfxWgpuEngine*, const uint8_t*, size_t);
     bool (*selectionOp)(GfxWgpuEngine*, int32_t);
+    bool (*strokeRect)(GfxWgpuEngine*, int32_t*);
+    // Optional, all or nothing: live impasto display.
+    bool (*shadeReliefDisplay)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, float, float, float);
+    bool (*readDisplay)(GfxWgpuEngine*, int32_t, int32_t, int32_t, int32_t, uint8_t*, size_t);
     // Optional: a new stroke on the layer as it is.
     bool (*beginStroke)(GfxWgpuEngine*);
     // Optional, all or nothing: impasto v2's wet material simulation.
@@ -159,8 +163,12 @@ void load() {
                              optional(lib, "gfx_wgpu_shade_relief", a.shadeRelief);
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
+        const bool display = optional(lib, "gfx_wgpu_shade_relief_display", a.shadeReliefDisplay) &&
+                             optional(lib, "gfx_wgpu_read_display", a.readDisplay);
+        if (!display) a.shadeReliefDisplay = nullptr;  // all or nothing
         const bool selection = optional(lib, "gfx_wgpu_set_selection", a.setSelection) &&
-                               optional(lib, "gfx_wgpu_selection_op", a.selectionOp);
+                               optional(lib, "gfx_wgpu_selection_op", a.selectionOp) &&
+                               optional(lib, "gfx_wgpu_stroke_rect", a.strokeRect);
         if (!selection) a.setSelection = nullptr;  // all or nothing
         const bool doc = optional(lib, "gfx_wgpu_doc_open", a.docOpen) &&
                          optional(lib, "gfx_wgpu_doc_layer", a.docLayer) &&
@@ -406,8 +414,22 @@ bool WgpuStampEngine::setSelection(const uint8_t* coverage, size_t len) {
     return engine_ != nullptr && gApi.setSelection != nullptr && gApi.setSelection(engine_, coverage, len);
 }
 
+bool WgpuStampEngine::strokeRect(int* out) {
+    return engine_ != nullptr && gApi.setSelection != nullptr && gApi.strokeRect(engine_, out);
+}
+
 bool WgpuStampEngine::selectionOp(int op) {
     return engine_ != nullptr && gApi.setSelection != nullptr && gApi.selectionOp(engine_, op);
+}
+
+bool WgpuStampEngine::shadeImpastoReliefToDisplay(int x, int y, int w, int h, float azimuthDeg,
+                                                  float elevationDeg, float strength) {
+    return engine_ != nullptr && gApi.shadeReliefDisplay != nullptr &&
+           gApi.shadeReliefDisplay(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
+}
+
+bool WgpuStampEngine::readImpastoDisplay(int x, int y, int w, int h, uint8_t* out, size_t len) {
+    return engine_ != nullptr && gApi.shadeReliefDisplay != nullptr && gApi.readDisplay(engine_, x, y, w, h, out, len);
 }
 
 bool WgpuStampEngine::beginStroke() {

@@ -183,13 +183,9 @@ impl Engine {
         self.ok()
     }
 
-    /// The rectangle the current stroke has painted: the resident layer's touched rectangle, or
-    /// the scratch layer's dirty one.
+    /// The rectangle the current stroke has painted since it started (bind, upload, clear,
+    /// `begin_stroke`), whatever was read back in between.
     pub fn stroke_rect(&self) -> Rect {
-        let touched = self
-            .active_key
-            .and_then(|k| self.residents.get(k))
-            .map_or(Rect::default(), |e| e.touched);
-        touched.union(self.dirty).clamp(self.width, self.height)
+        self.stroke_written.clamp(self.width, self.height)
     }
 }

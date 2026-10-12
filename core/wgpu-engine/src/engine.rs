@@ -415,6 +415,9 @@ pub struct Engine {
     session: u64,
     next_session: u64,
     residents: ResidentSet<wgpu::Buffer>,
+    /// Everything written since the current stroke started, unlike `dirty` never reset by a
+    /// readback: what `stroke_rect` reports.
+    stroke_written: Rect,
     /// The selection mask and stroke shadow (selection.rs), created on first use.
     selection: Option<selection::SelectionGpu>,
     /// Document mode (docstore.rs): resident layers are canonical, never evicted.
@@ -857,6 +860,7 @@ impl Engine {
             session: 0,
             next_session: 1,
             residents: ResidentSet::new(DEFAULT_BUDGET_BYTES),
+            stroke_written: Rect::default(),
             selection: None,
             doc_mode: false,
             doc_gen: 0,
@@ -1116,6 +1120,7 @@ impl Engine {
         self.queue.submit([encoder.finish()]);
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
         self.mp_session_started();
         self.ok()
     }
@@ -1127,6 +1132,7 @@ impl Engine {
         self.mp_drain();
         self.mp_session_ending();
         self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
         self.mp_session_started();
         self.ok()
     }
@@ -1143,6 +1149,7 @@ impl Engine {
         self.queue.write_buffer(&self.layer, 0, &rgba[..bytes]);
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
         self.mp_session_started();
         self.ok()
     }
@@ -1879,6 +1886,7 @@ impl Engine {
     /// rectangle and, for a resident layer, taints it for this bind session.
     fn note_write(&mut self, r: Rect) {
         self.dirty = self.dirty.union(r);
+        self.stroke_written = self.stroke_written.union(r);
         if let Some(key) = self.active_key {
             let session = self.session;
             let (width, height) = (self.width, self.height);
@@ -1928,6 +1936,7 @@ impl Engine {
         // A new stroke: fresh strokeMax state, and the caller's readback buffer already holds the
         // layer (it is the CPU layer the generation names), so nothing is dirty yet.
         self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
         self.dirty = Rect::default();
         session
     }

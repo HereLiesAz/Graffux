@@ -81,8 +81,12 @@ public:
     bool shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                             float strength) override;
     bool beginStroke() override;
+    bool shadeImpastoReliefToDisplay(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
+                                     float strength) override;
+    bool readImpastoDisplay(int x, int y, int w, int h, uint8_t* out, size_t len) override;
     bool setSelection(const uint8_t* coverage, size_t len) override;
     bool selectionOp(int op) override;
+    bool strokeRect(int* out) override;
     bool docOpen() override;
     uint64_t docLayer(int op, uint64_t key, uint64_t other, const int* rect, const uint8_t* rgba,
                       size_t len) override;

@@ -178,7 +178,7 @@ impl WetGpu {
             fields: buffer("wet fields", n * 8, storage),
             delta: buffer("wet delta", n * 4, storage),
             // Active + next-step flags; the dab flags grow it (see wet_set_dabs).
-            ctl: buffer("wet ctl", tiles as u64 * 8, storage),
+            ctl: buffer("wet ctl", (tiles as u64 * 2 + 1) * 4, storage),
             media: buffer(
                 "wet media",
                 tiles as u64 * (WET_MEDIA_FLOATS * 4) as u64,
@@ -268,7 +268,8 @@ impl Engine {
             (n * 4) as u64,
             bytemuck::cast_slice(&wetness[..n]),
         );
-        let mut ctl = vec![0u32; tiles * 2];
+        // Active and next-step flags, then the reservoir-load slot (0 until a transfer stores one).
+        let mut ctl = vec![0u32; tiles * 2 + 1];
         for (flag, &a) in ctl.iter_mut().zip(active) {
             *flag = u32::from(a != 0);
         }
@@ -329,19 +330,19 @@ impl Engine {
                 mapped_at_creation: false,
             });
         }
-        let ctl_words = gpu.tiles as usize * 2 + dabs.len();
+        let ctl_words = gpu.tiles as usize * 2 + 1 + dabs.len();
         if (ctl_words * 4) as u64 > gpu.ctl.size() {
             // Grow the control buffer, keeping the tile flags.
             let grown = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("wet ctl"),
-                size: ((gpu.tiles as usize * 2 + gpu.dab_capacity) * 4) as u64,
+                size: ((gpu.tiles as usize * 2 + 1 + gpu.dab_capacity) * 4) as u64,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             });
             let mut encoder = self.device.create_command_encoder(&Default::default());
-            encoder.copy_buffer_to_buffer(&gpu.ctl, 0, &grown, 0, gpu.tiles as u64 * 8);
+            encoder.copy_buffer_to_buffer(&gpu.ctl, 0, &grown, 0, (gpu.tiles as u64 * 2 + 1) * 4);
             self.queue.submit([encoder.finish()]);
             gpu.ctl = grown;
         }
@@ -350,7 +351,7 @@ impl Engine {
                 .write_buffer(&gpu.dabs, 0, bytemuck::cast_slice(dabs));
             self.queue.write_buffer(
                 &gpu.ctl,
-                gpu.tiles as u64 * 8,
+                (gpu.tiles as u64 * 2 + 1) * 4,
                 bytemuck::cast_slice(&vec![0u32; dabs.len()]),
             );
         }
@@ -369,6 +370,7 @@ impl Engine {
         let ok = self.wet_run(Entry::RawToLayer, all, |_| {});
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
         self.mp_session_started();
         ok && self.ok()
     }
@@ -401,7 +403,9 @@ impl Engine {
         self.wet_run(Entry::BlendSelection, all, |_| {})
     }
 
-    /// `ImpastoEngine.transferMaterialStroke` over the dabs from [`Engine::wet_set_dabs`].
+    /// `ImpastoEngine.transferMaterialStroke` over the dabs from [`Engine::wet_set_dabs`]. A
+    /// negative `initial_load` continues from the load the previous transfer ended on (a live
+    /// stroke's batches carry the reservoir across), which every transfer stores.
     #[allow(clippy::too_many_arguments)]
     pub fn wet_transfer(
         &mut self,
@@ -452,13 +456,14 @@ impl Engine {
     }
 
     /// The control words: each tile's active flag (row-major, nonzero = active), as many zero
-    /// words, then one flag word per current dab ([`WET_FLAG_HEIGHT`], [`WET_FLAG_WETNESS`]).
-    /// Reads `out.len()` words, at most the tiles' two sets plus the dabs.
+    /// words, the reservoir load the last transfer ended on (f32 bits), then one flag word per
+    /// current dab ([`WET_FLAG_HEIGHT`], [`WET_FLAG_WETNESS`]). Reads `out.len()` words, at most
+    /// the tiles' two sets, the load and the dabs.
     pub fn wet_read_ctl(&mut self, out: &mut [u32]) -> bool {
         let Some(gpu) = self.wet.as_ref() else {
             return false;
         };
-        let count = (gpu.tiles as usize * 2 + gpu.dab_count).min(out.len());
+        let count = (gpu.tiles as usize * 2 + 1 + gpu.dab_count).min(out.len());
         let src = gpu.ctl.clone();
         let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut out[..count]);
         self.wet_read_bytes(&src, 0, bytes) && self.ok()
@@ -547,7 +552,8 @@ impl Engine {
     }
 
     /// `ImpastoRegionShader.shadeMaterial` from the raw pigment into the layer over
-    /// `[x, x + w) x [y, y + h)`; the rest of the layer is left as it is.
+    /// `[x, x + w) x [y, y + h)`; the rest of the layer is left as it is. `to_display` writes into
+    /// the display buffer instead (read with [`Engine::read_display`]), for a live stroke.
     #[allow(clippy::too_many_arguments)]
     pub fn wet_shade(
         &mut self,
@@ -559,6 +565,7 @@ impl Engine {
         light_elevation_deg: f32,
         relief_strength: f32,
         use_wetness: bool,
+        to_display: bool,
     ) -> bool {
         let region = Rect::new(x, y, w, h).clamp(self.width, self.height);
         if region.is_empty() {
@@ -572,7 +579,15 @@ impl Engine {
         let lz = elevation.sin();
         let (hx0, hy0, hz0) = (lx, ly, lz + 1.0);
         let h_inv = 1.0 / (hx0 * hx0 + hy0 * hy0 + hz0 * hz0).sqrt();
-        let ok = self.wet_run(Entry::ShadeMaterial, region, |p| {
+        // Into the display buffer (shared with live Impasto v1), the layer staying the raw paint.
+        let display = to_display.then(|| {
+            let gpu = self.take_impasto();
+            let buffer = gpu.display.clone();
+            self.impasto = Some(gpu);
+            buffer
+        });
+        let target = display.unwrap_or_else(|| self.layer.clone());
+        let ok = self.wet_run_into(Entry::ShadeMaterial, region, Some(target), |p| {
             p.use_wet = u32::from(use_wetness);
             p.f = [
                 lx,
@@ -585,7 +600,9 @@ impl Engine {
                 0.0,
             ];
         });
-        self.note_write(region);
+        if !to_display {
+            self.note_write(region);
+        }
         ok
     }
 
@@ -625,6 +642,17 @@ impl Engine {
     }
 
     fn wet_run(&mut self, entry: Entry, region: Rect, set: impl FnOnce(&mut Params)) -> bool {
+        self.wet_run_into(entry, region, None, set)
+    }
+
+    /// [`Engine::wet_run`] with binding 9 on `target` instead of the layer.
+    fn wet_run_into(
+        &mut self,
+        entry: Entry,
+        region: Rect,
+        target: Option<wgpu::Buffer>,
+        set: impl FnOnce(&mut Params),
+    ) -> bool {
         let Some(gpu) = self.wet.take() else {
             return false;
         };
@@ -641,7 +669,7 @@ impl Engine {
             dab_count: gpu.dab_count as u32,
             use_cov: u32::from(gpu.use_coverage),
             tiles: gpu.tiles,
-            flags_off: gpu.tiles * 2,
+            flags_off: gpu.tiles * 2 + 1,
             n,
             ..Default::default()
         };
@@ -654,11 +682,12 @@ impl Engine {
             return false;
         };
         let layout = pipeline.get_bind_group_layout(0);
+        let layer = target.unwrap_or_else(|| self.layer.clone());
         let entries: Vec<wgpu::BindGroupEntry> = bindings
             .iter()
             .map(|&b| wgpu::BindGroupEntry {
                 binding: b,
-                resource: gpu.resource(b, &self.layer),
+                resource: gpu.resource(b, &layer),
             })
             .collect();
         let bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {

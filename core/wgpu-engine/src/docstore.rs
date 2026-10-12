@@ -88,6 +88,7 @@ impl Engine {
         self.queue.write_buffer(&buffer, 0, &rgba[..bytes]);
         if active {
             self.stroke_state_dirty = true;
+            self.stroke_written = Rect::default();
             self.mark_fully_dirty();
         }
         let generation = self.doc_retag(key);
@@ -106,6 +107,7 @@ impl Engine {
         if self.active_key == Some(key) {
             self.mp_drain();
             self.stroke_state_dirty = true;
+            self.stroke_written = Rect::default();
             self.mark_fully_dirty();
         }
         let buffer = self.doc_ensure(key);
@@ -154,6 +156,7 @@ impl Engine {
         }
         if active {
             self.stroke_state_dirty = true;
+            self.stroke_written = Rect::default();
             self.note_write(r);
         }
         let generation = self.doc_retag(key);
@@ -179,6 +182,7 @@ impl Engine {
         self.queue.submit([encoder.finish()]);
         if self.active_key == Some(dst) {
             self.stroke_state_dirty = true;
+            self.stroke_written = Rect::default();
             self.mark_fully_dirty();
         }
         let generation = self.doc_retag(dst);

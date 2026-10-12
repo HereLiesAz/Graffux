@@ -190,6 +190,12 @@ public:
                                       float /*thickness*/) { return false; }
     virtual bool shadeImpastoRelief(int /*x*/, int /*y*/, int /*w*/, int /*h*/, float /*azimuthDeg*/,
                                     float /*elevationDeg*/, float /*strength*/) { return false; }
+    // Live impasto (optional; false = unsupported): shade into a display buffer, the layer staying
+    // the raw paint, and read a rectangle of it.
+    virtual bool shadeImpastoReliefToDisplay(int /*x*/, int /*y*/, int /*w*/, int /*h*/, float /*azimuthDeg*/,
+                                             float /*elevationDeg*/, float /*strength*/) { return false; }
+    virtual bool readImpastoDisplay(int /*x*/, int /*y*/, int /*w*/, int /*h*/, uint8_t* /*out*/,
+                                    size_t /*len*/) { return false; }
     // Impasto v2, the wet material simulation (optional; false = unsupported, and the caller takes
     // the CPU path). graffux_wgpu's gfx_wgpu_wet_* documents the arguments: the state is straight
     // ARGB raw pigment, height and wetness per pixel, an active flag per tile and a media table;
@@ -200,6 +206,8 @@ public:
     // stroke to the selection (hard clip), 2 = the same, feathered.
     virtual bool setSelection(const uint8_t* /*coverage*/, size_t /*len*/) { return false; }
     virtual bool selectionOp(int /*op*/) { return false; }
+    // The rectangle the current stroke has painted ({x, y, w, h}); false = unsupported.
+    virtual bool strokeRect(int* /*out*/) { return false; }
     // Document store (optional; false/0 = unsupported): layers kept on the GPU as their canonical
     // copy. docLayer ops: 0 put (whole layer), 1 clear, 2 write rect, 3 copy `other` into `key`,
     // 4 generation; each returns the layer's new generation, 0 on failure.
