@@ -1272,16 +1272,26 @@ class EditorViewModel @Inject constructor(
         val residentGeneration: Long,
         val work: Bitmap,
         val preStrokeBase: Bitmap,
-        val engine: GpuStampEngine?,
-        val residentStroke: ResidentStroke?,
-        val tuningEpoch: Int,
-        val multipass: com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings,
+        val bound: BoundEngine?,
+        val tuning: EngineTuning,
     ) {
+        val engine: GpuStampEngine? get() = bound?.engine
+        val residentStroke: ResidentStroke? get() = bound?.residentStroke
+
         /** Returns the engine to the pool. The bitmaps are plain copies; the GC takes them. */
         fun release() {
-            engine?.destroy()
+            bound?.engine?.destroy()
         }
     }
+
+    /** A seeded engine and its binding to the layer's resident copy (null: uploaded instead). */
+    private class BoundEngine(val engine: GpuStampEngine, val residentStroke: ResidentStroke?)
+
+    /** The engine-wide settings a held engine was created under. */
+    private data class EngineTuning(
+        val epoch: Int = GpuStampEngine.tuningEpoch,
+        val multipass: com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings = GpuStampEngine.multipass,
+    )
 
     private val prewarmLock = Any()
     private var prewarmed: PrewarmedStroke? = null
@@ -1295,30 +1305,28 @@ class EditorViewModel @Inject constructor(
      * stroke: that stroke's commit publishes a new bitmap and lands here again. Main thread.
      */
     private fun schedulePrewarm() {
-        if (strokeLayerId != null) {
-            prewarmDeferred = true
-            return
-        }
-        prewarmDeferred = false
+        prewarmDeferred = strokeLayerId != null
+        if (prewarmDeferred) return
         val state = _uiState.value
         val layerId = state.activeLayerId
-        val source = state.layers.find { it.id == layerId }?.bitmap
-        if (layerId == null || source == null || source.isRecycled) {
-            discardPrewarm()
-            return
+        val source = state.layers.find { it.id == layerId }?.bitmap?.takeUnless { it.isRecycled }
+        val alreadyBuilt = synchronized(prewarmLock) {
+            prewarmed?.let { it.layerId == layerId && it.source === source } == true
         }
-        synchronized(prewarmLock) {
-            val current = prewarmed
-            if (current != null && current.layerId == layerId && current.source === source) return
+        when {
+            layerId == null || source == null -> discardPrewarm()
+            !alreadyBuilt -> launchPrewarm(layerId, source)
         }
+    }
+
+    private fun launchPrewarm(layerId: String, source: Bitmap) {
         prewarmJob?.cancel()
         prewarmJob = viewModelScope.launch(dispatchers.default) {
             val residentGeneration = layerResidency.generationFor(layerId, source)
             val work = SafeBitmap.copy(source) ?: return@launch
             val base = SafeBitmap.copy(work) ?: return@launch
             if (!isActive) return@launch
-            val epoch = GpuStampEngine.tuningEpoch
-            val multipass = GpuStampEngine.multipass
+            val tuning = EngineTuning()
             var residentStroke: ResidentStroke? = null
             // Calibration owns the GPU while it runs; the stroke stops it, as it always did.
             val engine = if (com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.isCalibrating()) {
@@ -1332,8 +1340,8 @@ class EditorViewModel @Inject constructor(
                 }
             }
             val built = PrewarmedStroke(
-                layerId, source, residentGeneration, work, base, engine,
-                residentStroke.takeIf { engine != null }, epoch, multipass,
+                layerId, source, residentGeneration, work, base,
+                engine?.let { BoundEngine(it, residentStroke) }, tuning,
             )
             val stale = synchronized(prewarmLock) {
                 if (!isActive) {
@@ -1361,17 +1369,14 @@ class EditorViewModel @Inject constructor(
     private fun takePrewarmed(layerId: String, source: Bitmap, residentGeneration: Long): PrewarmedStroke? {
         prewarmJob?.cancel()
         prewarmJob = null
-        val taken = synchronized(prewarmLock) { prewarmed.also { prewarmed = null } } ?: return null
-        val usable = taken.layerId == layerId &&
+        val taken = synchronized(prewarmLock) { prewarmed.also { prewarmed = null } }
+        val usable = taken != null &&
+            taken.layerId == layerId &&
             taken.source === source &&
             taken.residentGeneration == residentGeneration &&
-            taken.tuningEpoch == GpuStampEngine.tuningEpoch &&
-            taken.multipass == GpuStampEngine.multipass
-        if (!usable) {
-            taken.release()
-            return null
-        }
-        return taken
+            taken.tuning == EngineTuning()
+        if (!usable) taken?.release()
+        return taken.takeIf { usable }
     }
 
     // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
