@@ -63,6 +63,12 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         /** Round dabs paint only where the layer has alpha: alpha lock (setStampMode). */
         const val STAMP_ATOP = 2
 
+        /** Round dabs darken the layer: Burn (setStampMode). */
+        const val STAMP_DARKEN = 3
+
+        /** Round dabs lighten the layer: Dodge (setStampMode). */
+        const val STAMP_LIGHTEN = 4
+
         private const val AFFINE_FLOATS = 6
 
         /**

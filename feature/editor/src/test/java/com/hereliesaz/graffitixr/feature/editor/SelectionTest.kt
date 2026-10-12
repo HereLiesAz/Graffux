@@ -138,9 +138,6 @@ class SelectionTest {
         DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(moveCommand()))
 
         verify { SelectionMask.moveRegion(any(), eq(clip), eq(6f), eq(-2f)) }
-        coVerify(exactly = 0) {
-            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any())
-        }
     }
 
     @Test
@@ -169,11 +166,7 @@ class SelectionTest {
         )
         DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(clear))
 
-        // The clear branch is taken before any paint path — an empty-path eraser stroke would
-        // otherwise fall through to applyToolToBitmap and do nothing at all.
-        coVerify(exactly = 0) {
-            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any())
-        }
+        // The clear branch is taken before any paint path.
         verify(exactly = 0) { SelectionMask.moveRegion(any(), any(), any(), any()) }
     }
 

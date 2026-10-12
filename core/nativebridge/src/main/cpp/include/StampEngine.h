@@ -231,6 +231,10 @@ public:
     // How round dabs composite: 0 paint over, 1 erase, 2 alpha lock (SRC_ATOP). Optional; false =
     // unsupported or an unknown mode.
     virtual bool setStampMode(int /*mode*/) { return false; }
+    // Blur (0), Sharpen (1) or Clone (2) over `count` [x, y, radius, hardness] dabs, from the stroke
+    // shadow. Optional; false = unsupported.
+    virtual bool retouch(int /*kind*/, int /*factor*/, float /*amount*/, float /*ox*/, float /*oy*/,
+                         bool /*wrap*/, const float* /*dabs*/, int /*count*/) { return false; }
     virtual bool supportsWet() const { return false; }
     virtual bool wetBegin(const uint32_t* /*raw*/, const float* /*height*/, const float* /*wetness*/,
                           size_t /*count*/, const uint32_t* /*active*/, size_t /*tiles*/, int /*tileSize*/,

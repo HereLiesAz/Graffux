@@ -37,13 +37,16 @@ internal data class BasicPaint(
 
         /** The paint a recorded Basic Brush or Eraser [stroke] stamps with. */
         fun of(stroke: StrokeCommand): BasicPaint = when {
-            stroke.tool == Tool.ERASER -> BasicPaint(
-                ERASE_COLOR, 1f, (1f - stroke.feathering).coerceIn(0f, 1f), GpuStampEngine.STAMP_ERASE,
-            )
+            stroke.tool == Tool.ERASER -> eraser(stroke.feathering)
             stroke.alphaLock -> of(stroke.brushColor, stroke.opacity, stroke.feathering)
                 .copy(mode = GpuStampEngine.STAMP_ATOP)
             else -> of(stroke.brushColor, stroke.opacity, stroke.feathering)
         }
+
+        /** The Eraser's paint: full strength, the edge softened by [feathering]. */
+        fun eraser(feathering: Float) = BasicPaint(
+            ERASE_COLOR, 1f, (1f - feathering).coerceIn(0f, 1f), GpuStampEngine.STAMP_ERASE,
+        )
 
         private const val ERASE_COLOR = -1
 

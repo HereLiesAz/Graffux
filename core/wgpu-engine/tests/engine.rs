@@ -101,6 +101,7 @@ fn shaders_validate_with_naga() {
         ("impasto", graffux_wgpu::engine::IMPASTO_WGSL),
         ("wet", graffux_wgpu::engine::WET_WGSL),
         ("selection", graffux_wgpu::engine::SELECTION_WGSL),
+        ("retouch", graffux_wgpu::engine::RETOUCH_WGSL),
     ] {
         let module = naga::front::wgsl::parse_str(src)
             .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));

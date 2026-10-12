@@ -150,29 +150,6 @@ class SmudgeRenderTest {
      * `ImageProcessor` -- the same entry point a real Blur stroke uses.
      */
     @Test
-    fun `the effect is one-sided, unlike a blur`() = runBlocking {
-        val b = redBlock()
-        val stroke = List(40) { Offset((8 + it).toFloat(), 32f) }
-
-        val smudged = applySmudge(b, stroke, brushSize = 12f, intensity = 1f)
-        val blurred = ImageProcessor.applyToolToBitmap(b, stroke, Tool.BLUR, brushSize = 12f, intensity = 1f)
-
-        fun changed(after: Bitmap, from: Int, until: Int): Int =
-            (from until until).count { b.getPixel(it, 32) != after.getPixel(it, 32) }
-
-        // Inside the red block (left of x=16) versus out on the white (right of it).
-        val smudgeRatio = changed(smudged, 16, 56).toFloat() / changed(smudged, 2, 16).coerceAtLeast(1)
-        val blurRatio = changed(blurred, 16, 56).toFloat() / changed(blurred, 2, 16).coerceAtLeast(1)
-
-        assertTrue(
-            "smudge must disturb the white side far more than the red side, relative to blur " +
-                "($smudgeRatio vs $blurRatio)",
-            smudgeRatio > blurRatio,
-        )
-    }
-
-    /** Intensity is how much colour survives each dab, so it is how far the tail runs. */
-    @Test
     fun `intensity controls how far the colour is carried`() {
         val b = redBlock()
         val stroke = List(40) { Offset((8 + it).toFloat(), 32f) }

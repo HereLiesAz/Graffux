@@ -85,7 +85,7 @@ internal class DrawingEngine(
                 if (replay == null) current = synced(session, current, otherLayers, heightMap)
                 var next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
                 else applyTool(
-                    current, stroke, replaceExisting = true, otherLayers = otherLayers,
+                    current, stroke, otherLayers = otherLayers,
                     heightMap = heightMap, wetnessState = wetnessState,
                     impastoMaterialState = impastoMaterialState, replay = replay,
                 )
@@ -93,7 +93,7 @@ internal class DrawingEngine(
                     // The GPU failed: repaint what it held, then this stroke, on the CPU path.
                     current = synced(session, current, otherLayers, heightMap)
                     next = applyTool(
-                        current, stroke, replaceExisting = true, otherLayers = otherLayers,
+                        current, stroke, otherLayers = otherLayers,
                         heightMap = heightMap, wetnessState = wetnessState,
                     )
                 }
@@ -122,7 +122,7 @@ internal class DrawingEngine(
         if (session == null || session.flush()) return current
         var out = current
         for (lost in session.takeLost()) {
-            val next = applyTool(out, lost, replaceExisting = true, otherLayers = otherLayers, heightMap = heightMap)
+            val next = applyTool(out, lost, otherLayers = otherLayers, heightMap = heightMap)
             if (next !== out && out !== current) out.recycle()
             out = next
         }
@@ -140,7 +140,7 @@ internal class DrawingEngine(
     ): Bitmap {
         val result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
-            base, command, replaceExisting = false, otherLayers = { otherLayers },
+            base, command, otherLayers = { otherLayers },
             heightMap = heightMap, wetnessState = wetnessState,
             impastoMaterialState = impastoMaterialState,
         )
@@ -160,7 +160,6 @@ internal class DrawingEngine(
     private suspend fun applyTool(
         bitmap: Bitmap,
         stroke: StrokeCommand,
-        replaceExisting: Boolean,
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
         wetnessState: WetnessReplayState? = null,
@@ -368,7 +367,7 @@ internal class DrawingEngine(
 
         // Basic Brush and Eraser paint on the GPU, the same dab runs the live stroke stamped
         // (GpuBasicStroke); alpha lock is the GPU's SRC_ATOP. No CPU renderer: a failed GPU call
-        // leaves the layer as it was. The retouch tools below still paint on the CPU.
+        // leaves the layer as it was.
         if (replay != null) {
             return replay.paint(bitmap, stroke) { GpuBasicStroke.paintOnto(it, stroke, mapped, brushScale, bitmap) }
         }
@@ -378,25 +377,18 @@ internal class DrawingEngine(
                 bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
             )
         }
+        // The retouch tools paint on the GPU too (GpuRetouchStroke); a failed GPU call leaves the
+        // layer as it was. Any other tool paints nothing.
+        if (stroke.tool !in GpuRetouchStroke.TOOLS) return bitmap
+        val cloneOffset = stroke.cloneOffset?.let { off ->
+            SelectionMask.mapDelta(
+                off, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
+                stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            )
+        }
+        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset) ?: return bitmap
         return SelectionMask.feather(
-            bitmap,
-            ImageProcessor.applyToolToBitmap(
-                bitmap, mapped, stroke.tool, stroke.brushSize * brushScale, stroke.brushColor, stroke.intensity,
-                replaceExisting && featherRadius <= 0f, stroke.feathering,
-                alphaLock = stroke.alphaLock,
-                wrapAroundMode = stroke.wrapAroundMode,
-                clipPath = paintClip,
-                opacity = stroke.opacity,
-                pressures = stroke.pressures,
-                cloneOffset = stroke.cloneOffset?.let { off ->
-                    SelectionMask.mapDelta(
-                        off, stroke.canvasSize.width, stroke.canvasSize.height,
-                        bitmap.width, bitmap.height,
-                        stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
-                    )
-                },
-            ),
-            clipPath, featherRadius,
+            bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
         )
     }
 
