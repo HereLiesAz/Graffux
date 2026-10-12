@@ -229,3 +229,55 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs
     env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
+
+// Impasto v1 (StampEngine's optional methods; JNI_FALSE when the engine lacks them).
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadImpastoHeight(
+        JNIEnv* env, jobject, jlong handle, jfloatArray heights) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !heights) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(heights);
+    jfloat* data = env->GetFloatArrayElements(heights, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->uploadImpastoHeight(data, static_cast<size_t>(count));
+    env->ReleaseFloatArrayElements(heights, data, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadImpastoHeight(
+        JNIEnv* env, jobject, jlong handle, jfloatArray out) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !out) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(out);
+    jfloat* data = env->GetFloatArrayElements(out, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->readImpastoHeight(data, static_cast<size_t>(count));
+    // Copy back only on success; abandon the buffer otherwise.
+    env->ReleaseFloatArrayElements(out, data, ok ? 0 : JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDepositImpastoHeight(
+        JNIEnv* env, jobject, jlong handle, jfloatArray dabs, jfloat hardness, jfloat thickness) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !dabs) return JNI_FALSE;
+    const jsize count = env->GetArrayLength(dabs);
+    if (count % 4 != 0) return JNI_FALSE;
+    jfloat* data = env->GetFloatArrayElements(dabs, nullptr);
+    if (!data) return JNI_FALSE;
+    const bool ok = engine->depositImpastoHeight(data, static_cast<size_t>(count / 4), hardness, thickness);
+    env->ReleaseFloatArrayElements(dabs, data, JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeShadeImpastoRelief(
+        JNIEnv*, jobject, jlong handle, jint x, jint y, jint w, jint h, jfloat azimuthDeg,
+        jfloat elevationDeg, jfloat strength) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine) return JNI_FALSE;
+    return engine->shadeImpastoRelief(x, y, w, h, azimuthDeg, elevationDeg, strength) ? JNI_TRUE : JNI_FALSE;
+}

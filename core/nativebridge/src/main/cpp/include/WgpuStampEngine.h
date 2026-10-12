@@ -74,6 +74,12 @@ public:
     int refine(float budgetMs) override;
     bool flushMultipass() override;
     size_t multipassStats(double* out, size_t count) override;
+    bool supportsImpasto() const override;
+    bool uploadImpastoHeight(const float* heights, size_t count) override;
+    bool readImpastoHeight(float* out, size_t count) override;
+    bool depositImpastoHeight(const float* dabs, size_t dabCount, float hardness, float thickness) override;
+    bool shadeImpastoRelief(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
+                            float strength) override;
     uint32_t directCapabilities() const override;
     bool directAttach(ANativeWindow* window, int width, int height) override;
     void directDetach() override;

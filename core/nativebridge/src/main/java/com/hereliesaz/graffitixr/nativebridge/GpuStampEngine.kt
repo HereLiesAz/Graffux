@@ -392,6 +392,52 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         return ok
     }
 
+    /**
+     * Impasto v1 on the GPU: sets the engine's height to [heights] (one value per layer pixel,
+     * ImpastoEngine's height map). False when the library has no impasto support (the caller then
+     * takes the CPU path) or on failure.
+     */
+    @Synchronized
+    fun uploadImpastoHeight(heights: FloatArray): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeUploadImpastoHeight(nativeHandle, heights) }
+    }
+
+    /** Reads the engine's impasto height into [out] (one value per layer pixel). */
+    @Synchronized
+    fun readImpastoHeight(out: FloatArray): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeReadImpastoHeight(nativeHandle, out) }
+    }
+
+    /**
+     * ImpastoEngine.depositStroke on the GPU: [dabs] are (x, y, radius, strength) quadruples, with
+     * strength = alpha.coerceIn(0, 1) * flowMultiplier.coerceAtLeast(0).
+     */
+    @Synchronized
+    fun depositImpastoHeight(dabs: FloatArray, hardness: Float, thickness: Float): Boolean {
+        if (!isInitialized) return false
+        return onGpu { nativeDepositImpastoHeight(nativeHandle, dabs, hardness, thickness) }
+    }
+
+    /** ImpastoRegionShader.shade, in place on the layer over the given rectangle. */
+    @Synchronized
+    @Suppress("LongParameterList")
+    fun shadeImpastoRelief(
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+        lightAzimuthDeg: Float,
+        lightElevationDeg: Float,
+        strength: Float,
+    ): Boolean {
+        if (!isInitialized) return false
+        return onGpu {
+            nativeShadeImpastoRelief(nativeHandle, x, y, w, h, lightAzimuthDeg, lightElevationDeg, strength)
+        }
+    }
+
     /** Historical stroke-level paint entry point. */
     @Synchronized
     fun stampDabs(dabs: List<BrushDab>, colorArgb: Int, hardness: Float): Boolean {
@@ -901,6 +947,15 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeUpload(handle: Long, inBitmap: Bitmap): Boolean
     private external fun nativeUploadSubstrateHeight(handle: Long, heightR8: ByteArray, width: Int, height: Int): Boolean
     private external fun nativeUploadPaintHeight(handle: Long, heightMap: FloatArray, width: Int, height: Int): Boolean
+    private external fun nativeUploadImpastoHeight(handle: Long, heights: FloatArray): Boolean
+    private external fun nativeReadImpastoHeight(handle: Long, out: FloatArray): Boolean
+    private external fun nativeDepositImpastoHeight(
+        handle: Long, dabs: FloatArray, hardness: Float, thickness: Float,
+    ): Boolean
+    @Suppress("LongParameterList")
+    private external fun nativeShadeImpastoRelief(
+        handle: Long, x: Int, y: Int, w: Int, h: Int, azimuthDeg: Float, elevationDeg: Float, strength: Float,
+    ): Boolean
     private external fun nativeStampDabs(handle: Long, dabData: FloatArray, colorArgb: Int, hardness: Float): Boolean
     private external fun nativeStampResolvedDabs(
         handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean,

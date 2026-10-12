@@ -212,6 +212,17 @@ internal class DrawingEngine(
             // The GPU paints the stroke (GpuStampCommit). Impasto and substrate strokes carry CPU
             // material state (height, wetness, substrate relief) the GPU commit doesn't model yet,
             // so they, and a device with no usable GPU, take the CPU renderer below.
+            // Impasto v1 runs on the GPU too (GpuImpastoStroke): colour, height deposit and relief in
+            // one engine session. Not yet under a selection: the CPU deposits and shades outside it
+            // while clipping only the colour, which the GPU session doesn't reproduce.
+            val impastoV1OnGpu = substrate == null && paintClip == null && heightMap != null &&
+                brush.impastoThicknessRate > 0f && heightMap.size == bitmap.width * bitmap.height &&
+                !brush.impastoMaterial.sanitized().usesV2
+            if (impastoV1OnGpu && heightMap != null) {
+                GpuImpastoStroke.paintStroke(bitmap, stroke, brush, mapped, brushScale, heightMap)?.let { painted ->
+                    return SelectionMask.feather(bitmap, painted, clipPath, featherRadius)
+                }
+            }
             val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
             val gpuPainted = if (gpuEligible) {
                 GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)

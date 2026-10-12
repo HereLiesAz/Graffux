@@ -1296,7 +1296,7 @@ so every batch lands either on that engine before the hand-off or in the leftove
 call's (movement, held) dab counts go on the command (`StrokeCommand.stampBatches`). Replay
 (`StrokeDabs.batches`) groups and orders the dabs exactly as live did: Airbrush held dabs build up
 over what is already there, and a masked tip without build-up combines dabs within one call. A live
-stroke that wasn't on the GPU, or carries Impasto, commits by painting its recorded dabs as below.
+stroke that wasn't on the GPU, or carries Impasto (see `GpuImpastoStroke` below), commits by painting its recorded dabs as below.
 
 **Basic Brush commits and replays on the GPU too (`GpuBasicStroke`).** The live stroke stamps one run
 of round dabs per Catmull-Rom segment; `GpuBasicStroke.runs` places exactly those from the recorded
@@ -1314,7 +1314,16 @@ stroke's per-dab resolution, shader choice, masks and grain, then reads back onc
 undo/redo replay both go through it, so the committed layer is the GPU's paint and matches the live
 stroke's rasterizer instead of being re-rendered on the CPU (which took seconds on a large canvas and
 left the layer without the stroke meanwhile). A selection keeps only the inside of the clip; feathering
-is unchanged. Still CPU: Impasto strokes (their height, wetness and relief state is CPU material simulation),
+is unchanged.
+
+**Impasto v1 commits and replays on the GPU (`GpuImpastoStroke`).** One engine session stamps the colour
+as above, uploads the layer's height map, deposits height under the stroke's dabs in order
+(`deposit` in `core/wgpu-engine/src/shaders/impasto.wgsl`), relief-shades the dabs' region grown by
+one pixel in place (`shade`), then reads back the layer and the height. Both shaders follow
+`ImpastoEngine.deposit` and `ImpastoRegionShader.shade` step for step; `tests/impasto.rs` checks them
+against a CPU reference. The height map is updated only when the whole session succeeds.
+
+Still CPU: Impasto v2 (the wet material simulation), Impasto under a selection, live impasto shading,
 alpha-locked Basic Brush strokes, and any device where wgpu cannot start. Substrate rendering
 (`SubstrateRenderContext`) has no production caller yet, so nothing reaches its CPU path. The commit waits for calibration to stop (`stopCalibrationForCanvas`) on its worker,
 never on the touch path.
