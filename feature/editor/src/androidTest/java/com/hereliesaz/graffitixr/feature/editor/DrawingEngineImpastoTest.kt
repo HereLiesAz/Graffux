@@ -19,9 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * [DrawingEngine]'s stamp-brush commit path actually depositing into and shading against a
@@ -30,9 +28,7 @@ import org.robolectric.annotation.GraphicsMode
  * Commit/replay-only, same scoping as Airbrush (item 13): not reachable from the live incremental
  * preview.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class DrawingEngineImpastoTest {
 
     companion object {

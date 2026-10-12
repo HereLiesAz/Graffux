@@ -108,6 +108,7 @@ kotlinx-serialization-cbor = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
 mlkit-subject-segmentation = { group = "com.google.android.gms", name = "play-services-mlkit-subject-segmentation", version.ref = "mlkitSubjectSegmentation" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 play-services-base = { group = "com.google.android.gms", name = "play-services-base", version.ref = "playServicesBase" }

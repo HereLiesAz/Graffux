@@ -17,9 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * The invariant three separate bugs violated: **what a stroke commits must equal what replaying it
@@ -35,9 +33,7 @@ import org.robolectric.annotation.GraphicsMode
  * through them; what it can prove is that the pair agrees, which is what makes routing every caller
  * through them worth doing.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class CommitReplayInvariantTest {
 
     companion object {

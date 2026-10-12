@@ -30,9 +30,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * The mutation paths that must invalidate a layer's GPU-resident copy (wgpu) actually do. Each test
@@ -41,9 +39,7 @@ import org.robolectric.annotation.GraphicsMode
  * not re-derived from the bitmap, so these fail if the explicit invalidation is missing even where
  * the bitmap-identity backstop would have caught it later.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class ResidentLayerInvalidationTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -95,7 +91,7 @@ class ResidentLayerInvalidationTest {
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
-            context = org.robolectric.RuntimeEnvironment.getApplication(),
+            context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),

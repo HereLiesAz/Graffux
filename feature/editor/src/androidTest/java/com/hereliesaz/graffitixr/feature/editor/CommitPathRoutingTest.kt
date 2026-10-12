@@ -32,9 +32,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
+import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * **Does each commit path actually route through the engine that replays it?**
@@ -49,9 +47,7 @@ import org.robolectric.annotation.GraphicsMode
  * a **replay of its own recorded command** produces. That is the property users experience as "the
  * layer changed the first time I undid", and it holds only if the path went through the engine.
  */
-@RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34])
+@RunWith(AndroidJUnit4::class)
 class CommitPathRoutingTest {
 
     // Unconfined, not Standard. A commit that hops to the real Dispatchers.Default (which

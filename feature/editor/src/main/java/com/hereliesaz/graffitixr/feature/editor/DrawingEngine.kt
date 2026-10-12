@@ -71,7 +71,6 @@ internal class DrawingEngine(
         strokes: List<StrokeCommand>,
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
-        substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
     ): Bitmap {
@@ -82,12 +81,12 @@ internal class DrawingEngine(
         val session = if (impastoMaterialState == null) GpuReplaySession() else null
         try {
             for (stroke in strokes) {
-                val replay = session?.takeIf { !it.broken && replaysOnSession(stroke, heightMap, substrate) }
+                val replay = session?.takeIf { !it.broken && replaysOnSession(stroke, heightMap) }
                 if (replay == null) current = synced(session, current, otherLayers, heightMap)
                 var next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
                 else applyTool(
                     current, stroke, replaceExisting = true, otherLayers = otherLayers,
-                    heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                    heightMap = heightMap, wetnessState = wetnessState,
                     impastoMaterialState = impastoMaterialState, replay = replay,
                 )
                 if (replay != null && replay.broken) {
@@ -95,7 +94,7 @@ internal class DrawingEngine(
                     current = synced(session, current, otherLayers, heightMap)
                     next = applyTool(
                         current, stroke, replaceExisting = true, otherLayers = otherLayers,
-                        heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+                        heightMap = heightMap, wetnessState = wetnessState,
                     )
                 }
                 if (impastoMaterialState != null && !strokeUsesImpastoV2(stroke)) {
@@ -136,14 +135,13 @@ internal class DrawingEngine(
         command: StrokeCommand,
         otherLayers: List<Layer> = emptyList(),
         heightMap: FloatArray? = null,
-        substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
     ): Bitmap {
         val result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, replaceExisting = false, otherLayers = { otherLayers },
-            heightMap = heightMap, substrate = substrate, wetnessState = wetnessState,
+            heightMap = heightMap, wetnessState = wetnessState,
             impastoMaterialState = impastoMaterialState,
         )
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
@@ -165,7 +163,6 @@ internal class DrawingEngine(
         replaceExisting: Boolean,
         otherLayers: () -> List<Layer> = { emptyList() },
         heightMap: FloatArray? = null,
-        substrate: SubstrateRenderContext? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
         replay: GpuReplaySession? = null,
@@ -242,335 +239,32 @@ internal class DrawingEngine(
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         stroke.stampBrush?.let { brush ->
-            // The GPU paints the stroke (GpuStampCommit, GpuImpastoStroke, GpuImpastoV2Stroke).
-            // Substrate strokes carry CPU relief state the GPU doesn't model yet, so they, and a
-            // failed GPU call, take the CPU renderer below.
-            // Impasto v1 runs on the GPU too (GpuImpastoStroke): colour, height deposit and relief in
-            // one engine session. Under a selection the height deposits everywhere the dabs reach, as
-            // the CPU does; the lit colour is kept inside the selection like any stamp stroke.
-            val impastoV1OnGpu = substrate == null && heightMap != null &&
-                brush.impastoThicknessRate > 0f && heightMap.size == bitmap.width * bitmap.height &&
-                !brush.impastoMaterial.sanitized().usesV2
-            if (impastoV1OnGpu && heightMap != null) {
-                GpuImpastoStroke.paintStroke(bitmap, stroke, brush, mapped, brushScale, heightMap)?.let { painted ->
-                    return SelectionMask.feather(
-                        bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
-                    )
-                }
+            // The GPU paints every stamp stroke: Impasto v1 (GpuImpastoStroke: colour, height deposit
+            // and relief in one session; under a selection the height deposits wherever the dabs
+            // reach and the lit colour is kept inside it), Impasto v2 (GpuImpastoV2Stroke: the wet
+            // material simulation, selection included) and the plain stamp (GpuStampCommit, or the
+            // replay's shared session). There is no CPU renderer: a failed GPU call leaves the
+            // layer as it was.
+            val impasto = heightMap?.takeIf {
+                brush.impastoThicknessRate > 0f && it.size == bitmap.width * bitmap.height
             }
-            // Impasto v2, the wet material simulation, on the GPU (GpuImpastoV2Stroke): the whole
-            // contact, settle and presentation in one engine session, selection included.
-            val impastoV2OnGpu = substrate == null && heightMap != null && brush.impastoThicknessRate > 0f &&
-                heightMap.size == bitmap.width * bitmap.height && brush.impastoMaterial.sanitized().usesV2
-            if (impastoV2OnGpu && heightMap != null) {
-                GpuImpastoV2Stroke.paintStroke(
+            if (impasto != null && brush.impastoMaterial.sanitized().usesV2) {
+                return GpuImpastoV2Stroke.paintStroke(
                     bitmap, stroke, brush, mapped, brushScale,
-                    ImpastoV2Layer(heightMap, wetnessState, impastoMaterialState),
+                    ImpastoV2Layer(impasto, wetnessState, impastoMaterialState),
                     StrokeSelection(clipPath, featherRadius),
-                )?.let { return it }
+                ) ?: bitmap
             }
-            if (replay != null) {
-                return replay.paint(bitmap, stroke) {
+            val painted = when {
+                impasto != null -> GpuImpastoStroke.paintStroke(bitmap, stroke, brush, mapped, brushScale, impasto)
+                replay != null -> return replay.paint(bitmap, stroke) {
                     GpuStampCommit.paintOnto(it, stroke, brush, mapped, brushScale, bitmap)
                 }
-            }
-            val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
-            val gpuPainted = if (gpuEligible) {
-                GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
-            } else {
-                null
-            }
-            gpuPainted?.let { painted ->
-                return SelectionMask.feather(
-                    bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
-                )
-            }
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
-            val pts = ArrayList<Float>(mapped.size * 2)
-            mapped.forEach { pts.add(it.x); pts.add(it.y) }
-            val stampCanvas = android.graphics.Canvas(target)
-            SelectionMask.clip(stampCanvas, paintClip)
-
-            // Kinematics (speed/distance/time/tilt/orientation) were recorded in screen-hand space.
-            // Replay remaps only x/y into this bitmap, preserving exactly what the sensor curves saw
-            // when the stroke was drawn. Legacy/remote commands with no telemetry keep the old path.
-            val mappedSamples = if (stroke.brushSamples.size == mapped.size) {
-                stroke.brushSamples.mapIndexed { index, sample ->
-                    val point = mapped[index]
-                    sample.copy(x = point.x, y = point.y, predicted = false)
-                }
-            } else {
-                emptyList()
-            }
-            val materialConfig = brush.impastoMaterial.sanitized()
-            val usesImpastoV2 = materialConfig.usesV2 &&
-                brush.impastoThicknessRate > 0f &&
-                heightMap != null &&
-                heightMap.size == target.width * target.height
-            val materialMedium = materialConfig.toMedium()
-            val materialWetness = wetnessState?.takeIf {
-                it.field.width == target.width && it.field.height == target.height
-            }
-            val materialState = if (usesImpastoV2) {
-                impastoMaterialState?.takeIf {
-                    it.width == target.width && it.height == target.height
-                } ?: run {
-                    val seed = IntArray(target.width * target.height)
-                    bitmap.getPixels(seed, 0, target.width, 0, 0, target.width, target.height)
-                    ImpastoMaterialReplayState.fromRaw(target.width, target.height, seed)
-                }
-            } else {
-                null
-            }
-
-            // A feathered lasso is a coverage field, not a binary Region. Resolve it once for this
-            // authoritative stroke and reuse the same alpha for pigment, height, and wetness.
-            val materialSelection = if (usesImpastoV2 && featherRadius <= 0f) {
-                SelectionMask.region(clipPath, target.width, target.height)
-            } else {
-                null
-            }
-            val materialAllowed: ((Int, Int) -> Boolean)? = materialSelection?.let { region ->
-                { x, y -> region.contains(x, y) }
-            }
-            val materialFeatherPixels = if (usesImpastoV2 && clipPath != null && featherRadius > 0f) {
-                SelectionMask.featherMask(clipPath, target.width, target.height, featherRadius)?.let { mask ->
-                    val pixels = IntArray(target.width * target.height)
-                    mask.getPixels(pixels, 0, target.width, 0, 0, target.width, target.height)
-                    mask.recycle()
-                    pixels
-                }
-            } else {
-                null
-            }
-            val materialCoverage: ((Int, Int) -> Float)? = materialFeatherPixels?.let { alpha ->
-                { x, y -> (alpha[y * target.width + x] ushr 24 and 0xFF) / 255f }
-            }
-
-            // V2 always evolves/paints canonical unlit pigment. Display lighting is reconstructed
-            // afterwards from raw pigment + height + wetness and never feeds back into paint.
-            if (usesImpastoV2 && materialState != null) {
-                target.setPixels(
-                    materialState.rawColor, 0, target.width, 0, 0, target.width, target.height,
-                )
-            }
-
-            // Advance already-wet material to this stroke's first recorded input time before new
-            // contact lands. Height leveling is active-tile bounded; Phase-4 advances colour and
-            // wetness through the same recorded interval. No wall clock enters canonical replay.
-            var preContactMaterialRegion: DirtyRegion? = null
-            if (usesImpastoV2 && materialWetness != null && !materialWetness.field.isIdle) {
-                val nextTime = mappedSamples.firstOrNull()?.uptimeMillis
-                val previousTime = materialWetness.lastUptimeMillis
-                if (nextTime != null && previousTime != null && nextTime > previousTime) {
-                    preContactMaterialRegion = activeWetnessBounds(materialWetness.field)
-                    ImpastoEngine.levelWetHeight(
-                        height = requireNotNull(heightMap),
-                        width = target.width,
-                        imgHeight = target.height,
-                        wetness = materialWetness.field,
-                        medium = materialMedium,
-                        deltaSeconds = (nextTime - previousTime) / 1000f,
-                        region = preContactMaterialRegion,
-                        substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
-                        substrateField = substrate?.field,
-                        mediumAt = materialState?.let { state ->
-                            { x, y -> state.mediumAt(x, y, materialMedium) }
-                        },
-                    )
-                }
-                val materialPixels = IntArray(target.width * target.height)
-                target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-                materialWetness.advanceMaterialTo(
-                    materialPixels,
-                    nextTime,
-                    dryingRate = materialMedium.dryingRate,
-                    dryingRateAt = materialState?.let { state ->
-                        { x, y -> state.mediumAt(x, y, materialMedium).dryingRate }
-                    },
-                )
-                target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-            }
-
-            val rawBeforeContact = if (usesImpastoV2 && materialState != null) {
-                val pixels = IntArray(target.width * target.height)
-                target.getPixels(pixels, 0, target.width, 0, 0, target.width, target.height)
-                pixels
-            } else {
-                null
-            }
-
-            val paintedDabs: List<Dab>
-            // A recorded stroke paints exactly the dabs its live stroke did (StrokeDabs.recorded):
-            // movement dabs must NOT build up on each other (paintDabs' default allowBuildUp =
-            // false -- see paintRoundDabsMaxCombined's doc comment), Airbrush's held dabs must.
-            val recorded = StrokeDabs.recorded(stroke, brush, mapped, brushScale, target.width, target.height)
-            if (recorded != null) {
-                val (movementDabs, heldDabs) = recorded
-                // Held dabs follow the live stroke's interleaving (StrokeDabs.batches); without
-                // any, the movement dabs go in one call, the CPU's whole-stroke max-combine.
-                val batches = if (heldDabs.isEmpty()) {
-                    listOf(movementDabs to heldDabs)
-                } else {
-                    StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
-                }
-                for ((movement, held) in batches) {
-                    StampBrushRenderer.paintDabs(
-                        stampCanvas, movement, brush, stroke.brushColor, stroke.flow,
-                        stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                        stroke.secondaryBrushColor, substrate = substrate,
-                    )
-                    if (held.isNotEmpty()) {
-                        StampBrushRenderer.paintDabs(
-                            stampCanvas, held, brush, stroke.brushColor, stroke.flow,
-                            stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                            stroke.secondaryBrushColor, allowBuildUp = true, substrate = substrate,
-                        )
-                    }
-                }
-                paintedDabs = movementDabs + heldDabs
-            } else if (stroke.wrapAroundMode) {
-                // paintStroke's own dab list (densify + BrushStamps.dabs), tiled first.
-                val tiled = wrapTiledDabs(
-                    BrushStamps.dabs(CatmullRom.densify(pts), stroke.brushSize * brushScale, brush, stroke.seed),
-                    target.width, target.height,
-                )
-                StampBrushRenderer.paintDabs(
-                    stampCanvas, tiled, brush, stroke.brushColor, stroke.flow,
-                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                    stroke.secondaryBrushColor, substrate = substrate,
-                )
-                paintedDabs = tiled
-            } else {
-                StampBrushRenderer.paintStroke(
-                    stampCanvas, pts, brush, stroke.brushColor,
-                    stroke.brushSize * brushScale, stroke.flow, stroke.seed,
-                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape,
-                    stroke.secondaryBrushColor, substrate = substrate,
-                )
-                // Only materialized when Impasto is actually active (see below) -- paintStroke
-                // already resolves the identical dab list internally (via the same
-                // CatmullRom.densify + BrushStamps.dabs path) to paint, so this is redundant work
-                // only when a stamp brush has impastoThicknessRate > 0, never on the historical
-                // path every other stamp brush still takes.
-                paintedDabs = if (brush.impastoThicknessRate > 0f && heightMap != null) {
-                    BrushStamps.dabs(CatmullRom.densify(pts), stroke.brushSize * brushScale, brush, stroke.seed)
-                } else {
-                    emptyList()
-                }
-            }
-
-            // Impasto v1 remains the exact compatibility branch. Phase-5 behavior is opt-in
-            // through the versioned brush config and consumes the same canonical height/wetness
-            // channels rather than introducing parallel material state.
-            if (brush.impastoThicknessRate > 0f && heightMap != null && heightMap.size == target.width * target.height) {
-                if (usesImpastoV2) {
-                    // Paint has just been rasterized into target's raw canonical pigment. For a
-                    // feathered selection, blend that raw result through the exact same soft mask
-                    // that scales height/wetness transfer.
-                    if (materialFeatherPixels != null && rawBeforeContact != null) {
-                        val paintedRaw = IntArray(target.width * target.height)
-                        target.getPixels(paintedRaw, 0, target.width, 0, 0, target.width, target.height)
-                        for (i in paintedRaw.indices) {
-                            val f = (materialFeatherPixels[i] ushr 24 and 0xFF) / 255f
-                            if (f <= 0f) {
-                                paintedRaw[i] = rawBeforeContact[i]
-                            } else if (f < 1f) {
-                                paintedRaw[i] = lerpArgb(rawBeforeContact[i], paintedRaw[i], f)
-                            }
-                        }
-                        target.setPixels(paintedRaw, 0, target.width, 0, 0, target.width, target.height)
-                    }
-
-                    val transfer = ImpastoEngine.transferMaterialStroke(
-                        height = heightMap,
-                        width = target.width,
-                        imgHeight = target.height,
-                        dabs = paintedDabs,
-                        hardness = brush.hardness,
-                        thicknessRate = brush.impastoThicknessRate,
-                        medium = materialMedium,
-                        initialState = ImpastoMaterialStrokeState(materialConfig.initialLoad),
-                        substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
-                        substrateField = substrate?.field,
-                        pixelAllowed = materialAllowed,
-                        pixelCoverage = materialCoverage,
-                    )
-                    val wetDirty = materialWetness?.let { wetState ->
-                        ImpastoEngine.depositWetnessStroke(
-                            wetness = wetState.field,
-                            dabs = paintedDabs,
-                            hardness = brush.hardness,
-                            wetnessRate = materialConfig.wetness * brush.impastoThicknessRate,
-                            pixelAllowed = materialAllowed,
-                            pixelCoverage = materialCoverage,
-                        )
-                    }
-                    val contactRegion = unionRegions(transfer.dirtyRegion, wetDirty)
-                    materialState?.recordMedium(contactRegion, materialMedium)
-
-                    // One deterministic post-contact quantum: Phase 4 settles pigment/wetness and
-                    // Phase 5 levels height over the same bounded touched material region, using
-                    // the medium owned by each material tile rather than the newly selected brush.
-                    if (materialWetness != null && !materialWetness.field.isIdle) {
-                        val materialPixels = IntArray(target.width * target.height)
-                        target.getPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-                        materialWetness.settleMaterial(materialPixels)
-                        target.setPixels(materialPixels, 0, target.width, 0, 0, target.width, target.height)
-                        ImpastoEngine.levelWetHeight(
-                            height = heightMap,
-                            width = target.width,
-                            imgHeight = target.height,
-                            wetness = materialWetness.field,
-                            medium = materialMedium,
-                            deltaSeconds = WetnessReplayState.DEFAULT_SETTLE_SECONDS,
-                            region = contactRegion,
-                            substrateProfile = substrate?.profile ?: SubstrateProfile.SMOOTH,
-                            substrateField = substrate?.field,
-                            mediumAt = materialState?.let { state ->
-                                { x, y -> state.mediumAt(x, y, materialMedium) }
-                            },
-                        )
-                        materialWetness.markThrough(mappedSamples.lastOrNull()?.uptimeMillis)
-                    }
-
-                    val rawPixels = IntArray(target.width * target.height)
-                    target.getPixels(rawPixels, 0, target.width, 0, 0, target.width, target.height)
-                    materialState?.replaceRawColor(rawPixels)
-
-                    val touched = unionRegions(preContactMaterialRegion, contactRegion)
-                    // Restore the previous lit presentation everywhere, then reconstruct only the
-                    // material region whose canonical state changed from raw pigment.
-                    val displayPixels = IntArray(target.width * target.height)
-                    bitmap.getPixels(displayPixels, 0, target.width, 0, 0, target.width, target.height)
-                    target.setPixels(displayPixels, 0, target.width, 0, 0, target.width, target.height)
-                    shadeImpastoRegion(
-                        target = target,
-                        heightMap = heightMap,
-                        touched = touched,
-                        wetness = materialWetness?.field,
-                        medium = materialMedium,
-                        rawColorPixels = materialState?.rawColor ?: rawPixels,
-                        mediumAt = materialState?.let { state ->
-                            { x, y -> state.mediumAt(x, y, materialMedium) }
-                        },
-                    )
-                    return target
-                } else {
-                    ImpastoEngine.depositStroke(
-                        heightMap, target.width, target.height, paintedDabs,
-                        brush.hardness, brush.impastoThicknessRate,
-                    )
-                    shadeImpastoRegion(
-                        target = target,
-                        heightMap = heightMap,
-                        touched = DirtyRegion.fromDabs(paintedDabs),
-                        wetness = null,
-                        medium = null,
-                    )
-                }
-            }
-            return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
+                else -> GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
+            } ?: return bitmap
+            return SelectionMask.feather(
+                bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
+            )
         }
 
         // Color Smudge is stateful read/modify/write, not a Canvas blend. The stroke snapshots its
@@ -609,9 +303,6 @@ internal class DrawingEngine(
             val wetnessRegion = persistentWetness?.let {
                 SelectionMask.region(clipPath, width, height)
             }
-            val wetnessClip: ((Int, Int) -> Boolean)? = wetnessRegion?.let { region ->
-                { x, y -> region.contains(x, y) }
-            }
 
             // Sample Merged: composite the other visible layers into this layer's own pixel space
             // (exact resolution match, required by both ColorSmudgeEngine.apply's sampleSource
@@ -639,7 +330,6 @@ internal class DrawingEngine(
             // exact RYB material mixer; reservoir load/pickup runs in the same pipeline. Persistent
             // wetness runs on the wet simulation of the same engine (GpuWetSmudge): material advance,
             // the smudge on the canvas wetness, the selection confined on the GPU, the settle tick.
-            // A failed stage discards the possibly-partial target and recomputes on the CPU below.
             fun smudgeOn(engine: GpuStampEngine) =
                 GpuColorSmudge.stamp(engine, plans, settings, sampleSource, width, height)
             val wetSelection = stroke.selection?.takeIf { clipPath != null }?.let { selection ->
@@ -667,67 +357,26 @@ internal class DrawingEngine(
                     engine.destroy()
                 }
             }.getOrDefault(false)
-            // The wet path confined to the selection on the GPU, before its settle tick.
-            if (gpuPainted && persistentWetness != null) return target
-
-            if (!gpuPainted) {
-                val pixels = IntArray(width * height)
-                bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-                // Material time is authoritative and comes from recorded sample uptime, never the
-                // wall clock. When a selection exists, keep an evolved pre-stroke base so elapsed
-                // wet-paint settling remains global while only this stroke is clipped by the lasso.
-                val evolvedSelectionBase = if (persistentWetness != null && clipPath != null) {
-                    SafeBitmap.copy(bitmap)
-                } else null
-                val canAdvanceMaterial = clipPath == null || evolvedSelectionBase != null
-                if (persistentWetness != null && canAdvanceMaterial) {
-                    persistentWetness.advanceMaterialTo(
-                        pixels, mappedSamples.firstOrNull()?.uptimeMillis,
-                    )
-                    evolvedSelectionBase?.setPixels(pixels, 0, width, 0, 0, width, height)
-                }
-
-                ColorSmudgeEngine.apply(
-                    pixels, width, height, mapped, settings,
-                    samples = mappedSamples, strokeSeed = stroke.seed,
-                    sampleSource = sampleSource,
-                    wetnessField = persistentWetness?.field,
-                    wetnessClip = wetnessClip,
-                )
-                target.setPixels(pixels, 0, width, 0, 0, width, height)
-
-                val confined = SelectionMask.confine(
-                    evolvedSelectionBase ?: bitmap, target, clipPath, featherRadius,
-                )
-                if (evolvedSelectionBase != null && evolvedSelectionBase !== confined) {
-                    evolvedSelectionBase.recycle()
-                }
-
-                if (persistentWetness != null) {
-                    val settled = IntArray(width * height)
-                    confined.getPixels(settled, 0, width, 0, 0, width, height)
-                    persistentWetness.settleMaterial(settled)
-                    persistentWetness.markThrough(mappedSamples.lastOrNull()?.uptimeMillis)
-                    confined.setPixels(settled, 0, width, 0, 0, width, height)
-                }
-                return confined
+            // No CPU renderer: a failed GPU stage leaves the layer as it was. The wet path confined to
+            // the selection on the GPU, before its settle tick.
+            return when {
+                !gpuPainted -> bitmap.also { target.recycle() }
+                persistentWetness != null -> target
+                else -> SelectionMask.confine(bitmap, target, clipPath, featherRadius)
             }
-            return SelectionMask.confine(bitmap, target, clipPath, featherRadius)
         }
 
         // Basic Brush and Eraser paint on the GPU, the same dab runs the live stroke stamped
-        // (GpuBasicStroke); alpha lock is the GPU's SRC_ATOP. A failed GPU call still takes the CPU
-        // renderer below until the CPU renderers go.
+        // (GpuBasicStroke); alpha lock is the GPU's SRC_ATOP. No CPU renderer: a failed GPU call
+        // leaves the layer as it was. The retouch tools below still paint on the CPU.
         if (replay != null) {
             return replay.paint(bitmap, stroke) { GpuBasicStroke.paintOnto(it, stroke, mapped, brushScale, bitmap) }
         }
         if (stroke.tool == Tool.BRUSH || stroke.tool == Tool.ERASER) {
-            GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale)?.let { painted ->
-                return SelectionMask.feather(
-                    bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
-                )
-            }
+            val painted = GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale) ?: return bitmap
+            return SelectionMask.feather(
+                bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
+            )
         }
         return SelectionMask.feather(
             bitmap,
@@ -748,105 +397,6 @@ internal class DrawingEngine(
                 },
             ),
             clipPath, featherRadius,
-        )
-    }
-
-    private fun lerpArgb(a: Int, b: Int, t: Float): Int {
-        val f = t.coerceIn(0f, 1f)
-        fun channel(shift: Int): Int {
-            val av = a ushr shift and 0xFF
-            val bv = b ushr shift and 0xFF
-            return (av + (bv - av) * f).toInt().coerceIn(0, 255)
-        }
-        return (channel(24) shl 24) or (channel(16) shl 16) or
-            (channel(8) shl 8) or channel(0)
-    }
-
-    private fun unionRegions(a: DirtyRegion?, b: DirtyRegion?): DirtyRegion? = when {
-        a == null -> b
-        b == null -> a
-        else -> a.union(b)
-    }
-
-    private fun activeWetnessBounds(field: PersistentWetnessField): DirtyRegion? {
-        var out: DirtyRegion? = null
-        for ((tx, ty) in field.activeTileCoordinates()) {
-            val left = tx * field.tileSize
-            val top = ty * field.tileSize
-            val tile = DirtyRegion(
-                left = left,
-                top = top,
-                right = minOf(field.width, left + field.tileSize),
-                bottom = minOf(field.height, top + field.tileSize),
-            )
-            out = out?.union(tile) ?: tile
-        }
-        return out
-    }
-
-    /**
-     * Re-shades only material pixels whose height/wetness could have changed plus the one-pixel
-     * normal-gradient border. A null [medium] selects the historical v1 relief shader exactly.
-     */
-    private fun shadeImpastoRegion(
-        target: Bitmap,
-        heightMap: FloatArray,
-        touched: DirtyRegion?,
-        wetness: PersistentWetnessField?,
-        medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium?,
-        rawColorPixels: IntArray? = null,
-        mediumAt: ((x: Int, y: Int) -> com.hereliesaz.graffitixr.common.azphalt.PaintMedium)? = null,
-    ) {
-        val region = touched?.let {
-            DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1)
-        }?.clampTo(target.width, target.height) ?: return
-        if (region.isEmpty) return
-        val regionWidth = region.right - region.left
-        val regionHeight = region.bottom - region.top
-        val rawRegion = IntArray(regionWidth * regionHeight)
-        if (rawColorPixels != null && rawColorPixels.size >= target.width * target.height) {
-            for (localY in 0 until regionHeight) {
-                val src = (region.top + localY) * target.width + region.left
-                rawColorPixels.copyInto(
-                    rawRegion,
-                    destinationOffset = localY * regionWidth,
-                    startIndex = src,
-                    endIndex = src + regionWidth,
-                )
-            }
-        } else {
-            target.getPixels(
-                rawRegion, 0, regionWidth,
-                region.left, region.top, regionWidth, regionHeight,
-            )
-        }
-        val shadedRegion = if (medium == null) {
-            ImpastoRegionShader.shade(
-                rawRegion, heightMap, target.width, target.height,
-                region.left, region.top, regionWidth, regionHeight,
-                IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
-            )
-        } else {
-            ImpastoRegionShader.shadeMaterial(
-                rawRegion = rawRegion,
-                height = heightMap,
-                wetness = wetness,
-                canvasWidth = target.width,
-                canvasHeight = target.height,
-                left = region.left,
-                top = region.top,
-                regionWidth = regionWidth,
-                regionHeight = regionHeight,
-                lightAzimuthDeg = IMPASTO_LIGHT_AZIMUTH_DEG,
-                lightElevationDeg = IMPASTO_LIGHT_ELEVATION_DEG,
-                reliefStrength = IMPASTO_LIGHT_STRENGTH,
-                medium = medium,
-                mediumAt = mediumAt,
-            )
-        }
-        target.setPixels(
-            shadedRegion, 0, regionWidth,
-            region.left, region.top, regionWidth, regionHeight,
         )
     }
 
@@ -874,16 +424,15 @@ internal class DrawingEngine(
 
 /**
  * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush, Basic Brush (alpha
- * lock included) or Eraser stroke, no selection, Impasto, substrate or tool that reads the pixels
+ * lock included) or Eraser stroke, no selection, Impasto, or tool that reads the pixels
  * on the CPU.
  */
 private fun replaysOnSession(
     stroke: StrokeCommand,
     heightMap: FloatArray?,
-    substrate: SubstrateRenderContext?,
 ) =
     stroke.selection == null && stroke.warpHandles == null && !stroke.fillSelection && !stroke.clearAll &&
-        stroke.inkStroke == null && substrate == null &&
+        stroke.inkStroke == null &&
         (stroke.tool == Tool.ERASER || stroke.tool == Tool.BRUSH && replaysStamp(stroke, heightMap))
 
 private fun replaysStamp(stroke: StrokeCommand, heightMap: FloatArray?) =
