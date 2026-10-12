@@ -369,6 +369,7 @@ impl Engine {
         let ok = self.wet_run(Entry::RawToLayer, all, |_| {});
         self.mark_fully_dirty();
         self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
         self.mp_session_started();
         ok && self.ok()
     }

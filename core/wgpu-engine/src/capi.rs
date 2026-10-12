@@ -340,6 +340,25 @@ pub unsafe extern "C" fn gfx_wgpu_selection_op(e: *mut Engine, op: i32) -> bool 
     })
 }
 
+/// [`Engine::stroke_rect`]: writes `{x, y, w, h}` into `out`.
+///
+/// # Safety
+/// `out` must point to four writable ints.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_stroke_rect(e: *mut Engine, out: *mut i32) -> bool {
+    guard(false, || {
+        if out.is_null() {
+            return false;
+        }
+        let Some(r) = engine(e).map(|e| e.stroke_rect()) else {
+            return false;
+        };
+        // SAFETY: the caller passes four writable ints.
+        unsafe { std::slice::from_raw_parts_mut(out, 4) }.copy_from_slice(&[r.x, r.y, r.w, r.h]);
+        true
+    })
+}
+
 // ---- Document store (docstore.rs): canonical GPU layers ------------------------------------
 
 /// [`Engine::doc_open`].

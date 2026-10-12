@@ -6454,9 +6454,13 @@ class EditorViewModel @Inject constructor(
                         // if finishing it fails) the stroke painted again from its recorded dabs.
                         val live = basicHandoff?.let { finishLiveBasic(it, base, command) }
                         val committed = live ?: drawingEngine.applySingleStroke(base, command)
-                        // Unselected, the live GPU layer is exactly what was committed.
+                        // The live GPU layer is exactly what was committed: nothing to diff.
                         val gpuCommitted = live != null
-                        val residentChanged = residentChangedRect(ticket, base, committed)
+                        val residentChanged = if (gpuCommitted) {
+                            GPU_COMMITTED.takeIf { ticket != null }
+                        } else {
+                            residentChangedRect(ticket, base, committed)
+                        }
                         withContext(dispatchers.main) {
                             _uiState.update { s ->
                                 s.copy(
@@ -6465,7 +6469,7 @@ class EditorViewModel @Inject constructor(
                             }
                             refreshResidentAfterCommit(
                                 ticket, layerId, base, committed,
-                                residentChanged?.let { if (gpuCommitted) GPU_COMMITTED else it },
+                                residentChanged,
                             )
                             // Only clear the live-stroke preview if it's still ours -- a newer stroke may
                             // have already started by the time this async rebuild finishes, and clearing
@@ -6645,14 +6649,16 @@ class EditorViewModel @Inject constructor(
             // preview rendered all of that correctly, then it vanished on finger-up. `command` already
             // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
-            // Unselected, a finished live GPU layer is exactly what is committed.
+            // A finished live GPU layer is exactly what is committed.
             var gpuCommitted = false
+            var liveCommitted = false
             val target = try {
                 // The live GPU layer when the live stroke painted on the GPU; otherwise (or if
                 // finishing it fails) the stroke painted again from its recorded dabs.
                 finishLiveStamp(handoff, base, command, brush)
                     ?.also { live ->
                         gpuCommitted = true
+                        liveCommitted = true
                         materialWorking?.replaceRawColor(bitmapPixels(live))
                     }
                     ?: drawingEngine.applySingleStroke(
@@ -6685,7 +6691,13 @@ class EditorViewModel @Inject constructor(
             // The same pixel diff also tells the GPU's resident copy what the CPU commit changed
             // (see refreshResidentAfterCommit); null when there is no resident binding.
             var residentChanged: IntArray? = null
-            val tileDeltas = runCatching {
+            // A commit straight from the live GPU layer knows what it painted: the undo tiles come
+            // from that rectangle alone, with no whole-layer read or diff.
+            val livePainted = handoff.paintedRect?.takeIf { liveCommitted && target.width == base.width }
+            val tileDeltas = if (livePainted != null) {
+                runCatching { regionTileDeltas(base, target, livePainted) }.getOrNull()
+                    ?.also { if (ticket != null) residentChanged = IntArray(RECT_INTS) }
+            } else runCatching {
                 val beforePixels = IntArray(base.width * base.height)
                 base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
                 val afterPixels = IntArray(target.width * target.height)
@@ -6759,7 +6771,10 @@ class EditorViewModel @Inject constructor(
         val batches: List<Int>,
         /** The stroke's selection, prepared on [engine] at its start; null without one. */
         val selection: GpuStrokeSelection.Prepared? = null,
-    )
+    ) {
+        /** What the finished stroke painted (the engine's stroke rectangle), set by the commit. */
+        var paintedRect: DirtyRegion? = null
+    }
 
     /**
      * Takes the live stroke's GPU engine (so clearTransientStrokeState doesn't destroy it) and its
@@ -6804,12 +6819,17 @@ class EditorViewModel @Inject constructor(
             work?.takeIf {
                 GpuStampCommit.stampOnto(engine, listOf(handoff.leftover), StampPaint.of(command, brush)) &&
                     confinedOnGpu(engine, command, handoff.selection) &&
-                    engine.readback(it)
+                    engine.readback(it).also { handoff.paintedRect = paintedRect(engine) }
             }?.let { SafeBitmap.copy(it) }
         } finally {
             engine.destroy()
         }
     }
+
+    /** The rectangle [engine]'s stroke painted, null when the engine can't say. */
+    private fun paintedRect(engine: GpuStampEngine): DirtyRegion? =
+        com.hereliesaz.graffitixr.nativebridge.GpuSelection(engine).strokeRect()
+            ?.let { r -> DirtyRegion(r[0], r[1], r[0] + r[2], r[1] + r[3]) }
 
     /** [command]'s selection applied to its stroke on [engine] (true when it has none). */
     private fun confinedOnGpu(
@@ -6831,7 +6851,10 @@ class EditorViewModel @Inject constructor(
         val generatedRuns: Int,
         /** The stroke's selection, prepared on [engine] at its start; null without one. */
         val selection: GpuStrokeSelection.Prepared? = null,
-    )
+    ) {
+        /** What the finished stroke painted (the engine's stroke rectangle), set by the commit. */
+        var paintedRect: DirtyRegion? = null
+    }
 
     /**
      * Takes the live Basic Brush engine (so clearTransientStrokeState doesn't destroy it) and its
@@ -6878,7 +6901,7 @@ class EditorViewModel @Inject constructor(
             work?.takeIf {
                 GpuBasicStroke.stampRuns(handoff.engine, missing, paint) &&
                     confinedOnGpu(handoff.engine, command, handoff.selection) &&
-                    handoff.engine.readback(it)
+                    handoff.engine.readback(it).also { handoff.paintedRect = paintedRect(handoff.engine) }
             }?.let { SafeBitmap.copy(it) }
         } finally {
             handoff.engine.destroy()

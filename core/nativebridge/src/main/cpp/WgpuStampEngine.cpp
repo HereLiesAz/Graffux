@@ -78,6 +78,7 @@ struct Api {
     // Optional, all or nothing: selection at commit.
     bool (*setSelection)(GfxWgpuEngine*, const uint8_t*, size_t);
     bool (*selectionOp)(GfxWgpuEngine*, int32_t);
+    bool (*strokeRect)(GfxWgpuEngine*, int32_t*);
     // Optional: a new stroke on the layer as it is.
     bool (*beginStroke)(GfxWgpuEngine*);
     // Optional, all or nothing: impasto v2's wet material simulation.
@@ -160,7 +161,8 @@ void load() {
         if (!impasto) a.uploadHeight = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
         const bool selection = optional(lib, "gfx_wgpu_set_selection", a.setSelection) &&
-                               optional(lib, "gfx_wgpu_selection_op", a.selectionOp);
+                               optional(lib, "gfx_wgpu_selection_op", a.selectionOp) &&
+                               optional(lib, "gfx_wgpu_stroke_rect", a.strokeRect);
         if (!selection) a.setSelection = nullptr;  // all or nothing
         const bool doc = optional(lib, "gfx_wgpu_doc_open", a.docOpen) &&
                          optional(lib, "gfx_wgpu_doc_layer", a.docLayer) &&
@@ -404,6 +406,10 @@ bool WgpuStampEngine::docLayerRead(uint64_t key, int x, int y, int w, int h, uin
 
 bool WgpuStampEngine::setSelection(const uint8_t* coverage, size_t len) {
     return engine_ != nullptr && gApi.setSelection != nullptr && gApi.setSelection(engine_, coverage, len);
+}
+
+bool WgpuStampEngine::strokeRect(int* out) {
+    return engine_ != nullptr && gApi.setSelection != nullptr && gApi.strokeRect(engine_, out);
 }
 
 bool WgpuStampEngine::selectionOp(int op) {

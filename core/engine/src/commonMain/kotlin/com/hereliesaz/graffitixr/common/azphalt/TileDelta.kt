@@ -65,6 +65,30 @@ object TileDelta {
         }
     }
 
+    /**
+     * [capture] for a stroke whose extent is already known: [before]/[after] hold only [region]'s
+     * pixels (row-major, `region.width * region.height`), and [region] is a whole number of [grid]
+     * tiles (TileGrid.tilesTouching's bounds), so nothing outside it is read at all. Returns the same
+     * snapshots [capture] would for the tiles [region] covers.
+     */
+    fun captureRegion(
+        before: IntArray,
+        after: IntArray,
+        region: DirtyRegion,
+        grid: TileGrid,
+    ): List<TileSnapshot> {
+        val count = region.width * region.height
+        if (region.isEmpty || before.size < count || after.size < count) return emptyList()
+        return grid.tilesTouching(region).indices().map { (tx, ty) ->
+            val bounds = grid.tileBounds(tx, ty)
+            val local = DirtyRegion(
+                bounds.left - region.left, bounds.top - region.top,
+                bounds.right - region.left, bounds.bottom - region.top,
+            )
+            TileSnapshot(tx, ty, bounds, extract(before, region.width, local), extract(after, region.width, local))
+        }
+    }
+
     /** Writes each snapshot's [TileSnapshot.before] pixels back into [target] (an undo). */
     fun applyBefore(target: IntArray, canvasWidth: Int, snapshots: List<TileSnapshot>) =
         apply(target, canvasWidth, snapshots) { it.before }

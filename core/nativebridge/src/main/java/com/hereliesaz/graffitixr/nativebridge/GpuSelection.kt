@@ -23,7 +23,15 @@ class GpuSelection(private val engine: GpuStampEngine) {
     /** Blends the stroke back over its shadow through the coverage: [feathered] or the hard clip. */
     fun confine(feathered: Boolean): Boolean = call { nativeSelectionOp(it, if (feathered) FEATHERED else HARD) }
 
+    /**
+     * The rectangle the current stroke has painted, {x, y, w, h} (also what [confine] covers); null
+     * when unsupported. Read it before the readback that ends the stroke: a readback resets it.
+     */
+    fun strokeRect(): IntArray? = IntArray(RECT_INTS).takeIf { out -> call { nativeStrokeRect(it, out) } }
+
     private companion object {
+        const val RECT_INTS = 4
+
         const val TAKE_SHADOW = 0
         const val HARD = 1
         const val FEATHERED = 2
@@ -33,5 +41,8 @@ class GpuSelection(private val engine: GpuStampEngine) {
 
         @JvmStatic
         private external fun nativeSelectionOp(handle: Long, op: Int): Boolean
+
+        @JvmStatic
+        private external fun nativeStrokeRect(handle: Long, out: IntArray): Boolean
     }
 }

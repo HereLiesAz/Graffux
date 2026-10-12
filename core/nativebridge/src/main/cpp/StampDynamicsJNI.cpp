@@ -403,3 +403,16 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSelectionOp(JNIEn
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->selectionOp(op) ? JNI_TRUE : JNI_FALSE;
 }
+
+// The current stroke's painted rectangle into `out` (int[4] {x, y, w, h}).
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeStrokeRect(
+        JNIEnv* env, jclass, jlong handle, jintArray out) {
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !out || env->GetArrayLength(out) < 4) return JNI_FALSE;
+    int r[4] = {0, 0, 0, 0};
+    if (!engine->strokeRect(r)) return JNI_FALSE;
+    const jint values[4] = {r[0], r[1], r[2], r[3]};
+    env->SetIntArrayRegion(out, 0, 4, values);
+    return JNI_TRUE;
+}

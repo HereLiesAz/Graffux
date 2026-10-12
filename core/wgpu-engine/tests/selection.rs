@@ -39,13 +39,25 @@ fn mask() -> Vec<u8> {
 }
 
 fn unpack(p: &[u8]) -> [f32; 4] {
-    [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, p[3] as f32 / 255.0]
+    [
+        p[0] as f32 / 255.0,
+        p[1] as f32 / 255.0,
+        p[2] as f32 / 255.0,
+        p[3] as f32 / 255.0,
+    ]
 }
 
 fn paint(e: &mut Engine) {
     let mut d = GpuDab::legacy(24.0, 20.0, 18.0, 1.0, 0.0);
     d.resolved = 0.0;
-    assert!(e.stamp_dabs(&[d], 0xCC3366FF, 0.5, false, SubstrateParams::default(), true));
+    assert!(e.stamp_dabs(
+        &[d],
+        0xCC3366FF,
+        0.5,
+        false,
+        SubstrateParams::default(),
+        true
+    ));
 }
 
 #[test]
@@ -57,10 +69,10 @@ fn confine_matches_the_cpu_commit_and_stays_in_the_stroke() {
             assert!(e.set_selection(&mask()));
             assert!(e.take_stroke_shadow());
             paint(&mut e);
-            // The stroke's rectangle first: a readback resets it.
+            let painted = e.read_all().unwrap();
+            // The stroke's rectangle survives the readback.
             let r = e.stroke_rect();
             assert!(!r.is_empty());
-            let painted = e.read_all().unwrap();
             assert!(e.confine_stroke(r.x, r.y, r.w, r.h, feather));
             let out = e.read_all().unwrap();
             let m = mask();
@@ -70,10 +82,18 @@ fn confine_matches_the_cpu_commit_and_stays_in_the_stroke() {
                 let px = &out[i * 4..i * 4 + 4];
                 let inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
                 if !inside {
-                    assert_eq!(px, &painted[i * 4..i * 4 + 4], "[{name}] outside the stroke changed");
+                    assert_eq!(
+                        px,
+                        &painted[i * 4..i * 4 + 4],
+                        "[{name}] outside the stroke changed"
+                    );
                     continue;
                 }
-                let (pa, ba, k) = (unpack(&painted[i * 4..]), unpack(&before[i * 4..]), m[i] as f32 / 255.0);
+                let (pa, ba, k) = (
+                    unpack(&painted[i * 4..]),
+                    unpack(&before[i * 4..]),
+                    m[i] as f32 / 255.0,
+                );
                 let want: Vec<i32> = (0..4)
                     .map(|c| {
                         let v = if feather {
@@ -90,10 +110,17 @@ fn confine_matches_the_cpu_commit_and_stays_in_the_stroke() {
                     worst = worst.max((px[c] as i32 - want[c]).abs());
                 }
             }
-            assert!(worst <= 1, "[{name}] feather={feather}: worst channel difference {worst}");
+            assert!(
+                worst <= 1,
+                "[{name}] feather={feather}: worst channel difference {worst}"
+            );
             // Fully outside the selection the stroke is gone: the pre-stroke pixel comes back.
             let i = (20 * W + 5) as usize;
-            assert_eq!(&out[i * 4..i * 4 + 4], &before[i * 4..i * 4 + 4], "[{name}] outside the selection");
+            assert_eq!(
+                &out[i * 4..i * 4 + 4],
+                &before[i * 4..i * 4 + 4],
+                "[{name}] outside the selection"
+            );
         }
     }
 }
