@@ -97,7 +97,7 @@ internal object GpuImpastoV2Stroke {
      * The selection as per-pixel coverage: the feather mask's alpha, or the hard clip as 0/1 (the
      * CPU clips the colour to it and gates height and wetness with it); null without a selection.
      */
-    private fun coverage(selection: StrokeSelection, width: Int, height: Int): FloatArray? {
+    fun coverage(selection: StrokeSelection, width: Int, height: Int): FloatArray? {
         val clip = selection.clipPath
         return when {
             clip == null -> null
@@ -221,25 +221,9 @@ internal object GpuImpastoV2Stroke {
             return if (settled) finish(engine, display, contact?.region) else null
         }
 
-        private fun activeTiles(): IntArray = IntArray(tiles).also { out ->
-            wetness?.field?.activeTileCoordinates()?.forEach { (tx, ty) -> out[ty * cols + tx] = 1 }
-        }
+        private fun activeTiles(): IntArray = WetUpload.activeTiles(wetness, cols, tiles)
 
-        /** Each tile's effective medium (ImpastoMaterialReplayState.mediumAt), sanitized. */
-        private fun mediaTable(): FloatArray {
-            val out = FloatArray(tiles * GpuWetSimulation.MEDIA_FLOATS)
-            for (t in 0 until tiles) {
-                val m = work.mediumAt((t % cols) * tileSize, (t / cols) * tileSize, medium).sanitized()
-                val o = t * GpuWetSimulation.MEDIA_FLOATS
-                out[o] = m.viscosity
-                out[o + M_YIELD] = m.yieldLikeStrength
-                out[o + M_LEVELING] = m.levelingRate
-                out[o + M_DRYING] = m.dryingRate
-                out[o + M_ROUGHNESS] = m.baseRoughness
-                out[o + M_SPECULAR] = m.wetSpecularStrength
-            }
-            return out
-        }
+        private fun mediaTable(): FloatArray = WetUpload.mediaTable(work, medium, cols, tiles)
 
         /** The already-wet material advanced to the stroke's first recorded sample. */
         private fun advanceToStroke(engine: GpuStampEngine): Boolean {
@@ -277,17 +261,8 @@ internal object GpuImpastoV2Stroke {
 
         /** Height transfer and wetness deposit; the touched region and whether anything is wet. */
         private fun contact(engine: GpuStampEngine): Contact? {
-            val flat = FloatArray(dabs.size * GpuWetSimulation.DAB_FLOATS)
-            dabs.forEachIndexed { i, d ->
-                val o = i * GpuWetSimulation.DAB_FLOATS
-                flat[o] = d.x
-                flat[o + 1] = d.y
-                flat[o + D_RADIUS] = d.radius
-                flat[o + D_ALPHA] = d.alpha
-                flat[o + D_FLOW] = d.flowMultiplier
-                flat[o + D_CONTACT] = d.contactDepth
-            }
-            val control = IntArray(tiles * 2 + dabs.size)
+            val flat = WetUpload.dabs(dabs)
+            val control = IntArray(WetUpload.flagsOffset(tiles) + dabs.size)
             val ok = GpuWetSimulation(engine).buffer(GpuWetSimulation.DABS, flat) &&
                 GpuWetSimulation(engine).op(
                     GpuWetSimulation.TRANSFER, brush.hardness, brush.impastoThicknessRate, medium.heightResponse,
@@ -298,7 +273,7 @@ internal object GpuImpastoV2Stroke {
                 )) &&
                 GpuWetSimulation(engine).readControl(control)
             val wet = (0 until tiles).any { control[it] != 0 }
-            return if (ok) Contact(touched(dabs, control, tiles * 2, width, height), wet) else null
+            return if (ok) Contact(touched(dabs, control, WetUpload.flagsOffset(tiles), width, height), wet) else null
         }
 
         /** The contacted tiles take the stroke's medium; then the fixed post-contact settle. */
@@ -351,13 +326,4 @@ internal object GpuImpastoV2Stroke {
     private const val BYTE_MASK = 0xFF
     private const val BYTE_MAX = 255f
     private const val MILLIS_PER_SECOND = 1000f
-    private const val M_YIELD = 1
-    private const val M_LEVELING = 2
-    private const val M_DRYING = 3
-    private const val M_ROUGHNESS = 4
-    private const val M_SPECULAR = 5
-    private const val D_RADIUS = 2
-    private const val D_ALPHA = 3
-    private const val D_FLOW = 4
-    private const val D_CONTACT = 5
 }

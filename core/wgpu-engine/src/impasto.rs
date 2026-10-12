@@ -52,7 +52,7 @@ pub(super) struct ImpastoGpu {
     dab_capacity: u64,
     heights: wgpu::Buffer,
     /// The shaded presentation for a live stroke ([`Engine::shade_relief_to_display`]).
-    display: wgpu::Buffer,
+    pub(super) display: wgpu::Buffer,
 }
 
 const WORKGROUP: u32 = 8;
@@ -154,7 +154,7 @@ impl ImpastoGpu {
 }
 
 impl Engine {
-    fn take_impasto(&mut self) -> ImpastoGpu {
+    pub(super) fn take_impasto(&mut self) -> ImpastoGpu {
         let bytes = self.layer_bytes();
         self.impasto
             .take()

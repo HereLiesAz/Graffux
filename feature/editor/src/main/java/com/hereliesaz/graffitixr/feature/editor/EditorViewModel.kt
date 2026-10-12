@@ -1054,6 +1054,14 @@ class EditorViewModel @Inject constructor(
      * not touched. False when the stroke isn't v1 Impasto on the GPU.
      */
     private var stampGpuImpastoHeight = false
+    /**
+     * Live Impasto v2 runs on the stroke's GPU engine (GpuWetSimulation): the layer's material state
+     * went there at the stroke's start, and each batch transfers, deposits wetness and shades there,
+     * the reservoir load carried across batches on the GPU. [stampGpuWetBatches] counts the batches
+     * done (the first starts from the configured load).
+     */
+    private var stampGpuWetLive = false
+    private var stampGpuWetBatches = 0
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     private var stampShapeForStroke: Bitmap? = null
@@ -4638,6 +4646,7 @@ class EditorViewModel @Inject constructor(
             stampLiveMaterialSelection = null
             stampLiveShadedBitmap = null
             stampGpuImpastoHeight = false
+            stampGpuWetLive = false
             stampLivePreStrokeBase = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
             // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
@@ -4787,6 +4796,17 @@ class EditorViewModel @Inject constructor(
                 // its engine once, here.
                 val gpuImpastoHeight = gpuReady && heightMapSeed != null && !usesImpastoV2 &&
                     gpuEngine?.uploadImpastoHeight(heightMapSeed) == true
+                val gpuWetLive = gpuEngine != null && heightMapSeed != null && impastoMaterialSeed != null &&
+                    startLiveWetOnGpu(
+                        gpuEngine, LiveWetSeed(heightMapSeed, wetnessSeed, impastoMaterialSeed),
+                        materialConfig.toMedium().sanitized(),
+                        StrokeSelection(
+                            SelectionMask.bitmapPath(
+                                strokeSelection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
+                            ),
+                            SelectionMask.featherRadius(strokeSelection, work.width, work.height, layer.scale),
+                        ),
+                    )
                 // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
                 // `work` from before this stroke's first dab, needed to fully re-composite a live
                 // plain-round stroke from scratch every frame.
@@ -4835,6 +4855,8 @@ class EditorViewModel @Inject constructor(
                             stampGpuEngine = if (gpuReady) gpuEngine else null
                             stampGpuSelection = gpuSelection
                             stampGpuImpastoHeight = gpuImpastoHeight
+                            stampGpuWetLive = gpuWetLive
+                            stampGpuWetBatches = 0
                             stampGpuActive = gpuReady
                             stampGpuDirect = wgpuDirectStarted
                         }
@@ -5602,6 +5624,7 @@ class EditorViewModel @Inject constructor(
                             val secondaryMaskSize: Int
                             val usesDirect: Boolean
                             val gpuHeight: Boolean
+                            val gpuWet: Boolean
                             synchronized(stampLiveLock) {
                                 if (strokeGeneration != strokeGen || strokeLayerId != strokeLayerIdSnapshot) {
                                     return@launch
@@ -5628,6 +5651,7 @@ class EditorViewModel @Inject constructor(
                                 secondaryMaskSize = stampGpuSecondaryMaskSize
                                 usesDirect = stampGpuDirect
                                 gpuHeight = stampGpuImpastoHeight
+                                gpuWet = stampGpuWetLive
                             }
                             val latencyIds = stampPendingLatencyIds.drain()
                             latencyIds.forEach { azphaltLatencyTracker.markSubmitted(it) }
@@ -5889,8 +5913,19 @@ class EditorViewModel @Inject constructor(
                 // device cadence and would make canonical results hardware-dependent. Commit is
                 // authoritative for wet leveling; live shows contact height + wet gloss immediately.
                 val gpuImpastoDabs = newDabs + newHeldDabs
-                val cpuImpasto = !gpuHeight && brush.impastoThicknessRate > 0f
-                if (gpuHeight && shadedBitmap != null && gpuImpastoDabs.isNotEmpty()) {
+                val cpuImpasto = !gpuHeight && !gpuWet && brush.impastoThicknessRate > 0f
+                if (gpuWet && shadedBitmap != null && gpuImpastoDabs.isNotEmpty()) {
+                    // Impasto v2 on the GPU: material transfer and wetness for this batch on the
+                    // engine, shaded into its display buffer. As with v1, a failure leaves the colour
+                    // painting; the commit renders the material in full.
+                    val first = stampGpuWetBatches == 0
+                    stampGpuWetBatches++
+                    val shown = engine != null && gpuActive &&
+                        liveWetOnGpu(
+                            engine, brush, LiveWetBatch(gpuImpastoDabs, first, liveWetness != null), shadedBitmap,
+                        )
+                    if (!shown) synchronized(stampLiveLock) { stampGpuWetLive = false }
+                } else if (gpuHeight && shadedBitmap != null && gpuImpastoDabs.isNotEmpty()) {
                     // Impasto v1 on the GPU: this batch's height lands on the engine and the touched
                     // region is shaded into its display buffer, the layer staying the raw paint. A
                     // failure leaves the colour painting and the preview's shading where it was;
@@ -6872,6 +6907,81 @@ class EditorViewModel @Inject constructor(
                 rect, IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG, IMPASTO_LIGHT_STRENGTH,
             ) && display.read(shaded, rect)
             )
+    }
+
+    /** A live v2 stroke's starting material state. */
+    private class LiveWetSeed(
+        val height: FloatArray,
+        val wetness: WetnessReplayState?,
+        val material: ImpastoMaterialReplayState,
+    )
+
+    /** One live v2 batch: its dabs, whether it is the stroke's first, whether the layer has wetness. */
+    private class LiveWetBatch(val dabs: List<Dab>, val first: Boolean, val wet: Boolean)
+
+    /**
+     * Hands [engine] the layer's material state for a live v2 stroke ([seed], the [medium] as the
+     * default for untouched tiles, the [selection]'s coverage). False when it can't take it.
+     */
+    private fun startLiveWetOnGpu(
+        engine: GpuStampEngine,
+        seed: LiveWetSeed,
+        medium: com.hereliesaz.graffitixr.common.azphalt.PaintMedium,
+        selection: StrokeSelection,
+    ): Boolean {
+        val material = seed.material
+        val (width, height) = material.width to material.height
+        val tileSize = material.tileSize
+        val cols = (width + tileSize - 1) / tileSize
+        val tiles = cols * ((height + tileSize - 1) / tileSize)
+        val wet = com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation(engine)
+        return seed.wetness?.field?.tileSize.let { it == null || it == tileSize } &&
+            wet.begin(
+                material.rawColor, seed.height, seed.wetness?.snapshot() ?: FloatArray(width * height),
+                WetUpload.activeTiles(seed.wetness, cols, tiles), tileSize,
+                WetUpload.mediaTable(material, medium, cols, tiles),
+            ) &&
+            wet.buffer(
+                com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation.COVERAGE,
+                GpuImpastoV2Stroke.coverage(selection, width, height),
+            )
+    }
+
+    /**
+     * One live v2 batch on [engine]: the stamped colour becomes the raw pigment, the batch's dabs
+     * transfer material (continuing the reservoir) and deposit wetness, and their region is shaded
+     * into the display buffer and read into [shaded]. False on failure.
+     */
+    private fun liveWetOnGpu(
+        engine: GpuStampEngine,
+        brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
+        batch: LiveWetBatch,
+        shaded: Bitmap,
+    ): Boolean {
+        val wet = com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation(engine)
+        val sim = com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation
+        val config = brush.impastoMaterial.sanitized()
+        val medium = config.toMedium().sanitized()
+        val touched = DirtyRegion.fromDabs(batch.dabs)
+        val region = touched?.let { DirtyRegion(it.left - 1, it.top - 1, it.right + 1, it.bottom + 1) }
+            ?.clampTo(shaded.width, shaded.height)?.takeIf { !it.isEmpty }
+        val rate = brush.impastoThicknessRate
+        return wet.op(sim.LAYER_TO_RAW) &&
+            wet.buffer(sim.DABS, WetUpload.dabs(batch.dabs)) &&
+            wet.op(
+                sim.TRANSFER, brush.hardness, rate, medium.heightResponse, medium.depositionRate,
+                medium.pickupRate, medium.substrateResponse, if (batch.first) config.initialLoad else -1f,
+            ) &&
+            (!batch.wet || wet.op(sim.DEPOSIT, brush.hardness, config.wetness * rate)) &&
+            (
+                region == null || wet.op(
+                    sim.SHADE, region.left.toFloat(), region.top.toFloat(), region.width.toFloat(),
+                    region.height.toFloat(), IMPASTO_LIGHT_AZIMUTH_DEG, IMPASTO_LIGHT_ELEVATION_DEG,
+                    IMPASTO_LIGHT_STRENGTH, if (batch.wet) 1f else 0f, 1f,
+                ) && com.hereliesaz.graffitixr.nativebridge.GpuImpastoDisplay(engine).read(
+                    shaded, intArrayOf(region.left, region.top, region.width, region.height),
+                )
+                )
     }
 
     /** The rectangle [engine]'s stroke painted, null when the engine can't say. */

@@ -100,13 +100,13 @@ fn read(e: &mut Engine) -> (Vec<u32>, Vec<f32>, Vec<f32>) {
 }
 
 fn ctl(e: &mut Engine, dabs: usize) -> Vec<u32> {
-    let mut out = vec![0u32; (COLS * ROWS) as usize * 2 + dabs];
+    let mut out = vec![0u32; (COLS * ROWS) as usize * 2 + 1 + dabs];
     assert!(e.wet_read_ctl(&mut out));
     out
 }
 
 fn dab_flags(e: &mut Engine, dabs: usize) -> Vec<u32> {
-    ctl(e, dabs)[(COLS * ROWS) as usize * 2..].to_vec()
+    ctl(e, dabs)[(COLS * ROWS) as usize * 2 + 1..].to_vec()
 }
 
 fn want_active(s: &State, dabs: &[MaterialDab]) -> Vec<bool> {
@@ -684,7 +684,7 @@ fn shading_matches_the_cpu_reference_and_only_touches_its_region() {
         assert!(e.upload(bytemuck::cast_slice(&base)));
         begin(&mut e, &s);
         let (rx, ry, rw, rh) = (7, 9, 40, 30);
-        assert!(e.wet_shade(rx, ry, rw, rh, AZ, EL, 0.75, true));
+        assert!(e.wet_shade(rx, ry, rw, rh, AZ, EL, 0.75, true, false));
         let layer = e.read_all().unwrap();
         let px: &[u32] = bytemuck::cast_slice(&layer);
         let mut worst = 0;
@@ -725,5 +725,85 @@ fn raw_round_trips_through_the_layer_for_opaque_pigment() {
         assert!(e.wet_layer_to_raw());
         let (raw, _, _) = read(&mut e);
         assert_eq!(raw, s.raw, "[{name}] raw -> layer -> raw");
+    }
+}
+
+/// A live stroke's batches: each transfer continues from the reservoir load the previous one ended
+/// on (a negative initial load), so two batches give exactly one transfer over both.
+#[test]
+fn transfer_batches_carry_the_reservoir() {
+    let m = Medium {
+        height_response: 0.9,
+        deposition: 0.8,
+        pickup: 0.6,
+        substrate: 0.0,
+    };
+    for (name, mut e) in engines() {
+        let s = state(21);
+        let dabs = stroke(8);
+        let (first, second) = dabs.split_at(dabs.len() / 2);
+        begin(&mut e, &s);
+        assert!(e.wet_set_dabs(first));
+        assert!(e.wet_transfer(
+            0.4,
+            0.7,
+            m.height_response,
+            m.deposition,
+            m.pickup,
+            m.substrate,
+            0.8
+        ));
+        assert!(e.wet_set_dabs(second));
+        assert!(e.wet_transfer(
+            0.4,
+            0.7,
+            m.height_response,
+            m.deposition,
+            m.pickup,
+            m.substrate,
+            -1.0
+        ));
+        let (_, height, _) = read(&mut e);
+        let mut want = s.height.clone();
+        cpu_transfer(&mut want, &dabs, 0.4, 0.7, &m, 0.8, None);
+        assert_close(name, "batched transfer", &height, &want, 2e-4);
+    }
+}
+
+/// Shading into the display buffer leaves the layer alone and matches the in-place shade.
+#[test]
+fn shading_into_the_display_keeps_the_layer() {
+    for (name, mut e) in engines() {
+        let mut s = state(22);
+        for c in s.raw.iter_mut() {
+            *c |= 0xFF00_0000;
+        }
+        let base = vec![0x8040_2010u32; N];
+        assert!(e.upload(bytemuck::cast_slice(&base)));
+        begin(&mut e, &s);
+        let (rx, ry, rw, rh) = (5, 4, 30, 20);
+        assert!(e.wet_shade(rx, ry, rw, rh, AZ, EL, 0.75, true, true));
+        let mut shown = vec![0u8; (rw * rh * 4) as usize];
+        assert!(e.read_display(rx, ry, rw, rh, &mut shown));
+        let untouched = e.read_all().unwrap();
+        assert!(
+            bytemuck::cast_slice::<u8, u32>(&untouched)
+                .iter()
+                .all(|&p| p == 0x8040_2010),
+            "[{name}] layer changed"
+        );
+        assert!(e.wet_shade(rx, ry, rw, rh, AZ, EL, 0.75, true, false));
+        let in_place = e.read_all().unwrap();
+        for row in 0..rh {
+            for col in 0..rw {
+                let a = ((row * rw + col) * 4) as usize;
+                let b = (((ry + row) * W + rx + col) * 4) as usize;
+                assert_eq!(
+                    &shown[a..a + 4],
+                    &in_place[b..b + 4],
+                    "[{name}] ({col},{row})"
+                );
+            }
+        }
     }
 }

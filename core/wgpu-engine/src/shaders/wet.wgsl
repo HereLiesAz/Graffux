@@ -18,7 +18,8 @@
 //
 // Every entry point binds at most four storage buffers (the GLES compute minimum). The per-tile
 // state shares one control buffer `ctl`: active flags [0, tiles), next-step active flags
-// [tiles, 2*tiles), then one flag word per dab from `flags_off` (bit 0 = the dab changed height,
+// [tiles, 2*tiles), the reservoir load the last transfer ended on at 2*tiles (f32 bits), then one
+// flag word per dab from `flags_off` = 2*tiles + 1 (bit 0 = the dab changed height,
 // bit 1 = it added wetness). Height and wetness share `fields`: height [0, n), wetness [n, 2n).
 
 struct Params {
@@ -316,7 +317,14 @@ fn contact_at(k: i32, b: vec4<i32>, d: MaterialDab) -> Contact {
 fn transfer(@builtin(local_invocation_index) lid: u32) {
     let rate = max(p.f0, 0.0);
     let deposit_k = rate * p.f2 * p.f3;
-    if (lid == 0u) { wg_load = clamp(p.f6, 0.0, 1.0); }
+    if (lid == 0u) {
+        // A negative initial load continues from the load the previous transfer stored.
+        if (p.f6 < 0.0) {
+            wg_load = clamp(bitcast<f32>(atomicLoad(&ctl[p.flags_off - 1u])), 0.0, 1.0);
+        } else {
+            wg_load = clamp(p.f6, 0.0, 1.0);
+        }
+    }
     workgroupBarrier();
     for (var i = 0u; i < p.dab_count; i = i + 1u) {
         let d = dabs[i];
@@ -433,6 +441,7 @@ fn transfer(@builtin(local_invocation_index) lid: u32) {
         }
         workgroupBarrier();
     }
+    if (lid == 0u) { atomicStore(&ctl[p.flags_off - 1u], bitcast<u32>(wg_load)); }
 }
 
 // ---- edge-phase solvers --------------------------------------------------------------------

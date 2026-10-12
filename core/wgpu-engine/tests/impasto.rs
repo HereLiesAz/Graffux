@@ -253,14 +253,22 @@ fn shading_into_the_display_keeps_the_raw_layer() {
         assert!(e.shade_relief_to_display(x, y, w, h, 135.0, 45.0, 1.0));
         let mut shown = vec![0u8; (w * h * 4) as usize];
         assert!(e.read_display(x, y, w, h, &mut shown));
-        assert_eq!(e.read_all().unwrap(), layer, "[{name}] the raw layer changed");
+        assert_eq!(
+            e.read_all().unwrap(),
+            layer,
+            "[{name}] the raw layer changed"
+        );
         assert!(e.shade_relief(x, y, w, h, 135.0, 45.0, 1.0));
         let in_place = e.read_all().unwrap();
         for row in 0..h {
             for col in 0..w {
                 let s = ((row * w + col) * 4) as usize;
                 let d = (((y + row) * W + x + col) * 4) as usize;
-                assert_eq!(&shown[s..s + 4], &in_place[d..d + 4], "[{name}] ({col},{row})");
+                assert_eq!(
+                    &shown[s..s + 4],
+                    &in_place[d..d + 4],
+                    "[{name}] ({col},{row})"
+                );
             }
         }
     }

@@ -553,7 +553,7 @@ pub unsafe extern "C" fn gfx_wgpu_wet_buffer(
 /// pickup, substrate response, initial load), 5 wetness deposit (hardness, rate), 6 pigment
 /// transport (dt, rate, iterations), 7 wetness advance (dt, drying, transport, tile drying 0/1),
 /// 8 levelling (dt, iterations, x, y, w, h), 9 shade (x, y, w, h, azimuth, elevation, relief,
-/// use wetness 0/1).
+/// use wetness 0/1, optionally into the display buffer 0/1).
 ///
 /// # Safety
 /// `args` must point to `count` floats, or be null with `count` 0.
@@ -581,7 +581,17 @@ pub unsafe extern "C" fn gfx_wgpu_wet_op(
             6 => e.wet_pigment(a[0], a[1], i(2)),
             7 => e.wet_advance(a[0], a[1], a[2], a[3] != 0.0),
             8 => e.wet_level(a[0], i(1), i(2), i(3), i(4), i(5)),
-            _ => e.wet_shade(i(0), i(1), i(2), i(3), a[4], a[5], a[6], a[7] != 0.0),
+            _ => e.wet_shade(
+                i(0),
+                i(1),
+                i(2),
+                i(3),
+                a[4],
+                a[5],
+                a[6],
+                a[7] != 0.0,
+                a.get(8).is_some_and(|&v| v != 0.0),
+            ),
         })
     })
 }
