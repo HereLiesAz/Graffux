@@ -5403,8 +5403,8 @@ class EditorViewModel @Inject constructor(
         // Mirrors dynamicDabs()'s own gate (dynamics, maskedBrush's dynamics, or an active taper) --
         // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
         // every stroke whose brush used only those, live and on replay alike.
-        val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
-        val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive() || stampBrush.contact.isActive()
+        // The same gate commit/replay use (LiveStrokeDabs), so both pick the same generator.
+        val needsDynamicDabs = com.hereliesaz.graffitixr.common.azphalt.LiveStrokeDabs.usesDynamicGenerator(stampBrush)
         val dabs = if (mappedSamples.isNotEmpty()) {
             if (needsDynamicDabs) {
                 var generator = stampDynamicDabGenerator

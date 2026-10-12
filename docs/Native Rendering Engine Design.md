@@ -1277,9 +1277,18 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    complexity as the rest of Color Smudge's Vulkan path, but a port of an existing, tested CPU
    reference rather than new surface area invented at the shader layer.
 
+**Commit and replay paint the live stroke's own dabs (`LiveStrokeDabs`).** The live stroke resolves
+each sample incrementally (`IncrementalDynamicDabGenerator` against a running `StrokeLengthPredictor`
+estimate of total length, or `IncrementalStaticDabGenerator` along the raw points). The predictor is a
+pure function of the sample sequence, so commit and replay feed the recorded samples through the same
+generators and get exactly the live dabs, with nothing extra stored. The whole-stroke resolver
+(`BrushStamps.dynamicDabs`) used the final length and whole-stroke peak speed instead, so the committed
+stroke never matched what was drawn. Commands with no recorded samples (legacy, remote) keep the
+path-only `BrushStamps.dabs(CatmullRom.densify(..))` list. End taper (`BrushTaper.endLengthPx`,
+`liftOffSynthesizesPressure`) is retired: it needs the final length, which the live stroke never has.
+
 **Stamp-brush commit and replay are GPU (`GpuStampCommit`).** `DrawingEngine`'s stamp-brush branch
-stamps the stroke's canonical dab list (the same `BrushStamps.dynamicDabs`/`AirbrushEngine.heldDabs`
-or `BrushStamps.dabs(CatmullRom.densify(..))` lists the CPU branch builds) through wgpu with the live
+stamps the stroke's dab list (`StrokeDabs`, shared with the CPU branch) through wgpu with the live
 stroke's per-dab resolution, shader choice, masks and grain, then reads back once. Commit and
 undo/redo replay both go through it, so the committed layer is the GPU's paint and matches the live
 stroke's rasterizer instead of being re-rendered on the CPU (which took seconds on a large canvas and
