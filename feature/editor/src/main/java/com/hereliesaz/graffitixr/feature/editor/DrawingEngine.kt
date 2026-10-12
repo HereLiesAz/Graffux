@@ -131,6 +131,7 @@ internal class DrawingEngine(
     }
 
 
+    @Suppress("LongParameterList")
     suspend fun applySingleStroke(
         base: Bitmap,
         command: StrokeCommand,
@@ -138,12 +139,14 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
+        /** An Impasto v2 stroke's live engine, checkpointed at this material state. */
+        liveWet: LiveWetEngine? = null,
     ): Bitmap {
         val result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
         else applyTool(
             base, command, otherLayers = { otherLayers },
             heightMap = heightMap, wetnessState = wetnessState,
-            impastoMaterialState = impastoMaterialState,
+            impastoMaterialState = impastoMaterialState, liveWet = liveWet,
         )
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
             impastoMaterialState.replaceRawColor(bitmapPixels(result))
@@ -166,6 +169,7 @@ internal class DrawingEngine(
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
         replay: GpuReplaySession? = null,
+        liveWet: LiveWetEngine? = null,
     ): Bitmap {
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, bitmap.width, bitmap.height,
@@ -257,7 +261,7 @@ internal class DrawingEngine(
             if (impasto != null && brush.impastoMaterial.sanitized().usesV2) {
                 return GpuImpastoV2Stroke.paintStroke(
                     bitmap, stroke, brush, mapped, brushScale,
-                    ImpastoV2Layer(impasto, wetnessState, impastoMaterialState),
+                    ImpastoV2Layer(impasto, wetnessState, impastoMaterialState, liveWet),
                     StrokeSelection(clipPath, featherRadius),
                 ) ?: bitmap
             }

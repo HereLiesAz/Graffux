@@ -61,6 +61,10 @@ class GpuWetSimulation(private val engine: GpuStampEngine) {
 
         /** Color Smudge samples, gates and deposits this simulation's canvas wetness (arg 1 = on). */
         const val SMUDGE_WETNESS = 10
+
+        /** Keeps the wet state on the GPU; [CHECKPOINT_RESTORE] restarts from it without an upload. */
+        const val CHECKPOINT_SAVE = 11
+        const val CHECKPOINT_RESTORE = 12
         const val FLAG_HEIGHT = 1
         const val FLAG_WETNESS = 2
 
