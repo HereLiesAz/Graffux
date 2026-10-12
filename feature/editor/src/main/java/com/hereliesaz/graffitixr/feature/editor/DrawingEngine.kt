@@ -345,17 +345,26 @@ internal class DrawingEngine(
             val recorded = StrokeDabs.recorded(stroke, brush, mapped, brushScale, target.width, target.height)
             if (recorded != null) {
                 val (movementDabs, heldDabs) = recorded
-                StampBrushRenderer.paintDabs(
-                    stampCanvas, movementDabs, brush, stroke.brushColor, stroke.flow,
-                    stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                    stroke.secondaryBrushColor, substrate = substrate,
-                )
-                if (heldDabs.isNotEmpty()) {
+                // Held dabs follow the live stroke's interleaving (StrokeDabs.batches); without
+                // any, the movement dabs go in one call, the CPU's whole-stroke max-combine.
+                val batches = if (heldDabs.isEmpty()) {
+                    listOf(movementDabs to heldDabs)
+                } else {
+                    StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
+                }
+                for ((movement, held) in batches) {
                     StampBrushRenderer.paintDabs(
-                        stampCanvas, heldDabs, brush, stroke.brushColor, stroke.flow,
+                        stampCanvas, movement, brush, stroke.brushColor, stroke.flow,
                         stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
-                        stroke.secondaryBrushColor, allowBuildUp = true, substrate = substrate,
+                        stroke.secondaryBrushColor, substrate = substrate,
                     )
+                    if (held.isNotEmpty()) {
+                        StampBrushRenderer.paintDabs(
+                            stampCanvas, held, brush, stroke.brushColor, stroke.flow,
+                            stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+                            stroke.secondaryBrushColor, allowBuildUp = true, substrate = substrate,
+                        )
+                    }
                 }
                 paintedDabs = movementDabs + heldDabs
             } else if (stroke.wrapAroundMode) {

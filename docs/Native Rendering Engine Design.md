@@ -1287,6 +1287,17 @@ stroke never matched what was drawn. Commands with no recorded samples (legacy, 
 path-only `BrushStamps.dabs(CatmullRom.densify(..))` list. End taper (`BrushTaper.endLengthPx`,
 `liftOffSynthesizesPressure`) is retired: it needs the final length, which the live stroke never has.
 
+**The commit is the live GPU layer.** At the stroke's end `EditorViewModel.handOffLiveStamp` takes
+the live stroke's engine (before `clearTransientStrokeState` would destroy it) and the dabs still
+queued for it. The commit waits for the live worker's last batch, stamps the leftovers on that engine
+(`GpuStampCommit.stampOnto`), reads back once and applies the selection and feather. Nothing is
+painted twice. The worker drains, logs and snapshots its engine under `stampLiveLock` in one step,
+so every batch lands either on that engine before the hand-off or in the leftovers. Each stamping
+call's (movement, held) dab counts go on the command (`StrokeCommand.stampBatches`). Replay
+(`StrokeDabs.batches`) groups and orders the dabs exactly as live did: Airbrush held dabs build up
+over what is already there, and a masked tip without build-up combines dabs within one call. A live
+stroke that wasn't on the GPU, or carries Impasto, commits by painting its recorded dabs as below.
+
 **Stamp-brush commit and replay are GPU (`GpuStampCommit`).** `DrawingEngine`'s stamp-brush branch
 stamps the stroke's dab list (`StrokeDabs`, shared with the CPU branch) through wgpu with the live
 stroke's per-dab resolution, shader choice, masks and grain, then reads back once. Commit and

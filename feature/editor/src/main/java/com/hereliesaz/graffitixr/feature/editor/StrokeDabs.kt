@@ -55,6 +55,31 @@ internal object StrokeDabs {
         return tiler(stroke, width, height)(dabs)
     }
 
+    /**
+     * [movement] and [held] split back into the live stroke's stamping calls: for each recorded
+     * (movement, held) pair, that many movement dabs, then that many held dabs. Anything the
+     * record doesn't cover (none, or a legacy command) follows as one last batch.
+     */
+    fun batches(movement: List<Dab>, held: List<Dab>, recorded: List<Int>?): List<Pair<List<Dab>, List<Dab>>> {
+        // Grouping matters beyond the airbrush too: a masked tip without build-up combines dabs
+        // within one stamping call, so replay groups them exactly as live did.
+        if (recorded.isNullOrEmpty()) return listOf(movement to held)
+        val out = ArrayList<Pair<List<Dab>, List<Dab>>>()
+        var m = 0
+        var h = 0
+        for (i in 0 until recorded.size / 2) {
+            val mEnd = (m + recorded[2 * i]).coerceAtMost(movement.size)
+            val hEnd = (h + recorded[2 * i + 1]).coerceAtMost(held.size)
+            out.add(movement.subList(m, mEnd) to held.subList(h, hEnd))
+            m = mEnd
+            h = hEnd
+        }
+        if (m < movement.size || h < held.size) {
+            out.add(movement.subList(m, movement.size) to held.subList(h, held.size))
+        }
+        return out
+    }
+
     private fun tiler(stroke: StrokeCommand, width: Int, height: Int): (List<Dab>) -> List<Dab> = { dabs ->
         if (stroke.wrapAroundMode) wrapTiledDabs(dabs, width, height) else dabs
     }
