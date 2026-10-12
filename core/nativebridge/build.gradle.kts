@@ -96,21 +96,22 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 // the APK beside libgraffitixr.so. WgpuStampEngine.cpp dlopen()s it on first use; it is the only
 // GPU stamp engine, so 32-bit devices need their own build to keep GPU painting.
 //
-// Optional by design: a build host without cargo or the Rust targets (or with
-// -Pgraffux.wgpu.skip=true) builds exactly as before, minus the library -- every stroke then
-// draws on the CPU path like a device with no usable GPU. Set -Pgraffux.wgpu.require=true to
-// make a library missing for EITHER ABI a build failure instead. One-time host setup:
-//     rustup target add aarch64-linux-android armv7-linux-androideabi
+// Required: it is the only stroke renderer, so a library missing for EITHER ABI fails the build.
+// The Rust Android targets are added by rustupWgpuTargets when rustup is on the host (CI images
+// ship rustup without them); a host without cargo fails at stageWgpuJniLibs. Only an explicit
+// -Pgraffux.wgpu.skip=true (JVM-only test runs) builds without it.
 // x86_64 is not in abiFilters, so building it would add nothing to the APK.
 // ---------------------------------------------------------------------------------------------
 val wgpuCrateDir = rootProject.file("core/wgpu-engine")
 val wgpuTargetDir = File(wgpuCrateDir, "target")
 val wgpuSkip = providers.gradleProperty("graffux.wgpu.skip").map { it.toBoolean() }.getOrElse(false)
-val wgpuRequire = providers.gradleProperty("graffux.wgpu.require").map { it.toBoolean() }.getOrElse(false)
+val wgpuRequire = !wgpuSkip
 val cargoExecutable: File? = (
     listOfNotNull(System.getenv("CARGO_HOME")?.let { File(it, "bin") }, File(System.getProperty("user.home"), ".cargo/bin")) +
         (System.getenv("PATH") ?: "").split(File.pathSeparator).filter { it.isNotBlank() }.map(::File)
     ).flatMap { listOf(File(it, "cargo"), File(it, "cargo.exe")) }.firstOrNull { it.canExecute() }
+val rustupExecutable: File? = cargoExecutable?.parentFile
+    ?.let { dir -> listOf(File(dir, "rustup"), File(dir, "rustup.exe")).firstOrNull { it.canExecute() } }
 
 /** One Android ABI: its Rust target triple, jniLibs folder, and NDK clang wrapper prefix. */
 data class WgpuAndroidTarget(val rustTarget: String, val abi: String, val clangPrefix: String) {
@@ -134,10 +135,20 @@ val ndkDirectory = androidComponents.sdkComponents.ndkDirectory
 
 fun wgpuLibrary(target: WgpuAndroidTarget) = File(wgpuTargetDir, "${target.rustTarget}/release/libgraffux_wgpu.so")
 
+val rustupWgpuTargets = tasks.register<Exec>("rustupWgpuTargets") {
+    description = "Adds the Rust Android targets core/wgpu-engine cross-compiles for (no-op when present)."
+    group = "build"
+    val rustup = rustupExecutable
+    enabled = !wgpuSkip && rustup != null
+    executable = rustup?.absolutePath ?: "rustup"
+    args(listOf("target", "add") + wgpuAndroidTargets.map { it.rustTarget })
+}
+
 val cargoBuildWgpuTasks = wgpuAndroidTargets.map { target ->
     tasks.register<Exec>("cargoBuildWgpuAndroid${target.taskSuffix}") {
-        description = "Cross-compiles core/wgpu-engine for ${target.abi} (skipped without cargo/target)."
+        description = "Cross-compiles core/wgpu-engine for ${target.abi}."
         group = "build"
+        dependsOn(rustupWgpuTargets)
         val cargo = cargoExecutable
         enabled = !wgpuSkip && cargo != null
         inputs.dir(File(wgpuCrateDir, "src"))
@@ -147,8 +158,6 @@ val cargoBuildWgpuTasks = wgpuAndroidTargets.map { target ->
         workingDir = wgpuCrateDir
         executable = cargo?.absolutePath ?: "cargo"
         args("build", "--release", "--locked", "--target", target.rustTarget, "--target-dir", wgpuTargetDir.absolutePath)
-        // A missing Rust target must not fail the Android build; see the block comment above.
-        isIgnoreExitValue = !wgpuRequire
         doFirst {
             val bin = ndkDirectory.get().asFile.resolve("toolchains/llvm/prebuilt/$ndkHostTag/bin")
             val suffix = if (ndkHostTag.startsWith("windows")) ".cmd" else ""
@@ -200,7 +209,7 @@ abstract class StageWgpuJniLibs : DefaultTask() {
         if (missing.isEmpty()) return
         val message = "libgraffux_wgpu.so was not built for ${missing.joinToString()} (cargo or a Rust target " +
             "is missing -- `rustup target add aarch64-linux-android armv7-linux-androideabi`). " +
-            "The wgpu GPU engine falls back to the CPU on those ABIs."
+            "It is the only stroke renderer; the app cannot paint without it."
         if (require.get()) throw GradleException(message) else logger.warn("w: $message")
     }
 }
