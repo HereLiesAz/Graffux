@@ -64,7 +64,7 @@ impl Engine {
         self.residents.get(key).expect("ensured").buffer.clone()
     }
 
-    fn doc_retag(&mut self, key: u64) -> u64 {
+    pub(super) fn doc_retag(&mut self, key: u64) -> u64 {
         let generation = self.doc_next_gen();
         if let Some(e) = self.residents.get_mut(key) {
             e.tag = Tag::Valid(generation);
@@ -199,6 +199,7 @@ impl Engine {
             self.mp_discard_pending();
             self.detach();
         }
+        self.snapshots.drop_layer(key);
         self.residents.remove(key).is_some()
     }
 
@@ -221,7 +222,12 @@ impl Engine {
         let session = self.activate(key);
         // The stroke's rectangle starts empty; there is no CPU mirror to reconcile with.
         self.mp_session_started();
-        session
+        // The layer as it is now: what the selection confines back to and undo snapshots keep.
+        if self.doc_take_shadow(key, session) {
+            session
+        } else {
+            0
+        }
     }
 
     /// Ends the stroke bound in `session` on layer `key`: queued work lands, the layer takes a new

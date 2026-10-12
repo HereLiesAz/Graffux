@@ -452,6 +452,44 @@ pub unsafe extern "C" fn gfx_wgpu_doc_layer_commit(
     })
 }
 
+/// Undo snapshots (undo.rs). `op` 0: [`Engine::doc_snapshot_stroke`] of layer `a`, bind session
+/// `b`, over `rect` (`{x, y, w, h}`, read), returning the snapshot id; 1:
+/// [`Engine::doc_snapshot_swap`] of snapshot `a` expecting generation `b` and tagging `c`, writing
+/// the rectangle into `rect` and returning the layer's generation; 2:
+/// [`Engine::doc_snapshot_drop`] of snapshot `a`, returning 1 if it existed. 0 on failure.
+///
+/// # Safety
+/// `rect` must point to four ints (writable for op 1), or be null for op 2.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_doc_snapshot(
+    e: *mut Engine,
+    op: i32,
+    a: u64,
+    b: u64,
+    c: u64,
+    rect: *mut i32,
+) -> u64 {
+    guard(0, || {
+        let Some(e) = engine(e) else { return 0 };
+        if op == 2 {
+            return u64::from(e.doc_snapshot_drop(a));
+        }
+        if rect.is_null() {
+            return 0;
+        }
+        // SAFETY: the caller passes four ints.
+        let r = unsafe { std::slice::from_raw_parts_mut(rect, 4) };
+        match op {
+            0 => e.doc_snapshot_stroke(a, b, r[0], r[1], r[2], r[3]),
+            1 => e.doc_snapshot_swap(a, b, c).map_or(0, |(generation, s)| {
+                r.copy_from_slice(&[s.x, s.y, s.w, s.h]);
+                generation
+            }),
+            _ => 0,
+        }
+    })
+}
+
 /// [`Engine::doc_layer_read`] of `[x, x + w) x [y, y + h)` into `out` (`w*h*4` bytes).
 ///
 /// # Safety

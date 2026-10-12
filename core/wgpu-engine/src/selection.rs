@@ -67,7 +67,11 @@ impl SelectionGpu {
                 wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             ),
             mask: buffer("selection mask", pixels.div_ceil(4) * 4, storage),
-            shadow: buffer("stroke shadow", layer_bytes, storage),
+            shadow: buffer(
+                "stroke shadow",
+                layer_bytes,
+                storage | wgpu::BufferUsages::COPY_SRC,
+            ),
             has_mask: false,
         }
     }
@@ -80,6 +84,11 @@ impl Engine {
             self.selection = Some(SelectionGpu::new(&self.device, self.layer_bytes(), pixels));
         }
         self.selection.as_mut().expect("created")
+    }
+
+    /// The stroke shadow: the bound layer as it was when its stroke started.
+    pub(super) fn stroke_shadow(&mut self) -> wgpu::Buffer {
+        self.selection_gpu().shadow.clone()
     }
 
     /// Sets the selection's coverage: one byte per layer pixel, row-major (0 = outside, 255 =

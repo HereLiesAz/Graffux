@@ -13,7 +13,11 @@ import com.hereliesaz.graffitixr.common.model.Layer
  * counterpart entry to record on the opposite stack via [popUndo]/[popRedo], because that
  * entry depends on the ViewModel's current state.
  */
-internal class EditHistory(private val maxStackSize: Int = 20) {
+internal class EditHistory(
+    private val maxStackSize: Int = 20,
+    /** Called with every GPU undo snapshot an entry leaving both stacks held, to free it. */
+    private val onGpuUndoDiscarded: (com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref) -> Unit = {},
+) {
     private val undoStack = ArrayDeque<EditCommand>()
     private val redoStack = ArrayDeque<EditCommand>()
 
@@ -29,7 +33,7 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
      * applies the stale entry on top of the newer edit instead of doing nothing.
      */
     fun pushProperty(layersWithoutBitmaps: List<Layer>): Boolean {
-        redoStack.clear()
+        clearRedo()
         val last = undoStack.lastOrNull()
         if (last is EditCommand.PropertyChange && last.oldLayers == layersWithoutBitmaps) return false
         undoStack.addLast(EditCommand.PropertyChange(layersWithoutBitmaps))
@@ -41,7 +45,7 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
     fun pushDraw(layerId: String, command: StrokeCommand) {
         undoStack.addLast(EditCommand.Draw(layerId, command))
         trim()
-        redoStack.clear()
+        clearRedo()
     }
 
     /**
@@ -59,6 +63,7 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
         tileDeltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>,
         canvasWidth: Int,
         canvasHeight: Int,
+        gpuUndo: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref? = null,
     ) {
         fun attachIn(stack: ArrayDeque<EditCommand>): Boolean {
             val idx = stack.indexOfLast { it is EditCommand.Draw && it.command === command }
@@ -68,10 +73,24 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
                 tileDeltas = tileDeltas,
                 tileDeltaCanvasWidth = canvasWidth,
                 tileDeltaCanvasHeight = canvasHeight,
+                gpuUndo = gpuUndo,
             )
             return true
         }
-        if (!attachIn(undoStack)) attachIn(redoStack)
+        if (!attachIn(undoStack) && !attachIn(redoStack)) gpuUndo?.let(onGpuUndoDiscarded)
+    }
+
+    /**
+     * Detaches [ref] from whichever entry holds it and frees it: its GPU copy fell out of step
+     * with the layer (a swap was refused, or the layer was rebuilt another way), so it must never
+     * be swapped again.
+     */
+    fun forgetGpuUndo(ref: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref) {
+        for (stack in listOf(undoStack, redoStack)) {
+            val idx = stack.indexOfFirst { it is EditCommand.Draw && it.gpuUndo == ref }
+            if (idx >= 0) stack[idx] = (stack[idx] as EditCommand.Draw).copy(gpuUndo = null)
+        }
+        onGpuUndoDiscarded(ref)
     }
 
     /**
@@ -98,15 +117,15 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
      * the command is dropped outright rather than kept redoable, since there is nothing left to
      * redo it onto.
      */
-    fun dropTopRedo(): EditCommand? = redoStack.removeLastOrNull()
+    fun dropTopRedo(): EditCommand? = redoStack.removeLastOrNull()?.also { it.gpuUndo()?.let(onGpuUndoDiscarded) }
 
     /** The most recent undoable entry, or null if the undo stack is empty. Test-only visibility
      *  into whether item 16's tile-delta fast path actually got attached to a given stroke. */
     internal fun undoStackTopForTest(): EditCommand? = undoStack.lastOrNull()
 
     fun clear() {
-        undoStack.clear()
-        redoStack.clear()
+        undoStack.discardAll(onGpuUndoDiscarded)
+        clearRedo()
     }
 
     fun referencedLayerIds(): Set<String> {
@@ -121,6 +140,19 @@ internal class EditHistory(private val maxStackSize: Int = 20) {
     }
 
     private fun trim() {
-        if (undoStack.size > maxStackSize) undoStack.removeFirst()
+        if (undoStack.size > maxStackSize) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
     }
+
+    private fun clearRedo() = redoStack.discardAll(onGpuUndoDiscarded)
+}
+
+private fun EditCommand.gpuUndo(): com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref? =
+    (this as? EditCommand.Draw)?.gpuUndo
+
+/** Empties the stack, handing every GPU undo snapshot it held to [discard]. */
+private fun ArrayDeque<EditCommand>.discardAll(
+    discard: (com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref) -> Unit,
+) {
+    forEach { it.gpuUndo()?.let(discard) }
+    clear()
 }

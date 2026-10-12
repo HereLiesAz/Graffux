@@ -30,6 +30,8 @@ pub use impasto::{height_region, HeightDab, IMPASTO_WGSL};
 mod docstore;
 #[path = "selection.rs"]
 mod selection;
+#[path = "undo.rs"]
+mod undo;
 pub use selection::SELECTION_WGSL;
 #[path = "wet.rs"]
 mod wet;
@@ -424,6 +426,8 @@ pub struct Engine {
     doc_mode: bool,
     /// The document store's generation counter.
     doc_gen: u64,
+    /// Undo snapshots (undo.rs): pre-stroke rectangles of document layers.
+    snapshots: undo::Snapshots,
     staging: wgpu::Buffer,
     stroke_state: Option<wgpu::Buffer>,
     stroke_state_dirty: bool,
@@ -864,6 +868,7 @@ impl Engine {
             selection: None,
             doc_mode: false,
             doc_gen: 0,
+            snapshots: Default::default(),
             staging,
             stroke_state: None,
             stroke_state_dirty: true,
@@ -1951,7 +1956,11 @@ impl Engine {
                 self.mp_session_ending();
                 let session = self.activate(key);
                 self.mp_session_started();
-                session
+                if self.doc_take_shadow(key, session) {
+                    session
+                } else {
+                    0
+                }
             }
             _ => 0,
         }
@@ -2000,7 +2009,11 @@ impl Engine {
         }
         let session = self.activate(key);
         self.mp_session_started();
-        session
+        if self.doc_take_shadow(key, session) {
+            session
+        } else {
+            0
+        }
     }
 
     /// The stroke that bound `key` in session `session` is committed and the GPU copy *is* the

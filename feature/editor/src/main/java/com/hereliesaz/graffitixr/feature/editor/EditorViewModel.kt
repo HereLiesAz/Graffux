@@ -57,6 +57,7 @@ import com.hereliesaz.graffitixr.common.azphalt.IncrementalRoundStampCompositor
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.applyCubeLut
 import com.hereliesaz.graffitixr.nativebridge.BrushDab
+import com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots
 import com.hereliesaz.graffitixr.nativebridge.MaskedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
@@ -619,6 +620,12 @@ sealed class EditCommand {
         val tileDeltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>? = null,
         val tileDeltaCanvasWidth: Int = 0,
         val tileDeltaCanvasHeight: Int = 0,
+        /**
+         * The stroke's pre-stroke rectangle kept on the GPU (GpuUndoSnapshots), swapped with the
+         * layer's GPU copy when the tile deltas are applied, so undo/redo keeps the GPU copy
+         * current instead of uploading it again. Attached with [tileDeltas]; null = none.
+         */
+        val gpuUndo: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref? = null,
     ) : EditCommand()
 }
 
@@ -723,7 +730,7 @@ class EditorViewModel @Inject constructor(
                 emptyList()
             )
 
-    private val history = EditHistory(HISTORY_DEPTH)
+    private val history = EditHistory(HISTORY_DEPTH) { GpuUndoSnapshots.drop(it) }
 
     // Every committed Jetpack Ink stroke still in effect, per layer, keyed by the StrokeCommand
     // that carried it. Follows the undo/redo stacks (onUndoClicked/onRedoClicked) and outlives the
@@ -1711,8 +1718,9 @@ class EditorViewModel @Inject constructor(
 
         when (command) {
             is EditCommand.Draw -> {
-                // Undo rewinds the layer outside any stroke: its GPU-resident copy is stale.
-                invalidateResident(command.layerId)
+                // Undo rewinds the layer outside any stroke: its GPU-resident copy is stale, unless
+                // the stroke's GPU snapshot rewinds it too (applyTileDeltaFastPath).
+                if (command.gpuUndo == null) invalidateResident(command.layerId)
                 if (!layerStore.removeLastStroke(command.layerId)) {
                     // popUndo already moved this entry's counterpart onto the redo stack on the
                     // assumption the undo would succeed. It didn't — the layer has no cached stroke
@@ -1728,9 +1736,15 @@ class EditorViewModel @Inject constructor(
                 val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
                     deltas != null && applyTileDeltaFastPath(
                         command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
-                        useAfter = false, emitOp = true,
+                        useAfter = false, emitOp = true, gpuUndo = command.gpuUndo,
                     )
-                if (!fastPathHandled) rebuildLayerBitmap(command.layerId, emitOp = true)
+                if (!fastPathHandled) {
+                    command.gpuUndo?.let {
+                        invalidateResident(command.layerId)
+                        history.forgetGpuUndo(it)
+                    }
+                    rebuildLayerBitmap(command.layerId, emitOp = true)
+                }
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -1762,17 +1776,24 @@ class EditorViewModel @Inject constructor(
 
         when (command) {
             is EditCommand.Draw -> {
-                // Redo re-applies a stroke through the CPU replay, not a GPU stroke: stale copy.
-                invalidateResident(command.layerId)
+                // Redo re-applies a stroke through the CPU replay, not a GPU stroke: stale copy,
+                // unless the stroke's GPU snapshot re-applies it too (applyTileDeltaFastPath).
+                if (command.gpuUndo == null) invalidateResident(command.layerId)
                 layerStore.addStroke(command.layerId, command.command)
                 inkLedger.onRedo(command.layerId, command.command, command.command.takeIf { it.inkStroke != null })
                 val deltas = command.tileDeltas
                 val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
                     deltas != null && applyTileDeltaFastPath(
                         command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
-                        useAfter = true, emitOp = true,
+                        useAfter = true, emitOp = true, gpuUndo = command.gpuUndo,
                     )
-                if (!fastPathHandled) rebuildLayerBitmap(command.layerId, emitOp = true)
+                if (!fastPathHandled) {
+                    command.gpuUndo?.let {
+                        invalidateResident(command.layerId)
+                        history.forgetGpuUndo(it)
+                    }
+                    rebuildLayerBitmap(command.layerId, emitOp = true)
+                }
                 // Redo re-applies the move, so the marquee moves forward with it again.
                 val delta = command.command.moveDelta
                 if (command.command.tool == Tool.SELECT && delta != null) {
@@ -2010,6 +2031,7 @@ class EditorViewModel @Inject constructor(
      * bitmap is currently live is always correct, never stale, regardless of how many other
      * strokes exist beyond it in the layer's full history.
      */
+    @Suppress("LongParameterList", "ReturnCount")
     private fun applyTileDeltaFastPath(
         layerId: String,
         tileDeltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>,
@@ -2017,12 +2039,12 @@ class EditorViewModel @Inject constructor(
         canvasHeight: Int,
         useAfter: Boolean,
         emitOp: Boolean,
+        gpuUndo: GpuUndoSnapshots.Ref? = null,
     ): Boolean {
         val layer = _uiState.value.layers.find { it.id == layerId } ?: return false
         val current = layer.bitmap ?: return false
         if (current.width != canvasWidth || current.height != canvasHeight) return false
         val patched = SafeBitmap.copy(current) ?: return false
-        invalidateResident(layerId)
         val pixels = IntArray(canvasWidth * canvasHeight)
         patched.getPixels(pixels, 0, canvasWidth, 0, 0, canvasWidth, canvasHeight)
         if (useAfter) {
@@ -2031,6 +2053,10 @@ class EditorViewModel @Inject constructor(
             TileDelta.applyBefore(pixels, canvasWidth, tileDeltas)
         }
         patched.setPixels(pixels, 0, canvasWidth, 0, 0, canvasWidth, canvasHeight)
+        if (gpuUndo == null || !swapResidentUndo(layerId, current, patched, gpuUndo)) {
+            invalidateResident(layerId)
+            gpuUndo?.let(history::forgetGpuUndo)
+        }
 
         // A prior undo/redo on this same layer may still have a full-replay rebuild in flight;
         // this fast path is about to publish a newer, correct bitmap synchronously, so that stale
@@ -6753,9 +6779,16 @@ class EditorViewModel @Inject constructor(
             // A commit straight from the live GPU layer knows what it painted: the undo tiles come
             // from that rectangle alone, with no whole-layer read or diff.
             val livePainted = handoff.paintedRect?.takeIf { liveCommitted && target.width == base.width }
+            // ...and the GPU keeps that rectangle as it was, for undo without an upload.
+            var gpuUndo: GpuUndoSnapshots.Ref? = null
             val tileDeltas = if (livePainted != null) {
                 runCatching { regionTileDeltas(base, target, livePainted) }.getOrNull()
-                    ?.also { if (ticket != null) residentChanged = IntArray(RECT_INTS) }
+                    ?.also {
+                        if (ticket != null) {
+                            residentChanged = IntArray(RECT_INTS)
+                            gpuUndo = keepGpuUndo(ticket, livePainted)
+                        }
+                    }
             } else runCatching {
                 val beforePixels = IntArray(base.width * base.height)
                 base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
@@ -6809,12 +6842,35 @@ class EditorViewModel @Inject constructor(
                 // otherwise matter for the fast path (see EditHistory.attachTileDeltas's doc
                 // comment for what's still a pre-existing, unrelated race this doesn't fix).
                 if (tileDeltas != null) {
-                    history.attachTileDeltas(command, tileDeltas, base.width, base.height)
+                    history.attachTileDeltas(command, tileDeltas, base.width, base.height, gpuUndo)
                 }
             }
         }
         // A commit cancelled before it finished the live stroke (an undo) still returns its engine.
         handoff.engine?.let { engine -> rebuildJobs[layerId]?.invokeOnCompletion { engine.destroy() } }
+    }
+
+    /** The live stroke's [painted] rectangle as it was before the stroke, kept on the GPU. */
+    private fun keepGpuUndo(ticket: ResidentTicket, painted: DirtyRegion): GpuUndoSnapshots.Ref? =
+        runCatching {
+            GpuUndoSnapshots.keep(ticket.stroke, intArrayOf(painted.left, painted.top, painted.width, painted.height))
+        }.getOrNull()
+
+    /**
+     * Undo/redo of a stroke on the GPU copy too: when that copy still holds [current]'s content,
+     * [ref] is swapped into it and it is re-tagged as [patched], so the next stroke binds it with
+     * no upload. False (nothing on the GPU changed) otherwise; the caller then invalidates.
+     */
+    private fun swapResidentUndo(
+        layerId: String,
+        current: Bitmap,
+        patched: Bitmap,
+        ref: GpuUndoSnapshots.Ref,
+    ): Boolean {
+        val expected = layerResidency.currentGeneration(layerId)
+        val generation = expected?.let { layerResidency.adoptCommit(layerId, it, current, patched) }
+        return expected != null && generation != null &&
+            runCatching { GpuUndoSnapshots.swap(ref, expected, generation) }.getOrDefault(false)
     }
 
     /** The live stroke's GPU engine and leftover dabs, taken over by its commit at the stroke's end. */

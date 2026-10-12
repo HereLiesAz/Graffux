@@ -291,6 +291,16 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   stroke binds and commits its layer in place (the commit reports the painted rectangle). Reads and
   writes are explicit rectangles (`GpuDocumentLayers`). This is the store the GPU-canonical layers
   build on; the editor does not enter document mode yet.
+- **Undo on the GPU (`undo.rs`, `GpuUndoSnapshots`).** In document mode every bind keeps the layer
+  as it is (the stroke shadow, tagged with the bind's session). After a live stroke commits, the
+  rectangle it painted is copied from that shadow into a GPU snapshot, attached to the stroke's
+  history entry beside its tile deltas. Undo and redo are one operation: the snapshot and the layer
+  exchange the rectangle, so the snapshot always holds the other direction. A swap happens only
+  while the layer is tagged with the generation the editor expects, and retags it with the
+  generation the CPU patch adopted, so the next stroke binds without an upload. A refused swap
+  detaches the snapshot for good and the layer uploads as before. Snapshot ids are unique across
+  engines; snapshots are freed with their history entries and dropped with their layer.
+  `tests/docstore.rs` covers undo, redo, a refused swap and a shadow retired by a later bind.
 - **Selection at commit on the GPU (`selection.rs`, `GpuStrokeSelection`).** A live stroke under a
   selection uploads the selection's per-pixel coverage to its engine at the stroke's start (the
   antialiased clip, or the feathered mask; rasterized once per selection, size and layer transform,

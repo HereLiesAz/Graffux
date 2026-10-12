@@ -187,3 +187,60 @@ fn nothing_is_evicted_in_document_mode() {
         let _ = Rect::default();
     }
 }
+
+#[test]
+fn snapshots_undo_and_redo_a_stroke_on_the_gpu() {
+    for (name, mut e) in engines() {
+        let before = pattern(3);
+        e.doc_layer_put(1, &before);
+        let session = e.doc_layer_bind(1);
+        assert!(session > 0);
+        assert!(e.stamp_dabs(
+            &[dab(20.0, 20.0)],
+            0xFF2244CC,
+            1.0,
+            false,
+            SubstrateParams::default(),
+            true
+        ));
+        let (_, r) = e.doc_layer_commit(1, session).expect("committed");
+        let after = read(&mut e, 1);
+        assert_ne!(after, before, "[{name}] the stroke painted");
+        let id = e.doc_snapshot_stroke(1, session, r.x, r.y, r.w, r.h);
+        assert!(id > 0, "[{name}] snapshot");
+        assert_eq!(e.doc_snapshot_stats(), (1, (r.w * r.h * 4) as u64));
+        assert!(
+            e.doc_snapshot_swap(id, 12345, 7).is_none(),
+            "[{name}] other content"
+        );
+        let (g1, back) = e.doc_snapshot_swap(id, 0, 0).expect("undo");
+        assert_eq!(back, r);
+        assert_eq!(read(&mut e, 1), before, "[{name}] undo");
+        let (g2, _) = e.doc_snapshot_swap(id, g1, g1 + 100).expect("redo");
+        assert_eq!(g2, g1 + 100);
+        assert_eq!(read(&mut e, 1), after, "[{name}] redo");
+        assert!(e.doc_layer_drop(1));
+        assert!(
+            e.doc_snapshot_swap(id, 0, 0).is_none(),
+            "[{name}] dropped with its layer"
+        );
+        assert_eq!(e.doc_snapshot_stats().0, 0);
+    }
+}
+
+#[test]
+fn a_later_bind_retires_the_stroke_shadow_for_snapshots() {
+    for (name, mut e) in engines() {
+        e.doc_layer_put(1, &pattern(4));
+        e.doc_layer_put(2, &pattern(5));
+        let first = e.doc_layer_bind(1);
+        let (_, r) = e.doc_layer_commit(1, first).expect("committed");
+        let _second = e.doc_layer_bind(2);
+        let r = Rect::new(r.x, r.y, r.w.max(4), r.h.max(4));
+        assert_eq!(
+            e.doc_snapshot_stroke(1, first, r.x, r.y, r.w, r.h),
+            0,
+            "[{name}] stale shadow"
+        );
+    }
+}

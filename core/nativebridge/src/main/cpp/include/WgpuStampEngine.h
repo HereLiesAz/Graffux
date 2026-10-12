@@ -93,6 +93,7 @@ public:
     bool docLayerDrop(uint64_t key) override;
     uint64_t docLayerBind(uint64_t key) override;
     uint64_t docLayerCommit(uint64_t key, uint64_t session, int* outRect) override;
+    uint64_t docSnapshot(int op, uint64_t a, uint64_t b, uint64_t c, int* rect) override;
     bool docLayerRead(uint64_t key, int x, int y, int w, int h, uint8_t* out, size_t len) override;
     bool supportsWet() const override;
     bool wetBegin(const uint32_t* raw, const float* height, const float* wetness, size_t count,
