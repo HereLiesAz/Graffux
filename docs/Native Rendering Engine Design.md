@@ -312,6 +312,12 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   dab coverage, Sharpen as an unsharp mask on straight colour with alpha kept, Clone as the shadow
   at an offset. Live, Burn/Dodge/Heal/Color stamp on the stroke's engine like the Eraser, and
   Blur/Sharpen repaint the whole stroke from the shadow each sample. `tests/retouch.rs`.
+- **Ink on the hardware canvas (`InkGpuRaster`).** Ink strokes keep Jetpack Ink's own renderer --
+  its mesh shader only runs through HWUI -- but commit and replay now draw the layer and the stroke
+  on a hardware canvas (RenderNode + HardwareRenderer into an ImageReader HardwareBuffer) and read
+  the frame back once, instead of rasterizing into a software Canvas. The live preview
+  (InProgressStrokesView) already renders through HWUI, so committed pixels come from the same
+  renderer as the preview. API 29+, the app's minSdk.
 - **Undo on the GPU (`undo.rs`, `GpuUndoSnapshots`).** In document mode every bind keeps the layer
   as it is (the stroke shadow, tagged with the bind's session). After a live stroke commits, the
   rectangle it painted is copied from that shadow into a GPU snapshot, attached to the stroke's
