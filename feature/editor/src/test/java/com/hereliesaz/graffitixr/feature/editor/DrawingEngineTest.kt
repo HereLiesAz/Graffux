@@ -69,21 +69,6 @@ class DrawingEngineTest {
         val base = bitmap()
         engine.composite(base, emptyList())
         verify(exactly = 1) { base.copy(any(), any()) }
-        coVerify(exactly = 0) { ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any()) }
-    }
-
-    @Test
-    fun `composite replays each non-liquify stroke via applyToolToBitmap with replaceExisting=true`() = runTest {
-        val base = bitmap()
-        coEvery {
-            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any())
-        } returns base
-
-        engine.composite(base, listOf(stroke(), stroke()))
-
-        coVerify(exactly = 2) {
-            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), eq(true), any())
-        }
     }
 
     @Test
@@ -96,17 +81,4 @@ class DrawingEngineTest {
         verify { slamManager.bakeLiquify(any()) }
     }
 
-    @Test
-    fun `applySingleStroke applies the tool with replaceExisting=false`() = runTest {
-        val base = bitmap()
-        coEvery {
-            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), any(), any())
-        } returns base
-
-        engine.applySingleStroke(base, stroke())
-
-        coVerify(exactly = 1) {
-            ImageProcessor.applyToolToBitmap(any(), any(), any(), any(), any(), any(), eq(false), any())
-        }
-    }
 }

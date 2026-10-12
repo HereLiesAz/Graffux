@@ -303,6 +303,15 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   (`Engine::restore_stroke_shadow`, dirtying only what the stroke wrote) and smudges the whole
   stroke again with the commit's plans, so live and committed pixels come from the same path.
   `tests/smudge_wet.rs`, `tests/selection.rs`.
+- **Retouch tools on the GPU (`retouch.rs`, `GpuRetouchStroke`).** Every retouch tool paints round
+  dabs at a constant width along the stroke's polyline. Burn and Dodge stamp black / white with the
+  round shader's DARKEN / LIGHTEN (Android's premultiplied formulas), Heal stamps the colour at half
+  alpha and Color washes it on SRC_ATOP, all combined by stroke-wide max. Blur, Sharpen and Clone
+  read their neighbourhood: the stroke takes its shadow and `Engine::retouch` writes the result
+  from it -- Blur as `ImageProcessor.cheapBlur`'s bilinear down/up scale composited through the
+  dab coverage, Sharpen as an unsharp mask on straight colour with alpha kept, Clone as the shadow
+  at an offset. Live, Burn/Dodge/Heal/Color stamp on the stroke's engine like the Eraser, and
+  Blur/Sharpen repaint the whole stroke from the shadow each sample. `tests/retouch.rs`.
 - **Undo on the GPU (`undo.rs`, `GpuUndoSnapshots`).** In document mode every bind keeps the layer
   as it is (the stroke shadow, tagged with the bind's session). After a live stroke commits, the
   rectangle it painted is copied from that shadow into a GPU snapshot, attached to the stroke's

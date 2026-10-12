@@ -34,11 +34,6 @@ class ColorSmudgeEngineTest {
             if (x < 16) Color.RED else Color.WHITE
         }
 
-    private fun redBlockBitmap(width: Int = 64, height: Int = 32): Bitmap =
-        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
-            bitmap.setPixels(redBlock(width, height), 0, width, 0, 0, width, height)
-        }
-
     private fun redReach(px: IntArray, width: Int, y: Int): Int {
         var reach = 15
         for (x in 16 until width) {
@@ -46,50 +41,6 @@ class ColorSmudgeEngineTest {
             if (Color.red(p) - Color.green(p) > 20) reach = x
         }
         return reach
-    }
-
-    @Test
-    fun `smear compatibility preset is pixel-identical to original Graffux smudge`() = runBlocking {
-        val width = 64
-        val height = 32
-        val source = redBlockBitmap(width, height)
-        val stroke = List(40) { Offset((8 + it).toFloat(), 16f) }
-        val intensity = 0.73f
-        val feathering = 0.35f
-
-        val legacy = ImageProcessor.applyToolToBitmap(
-            source,
-            stroke,
-            Tool.SMUDGE,
-            brushSize = 12f,
-            intensity = intensity,
-            feathering = feathering,
-        )
-
-        val extracted = redBlock(width, height)
-        ColorSmudgeEngine.apply(
-            extracted,
-            width,
-            height,
-            stroke,
-            ColorSmudgeEngine.Settings(
-                mode = ColorSmudgeEngine.Mode.SMEAR,
-                radiusPx = 6f,
-                smudgeRate = 0.35f + intensity * 0.6f,
-                colorRate = 0f,
-                opacity = 1f,
-                feathering = feathering,
-                smearAlpha = true,
-            ),
-        )
-
-        val legacyPixels = IntArray(width * height)
-        legacy.getPixels(legacyPixels, 0, width, 0, 0, width, height)
-        assertArrayEquals(
-            "extracting Smear from ImageProcessor must not change a single pixel",
-            legacyPixels,
-            extracted,
-        )
     }
 
     @Test

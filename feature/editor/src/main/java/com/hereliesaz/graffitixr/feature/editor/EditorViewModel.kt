@@ -492,105 +492,9 @@ private const val MAX_FRAME_SIZE = 8192f
  */
 private val RESAMPLING_TOOLS = setOf(Tool.BLUR, Tool.SHARPEN, Tool.SMUDGE)
 
-// Mirrors ImageProcessor.applyToolToBitmap's BLUR/SHARPEN cheapBlur() factors exactly, at the same
-// intensity = 0.5f every StrokeCommand call site in this file hardcodes: BLUR's factor formula is
-// (2 + intensity * 12).coerceIn(2, 16); SHARPEN's "soft" reference blur is always factor 2,
-// independent of intensity. Used by the live-preview reference blur below.
-private const val RESAMPLE_BLUR_FACTOR = 8
-private const val RESAMPLE_SHARPEN_SOFT_FACTOR = 2
-// The same fixed intensity every StrokeCommand call site in this file hardcodes for BLUR/SHARPEN.
-private const val RESAMPLE_INTENSITY = 0.5f
-
-/**
- * BLUR's live-preview composite: stamps [reference] (the stroke-independent full blur computed
- * once in onStrokeStart) into [work] only where [mapped]'s stroke path covers, via the identical
- * opaque-mask-then-SRC_IN technique ImageProcessor.applyToolToBitmap's Tool.BLUR branch uses on
- * commit — see that branch's own comments for why SRC_IN over a fresh mask (rather than composing
- * translucently straight onto [work]) is what keeps a self-overlapping stroke from double-darkening.
- * Whole-canvas, redone from scratch every touch sample on a cancellable background job (mirrors
- * Tool.LIQUIFY's existing live-preview cost/architecture) rather than scoped to the stroke's own
- * bounding box — a real, not-yet-done follow-up optimization if this proves too slow on very large
- * canvases, parallel to readback()'s dirty-rect fix.
- */
-private fun liveBlurComposite(
-    work: Bitmap,
-    reference: Bitmap,
-    mapped: List<Offset>,
-    brushSizePx: Float,
-    feathering: Float,
-    wrapAroundMode: Boolean,
-) {
-    val w = work.width
-    val h = work.height
-    val maskBmp = SafeBitmap.create(w, h) ?: return
-    val maskCanvas = Canvas(maskBmp)
-    val maskPaint = Paint().apply {
-        strokeWidth = brushSizePx
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-        isAntiAlias = true
-        if (feathering > 0f) maskFilter = BlurMaskFilter(brushSizePx * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
-    }
-    ImageProcessor.drawStroke(maskCanvas, mapped, maskPaint, wrapAroundMode)
-    maskCanvas.drawBitmap(reference, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN) })
-    Canvas(work).drawBitmap(maskBmp, 0f, 0f, null)
-    maskBmp.recycle()
-}
-
-/**
- * SHARPEN's live-preview composite: the identical per-pixel unsharp-mask formula
- * ImageProcessor.applyToolToBitmap's Tool.SHARPEN branch uses on commit (result = original +
- * amount × (original − blur), lerped by mask coverage, alpha untouched) — see that branch's own
- * comments for why a per-pixel lerp rather than BLUR's SRC_IN stamp is what this tool needs. Same
- * whole-canvas-per-frame cost tradeoff as [liveBlurComposite].
- */
-private fun liveSharpenComposite(
-    work: Bitmap,
-    reference: Bitmap,
-    mapped: List<Offset>,
-    brushSizePx: Float,
-    feathering: Float,
-    wrapAroundMode: Boolean,
-) {
-    val amount = 0.4f + RESAMPLE_INTENSITY * 1.6f
-    val w = work.width
-    val h = work.height
-    val maskBmp = SafeBitmap.create(w, h) ?: return
-    val maskPaint = Paint().apply {
-        strokeWidth = brushSizePx
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-        isAntiAlias = true
-        if (feathering > 0f) maskFilter = BlurMaskFilter(brushSizePx * feathering * 0.5f, BlurMaskFilter.Blur.NORMAL)
-    }
-    ImageProcessor.drawStroke(Canvas(maskBmp), mapped, maskPaint, wrapAroundMode)
-
-    val n = w * h
-    val out = IntArray(n)
-    val blur = IntArray(n)
-    val mask = IntArray(n)
-    work.getPixels(out, 0, w, 0, 0, w, h)
-    reference.getPixels(blur, 0, w, 0, 0, w, h)
-    maskBmp.getPixels(mask, 0, w, 0, 0, w, h)
-    maskBmp.recycle()
-    for (i in 0 until n) {
-        val coverage = mask[i] ushr 24 and 0xFF
-        if (coverage == 0) continue
-        val p = out[i]
-        val q = blur[i]
-        val k = amount * coverage / 255f
-        val pr = p shr 16 and 0xFF
-        val pg = p shr 8 and 0xFF
-        val pb = p and 0xFF
-        val r = (pr + k * (pr - (q shr 16 and 0xFF))).roundToInt().coerceIn(0, 255)
-        val g = (pg + k * (pg - (q shr 8 and 0xFF))).roundToInt().coerceIn(0, 255)
-        val b = (pb + k * (pb - (q and 0xFF))).roundToInt().coerceIn(0, 255)
-        out[i] = (p.toLong() and 0xFF000000L).toInt() or (r shl 16) or (g shl 8) or b
-    }
-    work.setPixels(out, 0, w, 0, 0, w, h)
-}
+// The intensity every line tool and resampled tool records on its StrokeCommand (onStrokeEnd), and
+// so the one their live previews use.
+private const val LINE_TOOL_INTENSITY = 0.5f
 
 // Round-brush dab spacing as a fraction of dab diameter — shared by [EditorViewModel.drawCurveRun]
 // (live preview) and [ImageProcessor.drawStrokeDynamic] (authoritative commit/replay), both of
@@ -886,8 +790,11 @@ class EditorViewModel @Inject constructor(
     private var smudgeLiveEngine: GpuStampEngine? = null
     private var smudgeLiveGeneration = -1L
 
-    /** The live stroke is the Eraser: it erases on the GPU like the Basic Brush paints. */
-    private var strokeErasing: Boolean = false
+    /**
+     * The live stroke's paint when it is a constant-width line tool -- the Eraser, Burn, Dodge, Heal,
+     * Color -- which stamps on the GPU like the Basic Brush (lineLive); null for any other tool.
+     */
+    private var strokeLinePaint: BasicPaint? = null
     /** Captured at stroke start for the same reason as [strokeAlphaLock] -- previously re-read live
      *  on every draw call and never recorded on [StrokeCommand] at all, so a wrapped stroke's edge
      *  tiling could change mid-drag and always vanished on commit/undo/redo/auto-bake. */
@@ -982,19 +889,11 @@ class EditorViewModel @Inject constructor(
     private var liquifyOriginalBitmap: Bitmap? = null
 
     // Blur/Sharpen/Smudge (RESAMPLING_TOOLS) live-preview state — valid only between onStrokeStart
-    // and onStrokeEnd for one of those three tools. These tools previously had NO live preview at
-    // all (a fully transparent Paint — see buildStrokePaint's RESAMPLING_TOOLS branch), applying
-    // only once on finger-up via ImageProcessor.applyToolToBitmap/DrawingEngine's Color Smudge
-    // branch; while dragging, nothing rendered. Mirrors liquifyJob/liquifyOriginalBitmap's pattern:
-    // recompute the whole effect from the pristine per-stroke original on Dispatchers.Default each
-    // touch sample, cancelling any still-running prior recompute — the commit-time path above is
-    // completely untouched and stays the single source of truth for what actually gets painted.
+    // and onStrokeEnd for one of those three tools. Each touch sample repaints the whole stroke from
+    // the pristine original on the GPU (resampleLiveOnGpu), cancelling any still-running prior
+    // recompute; the commit stays the single source of truth for what actually gets painted.
     private var resampleJob: kotlinx.coroutines.Job? = null
     private var resampleOriginalBitmap: Bitmap? = null
-    // BLUR's full blur / SHARPEN's tight "soft" reference blur — independent of the stroke path, so
-    // computed once per stroke rather than on every touch sample. Unused (stays null) for SMUDGE,
-    // which has no such stroke-independent reference.
-    private var resampleBlurReference: Bitmap? = null
     // SMUDGE only: fixed once per stroke so every live-preview frame's ColorSmudgeEngine.apply call
     // (each a from-scratch replay of the whole stroke so far, not an incremental append — see
     // onStrokePoint's RESAMPLING_TOOLS branch) resolves any seed-dependent dynamics identically
@@ -4620,7 +4519,12 @@ class EditorViewModel @Inject constructor(
         // recorded command that undo/redo replays.
         strokeWrapAroundMode = state.wrapAroundMode
         strokeAlphaLock = layer.alphaLock
-        strokeErasing = state.activeTool == Tool.ERASER
+        // Line tools record intensity 0.5 (onStrokeEnd), so the live paint uses the same.
+        strokeLinePaint = if (state.activeTool == Tool.ERASER) {
+            BasicPaint.eraser(state.brushFeathering)
+        } else {
+            GpuRetouchStroke.paint(state.activeTool, state.activeColor.toArgb(), LINE_TOOL_INTENSITY)
+        }
         strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
         strokeSelection = state.selection
         lastSampleMs = 0L
@@ -4924,18 +4828,12 @@ class EditorViewModel @Inject constructor(
         }
 
         if (state.activeTool in RESAMPLING_TOOLS) {
-            // Blur/Sharpen/Smudge previously had NO live preview at all -- buildStrokePaint's
-            // RESAMPLING_TOOLS branch built a fully transparent Paint, so nothing rendered while
-            // dragging; the whole effect only appeared on finger-up via ImageProcessor.
-            // applyToolToBitmap / DrawingEngine's Color Smudge branch. This recomputes the effect
-            // from a pristine per-stroke original on a background thread each touch sample
-            // (onStrokePoint), cancelling any still-running prior recompute -- the exact pattern
-            // liquifyJob/liquifyOriginalBitmap already uses. The commit path is completely
-            // untouched and stays the sole source of truth for what actually gets painted.
+            // Blur/Sharpen/Smudge recompute the effect from a pristine per-stroke original on the GPU
+            // each touch sample (onStrokePoint, resampleLiveOnGpu), cancelling any still-running prior
+            // recompute. The commit stays the sole source of truth for what actually gets painted.
             resampleJob?.cancel()
             resampleJob = null
             resampleOriginalBitmap = null
-            resampleBlurReference = null
             resampleSeed = System.nanoTime()
             val tool = state.activeTool
             viewModelScope.launch(dispatchers.default) {
@@ -4944,22 +4842,12 @@ class EditorViewModel @Inject constructor(
                     original.recycle()
                     return@launch
                 }
-                // Independent of the stroke path, so computed once rather than every touch sample.
-                // Matches ImageProcessor.applyToolToBitmap's BLUR/SHARPEN factors exactly (intensity
-                // is hardcoded to 0.5f at every StrokeCommand call site in this file already).
-                val reference = when (tool) {
-                    Tool.BLUR -> ImageProcessor.cheapBlur(original, RESAMPLE_BLUR_FACTOR)
-                    Tool.SHARPEN -> ImageProcessor.cheapBlur(original, RESAMPLE_SHARPEN_SOFT_FACTOR)
-                    else -> null
-                }
                 withContext(dispatchers.main) {
                     if (generation != strokeGeneration || strokeLayerId != layerId) {
                         original.recycle()
-                        reference?.recycle()
                         return@withContext
                     }
                     resampleOriginalBitmap = original
-                    resampleBlurReference = reference
                     _liveStroke.update { it.copy(layerId = layerId, bitmap = original, version = it.version + 1) }
                 }
             }
@@ -5026,7 +4914,7 @@ class EditorViewModel @Inject constructor(
             // only non-null when this stroke actually won the race to publish, so its two cleanup
             // call sites further down stay engine-object-identity-safe rather than blindly
             // destroying whatever's now in the field.
-            val createdGpuEngine = if (strokeDynamics != null || tool == Tool.ERASER) {
+            val createdGpuEngine = if (strokeDynamics != null || strokeLinePaint != null) {
                 warm?.engine ?: createSeededGpuEngine(workBitmap.width, workBitmap.height, workBitmap) {
                     bindResident(it, workBitmap)
                 }
@@ -5108,8 +4996,8 @@ class EditorViewModel @Inject constructor(
                 }
             }
 
-            if (eraseLive(paint, mappedAll, workBitmap)) {
-                // The Eraser erases on the GPU (eraseLive); nothing to draw here.
+            if (lineLive(paint, mappedAll, workBitmap)) {
+                // The Eraser erases on the GPU (lineLive); nothing to draw here.
             } else if (mappedAll.size == 1) {
                 val pt = mappedAll[0]
                 if (strokeWrapAroundMode) {
@@ -5300,7 +5188,6 @@ class EditorViewModel @Inject constructor(
             val brushSizePx = _uiState.value.effectivePaintBrushSize() * brushScale
             val feathering = _uiState.value.brushFeathering
             val wrap = strokeWrapAroundMode
-            val reference = resampleBlurReference
             val generation = strokeGeneration
             val paintColor = _uiState.value.activeColor.toArgb()
             val baseSmudgeSettings = _colorSmudgeSettings.value
@@ -5323,11 +5210,13 @@ class EditorViewModel @Inject constructor(
             resampleJob = viewModelScope.launch(dispatchers.default) {
                 val work = SafeBitmap.copy(original) ?: return@launch
                 when (tool) {
-                    Tool.BLUR -> if (reference != null) {
-                        liveBlurComposite(work, reference, mapped, brushSizePx, feathering, wrap)
-                    }
-                    Tool.SHARPEN -> if (reference != null) {
-                        liveSharpenComposite(work, reference, mapped, brushSizePx, feathering, wrap)
+                    // Blur and Sharpen: the commit's GPU retouch over the whole stroke so far.
+                    Tool.BLUR, Tool.SHARPEN -> resampleLiveOnGpu(original, generation, work) { engine ->
+                        GpuRetouchStroke.neighbourhood(
+                            engine, tool,
+                            GpuBasicStroke.eraserRuns(mapped, brushSizePx, wrap, work.width, work.height).flatten(),
+                            GpuRetouchStroke.Neighbourhood(LINE_TOOL_INTENSITY, feathering, wrap), null,
+                        )
                     }
                     Tool.SMUDGE -> {
                         // Sample Merged is intentionally not reproduced live (would need recompositing
@@ -5344,7 +5233,9 @@ class EditorViewModel @Inject constructor(
                             mapped, work.width, work.height, settings, mappedSamples, seed,
                         )
                         // No CPU renderer: when the GPU can't, the preview holds and the commit paints.
-                        smudgeLiveOnGpu(original, generation, work, plans, settings)
+                        resampleLiveOnGpu(original, generation, work) {
+                            GpuColorSmudge.stamp(it, plans, settings, null, work.width, work.height)
+                        }
                     }
                     else -> {}
                 }
@@ -5420,8 +5311,8 @@ class EditorViewModel @Inject constructor(
             }
             _liveStroke.update { it.copy(version = it.version + 1) }
             return
-        } else if (eraseLive(paint, listOf(prev, mapped), workBitmap)) {
-            // The Eraser erases on the GPU (eraseLive).
+        } else if (lineLive(paint, listOf(prev, mapped), workBitmap)) {
+            // The Eraser erases on the GPU (lineLive).
         } else {
             val seg = Path()
             seg.moveTo(prev.x, prev.y)
@@ -6222,7 +6113,7 @@ class EditorViewModel @Inject constructor(
             val workBitmap = strokeWorkingBitmap!!
             // Basic Brush painting live on the GPU: its commit finishes the stroke on that engine.
             val basicHandoff = if (
-                state.activeTool == Tool.BRUSH && stampBrushForStroke == null || state.activeTool == Tool.ERASER
+                state.activeTool == Tool.BRUSH && stampBrushForStroke == null || strokeLinePaint != null
             ) {
                 handOffLiveBasic(workBitmap)
             } else {
@@ -6831,7 +6722,7 @@ class EditorViewModel @Inject constructor(
                 // live runs, placed per point as they arrived, never need lining up with them.
                 LiveBasicHandoff(
                     engine, work, basicGpuJob, basicPendingDabs.drain().map { it.second },
-                    if (strokeErasing) 0 else liveCurveFinalizedCount, strokeGpuSelection,
+                    if (strokeLinePaint != null) 0 else liveCurveFinalizedCount, strokeGpuSelection,
                 )
             }
         }
@@ -6856,9 +6747,16 @@ class EditorViewModel @Inject constructor(
             val brushScale = ImageProcessor.screenToBitmapScale(
                 canvasW, canvasH, base.width, base.height, command.layerScale,
             )
-            val runs = GpuBasicStroke.runsFor(command, mapped, brushScale, base.width, base.height)
+            val retouch = GpuRetouchStroke.paint(command)
+            val runs = if (retouch != null) {
+                GpuBasicStroke.eraserRuns(
+                    mapped, command.brushSize * brushScale, command.wrapAroundMode, base.width, base.height,
+                )
+            } else {
+                GpuBasicStroke.runsFor(command, mapped, brushScale, base.width, base.height)
+            }
             val missing = handoff.leftover + runs.drop(handoff.generatedRuns)
-            val paint = BasicPaint.of(command)
+            val paint = retouch ?: BasicPaint.of(command)
             work?.takeIf {
                 GpuBasicStroke.stampRuns(handoff.engine, missing, paint) &&
                     confinedOnGpu(handoff.engine, command, handoff.selection) &&
@@ -8713,24 +8611,22 @@ class EditorViewModel @Inject constructor(
      */
 
     /**
-     * The live Color Smudge preview on the GPU: the stroke's own engine holds the layer as the stroke
-     * found it (its shadow), and each resample puts that back and smudges the whole recorded stroke
-     * again with the commit's plans (GpuColorSmudge), reading back only what the strokes touched.
-     * False when the GPU can't.
+     * A resampled live preview (Color Smudge, Blur, Sharpen) on the GPU: the stroke's own engine
+     * holds the layer as the stroke found it (its shadow), and each resample puts that back and
+     * [paint]s the whole recorded stroke again with the commit's code, reading back only what the
+     * strokes touched. False when the GPU can't.
      */
-    private fun smudgeLiveOnGpu(
+    private fun resampleLiveOnGpu(
         original: Bitmap,
         generation: Long,
         work: Bitmap,
-        plans: List<ColorSmudgeEngine.ResolvedPlan>,
-        settings: ColorSmudgeEngine.Settings,
+        paint: (GpuStampEngine) -> Boolean,
     ): Boolean = synchronized(smudgeLiveLock) {
         val engine = smudgeLiveEngine?.takeIf { smudgeLiveGeneration == generation }
             ?: startSmudgeLive(original, generation)
         val shown = engine != null && runCatching {
             com.hereliesaz.graffitixr.nativebridge.GpuSelection(engine).restoreShadow() &&
-                GpuColorSmudge.stamp(engine, plans, settings, null, work.width, work.height) &&
-                engine.readback(work)
+                paint(engine) && engine.readback(work)
         }.getOrDefault(false)
         if (!shown) releaseSmudgeLive()
         shown
@@ -8780,15 +8676,11 @@ class EditorViewModel @Inject constructor(
             val paintSnapshot = Paint(paint).apply { style = Paint.Style.FILL }
             // The same colour/opacity/edge the commit and replay stamp with (BasicPaint): the
             // paint's alpha already carries the colour's alpha times the stroke's opacity.
-            val gpuPaint = BasicPaint(
+            val gpuPaint = strokeLinePaint ?: BasicPaint(
                 colorArgb = paintSnapshot.color,
-                flow = if (strokeErasing) 1f else paintSnapshot.alpha / ALPHA_MAX_F,
+                flow = paintSnapshot.alpha / ALPHA_MAX_F,
                 hardness = (1f - _uiState.value.brushFeathering).coerceIn(0f, 1f),
-                mode = when {
-                    strokeErasing -> GpuStampEngine.STAMP_ERASE
-                    strokeAlphaLock -> GpuStampEngine.STAMP_ATOP
-                    else -> GpuStampEngine.STAMP_OVER
-                },
+                mode = if (strokeAlphaLock) GpuStampEngine.STAMP_ATOP else GpuStampEngine.STAMP_OVER,
             )
             basicGpuJob = viewModelScope.launch(dispatchers.default) {
                 while (true) {
@@ -8889,8 +8781,8 @@ class EditorViewModel @Inject constructor(
      * (GpuBasicStroke.eraserRuns), queued for the GPU like the Basic Brush's. False for any other
      * tool, which draws as before.
      */
-    private fun eraseLive(paint: Paint, points: List<Offset>, target: Bitmap): Boolean {
-        if (!strokeErasing) return false
+    private fun lineLive(paint: Paint, points: List<Offset>, target: Bitmap): Boolean {
+        if (strokeLinePaint == null) return false
         val dabs = GpuBasicStroke.eraserRuns(points, paint.strokeWidth, strokeWrapAroundMode, target.width, target.height)
             .flatten()
         enqueueBasicLiveDabs(paint, dabs, target)
@@ -8938,7 +8830,7 @@ class EditorViewModel @Inject constructor(
         strokePrevBitmapPoint = null
         strokeDynamics = null
         strokeAlphaLock = false
-        strokeErasing = false
+        strokeLinePaint = null
         strokeOpacity = 1f
         strokeSelection = null
         lastSampleMs = 0L
@@ -8960,7 +8852,6 @@ class EditorViewModel @Inject constructor(
         resampleJob?.cancel()
         resampleJob = null
         resampleOriginalBitmap = null
-        resampleBlurReference = null
 
         stampLiveBitmap = null
         stampLiveCanvas = null

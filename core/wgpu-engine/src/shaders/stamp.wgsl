@@ -37,7 +37,8 @@ struct Params {
     stroke_max: f32,
     layer_width: i32,
     layer_height: i32,
-    // 0 = SRC_OVER, 1 = erase (DST_OUT by the dab's alpha), 2 = SRC_ATOP (alpha lock). Not in
+    // 0 = SRC_OVER, 1 = erase (DST_OUT by the dab's alpha), 2 = SRC_ATOP (alpha lock), 3 = DARKEN
+    // (Burn), 4 = LIGHTEN (Dodge). Not in
     // stamp.comp: the GLES/Vulkan engines never erased or alpha-locked on the GPU.
     mode: u32,
 };
@@ -65,6 +66,15 @@ fn composite(src_rgb: vec3<f32>, a: f32, dst: vec4<f32>) -> vec4<f32> {
     }
     if (pc.mode == 2u) {
         return vec4<f32>(src_rgb * a * dst.a + dst.rgb * (1.0 - a), dst.a);
+    }
+    // Android's premultiplied DARKEN / LIGHTEN (Burn and Dodge): s + d - max/min(s * da, d * sa).
+    let s = src_rgb * a;
+    let out_a = a + dst.a - a * dst.a;
+    if (pc.mode == 3u) {
+        return vec4<f32>(s + dst.rgb - max(s * dst.a, dst.rgb * a), out_a);
+    }
+    if (pc.mode == 4u) {
+        return vec4<f32>(s + dst.rgb - min(s * dst.a, dst.rgb * a), out_a);
     }
     return vec4<f32>(src_rgb * a + dst.rgb * (1.0 - a), a + dst.a * (1.0 - a));
 }

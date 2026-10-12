@@ -168,7 +168,42 @@ pub unsafe extern "C" fn gfx_wgpu_clear(e: *mut Engine) -> bool {
     guard(false, || engine(e).is_some_and(|e| e.clear()))
 }
 
-/// [`Engine::set_stamp_mode`]: 0 paint over, 1 erase, 2 alpha lock.
+/// [`Engine::retouch`]: `kind` (0 Blur, 1 Sharpen, 2 Clone), `factor`, `amount`, the clone offset
+/// (`ox`, `oy`) and wrap, over `count` dabs of `[x, y, radius, hardness]` at `dabs`.
+///
+/// # Safety
+/// `dabs` must point to `count * 4` floats.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_retouch(
+    e: *mut Engine,
+    kind: u32,
+    factor: i32,
+    amount: f32,
+    ox: f32,
+    oy: f32,
+    wrap: bool,
+    dabs: *const f32,
+    count: i32,
+) -> bool {
+    guard(false, || {
+        let flat = slice(dabs, count.max(0) as usize * 4);
+        let quads: Vec<[f32; 4]> = flat
+            .chunks_exact(4)
+            .map(|c| [c[0], c[1], c[2], c[3]])
+            .collect();
+        let tool = crate::Retouch {
+            kind,
+            factor,
+            amount,
+            offset: (ox, oy),
+            wrap,
+        };
+        engine(e).is_some_and(|e| e.retouch(tool, &quads))
+    })
+}
+
+/// [`Engine::set_stamp_mode`]: 0 paint over, 1 erase, 2 alpha lock, 3 darken, 4 lighten.
 ///
 /// # Safety
 /// `e` must be a live engine or null.

@@ -28,8 +28,11 @@ mod impasto;
 pub use impasto::{height_region, HeightDab, IMPASTO_WGSL};
 #[path = "docstore.rs"]
 mod docstore;
+#[path = "retouch.rs"]
+mod retouch;
 #[path = "selection.rs"]
 mod selection;
+pub use retouch::{Retouch, RETOUCH_BLUR, RETOUCH_CLONE, RETOUCH_SHARPEN, RETOUCH_WGSL};
 #[path = "undo.rs"]
 mod undo;
 pub use selection::SELECTION_WGSL;
@@ -244,6 +247,10 @@ pub const STAMP_OVER: u32 = 0;
 pub const STAMP_ERASE: u32 = 1;
 /// Round dabs paint only where the layer has alpha (SRC_ATOP: alpha lock).
 pub const STAMP_ATOP: u32 = 2;
+/// Round dabs darken the layer (Android's premultiplied DARKEN: Burn).
+pub const STAMP_DARKEN: u32 = 3;
+/// Round dabs lighten the layer (Android's premultiplied LIGHTEN: Dodge).
+pub const STAMP_LIGHTEN: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Default)]
@@ -443,6 +450,8 @@ pub struct Engine {
     snapshots: undo::Snapshots,
     /// The round shader's composite ([`Engine::set_stamp_mode`]).
     stamp_mode: u32,
+    /// The retouch pipeline (retouch.rs), created on first use.
+    retouch: Option<retouch::RetouchGpu>,
     /// Color Smudge reads and writes the wet simulation's wetness ([`Engine::set_smudge_wetness`]).
     smudge_wet: bool,
     /// Bound in place of the wet buffers (fields, ctl, coverage) when Color Smudge runs dry: one
@@ -901,6 +910,7 @@ impl Engine {
             doc_gen: 0,
             snapshots: Default::default(),
             stamp_mode: STAMP_OVER,
+            retouch: None,
             smudge_wet: false,
             smudge_wet_placeholder,
             staging,
@@ -1275,10 +1285,10 @@ impl Engine {
     }
 
     /// Sets how the round shader's dabs composite until changed ([`STAMP_OVER`] by default):
-    /// erase and alpha lock bypass multipass, whose draft shader only paints over. False for an
+    /// every other mode bypasses multipass, whose draft shader only paints over. False for an
     /// unknown mode.
     pub fn set_stamp_mode(&mut self, mode: u32) -> bool {
-        if mode > STAMP_ATOP {
+        if mode > STAMP_LIGHTEN {
             return false;
         }
         if mode != self.stamp_mode {
