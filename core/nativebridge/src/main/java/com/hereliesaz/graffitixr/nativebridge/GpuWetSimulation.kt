@@ -58,6 +58,9 @@ class GpuWetSimulation(private val engine: GpuStampEngine) {
         const val ADVANCE = 7
         const val LEVEL = 8
         const val SHADE = 9
+
+        /** Color Smudge samples, gates and deposits this simulation's canvas wetness (arg 1 = on). */
+        const val SMUDGE_WETNESS = 10
         const val FLAG_HEIGHT = 1
         const val FLAG_WETNESS = 2
 

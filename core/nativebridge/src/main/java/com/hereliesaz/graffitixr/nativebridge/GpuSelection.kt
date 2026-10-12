@@ -20,6 +20,9 @@ class GpuSelection(private val engine: GpuStampEngine) {
     /** Keeps the layer as it is now, before the stroke's first dab. */
     fun takeShadow(): Boolean = call { nativeSelectionOp(it, TAKE_SHADOW) }
 
+    /** Puts the layer back to its shadow (a live preview repainting its whole stroke starts here). */
+    fun restoreShadow(): Boolean = call { nativeSelectionOp(it, RESTORE_SHADOW) }
+
     /** Blends the stroke back over its shadow through the coverage: [feathered] or the hard clip. */
     fun confine(feathered: Boolean): Boolean = call { nativeSelectionOp(it, if (feathered) FEATHERED else HARD) }
 
@@ -35,6 +38,7 @@ class GpuSelection(private val engine: GpuStampEngine) {
         const val TAKE_SHADOW = 0
         const val HARD = 1
         const val FEATHERED = 2
+        const val RESTORE_SHADOW = 3
 
         @JvmStatic
         private external fun nativeSetSelection(handle: Long, coverage: ByteArray?): Boolean

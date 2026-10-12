@@ -291,6 +291,18 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   stroke binds and commits its layer in place (the commit reports the painted rectangle). Reads and
   writes are explicit rectangles (`GpuDocumentLayers`). This is the store the GPU-canonical layers
   build on; the editor does not enter document mode yet.
+- **Color Smudge on the GPU, wet and live (`color_smudge.wgsl`, `GpuWetSmudge`, `GpuColorSmudge`).**
+  With persistent canvas wetness the smudge shader binds the wet simulation's wetness field, tile
+  flags and selection coverage (`Engine::set_smudge_wetness`): each dab samples the field for its
+  mobility (the wetter of canvas and brush dilution), which scales carrier and reservoir pickup, and
+  deposits `dilution * mask * opacity` wetness, activating its tile -- ColorSmudgeEngine's and
+  PersistentWetnessField's rules. `GpuWetSmudge` runs the commit's whole sequence on one engine:
+  material advance to the stroke's first sample time, the smudge, the selection confined on the GPU,
+  the fixed settle tick, and the wetness handed back to the layer's state. The live preview keeps
+  one engine per stroke holding the layer as its shadow; each resample restores it
+  (`Engine::restore_stroke_shadow`, dirtying only what the stroke wrote) and smudges the whole
+  stroke again with the commit's plans, so live and committed pixels come from the same path.
+  `tests/smudge_wet.rs`, `tests/selection.rs`.
 - **Undo on the GPU (`undo.rs`, `GpuUndoSnapshots`).** In document mode every bind keeps the layer
   as it is (the stroke shadow, tagged with the bind's session). After a live stroke commits, the
   rectangle it painted is copied from that shadow into a GPU snapshot, attached to the stroke's

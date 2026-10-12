@@ -126,6 +126,29 @@ impl Engine {
         self.ok()
     }
 
+    /// Puts the layer back to its stroke shadow (the layer as [`Engine::take_stroke_shadow`] kept
+    /// it), on the GPU: a live preview that repaints its whole stroke each frame starts here. Only
+    /// the stroke's rectangle is marked dirty (nothing else changed since the shadow), and it
+    /// restarts empty. False without a shadow.
+    pub fn restore_stroke_shadow(&mut self) -> bool {
+        if self.selection.is_none() {
+            return false;
+        }
+        self.mp_drain();
+        let layer = self.layer.clone();
+        let bytes = self.layer_bytes();
+        let shadow = self.stroke_shadow();
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.copy_buffer_to_buffer(&shadow, 0, &layer, 0, bytes);
+        self.queue.submit([encoder.finish()]);
+        // What changed is what the stroke had written; a readback copies just that back.
+        let written = self.stroke_written;
+        self.note_write(written);
+        self.stroke_state_dirty = true;
+        self.stroke_written = Rect::default();
+        self.ok()
+    }
+
     /// Blends the stroke painted since [`Engine::take_stroke_shadow`] back over that shadow through
     /// the selection's coverage, over the stroke's rectangle `[x, x + w) x [y, y + h)`: `feather`
     /// picks the feathered composite, otherwise the hard clip. False without a selection.

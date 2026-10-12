@@ -6,7 +6,7 @@
 // a UBO rewritten per dispatch in GLES). Layer = packed-RGBA8 storage buffer, as in stamp.wgsl.
 
 struct SmudgeParams {
-    phase: i32,          // 0 seed, 1 Smear, 2 Dulling sample, 3 Dulling deposit, 4..7 reservoir stages
+    phase: i32,          // 0 seed, 1 Smear, 2 Dulling sample, 3 Dulling deposit, 4..7 reservoir stages, 8 wetness sample
     center_x: i32,
     center_y: i32,
     radius: i32,
@@ -33,11 +33,22 @@ struct SmudgeParams {
     distance_delta_px: f32,
     layer_width: i32,
     layer_height: i32,
+    // Persistent canvas wetness (the wet simulation's field, wet.rs): bit 0 = on, bit 1 = the
+    // selection coverage clips the deposit, bit 2 = Dulling (samples over sample_radius).
+    wet_flags: u32,
+    wet_n: u32,
+    wet_tile: i32,
+    wet_cols: i32,
     _pad0: u32,
     _pad1: u32,
 };
 
 @group(0) @binding(0) var<storage, read_write> layer_px: array<u32>;
+// The wet simulation's buffers (wet.wgsl): `fields` holds wetness at [wet_n, 2 * wet_n), `ctl`
+// the per-tile active flags first, `cov` the selection coverage. Placeholders without wetness.
+@group(0) @binding(4) var<storage, read_write> wet_fields: array<f32>;
+@group(0) @binding(5) var<storage, read_write> wet_ctl: array<atomic<u32>>;
+@group(0) @binding(6) var<storage, read> wet_cov: array<f32>;
 @group(0) @binding(1) var<storage, read_write> carrier: array<vec4<f32>>;
 @group(0) @binding(2) var sample_source_tex: texture_2d<f32>;
 @group(0) @binding(3) var<uniform> pc: SmudgeParams;
@@ -62,6 +73,13 @@ fn reservoir_base() -> i32 {
 fn reservoir_color_index() -> i32 { return reservoir_base(); }
 fn reservoir_meta_index() -> i32 { return reservoir_base() + 1; }
 fn reservoir_sample_index() -> i32 { return reservoir_base() + 2; }
+// x = this dab's mobility (ColorSmudgeEngine.wetnessMobility), y = its sampled canvas wetness.
+fn wet_index() -> i32 { return reservoir_base() + 3; }
+fn wet_enabled() -> bool { return (pc.wet_flags & 1u) != 0u; }
+fn mobility() -> f32 {
+    if (!wet_enabled()) { return 1.0; }
+    return carrier[wet_index()].x;
+}
 
 fn brush_mask(dx: i32, dy: i32) -> f32 {
     let r = f32(max(pc.radius, 1));
@@ -288,7 +306,7 @@ fn reservoir_pickup(gid: vec2<i32>) {
     let material_presence = clamp(sampled.a, 0.0, 1.0);
     if (material_presence <= 0.0) { return; }
 
-    let pickup = min(capacity, capacity * clamp(pc.pickup_rate, 0.0, 1.0) * material_presence);
+    let pickup = min(capacity, capacity * clamp(pc.pickup_rate, 0.0, 1.0) * material_presence * mobility());
     let final_load = clamp(load + pickup, 0.0, 1.0);
     if (pickup > 0.0 && final_load > 0.0) {
         let pickup_ratio = clamp(pickup / final_load, 0.0, 1.0);
@@ -298,6 +316,40 @@ fn reservoir_pickup(gid: vec2<i32>) {
         meta_v.x = final_load;
         carrier[reservoir_meta_index()] = meta_v;
     }
+}
+
+// ColorSmudgeEngine.weightedWetness at the dab centre, then wetnessMobility: the wetter of the
+// canvas and the brush's own dilution.
+fn wet_sample(gid: vec2<i32>) {
+    if (gid.x != 0 || gid.y != 0) { return; }
+    let radius = select(pc.radius, pc.sample_radius, (pc.wet_flags & 4u) != 0u);
+    let rr = max(f32(radius), 1.0);
+    var sum = 0.0;
+    var sum_weight = 0.0;
+    for (var dy = -radius; dy <= radius; dy++) {
+        for (var dx = -radius; dx <= radius; dx++) {
+            let distance = sqrt(f32(dx * dx + dy * dy));
+            if (distance > rr) { continue; }
+            let weight = clamp(1.0 - distance / rr, 0.0, 1.0);
+            if (weight <= 0.0) { continue; }
+            let p = vec2<i32>(pc.center_x + dx, pc.center_y + dy);
+            if (!in_layer(p)) { continue; }
+            sum += wet_fields[pc.wet_n + u32(p.y * pc.layer_width + p.x)] * weight;
+            sum_weight += weight;
+        }
+    }
+    var sampled = 0.0;
+    if (sum_weight > 0.0) { sampled = clamp(sum / sum_weight, 0.0, 1.0); }
+    carrier[wet_index()] = vec4<f32>(max(sampled, clamp(pc.dilution, 0.0, 1.0)), sampled, 0.0, 0.0);
+}
+
+// PersistentWetnessField.addWetness of `amount` at `p` (inside the layer), through the selection.
+fn deposit_wetness(p: vec2<i32>, amount: f32) {
+    if (!wet_enabled() || amount <= 0.0) { return; }
+    let idx = u32(p.y * pc.layer_width + p.x);
+    if ((pc.wet_flags & 2u) != 0u && wet_cov[idx] <= 0.0) { return; }
+    atomicOr(&wet_ctl[u32((p.y / pc.wet_tile) * pc.wet_cols + (p.x / pc.wet_tile))], 1u);
+    wet_fields[pc.wet_n + idx] = clamp(wet_fields[pc.wet_n + idx] + amount, 0.0, 1.0);
 }
 
 fn smear_dab(gid: vec2<i32>) {
@@ -314,7 +366,7 @@ fn smear_dab(gid: vec2<i32>) {
     let under = layer_load(dst_pos);
     var picked_up = under;
     if (sample_merged_enabled()) { picked_up = textureLoad(sample_source_tex, dst_pos, 0); }
-    let carried = material_mix_argb(picked_up, carrier[k], pc.smudge_rate, pc.smear_alpha != 0);
+    let carried = material_mix_argb(picked_up, carrier[k], pc.smudge_rate * mobility(), pc.smear_alpha != 0);
     carrier[k] = carried;
     var out_color = material_mix_argb(under, carried, mask * pc.opacity, pc.smear_alpha != 0);
     let color_rate = effective_color_rate();
@@ -323,6 +375,7 @@ fn smear_dab(gid: vec2<i32>) {
         out_color = material_mix_argb(out_color, pigment, mask * pc.opacity * color_rate, true);
     }
     layer_store(dst_pos, out_color);
+    deposit_wetness(dst_pos, pc.dilution * mask * pc.opacity);
 }
 
 fn dull_sample(gid: vec2<i32>) {
@@ -344,7 +397,7 @@ fn dull_deposit(gid: vec2<i32>) {
 
     let under = layer_load(dst_pos);
     var out_color = material_mix_argb(
-        under, carrier[0], mask * pc.opacity * pc.smudge_rate, pc.smear_alpha != 0
+        under, carrier[0], mask * pc.opacity * pc.smudge_rate * mobility(), pc.smear_alpha != 0
     );
     let color_rate = effective_color_rate();
     if (color_rate > 0.0) {
@@ -352,6 +405,7 @@ fn dull_deposit(gid: vec2<i32>) {
         out_color = material_mix_argb(out_color, pigment, mask * pc.opacity * color_rate, true);
     }
     layer_store(dst_pos, out_color);
+    deposit_wetness(dst_pos, pc.dilution * mask * pc.opacity);
 }
 
 @compute @workgroup_size(8, 8)
@@ -366,6 +420,7 @@ fn main(@builtin(global_invocation_id) gid3: vec3<u32>) {
         case 5: { reservoir_decay(gid); }
         case 6: { reservoir_pickup(gid); }
         case 7: { reservoir_sample_smear(gid); }
+        case 8: { wet_sample(gid); }
         default: {}
     }
 }

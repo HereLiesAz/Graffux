@@ -130,6 +130,17 @@ pub(super) struct WetGpu {
     use_coverage: bool,
 }
 
+/// What Color Smudge binds to read and write the canvas wetness (engine.rs `color_smudge`).
+pub(super) struct SmudgeWetBinding {
+    pub(super) fields: wgpu::Buffer,
+    pub(super) ctl: wgpu::Buffer,
+    pub(super) coverage: wgpu::Buffer,
+    pub(super) n: u32,
+    pub(super) tile: i32,
+    pub(super) cols: i32,
+    pub(super) use_coverage: bool,
+}
+
 impl WetGpu {
     fn new(device: &wgpu::Device, width: i32, height: i32, tile: i32) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -764,4 +775,29 @@ fn dab_region(dabs: &[MaterialDab], width: i32, height: i32) -> Rect {
         out = Some(out.map_or(r, |o| o.union(r)));
     }
     out.map_or(Rect::default(), |r| r.clamp(width, height))
+}
+
+impl Engine {
+    /// Color Smudge samples, gates and deposits the wet simulation's canvas wetness
+    /// (`ColorSmudgeEngine`'s persistent-wetness path) until turned off. False when turning it on
+    /// without a wet simulation ([`Engine::wet_begin`]).
+    pub fn set_smudge_wetness(&mut self, on: bool) -> bool {
+        if on && self.wet.is_none() {
+            return false;
+        }
+        self.smudge_wet = on;
+        true
+    }
+
+    pub(super) fn wet_smudge_binding(&self) -> Option<SmudgeWetBinding> {
+        self.wet.as_ref().map(|g| SmudgeWetBinding {
+            fields: g.fields.clone(),
+            ctl: g.ctl.clone(),
+            coverage: g.coverage.clone(),
+            n: (self.width * self.height) as u32,
+            tile: g.tile,
+            cols: g.cols,
+            use_coverage: g.use_coverage,
+        })
+    }
 }
