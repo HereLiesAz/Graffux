@@ -227,27 +227,16 @@ object BrushStamps {
             mechanicalState = mechanics.state
             val contact = mechanics.contact
 
-            // Only a brush's own configured taper shapes the ends. The automatic speed-driven
-            // start/lift tapers (size AND opacity fading into feathered tails) were removed at the
-            // owner's call: a stroke is full strength end to end unless the brush says otherwise.
+            // Only a brush's own configured start taper shapes the stroke. The automatic
+            // speed-driven start/lift tapers were removed at the owner's call, and so was the end
+            // taper: it needs the stroke's final length, which the live stroke never has, so the
+            // committed stroke could not match what was drawn. A stroke is full strength to its end.
             val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
             val startSizeFactor = lerp(taper.minSize, 1f, startTaperT)
             val startOpacityFactor = lerp(taper.minOpacity, 1f, startTaperT)
 
-            val endZone = minOf(taper.endLengthPx, total * 0.5f)
-            var endTaperT = if (endZone > 0f) ((total - at) / endZone).coerceIn(0f, 1f) else 1f
-            if (taper.liftOffSynthesizesPressure && endZone > 0f && endTaperT < 1f) {
-                val liftFactor = (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f)
-                endTaperT = (endTaperT * liftFactor).coerceIn(0f, 1f)
-            }
-            val endMinSz = taper.minSize
-            val endMinOp = taper.minOpacity
-            val endCurvedT = sqrt(endTaperT)
-            val endSizeFactor = lerp(endMinSz, 1f, endCurvedT)
-            val endOpacityFactor = lerp(endMinOp, 1f, endCurvedT)
-
-            val taperSize = minOf(startSizeFactor, endSizeFactor)
-            val taperOpacity = minOf(startOpacityFactor, endOpacityFactor)
+            val taperSize = startSizeFactor
+            val taperOpacity = startOpacityFactor
             val blotT = if (blot.lengthPx > 0f) (at / blot.lengthPx).coerceIn(0f, 1f) else 1f
             val blotSize = lerp(blot.sizeMultiplier * blotPeakFactor, 1f, blotT)
             val blotOpacity = lerp(blot.opacityMultiplier * blotPeakFactor, 1f, blotT)

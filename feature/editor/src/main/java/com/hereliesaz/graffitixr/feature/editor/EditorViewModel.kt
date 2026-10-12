@@ -366,7 +366,7 @@ internal fun gpuPipelineUsesMaskedShader(
  *  independent of any individual dab's radius -- `stamp_masked.comp` scales it per dab via UV
  *  sampling using that dab's own radius/tipRatio, the same way [BrushTipMaskCache]'s square
  *  [BrushTipMaskCache.tipMask] source is scaled into a non-square CPU dab bitmap per call. */
-private const val GPU_MASK_REFERENCE_SIZE = 128
+internal const val GPU_MASK_REFERENCE_SIZE = 128
 
 /** Joins an installed brush asset's extension id and its `assetIndex` within that extension's own
  *  usable brush assets (see [com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.InstalledBrushAsset])
@@ -1270,11 +1270,12 @@ class EditorViewModel @Inject constructor(
         val layerId: String,
         val source: Bitmap,
         val residentGeneration: Long,
-        val work: Bitmap,
-        val preStrokeBase: Bitmap,
+        val copies: StrokeCopies,
         val bound: BoundEngine?,
         val tuning: EngineTuning,
     ) {
+        val work: Bitmap get() = copies.work
+        val preStrokeBase: Bitmap get() = copies.preStrokeBase
         val engine: GpuStampEngine? get() = bound?.engine
         val residentStroke: ResidentStroke? get() = bound?.residentStroke
 
@@ -1283,6 +1284,9 @@ class EditorViewModel @Inject constructor(
             bound?.engine?.destroy()
         }
     }
+
+    /** A stroke's working copy of the layer and its pristine pre-stroke base. */
+    private class StrokeCopies(val work: Bitmap, val preStrokeBase: Bitmap)
 
     /** A seeded engine and its binding to the layer's resident copy (null: uploaded instead). */
     private class BoundEngine(val engine: GpuStampEngine, val residentStroke: ResidentStroke?)
@@ -1340,7 +1344,7 @@ class EditorViewModel @Inject constructor(
                 }
             }
             val built = PrewarmedStroke(
-                layerId, source, residentGeneration, work, base,
+                layerId, source, residentGeneration, StrokeCopies(work, base),
                 engine?.let { BoundEngine(it, residentStroke) }, tuning,
             )
             val stale = synchronized(prewarmLock) {
@@ -5399,8 +5403,8 @@ class EditorViewModel @Inject constructor(
         // Mirrors dynamicDabs()'s own gate (dynamics, maskedBrush's dynamics, or an active taper) --
         // gating on stampBrush.dynamics alone silently dropped taper and masked-tip dynamics from
         // every stroke whose brush used only those, live and on replay alike.
-        val hasMaskDynamics = stampBrush.maskedBrush?.dynamics?.isNotEmpty() == true
-        val needsDynamicDabs = stampBrush.dynamics.isNotEmpty() || hasMaskDynamics || stampBrush.taper.isActive() || stampBrush.blot.isActive() || stampBrush.contact.isActive()
+        // The same gate commit/replay use (LiveStrokeDabs), so both pick the same generator.
+        val needsDynamicDabs = com.hereliesaz.graffitixr.common.azphalt.LiveStrokeDabs.usesDynamicGenerator(stampBrush)
         val dabs = if (mappedSamples.isNotEmpty()) {
             if (needsDynamicDabs) {
                 var generator = stampDynamicDabGenerator

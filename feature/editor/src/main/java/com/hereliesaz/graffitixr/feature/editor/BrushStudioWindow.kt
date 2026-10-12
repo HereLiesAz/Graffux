@@ -290,19 +290,10 @@ fun BrushStudioWindow(
                 ParamSlider("Start length", taper.startLengthPx, 0f..600f, unit = "px") { v ->
                     onEdit { it.copy(taper = taper.copy(startLengthPx = v)) }
                 }
-                ParamSlider("End length", taper.endLengthPx, 0f..600f, unit = "px") { v ->
-                    onEdit { it.copy(taper = taper.copy(endLengthPx = v)) }
-                }
                 ParamSlider("Min size", taper.minSize, 0f..1f) { v -> onEdit { it.copy(taper = taper.copy(minSize = v)) } }
                 ParamSlider("Min opacity", taper.minOpacity, 0f..1f) { v -> onEdit { it.copy(taper = taper.copy(minOpacity = v)) } }
-                AzButton(
-                    text = if (taper.liftOffSynthesizesPressure) "Finger lift-off ✓" else "Finger lift-off",
-                    onClick = { onEdit { it.copy(taper = taper.copy(liftOffSynthesizesPressure = !taper.liftOffSynthesizesPressure)) } },
-                    shape = AzButtonShape.RECTANGLE,
-                )
                 Text(
-                    "Fades size/opacity near the start and end of a stroke. Finger lift-off additionally " +
-                        "slows the end fade with recorded speed, so a slow lift tapers more than a fast one.",
+                    "Fades size/opacity in from the start of a stroke.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

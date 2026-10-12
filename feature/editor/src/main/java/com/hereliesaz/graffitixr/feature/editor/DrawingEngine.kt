@@ -1,7 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
-import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.DirtyRegion
@@ -210,6 +209,20 @@ internal class DrawingEngine(
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         stroke.stampBrush?.let { brush ->
+            // The GPU paints the stroke (GpuStampCommit). Impasto and substrate strokes carry CPU
+            // material state (height, wetness, substrate relief) the GPU commit doesn't model yet,
+            // so they, and a device with no usable GPU, take the CPU renderer below.
+            val gpuEligible = substrate == null && !(brush.impastoThicknessRate > 0f && heightMap != null)
+            val gpuPainted = if (gpuEligible) {
+                GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
+            } else {
+                null
+            }
+            gpuPainted?.let { painted ->
+                return SelectionMask.feather(
+                    bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
+                )
+            }
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val pts = ArrayList<Float>(mapped.size * 2)
             mapped.forEach { pts.add(it.x); pts.add(it.y) }
@@ -326,35 +339,12 @@ internal class DrawingEngine(
             }
 
             val paintedDabs: List<Dab>
-            // Mirrors dynamicDabs()'s own gate: contact mechanics are themselves stateful telemetry
-            // consumers, so a mechanics-only brush must never fall back to the static legacy path.
-            val hasMaskDynamics = brush.maskedBrush?.dynamics?.isNotEmpty() == true
-            val needsDynamicDabs = brush.dynamics.isNotEmpty() || hasMaskDynamics || brush.taper.isActive() ||
-                brush.contact.isActive() || brush.airbrushDabsPerSecond > 0f
-            if (needsDynamicDabs && mappedSamples.isNotEmpty()) {
-                // Airbrush (roadmap item 13): this is the commit/replay render. EditorViewModel's
-                // live incremental preview has its own, separate integration (tracked by
-                // `stampHeldStampedCount`) that computes the same heldDabs while dragging, so the
-                // build-up is visible during the drag, not just once committed -- the two call
-                // sites are seeded from the same recorded timestamps so they agree. heldDabs needs
-                // real recorded timestamps, so it only applies in this telemetry-present branch,
-                // same as sensor dynamics above it.
-                val diameterPx = stroke.brushSize * brushScale
-                val movementDabs = BrushStamps.dynamicDabs(mappedSamples, diameterPx, brush, stroke.seed)
-                    .let { if (stroke.wrapAroundMode) wrapTiledDabs(it, target.width, target.height) else it }
-                val heldDabs = if (brush.airbrushDabsPerSecond > 0f) {
-                    AirbrushEngine.heldDabs(
-                        mappedSamples, diameterPx, brush, brush.airbrushDabsPerSecond,
-                        brush.airbrushStillnessRadiusPx, stroke.seed,
-                    )
-                } else {
-                    emptyList()
-                }.let { if (stroke.wrapAroundMode) wrapTiledDabs(it, target.width, target.height) else it }
-                // Two calls, not one combined list: movement dabs must NOT build up on each other
-                // (paintDabs' default allowBuildUp = false -- see paintRoundDabsMaxCombined's doc
-                // comment), but Airbrush's held dabs must (allowBuildUp = true) -- matching the
-                // split EditorViewModel's own live-preview integration already uses for newDabs vs
-                // newHeldDabs, so the commit render agrees with what was previewed while dragging.
+            // A recorded stroke paints exactly the dabs its live stroke did (StrokeDabs.recorded):
+            // movement dabs must NOT build up on each other (paintDabs' default allowBuildUp =
+            // false -- see paintRoundDabsMaxCombined's doc comment), Airbrush's held dabs must.
+            val recorded = StrokeDabs.recorded(stroke, brush, mapped, brushScale, target.width, target.height)
+            if (recorded != null) {
+                val (movementDabs, heldDabs) = recorded
                 StampBrushRenderer.paintDabs(
                     stampCanvas, movementDabs, brush, stroke.brushColor, stroke.flow,
                     stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,

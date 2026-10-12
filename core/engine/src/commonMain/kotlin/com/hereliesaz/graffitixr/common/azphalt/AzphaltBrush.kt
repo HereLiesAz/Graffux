@@ -38,15 +38,11 @@ enum class MaskedBrushBlendMode {
 }
 
 /**
- * Start/end stroke taper. Distances are measured in canvas pixels along the stroke path from
- * whichever end is closer; a dab inside both zones uses the smaller (more tapered) factor.
+ * Start-of-stroke taper, measured in canvas pixels along the stroke path from its start.
  *
- * [liftOffSynthesizesPressure] is the phone-first addition Krita has no direct equivalent for:
- * finger input usually reports a constant/absent pressure axis, so a fixed-distance end taper
- * looks the same whether the stroke was yanked away or lifted gently. When enabled, the end
- * taper is additionally scaled by how slow the recorded speed was at each dab relative to the
- * stroke's peak speed, so a slow, deliberate lift fades out and a fast one stays closer to full
- * size/opacity until it is cut off — approximating what a real pressure sensor would have done.
+ * [endLengthPx] and [liftOffSynthesizesPressure] are retired and ignored: an end taper needs the
+ * stroke's final length, which the live stroke never has, so the committed stroke could not match
+ * what was drawn. They stay only so saved brushes still decode.
  */
 @Serializable
 data class BrushTaper(
@@ -64,7 +60,7 @@ data class BrushTaper(
         minOpacity = minOpacity.coerceIn(0f, 1f),
     )
 
-    fun isActive(): Boolean = startLengthPx > 0f || endLengthPx > 0f
+    fun isActive(): Boolean = startLengthPx > 0f
 }
 
 /**

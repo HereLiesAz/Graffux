@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.common.azphalt
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,67 +43,25 @@ class BrushTaperTest {
     }
 
     @Test
-    fun `end taper shrinks the closing dabs`() {
-        // straight200 has constant speed=5 at both samples, so startSpeedT=1 and the natural start
-        // zone (160px) also applies. This test focuses on the END zone behavior: the tail must be
-        // well below full size regardless of what the head is doing.
-        val brush = AzphaltBrush(
-            name = "end",
-            spacing = 0.25f,
-            taper = BrushTaper(endLengthPx = 60f, minSize = 0.1f, minOpacity = 0.2f),
-        )
-        val dabs = BrushStamps.dynamicDabs(straight200, 20f, brush, seed = 5L)
-        val last = dabs.last()
-        // The convex taper curve keeps the brush wide for most of the end zone and drops sharply
-        // only at the very tip. The last placed dab must be well below the full speed-adjusted size.
-        assertTrue(last.radius < 10f * 0.5f)
-        assertTrue(last.alpha < 0.5f)
-        // Mid-stroke dab should be larger than the tail, confirming end taper is zone-limited.
-        val mid = dabs.minByOrNull { kotlin.math.abs(it.x - 100f) }!!
-        assertTrue(mid.radius > last.radius * 2f)
-    }
-
-    @Test
-    fun `overlapping start and end zones use the more tapered factor`() {
-        // 200px stroke, both zones 150px wide: every dab is inside both zones, so the smaller
-        // (more tapered) of the two factors wins rather than double-multiplying them together.
-        val brush = AzphaltBrush(
-            name = "both",
-            spacing = 0.25f,
-            taper = BrushTaper(startLengthPx = 150f, endLengthPx = 150f, minSize = 0f, minOpacity = 0f),
-        )
-        val dabs = BrushStamps.dynamicDabs(straight200, 20f, brush, seed = 5L)
-        // Midpoint (x=100) is 100px from the start and 100px from the end: both taper factors are
-        // 100/150 = 0.667, so the min is 0.667 rather than 0.667*0.667 (zones use min, not product).
-        // Additionally, straight200 runs at constant peak speed, so speedSizeFactor=0.8 also applies.
-        val mid = dabs.minByOrNull { kotlin.math.abs(it.x - 100f) }!!
-        assertEquals(10f * (100f / 150f) * 0.8f, mid.radius, 0.4f)
-    }
-
-    @Test
-    fun `lift-off synthesizes a stronger tail fade from a slow deceleration than a fast one`() {
-        val decelerating = listOf(
+    fun `retired end taper settings change nothing`() {
+        // End taper needed the final stroke length, which the live stroke never has; it is gone.
+        val samples = listOf(
             BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 5f),
             BrushSample(150f, 0f, uptimeMillis = 30L, speedPxPerMs = 5f),
             BrushSample(200f, 0f, uptimeMillis = 60L, speedPxPerMs = 0.1f),
         )
-        val constantSpeed = listOf(
-            BrushSample(0f, 0f, uptimeMillis = 0L, speedPxPerMs = 5f),
-            BrushSample(150f, 0f, uptimeMillis = 30L, speedPxPerMs = 5f),
-            BrushSample(200f, 0f, uptimeMillis = 40L, speedPxPerMs = 5f),
+        val start = BrushTaper(startLengthPx = 40f, minSize = 0.2f, minOpacity = 0.2f)
+        val plain = AzphaltBrush(name = "start-only", spacing = 0.25f, taper = start)
+        val retired = plain.copy(taper = start.copy(endLengthPx = 60f, liftOffSynthesizesPressure = true))
+        assertEquals(
+            BrushStamps.dynamicDabs(samples, 20f, plain, seed = 7L).map { it.radius to it.alpha },
+            BrushStamps.dynamicDabs(samples, 20f, retired, seed = 7L).map { it.radius to it.alpha },
         )
-        val liftOffBrush = AzphaltBrush(
-            name = "liftoff",
-            spacing = 0.25f,
-            taper = BrushTaper(endLengthPx = 60f, minSize = 0f, minOpacity = 0f, liftOffSynthesizesPressure = true),
-        )
+    }
 
-        val decelDabs = BrushStamps.dynamicDabs(decelerating, 20f, liftOffBrush, seed = 7L)
-        val constDabs = BrushStamps.dynamicDabs(constantSpeed, 20f, liftOffBrush, seed = 7L)
-        val decelTail = decelDabs.last { it.x < 195f }
-        val constTail = constDabs.last { it.x < 195f }
-        assertTrue(decelTail.radius < constTail.radius)
-
+    @Test
+    fun `an end length alone no longer makes a taper active`() {
+        assertFalse(BrushTaper(endLengthPx = 60f).isActive())
     }
 
     @Test
