@@ -1323,7 +1323,20 @@ class EditorViewModel @Inject constructor(
     // Streams a downsampled snapshot to a GIF after every committed stroke while recording is on.
     private val timeLapseRecorder = TimeLapseRecorder()
 
+    /**
+     * A lost GPU device took every engine with it: the resident copies and the pre-warmed stroke
+     * are gone, so the next stroke binds nothing stale and uploads from the CPU layers.
+     */
+    private val onDeviceLost: () -> Unit = {
+        viewModelScope.launch(dispatchers.main) {
+            layerResidency.invalidateAll()
+            discardPrewarm()
+            schedulePrewarm()
+        }
+    }
+
     init {
+        com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.add(onDeviceLost)
         // Keep the next stroke's setup built ahead of the touch (see PrewarmedStroke).
         viewModelScope.launch(dispatchers.main) {
             _uiState
@@ -2148,6 +2161,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.remove(onDeviceLost)
         discardPrewarm()
         // Resident GPU layer copies live in pooled engines that outlive this editor; free them.
         runCatching { GpuStampEngine.invalidateAllResident() }

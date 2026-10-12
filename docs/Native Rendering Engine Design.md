@@ -717,6 +717,19 @@ steady load.
   composite and wider readback are fixed per-frame costs); it pays off where the full dab does not
   fit a frame.
 
+#### Device loss
+
+A driver reset or background reclaim loses the wgpu device. The engine's device-lost callback sets a
+flag (`gfx_wgpu_device_lost`; every later call then fails closed, never panics), and every stroke's
+end asks, queued behind its work on the render thread, whether its device survived. A lost device
+discards every engine: the pooled handles at once, the document engine at its next lease
+(`GpuDeviceLoss`). Nothing canonical is lost, since the CPU layers re-seed the fresh engines: the
+editor invalidates its resident-layer generations and rebuilds the pre-warmed stroke, so the next
+stroke misses and uploads, and a GPU-side undo snapshot simply fails its swap and replays. A commit
+whose GPU stroke failed because of the loss paints once more on a fresh engine
+(`DrawingEngine.applySingleStroke`), so the recorded stroke never goes missing from the layer.
+`tests/device_lost.rs` destroys a device and checks the report and the failed call.
+
 ### 2c. Retired backends: Vulkan and OpenGL ES 3.1
 
 **Decision (2026-09).** wgpu is the only GPU backend. Removed with the two C++ engines:
