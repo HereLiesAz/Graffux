@@ -93,10 +93,10 @@ internal object GpuImpastoStroke {
         val out = FloatArray(dabs.size * HEIGHT_DAB_FLOATS)
         dabs.forEachIndexed { i, d ->
             val o = i * HEIGHT_DAB_FLOATS
-            out[o] = d.x
-            out[o + 1] = d.y
-            out[o + 2] = d.radius
-            out[o + 3] = d.alpha.coerceIn(0f, 1f) * d.flowMultiplier.coerceAtLeast(0f)
+            out[o + X] = d.x
+            out[o + Y] = d.y
+            out[o + RADIUS] = d.radius
+            out[o + STRENGTH] = d.alpha.coerceIn(0f, 1f) * d.flowMultiplier.coerceAtLeast(0f)
         }
         return out
     }
@@ -113,4 +113,8 @@ internal object GpuImpastoStroke {
     }
 
     private const val HEIGHT_DAB_FLOATS = 4
+    private const val X = 0
+    private const val Y = 1
+    private const val RADIUS = 2
+    private const val STRENGTH = 3
 }
