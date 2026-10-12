@@ -12,9 +12,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
@@ -38,51 +35,6 @@ import com.hereliesaz.graffitixr.feature.editor.prediction.rememberPredictionSes
 
 private const val EYEDROP_HOLD_MS = 500L
 private const val NANOS_PER_SECOND = 1_000_000_000f
-
-private const val MIN_STAMP_RADIUS_PX = 0.5f
-/** Blur radius, as a fraction of the brush radius, at hardness 0 (a fully soft edge). */
-private const val SOFT_EDGE_BLUR = 0.5f
-private const val ALPHA_MAX = 255f
-/**
- * Provisional ink gives way to real paint; if that signal never comes (a brush path that doesn't
- * report it), it still clears after this long rather than lingering over the stroke.
- */
-private const val PROVISIONAL_MAX_MS = 250L
-
-/**
- * Provisional ink: the path drawn as one round-capped stroke of the brush's diameter, its edge
- * softened by a blur that grows as hardness drops. One primitive, so overlapping parts of the path
- * never build up opacity (separate soft stamps did: they composited over each other and a soft
- * brush read as hard), and a long path is drawn whole, with no stamp budget to run out of. Composited
- * at [color]'s alpha. Never committed; redrawn every frame.
- */
-private fun DrawScope.drawProvisionalStroke(path: List<Offset>, color: Color, diameter: Float, hardness: Float) {
-    if (path.isEmpty()) return
-    val radius = (diameter / 2f).coerceAtLeast(MIN_STAMP_RADIUS_PX)
-    val softness = (1f - hardness.coerceIn(0f, 1f)) * radius * SOFT_EDGE_BLUR
-    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        this.color = color.copy(alpha = 1f).toArgb()
-        alpha = (color.alpha * ALPHA_MAX).toInt()
-        style = android.graphics.Paint.Style.STROKE
-        strokeCap = android.graphics.Paint.Cap.ROUND
-        strokeJoin = android.graphics.Paint.Join.ROUND
-        // The blur spreads the edge both ways; shrink the core so the soft edge ends at `radius`.
-        strokeWidth = (2f * radius - softness).coerceAtLeast(1f)
-        if (softness >= 1f) {
-            maskFilter = android.graphics.BlurMaskFilter(softness, android.graphics.BlurMaskFilter.Blur.NORMAL)
-        }
-    }
-    val native = drawContext.canvas.nativeCanvas
-    if (path.size == 1) {
-        native.drawPoint(path[0].x, path[0].y, paint)
-        return
-    }
-    val line = android.graphics.Path().apply {
-        moveTo(path[0].x, path[0].y)
-        for (i in 1 until path.size) lineTo(path[i].x, path[i].y)
-    }
-    native.drawPath(line, paint)
-}
 
 @Composable
 fun DrawingCanvas(
@@ -117,14 +69,6 @@ fun DrawingCanvas(
      * far ahead of the pen so it covers the real gap; see PredictionTournament.predict.
      */
     predictionLeadMs: () -> Long? = { null },
-    /**
-     * True once the current Brush stroke's real paint is on screen. Until then the canvas draws
-     * provisional ink itself, starting at touch-down, so the dab appears on the next frame instead
-     * of after the whole engine round trip.
-     */
-    strokePaintPresented: () -> Boolean = { false },
-    /** False when screen-space provisional ink would incorrectly sit above other visible layers. */
-    showProvisionalInk: Boolean = true,
     /** Every raw MotionEvent, before gesture handling (stroke-model training capture). */
     onRawMotionEvent: (MotionEvent) -> Unit = {},
 ) {
@@ -154,18 +98,6 @@ fun DrawingCanvas(
     val androidXPredictor = predictionSession.androidX
     val predictionTournament = predictionSession.tournament
     val androidXRunning = predictionSession.androidXRunning
-    // Provisional ink: the real samples since touch-down, drawn here until the engine's own paint
-    // shows (or PROVISIONAL_MAX_MS passes). Presentation only.
-    var provisionalInk by remember { mutableStateOf<List<Offset>?>(null) }
-    var provisionalSinceMs by remember { mutableLongStateOf(0L) }
-    // The editor's "paint presented" flag belongs to the previous stroke until onStrokeStart runs
-    // for this one (after touch slop), so it's only trusted once this is set.
-    var provisionalArmed by remember { mutableStateOf(false) }
-    val latestStrokePaintPresented = rememberUpdatedState(strokePaintPresented)
-    fun clearProvisionalInk() {
-        provisionalInk = null
-        provisionalArmed = false
-    }
     // TEMPORARY: UI frame pacing while a Brush stroke is down, appended to the reports.
     val frameMeter = remember(refreshRate) { FrameIntervalMeter((NANOS_PER_SECOND / refreshRate).toLong()) }
     var brushStrokeDown by remember { mutableStateOf(false) }
@@ -176,10 +108,6 @@ fun DrawingCanvas(
             withFrameNanos { now ->
                 if (last != 0L) frameMeter.add(now - last)
                 last = now
-                if (provisionalInk != null) {
-                    val expired = android.os.SystemClock.uptimeMillis() - provisionalSinceMs > PROVISIONAL_MAX_MS
-                    if (expired || (provisionalArmed && latestStrokePaintPresented.value())) clearProvisionalInk()
-                }
             }
         }
     }
@@ -198,7 +126,6 @@ fun DrawingCanvas(
         predictionTournament.record(GestureSample(position, uptimeMillis, pressure))
         // Predictions are ranked (TEMPORARY reports) but no longer drawn.
         predictionTournament.predict(uptimeMillis + nextFrameMs, predictionLeadMs())
-        provisionalInk = provisionalInk?.plus(position)
         val sample = brushSampleBuilder.add(
             x = position.x,
             y = position.y,
@@ -277,22 +204,15 @@ fun DrawingCanvas(
                     }
                 }
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    // Unbuffered: every hardware sample as it lands, not one batch per frame.
+                    if (activeTool != Tool.NONE) view.requestUnbufferedDispatch(event)
                     brushStrokeDown = activeTool == Tool.BRUSH
                     predictionTournament.reset()
                     brushSampleBuilder.reset()
-                    // Ink under the finger/pen now, from the raw down event, before touch slop
-                    // decides this is a stroke. Cleared if it turns into a hold, pinch or tap-off.
-                    clearProvisionalInk()
-                    if (activeTool == Tool.BRUSH && !pickingCloneSource) {
-                        val i = event.actionIndex.coerceIn(0, event.pointerCount - 1)
-                        provisionalInk = listOf(Offset(event.getX(i), event.getY(i)))
-                        provisionalSinceMs = event.eventTime
-                    }
                 }
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
-                    clearProvisionalInk()
                     brushStrokeDown = false
                     // Session-long per-horizon ranking of every predictor (frames 1-4 ahead).
                     // `adb logcat -s StrokePrediction` to read it.
@@ -341,7 +261,6 @@ fun DrawingCanvas(
                         }
 
                         if (event == null) {
-                            clearProvisionalInk()
                             eyedrop = true
                             onEyedropStart(canvasSize)
                             onEyedropSample(last)
@@ -350,7 +269,6 @@ fun DrawingCanvas(
 
                         if (event.changes.count { it.pressed } > 1) {
                             cancelled = true
-                            clearProvisionalInk()
                             if (began) {
                                 gate.markCancelled()
                                 if (activeTool == Tool.LIQUIFY) {
@@ -438,7 +356,6 @@ fun DrawingCanvas(
                                 ),
                                 canvasSize,
                             )
-                            provisionalArmed = true
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
                                     liquifyPoints = liquifyPoints + hist.position
@@ -488,16 +405,6 @@ fun DrawingCanvas(
             )
         }
 
-        if (activeTool == Tool.BRUSH && showProvisionalInk) {
-            provisionalInk?.let { path ->
-                drawProvisionalStroke(
-                    path = path,
-                    color = activeColor,
-                    diameter = brushSize,
-                    hardness = activeBrushPreview?.hardness ?: 1f,
-                )
-            }
-        }
 
         if (activeTool == Tool.BRUSH) {
             brushCursorPosition?.let { cursor ->

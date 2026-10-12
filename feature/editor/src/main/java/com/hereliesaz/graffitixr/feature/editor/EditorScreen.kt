@@ -463,9 +463,6 @@ fun EditorScreen(
                 val world = toWorld(Offset(sample.x, sample.y))
                 return sample.copy(x = world.x, y = world.y)
             }
-            val competingVisibleLayer = uiState.layers.any {
-                it.id != uiState.activeLayerId && it.isVisible
-            }
             DrawingCanvas(
                 activeTool = uiState.activeTool,
                 brushSize = uiState.effectiveScreenBrushSize(),
@@ -491,8 +488,6 @@ fun EditorScreen(
                 onPredictionRanked = { report, hz -> vm.onPredictionBrushStroke(report, hz) },
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
                 predictionLeadMs = { vm.predictionLeadMs },
-                strokePaintPresented = { vm.strokePaintPresented },
-                showProvisionalInk = !competingVisibleLayer,
                 onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
             )
         }

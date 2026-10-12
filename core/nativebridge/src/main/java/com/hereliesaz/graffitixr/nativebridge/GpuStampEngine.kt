@@ -204,9 +204,17 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          * Process-wide tuning for engines created from now on: stamp workgroup edge (8 or 16, the
          * WGSL override constant) and GPU timestamp queries.
          */
+        /**
+         * Bumped by [applyTuning]. An engine held checked out across strokes (the editor's
+         * pre-warmed stroke) compares this to drop itself when its native tuning went stale.
+         */
+        @Volatile var tuningEpoch: Int = 0
+            private set
+
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
+            tuningEpoch++
             // Pooled handles captured the old workgroup/timestamp policy at native initialization.
             // Remove them synchronously from the pool so the next stroke cannot reuse stale tuning.
             trimPool()

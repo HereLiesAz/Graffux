@@ -112,6 +112,9 @@ class GpuTuningController private constructor(context: Context) {
          * Blocking, for the non-suspending engine factories; they run on stroke workers, and it
          * returns at once when no calibration runs (the normal case), so it costs nothing there.
          */
+        /** Whether calibration is running now (the canvas pre-warm leaves it alone if so). */
+        fun isCalibrating(): Boolean = instance?.coordinator?.isRunning == true
+
         fun stopCalibrationForCanvas() {
             val coordinator = instance?.coordinator ?: return
             if (!coordinator.isRunning) return
