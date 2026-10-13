@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/export/ExportManager.kt
 package com.hereliesaz.graffitixr.feature.editor.export
 
+import com.hereliesaz.graffitixr.common.model.frame
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
@@ -440,9 +441,12 @@ class ExportManager @Inject constructor() {
     private fun getLayerScreenMatrix(layer: Layer, screenWidth: Int, screenHeight: Int): Matrix {
         val b = layer.bitmap ?: return Matrix()
         val matrix = Matrix()
+        // The layer's frame fits the screen; the bitmap sits at its origin in the frame (LayerFrame).
+        val f = layer.frame(b.width, b.height)
+        matrix.postTranslate(f.originX.toFloat(), f.originY.toFloat())
 
         // Calculate ContentScale.Fit logic so the exported image matches the UI layout bounds
-        val imageAspect = b.width.toFloat() / b.height.toFloat()
+        val imageAspect = f.width.toFloat() / f.height.toFloat()
         val screenAspect = screenWidth.toFloat() / screenHeight.toFloat()
 
         var renderWidth = screenWidth.toFloat()
@@ -455,7 +459,7 @@ class ExportManager @Inject constructor() {
         }
 
         // 1. Initial Scale to screen constraints
-        matrix.postScale(renderWidth / b.width, renderHeight / b.height)
+        matrix.postScale(renderWidth / f.width, renderHeight / f.height)
 
         // 2. Center Pivot
         matrix.postTranslate(-renderWidth / 2f, -renderHeight / 2f)

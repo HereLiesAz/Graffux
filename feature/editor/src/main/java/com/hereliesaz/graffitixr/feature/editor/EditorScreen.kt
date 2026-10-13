@@ -46,6 +46,10 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.layout.Spacer
+import com.hereliesaz.graffitixr.common.model.frame
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -55,6 +59,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
@@ -118,6 +123,9 @@ fun EditorScreen(
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
+    // The layer's frame (outline and handles) belongs to the transform tool alone: under any other
+    // tool a layer shows no bounds at all.
+    val transforming = uiState.activePanel == EditorPanel.TRANSFORM
 
     // Coordinates the drawing surfaces with the multi-finger tap observer, so a two-finger tap that
     // cancelled an in-flight stroke doesn't also undo the previous action.
@@ -361,9 +369,9 @@ fun EditorScreen(
             )
         }
 
-        // 2b. Selection outline — the active layer's transformed bounding box, so the active layer is
-        // always visibly bounded. Purely visual (no pointer input).
-        if (activeLayer != null) {
+        // 2b. Selection outline — the active layer's transformed bounding box, while transforming.
+        // Purely visual (no pointer input).
+        if (activeLayer != null && transforming) {
             SelectionOverlay(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
@@ -376,7 +384,7 @@ fun EditorScreen(
         // 2c. Transform frame — dragging the top-right corner rotates the active layer on the Z axis,
         // the bottom-right corner scales it, and the rest of the frame (the other two corners and the
         // four edges) moves it. Sits above the canvas so frame drags are claimed here.
-        if (activeLayer != null && !activeLayerLocked) {
+        if (activeLayer != null && !activeLayerLocked && transforming) {
             SelectionHandles(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
@@ -891,10 +899,11 @@ private fun LayerStackNode(
                 // the upper layer only inside the lower one's alpha and leaves the lower one alone
                 // everywhere else. That is SrcAtop.
                 val needsOffscreen = layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow
-                Image(
-                    bitmap = imageBitmap,
-                    contentDescription = null,
-                    colorFilter = colorFilter,
+                // The layer's frame fits the canvas (uniform, centred: what ContentScale.Fit did for
+                // the bitmap when the bitmap was the frame), and the bitmap is drawn at its origin
+                // in it, so paint that grew past the frame still lands where it was painted.
+                val frame = layer.frame(displayBmp.width, displayBmp.height)
+                Spacer(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
@@ -913,9 +922,9 @@ private fun LayerStackNode(
                             else
                                 CompositingStrategy.Auto
                         }
+                        .drawBehind { drawLayerBitmap(imageBitmap, frame, colorFilter) }
                         // After graphicsLayer, so the recorded screen mapping includes it.
-                        .recordOverlayPlacement(overlayGeometry, layer.id, displayBmp.width, displayBmp.height),
-                    contentScale = ContentScale.Fit
+                        .recordOverlayPlacement(overlayGeometry, layer.id, frame),
                 )
             }
         }
@@ -1614,3 +1623,21 @@ private val NON_RASTER_TOOLS = setOf(Tool.NONE, Tool.PEN, Tool.SELECT)
 
 /** Accent ring colour for the brush-size HUD. */
 private val BrushHudAccent = Color(0xFFFF4FA3)
+
+/** [image] drawn at its [frame] origin inside the frame's uniform, centred fit of this draw area. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLayerBitmap(
+    image: androidx.compose.ui.graphics.ImageBitmap,
+    frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
+    colorFilter: ColorFilter?,
+) {
+    if (frame.width <= 0 || frame.height <= 0) return
+    val fit = minOf(size.width / frame.width, size.height / frame.height)
+    val left = (size.width - frame.width * fit) / 2f + frame.originX * fit
+    val top = (size.height - frame.height * fit) / 2f + frame.originY * fit
+    withTransform({
+        translate(left, top)
+        scale(fit, fit, pivot = androidx.compose.ui.geometry.Offset.Zero)
+    }) {
+        drawImage(image, colorFilter = colorFilter)
+    }
+}

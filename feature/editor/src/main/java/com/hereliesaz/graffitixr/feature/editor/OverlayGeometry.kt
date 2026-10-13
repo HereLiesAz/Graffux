@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.LayerFrame
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -12,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Written on the UI thread, read on it at stroke start.
  */
 class OverlayGeometry {
-    private class Placement(val coordinates: LayoutCoordinates, val bitmapWidth: Int, val bitmapHeight: Int)
+    private class Placement(val coordinates: LayoutCoordinates, val frame: LayerFrame)
 
     private val placements = ConcurrentHashMap<String, Placement>()
 
@@ -21,8 +22,8 @@ class OverlayGeometry {
     var overlayOrigin: Offset = Offset.Zero
 
     /** Called from each layer Image's onGloballyPositioned (after its graphicsLayer). */
-    fun place(layerId: String, coordinates: LayoutCoordinates, bitmapWidth: Int, bitmapHeight: Int) {
-        placements[layerId] = Placement(coordinates, bitmapWidth, bitmapHeight)
+    fun place(layerId: String, coordinates: LayoutCoordinates, frame: LayerFrame) {
+        placements[layerId] = Placement(coordinates, frame)
     }
 
     fun forget(layerId: String) {
@@ -31,19 +32,21 @@ class OverlayGeometry {
 
     /**
      * Affine map from layer bitmap pixels to overlay pixels, `[a, b, c, d, e, f]` meaning
-     * `(a*u + b*v + c, d*u + e*v + f)`, or null if the layer isn't placed. Composes the Image's
-     * ContentScale.Fit with everything above it (its graphicsLayer, the workspace camera) by
+     * `(a*u + b*v + c, d*u + e*v + f)`, or null if the layer isn't placed. Composes the frame's
+     * fit and the bitmap's origin in it (LayerFrame) with everything above it (its graphicsLayer,
+     * the workspace camera) by
      * mapping three points through the real layout, so it matches what Compose draws.
      */
     fun layerToOverlay(layerId: String): FloatArray? = placements[layerId]
-        ?.takeIf { it.coordinates.isAttached && it.bitmapWidth > 0 && it.bitmapHeight > 0 }
+        ?.takeIf { it.coordinates.isAttached && it.frame.width > 0 && it.frame.height > 0 }
         ?.let { p ->
             val coords = p.coordinates
             val size = coords.size
-            // ContentScale.Fit: uniform scale, centred.
-            val scale = minOf(size.width.toFloat() / p.bitmapWidth, size.height.toFloat() / p.bitmapHeight)
-            val left = (size.width - p.bitmapWidth * scale) / 2f
-            val top = (size.height - p.bitmapHeight * scale) / 2f
+            val f = p.frame
+            // The frame fits uniformly, centred; the bitmap's pixel (0, 0) sits at its origin.
+            val scale = minOf(size.width.toFloat() / f.width, size.height.toFloat() / f.height)
+            val left = (size.width - f.width * scale) / 2f + f.originX * scale
+            val top = (size.height - f.height * scale) / 2f + f.originY * scale
             val origin = coords.localToWindow(Offset(left, top)) - overlayOrigin
             val unitU = coords.localToWindow(Offset(left + scale, top)) - overlayOrigin - origin
             val unitV = coords.localToWindow(Offset(left, top + scale)) - overlayOrigin - origin
@@ -74,8 +77,7 @@ private const val AFFINE_EPSILON = 1e-9f
 internal fun Modifier.recordOverlayPlacement(
     geometry: OverlayGeometry?,
     layerId: String,
-    bitmapWidth: Int,
-    bitmapHeight: Int,
+    frame: LayerFrame,
 ): Modifier = if (geometry == null) this else onGloballyPositioned {
-    geometry.place(layerId, it, bitmapWidth, bitmapHeight)
+    geometry.place(layerId, it, frame)
 }

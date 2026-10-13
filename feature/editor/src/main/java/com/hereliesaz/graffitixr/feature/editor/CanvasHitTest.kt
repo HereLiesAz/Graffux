@@ -1,6 +1,8 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/CanvasHitTest.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.ui.unit.IntRect
+import com.hereliesaz.graffitixr.common.model.frame
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Layer
 import kotlin.math.abs
@@ -54,8 +56,8 @@ internal object CanvasHitTest {
         // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
-            val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: continue
-            if (halfW <= 0f || halfH <= 0f) continue
+            val box = localBox(layer, canvasWidth, canvasHeight) ?: continue
+            if (box.isEmpty) continue
 
             // Invert the render transform: undo translation + centre, then rotation, then scale.
             val dx = worldTap.x - layer.offset.x - cx
@@ -66,7 +68,7 @@ internal object CanvasHitTest {
             val localX = ((dx * c + dy * s) / layer.scale).toFloat()
             val localY = ((-dx * s + dy * c) / layer.scale).toFloat()
 
-            if (abs(localX) <= halfW && abs(localY) <= halfH) return layer.id
+            if (box.contains(localX, localY)) return layer.id
         }
         return null
     }
@@ -98,8 +100,8 @@ internal object CanvasHitTest {
         val hits = mutableListOf<String>()
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
-            val (halfW, halfH) = localHalfExtents(layer, canvasWidth, canvasHeight) ?: continue
-            if (halfW <= 0f || halfH <= 0f) continue
+            val box = localBox(layer, canvasWidth, canvasHeight) ?: continue
+            if (box.isEmpty) continue
 
             val dx = worldTap.x - layer.offset.x - cx
             val dy = worldTap.y - layer.offset.y - cy
@@ -109,7 +111,7 @@ internal object CanvasHitTest {
             val localX = ((dx * c + dy * s) / layer.scale).toFloat()
             val localY = ((-dx * s + dy * c) / layer.scale).toFloat()
 
-            if (abs(localX) <= halfW && abs(localY) <= halfH) {
+            if (box.contains(localX, localY)) {
                 hits.add(layer.id)
             }
         }
@@ -119,7 +121,7 @@ internal object CanvasHitTest {
     /**
      * The four screen-space corners of [layer]'s content bounding box, in local TL, TR, BR, BL
      * order (connect them cyclically to draw the outline). This is the forward of [topHit]'s
-     * inverse: local corners at (±halfW, ±halfH) are scaled and Z-rotated about the canvas centre,
+     * inverse: the local box's corners are scaled and Z-rotated about the canvas centre,
      * then translated by the layer offset. Returns null when the layer has no measurable content or
      * the canvas is empty. Used to render the selection outline.
      */
@@ -134,10 +136,10 @@ internal object CanvasHitTest {
         if (canvasWidth <= 0f || canvasHeight <= 0f) return null
         // A sized frame (a group with a declared layout box) has no pixels of its own but does have
         // a box — outlined here so it gets transform handles, and its resize handle resizes that
-        // box (EditorViewModel.onTransformGesture). Deliberately not in localHalfExtents: tapping
+        // box (EditorViewModel.onTransformGesture). Deliberately not in localBox: tapping
         // inside a frame still picks the artwork in it, not the frame.
-        val (halfW, halfH) = frameHalfExtents(layer)
-            ?: localHalfExtents(layer, canvasWidth, canvasHeight)
+        val box = frameHalfExtents(layer)?.let { (halfW, halfH) -> LocalBox(-halfW, -halfH, halfW, halfH) }
+            ?: localBox(layer, canvasWidth, canvasHeight)
             ?: return null
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
@@ -148,10 +150,10 @@ internal object CanvasHitTest {
         val camC = cos(camRad)
         val camS = sin(camRad)
         val locals = listOf(
-            -halfW to -halfH, // TL
-            halfW to -halfH,  // TR
-            halfW to halfH,   // BR
-            -halfW to halfH,  // BL
+            box.left to box.top,     // TL
+            box.right to box.top,    // TR
+            box.right to box.bottom, // BR
+            box.left to box.bottom,  // BL
         )
         return locals.map { (lx, ly) ->
             // World (container) position, then apply the camera: screen = offset + zoom·R(rot)·world.
@@ -364,9 +366,8 @@ internal object CanvasHitTest {
     }
 
     /**
-     * The layer's content half-extents in its own local (pre-transform) pixel space, centred on the
-     * origin. Vector layers use the largest shape box; raster layers use the `ContentScale.Fit` rect
-     * of the bitmap in the canvas. Returns null when the layer has no measurable content.
+     * A sized group frame's half-extents in its own local (pre-transform) space, centred on the
+     * origin; null for anything else.
      */
     private fun frameHalfExtents(layer: Layer): Pair<Float, Float>? {
         val sized = layer.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP &&
@@ -374,16 +375,36 @@ internal object CanvasHitTest {
         return if (sized) (layer.layoutWidth / 2f) to (layer.layoutHeight / 2f) else null
     }
 
-    private fun localHalfExtents(layer: Layer, canvasWidth: Float, canvasHeight: Float): Pair<Float, Float>? {
+    /** A box in a layer's local (pre-transform) space, the canvas centre at (0, 0). */
+    private data class LocalBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+        val isEmpty: Boolean get() = right <= left || bottom <= top
+        fun contains(x: Float, y: Float): Boolean = x in left..right && y in top..bottom
+    }
+
+    /**
+     * The layer's content in its own local (pre-transform) space. Vector layers use the largest shape
+     * box, centred; raster layers use their bitmap where it sits in the layer's frame (LayerFrame),
+     * the frame fitted uniformly to the canvas and centred on it — once grown, only its painted
+     * pixels ([ContentBounds]), however far past the frame they reach. Null when the layer has no measurable content.
+     */
+    private fun localBox(layer: Layer, canvasWidth: Float, canvasHeight: Float): LocalBox? {
         if (layer.shapes.isNotEmpty()) {
             val halfW = layer.shapes.maxOf { it.width } / 2f
             val halfH = layer.shapes.maxOf { it.height } / 2f
-            return halfW to halfH
+            return LocalBox(-halfW, -halfH, halfW, halfH)
         }
-        val bmp = layer.bitmap ?: return null
-        if (bmp.width <= 0 || bmp.height <= 0) return null
-        // ContentScale.Fit: scale the bitmap uniformly to fit the canvas, preserving aspect.
-        val fit = minOf(canvasWidth / bmp.width, canvasHeight / bmp.height)
-        return (bmp.width * fit / 2f) to (bmp.height * fit / 2f)
+        return layer.bitmap?.takeIf { it.width > 0 && it.height > 0 }?.let { bmp ->
+            val f = layer.frame(bmp.width, bmp.height)
+            // A layer that has grown is measured by what is painted on it, not by how far its
+            // bitmap reaches; one that never grew keeps its whole bitmap as its box.
+            val grown = bmp.width != f.width || bmp.height != f.height || f.originX != 0 || f.originY != 0
+            val content = if (grown) ContentBounds.of(bmp) else IntRect(0, 0, bmp.width, bmp.height)
+            content?.let { c ->
+                val fit = minOf(canvasWidth / f.width, canvasHeight / f.height)
+                val left = (f.originX + c.left - f.width / 2f) * fit
+                val top = (f.originY + c.top - f.height / 2f) * fit
+                LocalBox(left, top, left + c.width * fit, top + c.height * fit)
+            }
+        }
     }
 }
