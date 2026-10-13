@@ -17,9 +17,10 @@ class LayerGrowthTest {
     @Test
     fun `a view past the frame grows on that side in whole steps`() {
         val target = LayerGrowth.coverage(frame, 1000, 2000, IntRect(-300, 0, 1000, 2000))
-        // -300 - 64 padding = -364 -> snapped to -512; the other sides keep the bitmap's edges
+        // -300 - 64 padding snaps to -512, then clamps at the two-frame cap (-500).
+        // The other sides keep the bitmap's edges
         // (the padding past them snaps up to the cap or the next step).
-        assertEquals(-512, target?.left)
+        assertEquals(-500, target?.left)
         assertEquals(0.coerceAtMost(target!!.top), target.top)
         assertEquals(true, target.right >= 1000 && target.bottom >= 2000)
     }
