@@ -30,6 +30,7 @@ internal object SelectionMask {
      * An inverted selection is the full-bitmap rect minus that region, expressed as one more
      * difference rather than a deprecated `Region.Op.DIFFERENCE` clip.
      */
+    @Suppress("LongParameterList")
     fun bitmapPath(
         selection: Selection?,
         bitmapWidth: Int,
@@ -37,6 +38,8 @@ internal object SelectionMask {
         layerScale: Float = 1f,
         layerOffset: Offset = Offset.Zero,
         layerRotationZ: Float = 0f,
+        originX: Int = 0,
+        originY: Int = 0,
     ): Path? {
         if (selection == null || !selection.isUsable) return null
         if (bitmapWidth <= 0 || bitmapHeight <= 0) return null
@@ -47,7 +50,7 @@ internal object SelectionMask {
             if (!ring.isUsable) continue
             val mapped = ImageProcessor.mapScreenToBitmap(
                 ring.path, selection.canvasSize.width, selection.canvasSize.height,
-                bitmapWidth, bitmapHeight, layerScale, layerOffset, layerRotationZ,
+                bitmapWidth, bitmapHeight, layerScale, layerOffset, layerRotationZ, originX, originY,
             )
             if (mapped.size < 3) continue
             val ringPath = Path()
@@ -91,6 +94,38 @@ internal object SelectionMask {
      * that, the same selection would feather visibly harder on a high-resolution layer than on a
      * low-resolution one sitting right beside it.
      */
+    /** [bitmapPath] for a layer whose bitmap sits in [frame] (its width/height are the frame's). */
+    fun bitmapPath(
+        selection: Selection?,
+        frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
+        layerScale: Float,
+        layerOffset: Offset,
+        layerRotationZ: Float,
+    ): Path? = bitmapPath(
+        selection, frame.width, frame.height, layerScale, layerOffset, layerRotationZ, frame.originX, frame.originY,
+    )
+
+    /** [featherRadius] for a layer's [frame] (the scale depends on the frame size only). */
+    fun featherRadius(
+        selection: Selection?,
+        frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
+        layerScale: Float,
+    ): Float = featherRadius(selection, frame.width, frame.height, layerScale)
+
+    /** [mapDelta] for a layer's [frame] (a delta depends on the frame size only). */
+    @Suppress("LongParameterList")
+    fun mapDelta(
+        delta: Offset,
+        canvasWidth: Int,
+        canvasHeight: Int,
+        frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
+        layerScale: Float,
+        layerOffset: Offset,
+        layerRotationZ: Float,
+    ): Offset = mapDelta(
+        delta, canvasWidth, canvasHeight, frame.width, frame.height, layerScale, layerOffset, layerRotationZ,
+    )
+
     fun featherRadius(
         selection: Selection?,
         bitmapWidth: Int,

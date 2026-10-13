@@ -11,6 +11,7 @@ import com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField
 import com.hereliesaz.graffitixr.common.azphalt.SubstrateProfile
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerFrame
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
@@ -68,6 +69,7 @@ internal class DrawingEngine(
      * failure exactly like [base] itself. `null` means Impasto is off for this call; it is never
      * allocated on the caller's behalf, since most strokes never touch it.
      */
+    @Suppress("LongParameterList")
     suspend fun composite(
         base: Bitmap,
         strokes: List<StrokeCommand>,
@@ -75,6 +77,8 @@ internal class DrawingEngine(
         heightMap: FloatArray? = null,
         wetnessState: WetnessReplayState? = null,
         impastoMaterialState: ImpastoMaterialReplayState? = null,
+        /** Where [base] sits in the layer's frame; null = the bitmap is the frame. */
+        frame: LayerFrame? = null,
     ): Bitmap {
         var current = SafeBitmap.copy(base)
             ?: throw IllegalStateException("Out of memory copying a ${base.width}x${base.height} layer base")
@@ -84,19 +88,19 @@ internal class DrawingEngine(
         try {
             for (stroke in strokes) {
                 val replay = session?.takeIf { !it.broken && replaysOnSession(stroke, heightMap) }
-                if (replay == null) current = synced(session, current, otherLayers, heightMap)
-                var next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke)
+                if (replay == null) current = synced(session, current, otherLayers, heightMap, frame)
+                var next = if (stroke.tool == Tool.LIQUIFY) applyLiquify(current, stroke, frame)
                 else applyTool(
                     current, stroke, otherLayers = otherLayers,
                     heightMap = heightMap, wetnessState = wetnessState,
-                    impastoMaterialState = impastoMaterialState, replay = replay,
+                    impastoMaterialState = impastoMaterialState, replay = replay, frame = frame,
                 )
                 if (replay != null && replay.broken) {
                     // The GPU failed: repaint what it held, then this stroke, on the CPU path.
-                    current = synced(session, current, otherLayers, heightMap)
+                    current = synced(session, current, otherLayers, heightMap, frame)
                     next = applyTool(
                         current, stroke, otherLayers = otherLayers,
-                        heightMap = heightMap, wetnessState = wetnessState,
+                        heightMap = heightMap, wetnessState = wetnessState, frame = frame,
                     )
                 }
                 if (impastoMaterialState != null && !strokeUsesImpastoV2(stroke)) {
@@ -105,7 +109,7 @@ internal class DrawingEngine(
                 if (next !== current && current !== base) current.recycle()
                 current = next
             }
-            return synced(session, current, otherLayers, heightMap)
+            return synced(session, current, otherLayers, heightMap, frame)
         } finally {
             session?.close()
         }
@@ -120,11 +124,12 @@ internal class DrawingEngine(
         current: Bitmap,
         otherLayers: () -> List<Layer>,
         heightMap: FloatArray?,
+        frame: LayerFrame?,
     ): Bitmap {
         if (session == null || session.flush()) return current
         var out = current
         for (lost in session.takeLost()) {
-            val next = applyTool(out, lost, otherLayers = otherLayers, heightMap = heightMap)
+            val next = applyTool(out, lost, otherLayers = otherLayers, heightMap = heightMap, frame = frame)
             if (next !== out && out !== current) out.recycle()
             out = next
         }
@@ -142,13 +147,15 @@ internal class DrawingEngine(
         impastoMaterialState: ImpastoMaterialReplayState? = null,
         /** An Impasto v2 stroke's live engine, checkpointed at this material state. */
         liveWet: LiveWetEngine? = null,
+        /** Where [base] sits in the layer's frame; null = the bitmap is the frame. */
+        frame: LayerFrame? = null,
     ): Bitmap {
         val epoch = GpuDeviceLoss.epoch()
-        var result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command)
+        var result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command, frame)
         else applyTool(
             base, command, otherLayers = { otherLayers },
             heightMap = heightMap, wetnessState = wetnessState,
-            impastoMaterialState = impastoMaterialState, liveWet = liveWet,
+            impastoMaterialState = impastoMaterialState, liveWet = liveWet, frame = frame,
         )
         // A GPU stroke that failed because the device was lost (a failed GPU call leaves the layer
         // as it was) paints once more on a fresh engine; the live engine died with the device.
@@ -156,7 +163,7 @@ internal class DrawingEngine(
             result = applyTool(
                 base, command, otherLayers = { otherLayers },
                 heightMap = heightMap, wetnessState = wetnessState,
-                impastoMaterialState = impastoMaterialState,
+                impastoMaterialState = impastoMaterialState, frame = frame,
             )
         }
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
@@ -181,19 +188,20 @@ internal class DrawingEngine(
         impastoMaterialState: ImpastoMaterialReplayState? = null,
         replay: GpuReplaySession? = null,
         liveWet: LiveWetEngine? = null,
+        frame: LayerFrame? = null,
     ): Bitmap {
+        // Where [bitmap] sits in the layer's frame; every screen-space record maps through it.
+        val lf = frame ?: LayerFrame.of(bitmap.width, bitmap.height)
         val clipPath = SelectionMask.bitmapPath(
-            stroke.selection, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            stroke.selection, lf, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
         val featherRadius = SelectionMask.featherRadius(
-            stroke.selection, bitmap.width, bitmap.height, stroke.layerScale,
+            stroke.selection, lf.width, lf.height, stroke.layerScale,
         )
         val paintClip = SelectionMask.paintClip(clipPath, featherRadius)
         stroke.warpHandles?.let { handles ->
             val inBitmap = ImageProcessor.mapScreenToBitmap(
-                handles, stroke.canvasSize.width, stroke.canvasSize.height,
-                bitmap.width, bitmap.height,
+                handles, stroke.canvasSize.width, stroke.canvasSize.height, lf,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
             return ImageWarp.warp(bitmap, inBitmap) ?: bitmap
@@ -216,14 +224,14 @@ internal class DrawingEngine(
             val delta = stroke.moveDelta ?: return bitmap
             if (clipPath == null) return bitmap
             val d = SelectionMask.mapDelta(
-                delta, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
+                delta, stroke.canvasSize.width, stroke.canvasSize.height, lf.width, lf.height,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
             return SelectionMask.moveRegion(bitmap, clipPath, d.x, d.y, featherRadius)
         }
         val mapped = ImageProcessor.mapScreenToBitmap(
-            stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
+            stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, lf,
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
         if (stroke.tool == Tool.FILL) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
@@ -235,7 +243,7 @@ internal class DrawingEngine(
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         val brushScale = ImageProcessor.screenToBitmapScale(
-            stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height, stroke.layerScale
+            stroke.canvasSize.width, stroke.canvasSize.height, lf, stroke.layerScale,
         )
         // Jetpack Ink utensil (Ink Pen, Marker, ...): the command carries the finished Ink
         // stroke, which is rendered as-is through Ink's own CanvasStrokeRenderer on the hardware
@@ -245,8 +253,9 @@ internal class DrawingEngine(
         // its feather), alpha lock and wrap-around, all read off the recorded command.
         stroke.inkStroke?.let { ink ->
             val worldToBitmap = InkAffine.worldToBitmap(
-                stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
+                stroke.canvasSize.width, stroke.canvasSize.height, lf.width, lf.height,
                 stroke.layerScale, stroke.layerOffset.x, stroke.layerOffset.y, stroke.layerRotationZ,
+                lf.originX, lf.originY,
             )
             // On Android's hardware canvas (InkGpuRaster): the layer, then the stroke clipped to the
             // selection. A failed render leaves the layer as it was.
@@ -356,7 +365,7 @@ internal class DrawingEngine(
             val wetSelection = stroke.selection?.takeIf { clipPath != null }?.let { selection ->
                 GpuWetSmudge.Selection { engine ->
                     GpuStrokeSelection.prepare(
-                        engine, selection, width, height,
+                        engine, selection, width, height, lf,
                         stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
                     )
                 }
@@ -404,7 +413,7 @@ internal class DrawingEngine(
         if (stroke.tool !in GpuRetouchStroke.TOOLS) return bitmap
         val cloneOffset = stroke.cloneOffset?.let { off ->
             SelectionMask.mapDelta(
-                off, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
+                off, stroke.canvasSize.width, stroke.canvasSize.height, lf.width, lf.height,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
         }
@@ -414,11 +423,12 @@ internal class DrawingEngine(
         )
     }
 
-    private suspend fun applyLiquify(bitmap: Bitmap, stroke: StrokeCommand): Bitmap {
+    private suspend fun applyLiquify(bitmap: Bitmap, stroke: StrokeCommand, frame: LayerFrame? = null): Bitmap {
+        val lf = frame ?: LayerFrame.of(bitmap.width, bitmap.height)
         slamManager.prepareLiquify(bitmap)
         val mapped = ImageProcessor.mapScreenToBitmap(
-            stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ
+            stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, lf,
+            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
         val flatArr = FloatArray(mapped.size * 2)
         mapped.forEachIndexed { i, pt -> flatArr[i * 2] = pt.x; flatArr[i * 2 + 1] = pt.y }
@@ -426,11 +436,10 @@ internal class DrawingEngine(
         val baked = SafeBitmap.copy(bitmap) ?: return bitmap
         slamManager.bakeLiquify(baked)
         val clipPath = SelectionMask.bitmapPath(
-            stroke.selection, bitmap.width, bitmap.height,
-            stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
+            stroke.selection, lf, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
         val featherRadius = SelectionMask.featherRadius(
-            stroke.selection, bitmap.width, bitmap.height, stroke.layerScale,
+            stroke.selection, lf.width, lf.height, stroke.layerScale,
         )
         return SelectionMask.confine(bitmap, baked, clipPath, featherRadius)
     }

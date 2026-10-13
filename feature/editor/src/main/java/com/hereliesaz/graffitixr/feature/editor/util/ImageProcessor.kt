@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.BlurMaskFilter
 import androidx.compose.ui.geometry.Offset
+import com.hereliesaz.graffitixr.common.model.LayerFrame
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.model.CatmullRom
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -54,8 +55,10 @@ object ImageProcessor {
     }
 
     /**
-     * Maps screen-space touch coordinates to pixel-space bitmap coordinates,
-     * accounting for Compose's ContentScale.Fit logic used in the UI.
+     * Maps screen-space touch coordinates to pixel-space bitmap coordinates, accounting for
+     * Compose's ContentScale.Fit logic used in the UI. `bitmapWidth`/`bitmapHeight` are the layer's
+     * FRAME size (LayerFrame: the bitmap's own size until it grows); `originX`/`originY` place the
+     * bitmap in the frame.
      */
     /**
      * The exact inverse of [mapScreenToBitmap] — bitmap pixels back out to screen points.
@@ -67,6 +70,7 @@ object ImageProcessor {
      * derivation, so the two cannot drift apart — a wand selection that landed even slightly
      * off would clip the paint somewhere other than where the ants were drawn.
      */
+    @Suppress("LongParameterList")
     fun mapBitmapToScreen(
         points: List<Offset>,
         screenWidth: Int,
@@ -76,6 +80,8 @@ object ImageProcessor {
         layerScale: Float = 1f,
         layerOffset: Offset = Offset.Zero,
         layerRotationZ: Float = 0f,
+        originX: Int = 0,
+        originY: Int = 0,
     ): List<Offset> {
         val screenCx = screenWidth / 2f
         val screenCy = screenHeight / 2f
@@ -102,9 +108,11 @@ object ImageProcessor {
         val safeScale = if (kotlin.math.abs(layerScale) > 1e-4f) layerScale else 1f
 
         return points.map { pt ->
-            // Step 4 undone: redo the ContentScale.Fit letterboxing.
-            val lx = (if (fitScaleX != 0f) pt.x / fitScaleX else 0f) + fitOffX
-            val ly = (if (fitScaleY != 0f) pt.y / fitScaleY else 0f) + fitOffY
+            // Step 5 undone: bitmap pixel -> frame pixel. Step 4 undone: redo the letterboxing.
+            val fx = pt.x + originX
+            val fy = pt.y + originY
+            val lx = (if (fitScaleX != 0f) fx / fitScaleX else 0f) + fitOffX
+            val ly = (if (fitScaleY != 0f) fy / fitScaleY else 0f) + fitOffY
 
             // Step 3 undone: redo the layer scale, about the screen centre.
             val rx = (lx - screenCx) * safeScale
@@ -121,6 +129,7 @@ object ImageProcessor {
         }
     }
 
+    @Suppress("LongParameterList")
     fun mapScreenToBitmap(
         stroke: List<Offset>,
         screenWidth: Int,
@@ -129,7 +138,9 @@ object ImageProcessor {
         bitmapHeight: Int,
         layerScale: Float = 1f,
         layerOffset: Offset = Offset.Zero,
-        layerRotationZ: Float = 0f
+        layerRotationZ: Float = 0f,
+        originX: Int = 0,
+        originY: Int = 0,
     ): List<Offset> {
         val screenCx = screenWidth / 2f
         val screenCy = screenHeight / 2f
@@ -173,12 +184,47 @@ object ImageProcessor {
             // Step 4: Back to layout space, then undo ContentScale.Fit letterboxing.
             val lx = ux + screenCx
             val ly = uy + screenCy
+            // Step 5: frame pixel -> bitmap pixel (the bitmap sits at the frame's origin).
             Offset(
-                (lx - fitOffX) * fitScaleX,
-                (ly - fitOffY) * fitScaleY
+                (lx - fitOffX) * fitScaleX - originX,
+                (ly - fitOffY) * fitScaleY - originY,
             )
         }
     }
+
+    /** [screenToBitmapScale] for a layer's [frame] (the scale depends on the frame size only). */
+    fun screenToBitmapScale(screenWidth: Int, screenHeight: Int, frame: LayerFrame, layerScale: Float): Float =
+        screenToBitmapScale(screenWidth, screenHeight, frame.width, frame.height, layerScale)
+
+    /** [mapScreenToBitmap] into a layer whose bitmap sits in [frame]. */
+    @Suppress("LongParameterList")
+    fun mapScreenToBitmap(
+        points: List<Offset>,
+        screenWidth: Int,
+        screenHeight: Int,
+        frame: LayerFrame,
+        layerScale: Float,
+        layerOffset: Offset,
+        layerRotationZ: Float,
+    ): List<Offset> = mapScreenToBitmap(
+        points, screenWidth, screenHeight, frame.width, frame.height,
+        layerScale, layerOffset, layerRotationZ, frame.originX, frame.originY,
+    )
+
+    /** [mapBitmapToScreen] out of a layer whose bitmap sits in [frame]. */
+    @Suppress("LongParameterList")
+    fun mapBitmapToScreen(
+        points: List<Offset>,
+        screenWidth: Int,
+        screenHeight: Int,
+        frame: LayerFrame,
+        layerScale: Float,
+        layerOffset: Offset,
+        layerRotationZ: Float,
+    ): List<Offset> = mapBitmapToScreen(
+        points, screenWidth, screenHeight, frame.width, frame.height,
+        layerScale, layerOffset, layerRotationZ, frame.originX, frame.originY,
+    )
 
     /**
      * Scanline flood fill (Procreate's ColorDrop): recolours the contiguous region around

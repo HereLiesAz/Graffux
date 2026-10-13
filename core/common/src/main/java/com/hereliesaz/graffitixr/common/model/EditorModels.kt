@@ -106,6 +106,17 @@ data class Layer(
      */
     val is3D: Boolean = false,
     val scale: Float = 1.0f,
+    /**
+     * A raster layer's frame: the fixed reference rectangle its transform and the canvas mapping
+     * act on (see [LayerFrame]), and where [bitmap] sits inside it. The bitmap is only the painted
+     * extent and grows past the frame on any side; the frame never changes, so a layer keeps its
+     * place on screen however far its paint reaches. 0 = the bitmap's own size (every layer before
+     * frames existed), origin 0 = the bitmap's corner at the frame's.
+     */
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
+    val originX: Int = 0,
+    val originY: Int = 0,
     val isInverted: Boolean = false,
     // Vector content. When non-empty this is a vector layer (rendered from these shapes via Canvas);
     // when empty the layer is the usual raster layer backed by [bitmap]. Defaulted for back-compat.

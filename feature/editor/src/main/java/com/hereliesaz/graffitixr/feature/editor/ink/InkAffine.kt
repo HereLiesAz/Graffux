@@ -68,7 +68,8 @@ internal data class InkAffine(
         }
 
         /**
-         * World → layer bitmap: exactly `ImageProcessor.mapScreenToBitmap` (whose "screen" is the
+         * World → layer bitmap (bitmap* = the layer's frame size, origin = where the bitmap sits in
+         * it): exactly `ImageProcessor.mapScreenToBitmap` (whose "screen" is the
          * world space strokes are recorded in) as a matrix — undo the layer translation about the
          * canvas centre, undo its rotation, undo its scale, then undo the ContentScale.Fit
          * letterbox. Its linear scale is `ImageProcessor.screenToBitmapScale`, which is why an Ink
@@ -85,6 +86,8 @@ internal data class InkAffine(
             layerOffsetX: Float,
             layerOffsetY: Float,
             layerRotationDeg: Float,
+            originX: Int = 0,
+            originY: Int = 0,
         ): InkAffine {
             if (minOf(canvasWidth, canvasHeight, bitmapWidth, bitmapHeight) <= 0) return IDENTITY
             val cx = canvasWidth / 2f
@@ -115,7 +118,9 @@ internal data class InkAffine(
             val unscale = InkAffine(1f / s, 0f, 0f, 0f, 1f / s, 0f)
             val fromPivot = translation(cx - fitOffX, cy - fitOffY)
             val fit = InkAffine(fitScaleX, 0f, 0f, 0f, fitScaleY, 0f)
-            return fit.after(fromPivot).after(unscale).after(unrotate).after(toPivot)
+            // Frame pixel -> bitmap pixel: the bitmap sits at the frame's origin (LayerFrame).
+            val toBitmap = translation(-originX.toFloat(), -originY.toFloat())
+            return toBitmap.after(fit).after(fromPivot).after(unscale).after(unrotate).after(toPivot)
         }
 
         /**

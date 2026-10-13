@@ -28,6 +28,7 @@ internal object GpuStrokeSelection {
         val selection: Selection,
         val width: Int,
         val height: Int,
+        val frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
         val scale: Float,
         val offset: Offset,
         val rotationZ: Float,
@@ -37,7 +38,8 @@ internal object GpuStrokeSelection {
     private var cached: Pair<ByteArray, Boolean>? = null
 
     /**
-     * Uploads [selection]'s coverage for a [width]x[height] layer with the given transform and keeps
+     * Uploads [selection]'s coverage for a [width]x[height] layer bitmap sitting in [frame], with the
+     * given transform, and keeps
      * the layer as it is now. Null when there is no selection or the engine can't (the commit then
      * paints the stroke again through the replay path, which masks it).
      */
@@ -47,12 +49,13 @@ internal object GpuStrokeSelection {
         selection: Selection?,
         width: Int,
         height: Int,
+        frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
         scale: Float,
         offset: Offset,
         rotationZ: Float,
     ): Prepared? {
         val built = selection?.takeIf { it.isUsable }
-            ?.let { coverage(Key(it, width, height, scale, offset, rotationZ)) }
+            ?.let { coverage(Key(it, width, height, frame, scale, offset, rotationZ)) }
         val gpu = GpuSelection(engine)
         return built?.let { (coverage, feathered) ->
             Prepared(feathered).takeIf { gpu.set(coverage) && gpu.takeShadow() }
@@ -65,8 +68,8 @@ internal object GpuStrokeSelection {
     @Synchronized
     private fun coverage(key: Key): Pair<ByteArray, Boolean>? {
         if (key == cachedKey) return cached
-        val path = SelectionMask.bitmapPath(key.selection, key.width, key.height, key.scale, key.offset, key.rotationZ)
-        val radius = SelectionMask.featherRadius(key.selection, key.width, key.height, key.scale)
+        val path = SelectionMask.bitmapPath(key.selection, key.frame, key.scale, key.offset, key.rotationZ)
+        val radius = SelectionMask.featherRadius(key.selection, key.frame, key.scale)
         val bytes = if (radius > 0f) {
             SelectionMask.featherWeights(path, key.width, key.height, radius)
         } else {

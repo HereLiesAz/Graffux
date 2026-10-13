@@ -883,6 +883,8 @@ class EditorViewModel @Inject constructor(
     private var strokeLayerScale: Float = 1f
     private var strokeLayerOffset: Offset = Offset.Zero
     private var strokeLayerRotationZ: Float = 0f
+    /** Where the stroke's layer bitmap sits in its frame, captured with the transform above. */
+    private var strokeLayerFrame: LayerFrame = LayerFrame(1, 1)
 
     // Liquify live-preview state — valid only between onStrokeStart and onStrokeEnd for LIQUIFY.
     private var liquifyJob: kotlinx.coroutines.Job? = null
@@ -1767,6 +1769,11 @@ class EditorViewModel @Inject constructor(
             bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         }
 
+    /** Where [bitmap] (a base or working copy of [layerId]) sits in that layer's frame. */
+    private fun layerFrameFor(layerId: String, bitmap: Bitmap): LayerFrame =
+        _uiState.value.layers.find { it.id == layerId }?.frame(bitmap.width, bitmap.height)
+            ?: LayerFrame.of(bitmap.width, bitmap.height)
+
     private fun maybeBakeOldStrokes(layerId: String) {
         val excess = layerStore.strokeCount(layerId) - HISTORY_DEPTH
         if (excess <= 0) return
@@ -1803,6 +1810,7 @@ class EditorViewModel @Inject constructor(
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
                     impastoMaterialState = materialWorking,
+                    frame = layerFrameFor(layerId, base),
                 )
                 withContext(dispatchers.main) {
                     // Re-check under the main thread: a project reload could have replaced the
@@ -1895,6 +1903,7 @@ class EditorViewModel @Inject constructor(
                     heightMap = heightWorking,
                     wetnessState = wetnessWorking,
                     impastoMaterialState = materialWorking,
+                    frame = layerFrameFor(layerId, base),
                 )
 
                 // Used by undo/redo: the layer's pixels changed in a way the guest can't replay, so
@@ -2024,6 +2033,7 @@ class EditorViewModel @Inject constructor(
             val newBitmap = drawingEngine.applySingleStroke(
                 activeBitmap, command, otherLayers, heightWorking,
                 impastoMaterialState = materialWorking,
+                frame = layer.frame(activeBitmap.width, activeBitmap.height),
             )
             if (materialWorking != null && !strokeNeedsImpastoMaterial(command)) {
                 // A non-material edit intentionally flattens the current appearance into pigment.
@@ -4536,6 +4546,7 @@ class EditorViewModel @Inject constructor(
         strokeLayerScale = layer.scale
         strokeLayerOffset = layer.offset
         strokeLayerRotationZ = layer.rotationZ
+        strokeLayerFrame = layer.frame(originalBitmap.width, originalBitmap.height)
         // Captured once per stroke: mid-stroke toggles must not desync live paint from the
         // recorded command that undo/redo replays.
         strokeWrapAroundMode = state.wrapAroundMode
@@ -4696,7 +4707,8 @@ class EditorViewModel @Inject constructor(
                 // engine and the engine keeps the layer as it is, before any dab lands.
                 val gpuSelection = gpuEngine?.let {
                     GpuStrokeSelection.prepare(
-                        it, strokeSelection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
+                        it, strokeSelection, work.width, work.height, layer.frame(work.width, work.height),
+                        layer.scale, layer.offset, layer.rotationZ,
                     )
                 }
                 // Item 12's live-preview follow-up: a per-stroke scratch height map (a defensive
@@ -4728,7 +4740,7 @@ class EditorViewModel @Inject constructor(
                 val materialSelectionSeed = if (usesImpastoV2) {
                     SelectionMask.region(
                         SelectionMask.bitmapPath(
-                            strokeSelection, work.width, work.height,
+                            strokeSelection, layer.frame(work.width, work.height),
                             layer.scale, layer.offset, layer.rotationZ,
                         ),
                         work.width,
@@ -4753,9 +4765,12 @@ class EditorViewModel @Inject constructor(
                         materialConfig.toMedium().sanitized(),
                         StrokeSelection(
                             SelectionMask.bitmapPath(
-                                strokeSelection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
+                                strokeSelection, layer.frame(work.width, work.height),
+                                layer.scale, layer.offset, layer.rotationZ,
                             ),
-                            SelectionMask.featherRadius(strokeSelection, work.width, work.height, layer.scale),
+                            SelectionMask.featherRadius(
+                                strokeSelection, layer.frame(work.width, work.height), layer.scale,
+                            ),
                         ),
                     )
                 // The live start's upload, kept on the GPU for the commit (stampGpuWetCheckpoint).
@@ -4796,7 +4811,7 @@ class EditorViewModel @Inject constructor(
                             SelectionMask.clip(
                                 c,
                                 SelectionMask.bitmapPath(
-                                    strokeSelection, work.width, work.height,
+                                    strokeSelection, layer.frame(work.width, work.height),
                                     layer.scale, layer.offset, layer.rotationZ,
                                 ),
                             )
@@ -4914,7 +4929,7 @@ class EditorViewModel @Inject constructor(
             SelectionMask.clip(
                 workCanvas,
                 SelectionMask.bitmapPath(
-                    strokeSelection, workBitmap.width, workBitmap.height,
+                    strokeSelection, layer.frame(workBitmap.width, workBitmap.height),
                     layer.scale, layer.offset, layer.rotationZ,
                 ),
             )
@@ -4926,7 +4941,7 @@ class EditorViewModel @Inject constructor(
             // Match the rail size preview exactly: brushSize is screen px; scale it into this layer's
             // bitmap space (1f for an unscaled sketch) so the painted dab is the previewed diameter.
             val brushScale = ImageProcessor.screenToBitmapScale(
-                canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height, layerScale
+                canvasSize.width, canvasSize.height, layer.frame(workBitmap.width, workBitmap.height), layerScale
             )
             val paint = buildStrokePaint(tool, argb, brushSize * brushScale, feathering, strokeAlphaLock, strokeOpacity)
 
@@ -4959,7 +4974,7 @@ class EditorViewModel @Inject constructor(
             val createdGpuSelection = createdGpuEngine?.let {
                 GpuStrokeSelection.prepare(
                     it, strokeSelection, workBitmap.width, workBitmap.height,
-                    layer.scale, layer.offset, layer.rotationZ,
+                    layer.frame(workBitmap.width, workBitmap.height), layer.scale, layer.offset, layer.rotationZ,
                 )
             }
             val gpuEngine = synchronized(liveCurveLock) {
@@ -5003,7 +5018,7 @@ class EditorViewModel @Inject constructor(
             val catchUpPoints = snapshotStrokePoints()
             val catchUpPressures = snapshotStrokePressures()
             val mappedAll = ImageProcessor.mapScreenToBitmap(
-                catchUpPoints, canvasSize.width, canvasSize.height, workBitmap.width, workBitmap.height,
+                catchUpPoints, canvasSize.width, canvasSize.height, layer.frame(workBitmap.width, workBitmap.height),
                 layerScale, layerOffset, layerRotationZ
             )
 
@@ -5178,7 +5193,7 @@ class EditorViewModel @Inject constructor(
 
                 // We need to map these screen points to the bitmap space
                 val mapped = ImageProcessor.mapScreenToBitmap(
-                    listOf(p1, p2), canvasW, canvasH, original.width, original.height,
+                    listOf(p1, p2), canvasW, canvasH, strokeLayerFrame,
                     capturedScale, capturedOffset, capturedRotZ
                 )
 
@@ -5210,12 +5225,12 @@ class EditorViewModel @Inject constructor(
             val points = snapshotStrokePoints()
             if (points.size < 2) return
             val mapped = ImageProcessor.mapScreenToBitmap(
-                points, strokeCanvasW, strokeCanvasH, original.width, original.height,
+                points, strokeCanvasW, strokeCanvasH, strokeLayerFrame,
                 strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ,
             )
             if (mapped.size < 2) return
             val brushScale = ImageProcessor.screenToBitmapScale(
-                strokeCanvasW, strokeCanvasH, original.width, original.height, strokeLayerScale,
+                strokeCanvasW, strokeCanvasH, strokeLayerFrame, strokeLayerScale,
             )
             val brushSizePx = _uiState.value.effectivePaintBrushSize() * brushScale
             val feathering = _uiState.value.brushFeathering
@@ -5298,7 +5313,7 @@ class EditorViewModel @Inject constructor(
         val workBitmap = strokeWorkingBitmap ?: return
 
         val mapped = ImageProcessor.mapScreenToBitmap(
-            listOf(currentPoint), strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height,
+            listOf(currentPoint), strokeCanvasW, strokeCanvasH, strokeLayerFrame,
             strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
         ).first()
 
@@ -5316,11 +5331,11 @@ class EditorViewModel @Inject constructor(
             } else emptyList()
             if (tailScreen.isNotEmpty()) {
                 val tailMapped = ImageProcessor.mapScreenToBitmap(
-                    tailScreen, strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height,
+                    tailScreen, strokeCanvasW, strokeCanvasH, strokeLayerFrame,
                     strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ,
                 )
                 val brushScale = ImageProcessor.screenToBitmapScale(
-                    strokeCanvasW, strokeCanvasH, workBitmap.width, workBitmap.height, strokeLayerScale
+                    strokeCanvasW, strokeCanvasH, strokeLayerFrame, strokeLayerScale
                 )
                 var previous = prev
                 for (i in tailMapped.indices) {
@@ -5390,13 +5405,13 @@ class EditorViewModel @Inject constructor(
         val mappedCount = stampMappedPoints.size / 2
         if (all.size > mappedCount) {
             val fresh = ImageProcessor.mapScreenToBitmap(
-                all.subList(mappedCount, all.size), strokeCanvasW, strokeCanvasH, work.width, work.height,
+                all.subList(mappedCount, all.size), strokeCanvasW, strokeCanvasH, strokeLayerFrame,
                 strokeLayerScale, strokeLayerOffset, strokeLayerRotationZ
             )
             fresh.forEach { stampMappedPoints.add(it.x); stampMappedPoints.add(it.y) }
         }
         val brushScale = ImageProcessor.screenToBitmapScale(
-            strokeCanvasW, strokeCanvasH, work.width, work.height, strokeLayerScale
+            strokeCanvasW, strokeCanvasH, strokeLayerFrame, strokeLayerScale
         )
         val diameterPx = _uiState.value.effectivePaintBrushSize() * brushScale
         val allSamples = snapshotStrokeSamples()
@@ -5951,6 +5966,7 @@ class EditorViewModel @Inject constructor(
                         base, command,
                         wetnessState = wetnessWorking,
                         impastoMaterialState = materialWorking,
+                        frame = layer.frame(base.width, base.height),
                     )
                     withContext(dispatchers.main) {
                         wetnessWorking?.let { layerStore.putLiveWetness(layerId, it) }
@@ -5979,7 +5995,7 @@ class EditorViewModel @Inject constructor(
             // Co-op: peers replay the same op from the stroke command. The ordinal comes from the
             // command, not a literal — a literal here would have every sharpen arrive as a blur.
             val coopPoints = ImageProcessor.mapScreenToBitmap(
-                points, canvasW, canvasH, base.width, base.height,
+                points, canvasW, canvasH, layer.frame(base.width, base.height),
                 capturedScale, capturedOffset, capturedRotationZ,
             )
             opEmitter.emit(
@@ -6030,7 +6046,9 @@ class EditorViewModel @Inject constructor(
             // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
             rebuildJobs[layerId]?.cancel()
             rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                val cloned = drawingEngine.applySingleStroke(base, command)
+                val cloned = drawingEngine.applySingleStroke(
+                    base, command, frame = layer.frame(base.width, base.height),
+                )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
@@ -6082,7 +6100,9 @@ class EditorViewModel @Inject constructor(
             // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
             rebuildJobs[layerId]?.cancel()
             rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                val warped = drawingEngine.applySingleStroke(base, command)
+                val warped = drawingEngine.applySingleStroke(
+                    base, command, frame = layer.frame(base.width, base.height),
+                )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
@@ -6131,7 +6151,9 @@ class EditorViewModel @Inject constructor(
             maybeBakeOldStrokes(layerId)
             rebuildJobs[layerId]?.cancel()
             rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                val painted = drawingEngine.applySingleStroke(bitmap, command)
+                val painted = drawingEngine.applySingleStroke(
+                    bitmap, command, frame = layer.frame(bitmap.width, bitmap.height),
+                )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = painted) else it })
@@ -6189,7 +6211,7 @@ class EditorViewModel @Inject constructor(
             // flash between the two edges.
             val base = layer.bitmap
             val featherRadius = if (base == null) 0f else SelectionMask.featherRadius(
-                strokeSelection, base.width, base.height, capturedScale,
+                strokeSelection, layer.frame(base.width, base.height), capturedScale,
             )
             // The working bitmap was hard-clipped to the selection when its canvas was made, which
             // makes it the wrong pixels to commit under a feathered one: history replays this
@@ -6209,7 +6231,9 @@ class EditorViewModel @Inject constructor(
                         // The live GPU layer when the live stroke painted on the GPU; otherwise (or
                         // if finishing it fails) the stroke painted again from its recorded dabs.
                         val live = basicHandoff?.let { finishLiveBasic(it, base, command) }
-                        val committed = live ?: drawingEngine.applySingleStroke(base, command)
+                        val committed = live ?: drawingEngine.applySingleStroke(
+                            base, command, frame = layer.frame(base.width, base.height),
+                        )
                         // The live GPU layer is exactly what was committed: nothing to diff.
                         val gpuCommitted = live != null
                         val residentChanged = if (gpuCommitted) {
@@ -6268,7 +6292,7 @@ class EditorViewModel @Inject constructor(
             val bitmap = layer.bitmap
             if (bitmap != null) {
                 val mappedPoints = ImageProcessor.mapScreenToBitmap(
-                    points, canvasW, canvasH, bitmap.width, bitmap.height,
+                    points, canvasW, canvasH, layer.frame(bitmap.width, bitmap.height),
                     capturedScale, capturedOffset, capturedRotationZ
                 )
                 val pointsFlat = mappedPoints.flatMap { listOf(it.x, it.y) }
@@ -6425,6 +6449,7 @@ class EditorViewModel @Inject constructor(
                         wetnessState = wetnessWorking,
                         impastoMaterialState = materialWorking,
                         liveWet = liveWet?.also { handoff.worker?.join() },
+                        frame = layer.frame(base.width, base.height),
                     )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 strokeLog("commit: cancelled before publish")
@@ -6753,9 +6778,12 @@ class EditorViewModel @Inject constructor(
         prepared != null && GpuStrokeSelection.confine(engine, prepared)
 
     /** A live Basic Brush stroke's GPU engine and unpainted runs, taken over by its commit. */
+    @Suppress("LongParameterList")
     private class LiveBasicHandoff(
         val engine: GpuStampEngine,
         val work: Bitmap,
+        /** Where [work] sits in its layer's frame. */
+        val frame: LayerFrame,
         /** The live worker, possibly still stamping onto [engine]. */
         val worker: Job?,
         /** Runs generated but not yet stamped. */
@@ -6781,7 +6809,7 @@ class EditorViewModel @Inject constructor(
                 // The Eraser's commit stamps every run again (idempotent under stroke-max), so its
                 // live runs, placed per point as they arrived, never need lining up with them.
                 LiveBasicHandoff(
-                    engine, work, basicGpuJob, basicPendingDabs.drain().map { it.second },
+                    engine, work, strokeLayerFrame, basicGpuJob, basicPendingDabs.drain().map { it.second },
                     if (strokeLinePaint != null) 0 else liveCurveFinalizedCount, strokeGpuSelection,
                 )
             }
@@ -6801,11 +6829,11 @@ class EditorViewModel @Inject constructor(
             val canvasW = command.canvasSize.width
             val canvasH = command.canvasSize.height
             val mapped = ImageProcessor.mapScreenToBitmap(
-                command.path, canvasW, canvasH, base.width, base.height,
+                command.path, canvasW, canvasH, handoff.frame,
                 command.layerScale, command.layerOffset, command.layerRotationZ,
             )
             val brushScale = ImageProcessor.screenToBitmapScale(
-                canvasW, canvasH, base.width, base.height, command.layerScale,
+                canvasW, canvasH, handoff.frame, command.layerScale,
             )
             val retouch = GpuRetouchStroke.paint(command)
             val runs = if (retouch != null) {
@@ -6938,7 +6966,9 @@ class EditorViewModel @Inject constructor(
             // Through the replay path, not a second flood of its own. This built the HARD clip and
             // published the result unfeathered, while DrawingEngine's FILL branch feathers — so a
             // bucket fill inside a feathered selection changed edge the first time it was undone.
-            val target = drawingEngine.applySingleStroke(base, command)
+            val target = drawingEngine.applySingleStroke(
+                base, command, frame = layer.frame(base.width, base.height),
+            )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -7095,7 +7125,9 @@ class EditorViewModel @Inject constructor(
             // whichever published second erased the other.
             inkCommitLocks.getOrPut(layerId) { Mutex() }.withLock {
                 val latest = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: base
-                val target = drawingEngine.applySingleStroke(latest, command)
+                val target = drawingEngine.applySingleStroke(
+                    latest, command, frame = layer.frame(latest.width, latest.height),
+                )
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -7110,13 +7142,13 @@ class EditorViewModel @Inject constructor(
         // rebuilds the stroke through that same Ink family — see inkCoopStroke for what differs.
         // A bitmap per stroke was far heavier.
         if (opEmitter.isActive) {
-            opEmitter.emit(Op.StrokeComplete(layerId, inkCoopStroke(command, base.width, base.height)))
+            opEmitter.emit(Op.StrokeComplete(layerId, inkCoopStroke(command, layer.frame(base.width, base.height))))
         }
     }
 
     /**
      * The co-op [BrushStroke] for an Ink [command]: what [onStrokeEnd] sends for a Tool.BRUSH round
-     * stroke — points mapped into the layer's [bitmapWidth]×[bitmapHeight] pixels, the recorded
+     * stroke — points mapped into the layer's pixels through its [frame], the recorded
      * pressures and opacity — plus [BrushStroke.inkUtensilId], so the guest re-renders it through the
      * same stock Ink family. What it still can't carry: the input timestamps (the guest spaces its
      * inputs evenly — the stock families shape by distance, so this is invisible), and alpha lock /
@@ -7126,9 +7158,9 @@ class EditorViewModel @Inject constructor(
      * older peer to stay compatible with yet; a transport that decodes with a strict format would
      * need `ignoreUnknownKeys` to accept this field from a newer build.)
      */
-    private fun inkCoopStroke(command: StrokeCommand, bitmapWidth: Int, bitmapHeight: Int): BrushStroke {
+    private fun inkCoopStroke(command: StrokeCommand, frame: LayerFrame): BrushStroke {
         val mapped = ImageProcessor.mapScreenToBitmap(
-            command.path, command.canvasSize.width, command.canvasSize.height, bitmapWidth, bitmapHeight,
+            command.path, command.canvasSize.width, command.canvasSize.height, frame,
             command.layerScale, command.layerOffset, command.layerRotationZ,
         )
         return BrushStroke(
@@ -7212,7 +7244,9 @@ class EditorViewModel @Inject constructor(
             // Straight through the replay path rather than a second implementation of the same
             // composite — the one thing the feather work proved is worth insisting on, since a
             // commit that differs from its replay changes the layer on the first undo.
-            val target = drawingEngine.applySingleStroke(base, command)
+            val target = drawingEngine.applySingleStroke(
+                base, command, frame = layer.frame(base.width, base.height),
+            )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -7257,12 +7291,14 @@ class EditorViewModel @Inject constructor(
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
             val work = SafeBitmap.copy(base) ?: return@launch
             val hard = SelectionMask.bitmapPath(
-                command.selection, work.width, work.height, layer.scale, layer.offset, layer.rotationZ,
+                command.selection, layer.frame(work.width, work.height), layer.scale, layer.offset, layer.rotationZ,
             )
             // Same feather contract as DrawingEngine, and it has to be: this is the immediate
             // result, and the recorded command replays through there on undo/redo. If only one of
             // the two feathered, the layer would change appearance the first time you undid.
-            val radius = SelectionMask.featherRadius(command.selection, work.width, work.height, layer.scale)
+            val radius = SelectionMask.featherRadius(
+                command.selection, layer.frame(work.width, work.height), layer.scale,
+            )
             val canvas = Canvas(work)
             SelectionMask.clip(canvas, SelectionMask.paintClip(hard, radius))
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
@@ -7477,7 +7513,7 @@ class EditorViewModel @Inject constructor(
         val current = state.selection
         viewModelScope.launch(dispatchers.default) {
             val seed = ImageProcessor.mapScreenToBitmap(
-                listOf(at), canvasSize.width, canvasSize.height, bitmap.width, bitmap.height,
+                listOf(at), canvasSize.width, canvasSize.height, layer.frame(bitmap.width, bitmap.height),
                 layer.scale, layer.offset, layer.rotationZ,
             ).firstOrNull() ?: return@launch
             val mask = MagicWand.mask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance)
@@ -7489,7 +7525,7 @@ class EditorViewModel @Inject constructor(
                     path = SelectionGeometry.simplify(
                         ImageProcessor.mapBitmapToScreen(
                             ring.path, canvasSize.width, canvasSize.height,
-                            bitmap.width, bitmap.height, layer.scale, layer.offset, layer.rotationZ,
+                            layer.frame(bitmap.width, bitmap.height), layer.scale, layer.offset, layer.rotationZ,
                         ),
                         // Gentler than a traced lasso's thinning. The wand's vertices are already
                         // only the turns, so anything aggressive here rounds off the corners that
@@ -7561,11 +7597,11 @@ class EditorViewModel @Inject constructor(
         fun reframe(points: List<Offset>): List<Offset> {
             if (bitmap == null || layer == null) return points
             val inBitmap = ImageProcessor.mapScreenToBitmap(
-                points, previous.width, previous.height, bitmap.width, bitmap.height,
+                points, previous.width, previous.height, layer.frame(bitmap.width, bitmap.height),
                 layer.scale, layer.offset, layer.rotationZ,
             )
             return ImageProcessor.mapBitmapToScreen(
-                inBitmap, size.width, size.height, bitmap.width, bitmap.height,
+                inBitmap, size.width, size.height, layer.frame(bitmap.width, bitmap.height),
                 layer.scale, layer.offset, layer.rotationZ,
             )
         }
@@ -7654,7 +7690,7 @@ class EditorViewModel @Inject constructor(
         )
         dispatch(EditorIntent.SetWarpHandles(
             ImageProcessor.mapBitmapToScreen(
-                corners, canvasW, canvasH, bitmap.width, bitmap.height,
+                corners, canvasW, canvasH, layer.frame(bitmap.width, bitmap.height),
                 layer.scale, layer.offset, layer.rotationZ,
             )
         ))
@@ -7696,7 +7732,7 @@ class EditorViewModel @Inject constructor(
         warpJob?.cancel()
         warpJob = viewModelScope.launch(dispatchers.default) {
             val inBitmap = ImageProcessor.mapScreenToBitmap(
-                handles, canvasW, canvasH, original.width, original.height,
+                handles, canvasW, canvasH, layer.frame(original.width, original.height),
                 layer.scale, layer.offset, layer.rotationZ,
             )
             val warped = ImageWarp.warp(original, inBitmap) ?: return@launch
@@ -7732,7 +7768,7 @@ class EditorViewModel @Inject constructor(
         warpJob?.cancel()
         val bitmap = if (original != null && handles.isNotEmpty()) {
             val inBitmap = ImageProcessor.mapScreenToBitmap(
-                handles, canvasW, canvasH, original.width, original.height,
+                handles, canvasW, canvasH, layer.frame(original.width, original.height),
                 layer.scale, layer.offset, layer.rotationZ,
             )
             ImageWarp.warp(original, inBitmap)?.also { warped ->
@@ -7822,9 +7858,9 @@ class EditorViewModel @Inject constructor(
             return false
         }
         val clip = SelectionMask.bitmapPath(
-            state.selection, base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+            state.selection, layer.frame(base.width, base.height), layer.scale, layer.offset, layer.rotationZ,
         )
-        val radius = SelectionMask.featherRadius(state.selection, base.width, base.height, layer.scale)
+        val radius = SelectionMask.featherRadius(state.selection, layer.frame(base.width, base.height), layer.scale)
         val lifted = SelectionMask.lift(base, clip, radius) ?: return false
         // Not recycled here: a paste already in flight on another dispatcher may still be reading
         // it. Dropping the reference is enough — the collector takes it once nothing holds it,
@@ -8027,15 +8063,15 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.default) {
             val clipPath = SelectionMask.bitmapPath(
-                selection, base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+                selection, layer.frame(base.width, base.height), layer.scale, layer.offset, layer.rotationZ,
             ) ?: return@launch
             val d = SelectionMask.mapDelta(
                 delta, selection.canvasSize.width, selection.canvasSize.height,
-                base.width, base.height, layer.scale, layer.offset, layer.rotationZ,
+                layer.frame(base.width, base.height), layer.scale, layer.offset, layer.rotationZ,
             )
             val moved = SelectionMask.moveRegion(
                 base, clipPath, d.x, d.y,
-                SelectionMask.featherRadius(selection, base.width, base.height, layer.scale),
+                SelectionMask.featherRadius(selection, layer.frame(base.width, base.height), layer.scale),
             )
             withContext(dispatchers.main) {
                 _uiState.update { s ->
