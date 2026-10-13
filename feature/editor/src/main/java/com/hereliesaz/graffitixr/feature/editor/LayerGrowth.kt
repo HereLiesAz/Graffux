@@ -68,6 +68,10 @@ internal object LayerGrowth {
      */
     fun coverage(frame: LayerFrame, bitmapWidth: Int, bitmapHeight: Int, visible: IntRect): IntRect? {
         val current = IntRect(frame.originX, frame.originY, frame.originX + bitmapWidth, frame.originY + bitmapHeight)
+        // Do not allocate extra padding when the visible area already fits the bitmap.
+        if (visible.left >= current.left && visible.top >= current.top &&
+            visible.right <= current.right && visible.bottom <= current.bottom
+        ) return null
         val spanX = frame.width * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
         val spanY = frame.height * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
         val cap = IntRect(-spanX, -spanY, frame.width + spanX, frame.height + spanY)
