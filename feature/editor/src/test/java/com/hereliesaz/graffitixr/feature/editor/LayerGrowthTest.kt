@@ -15,6 +15,12 @@ class LayerGrowthTest {
     }
 
     @Test
+    fun `a view inside the bitmap near its edges grows for stroke padding`() {
+        val target = LayerGrowth.coverage(frame, 1000, 2000, IntRect(32, 32, 968, 1968))
+        assertEquals(IntRect(-256, -256, 1280, 2048), target)
+    }
+
+    @Test
     fun `a view past the frame grows on that side in whole steps`() {
         val target = LayerGrowth.coverage(frame, 1000, 2000, IntRect(-300, 0, 1000, 2000))
         // -300 - 64 padding snaps to -512, then clamps at the two-frame cap (-500).
