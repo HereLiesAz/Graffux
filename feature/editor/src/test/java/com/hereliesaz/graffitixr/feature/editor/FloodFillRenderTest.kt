@@ -1,6 +1,13 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.model.LayerFrame
+import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -27,6 +34,46 @@ class FloodFillRenderTest {
         @JvmStatic
         @BeforeClass
         fun setUp() = RenderTestBase.stubNativeLibs()
+    }
+
+    @Test
+    fun `whole layer fill leaves padded pixels transparent`() = runBlocking {
+        val bitmap = RenderTestBase.filled(24, 24, Color.TRANSPARENT)
+        val command = StrokeCommand(
+            path = emptyList(),
+            canvasSize = IntSize(16, 16),
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = Color.RED,
+            intensity = 1f,
+            fillSelection = true,
+        )
+        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+            bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
+        )
+        assertEquals(Color.TRANSPARENT, painted.getPixel(0, 0))
+        assertEquals(Color.RED, painted.getPixel(4, 4))
+        assertEquals(Color.RED, painted.getPixel(19, 19))
+        assertEquals(Color.TRANSPARENT, painted.getPixel(20, 20))
+    }
+
+    @Test
+    fun `bucket fill cannot leak into an unselected frame margin`() = runBlocking {
+        val bitmap = RenderTestBase.filled(24, 24, Color.TRANSPARENT)
+        val command = StrokeCommand(
+            path = listOf(Offset(8f, 8f)),
+            canvasSize = IntSize(16, 16),
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = Color.RED,
+            intensity = 1f,
+        )
+        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+            bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
+        )
+        assertEquals(Color.TRANSPARENT, painted.getPixel(0, 0))
+        assertEquals(Color.RED, painted.getPixel(12, 12))
+        assertEquals(Color.TRANSPARENT, painted.getPixel(20, 20))
     }
 
     @Test
