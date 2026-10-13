@@ -23,9 +23,9 @@ class LayerGrowthTest {
     @Test
     fun `a new blank layer reserves padding before a stroke`() {
         val bounds = LayerGrowth.initialBlankCoverage(1000, 2000)
-        assertEquals(IntRect(-256, -256, 1280, 2048), bounds)
+        assertEquals(IntRect(-256, -256, 1280, 2304), bounds)
         val allocatedFrame = LayerFrame(1000, 2000, originX = -256, originY = -256)
-        assertNull(LayerGrowth.coverage(allocatedFrame, 1536, 2304, IntRect(0, 0, 1000, 2000)))
+        assertNull(LayerGrowth.coverage(allocatedFrame, 1536, 2560, IntRect(0, 0, 1000, 2000)))
     }
 
     @Test
