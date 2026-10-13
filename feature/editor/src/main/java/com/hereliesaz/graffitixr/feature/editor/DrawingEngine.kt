@@ -210,6 +210,12 @@ internal class DrawingEngine(
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val canvas = android.graphics.Canvas(target)
             SelectionMask.clip(canvas, paintClip)
+            if (clipPath == null) {
+                canvas.clipRect(
+                    -lf.originX.toFloat(), -lf.originY.toFloat(),
+                    (lf.width - lf.originX).toFloat(), (lf.height - lf.originY).toFloat(),
+                )
+            }
             canvas.drawColor(stroke.brushColor, android.graphics.PorterDuff.Mode.SRC_OVER)
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
@@ -238,7 +244,10 @@ internal class DrawingEngine(
             val p = mapped.firstOrNull() ?: return target
             ImageProcessor.floodFill(
                 target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
-                clipRegion = SelectionMask.region(clipPath, target.width, target.height),
+                clipRegion = SelectionMask.region(clipPath, target.width, target.height)
+                    ?: android.graphics.Region(
+                        -lf.originX, -lf.originY, lf.width - lf.originX, lf.height - lf.originY,
+                    ),
             )
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
@@ -263,7 +272,9 @@ internal class DrawingEngine(
                 canvas.drawBitmap(bitmap, 0f, 0f, null)
                 val saved = canvas.save()
                 SelectionMask.clip(canvas, paintClip)
-                InkStrokes.draw(canvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode)
+                InkStrokes.draw(
+                    canvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode, lf.width, lf.height,
+                )
                 canvas.restoreToCount(saved)
             } ?: return bitmap
             return SelectionMask.feather(bitmap, painted, clipPath, featherRadius)

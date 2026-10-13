@@ -90,6 +90,13 @@ internal object LayerGrowth {
         return target.takeIf { it != current && pixels <= LAYER_GROWTH_MAX_PIXELS }
     }
 
+    /**
+     * Preallocate a blank layer's stroke padding before its first touch. The same growth caps
+     * apply, but an empty layer needs only one allocation: no existing pixels to copy.
+     */
+    fun initialBlankCoverage(width: Int, height: Int): IntRect? =
+        coverage(LayerFrame(width, height), width, height, IntRect(0, 0, width, height))
+
     /** [bitmap] (in [frame]) copied into a transparent bitmap covering [target]; null on OOM. */
     fun grow(bitmap: Bitmap, frame: LayerFrame, target: IntRect): Bitmap? =
         SafeBitmap.create(target.width, target.height)?.also { grown ->

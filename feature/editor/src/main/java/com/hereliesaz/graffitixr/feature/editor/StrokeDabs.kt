@@ -81,6 +81,9 @@ internal object StrokeDabs {
     }
 
     private fun tiler(stroke: StrokeCommand, width: Int, height: Int): (List<Dab>) -> List<Dab> = { dabs ->
-        if (stroke.wrapAroundMode) wrapTiledDabs(dabs, width, height) else dabs
+        if (stroke.wrapAroundMode) wrapTiledDabs(
+            dabs, stroke.wrapFrameWidth.takeIf { it > 0 } ?: width,
+            stroke.wrapFrameHeight.takeIf { it > 0 } ?: height,
+        ) else dabs
     }
 }

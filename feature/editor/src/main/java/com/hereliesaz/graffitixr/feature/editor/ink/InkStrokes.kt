@@ -88,12 +88,15 @@ internal object InkStrokes {
      * [wrapAround] draws the stroke nine times, offset by one canvas in each direction, exactly as
      * `ImageProcessor.drawStroke` tiles a wrapped path.
      */
+    @Suppress("LongParameterList")
     fun draw(
         canvas: Canvas,
         stroke: Stroke,
         worldToBitmap: InkAffine,
         alphaLock: Boolean,
         wrapAround: Boolean,
+        frameWidth: Int = canvas.width,
+        frameHeight: Int = canvas.height,
     ) {
         // A renderer per commit: DrawingEngine can run on several default-dispatcher threads at once
         // (one per layer being rebuilt) and a renderer's paint caches are not documented as
@@ -105,8 +108,8 @@ internal object InkStrokes {
             null
         }
         val matrix = Matrix()
-        val w = canvas.width.toFloat()
-        val h = canvas.height.toFloat()
+        val w = frameWidth.toFloat()
+        val h = frameHeight.toFloat()
         val tiles = if (wrapAround) -1..1 else 0..0
         for (dx in tiles) {
             for (dy in tiles) {
