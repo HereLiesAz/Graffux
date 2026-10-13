@@ -71,6 +71,12 @@ data class OverlayLayer(
     val autoLayout: AutoLayout = AutoLayout(),
     val layoutWidth: Float = 0f,
     val layoutHeight: Float = 0f,
+    // A raster layer's frame and where its (possibly grown) bitmap sits in it (Layer.frameWidth).
+    // Absent from older saves: 0 / 0 = the bitmap is the frame, as it always was then.
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
+    val originX: Int = 0,
+    val originY: Int = 0,
     val isVisible: Boolean = true,
     val warpMesh: List<Float>? = null,
     val isSketch: Boolean = false,

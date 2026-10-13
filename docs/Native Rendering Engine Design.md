@@ -774,6 +774,30 @@ negative operands implementation-defined (the wgpu port uses a floored modulo be
 across frame batches, which the wgpu engine kept. The code is in git history before the
 retirement commit.
 
+### 2d. Layer frames: layers without edges
+
+A raster layer is no longer the size of its bitmap. It has a **frame** (`LayerFrame`: a fixed
+reference rectangle, the size the layer was created at) and its bitmap sits in that frame at an
+**origin**. The canvas fits the frame to the screen and the layer's transform moves it; the bitmap is
+drawn at its origin inside the frame. Frame pixel `p` is bitmap pixel `p - origin`, and every
+screen↔bitmap mapping (`ImageProcessor.mapScreenToBitmap` / `mapBitmapToScreen`, selection masks,
+Ink's `worldToBitmap`, the direct-display placement, export matrices, hit boxes) goes through it.
+
+**Growth.** At stroke start (`EditorViewModel.growLayerToView`) the bitmap grows to cover everything
+visible on screen, in the frame's coordinates: grown on any side in 256 px steps
+(`LayerGrowth.coverage`), at most two frame sizes per axis centred on the frame (and 24 MP in all),
+old pixels copied to their shifted place. The frame never moves, so nothing on screen does. The
+stored base grows the same way, so the stroke log replays onto it unchanged; the tile-delta and GPU
+undo fast paths check sizes and residency generations and fall back to replay. Growth is decided once,
+before the live engine binds the bitmap, so one stroke runs on one engine size. Layers with Impasto or
+wet material state, and wrap-around, stay ungrown for now (their per-pixel arrays are sized to the
+bitmap).
+
+**Bounds.** A grown layer is measured by its painted pixels (`ContentBounds`, cached per bitmap
+generation): the transform outline and hit box hug the paint, on or off the artboard. The outline and
+its handles show only while Move / Transform is open. Frame and origin persist in project.json
+(`OverlayLayer.frameWidth` …); older saves load with frame = bitmap, origin 0.
+
 ## 3. Front-buffer / low-latency presentation
 
 **Retired (2026-09, §2c): `LiveStrokeOverlay`,** the Vulkan/GLES direct display below. The

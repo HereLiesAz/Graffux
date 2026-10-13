@@ -4468,6 +4468,69 @@ class EditorViewModel @Inject constructor(
         return _uiState.value.layers.find { it.id == layerId }?.bitmap
     }
 
+    /**
+     * Grows [layerId]'s bitmap so it covers the whole visible canvas, in the layer's frame
+     * (LayerFrame): the frame stays put, the bitmap extends past it on any side, and the origin
+     * records where it now sits. Old pixels are copied to their shifted place, in the layer and in
+     * its stored base, so the stroke log replays onto the grown base unchanged. The tile-delta and
+     * GPU undo fast paths check sizes and residency generations, so they fall back to replay.
+     *
+     * Not for layers carrying Impasto / wet material state (their per-pixel arrays stay at the
+     * bitmap's size) or under wrap-around (which tiles the bitmap itself). Growth is padded to
+     * [LAYER_GROWTH_STEP] pixels and capped at [LAYER_GROWTH_MAX_FRAMES] frame sizes per axis.
+     */
+    private fun growLayerToView(layerId: String, canvasSize: IntSize, state: EditorUiState) {
+        val layer = state.layers.find { it.id == layerId }
+        val bitmap = layer?.bitmap
+        val target = if (layer != null && bitmap != null) layerGrowthTarget(layer, bitmap, canvasSize, state) else null
+        if (layer == null || bitmap == null || target == null) return
+        val frame = layer.frame(bitmap.width, bitmap.height)
+        val grown = LayerGrowth.grow(bitmap, frame, target) ?: return
+        // The stored base grows the same way, so the stroke log replays onto the grown pixels.
+        layerStore.base(layerId)?.takeIf { it.width == bitmap.width && it.height == bitmap.height }?.let { base ->
+            LayerGrowth.grow(base, frame, target)?.let { putLayerBase(layerId, it) }
+        }
+        _uiState.update { s ->
+            s.copy(
+                layers = s.layers.map {
+                    if (it.id != layerId) it else it.copy(
+                        bitmap = grown,
+                        frameWidth = frame.width,
+                        frameHeight = frame.height,
+                        originX = target.left,
+                        originY = target.top,
+                    )
+                },
+            )
+        }
+        layerResidency.invalidate(layerId)
+        discardPrewarm()
+        strokeLog("grew $layerId to ${grown.width}x${grown.height} at (${target.left}, ${target.top})")
+        scheduleDiskSave(layerId, grown, layer.uri)
+    }
+
+    /** Where [layer]'s [bitmap] should sit to cover the visible canvas; null = leave it as it is. */
+    private fun layerGrowthTarget(
+        layer: Layer,
+        bitmap: Bitmap,
+        canvasSize: IntSize,
+        state: EditorUiState,
+    ): androidx.compose.ui.unit.IntRect? {
+        val blocked = !layer.supportsAlphaLock || state.wrapAroundMode || layer.heightMap != null ||
+            layerStore.hasWetnessState(layer.id) || layerStore.hasImpastoMaterialState(layer.id) ||
+            layerStore.heightBaseCopyOrNull(layer.id) != null ||
+            canvasSize.width <= 0 || canvasSize.height <= 0
+        if (blocked) return null
+        val frame = layer.frame(bitmap.width, bitmap.height)
+        return LayerGrowth.coverage(
+            frame, bitmap.width, bitmap.height,
+            LayerGrowth.visibleFrameRect(
+                frame, canvasSize, layer.scale, layer.offset, layer.rotationZ,
+                state.viewportOffset, state.viewportZoom, state.viewportRotation,
+            ),
+        )
+    }
+
     /** Emits a co-op LayerPropsChange for the active layer, if any. */
     private fun emitActiveLayerProps() {
         val id = _uiState.value.activeLayerId ?: return
@@ -4508,7 +4571,12 @@ class EditorViewModel @Inject constructor(
         }
         val layerId = state.activeLayerId ?: return
         strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
-        val originalBitmap = ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
+        ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
+        // The layer reaches as far as the screen does: grown (once, before anything binds or copies
+        // its bitmap) to cover everything visible, so a stroke can run off the artboard.
+        growLayerToView(layerId, canvasSize, state)
+        val originalBitmap = _uiState.value.layers.find { it.id == layerId }?.bitmap
+            ?: return strokeLog("start: no paintable bitmap")
         val layer = _uiState.value.layers.find { it.id == layerId } ?: return
         strokeLog(
             "start: bitmap=${originalBitmap.width}x${originalBitmap.height} recycled=${originalBitmap.isRecycled} " +

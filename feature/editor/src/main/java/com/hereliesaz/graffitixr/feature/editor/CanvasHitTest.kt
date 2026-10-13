@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/CanvasHitTest.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.ui.unit.IntRect
 import com.hereliesaz.graffitixr.common.model.frame
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -383,8 +384,8 @@ internal object CanvasHitTest {
     /**
      * The layer's content in its own local (pre-transform) space. Vector layers use the largest shape
      * box, centred; raster layers use their bitmap where it sits in the layer's frame (LayerFrame),
-     * the frame fitted uniformly to the canvas and centred on it, so the box is the painted extent,
-     * however far past the frame it reaches. Null when the layer has no measurable content.
+     * the frame fitted uniformly to the canvas and centred on it — once grown, only its painted
+     * pixels ([ContentBounds]), however far past the frame they reach. Null when the layer has no measurable content.
      */
     private fun localBox(layer: Layer, canvasWidth: Float, canvasHeight: Float): LocalBox? {
         if (layer.shapes.isNotEmpty()) {
@@ -394,10 +395,16 @@ internal object CanvasHitTest {
         }
         return layer.bitmap?.takeIf { it.width > 0 && it.height > 0 }?.let { bmp ->
             val f = layer.frame(bmp.width, bmp.height)
-            val fit = minOf(canvasWidth / f.width, canvasHeight / f.height)
-            val left = (f.originX - f.width / 2f) * fit
-            val top = (f.originY - f.height / 2f) * fit
-            LocalBox(left, top, left + bmp.width * fit, top + bmp.height * fit)
+            // A layer that has grown is measured by what is painted on it, not by how far its
+            // bitmap reaches; one that never grew keeps its whole bitmap as its box.
+            val grown = bmp.width != f.width || bmp.height != f.height || f.originX != 0 || f.originY != 0
+            val content = if (grown) ContentBounds.of(bmp) else IntRect(0, 0, bmp.width, bmp.height)
+            content?.let { c ->
+                val fit = minOf(canvasWidth / f.width, canvasHeight / f.height)
+                val left = (f.originX + c.left - f.width / 2f) * fit
+                val top = (f.originY + c.top - f.height / 2f) * fit
+                LocalBox(left, top, left + c.width * fit, top + c.height * fit)
+            }
         }
     }
 }
