@@ -153,6 +153,9 @@ data class StrokeCommand(
     // so a wrapped stroke's edge tiling vanished the moment it committed under a feathered selection,
     // or on the very next undo/redo/auto-bake.
     val wrapAroundMode: Boolean = false,
+    // Wrap repeats at the artboard frame, never at the larger padded bitmap bounds.
+    val wrapFrameWidth: Int = 0,
+    val wrapFrameHeight: Int = 0,
     // The lasso selection in force when the stroke was drawn, if any. Recorded per stroke (rather
     // than read from live state at replay time) so an undo/redo re-composites against the same
     // boundary the paint was originally clipped to, even after the selection has moved or gone.
@@ -1869,16 +1872,20 @@ class EditorViewModel @Inject constructor(
      * to move, so the first touch need not grow and recopy the bitmap and its undo base.
      * If the padded allocation fails, retain the original size and its on-demand growth path.
      */
-    private fun createBlankPaintBitmap(): Pair<Bitmap, LayerFrame> {
+    private fun createBlankPaintBitmap(): Triple<Bitmap, LayerFrame, Bitmap?> {
         val (width, height) = newLayerSize()
         val frame = LayerFrame(width, height)
         val padded = LayerGrowth.initialBlankCoverage(width, height)
         val blank = padded?.let { SafeBitmap.create(it.width, it.height) }
-        return if (blank != null && padded != null) {
-            blank to frame.copy(originX = padded.left, originY = padded.top)
-        } else {
-            createBitmap(width, height) to frame
+        if (blank != null && padded != null) {
+            val base = SafeBitmap.copy(blank, mutable = false)
+            if (base != null) return Triple(
+                blank, frame.copy(originX = padded.left, originY = padded.top), base,
+            )
+            // Do not publish padded pixels without a replay base: undo would silently fail.
+            blank.recycle()
         }
+        return Triple(createBitmap(width, height), frame, null)
     }
 
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
@@ -2942,7 +2949,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         viewModelScope.launch(dispatchers.io) {
             val projectId = ensureProjectId()
-            val (blankBitmap, frame) = createBlankPaintBitmap()
+            val (blankBitmap, frame, baseBitmap) = createBlankPaintBitmap()
 
             // Persisting the artifact can fail (storage full, a first-run I/O hiccup) — don't let
             // that leave the layer (and, via activeToolOverride, the tool the user picked) stuck
@@ -2973,7 +2980,8 @@ class EditorViewModel @Inject constructor(
                     originY = frame.originY,
                 )
 
-                putLayerBase(newLayer.id, blankBitmap)
+                if (baseBitmap != null) layerStore.putBase(newLayer.id, baseBitmap)
+                else putLayerBase(newLayer.id, blankBitmap)
                 layerStore.initStrokes(newLayer.id)
 
                 dispatch(EditorIntent.AddLayer(newLayer, activeToolOverride = activeToolOverride))
@@ -5116,8 +5124,8 @@ class EditorViewModel @Inject constructor(
                 return@launch
             }
 
-            val bw = workBitmap.width.toFloat()
-            val bh = workBitmap.height.toFloat()
+            val bw = strokeLayerFrame.width.toFloat()
+            val bh = strokeLayerFrame.height.toFloat()
 
             // Draws [seg] with wrap-around tiling.
             fun drawPathAll(seg: android.graphics.Path) {
@@ -5149,7 +5157,7 @@ class EditorViewModel @Inject constructor(
                     // recursion immediately as each point arrives, only drawing is windowed, so
                     // live pixels match replayed pixels once the stroke commits.
                     feedLiveCurvePoint(
-                        paint, workBitmap.width, workBitmap.height,
+                        paint, strokeLayerFrame.width, strokeLayerFrame.height,
                         strokeWrapAroundMode, mappedAll[0], 0f, workBitmap,
                         generation = generation,
                     )
@@ -5157,7 +5165,7 @@ class EditorViewModel @Inject constructor(
                         val p = catchUpPressures.getOrNull(i) ?: 1f
                         val width = dyn.next((mappedAll[i] - mappedAll[i - 1]).getDistance(), brushSize * brushScale, p)
                         feedLiveCurvePoint(
-                            paint, workBitmap.width, workBitmap.height,
+                            paint, strokeLayerFrame.width, strokeLayerFrame.height,
                             strokeWrapAroundMode, mappedAll[i], width, workBitmap,
                             generation = generation,
                         )
@@ -5349,7 +5357,7 @@ class EditorViewModel @Inject constructor(
                     Tool.BLUR, Tool.SHARPEN -> resampleLiveOnGpu(original, generation, work) { engine ->
                         GpuRetouchStroke.neighbourhood(
                             engine, tool,
-                            GpuBasicStroke.eraserRuns(mapped, brushSizePx, wrap, work.width, work.height).flatten(),
+                            GpuBasicStroke.eraserRuns(mapped, brushSizePx, wrap, strokeLayerFrame.width, strokeLayerFrame.height).flatten(),
                             GpuRetouchStroke.Neighbourhood(LINE_TOOL_INTENSITY, feathering, wrap), null,
                         )
                     }
@@ -5436,7 +5444,7 @@ class EditorViewModel @Inject constructor(
                         pointPressure,
                     )
                     feedLiveCurvePoint(
-                        paint, workBitmap.width, workBitmap.height,
+                        paint, strokeLayerFrame.width, strokeLayerFrame.height,
                         strokeWrapAroundMode, next, width, workBitmap,
                     )
                     previous = next
@@ -5454,8 +5462,8 @@ class EditorViewModel @Inject constructor(
             seg.lineTo(mapped.x, mapped.y)
 
             if (strokeWrapAroundMode) {
-                val w = workBitmap.width.toFloat()
-                val h = workBitmap.height.toFloat()
+                val w = strokeLayerFrame.width.toFloat()
+                val h = strokeLayerFrame.height.toFloat()
                 for (dx in -1..1) {
                     for (dy in -1..1) {
                         if (dx == 0 && dy == 0) {
@@ -5599,7 +5607,7 @@ class EditorViewModel @Inject constructor(
             // Wrap-around tiles here, after slicing, so the stamped counters above stay in
             // untiled-dab units; DrawingEngine's commit tiles the same way (wrapTiledDabs).
             val tile: (List<Dab>) -> List<Dab> = { list ->
-                if (strokeWrapAroundMode) wrapTiledDabs(list, work.width, work.height) else list
+                if (strokeWrapAroundMode) wrapTiledDabs(list, strokeLayerFrame.width, strokeLayerFrame.height) else list
             }
             val newDabs = tile(
                 if (hasNewMovementDabs) dabs.subList(stampStampedCount, dabs.size).toList() else emptyList(),
@@ -6008,6 +6016,8 @@ class EditorViewModel @Inject constructor(
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
                 wrapAroundMode = strokeWrapAroundMode,
+                wrapFrameWidth = strokeLayerFrame.width,
+                wrapFrameHeight = strokeLayerFrame.height,
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
@@ -6123,6 +6133,8 @@ class EditorViewModel @Inject constructor(
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
                 wrapAroundMode = strokeWrapAroundMode,
+                wrapFrameWidth = strokeLayerFrame.width,
+                wrapFrameHeight = strokeLayerFrame.height,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
                 cloneOffset = cloneOffsetFor(state, points),
@@ -6229,6 +6241,8 @@ class EditorViewModel @Inject constructor(
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
                 wrapAroundMode = strokeWrapAroundMode,
+                wrapFrameWidth = strokeLayerFrame.width,
+                wrapFrameHeight = strokeLayerFrame.height,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
                 cloneOffset = cloneOffsetFor(state, points),
@@ -6276,6 +6290,8 @@ class EditorViewModel @Inject constructor(
                 layerOffset = capturedOffset,
                 layerRotationZ = capturedRotationZ,
                 wrapAroundMode = strokeWrapAroundMode,
+                wrapFrameWidth = strokeLayerFrame.width,
+                wrapFrameHeight = strokeLayerFrame.height,
                 alphaLock = strokeAlphaLock,
                 selection = strokeSelection,
                 cloneOffset = cloneOffsetFor(state, points),
@@ -6472,6 +6488,8 @@ class EditorViewModel @Inject constructor(
             stampMaskShape = stampMaskShape,
             selection = selection,
             wrapAroundMode = strokeWrapAroundMode,
+            wrapFrameWidth = strokeLayerFrame.width,
+            wrapFrameHeight = strokeLayerFrame.height,
             stampBatches = handoff.batches,
         )
         layerStore.addStroke(layerId, command)
@@ -6926,7 +6944,9 @@ class EditorViewModel @Inject constructor(
             val retouch = GpuRetouchStroke.paint(command)
             val runs = if (retouch != null) {
                 GpuBasicStroke.eraserRuns(
-                    mapped, command.brushSize * brushScale, command.wrapAroundMode, base.width, base.height,
+                    mapped, command.brushSize * brushScale, command.wrapAroundMode,
+                    command.wrapFrameWidth.takeIf { it > 0 } ?: base.width,
+                    command.wrapFrameHeight.takeIf { it > 0 } ?: base.height,
                 )
             } else {
                 GpuBasicStroke.runsFor(command, mapped, brushScale, base.width, base.height)
@@ -7198,6 +7218,8 @@ class EditorViewModel @Inject constructor(
             layerRotationZ = layer.rotationZ,
             alphaLock = layer.alphaLock,
             wrapAroundMode = state.wrapAroundMode,
+            wrapFrameWidth = layer.frame(base.width, base.height).width,
+            wrapFrameHeight = layer.frame(base.width, base.height).height,
             selection = state.selection,
             inkStroke = stroke,
             inkUtensil = utensil,
@@ -8705,7 +8727,7 @@ class EditorViewModel @Inject constructor(
             val projectId = project.id
             Breadcrumbs.record("project created")
 
-            val (blankBitmap, frame) = createBlankPaintBitmap()
+            val (blankBitmap, frame, baseBitmap) = createBlankPaintBitmap()
             val filename = "layer_${UUID.randomUUID()}.png"
             val localUri = try {
                 val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
@@ -8730,7 +8752,8 @@ class EditorViewModel @Inject constructor(
             // project's layer list, then wiped, and the first save persists the wrong layers.
             _uiState.first { it.projectId == projectId }
             withContext(dispatchers.main) {
-                putLayerBase(bgLayer.id, blankBitmap)
+                if (baseBitmap != null) layerStore.putBase(bgLayer.id, baseBitmap)
+                else putLayerBase(bgLayer.id, blankBitmap)
                 layerStore.initStrokes(bgLayer.id)
                 dispatch(EditorIntent.AddLayer(bgLayer))
                 saveProject()
