@@ -68,17 +68,17 @@ internal object LayerGrowth {
      */
     fun coverage(frame: LayerFrame, bitmapWidth: Int, bitmapHeight: Int, visible: IntRect): IntRect? {
         val current = IntRect(frame.originX, frame.originY, frame.originX + bitmapWidth, frame.originY + bitmapHeight)
-        // Do not allocate extra padding when the visible area already fits the bitmap.
-        if (visible.left >= current.left && visible.top >= current.top &&
-            visible.right <= current.right && visible.bottom <= current.bottom
-        ) return null
-        val spanX = frame.width * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
-        val spanY = frame.height * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
-        val cap = IntRect(-spanX, -spanY, frame.width + spanX, frame.height + spanY)
         val wanted = IntRect(
             visible.left - LAYER_GROWTH_PAD, visible.top - LAYER_GROWTH_PAD,
             visible.right + LAYER_GROWTH_PAD, visible.bottom + LAYER_GROWTH_PAD,
         )
+        // Skip reallocation only when there is room for stroke dabs beyond the visible view.
+        if (wanted.left >= current.left && wanted.top >= current.top &&
+            wanted.right <= current.right && wanted.bottom <= current.bottom
+        ) return null
+        val spanX = frame.width * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
+        val spanY = frame.height * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
+        val cap = IntRect(-spanX, -spanY, frame.width + spanX, frame.height + spanY)
         val clipped = wanted.intersect(cap)
         if (clipped.width <= 0 || clipped.height <= 0) return null
         val target = IntRect(
