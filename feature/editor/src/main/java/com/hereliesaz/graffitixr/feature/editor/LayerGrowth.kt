@@ -68,19 +68,18 @@ internal object LayerGrowth {
      */
     fun coverage(frame: LayerFrame, bitmapWidth: Int, bitmapHeight: Int, visible: IntRect): IntRect? {
         val current = IntRect(frame.originX, frame.originY, frame.originX + bitmapWidth, frame.originY + bitmapHeight)
-        // Do not allocate extra padding when the visible area already fits the bitmap.
-        if (visible.left >= current.left && visible.top >= current.top &&
-            visible.right <= current.right && visible.bottom <= current.bottom
-        ) return null
-        val spanX = frame.width * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
-        val spanY = frame.height * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
-        val cap = IntRect(-spanX, -spanY, frame.width + spanX, frame.height + spanY)
         val wanted = IntRect(
             visible.left - LAYER_GROWTH_PAD, visible.top - LAYER_GROWTH_PAD,
             visible.right + LAYER_GROWTH_PAD, visible.bottom + LAYER_GROWTH_PAD,
         )
+        val spanX = frame.width * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
+        val spanY = frame.height * (LAYER_GROWTH_MAX_FRAMES - 1) / 2
+        val cap = IntRect(-spanX, -spanY, frame.width + spanX, frame.height + spanY)
         val clipped = wanted.intersect(cap)
-        if (clipped.width <= 0 || clipped.height <= 0) return null
+        // Skip growth when the padded view fits, or no area is available inside the cap.
+        if (wanted.intersect(current) == wanted ||
+            clipped.width <= 0 || clipped.height <= 0
+        ) return null
         val target = IntRect(
             minOf(current.left, snapDown(clipped.left).coerceAtLeast(cap.left)),
             minOf(current.top, snapDown(clipped.top).coerceAtLeast(cap.top)),
