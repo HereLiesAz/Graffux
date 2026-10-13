@@ -116,12 +116,15 @@ internal object GpuBasicStroke {
     }
 
     /** The dab runs a recorded Basic Brush or Eraser [stroke] stamps, on a [width]x[height] layer. */
-    fun runsFor(stroke: StrokeCommand, mapped: List<Offset>, brushScale: Float, width: Int, height: Int) =
-        if (stroke.tool == Tool.ERASER) {
-            eraserRuns(mapped, stroke.brushSize * brushScale, stroke.wrapAroundMode, width, height)
+    fun runsFor(stroke: StrokeCommand, mapped: List<Offset>, brushScale: Float, width: Int, height: Int): List<List<BrushDab>> {
+        val w = stroke.wrapFrameWidth.takeIf { it > 0 } ?: width
+        val h = stroke.wrapFrameHeight.takeIf { it > 0 } ?: height
+        return if (stroke.tool == Tool.ERASER) {
+            eraserRuns(mapped, stroke.brushSize * brushScale, stroke.wrapAroundMode, w, h)
         } else {
-            runs(mapped, stroke.brushSize * brushScale, stroke.pressures, stroke.wrapAroundMode, width, height)
+            runs(mapped, stroke.brushSize * brushScale, stroke.pressures, stroke.wrapAroundMode, w, h)
         }
+    }
 
     /** Round dabs at [centres], each repeated at the 3x3 neighbouring tiles under wrap-around. */
     private fun tiled(centres: List<Offset>, radius: Float, wrap: Boolean, width: Int, height: Int): List<BrushDab> {
