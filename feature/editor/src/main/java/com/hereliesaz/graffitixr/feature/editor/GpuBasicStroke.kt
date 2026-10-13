@@ -116,7 +116,13 @@ internal object GpuBasicStroke {
     }
 
     /** The dab runs a recorded Basic Brush or Eraser [stroke] stamps, on a [width]x[height] layer. */
-    fun runsFor(stroke: StrokeCommand, mapped: List<Offset>, brushScale: Float, width: Int, height: Int): List<List<BrushDab>> {
+    fun runsFor(
+        stroke: StrokeCommand,
+        mapped: List<Offset>,
+        brushScale: Float,
+        width: Int,
+        height: Int,
+    ): List<List<BrushDab>> {
         val w = stroke.wrapFrameWidth.takeIf { it > 0 } ?: width
         val h = stroke.wrapFrameHeight.takeIf { it > 0 } ?: height
         return if (stroke.tool == Tool.ERASER) {
