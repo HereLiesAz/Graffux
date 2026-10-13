@@ -5357,7 +5357,9 @@ class EditorViewModel @Inject constructor(
                     Tool.BLUR, Tool.SHARPEN -> resampleLiveOnGpu(original, generation, work) { engine ->
                         GpuRetouchStroke.neighbourhood(
                             engine, tool,
-                            GpuBasicStroke.eraserRuns(mapped, brushSizePx, wrap, strokeLayerFrame.width, strokeLayerFrame.height).flatten(),
+                            GpuBasicStroke.eraserRuns(
+                                mapped, brushSizePx, wrap, strokeLayerFrame.width, strokeLayerFrame.height,
+                            ).flatten(),
                             GpuRetouchStroke.Neighbourhood(LINE_TOOL_INTENSITY, feathering, wrap), null,
                         )
                     }
