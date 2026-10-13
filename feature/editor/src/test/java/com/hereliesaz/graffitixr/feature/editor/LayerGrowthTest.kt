@@ -21,6 +21,19 @@ class LayerGrowthTest {
     }
 
     @Test
+    fun `a new blank layer reserves padding before a stroke`() {
+        val bounds = LayerGrowth.initialBlankCoverage(1000, 2000)
+        assertEquals(IntRect(-256, -256, 1280, 2048), bounds)
+        val allocatedFrame = LayerFrame(1000, 2000, originX = -256, originY = -256)
+        assertNull(LayerGrowth.coverage(allocatedFrame, 1536, 2304, IntRect(0, 0, 1000, 2000)))
+    }
+
+    @Test
+    fun `a large blank layer respects the growth allocation cap`() {
+        assertNull(LayerGrowth.initialBlankCoverage(10_000, 10_000))
+    }
+
+    @Test
     fun `a view past the frame grows on that side in whole steps`() {
         val target = LayerGrowth.coverage(frame, 1000, 2000, IntRect(-300, 0, 1000, 2000))
         // -300 - 64 padding snaps to -512, then clamps at the two-frame cap (-500).
