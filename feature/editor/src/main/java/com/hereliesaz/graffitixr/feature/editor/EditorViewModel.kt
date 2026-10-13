@@ -8993,7 +8993,9 @@ class EditorViewModel @Inject constructor(
      */
     private fun lineLive(paint: Paint, points: List<Offset>, target: Bitmap): Boolean {
         if (strokeLinePaint == null) return false
-        val dabs = GpuBasicStroke.eraserRuns(points, paint.strokeWidth, strokeWrapAroundMode, target.width, target.height)
+        val dabs = GpuBasicStroke.eraserRuns(
+            points, paint.strokeWidth, strokeWrapAroundMode, strokeLayerFrame.width, strokeLayerFrame.height,
+        )
             .flatten()
         enqueueBasicLiveDabs(paint, dabs, target)
         return true
