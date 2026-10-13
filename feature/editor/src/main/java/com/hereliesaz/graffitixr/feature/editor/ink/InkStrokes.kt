@@ -88,6 +88,7 @@ internal object InkStrokes {
      * [wrapAround] draws the stroke nine times, offset by one canvas in each direction, exactly as
      * `ImageProcessor.drawStroke` tiles a wrapped path.
      */
+    @Suppress("LongParameterList")
     fun draw(
         canvas: Canvas,
         stroke: Stroke,
