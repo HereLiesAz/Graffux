@@ -1864,6 +1864,23 @@ class EditorViewModel @Inject constructor(
         return w.toInt().coerceAtLeast(1) to h.toInt().coerceAtLeast(1)
     }
 
+    /**
+     * Allocate an empty layer with its stroke padding up front. There are no painted pixels
+     * to move, so the first touch need not grow and recopy the bitmap and its undo base.
+     * If the padded allocation fails, retain the original size and its on-demand growth path.
+     */
+    private fun createBlankPaintBitmap(): Pair<Bitmap, LayerFrame> {
+        val (width, height) = newLayerSize()
+        val frame = LayerFrame(width, height)
+        val padded = LayerGrowth.initialBlankCoverage(width, height)
+        val blank = padded?.let { SafeBitmap.create(it.width, it.height) }
+        return if (blank != null && padded != null) {
+            blank to frame.copy(originX = padded.left, originY = padded.top)
+        } else {
+            createBitmap(width, height) to frame
+        }
+    }
+
     private fun rebuildLayerBitmap(layerId: String, emitOp: Boolean = false) {
         strokeLog("rebuild requested for $layerId")
         // Every full replay publishes a CPU-rendered bitmap: the GPU-resident copy is stale.
@@ -2925,8 +2942,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         viewModelScope.launch(dispatchers.io) {
             val projectId = ensureProjectId()
-            val (width, height) = newLayerSize()
-            val blankBitmap = createBitmap(width, height)
+            val (blankBitmap, frame) = createBlankPaintBitmap()
 
             // Persisting the artifact can fail (storage full, a first-run I/O hiccup) — don't let
             // that leave the layer (and, via activeToolOverride, the tool the user picked) stuck
@@ -2950,7 +2966,11 @@ class EditorViewModel @Inject constructor(
                     name = "Sketch ${sketchCount + 1}",
                     isSketch = true,
                     bitmap = blankBitmap,
-                    uri = localUri
+                    uri = localUri,
+                    frameWidth = frame.width,
+                    frameHeight = frame.height,
+                    originX = frame.originX,
+                    originY = frame.originY,
                 )
 
                 putLayerBase(newLayer.id, blankBitmap)
@@ -8685,8 +8705,7 @@ class EditorViewModel @Inject constructor(
             val projectId = project.id
             Breadcrumbs.record("project created")
 
-            val (width, height) = newLayerSize()
-            val blankBitmap = createBitmap(width, height)
+            val (blankBitmap, frame) = createBlankPaintBitmap()
             val filename = "layer_${UUID.randomUUID()}.png"
             val localUri = try {
                 val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
@@ -8699,6 +8718,10 @@ class EditorViewModel @Inject constructor(
                 isSketch = true,
                 bitmap = blankBitmap,
                 uri = localUri,
+                frameWidth = frame.width,
+                frameHeight = frame.height,
+                originX = frame.originX,
+                originY = frame.originY,
             )
 
             // Wait for the currentProject collector to publish the new (layerless) project first, as
