@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
@@ -118,6 +119,9 @@ fun EditorScreen(
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
+    // The layer's frame (outline and handles) belongs to the transform tool alone: under any other
+    // tool a layer shows no bounds at all.
+    val transforming = uiState.activePanel == EditorPanel.TRANSFORM
 
     // Coordinates the drawing surfaces with the multi-finger tap observer, so a two-finger tap that
     // cancelled an in-flight stroke doesn't also undo the previous action.
@@ -361,9 +365,9 @@ fun EditorScreen(
             )
         }
 
-        // 2b. Selection outline — the active layer's transformed bounding box, so the active layer is
-        // always visibly bounded. Purely visual (no pointer input).
-        if (activeLayer != null) {
+        // 2b. Selection outline — the active layer's transformed bounding box, while transforming.
+        // Purely visual (no pointer input).
+        if (activeLayer != null && transforming) {
             SelectionOverlay(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
@@ -376,7 +380,7 @@ fun EditorScreen(
         // 2c. Transform frame — dragging the top-right corner rotates the active layer on the Z axis,
         // the bottom-right corner scales it, and the rest of the frame (the other two corners and the
         // four edges) moves it. Sits above the canvas so frame drags are claimed here.
-        if (activeLayer != null && !activeLayerLocked) {
+        if (activeLayer != null && !activeLayerLocked && transforming) {
             SelectionHandles(
                 activeLayer = activeLayer,
                 viewportOffset = uiState.viewportOffset,
