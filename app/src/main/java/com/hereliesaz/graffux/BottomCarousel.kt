@@ -376,7 +376,9 @@ private fun EmptyHint(text: String) {
 @Composable
 private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, history: CarouselHistory) {
     val colors = MaterialTheme.colorScheme
-    val pages = CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>()
+    // Tool groups appear as a contextual tab only when their parent rail item was selected.
+    val pages = CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>() +
+        listOfNotNull(ui.category.takeIf { it.isToolGroup }?.let(CarouselTab::Page))
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
