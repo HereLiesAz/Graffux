@@ -23,9 +23,17 @@ class GpuRetouch(private val engine: GpuStampEngine) {
         offsetX: Float = 0f,
         offsetY: Float = 0f,
         wrap: Boolean = false,
+        wrapFrameLeft: Int = 0,
+        wrapFrameTop: Int = 0,
+        wrapFrameWidth: Int = 0,
+        wrapFrameHeight: Int = 0,
     ): Boolean = synchronized(engine) {
         val handle = engine.handleForDocument
-        val params = floatArrayOf(factor.toFloat(), amount, offsetX, offsetY, if (wrap) 1f else 0f)
+        val params = floatArrayOf(
+            factor.toFloat(), amount, offsetX, offsetY, if (wrap) 1f else 0f,
+            wrapFrameLeft.toFloat(), wrapFrameTop.toFloat(),
+            wrapFrameWidth.toFloat(), wrapFrameHeight.toFloat(),
+        )
         handle != 0L && GpuRenderThread.call { nativeRetouch(handle, kind, params, dabs) }
     }
 
