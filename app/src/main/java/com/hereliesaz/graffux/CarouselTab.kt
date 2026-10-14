@@ -99,6 +99,7 @@ internal fun carouselAutoActivates(action: CarouselAction): Boolean = when (acti
     is CarouselAction.SelectShape,
     is CarouselAction.ExtensionContribution,
     is CarouselAction.ExtensionLut,
+    is CarouselAction.GroupCommand,
     -> false
 }
 
