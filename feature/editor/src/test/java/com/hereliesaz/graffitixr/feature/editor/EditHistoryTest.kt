@@ -172,6 +172,25 @@ class EditHistoryTest {
     }
 
     @Test
+    fun `layer growth reframes property snapshots in undo and redo`() {
+        val h = EditHistory()
+        h.pushProperty(listOf(layer("a"), layer("b").copy(frameWidth = 25, frameHeight = 15)))
+        h.pushProperty(listOf(layer("a").copy(opacity = 0.5f)))
+        h.popUndo { it } // a snapshot in both stacks
+        h.migrateLayerGrowth("a", 100, 200, -32, -64)
+        val fromUndo = h.popUndo { it } as EditCommand.PropertyChange
+        val a = fromUndo.oldLayers.first { it.id == "a" }
+        assertEquals(100, a.frameWidth)
+        assertEquals(200, a.frameHeight)
+        assertEquals(-32, a.originX)
+        assertEquals(-64, a.originY)
+        val untouched = fromUndo.oldLayers.first { it.id == "b" }
+        assertEquals(25, untouched.frameWidth)
+        val fromRedo = h.popRedo { it } as EditCommand.PropertyChange
+        assertEquals(-32, fromRedo.oldLayers.first { it.id == "a" }.originX)
+    }
+
+    @Test
     fun `clear empties both stacks`() {
         val h = EditHistory()
         h.pushProperty(listOf(layer("a")))
