@@ -25,7 +25,7 @@ internal sealed interface CarouselTab {
 /** The tab row, left to right: history at either end, the pages in between. */
 internal val CAROUSEL_TABS: List<CarouselTab> = buildList {
     add(CarouselTab.Undo)
-    CarouselCategory.entries.forEach { add(CarouselTab.Page(it)) }
+    CarouselCategory.entries.filterNot { it.isToolGroup }.forEach { add(CarouselTab.Page(it)) }
     add(CarouselTab.Redo)
 }
 
