@@ -126,6 +126,7 @@ internal object GpuRetouchStroke {
      * [stroke] painted onto a copy of [bitmap] on a fresh engine, unclipped; null when a GPU stage
      * fails.
      */
+    @Suppress("LongParameterList") // Frame is required to replay retouch at logical rather than padded bounds.
     fun paintStroke(
         bitmap: Bitmap,
         stroke: StrokeCommand,
