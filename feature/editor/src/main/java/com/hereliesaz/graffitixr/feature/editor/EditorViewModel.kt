@@ -4507,6 +4507,7 @@ class EditorViewModel @Inject constructor(
      * bitmap's size) or under wrap-around (which tiles the bitmap itself). Growth is padded to
      * [LAYER_GROWTH_STEP] pixels and capped at [LAYER_GROWTH_MAX_FRAMES] frame sizes per axis.
      */
+    @Suppress("ReturnCount") // Atomic growth aborts before publishing either bitmap if any allocation fails.
     private fun growLayerToView(layerId: String, canvasSize: IntSize, state: EditorUiState) {
         val layer = state.layers.find { it.id == layerId }
         val bitmap = layer?.bitmap
