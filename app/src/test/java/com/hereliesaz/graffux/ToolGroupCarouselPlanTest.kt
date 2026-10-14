@@ -42,6 +42,27 @@ class ToolGroupCarouselPlanTest {
     }
 
     @Test
+    fun `starred nested command persists on the Favorites page`() {
+        val group = toolGroupCarouselEntries(CarouselCategory.SELECTION, EditorUiState())
+        val inputs = CarouselInputs(
+            activeTool = Tool.NONE,
+            activeBrushName = null,
+            builtInBrushes = emptyList(),
+            customBrushes = emptyList(),
+            extensionBrushes = emptyList(),
+            stabilizerLevel = 0,
+            stabilizerAlgorithm = com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm.STREAMLINE,
+            smudgeMode = com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine.Mode.DULLING,
+            selectionShape = SelectionShape.RECTANGLE,
+            groupEntries = group,
+            favorites = listOf("selectOp.ADD"),
+        )
+        val favorites = carouselEntries(CarouselCategory.FAVORITES, inputs)
+        assertEquals(listOf("selectOp.ADD"), favorites.map { it.key })
+        assertTrue(favorites.single().favorite)
+    }
+
+    @Test
     fun `transform parent reveals tools and apply stays conditional`() {
         val entries = toolGroupCarouselEntries(CarouselCategory.TRANSFORM, EditorUiState())
         assertTrue(entries.any { it.key == "adj.transform" })
