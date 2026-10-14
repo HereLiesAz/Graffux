@@ -24,7 +24,12 @@ internal val CarouselCategory.isToolGroup: Boolean get() =
 
 /** Non-destructive derivation: each entry retains the same id, icon and editor action as its old rail child. */
 @Suppress("LongMethod", "CyclomaticComplexMethod") // Deliberate one-to-one mapping of existing nested rail commands.
-internal fun toolGroupCarouselEntries(category: CarouselCategory, s: EditorUiState): List<CarouselEntry> = buildList {
+internal fun toolGroupCarouselEntries(
+    category: CarouselCategory,
+    s: EditorUiState,
+    dodgeLabel: String = "Dodge",
+    burnLabel: String = "Burn",
+): List<CarouselEntry> = buildList {
     fun command(id: String, label: String, icon: Int, description: String, selected: Boolean = false) {
         add(CarouselEntry(id, label, CarouselAction.GroupCommand(id), selected, icon, description = description))
     }
@@ -106,8 +111,8 @@ internal fun toolGroupCarouselEntries(category: CarouselCategory, s: EditorUiSta
             tool(Tool.SHARPEN, "Sharpen", GraffuxIcons.Sharpen, "Sharpen painted areas")
             tool(Tool.SMUDGE, "Smudge", GraffuxIcons.Smudge, "Blend pixels with the smudge brush")
             tool(Tool.LIQUIFY, "Liquify", GraffuxIcons.Liquify, "Push and warp pixels")
-            tool(Tool.DODGE, "Dodge", GraffuxIcons.Dodge, "Lighten painted areas")
-            tool(Tool.BURN, "Burn", GraffuxIcons.Burn, "Darken painted areas")
+            tool(Tool.DODGE, dodgeLabel, GraffuxIcons.Dodge, "Lighten painted areas")
+            tool(Tool.BURN, burnLabel, GraffuxIcons.Burn, "Darken painted areas")
             tool(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc, "Apply colour")
         }
         else -> Unit
