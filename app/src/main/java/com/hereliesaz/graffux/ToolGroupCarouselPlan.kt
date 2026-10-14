@@ -54,8 +54,14 @@ internal fun toolGroupCarouselEntries(
             }
         }
         CarouselCategory.SELECTION -> {
-            command("selectShape.RECTANGLE", "Rectangle", GraffuxIcons.SelectRect,
-                "Rectangular selection", s.selectionShape == SelectionShape.RECTANGLE)
+            add(CarouselEntry(
+                key = "selectShape.RECTANGLE",
+                label = "Rectangle",
+                action = CarouselAction.SelectShape(SelectionShape.RECTANGLE),
+                selected = s.selectionShape == SelectionShape.RECTANGLE,
+                icon = GraffuxIcons.SelectRect,
+                description = "Rectangular selection",
+            ))
             tool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject, "Draw and edit selections")
             listOf(SelectionShape.FREEHAND, SelectionShape.ELLIPSE, SelectionShape.AUTOMATIC).forEach { shape ->
                 add(CarouselEntry("selectShape.${shape.name}", shape.label,
