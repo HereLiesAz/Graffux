@@ -446,6 +446,7 @@ private const val DISABLED_ALPHA = 0.38f
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("CyclomaticComplexMethod") // Carousel sizing and gesture arbitration share one row.
 private fun CarouselStrip(
     state: CarouselState,
     widths: SnapshotStateMap<Int, Float>,
