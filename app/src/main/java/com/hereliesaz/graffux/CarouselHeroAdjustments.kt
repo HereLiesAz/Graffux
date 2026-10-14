@@ -155,6 +155,7 @@ private fun heroAdjustmentsUncapped(entry: CarouselEntry, s: HeroAdjustmentState
 internal fun heroHasMore(entry: CarouselEntry): Boolean = when (entry.action) {
     is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut,
     is CarouselAction.GroupCommand -> false
+    is CarouselAction.PickTool -> entry.action.tool != Tool.SELECT
     else -> true
 }
 
