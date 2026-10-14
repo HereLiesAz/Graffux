@@ -450,10 +450,9 @@ private fun HistoryTab(tab: CarouselTab, history: CarouselHistory) {
 
 private const val DISABLED_ALPHA = 0.38f
 
-@Suppress("FunctionNaming", "LongMethod", "LongParameterList")
+@Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-@Suppress("CyclomaticComplexMethod") // Carousel sizing and gesture arbitration share one row.
 private fun CarouselStrip(
     state: CarouselState,
     widths: SnapshotStateMap<Int, Float>,
@@ -590,7 +589,7 @@ internal class ProgrammaticScrolls {
     }
 }
 
-@Suppress("FunctionNaming", "LongParameterList")
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod")
 @Composable
 private fun CarouselItem(
     entry: CarouselEntry,
