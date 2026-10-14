@@ -206,35 +206,3 @@ class CarouselHeroSliderUiTest {
         assertTrue(more.bottom <= bounds("carousel.card.HERO").bottom + 1f)
     }
 }
-        val more = bounds("carousel.hero.more")
-        assertTrue("details inside the identity block", details.bottom <= identity.bottom + 1f)
-        sliders.forEach {
-            assertTrue("slider ${it.top} below identity ${identity.bottom}", it.top >= identity.bottom - 1f)
-        }
-        assertTrue("More below the sliders", more.top >= sliders.maxOf { it.bottom } - 1f)
-    }
-
-    private fun heroScroll() = rule.onNode(
-        hasTestTag("carousel.card.scroll") and hasAnyAncestor(hasTestTag("carousel.card.HERO")),
-        useUnmergedTree = true,
-    )
-
-    @Test
-    fun `an overflowing card scrolls vertically without moving the carousel`() {
-        // Doubled text makes the hero's content taller than its card.
-        RuntimeEnvironment.setFontScale(2f)
-        compose()
-        val heroKey = "builtin.$selectedName"
-        fun range() = heroScroll().fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
-        val start = range()
-        assertTrue("the hero overflows", start.maxValue() > 0f)
-        assertEquals("it starts at its foot, controls showing", start.maxValue(), start.value(), 1f)
-
-        heroScroll().performTouchInput { swipeDown(startY = top + 10f, endY = bottom - 10f, durationMillis = 400) }
-        rule.waitForIdle()
-
-        assertTrue("the card scrolled up, was ${range().value()}", range().value() < start.maxValue())
-        assertEquals("the row stayed on the same hero", listOf(heroKey), previews())
-        assertTrue(clicks.isEmpty())
-    }
-}
