@@ -384,6 +384,15 @@ private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, his
     // Tool groups appear as a contextual tab only when their parent rail item was selected.
     val pages = CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>() +
         listOfNotNull(ui.category.takeIf { it.isToolGroup }?.let(CarouselTab::Page))
+    val pageScroll = rememberScrollState()
+    val density = LocalDensity.current
+    LaunchedEffect(ui.category, pageScroll.maxValue) {
+        val index = pages.indexOfFirst { it.category == ui.category }
+        if (index >= 0) {
+            val target = with(density) { (78.dp * index).roundToPx() }
+            pageScroll.animateScrollTo(target.coerceAtMost(pageScroll.maxValue))
+        }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -395,7 +404,7 @@ private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, his
             }
             if (tab == CarouselTab.Undo) {
                 SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier.weight(1f).height(TabRowHeight).horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.weight(1f).height(TabRowHeight).horizontalScroll(pageScroll),
                 ) {
                     pages.forEachIndexed { index, page ->
                         SegmentedButton(
@@ -551,8 +560,11 @@ private fun CarouselStrip(
                 if (position.value.roundToInt() == index) {
                     expansion.toggle(swiped.key)
                 } else {
-                    expansion.request(swiped.key)
-                    scope.launch { programmatic.centre(state, index) }
+                    // Complete the centring animation before the overlay takes the hero anchor.
+                    scope.launch {
+                        programmatic.centre(state, index)
+                        expansion.request(swiped.key)
+                    }
                 }
             },
             Modifier
