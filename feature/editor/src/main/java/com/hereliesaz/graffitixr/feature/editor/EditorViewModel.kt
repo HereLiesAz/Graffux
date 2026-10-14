@@ -5360,7 +5360,7 @@ class EditorViewModel @Inject constructor(
                             GpuBasicStroke.eraserRuns(
                                 mapped, brushSizePx, wrap, strokeLayerFrame.width, strokeLayerFrame.height,
                             ).flatten(),
-                            GpuRetouchStroke.Neighbourhood(LINE_TOOL_INTENSITY, feathering, wrap), null,
+                            GpuRetouchStroke.Neighbourhood(LINE_TOOL_INTENSITY, feathering, wrap, strokeLayerFrame), null,
                         )
                     }
                     Tool.SMUDGE -> {
