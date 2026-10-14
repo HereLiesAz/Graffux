@@ -107,6 +107,23 @@ class SelectionMaskRenderTest {
     }
 
     @Test
+    fun `inverted clip respects the shifted logical frame inside padded bitmap`() {
+        val sel = Selection(listOf(ring(Offset(10f, 10f), Offset(30f, 30f))), canvas, inverted = true)
+        val frame = com.hereliesaz.graffitixr.common.model.LayerFrame(40, 40, originX = -8, originY = -8)
+        val path = SelectionMask.bitmapPath(sel, frame, 1f, Offset.Zero, 0f)!!
+        val bmp = RenderTestBase.filled(56, 56, Color.TRANSPARENT)
+        android.graphics.Canvas(bmp).apply {
+            clipPath(path)
+            drawColor(Color.RED)
+        }
+        assertEquals("padding is not part of the inverted frame", Color.TRANSPARENT, bmp.getPixel(2, 2))
+        assertEquals("inside frame but outside selection", Color.RED, bmp.getPixel(12, 12))
+        assertEquals("original selection stays excluded", Color.TRANSPARENT, bmp.getPixel(28, 28))
+        assertEquals("far frame corner is covered", Color.RED, bmp.getPixel(46, 46))
+        assertEquals("right/bottom padding is not selected", Color.TRANSPARENT, bmp.getPixel(52, 52))
+    }
+
+    @Test
     fun `a doubly-wound lasso fills the same way the hit-test reads it`() {
         // The fill-rule bug, and the shape that actually exposes it. `Path` defaults to non-zero
         // winding while insidePolygon is even-odd, and the two only disagree where a region is

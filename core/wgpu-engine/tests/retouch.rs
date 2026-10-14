@@ -101,6 +101,7 @@ fn tool(kind: u32) -> Retouch {
         amount: 1.2,
         offset: (5.0, -3.0),
         wrap: false,
+        wrap_frame: (0, 0, 0, 0),
     }
 }
 
@@ -219,5 +220,29 @@ fn burn_and_dodge_match_android_darken_and_lighten() {
             }
             assert!(worst <= 1, "[{name}] mode {mode}: worst {worst}");
         }
+    }
+}
+
+#[test]
+fn clone_wrap_samples_the_logical_frame_not_the_padded_texture() {
+    for (name, mut engine) in engines() {
+        let original = stripes();
+        assert!(engine.upload(&original));
+        assert!(engine.take_stroke_shadow());
+        let dab = [9.0, 15.0, 2.0, 1.0];
+        let wrapped = Retouch {
+            kind: RETOUCH_CLONE,
+            factor: 2,
+            amount: 0.0,
+            offset: (-5.0, 0.0),
+            wrap: true,
+            wrap_frame: (8, 6, 24, 20),
+        };
+        assert!(engine.retouch(wrapped, &[dab]));
+        let result = engine.read_all().unwrap();
+        let ix = ((15 * W + 9) * 4) as usize;
+        let source = ((15 * W + 28) * 4) as usize; // 9 - 5 wraps to 28 within 8..32.
+        assert_eq!(&result[ix..ix + 4], &original[source..source + 4],
+            "[{name}] clone samples opposite logical edge");
     }
 }

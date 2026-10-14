@@ -4507,17 +4507,31 @@ class EditorViewModel @Inject constructor(
      * bitmap's size) or under wrap-around (which tiles the bitmap itself). Growth is padded to
      * [LAYER_GROWTH_STEP] pixels and capped at [LAYER_GROWTH_MAX_FRAMES] frame sizes per axis.
      */
+    @Suppress("ReturnCount") // Atomic growth aborts before publishing either bitmap if any allocation fails.
     private fun growLayerToView(layerId: String, canvasSize: IntSize, state: EditorUiState) {
         val layer = state.layers.find { it.id == layerId }
         val bitmap = layer?.bitmap
         val target = if (layer != null && bitmap != null) layerGrowthTarget(layer, bitmap, canvasSize, state) else null
         if (layer == null || bitmap == null || target == null) return
         val frame = layer.frame(bitmap.width, bitmap.height)
+        val base = layerStore.base(layerId)
+            ?.takeIf { it.width == bitmap.width && it.height == bitmap.height } ?: return
         val grown = LayerGrowth.grow(bitmap, frame, target) ?: return
-        // The stored base grows the same way, so the stroke log replays onto the grown pixels.
-        layerStore.base(layerId)?.takeIf { it.width == bitmap.width && it.height == bitmap.height }?.let { base ->
-            LayerGrowth.grow(base, frame, target)?.let { putLayerBase(layerId, it) }
+        // Growth is atomic across live pixels and the immutable history base. On OOM,
+        // preserve both buffers and their original placement; never publish mismatched dimensions.
+        val grownBase = LayerGrowth.grow(base, frame, target)
+        if (grownBase == null) {
+            grown.recycle()
+            return
         }
+        val frozenBase = SafeBitmap.copy(grownBase, mutable = false)
+        grownBase.recycle()
+        if (frozenBase == null) {
+            grown.recycle()
+            return
+        }
+        layerStore.putBase(layerId, frozenBase)
+        history.migrateLayerGrowth(layerId, frame.width, frame.height, target.left, target.top)
         _uiState.update { s ->
             s.copy(
                 layers = s.layers.map {
@@ -4602,7 +4616,7 @@ class EditorViewModel @Inject constructor(
         ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         // The layer reaches as far as the screen does: grown (once, before anything binds or copies
         // its bitmap) to cover everything visible, so a stroke can run off the artboard.
-        growLayerToView(layerId, canvasSize, state)
+        growLayerToView(layerId, canvasSize, _uiState.value)
         val originalBitmap = _uiState.value.layers.find { it.id == layerId }?.bitmap
             ?: return strokeLog("start: no paintable bitmap")
         val layer = _uiState.value.layers.find { it.id == layerId } ?: return
@@ -5360,7 +5374,9 @@ class EditorViewModel @Inject constructor(
                             GpuBasicStroke.eraserRuns(
                                 mapped, brushSizePx, wrap, strokeLayerFrame.width, strokeLayerFrame.height,
                             ).flatten(),
-                            GpuRetouchStroke.Neighbourhood(LINE_TOOL_INTENSITY, feathering, wrap), null,
+                            GpuRetouchStroke.Neighbourhood(
+                                LINE_TOOL_INTENSITY, feathering, wrap, strokeLayerFrame,
+                            ), null,
                         )
                     }
                     Tool.SMUDGE -> {

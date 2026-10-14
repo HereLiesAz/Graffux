@@ -89,6 +89,9 @@ struct Api {
     bool (*beginStroke)(GfxWgpuEngine*);
     bool (*setStampMode)(GfxWgpuEngine*, uint32_t);
     bool (*retouch)(GfxWgpuEngine*, uint32_t, int32_t, float, float, float, bool, const float*, int32_t);
+    // Optional extension, preserving the ABI of gfx_wgpu_retouch for older binaries.
+    bool (*retouchFrame)(GfxWgpuEngine*, uint32_t, int32_t, float, float, float, bool,
+                         const float*, int32_t, int32_t, int32_t, int32_t, int32_t);
     // Optional, all or nothing: impasto v2's wet material simulation.
     bool (*wetBegin)(GfxWgpuEngine*, const uint32_t*, const float*, const float*, int32_t,
                      const uint32_t*, int32_t, int32_t, const float*, int32_t);
@@ -171,6 +174,7 @@ void load() {
         optional(lib, "gfx_wgpu_begin_stroke", a.beginStroke);
         optional(lib, "gfx_wgpu_set_stamp_mode", a.setStampMode);
         optional(lib, "gfx_wgpu_retouch", a.retouch);
+        optional(lib, "gfx_wgpu_retouch_frame", a.retouchFrame);
         const bool display = optional(lib, "gfx_wgpu_shade_relief_display", a.shadeReliefDisplay) &&
                              optional(lib, "gfx_wgpu_read_display", a.readDisplay);
         if (!display) a.shadeReliefDisplay = nullptr;  // all or nothing
@@ -456,9 +460,18 @@ bool WgpuStampEngine::setStampMode(int mode) {
 }
 
 bool WgpuStampEngine::retouch(int kind, int factor, float amount, float ox, float oy, bool wrap,
-                              const float* dabs, int count) {
-    return engine_ != nullptr && gApi.retouch != nullptr && kind >= 0 &&
-           gApi.retouch(engine_, static_cast<uint32_t>(kind), factor, amount, ox, oy, wrap, dabs, count);
+                              const float* dabs, int count, int wrapLeft, int wrapTop,
+                              int wrapWidth, int wrapHeight) {
+    if (engine_ == nullptr || kind < 0) return false;
+    if (gApi.retouchFrame != nullptr) {
+        return gApi.retouchFrame(engine_, static_cast<uint32_t>(kind), factor, amount, ox, oy,
+                                wrap, dabs, count, wrapLeft, wrapTop, wrapWidth, wrapHeight);
+    }
+    // An older wgpu library can only wrap around the entire padded bitmap.
+    // Refuse to produce a wrong result when the logical frame differs.
+    if (wrap && (wrapLeft != 0 || wrapTop != 0 || wrapWidth != 0 || wrapHeight != 0)) return false;
+    return gApi.retouch != nullptr && gApi.retouch(
+        engine_, static_cast<uint32_t>(kind), factor, amount, ox, oy, wrap, dabs, count);
 }
 
 bool WgpuStampEngine::beginStroke() {

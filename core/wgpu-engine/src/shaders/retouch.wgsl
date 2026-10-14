@@ -25,6 +25,10 @@ struct Params {
     amount: f32,
     offset_x: f32,
     offset_y: f32,
+    frame_x: i32,
+    frame_y: i32,
+    frame_w: i32,
+    frame_h: i32,
     _p0: u32,
     _p1: u32,
     _p2: u32,
@@ -36,9 +40,17 @@ struct Params {
 // x, y, radius, hardness.
 @group(0) @binding(3) var<storage, read> dabs: array<vec4<f32>>;
 
+fn wrap_coord(v: i32, start: i32, size: i32) -> i32 {
+    return start + ((v - start) % size + size) % size;
+}
+
 fn texel(x: i32, y: i32) -> vec4<f32> {
-    let cx = clamp(x, 0, p.width - 1);
-    let cy = clamp(y, 0, p.height - 1);
+    var cx = clamp(x, 0, p.width - 1);
+    var cy = clamp(y, 0, p.height - 1);
+    if (p.wrap != 0u) {
+        cx = wrap_coord(x, p.frame_x, p.frame_w);
+        cy = wrap_coord(y, p.frame_y, p.frame_h);
+    }
     return unpack4x8unorm(shadow_px[cy * p.width + cx]);
 }
 
@@ -54,19 +66,42 @@ fn bilinear(fx: f32, fy: f32) -> vec4<f32> {
 
 // One texel of the downscaled image, sampled bilinearly from the shadow at its centre.
 fn small_texel(i: i32, j: i32, sw: i32, sh: i32) -> vec4<f32> {
-    let ci = clamp(i, 0, sw - 1);
-    let cj = clamp(j, 0, sh - 1);
-    let sx = f32(p.width) / f32(sw);
-    let sy = f32(p.height) / f32(sh);
-    return bilinear((f32(ci) + 0.5) * sx - 0.5, (f32(cj) + 0.5) * sy - 0.5);
+    var ci = clamp(i, 0, sw - 1);
+    var cj = clamp(j, 0, sh - 1);
+    var left = 0;
+    var top = 0;
+    var width = p.width;
+    var height = p.height;
+    if (p.wrap != 0u) {
+        ci = ((i % sw) + sw) % sw;
+        cj = ((j % sh) + sh) % sh;
+        left = p.frame_x;
+        top = p.frame_y;
+        width = p.frame_w;
+        height = p.frame_h;
+    }
+    let sx = f32(width) / f32(sw);
+    let sy = f32(height) / f32(sh);
+    return bilinear(f32(left) + (f32(ci) + 0.5) * sx - 0.5,
+                    f32(top) + (f32(cj) + 0.5) * sy - 0.5);
 }
 
 // ImageProcessor.cheapBlur at pixel (x, y): down by `factor`, back up, both bilinear.
 fn blurred(x: i32, y: i32, factor: i32) -> vec4<f32> {
-    let sw = max(p.width / factor, 1);
-    let sh = max(p.height / factor, 1);
-    let u = (f32(x) + 0.5) * f32(sw) / f32(p.width) - 0.5;
-    let v = (f32(y) + 0.5) * f32(sh) / f32(p.height) - 0.5;
+    var width = p.width;
+    var height = p.height;
+    var left = 0;
+    var top = 0;
+    if (p.wrap != 0u) {
+        width = p.frame_w;
+        height = p.frame_h;
+        left = p.frame_x;
+        top = p.frame_y;
+    }
+    let sw = max(width / factor, 1);
+    let sh = max(height / factor, 1);
+    let u = (f32(x - left) + 0.5) * f32(sw) / f32(width) - 0.5;
+    let v = (f32(y - top) + 0.5) * f32(sh) / f32(height) - 0.5;
     let i0 = i32(floor(u));
     let j0 = i32(floor(v));
     let tx = u - f32(i0);
@@ -121,8 +156,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var sy = i32(floor(f32(y) + p.offset_y + 0.5));
         var src = vec4<f32>(0.0);
         if (p.wrap != 0u) {
-            sx = ((sx % p.width) + p.width) % p.width;
-            sy = ((sy % p.height) + p.height) % p.height;
+            sx = wrap_coord(sx, p.frame_x, p.frame_w);
+            sy = wrap_coord(sy, p.frame_y, p.frame_h);
             src = unpack4x8unorm(shadow_px[sy * p.width + sx]);
         } else if (sx >= 0 && sy >= 0 && sx < p.width && sy < p.height) {
             src = unpack4x8unorm(shadow_px[sy * p.width + sx]);

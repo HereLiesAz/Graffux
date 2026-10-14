@@ -77,6 +77,43 @@ class FloodFillRenderTest {
     }
 
     @Test
+    fun `bucket fills existing paint outside the artboard without touching blank padding`() = runBlocking {
+        val bitmap = RenderTestBase.filled(24, 24, Color.TRANSPARENT)
+        for (y in 8..10) for (x in 1..6) bitmap.setPixel(x, y, Color.BLUE)
+        val command = StrokeCommand(
+            path = listOf(Offset(-2f, 5f)),
+            canvasSize = IntSize(16, 16),
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = Color.RED,
+            intensity = 1f,
+        )
+        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+            bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
+        )
+        assertEquals("off-frame paint is editable", Color.RED, painted.getPixel(2, 9))
+        assertEquals("contiguous paint across the artboard boundary fills", Color.RED, painted.getPixel(6, 9))
+        assertEquals("unpainted padding remains untouched", Color.TRANSPARENT, painted.getPixel(0, 0))
+    }
+
+    @Test
+    fun `bucket refuses an untouched padding seed`() = runBlocking {
+        val bitmap = RenderTestBase.filled(24, 24, Color.TRANSPARENT)
+        val command = StrokeCommand(
+            path = listOf(Offset(-2f, 5f)),
+            canvasSize = IntSize(16, 16),
+            tool = Tool.FILL,
+            brushSize = 0f,
+            brushColor = Color.RED,
+            intensity = 1f,
+        )
+        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+            bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
+        )
+        assertEquals(Color.TRANSPARENT, painted.getPixel(2, 9))
+    }
+
+    @Test
     fun `fills the contiguous region and stops at a colour boundary`() {
         val b = RenderTestBase.filled(9, 9, Color.WHITE)
         // A black wall down the middle.
