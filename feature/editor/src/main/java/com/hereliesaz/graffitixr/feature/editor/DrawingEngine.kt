@@ -441,7 +441,7 @@ internal class DrawingEngine(
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
         }
-        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset) ?: return bitmap
+        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset, lf) ?: return bitmap
         return SelectionMask.feather(
             bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
         )
