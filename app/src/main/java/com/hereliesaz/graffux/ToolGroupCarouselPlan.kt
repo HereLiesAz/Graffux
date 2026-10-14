@@ -12,10 +12,18 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import androidx.compose.ui.geometry.Offset
 
 /** Former nested tool rails are pages of the existing carousel; unattached hosts stay in AzNavRail. */
+internal fun carouselGroupRailId(category: CarouselCategory): String? = when (category) {
+    CarouselCategory.TRANSFORM -> "grp.transform"
+    CarouselCategory.SELECTION -> "grp.select"
+    CarouselCategory.VECTOR -> "grp.vector"
+    else -> null
+}
+
 internal val CarouselCategory.isToolGroup: Boolean get() =
     this == CarouselCategory.TRANSFORM || this == CarouselCategory.SELECTION || this == CarouselCategory.VECTOR
 
 /** Non-destructive derivation: each entry retains the same id, icon and editor action as its old rail child. */
+@Suppress("LongMethod", "CyclomaticComplexMethod") // Deliberate one-to-one mapping of existing nested rail commands.
 internal fun toolGroupCarouselEntries(category: CarouselCategory, s: EditorUiState): List<CarouselEntry> = buildList {
     fun command(id: String, label: String, icon: Int, description: String, selected: Boolean = false) {
         add(CarouselEntry(id, label, CarouselAction.GroupCommand(id), selected, icon, description = description))
@@ -107,6 +115,7 @@ internal fun toolGroupCarouselEntries(category: CarouselCategory, s: EditorUiSta
 }
 
 /** The old nested rail callbacks, now dispatched by carousel entries; never run on passive group scroll. */
+@Suppress("CyclomaticComplexMethod") // Dispatches existing VM actions without changing their behavior.
 internal fun executeToolGroupCommand(
     vm: EditorViewModel,
     s: EditorUiState,
