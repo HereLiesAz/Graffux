@@ -702,6 +702,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onModelClicked = { showModelDialog = true },
                 modelWindowOpen = showModelDialog,
                 onToolOptionsClicked = openToolOptionsCard,
+                onToolGroupRequested = { category ->
+                    showCarousel = true
+                    heroExpansion.collapse()
+                    carouselUi = carouselUi.copy(category = category, sheetOpen = true)
+                },
                 toolOptionsOpen = heroExpansion.expandedKey != null,
                 onForgetSelectionRequested = { pendingForgetSelectionName = it },
                 showLayersRail = showLayersRail,
@@ -953,6 +958,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             val carouselEntries = carouselEntries(
                                 carouselUi.category,
                                 CarouselInputs(
+                                    groupEntries = toolGroupCarouselEntries(carouselUi.category, uiState),
                                     activeTool = uiState.activeTool,
                                     activeBrushName = uiState.activeBrushName,
                                     activeInkUtensil = activeInkUtensil,
@@ -980,6 +986,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
                                         is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
                                         is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                        is CarouselAction.GroupCommand -> executeToolGroupCommand(
+                                            vm, uiState, action.id, screenCenter,
+                                        ) { pendingForgetSelectionName = it }
                                         // The Extensions panel's LUT branch (onExtensionSelected), minus its
                                         // DismissPanel: the carousel opened no panel to dismiss.
                                         is CarouselAction.ExtensionLut -> vm.applyInstalledLut(action.extensionId)
@@ -2081,6 +2090,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     onModelClicked: () -> Unit,
     modelWindowOpen: Boolean,
     onToolOptionsClicked: () -> Unit,
+    onToolGroupRequested: (CarouselCategory) -> Unit,
     toolOptionsOpen: Boolean,
     onForgetSelectionRequested: (String) -> Unit,
     showLayersRail: Boolean,
@@ -2251,145 +2261,13 @@ private fun AzNavHostScope.ConfigureRailItems(
     // ── Transform · Selection ──────────────────────────────────────────────────────────────────────
     // Transform leads the rest of the strip; the Selection nested rail sits below it.
 
-    azNestedRail(
-        id = TRANSFORM_ID, classifiers = setOf(TRANSFORM_ID),
-        text = "Crop & Transform", content = GraffuxIcons.Crop,
-        color = railColor(TRANSFORM_ID), shape = AzButtonShape.NONE_SQUARE,
-        keepNestedRailOpen = true,
-    ) {
-        azRailItem(
-            id = "adj.transform", classifiers = setOf("adj.transform"),
-            text = "Move / Transform", content = GraffuxIcons.Move,
-            color = railColor("adj.transform"), shape = AzButtonShape.NONE_SQUARE,
-            onClick = { vm.onTransformClicked() },
-        )
-        TransformMode.entries.forEach { mode ->
-            val id = "transform.${mode.name}"
-            azRailItem(
-                id = id, classifiers = setOf(id), text = mode.label,
-                content = when (mode) {
-                    TransformMode.FREEFORM -> GraffuxIcons.SelectTransform
-                    TransformMode.DISTORT -> GraffuxIcons.PerspectiveTransform
-                    TransformMode.WARP -> GraffuxIcons.PuppetWarp
-                },
-                color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
-                onClick = { vm.onSetTransformMode(mode) },
-            )
-        }
-        if (uiState.transformMode != TransformMode.FREEFORM) {
-            azRailItem(
-                id = "transform.apply", text = "Apply",
-                content = GraffuxIcons.Success, color = activeColor, shape = AzButtonShape.NONE_SQUARE,
-                onClick = { vm.onApplyWarp() },
-            )
-            azRailItem(
-                id = "transform.cancel", text = "Cancel",
-                content = GraffuxIcons.Close, color = navItemColor, shape = AzButtonShape.NONE_SQUARE,
-                onClick = { vm.onCancelWarp() },
-            )
-        }
-    }
+    stateItem(
+        TRANSFORM_ID, "Crop & Transform", GraffuxIcons.Crop,
+    ) { onToolGroupRequested(CarouselCategory.TRANSFORM) }
 
-    azNestedRail(
-        id = SELECT_ID, classifiers = setOf(SELECT_ID), text = "Selection", content = GraffuxIcons.SelectAll,
-        color = railColor(SELECT_ID), shape = AzButtonShape.NONE_SQUARE,
-        // No reflectSelectionInParent: with it, AzNavRail turns a tap into "re-run the last child"
-        // (or nothing, before one is picked) and only a long press opens the rail. A tap must open it.
-    ) {
-        fun selectionShapeItem(mode: SelectionShape) {
-            val id = "selectShape.${mode.name}"
-            azRailItem(
-                id = id, classifiers = setOf(id),
-                text = mode.label,
-                content = when (mode) {
-                    SelectionShape.FREEHAND -> GraffuxIcons.SelectLasso
-                    SelectionShape.RECTANGLE -> GraffuxIcons.SelectRect
-                    SelectionShape.ELLIPSE -> GraffuxIcons.SelectEllipse
-                    SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
-                },
-                color = railColor(id),
-                shape = AzButtonShape.NONE_SQUARE,
-                fillColor = railColor(id),
-                onClick = { vm.onSetSelectionShape(mode) },
-            )
-        }
-        // Rectangle is the standard marquee and should lead the popup. Everything that used to
-        // follow Select retains its original relative order.
-        selectionShapeItem(SelectionShape.RECTANGLE)
-        nestedTool(Tool.SELECT, "Select", GraffuxIcons.SelectSubject)
-        listOf(
-            SelectionShape.FREEHAND,
-            SelectionShape.ELLIPSE,
-            SelectionShape.AUTOMATIC,
-        ).forEach(::selectionShapeItem)
-        SelectionOp.entries.forEach { mode ->
-            val id = "selectOp.${mode.name}"
-            azRailItem(
-                id = id, classifiers = setOf(id),
-                text = mode.label,
-                content = when (mode) {
-                    SelectionOp.NEW -> GraffuxIcons.SelectAll
-                    SelectionOp.ADD -> GraffuxIcons.SelectAdd
-                    SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
-                },
-                color = railColor(id),
-                shape = AzButtonShape.NONE_SQUARE,
-                fillColor = railColor(id),
-                onClick = { vm.onSetSelectionOp(mode) },
-            )
-        }
-        azRailItem(
-            id = "tool.quick", classifiers = setOf("tool.quick"), text = "Quick",
-            content = GraffuxIcons.SelectQuick, color = railColor("tool.quick"),
-            shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.quick"),
-            onClick = { vm.onOpenQuickMenu(screenCenter) },
-        )
-        azRailItem(
-            id = "tool.selectInvert", classifiers = setOf("tool.selectInvert"), text = "Invert",
-            content = GraffuxIcons.SelectInvert, color = railColor("tool.selectInvert"),
-            shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.selectInvert"),
-            onClick = { vm.onInvertSelection() },
-        )
-        azRailItem(
-            id = "tool.deselect", text = "Deselect",
-            content = GraffuxIcons.SelectNone, color = navItemColor,
-            shape = AzButtonShape.NONE_SQUARE,
-            onClick = { vm.onClearSelection() },
-        )
-        if (uiState.selection != null) {
-            azRailItem(id = "sel.fill", text = "Colour Fill", content = GraffuxIcons.LayerFill, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onColorFillSelection() })
-            azRailItem(id = "sel.copy", text = "Copy", content = GraffuxIcons.LayerDuplicate, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCopySelection() })
-            azRailItem(id = "sel.cut", text = "Cut", content = GraffuxIcons.PathKnife, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCutSelection() })
-            azRailItem(id = "sel.save", text = "Save Selection", content = GraffuxIcons.DocumentSave, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onSaveSelection(vm.nextSelectionName()) })
-        }
-        if (uiState.hasClipboard) {
-            azRailItem(id = "sel.paste", text = "Paste", content = GraffuxIcons.LayerAdd, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onPasteSelection() })
-        }
-        uiState.savedSelections.forEach { saved ->
-            azRailItem(
-                id = "sel.load.${saved.name}", text = saved.name,
-                content = GraffuxIcons.SelectReselect, color = navItemColor,
-                shape = AzButtonShape.NONE_SQUARE,
-                onClick = { vm.onLoadSelection(saved.name) },
-            )
-        }
-        if (uiState.savedSelections.isNotEmpty()) {
-            azNestedRail(
-                id = "sel.manage", text = "Forget a Selection",
-                content = GraffuxIcons.LayerDelete, color = navItemColor,
-                shape = AzButtonShape.NONE_SQUARE,
-            ) {
-                uiState.savedSelections.forEach { saved ->
-                    azRailItem(
-                        id = "sel.forget.${saved.name}", text = saved.name,
-                        content = GraffuxIcons.SelectNone, color = navItemColor,
-                        shape = AzButtonShape.NONE_SQUARE,
-                        onClick = { onForgetSelectionRequested(saved.name) },
-                    )
-                }
-            }
-        }
-    }
+    stateItem(
+        SELECT_ID, "Selection", GraffuxIcons.SelectAll,
+    ) { onToolGroupRequested(CarouselCategory.SELECTION) }
 
     // The colour item shows the current colour itself, the way Procreate's swatch does, rather than
     // a generic palette glyph that says nothing about what you're about to paint with — filling a
@@ -2430,64 +2308,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // Pen draws a real PATH shape rather than pixels, and node editing operates on the shape it
     // drew — the tool and the way you correct its output, which is why they sit together rather
     // than the editing controls living twenty items further down the rail as they used to.
-    azNestedRail(
-        id = VECTOR_ID, classifiers = setOf(VECTOR_ID), text = "Vector", content = GraffuxIcons.PenInk,
-        color = railColor(VECTOR_ID), shape = AzButtonShape.NONE_SQUARE,
-        // No reflectSelectionInParent: with it, AzNavRail turns a tap into "re-run the last child"
-        // (or nothing, before one is picked) and only a long press opens the rail. A tap must open it.
-    ) {
-        nestedTool(Tool.PEN, "Pen", GraffuxIcons.PenInk)
+    stateItem(
+        VECTOR_ID, "Vector", GraffuxIcons.PenInk,
+    ) { onToolGroupRequested(CarouselCategory.VECTOR) }
 
-        val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-        val editable = active?.shapes?.singleOrNull()?.kind == ShapeKind.PATH
-        if (editable || uiState.pathEditLayerId != null) {
-            azRailItem(
-                id = "tool.nodeEdit", classifiers = setOf("tool.nodeEdit"), text = "Edit Nodes",
-                content = GraffuxIcons.PathSelectDirect, color = railColor("tool.nodeEdit"),
-                shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.nodeEdit"),
-                onClick = { vm.onToggleActivePathEdit() },
-            )
-        }
-        if (uiState.pathEditLayerId != null) {
-            azRailItem(
-                id = "tool.nodeClose", text = "Close Path",
-                content = GraffuxIcons.PathClose, color = navItemColor,
-                shape = AzButtonShape.NONE_SQUARE,
-                onClick = { vm.onTogglePathClosed() },
-            )
-            uiState.selectedNodeIndex?.let { index ->
-                azRailItem(
-                    id = "tool.nodeDelete", text = "Delete Node",
-                    content = GraffuxIcons.PenRemove, color = navItemColor,
-                    shape = AzButtonShape.NONE_SQUARE,
-                    onClick = { vm.onDeletePathNode(index) },
-                )
-            }
-        }
-        nestedTool(Tool.HEAL, "Heal", GraffuxIcons.Heal)
-        nestedTool(Tool.CLONE, "Clone", GraffuxIcons.Stamp)
-        // Setting the source is a canvas gesture (EditorScreen's pickingCloneSource/
-        // onPickCloneSource), not this button -- while cloneSource is null the canvas itself is
-        // already in aiming mode, so a "Tap to aim" item here had nothing to do when tapped (its
-        // own onClick just reset an already-null source). Show this only once a source exists,
-        // when it has a real job: clearing it so the next canvas tap can re-aim.
-        if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) {
-            azRailItem(
-                id = "tool.cloneSource", classifiers = setOf("tool.cloneSource"),
-                text = "Re-aim",
-                content = GraffuxIcons.FilterCloneSource, color = railColor("tool.cloneSource"),
-                shape = AzButtonShape.NONE_SQUARE, fillColor = railColor("tool.cloneSource"),
-                onClick = { vm.onResetCloneSource() },
-            )
-        }
-        nestedTool(Tool.BLUR, "Blur", GraffuxIcons.Blur)
-        nestedTool(Tool.SHARPEN, "Sharpen", GraffuxIcons.Sharpen)
-        nestedTool(Tool.SMUDGE, "Smudge", GraffuxIcons.Smudge)
-        nestedTool(Tool.LIQUIFY, "Liquify", GraffuxIcons.Liquify)
-        nestedTool(Tool.DODGE, navStrings.dodge, GraffuxIcons.Dodge)
-        nestedTool(Tool.BURN, navStrings.burn, GraffuxIcons.Burn)
-        nestedTool(Tool.COLOR, "Colorize", GraffuxIcons.ColorDisc)
-    }
     // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
     // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
     // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
