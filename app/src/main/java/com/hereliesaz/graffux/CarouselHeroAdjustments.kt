@@ -142,6 +142,7 @@ private fun heroAdjustmentsUncapped(entry: CarouselEntry, s: HeroAdjustmentState
         }
         is CarouselAction.ExtensionContribution,
         is CarouselAction.ExtensionLut,
+        is CarouselAction.GroupCommand,
         -> emptyList()
     }
 }
@@ -152,7 +153,8 @@ private fun heroAdjustmentsUncapped(entry: CarouselEntry, s: HeroAdjustmentState
  * and a LUT has none, so they don't.
  */
 internal fun heroHasMore(entry: CarouselEntry): Boolean = when (entry.action) {
-    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> false
+    is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut,
+    is CarouselAction.GroupCommand -> false
     else -> true
 }
 
