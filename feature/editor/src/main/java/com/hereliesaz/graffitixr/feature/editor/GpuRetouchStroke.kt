@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.common.model.LayerFrame
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController
 import com.hereliesaz.graffitixr.nativebridge.GpuRetouch
@@ -55,19 +56,27 @@ internal object GpuRetouchStroke {
         width: Int,
         height: Int,
         cloneOffset: Offset?,
+        frame: LayerFrame? = null,
     ): Boolean {
+        val logicalWidth = stroke.wrapFrameWidth.takeIf { it > 0 } ?: frame?.width ?: width
+        val logicalHeight = stroke.wrapFrameHeight.takeIf { it > 0 } ?: frame?.height ?: height
         val runs = GpuBasicStroke.eraserRuns(
-            mapped, stroke.brushSize * brushScale, stroke.wrapAroundMode, width, height,
+            mapped, stroke.brushSize * brushScale, stroke.wrapAroundMode, logicalWidth, logicalHeight,
         )
         paint(stroke)?.let { return GpuBasicStroke.stampRuns(engine, runs, it) }
         return neighbourhood(
             engine, stroke.tool, runs.flatten(),
-            Neighbourhood(stroke.intensity, stroke.feathering, stroke.wrapAroundMode), cloneOffset,
+            Neighbourhood(stroke.intensity, stroke.feathering, stroke.wrapAroundMode, frame), cloneOffset,
         )
     }
 
     /** A neighbourhood tool's settings: [intensity], the edge [feathering], and Clone's [wrap]. */
-    class Neighbourhood(val intensity: Float, val feathering: Float, val wrap: Boolean)
+    class Neighbourhood(
+        val intensity: Float,
+        val feathering: Float,
+        val wrap: Boolean,
+        val frame: LayerFrame? = null,
+    )
 
     /**
      * Blur, Sharpen or Clone ([tool]) over [dabs] on [engine], from the layer as it is now (taken as
@@ -91,12 +100,21 @@ internal object GpuRetouchStroke {
         }
         val intensity = settings.intensity.coerceIn(0f, 1f)
         val retouch = GpuRetouch(engine)
-        return dabs.isEmpty() || GpuSelection(engine).takeShadow() && when (tool) {
-            Tool.BLUR -> retouch.run(GpuRetouch.BLUR, flat, factor = blurFactor(intensity))
-            Tool.SHARPEN -> retouch.run(GpuRetouch.SHARPEN, flat, amount = SHARPEN_BASE + intensity * SHARPEN_RANGE)
-            Tool.CLONE -> cloneOffset == null || retouch.run(
-                GpuRetouch.CLONE, flat, offsetX = cloneOffset.x, offsetY = cloneOffset.y, wrap = settings.wrap,
+        // All three neighbourhood tools must sample across the logical frame seam; dabs alone
+        // are not enough if the shader still clamps/wraps at the padded texture boundary.
+        fun sample(kind: Int, factor: Int = 2, amount: Float = 0f, offset: Offset = Offset.Zero) =
+            retouch.run(
+                kind, flat, factor = factor, amount = amount,
+                offsetX = offset.x, offsetY = offset.y, wrap = settings.wrap,
+                wrapFrameLeft = -(settings.frame?.originX ?: 0),
+                wrapFrameTop = -(settings.frame?.originY ?: 0),
+                wrapFrameWidth = settings.frame?.width ?: 0,
+                wrapFrameHeight = settings.frame?.height ?: 0,
             )
+        return dabs.isEmpty() || GpuSelection(engine).takeShadow() && when (tool) {
+            Tool.BLUR -> sample(GpuRetouch.BLUR, factor = blurFactor(intensity))
+            Tool.SHARPEN -> sample(GpuRetouch.SHARPEN, amount = SHARPEN_BASE + intensity * SHARPEN_RANGE)
+            Tool.CLONE -> cloneOffset == null || sample(GpuRetouch.CLONE, offset = cloneOffset)
             else -> true
         }
     }
@@ -108,19 +126,21 @@ internal object GpuRetouchStroke {
      * [stroke] painted onto a copy of [bitmap] on a fresh engine, unclipped; null when a GPU stage
      * fails.
      */
+    @Suppress("LongParameterList") // Frame is required to replay retouch at logical rather than padded bounds.
     fun paintStroke(
         bitmap: Bitmap,
         stroke: StrokeCommand,
         mapped: List<Offset>,
         brushScale: Float,
         cloneOffset: Offset?,
+        frame: LayerFrame? = null,
     ): Bitmap? {
         val target = SafeBitmap.copy(bitmap) ?: return null
         GpuTuningController.stopCalibrationForCanvas()
         val engine = runCatching { GpuStampEngine() }.getOrNull()
         val painted = engine != null && try {
             engine.init(target.width, target.height) && engine.upload(target) &&
-                paintOnto(engine, stroke, mapped, brushScale, target.width, target.height, cloneOffset) &&
+                paintOnto(engine, stroke, mapped, brushScale, target.width, target.height, cloneOffset, frame) &&
                 engine.readback(target)
         } finally {
             engine.destroy()

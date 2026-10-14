@@ -84,7 +84,8 @@ public:
     bool beginStroke() override;
     bool setStampMode(int mode) override;
     bool retouch(int kind, int factor, float amount, float ox, float oy, bool wrap, const float* dabs,
-                 int count) override;
+                 int count, int wrapLeft = 0, int wrapTop = 0, int wrapWidth = 0,
+                 int wrapHeight = 0) override;
     bool shadeImpastoReliefToDisplay(int x, int y, int w, int h, float azimuthDeg, float elevationDeg,
                                      float strength) override;
     bool readImpastoDisplay(int x, int y, int w, int h, uint8_t* out, size_t len) override;

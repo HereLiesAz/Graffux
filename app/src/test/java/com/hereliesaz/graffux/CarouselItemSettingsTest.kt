@@ -99,6 +99,8 @@ class CarouselItemSettingsTest {
             activeCarouselSettingsKey(inputs.copy(activeInkUtensil = InkUtensil.MARKER, activeBrushName = "Ink Marker")),
         )
         assertEquals(smudge, activeCarouselSettingsKey(inputs.copy(activeTool = Tool.SMUDGE)))
+        assertEquals(TOOL_CATALOG.getValue(Tool.PEN).id,
+            activeCarouselSettingsKey(inputs.copy(activeTool = Tool.PEN)))
         assertNull(activeCarouselSettingsKey(inputs.copy(activeTool = Tool.ERASER)))
     }
 

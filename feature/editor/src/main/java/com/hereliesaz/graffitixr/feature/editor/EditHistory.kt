@@ -94,6 +94,28 @@ internal class EditHistory(
     }
 
     /**
+     * The ViewModel reattaches current bitmaps to property-history snapshots during undo/redo.
+     * Any stored origin therefore needs to follow the bitmap when its storage is grown.
+     * Legacy zero frame dimensions must become explicit before the larger bitmap is attached.
+     */
+    fun migrateLayerGrowth(layerId: String, frameWidth: Int, frameHeight: Int, originX: Int, originY: Int) {
+        fun reframe(command: EditCommand): EditCommand {
+            if (command !is EditCommand.PropertyChange) return command
+            return command.copy(oldLayers = command.oldLayers.map { layer ->
+                if (layer.id != layerId) layer else layer.copy(
+                    frameWidth = layer.frameWidth.takeIf { it > 0 } ?: frameWidth,
+                    frameHeight = layer.frameHeight.takeIf { it > 0 } ?: frameHeight,
+                    originX = originX,
+                    originY = originY,
+                )
+            })
+        }
+        for (stack in listOf(undoStack, redoStack)) {
+            for (index in stack.indices) stack[index] = reframe(stack[index])
+        }
+    }
+
+    /**
      * Pops the most recent undoable command, recording [counterEntry] of it on the redo stack.
      * Returns null (and records nothing) when there is nothing to undo.
      */

@@ -242,12 +242,25 @@ internal class DrawingEngine(
         if (stroke.tool == Tool.FILL) {
             val target = SafeBitmap.copy(bitmap) ?: return bitmap
             val p = mapped.firstOrNull() ?: return target
+            val seedX = p.x.toInt()
+            val seedY = p.y.toInt()
+            val selectedRegion = SelectionMask.region(clipPath, target.width, target.height)
+            val hasPaintedSeed = seedX in 0 until target.width &&
+                seedY in 0 until target.height &&
+                android.graphics.Color.alpha(target.getPixel(seedX, seedY)) != 0
+            // Transparent, as-yet unused padding must never swallow a bucket fill.
+            // Already-painted pixels outside the artboard are real work on an infinite layer,
+            // though: let a fill of existing paint extend through the full bitmap.
+            val fallbackRegion = if (hasPaintedSeed) {
+                android.graphics.Region(0, 0, target.width, target.height)
+            } else {
+                android.graphics.Region(
+                    -lf.originX, -lf.originY, lf.width - lf.originX, lf.height - lf.originY,
+                )
+            }
             ImageProcessor.floodFill(
-                target, p.x.toInt(), p.y.toInt(), stroke.brushColor,
-                clipRegion = SelectionMask.region(clipPath, target.width, target.height)
-                    ?: android.graphics.Region(
-                        -lf.originX, -lf.originY, lf.width - lf.originX, lf.height - lf.originY,
-                    ),
+                target, seedX, seedY, stroke.brushColor,
+                clipRegion = selectedRegion ?: fallbackRegion,
             )
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
@@ -428,7 +441,7 @@ internal class DrawingEngine(
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
         }
-        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset) ?: return bitmap
+        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset, lf) ?: return bitmap
         return SelectionMask.feather(
             bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
         )

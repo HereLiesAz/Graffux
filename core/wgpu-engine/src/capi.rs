@@ -186,6 +186,31 @@ pub unsafe extern "C" fn gfx_wgpu_retouch(
     dabs: *const f32,
     count: i32,
 ) -> bool {
+    gfx_wgpu_retouch_frame(e, kind, factor, amount, ox, oy, wrap, dabs, count, 0, 0, 0, 0)
+}
+
+/// Extended ABI: the logical wrap frame inside an expanded bitmap. The original export stays
+/// unchanged so older native consumers continue to load the same binary safely.
+///
+/// # Safety
+/// `dabs` points to `count * 4` float values.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn gfx_wgpu_retouch_frame(
+    e: *mut Engine,
+    kind: u32,
+    factor: i32,
+    amount: f32,
+    ox: f32,
+    oy: f32,
+    wrap: bool,
+    dabs: *const f32,
+    count: i32,
+    frame_x: i32,
+    frame_y: i32,
+    frame_w: i32,
+    frame_h: i32,
+) -> bool {
     guard(false, || {
         let flat = slice(dabs, count.max(0) as usize * 4);
         let quads: Vec<[f32; 4]> = flat
@@ -198,6 +223,7 @@ pub unsafe extern "C" fn gfx_wgpu_retouch(
             amount,
             offset: (ox, oy),
             wrap,
+            wrap_frame: (frame_x, frame_y, frame_w, frame_h),
         };
         engine(e).is_some_and(|e| e.retouch(tool, &quads))
     })

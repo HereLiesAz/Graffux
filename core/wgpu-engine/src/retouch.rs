@@ -32,6 +32,10 @@ struct Params {
     amount: f32,
     offset_x: f32,
     offset_y: f32,
+    frame_x: i32,
+    frame_y: i32,
+    frame_w: i32,
+    frame_h: i32,
     _p: [u32; 3],
 }
 
@@ -48,6 +52,8 @@ pub struct Retouch {
     pub offset: (f32, f32),
     /// Clone: the source wraps around the layer.
     pub wrap: bool,
+    /// (bitmap left, top, width, height) of the actual artboard; zero sizes use the whole texture.
+    pub wrap_frame: (i32, i32, i32, i32),
 }
 
 pub(super) struct RetouchGpu {
@@ -105,6 +111,11 @@ impl Engine {
             return self.ok();
         }
         self.mp_drain();
+        let (fx, fy, fw, fh) = tool.wrap_frame;
+        let frame_x = fx.clamp(0, self.width.saturating_sub(1));
+        let frame_y = fy.clamp(0, self.height.saturating_sub(1));
+        let frame_w = if fw <= 0 { self.width } else { fw }.clamp(1, self.width - frame_x);
+        let frame_h = if fh <= 0 { self.height } else { fh }.clamp(1, self.height - frame_y);
         let params = Params {
             kind: tool.kind,
             dab_count: dabs.len() as u32,
@@ -119,6 +130,10 @@ impl Engine {
             amount: tool.amount,
             offset_x: tool.offset.0,
             offset_y: tool.offset.1,
+            frame_x,
+            frame_y,
+            frame_w,
+            frame_h,
             _p: [0; 3],
         };
         let dab_bytes: &[u8] = bytemuck::cast_slice(dabs);
