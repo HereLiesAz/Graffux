@@ -127,6 +127,24 @@ class CarouselHeroSliderUiTest {
     }
 
     @Test
+    fun `only the center card expands on an upward swipe`() {
+        compose()
+        val center = "builtin.$selectedName"
+        rule.onAllNodesWithTag("carousel.card.MEDIUM", useUnmergedTree = true)
+            .onFirst().performTouchInput { swipeUp() }
+        rule.waitForIdle()
+        assertEquals(0, rule.onAllNodesWithTag("carousel.expanded", useUnmergedTree = true)
+            .fetchSemanticsNodes().size)
+        assertEquals(listOf(center), previews())
+        assertTrue("a side-card swipe cannot activate an item", clicks.isEmpty())
+
+        rule.onNodeWithTag("carousel.card.HERO", useUnmergedTree = true)
+            .performTouchInput { swipeUp() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("carousel.expanded", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
     fun `expanded slider edits settings without changing active item`() {
         compose()
         rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
