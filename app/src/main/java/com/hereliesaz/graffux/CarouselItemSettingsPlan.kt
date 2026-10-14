@@ -37,10 +37,11 @@ internal val SMUDGE_SETTINGS_KEY: String = TOOL_CATALOG.getValue(Tool.SMUDGE).id
 /**
  * The key of the paint item in hand, derived from editor state the same way the carousel lights its
  * entries, so an item picked outside the carousel is recognised too. Null when nothing that owns
- * settings is in hand (Eraser, Pen, Select, …): the live values are then nobody's.
+ * settings is in hand (Eraser, Select, …): the live values are then nobody's.
  */
 internal fun activeCarouselSettingsKey(input: CarouselInputs): String? = when {
-    input.activeTool in EFFECT_TOOLS -> TOOL_CATALOG[input.activeTool]?.id
+    input.activeTool in EFFECT_TOOLS || input.activeTool == Tool.PEN ->
+        TOOL_CATALOG[input.activeTool]?.id
     input.activeTool != Tool.BRUSH -> null
     input.activeInkUtensil != null -> "ink.${input.activeInkUtensil.id}"
     else -> carouselEntries(CarouselCategory.BRUSHES, input.copy(favorites = emptyList()))
