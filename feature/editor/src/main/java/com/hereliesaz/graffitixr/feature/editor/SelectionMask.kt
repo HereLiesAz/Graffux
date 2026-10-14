@@ -78,7 +78,14 @@ internal object SelectionMask {
 
         if (selection.inverted) {
             val whole = Path().apply {
-                addRect(0f, 0f, bitmapWidth.toFloat(), bitmapHeight.toFloat(), Path.Direction.CW)
+                // The frame's origin is in logical pixels; the bitmap stores that frame
+                // translated by (-originX, -originY). Invert within the *same* translated
+                // frame as the mapped selection rings, not the padded allocation's (0,0).
+                addRect(
+                    -originX.toFloat(), -originY.toFloat(),
+                    (bitmapWidth - originX).toFloat(), (bitmapHeight - originY).toFloat(),
+                    Path.Direction.CW,
+                )
             }
             whole.op(region, Path.Op.DIFFERENCE)
             return whole
