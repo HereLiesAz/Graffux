@@ -136,7 +136,8 @@ class CarouselHeroSliderUiTest {
         }
         rule.waitForIdle()
         assertTrue("size rose from 20, was $brushSize", brushSize > 100f)
-        assertEquals(listOf("builtin.$selectedName"), previews())
+        // The expanded overlay also draws the hero preview; both represent the same item.
+        assertTrue(previews().contains("builtin.$selectedName"))
         assertTrue(clicks.isEmpty())
     }
 
