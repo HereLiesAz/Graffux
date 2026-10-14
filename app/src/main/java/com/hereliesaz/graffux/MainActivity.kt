@@ -962,7 +962,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             val carouselEntries = carouselEntries(
                                 carouselUi.category,
                                 CarouselInputs(
-                                    groupEntries = toolGroupCarouselEntries(carouselUi.category, uiState),
+                                    groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
+                                        CarouselCategory.entries.filter { it.isToolGroup }.flatMap { group ->
+                                            toolGroupCarouselEntries(
+                                                group, uiState, strings.nav.dodge, strings.nav.burn,
+                                            )
+                                        }
+                                    } else {
+                                        toolGroupCarouselEntries(
+                                            carouselUi.category, uiState, strings.nav.dodge, strings.nav.burn,
+                                        )
+                                    },
                                     activeTool = uiState.activeTool,
                                     activeBrushName = uiState.activeBrushName,
                                     activeInkUtensil = activeInkUtensil,
