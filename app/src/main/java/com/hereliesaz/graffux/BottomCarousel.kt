@@ -10,6 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
@@ -53,6 +60,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
@@ -70,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -245,7 +254,7 @@ internal fun BottomCarousel(
                         expansion.anchor = HeroAnchor(r.center.x, r.bottom, r.width)
                     },
                 ) {
-                    CarouselStrip(state, widths, position, stripContent, onEntryClick, onToggleFavorite)
+                    CarouselStrip(state, widths, position, stripContent, onEntryClick, onToggleFavorite, expansion)
                 }
             }
         } else {
@@ -373,7 +382,18 @@ private fun EmptyHint(text: String) {
 @Composable
 private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, history: CarouselHistory) {
     val colors = MaterialTheme.colorScheme
-    val pages = CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>()
+    // Tool groups appear as a contextual tab only when their parent rail item was selected.
+    val pages = CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>() +
+        listOfNotNull(ui.category.takeIf { it.isToolGroup }?.let(CarouselTab::Page))
+    val pageScroll = rememberScrollState()
+    val density = LocalDensity.current
+    LaunchedEffect(ui.category, pageScroll.maxValue) {
+        val index = pages.indexOfFirst { it.category == ui.category }
+        if (index >= 0) {
+            val target = with(density) { (78.dp * index).roundToPx() }
+            pageScroll.animateScrollTo(target.coerceAtMost(pageScroll.maxValue))
+        }
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -384,14 +404,16 @@ private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, his
                 is CarouselTab.Page -> Unit
             }
             if (tab == CarouselTab.Undo) {
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f).height(TabRowHeight)) {
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.weight(1f).height(TabRowHeight).horizontalScroll(pageScroll),
+                ) {
                     pages.forEachIndexed { index, page ->
                         SegmentedButton(
                             selected = page.category == ui.category,
                             onClick = { onUiChange(ui.copy(category = page.category)) },
                             shape = SegmentedButtonDefaults.itemShape(index, pages.size),
-                            modifier = Modifier.weight(1f),
-                            // Tight padding: all five pages plus Undo/Redo fit a phone's width.
+                            modifier = Modifier.widthIn(min = 78.dp),
+                            // Scrollable pages keep the new tool groups legible on a phone.
                             contentPadding = PaddingValues(horizontal = 2.dp),
                             icon = {},
                             colors = SegmentedButtonDefaults.colors(
@@ -438,7 +460,7 @@ private fun HistoryTab(tab: CarouselTab, history: CarouselHistory) {
 
 private const val DISABLED_ALPHA = 0.38f
 
-@Suppress("FunctionNaming", "LongMethod", "LongParameterList")
+@Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CarouselStrip(
@@ -448,6 +470,7 @@ private fun CarouselStrip(
     content: CarouselContent,
     onEntryClick: (CarouselEntry) -> Unit,
     onToggleFavorite: (CarouselEntry) -> Unit,
+    expansion: HeroExpansion,
 ) {
     val entries = content.entries
     val selected = selectedCarouselIndex(entries)
@@ -527,11 +550,21 @@ private fun CarouselStrip(
                 } else {
                     scope.launch {
                         programmatic.centre(state, index)
-                        settle(index, byTap = true)
+                        // A deliberate tap, unlike a passive settle, always acts even on a selected side card.
+                        click(tapped)
                     }
                 }
             },
             onToggleFavorite,
+            { swiped ->
+                // A vertical swipe may expand only the card physically occupying the focal slot.
+                // Side cards are selected by tapping or horizontal scrolling, never by swiping up.
+                if (tier == CarouselTier.HERO && position.value == index.toFloat() &&
+                    heroHasMore(swiped)
+                ) {
+                    expansion.toggle(swiped.key)
+                }
+            },
             Modifier
                 .maskClip(CardShape)
                 .then(
@@ -566,7 +599,7 @@ internal class ProgrammaticScrolls {
     }
 }
 
-@Suppress("FunctionNaming", "LongParameterList")
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod")
 @Composable
 private fun CarouselItem(
     entry: CarouselEntry,
@@ -576,28 +609,49 @@ private fun CarouselItem(
     content: CarouselContent,
     onEntryClick: (CarouselEntry) -> Unit,
     onToggleFavorite: (CarouselEntry) -> Unit,
+    onSwipeUp: (CarouselEntry) -> Unit,
     clip: Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val isHero = tier == CarouselTier.HERO
-    // Content taller than the card scrolls vertically inside it (verticalScroll only moves when it
-    // overflows). Horizontal drags still reach the row; verticalScroll takes part in nested scroll,
-    // so whatever the card does not consume goes on to the sheet (CarouselSheet).
-    val scroll = rememberScrollState()
-    // An overflowing card starts at its foot, where the hero's controls are.
-    var pinnedToFoot by remember(entry.key, tier) { mutableStateOf(false) }
-    LaunchedEffect(entry.key, tier, scroll.maxValue) {
-        if (!pinnedToFoot && scroll.maxValue > 0) {
-            scroll.scrollTo(scroll.maxValue)
-            pinnedToFoot = true
-        }
-    }
+    val nestedScope = rememberCoroutineScope()
+    val nestedDispatcher = remember { NestedScrollDispatcher() }
+    val nestedConnection = remember { object : NestedScrollConnection {} }
     // Every card is centred on the row's middle line, so all tiers share one vertical centre.
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxWidth().height(height)) {
             BoxWithConstraints(
                 modifier = clip
                     .fillMaxSize()
+                    .then(
+                        // Side cards do not intercept vertical gestures. The sheet owns their
+                        // downward drags; only the centred hero handles swipe-up expansion.
+                        if (isHero) Modifier
+                            .nestedScroll(nestedConnection, nestedDispatcher)
+                            .pointerInput(entry.key, tier) {
+                                var travel = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { travel = 0f },
+                                    onVerticalDrag = { change, amount ->
+                                        travel += amount
+                                        if (amount > 0f) {
+                                            nestedDispatcher.dispatchPostScroll(
+                                                Offset.Zero, Offset(0f, amount), NestedScrollSource.UserInput,
+                                            )
+                                        }
+                                        change.consume()
+                                    },
+                                    onDragEnd = {
+                                        when {
+                                            travel <= -48.dp.toPx() -> onSwipeUp(entry)
+                                            travel > 0f -> nestedScope.launch {
+                                                nestedDispatcher.dispatchPostFling(Velocity.Zero, Velocity.Zero)
+                                            }
+                                        }
+                                    },
+                                )
+                            } else Modifier,
+                    )
                     .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
                     .semantics {
                         this.selected = entry.selected
@@ -609,18 +663,13 @@ private fun CarouselItem(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .verticalScroll(scroll)
                         .testTag("carousel.card.scroll"),
                 ) {
                     val tint = if (entry.selected) colors.surface else colors.onSurface
-                    val adjustments = content.heroState
-                        ?.let { heroAdjustments(entry, it.withItem(content.itemSettings(entry))) }
-                        .orEmpty()
                     val onMore = content.onMore?.takeIf { heroHasMore(entry) }
-                    val hasControls = adjustments.isNotEmpty() || onMore != null
-                    if (isHero && content.heroState != null && hasControls) {
+                    if (isHero) {
                         CompactHero(
-                            entry, adjustments, onMore, content, tint, maskInset, cardHeight, onEntryClick,
+                            entry, onMore, content, tint, maskInset, cardHeight, onEntryClick,
                             onToggleFavorite,
                         )
                     } else {
@@ -653,7 +702,6 @@ private fun CarouselItem(
 @Composable
 private fun CompactHero(
     entry: CarouselEntry,
-    adjustments: List<HeroAdjustment>,
     onMore: ((CarouselEntry) -> Unit)?,
     content: CarouselContent,
     tint: Color,
@@ -684,7 +732,7 @@ private fun CompactHero(
                     Text(
                         entry.label,
                         color = tint,
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(start = 6.dp),
@@ -694,7 +742,7 @@ private fun CompactHero(
                     Text(
                         it,
                         color = tint.copy(alpha = DETAIL_ALPHA),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -703,7 +751,7 @@ private fun CompactHero(
             FavoriteToggle(entry, tint, onToggleFavorite, Modifier.align(Alignment.TopEnd))
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = maskInset).padding(bottom = 2.dp)) {
-            if (adjustments.isNotEmpty()) HeroControls(entry, adjustments, content, tint)
+            // All adjustments live in the swipe-up expanded card, never in the compact card.
             if (onMore != null) {
                 Box(Modifier.fillMaxWidth().padding(end = 2.dp), contentAlignment = Alignment.CenterEnd) {
                     HeroMoreButton(entry, onMore, tint)
@@ -734,7 +782,7 @@ private fun androidx.compose.foundation.layout.BoxScope.CardIdentity(
                 Text(
                     it,
                     color = tint,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -744,7 +792,7 @@ private fun androidx.compose.foundation.layout.BoxScope.CardIdentity(
                 Text(
                     it,
                     color = tint.copy(alpha = DETAIL_ALPHA),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,

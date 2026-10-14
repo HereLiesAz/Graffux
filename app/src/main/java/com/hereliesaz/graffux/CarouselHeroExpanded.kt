@@ -234,7 +234,7 @@ private fun ExpandedHeroCard(
                     Text(
                         entry.label,
                         color = tint,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(start = 8.dp),
@@ -246,8 +246,8 @@ private fun ExpandedHeroCard(
                 Text(
                     it,
                     color = tint.copy(alpha = DETAIL_ALPHA),
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
                 )
             }
             HeroSectionsView(entry, sections, content, tint)
@@ -257,7 +257,7 @@ private fun ExpandedHeroCard(
                     contentPadding = PaddingValues(horizontal = 6.dp),
                     modifier = Modifier.height(MORE_ROW_DP.dp).testTag("carousel.expanded.less"),
                 ) {
-                    Text("Less", color = tint, style = MaterialTheme.typography.labelMedium)
+                    Text("Less", color = tint, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

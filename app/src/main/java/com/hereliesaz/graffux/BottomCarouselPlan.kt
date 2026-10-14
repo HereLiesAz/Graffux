@@ -23,6 +23,9 @@ internal enum class CarouselCategory(val label: String) {
     INK("Ink"),
     EFFECTS("Effects"),
     OPTIONS("Options"),
+    TRANSFORM("Transform"),
+    SELECTION("Selection"),
+    VECTOR("Vector"),
 }
 
 /** What tapping a carousel item does. Every case maps onto an existing `EditorViewModel` call. */
@@ -40,6 +43,8 @@ internal sealed interface CarouselAction {
     data class Stabilizer(val algorithm: StabilizerAlgorithm) : CarouselAction
     data class SmudgeMode(val mode: ColorSmudgeEngine.Mode) : CarouselAction
     data class SelectShape(val shape: SelectionShape) : CarouselAction
+    /** One-shot action or mode formerly under a nested (not hosted) AzNavRail popup. */
+    data class GroupCommand(val id: String) : CarouselAction
 
     /**
      * One declared filter or tool of an installed azphalt code/mixed extension, run the way the
@@ -71,6 +76,7 @@ internal data class CarouselEntry(
     val favorite: Boolean = false,
     /** Set on installed-extension effects: what the hero card's details and tip visual read. */
     val extensionEffect: ExtensionEffect? = null,
+    val description: String? = null,
 )
 
 /** The editor state the carousel reads — a narrow slice, so the derivation stays unit-testable. */
@@ -95,6 +101,7 @@ internal data class CarouselInputs(
     val extensionEffects: List<ExtensionEffect> = emptyList(),
     /** Starred entry keys, in the order they were starred (`SettingsRepository.carouselFavorites`). */
     val favorites: List<String> = emptyList(),
+    val groupEntries: List<CarouselEntry> = emptyList(),
 )
 
 /** Tools that act on existing pixels rather than lay new paint down — the "Effects" page. */
@@ -124,6 +131,7 @@ internal fun carouselEntries(category: CarouselCategory, input: CarouselInputs):
         CarouselCategory.INK -> inkEntries(input)
         CarouselCategory.EFFECTS -> effectEntries(input)
         CarouselCategory.OPTIONS -> optionEntries(input, allOptions = false)
+        CarouselCategory.TRANSFORM, CarouselCategory.SELECTION, CarouselCategory.VECTOR -> input.groupEntries
     }
     return raw.markFavorites(input.favorites)
 }
@@ -141,7 +149,8 @@ private fun List<CarouselEntry>.markFavorites(favorites: List<String>): List<Car
  */
 private fun favoriteEntries(input: CarouselInputs): List<CarouselEntry> {
     if (input.favorites.isEmpty()) return emptyList()
-    val all = (brushEntries(input) + inkEntries(input) + effectEntries(input) + optionEntries(input, allOptions = true))
+    val all = (input.groupEntries + brushEntries(input) + inkEntries(input) +
+        effectEntries(input) + optionEntries(input, allOptions = true))
         .associateBy { it.key }
     return input.favorites.distinct().mapNotNull { key -> all[key]?.copy(favorite = true) }
 }

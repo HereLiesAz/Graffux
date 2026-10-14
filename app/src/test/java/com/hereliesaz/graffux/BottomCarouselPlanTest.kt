@@ -166,7 +166,7 @@ class BottomCarouselPlanTest {
         assertEquals(CarouselTab.Redo, CAROUSEL_TABS.last())
         // Every page category has exactly one tab, and nothing else in the row is a page.
         assertEquals(
-            CarouselCategory.entries.toList(),
+            CarouselCategory.entries.filterNot { it.isToolGroup },
             CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>().map { it.category },
         )
         assertEquals(2, CAROUSEL_TABS.count { it !is CarouselTab.Page })
@@ -178,6 +178,8 @@ class BottomCarouselPlanTest {
         CarouselCategory.entries.forEach {
             assertTrue(carouselTabEnabled(CarouselTab.Page(it), undoCount = 0, redoCount = 0))
         }
+        // Nested tools are contextual, not permanent rail or carousel tabs.
+        assertTrue(CAROUSEL_TABS.none { it is CarouselTab.Page && it.category.isToolGroup })
     }
 
     @Test

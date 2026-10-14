@@ -133,7 +133,8 @@ internal fun heroSections(entry: CarouselEntry, s: HeroAdjustmentState): List<He
         is CarouselAction.SmudgeMode -> smudge
         is CarouselAction.StabilizerLevel, is CarouselAction.Stabilizer -> listOf(stabilizer)
         is CarouselAction.SelectShape -> listOf(selectionSection(action.shape, s))
-        is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> emptyList()
+        is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut,
+        is CarouselAction.GroupCommand -> emptyList()
     }
     return sections.filterNot { it.isEmpty }
 }
