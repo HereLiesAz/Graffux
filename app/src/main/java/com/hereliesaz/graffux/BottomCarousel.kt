@@ -557,15 +557,12 @@ private fun CarouselStrip(
             },
             onToggleFavorite,
             { swiped ->
-                if (!heroHasMore(swiped)) return@CarouselItem
-                if (position.value.roundToInt() == index) {
+                // A vertical swipe may expand only the card physically occupying the focal slot.
+                // Side cards are selected by tapping or horizontal scrolling, never by swiping up.
+                if (tier == CarouselTier.HERO && position.value == index.toFloat() &&
+                    heroHasMore(swiped)
+                ) {
                     expansion.toggle(swiped.key)
-                } else {
-                    // Complete the centring animation before the overlay takes the hero anchor.
-                    scope.launch {
-                        programmatic.centre(state, index)
-                        expansion.request(swiped.key)
-                    }
                 }
             },
             Modifier
@@ -626,33 +623,35 @@ private fun CarouselItem(
             BoxWithConstraints(
                 modifier = clip
                     .fillMaxSize()
-                    .nestedScroll(nestedConnection, nestedDispatcher)
-                    .pointerInput(entry.key, tier) {
-                        var travel = 0f
-                        detectVerticalDragGestures(
-                            onDragStart = { travel = 0f },
-                            onVerticalDrag = { change, amount ->
-                                travel += amount
-                                // Give downward drags to CarouselSheet's nested-scroll connection.
-                                if (amount > 0f) {
-                                    nestedDispatcher.dispatchPostScroll(
-                                        Offset.Zero, Offset(0f, amount), NestedScrollSource.UserInput,
-                                    )
-                                }
-                                change.consume()
-                            },
-                            onDragEnd = {
-                                when {
-                                    travel <= -48.dp.toPx() -> onSwipeUp(entry)
-                                    travel > 0f -> nestedScope.launch {
-                                        // The sheet settles only on a nested fling; finish the
-                                        // downward drag even when the user releases without a fling.
-                                        nestedDispatcher.dispatchPostFling(Velocity.Zero, Velocity.Zero)
-                                    }
-                                }
-                            },
-                        )
-                    }
+                    .then(
+                        // Side cards do not intercept vertical gestures. The sheet owns their
+                        // downward drags; only the centred hero handles swipe-up expansion.
+                        if (isHero) Modifier
+                            .nestedScroll(nestedConnection, nestedDispatcher)
+                            .pointerInput(entry.key, tier) {
+                                var travel = 0f
+                                detectVerticalDragGestures(
+                                    onDragStart = { travel = 0f },
+                                    onVerticalDrag = { change, amount ->
+                                        travel += amount
+                                        if (amount > 0f) {
+                                            nestedDispatcher.dispatchPostScroll(
+                                                Offset.Zero, Offset(0f, amount), NestedScrollSource.UserInput,
+                                            )
+                                        }
+                                        change.consume()
+                                    },
+                                    onDragEnd = {
+                                        when {
+                                            travel <= -48.dp.toPx() -> onSwipeUp(entry)
+                                            travel > 0f -> nestedScope.launch {
+                                                nestedDispatcher.dispatchPostFling(Velocity.Zero, Velocity.Zero)
+                                            }
+                                        }
+                                    },
+                                )
+                            } else Modifier,
+                    )
                     .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
                     .semantics {
                         this.selected = entry.selected
