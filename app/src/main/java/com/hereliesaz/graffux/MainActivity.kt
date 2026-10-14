@@ -326,7 +326,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showCarousel by remember { mutableStateOf(true) }
     var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)) }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
-    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture && uiState.activePanel == EditorPanel.NONE
+    // Transform's former nested rail stayed usable while its panel was active; its carousel must too.
+    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture &&
+        (uiState.activePanel == EditorPanel.NONE ||
+            (carouselUi.category == CarouselCategory.TRANSFORM && uiState.activePanel == EditorPanel.TRANSFORM))
     // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
     val heroExpansion = remember { HeroExpansion() }
     LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
