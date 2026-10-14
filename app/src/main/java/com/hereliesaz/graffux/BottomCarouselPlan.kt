@@ -149,7 +149,8 @@ private fun List<CarouselEntry>.markFavorites(favorites: List<String>): List<Car
  */
 private fun favoriteEntries(input: CarouselInputs): List<CarouselEntry> {
     if (input.favorites.isEmpty()) return emptyList()
-    val all = (brushEntries(input) + inkEntries(input) + effectEntries(input) + optionEntries(input, allOptions = true))
+    val all = (input.groupEntries + brushEntries(input) + inkEntries(input) +
+        effectEntries(input) + optionEntries(input, allOptions = true))
         .associateBy { it.key }
     return input.favorites.distinct().mapNotNull { key -> all[key]?.copy(favorite = true) }
 }
