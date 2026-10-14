@@ -111,7 +111,7 @@ private fun HeroToggleRow(entry: CarouselEntry, toggle: HeroToggle, content: Car
         Text(
             toggle.label,
             color = tint,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
         Switch(
@@ -122,7 +122,7 @@ private fun HeroToggleRow(entry: CarouselEntry, toggle: HeroToggle, content: Car
     }
 }
 
-private const val HEADER_SP = 10
-private const val OPTION_SP = 10
-private const val CHOICE_DP = 32
-private const val TOGGLE_DP = 36
+private const val HEADER_SP = 12
+private const val OPTION_SP = 12
+private const val CHOICE_DP = 38
+private const val TOGGLE_DP = 44
