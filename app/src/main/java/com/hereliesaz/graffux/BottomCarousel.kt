@@ -77,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -604,6 +605,7 @@ private fun CarouselItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val isHero = tier == CarouselTier.HERO
+    val nestedScope = rememberCoroutineScope()
     val nestedDispatcher = remember { NestedScrollDispatcher() }
     val nestedConnection = remember { object : NestedScrollConnection {} }
     // Every card is centred on the row's middle line, so all tiers share one vertical centre.
@@ -628,7 +630,14 @@ private fun CarouselItem(
                                 change.consume()
                             },
                             onDragEnd = {
-                                if (travel <= -48.dp.toPx()) onSwipeUp(entry)
+                                when {
+                                    travel <= -48.dp.toPx() -> onSwipeUp(entry)
+                                    travel > 0f -> nestedScope.launch {
+                                        // The sheet settles only on a nested fling; finish the
+                                        // downward drag even when the user releases without a fling.
+                                        nestedDispatcher.dispatchPostFling(Velocity.Zero, Velocity.Zero)
+                                    }
+                                }
                             },
                         )
                     }
