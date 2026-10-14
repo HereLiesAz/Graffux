@@ -50,11 +50,13 @@ val Typography = Typography(
         lineHeight = 10.sp,
         letterSpacing = 0.9.sp
     ),
+    // AzNavRail's hidden-menu action labels use bodyMedium. Keep them readable without
+    // enlarging the rail's titleLarge labels or the carousel's independently styled cards.
     bodyMedium = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 9.sp,
-        lineHeight = 13.sp,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
         letterSpacing = 0.20.sp
     ),
     labelLarge = TextStyle(
