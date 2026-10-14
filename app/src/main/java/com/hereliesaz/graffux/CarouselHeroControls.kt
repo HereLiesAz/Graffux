@@ -81,12 +81,12 @@ internal fun HeroMoreButton(entry: CarouselEntry, onMore: (CarouselEntry) -> Uni
             .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp)
             .testTag("carousel.hero.more"),
     ) {
-        Text("More", color = tint, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+        Text("More", color = tint, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
 
 /** Heights of the compact rows above. */
-internal const val SLIDER_ROW_DP = 28
+internal const val SLIDER_ROW_DP = 36
 internal const val MORE_ROW_DP = 28
 private const val SLIDER_TRACK_DP = 16
-private const val CAPTION_SP = 10
+private const val CAPTION_SP = 13
