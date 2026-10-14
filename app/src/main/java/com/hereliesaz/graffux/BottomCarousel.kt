@@ -13,6 +13,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
@@ -536,12 +540,14 @@ private fun CarouselStrip(
                 } else {
                     scope.launch {
                         programmatic.centre(state, index)
-                        settle(index, byTap = true)
+                        // A deliberate tap, unlike a passive settle, always acts even on a selected side card.
+                        click(tapped)
                     }
                 }
             },
             onToggleFavorite,
             { swiped ->
+                if (!heroHasMore(swiped)) return@CarouselItem
                 if (position.value.roundToInt() == index) {
                     expansion.toggle(swiped.key)
                 } else {
@@ -598,19 +604,28 @@ private fun CarouselItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val isHero = tier == CarouselTier.HERO
+    val nestedDispatcher = remember { NestedScrollDispatcher() }
+    val nestedConnection = remember { object : NestedScrollConnection {} }
     // Every card is centred on the row's middle line, so all tiers share one vertical centre.
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxWidth().height(height)) {
             BoxWithConstraints(
                 modifier = clip
                     .fillMaxSize()
+                    .nestedScroll(nestedConnection, nestedDispatcher)
                     .pointerInput(entry.key, tier) {
                         var travel = 0f
                         detectVerticalDragGestures(
                             onDragStart = { travel = 0f },
                             onVerticalDrag = { change, amount ->
                                 travel += amount
-                                if (amount < 0f) change.consume()
+                                // Give downward drags to CarouselSheet's nested-scroll connection.
+                                if (amount > 0f) {
+                                    nestedDispatcher.dispatchPostScroll(
+                                        Offset.Zero, Offset(0f, amount), NestedScrollSource.UserInput,
+                                    )
+                                }
+                                change.consume()
                             },
                             onDragEnd = {
                                 if (travel <= -48.dp.toPx()) onSwipeUp(entry)
