@@ -23,6 +23,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.unit.dp
@@ -61,6 +62,7 @@ class CarouselSheetStrokeUiTest {
 
     private var stroke by mutableStateOf(false)
     private var userOpen by mutableStateOf(true)
+    private val expansion = HeroExpansion()
     private val stored = mutableStateMapOf(
         heroKey to CarouselItemSettings(size = 20f),
         otherKey to CarouselItemSettings(size = 150f, flow = 0.3f),
@@ -103,6 +105,8 @@ class CarouselSheetStrokeUiTest {
                                 ),
                                 itemSettings = { e -> carouselSettingsKey(e)?.let { carouselItemSettingsFor(it, stored) } },
                                 // As MainActivity does for an item: store the adjusted settings under its key.
+                                onMore = {},
+                                strokeActive = { stroke },
                                 onAdjust = { e, setter, v ->
                                     carouselSettingsKey(e)?.let { key ->
                                         carouselItemSettingsFor(key, stored).adjusted(setter, v)?.let { stored[key] = it }
@@ -112,8 +116,10 @@ class CarouselSheetStrokeUiTest {
                             history = CarouselHistory(undoCount = 1, redoCount = 1, onUndo = {}, onRedo = {}),
                             onEntryClick = {},
                             onToggleFavorite = {},
+                            expansion = expansion,
                         )
                     }
+                    ExpandedHeroLayer(expansion)
                 }
             }
         }
@@ -185,7 +191,9 @@ class CarouselSheetStrokeUiTest {
     fun `a hero slider changes only its own item's settings`() {
         compose()
         val before = stored.getValue(otherKey)
-        rule.onNodeWithTag("carousel.hero.slider.size", useUnmergedTree = true).performTouchInput {
+        rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("carousel.expanded.slider.size", useUnmergedTree = true).performTouchInput {
             swipe(Offset(width * 0.1f, centerY), Offset(width * 0.9f, centerY), durationMillis = 600)
         }
         rule.waitForIdle()
