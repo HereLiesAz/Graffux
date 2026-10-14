@@ -389,19 +389,22 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampMode(JN
     return engine && engine->setStampMode(mode) ? JNI_TRUE : JNI_FALSE;
 }
 
-// Blur / Sharpen / Clone on the GPU. `params` is {factor, amount, offsetX, offsetY, wrap 0/1};
+// Blur / Sharpen / Clone. Params additionally carry {logicalLeft, Top, Width, Height}.
 // `dabs` holds [x, y, radius, hardness] per dab.
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuRetouch_nativeRetouch(JNIEnv* env, jobject, jlong handle, jint kind,
                                                                      jfloatArray params, jfloatArray dabs) {
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !params || !dabs || env->GetArrayLength(params) < 5) return JNI_FALSE;
-    jfloat p[5];
-    env->GetFloatArrayRegion(params, 0, 5, p);
+    jfloat p[9] = {};
+    const jsize paramsCount = env->GetArrayLength(params);
+    env->GetFloatArrayRegion(params, 0, paramsCount >= 9 ? 9 : 5, p);
     const jsize n = env->GetArrayLength(dabs);
     std::vector<float> flat(static_cast<size_t>(n));
     env->GetFloatArrayRegion(dabs, 0, n, flat.data());
-    return engine->retouch(kind, static_cast<int>(p[0]), p[1], p[2], p[3], p[4] != 0.0f, flat.data(), n / 4)
+    return engine->retouch(kind, static_cast<int>(p[0]), p[1], p[2], p[3], p[4] != 0.0f,
+                           flat.data(), n / 4, static_cast<int>(p[5]), static_cast<int>(p[6]),
+                           static_cast<int>(p[7]), static_cast<int>(p[8]))
                ? JNI_TRUE
                : JNI_FALSE;
 }
