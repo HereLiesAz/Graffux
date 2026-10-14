@@ -4513,11 +4513,24 @@ class EditorViewModel @Inject constructor(
         val target = if (layer != null && bitmap != null) layerGrowthTarget(layer, bitmap, canvasSize, state) else null
         if (layer == null || bitmap == null || target == null) return
         val frame = layer.frame(bitmap.width, bitmap.height)
+        val base = layerStore.base(layerId)
+            ?.takeIf { it.width == bitmap.width && it.height == bitmap.height } ?: return
         val grown = LayerGrowth.grow(bitmap, frame, target) ?: return
-        // The stored base grows the same way, so the stroke log replays onto the grown pixels.
-        layerStore.base(layerId)?.takeIf { it.width == bitmap.width && it.height == bitmap.height }?.let { base ->
-            LayerGrowth.grow(base, frame, target)?.let { putLayerBase(layerId, it) }
+        // Growth is atomic across live pixels and the immutable history base. On OOM,
+        // preserve both buffers and their original placement; never publish mismatched dimensions.
+        val grownBase = LayerGrowth.grow(base, frame, target)
+        if (grownBase == null) {
+            grown.recycle()
+            return
         }
+        val frozenBase = SafeBitmap.copy(grownBase, mutable = false)
+        grownBase.recycle()
+        if (frozenBase == null) {
+            grown.recycle()
+            return
+        }
+        layerStore.putBase(layerId, frozenBase)
+        history.migrateLayerGrowth(layerId, frame.width, frame.height, target.left, target.top)
         _uiState.update { s ->
             s.copy(
                 layers = s.layers.map {
@@ -4602,7 +4615,7 @@ class EditorViewModel @Inject constructor(
         ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         // The layer reaches as far as the screen does: grown (once, before anything binds or copies
         // its bitmap) to cover everything visible, so a stroke can run off the artboard.
-        growLayerToView(layerId, canvasSize, state)
+        growLayerToView(layerId, canvasSize, _uiState.value)
         val originalBitmap = _uiState.value.layers.find { it.id == layerId }?.bitmap
             ?: return strokeLog("start: no paintable bitmap")
         val layer = _uiState.value.layers.find { it.id == layerId } ?: return
