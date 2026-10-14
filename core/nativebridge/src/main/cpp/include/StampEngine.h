@@ -236,7 +236,9 @@ public:
     // Blur (0), Sharpen (1) or Clone (2) over `count` [x, y, radius, hardness] dabs, from the stroke
     // shadow. Optional; false = unsupported.
     virtual bool retouch(int /*kind*/, int /*factor*/, float /*amount*/, float /*ox*/, float /*oy*/,
-                         bool /*wrap*/, const float* /*dabs*/, int /*count*/) { return false; }
+                         bool /*wrap*/, const float* /*dabs*/, int /*count*/,
+                         int /*wrapLeft*/ = 0, int /*wrapTop*/ = 0,
+                         int /*wrapWidth*/ = 0, int /*wrapHeight*/ = 0) { return false; }
     virtual bool supportsWet() const { return false; }
     virtual bool wetBegin(const uint32_t* /*raw*/, const float* /*height*/, const float* /*wetness*/,
                           size_t /*count*/, const uint32_t* /*active*/, size_t /*tiles*/, int /*tileSize*/,
