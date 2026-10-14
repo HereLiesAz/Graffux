@@ -31,6 +31,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import org.robolectric.RuntimeEnvironment
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.SelectionShape
@@ -46,7 +47,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The hero card's inline sliders: they drive the editor setting, never the row, and only the hero has them. */
+/** Compact heroes hide settings; upward swipe reveals the same per-item controls in the grown card. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi", application = Application::class)
@@ -59,6 +60,7 @@ class CarouselHeroSliderUiTest {
     private var brushSize by mutableStateOf(20f)
     private val clicks = mutableListOf<String>()
     private val mores = mutableListOf<String>()
+    private val expansion = HeroExpansion()
 
     private val inputs = CarouselInputs(
         activeTool = Tool.BRUSH,
@@ -94,7 +96,9 @@ class CarouselHeroSliderUiTest {
                         history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),
                         onEntryClick = { clicks += it.key },
                         onToggleFavorite = {},
+                        expansion = expansion,
                     )
+                    ExpandedHeroLayer(expansion)
                 }
             }
         }
@@ -109,42 +113,34 @@ class CarouselHeroSliderUiTest {
         .map { it.config[SemanticsProperties.TestTag].removePrefix("carousel.preview.") }
 
     @Test
-    fun `dragging a hero slider changes the value and does not move the carousel`() {
+    fun `compact hero hides every adjustment until a swipe up`() {
         compose()
         val heroKey = "builtin.$selectedName"
         assertEquals(listOf(heroKey), previews())
-
-        rule.onNodeWithTag("carousel.hero.slider.size", useUnmergedTree = true).performTouchInput {
-            swipe(Offset(width * 0.1f, centerY), Offset(width * 0.9f, centerY), durationMillis = 600)
+        assertEquals(0, rule.onAllNodesWithTag("carousel.hero.controls", useUnmergedTree = true)
+            .fetchSemanticsNodes().size)
+        listOf("size", "flow", "softness").forEach { id ->
+            assertEquals(0, rule.onAllNodesWithTag("carousel.hero.slider.$id", useUnmergedTree = true)
+                .fetchSemanticsNodes().size)
         }
+        rule.onNodeWithTag("carousel.card.HERO", useUnmergedTree = true).performTouchInput { swipeUp() }
         rule.waitForIdle()
-
-        assertTrue("size rose from 20, was $brushSize", brushSize > 100f)
-        assertEquals("the row stayed on the same hero", listOf(heroKey), previews())
-        assertTrue("the slider drag selected nothing", clicks.isEmpty())
+        rule.onNodeWithTag("carousel.expanded", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("carousel.expanded.slider.size", useUnmergedTree = true).assertExists()
+        assertTrue(clicks.isEmpty())
     }
 
     @Test
-    fun `only the hero card shows controls, and More reports the hero`() {
+    fun `expanded slider edits settings without changing active item`() {
         compose()
-        val controls = rule.onAllNodesWithTag("carousel.hero.controls", useUnmergedTree = true)
-        assertEquals(1, controls.fetchSemanticsNodes().size)
-        listOf("size", "flow", "softness").forEach { id ->
-            val sliders = rule.onAllNodes(hasTestTag("carousel.hero.slider.$id"), useUnmergedTree = true)
-            assertEquals(1, sliders.fetchSemanticsNodes().size)
-            val inHero = hasTestTag("carousel.hero.slider.$id") and hasAnyAncestor(hasTestTag("carousel.card.HERO"))
-            rule.onNode(inHero, useUnmergedTree = true).assertExists()
-        }
-        listOf("MEDIUM", "SMALL").forEach { tier ->
-            val controls = rule.onAllNodes(
-                hasTestTag("carousel.hero.controls") and hasAnyAncestor(hasTestTag("carousel.card.$tier")),
-                useUnmergedTree = true,
-            )
-            assertEquals(0, controls.fetchSemanticsNodes().size)
-        }
         rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
         rule.waitForIdle()
-        assertEquals(listOf("builtin.$selectedName"), mores)
+        rule.onNodeWithTag("carousel.expanded.slider.size", useUnmergedTree = true).performTouchInput {
+            swipe(Offset(width * 0.1f, centerY), Offset(width * 0.9f, centerY), durationMillis = 600)
+        }
+        rule.waitForIdle()
+        assertTrue("size rose from 20, was $brushSize", brushSize > 100f)
+        assertEquals(listOf("builtin.$selectedName"), previews())
         assertTrue(clicks.isEmpty())
     }
 
@@ -198,12 +194,18 @@ class CarouselHeroSliderUiTest {
         rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
 
     @Test
-    fun `the hero's controls sit below its tip, name and details`() {
+    fun `compact title and details stay readable without adjustment controls`() {
         compose()
         val identity = bounds("carousel.hero.identity")
         val details = rule.onAllNodesWithText("Built-in · round tip", useUnmergedTree = true)
             .fetchSemanticsNodes().single().boundsInRoot
-        val sliders = listOf("size", "flow", "softness").map { bounds("carousel.hero.slider.$it") }
+        assertTrue(details.bottom <= identity.bottom + 1f)
+        assertEquals(0, rule.onAllNodesWithTag("carousel.hero.controls", useUnmergedTree = true)
+            .fetchSemanticsNodes().size)
+        val more = bounds("carousel.hero.more")
+        assertTrue(more.bottom <= bounds("carousel.card.HERO").bottom + 1f)
+    }
+}
         val more = bounds("carousel.hero.more")
         assertTrue("details inside the identity block", details.bottom <= identity.bottom + 1f)
         sliders.forEach {
