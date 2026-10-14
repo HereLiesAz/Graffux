@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -630,10 +631,12 @@ private fun CarouselItem(
                             .nestedScroll(nestedConnection, nestedDispatcher)
                             .pointerInput(entry.key, tier) {
                                 var travel = 0f
+                                val velocityTracker = VelocityTracker()
                                 detectVerticalDragGestures(
-                                    onDragStart = { travel = 0f },
+                                    onDragStart = { travel = 0f; velocityTracker.resetTracking() },
                                     onVerticalDrag = { change, amount ->
                                         travel += amount
+                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
                                         if (amount > 0f) {
                                             nestedDispatcher.dispatchPostScroll(
                                                 Offset.Zero, Offset(0f, amount), NestedScrollSource.UserInput,
@@ -644,8 +647,15 @@ private fun CarouselItem(
                                     onDragEnd = {
                                         when {
                                             travel <= -48.dp.toPx() -> onSwipeUp(entry)
-                                            travel > 0f -> nestedScope.launch {
-                                                nestedDispatcher.dispatchPostFling(Velocity.Zero, Velocity.Zero)
+                                            travel > 0f -> {
+                                                // A quick downward flick should close the sheet even
+                                                // before the halfway detent; don't discard velocity.
+                                                val releaseY = velocityTracker.calculateVelocity().y
+                                                nestedScope.launch {
+                                                    nestedDispatcher.dispatchPostFling(
+                                                        Velocity.Zero, Velocity(0f, releaseY),
+                                                    )
+                                                }
                                             }
                                         }
                                     },
