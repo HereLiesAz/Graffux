@@ -43,6 +43,7 @@ internal fun carouselTip(entry: CarouselEntry): CarouselTip = when (val action =
     is CarouselAction.ExtensionContribution ->
         CarouselTip.Preview(action.extensionId, entry.icon ?: GraffuxIcons.FilterGallery)
     is CarouselAction.ExtensionLut -> CarouselTip.Preview(action.extensionId, entry.icon ?: GraffuxIcons.ColorLookup)
+    is CarouselAction.GroupCommand -> CarouselTip.Glyph(entry.icon ?: GraffuxIcons.BrushSettings)
     else -> CarouselTip.Glyph(entry.icon ?: GraffuxIcons.BrushSettings)
 }
 
@@ -107,7 +108,7 @@ internal data class CarouselCardContent(val name: String?, val details: List<Str
 
 /** Hero: name and details. Medium: name under the tip. Small: the tip alone. */
 internal fun carouselCardContent(entry: CarouselEntry, tier: CarouselTier): CarouselCardContent = when (tier) {
-    CarouselTier.HERO -> CarouselCardContent(entry.label, carouselHeroDetails(entry))
+    CarouselTier.HERO -> CarouselCardContent(entry.label, entry.description?.let(::listOf) ?: carouselHeroDetails(entry))
     CarouselTier.MEDIUM -> CarouselCardContent(entry.label, emptyList())
     CarouselTier.SMALL -> CarouselCardContent(null, emptyList())
 }
@@ -131,6 +132,7 @@ internal fun carouselHeroDetails(entry: CarouselEntry): List<String> = when (val
     is CarouselAction.Stabilizer -> listOf("Option · stabilizer algorithm")
     is CarouselAction.SmudgeMode -> listOf("Option · smudge mode")
     is CarouselAction.SelectShape -> listOf("Option · selection shape")
+    is CarouselAction.GroupCommand -> listOf("Tool group")
     is CarouselAction.ExtensionContribution, is CarouselAction.ExtensionLut -> extensionDetails(entry.extensionEffect)
 }
 
