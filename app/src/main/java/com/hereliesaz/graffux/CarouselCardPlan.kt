@@ -29,6 +29,7 @@ internal sealed interface CarouselTip {
     data class Preview(val extensionId: String, val fallbackIcon: Int) : CarouselTip
 }
 
+@Suppress("CyclomaticComplexMethod") // Exhaustive renderers for every card action type.
 internal fun carouselTip(entry: CarouselEntry): CarouselTip = when (val action = entry.action) {
     is CarouselAction.ExtensionBrush -> CarouselTip.Stamp(action.id)
     is CarouselAction.BuiltInBrush, is CarouselAction.CustomBrush -> {
@@ -108,7 +109,9 @@ internal data class CarouselCardContent(val name: String?, val details: List<Str
 
 /** Hero: name and details. Medium: name under the tip. Small: the tip alone. */
 internal fun carouselCardContent(entry: CarouselEntry, tier: CarouselTier): CarouselCardContent = when (tier) {
-    CarouselTier.HERO -> CarouselCardContent(entry.label, entry.description?.let(::listOf) ?: carouselHeroDetails(entry))
+    CarouselTier.HERO -> CarouselCardContent(
+        entry.label, entry.description?.let(::listOf) ?: carouselHeroDetails(entry),
+    )
     CarouselTier.MEDIUM -> CarouselCardContent(entry.label, emptyList())
     CarouselTier.SMALL -> CarouselCardContent(null, emptyList())
 }
