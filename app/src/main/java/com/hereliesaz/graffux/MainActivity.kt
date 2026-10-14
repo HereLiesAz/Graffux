@@ -593,6 +593,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     ).toMutableSet().apply {
         if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("area.animation")
         if (showModelDialog) add("area.model")
+        if (carouselOnScreen && carouselUi.sheetOpen) {
+            carouselGroupRailId(carouselUi.category)?.let(::add)
+        }
         if (showReferenceWindow) add("area.reference")
         if (showFigmaWindow) add("area.figma")
         if (uiState.activePanel == EditorPanel.EXTENSIONS || showStore) add("area.extensions")
@@ -694,7 +697,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 strings = strings,
                 navItemColor = navItemColor,
                 activeColor = activeRailColor, // Pass down to DSL builder
-                screenCenter = screenCenter,
+                selectedToolGroup = carouselUi.category.takeIf {
+                    carouselOnScreen && carouselUi.sheetOpen && it.isToolGroup
+                },
                 onBlendMode = { showBlendDialog = true },
                 onCurves = { showCurvesDialog = true },
                 onAddClicked = { showAddDialog = true },
@@ -708,7 +713,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     carouselUi = carouselUi.copy(category = category, sheetOpen = true)
                 },
                 toolOptionsOpen = heroExpansion.expandedKey != null,
-                onForgetSelectionRequested = { pendingForgetSelectionName = it },
                 showLayersRail = showLayersRail,
                 showBrushRail = showBrushRail,
                 onOpenBrushGallery = { showBrushGallery = true },
@@ -2064,6 +2068,9 @@ internal fun secondaryRailClassifiers(uiState: EditorUiState): Set<String> = bui
     if (uiState.selection != null) add(SELECT_ID)
 }
 
+@Suppress(
+    "FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod",
+) // The AzNavRail DSL is necessarily one declarative host tree.
 private fun AzNavHostScope.ConfigureRailItems(
     vm: EditorViewModel,
     uiState: EditorUiState,
@@ -2080,9 +2087,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     strings: AppStrings,
     navItemColor: Color,
     activeColor: Color,
-    // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't
-    // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in).
-    screenCenter: Offset,
+    selectedToolGroup: CarouselCategory?,
     onBlendMode: () -> Unit,
     onCurves: () -> Unit,
     onAddClicked: () -> Unit,
@@ -2092,7 +2097,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     onToolOptionsClicked: () -> Unit,
     onToolGroupRequested: (CarouselCategory) -> Unit,
     toolOptionsOpen: Boolean,
-    onForgetSelectionRequested: (String) -> Unit,
     showLayersRail: Boolean,
     showBrushRail: Boolean,
     onOpenBrushGallery: () -> Unit,
@@ -2109,7 +2113,7 @@ private fun AzNavHostScope.ConfigureRailItems(
             modelWindowOpen = modelWindowOpen, toolOptionsOpen = toolOptionsOpen,
             activeInkUtensil = activeInkUtensil,
         ),
-    )
+    ) + setOfNotNull(selectedToolGroup?.let(::carouselGroupRailId))
     val navStrings = strings.nav
 
     /** An item's colour: the accent while it is active, the rail's base colour otherwise. */
