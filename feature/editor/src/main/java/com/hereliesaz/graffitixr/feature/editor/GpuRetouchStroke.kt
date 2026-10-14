@@ -100,16 +100,21 @@ internal object GpuRetouchStroke {
         }
         val intensity = settings.intensity.coerceIn(0f, 1f)
         val retouch = GpuRetouch(engine)
-        return dabs.isEmpty() || GpuSelection(engine).takeShadow() && when (tool) {
-            Tool.BLUR -> retouch.run(GpuRetouch.BLUR, flat, factor = blurFactor(intensity))
-            Tool.SHARPEN -> retouch.run(GpuRetouch.SHARPEN, flat, amount = SHARPEN_BASE + intensity * SHARPEN_RANGE)
-            Tool.CLONE -> cloneOffset == null || retouch.run(
-                GpuRetouch.CLONE, flat, offsetX = cloneOffset.x, offsetY = cloneOffset.y, wrap = settings.wrap,
+        // All three neighbourhood tools must sample across the logical frame seam; dabs alone
+        // are not enough if the shader still clamps/wraps at the padded texture boundary.
+        fun sample(kind: Int, factor: Int = 2, amount: Float = 0f, offset: Offset = Offset.Zero) =
+            retouch.run(
+                kind, flat, factor = factor, amount = amount,
+                offsetX = offset.x, offsetY = offset.y, wrap = settings.wrap,
                 wrapFrameLeft = -(settings.frame?.originX ?: 0),
                 wrapFrameTop = -(settings.frame?.originY ?: 0),
                 wrapFrameWidth = settings.frame?.width ?: 0,
                 wrapFrameHeight = settings.frame?.height ?: 0,
             )
+        return dabs.isEmpty() || GpuSelection(engine).takeShadow() && when (tool) {
+            Tool.BLUR -> sample(GpuRetouch.BLUR, factor = blurFactor(intensity))
+            Tool.SHARPEN -> sample(GpuRetouch.SHARPEN, amount = SHARPEN_BASE + intensity * SHARPEN_RANGE)
+            Tool.CLONE -> cloneOffset == null || sample(GpuRetouch.CLONE, offset = cloneOffset)
             else -> true
         }
     }
