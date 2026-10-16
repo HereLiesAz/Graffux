@@ -59,6 +59,7 @@
     <ID>MagicNumber:AutoTune.kt$64f</ID>
     <ID>MagicNumber:AutoTune.kt$8</ID>
     <ID>MagicNumber:BitmapDecode.kt$30</ID>
+    <ID>MagicNumber:CaptureUtils.kt$100</ID>
     <ID>MagicNumber:CatmullRom.kt$CatmullRom$0.5f</ID>
     <ID>MagicNumber:CatmullRom.kt$CatmullRom$3f</ID>
     <ID>MagicNumber:CatmullRom.kt$CatmullRom$4f</ID>
@@ -228,7 +229,9 @@
     <ID>SwallowedException:PsdReaderTest.kt$PsdReaderTest$e: PsdFormatException</ID>
     <ID>SwallowedException:SafeBitmap.kt$SafeBitmap$first: OutOfMemoryError</ID>
     <ID>ThrowsCount:PsdReader.kt$PsdReader$fun read(bytes: ByteArray): ImportedDocument</ID>
+    <ID>TooGenericExceptionCaught:CaptureUtils.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:CrashReporter.kt$CrashReporter$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ImageUtils.kt$ImageUtils$e: Exception</ID>
     <ID>TooGenericExceptionCaught:PsdReader.kt$PsdReader$e: IndexOutOfBoundsException</ID>
     <ID>TooGenericExceptionThrown:NativeLibLoader.kt$NativeLibLoader$throw RuntimeException("$errorMsg ${e.message}", e)</ID>
     <ID>TooGenericExceptionThrown:NativeLibLoader.kt$NativeLibLoader$throw RuntimeException(errorMsg)</ID>

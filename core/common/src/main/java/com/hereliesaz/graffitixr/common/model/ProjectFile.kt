@@ -109,12 +109,7 @@ object ProjectFile {
         while (end < length) {
             val cp = codePointAt(end)
             val chars = Character.charCount(cp)
-            val cpBytes = when {
-                cp < 0x80 -> 1
-                cp < 0x800 -> 2
-                cp < 0x10000 -> 3
-                else -> 4
-            }
+            val cpBytes = String(Character.toChars(cp)).toByteArray(Charsets.UTF_8).size
             if (end + chars > MAX_NAME_LENGTH || bytes + cpBytes > MAX_NAME_BYTES) break
             end += chars
             bytes += cpBytes

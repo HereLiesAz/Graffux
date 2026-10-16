@@ -250,7 +250,7 @@ object PsdReader {
             // Only colour and transparency are composed. Mask channels (-2 user, -3 real) have their
             // own rectangle, so decoding them at the layer's w*h could run past their data and fail
             // the whole import; they are skipped by their declared length instead.
-            if (ch.id in COMPOSED_CHANNELS) planes[ch.id] = readChannelPlane(c, w, h)
+            readComposedPlane(c, ch.id, w, h, planes)
             c.pos = chEnd // trust the declared length for alignment
         }
 
@@ -274,6 +274,11 @@ object PsdReader {
             opacity = rec.opacity, isVisible = rec.isVisible, blendMode = rec.blendMode,
             vectorPaths = vectorPaths,
         )
+    }
+
+    /** Reads channel [id] into [planes] if it is one that is composed; otherwise leaves it unread. */
+    private fun readComposedPlane(c: Cursor, id: Int, w: Int, h: Int, planes: MutableMap<Int, ByteArray>) {
+        if (id in COMPOSED_CHANNELS) planes[id] = readChannelPlane(c, w, h)
     }
 
     /** Reads a single `w*h` channel plane (compression flag + data) into a byte array. */

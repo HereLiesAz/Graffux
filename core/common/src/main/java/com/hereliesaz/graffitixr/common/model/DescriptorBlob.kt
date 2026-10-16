@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.common.model
  * Bytes per element of an OpenCV Mat type (`CV_8UC1`, `CV_32FC1`, ...): depth size times channel
  * count, decoded the way OpenCV packs `CV_MAKETYPE(depth, cn)`.
  */
+@Suppress("MagicNumber") // OpenCV's own depth codes and CV_CN_SHIFT
 internal fun cvElemSize(type: Int): Int {
     val depthBytes = when (type and 7) {
         0, 1 -> 1 // CV_8U, CV_8S

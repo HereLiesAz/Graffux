@@ -59,7 +59,7 @@ object ObjParser {
                     // OBJ's V axis points up, GL texture space points down. Flipping here means the
                     // renderer and the later paint-to-texture path both work in GL convention.
                     // V is optional in the format (a 1-D texture coordinate); it defaults to 0.
-                    uvs.add(1f - (if (parts.size > 2) parts.float(2) else 0f))
+                    uvs.add(1f - parts.floatOr(2, 0f))
                 }
                 "vn" -> {
                     normals.add(parts.float(1)); normals.add(parts.float(2)); normals.add(parts.float(3))
@@ -96,6 +96,7 @@ object ObjParser {
      * Resolves one `f` corner to an emitted vertex index, adding the vertex the first time that
      * exact position/uv/normal combination is seen.
      */
+    @Suppress("LongParameterList") // the parse's accumulators, threaded through one helper
     private fun emitCorner(
         corner: String,
         positions: List<Float>,
@@ -212,6 +213,10 @@ object ObjParser {
             v += stride
         }
     }
+
+    /** [float] for an optional trailing field: [default] when the line stops before [index]. */
+    private fun List<String>.floatOr(index: Int, default: Float): Float =
+        if (index < size) float(index) else default
 
     private fun List<String>.float(index: Int): Float =
         getOrNull(index)?.toFloatOrNull()?.takeIf { it.isFinite() }
