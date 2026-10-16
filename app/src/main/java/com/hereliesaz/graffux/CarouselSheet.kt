@@ -3,7 +3,6 @@ package com.hereliesaz.graffux
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -14,8 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -39,7 +36,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -177,7 +173,7 @@ internal fun CarouselSheet(
                     .nestedScroll(nested),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                GrabHandle(open) { onOpenChange(!open) }
+                GrabHandle()
                 Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
             }
             Box(Modifier.navigationBarsPadding().height(bottomInset))
@@ -187,25 +183,19 @@ internal fun CarouselSheet(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun GrabHandle(open: Boolean, onToggle: () -> Unit) {
+private fun GrabHandle() {
+    // Draws nothing and does not toggle: it only keeps a touch strip where the handle was, so the
+    // sheet's vertical drag still has something to grab when the sheet is shut and otherwise
+    // off-screen.
     Box(
-        modifier = Modifier
+        Modifier
             .size(width = HandleTouchWidth, height = HandleTouchHeight)
-            .semantics { contentDescription = if (open) "Hide brushes" else "Show brushes" }
-            .clickable(role = Role.Button, onClick = onToggle),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(width = 36.dp, height = 4.dp)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = HANDLE_ALPHA), RoundedCornerShape(2.dp)),
-        )
-    }
+            .semantics { contentDescription = "Brush sheet drag area" },
+    )
 }
 
 private val HandleTouchWidth = 96.dp
 private val HandleTouchHeight = 24.dp
-private const val HANDLE_ALPHA = 0.6f
 
 /** How fast the sheet slides back once the post-stroke hold is over: quick, for the next pick. */
 internal const val REOPEN_MS = 120

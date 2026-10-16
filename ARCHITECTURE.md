@@ -297,11 +297,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   item in hand this session with nothing saved *adopts* the live (formerly global) values. Every
   other item starts from its preset. So the brush in hand does not change on upgrade, and the
   presets are not flattened into one value.
-  **Rail.** The old Undo · Fit · Redo row is gone. Fit, Undo and Redo are rail items, declared last so
-  they sit at the bottom of the rail. 11.52 has no footer slot and no per-item show/hide animation.
-  Undo and Redo are declared only when `railHistoryItemsVisible` holds: the sheet is shut, or the
-  carousel is off screen. So they never duplicate the tab row's pair. Each is disabled when there is
-  nothing to undo or redo, and Fit is disabled while the view is already fitted.
+  **Rail.** The old Undo · Fit · Redo row is gone. Fit is a rail item, declared last so it sits at
+  the bottom of the rail (11.52 has no footer slot). Undo and Redo live only at the ends of the tab
+  row; with the sheet shut there is no undo/redo button (gestures only). Fit is disabled while the
+  view is already fitted.
 - **The rails get out of the way while a stroke is painted (`DrawingRailFold`, `:app`).** The
   source is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
   stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. Nothing
@@ -310,8 +309,8 @@ codebase is deferred scope or a real gap in the install-report flow.
   constant to tune) after it ends. A stroke that starts inside that hold cancels the pending return
   (`collectLatest` drops the `delay`), so nothing flickers back between strokes. The rails and the
   carousel sheet read only that flag. The main rail uses AzNavRail's own `isFoldedUp` (OR'd with the
-  four-finger `hideUiForCapture` fold). The right-hand `grp.layers` / `grp.brushRail` OPPOSITE hosts
-  use the library's `expandWhen` (`userExpanded && !drawingHidden`), so a host the user collapsed is
+  four-finger `hideUiForCapture` fold). The right-hand `grp.layers` OPPOSITE host
+  uses the library's `expandWhen` (`userExpanded && !drawingHidden`), so a host the user collapsed is
   never force-expanded, and a collapse reported while hidden is not persisted to `railExpansion`.
   Nothing is added to the pointer path; the UI just observes the flag. The fold and the host
   collapse/expand animate at AzNavRail 11.52's own speed: the library exposes no duration or spec for
@@ -410,7 +409,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   `EditorViewModel.projectGateEnabled` is set only by `GraffuxApplication`. See §2b of the design doc.
 - **Jetpack Ink is a set of art utensils, not a mode of the round brush.** `androidx.ink`'s public
   stock families (pinned Ink 1.0.0: `pressurePen`, `marker`, `highlighter`, `dashedLine`, each only
-  `V1`) are listed in the brush rail as Ink Pen, Ink Marker, Ink Highlighter and Ink Dashed Line,
+  `V1`) are listed on the carousel's Ink page as Ink Pen, Ink Marker, Ink Highlighter and Ink Dashed Line,
   beside the bundled, custom and installed brushes. The catalogue is `InkUtensil` (`:core:common`,
   no Ink import) and its rail entries `INK_UTENSIL_CATALOG` (`:app`); any other brush list should
   read those rather than naming the utensils again. Picking one sets

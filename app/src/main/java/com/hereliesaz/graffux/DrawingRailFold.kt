@@ -8,8 +8,8 @@ package com.hereliesaz.graffux
  * - **Main rail**: `AzNavHostScope.isFoldedUp`, the library's own "fold the rail away" switch,
  *   already used by the four-finger full-screen gesture (`hideUiForCapture`). The rail is folded
  *   while either reason holds, so a stroke never unfolds a rail the user folded on purpose.
- * - **Right rail** (the OPPOSITE-anchored `grp.layers` / `grp.brushRail` unattached hosts): the host
- *   builders' `expandWhen` condition. Per the guide, a true→false edge collapses the host and a
+ * - **Right rail** (the OPPOSITE-anchored `grp.layers` unattached host): the host
+ *   builder's `expandWhen` condition. Per the guide, a true→false edge collapses the host and a
  *   false→true edge re-expands it. The condition is "the user left it expanded AND no stroke is
  *   live", so a host the user collapsed stays collapsed.
  *

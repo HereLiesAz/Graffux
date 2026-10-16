@@ -941,7 +941,7 @@ inert (no window), and its output must equal the plain run: 0 bytes differ on bo
 ### Jetpack Ink utensils (Ink Pen, Ink Marker, Ink Highlighter, Ink Dashed Line)
 
 Jetpack Ink is not a hidden takeover of the round brush. Each public stock `BrushFamily` in the
-pinned `androidx.ink` is its own art utensil in the brush rail (`grp.brushRail`), listed after the
+pinned `androidx.ink` is its own art utensil in the carousel's Ink page, listed after the
 bundled presets and before custom and installed brushes. This replaced an earlier Settings toggle
 that routed only the legacy round brush through Ink, and that no longer had any effect because the
 brush rail could not select the legacy round.
