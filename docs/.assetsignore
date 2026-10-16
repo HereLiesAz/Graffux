@@ -1,0 +1,5 @@
+# Cloudflare Workers assets-only deploy: upload the site, not the research notes.
+# (wrangler.toml serves this directory; docs/ also holds design notes that are not part of the site.)
+*.md
+!PRIVACY_POLICY.md
+.*
