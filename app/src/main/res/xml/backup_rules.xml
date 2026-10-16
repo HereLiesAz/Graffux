@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup rules for Android 10-11 (minSdk 29, targetSdk below 31 semantics). Same exclusions as
+     data_extraction_rules.xml: installed extensions are code and must not be restored onto another
+     device without passing the install flow again. -->
+<full-backup-content>
+    <exclude domain="file" path="extensions" />
+    <exclude domain="file" path="azphalt-state.json" />
+    <exclude domain="file" path="azphalt-trust-keys.json" />
+    <exclude domain="file" path="import_staging" />
+</full-backup-content>

@@ -63,6 +63,8 @@
     <application
         android:name=".GraffuxApplication"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -97,7 +99,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Interop: receive an image shared from GraffitiXR (e.g. a captured wall photo) to edit. -->
+            <!-- Receive an image shared from any app (e.g. a wall photo, or a capture from GraffitiXR) to edit.
+                 Only content:// streams are accepted; see MainActivity.incomingImageUri. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

@@ -184,36 +184,64 @@ class ProjectFileScanner @Inject constructor(
         emptyList()
     }
 
-    private data class Peeked(val name: String?, val thumbnail: ByteArray?)
+    internal data class Peeked(val name: String?, val thumbnail: ByteArray?)
 
     /**
      * Pulls the preview and project name out of an archive without extracting it.
      *
-     * Reads entries until both are found and then stops — the thumbnail is usually near the front,
-     * and the layer data behind it can be enormous. Each entry read is capped, so a hostile or
-     * corrupt archive can't be used to exhaust memory from the Open screen, which runs against
-     * files the app never wrote.
+     * Reads entries until it has visited both the thumbnail and the manifest, then stops, whether
+     * or not each yielded anything: an archive with no thumbnail (it is a best-effort write), or
+     * one over the size cap, must not make the scan decompress every layer behind it. The thumbnail
+     * is usually near the front, and the layer data behind it can be enormous. Each entry read is
+     * capped, and so is the number of entries walked, so a hostile or corrupt archive can't be used
+     * to exhaust memory or time from the Open screen, which runs against files the app never wrote.
      */
-    private fun peek(stream: InputStream): Peeked {
-        var name: String? = null
-        var thumbnail: ByteArray? = null
+    internal fun peek(stream: InputStream): Peeked {
+        val state = PeekState()
         ZipInputStream(stream).use { zis ->
             var entry = zis.nextEntry
-            while (entry != null && (name == null || thumbnail == null)) {
-                val entryName = entry.name.substringAfterLast('/')
-                when {
-                    !entry.isDirectory && entryName == "thumbnail.png" ->
-                        thumbnail = readCapped(zis, MAX_THUMBNAIL_BYTES)
-                    !entry.isDirectory && entryName == "project.json" ->
-                        name = readCapped(zis, MAX_MANIFEST_BYTES)
-                            ?.decodeToString()
-                            ?.let(::projectNameFromJson)
-                }
+            while (entry != null && state.wantsMore()) {
+                peekEntry(zis, entry, state)
                 zis.closeEntry()
                 entry = zis.nextEntry
             }
         }
-        return Peeked(name, thumbnail)
+        return Peeked(state.name, state.thumbnail)
+    }
+
+    private class PeekState {
+        var name: String? = null
+        var thumbnail: ByteArray? = null
+        var visitedThumbnail = false
+        var visitedManifest = false
+        var walked = 0
+        var skippedBytes = 0L
+
+        fun wantsMore(): Boolean {
+            val done = visitedThumbnail && visitedManifest
+            // Decompressing an unwanted entry is the expensive part; give up on a thumbnail that
+            // isn't there once the manifest is in hand and the archive has made us wade through
+            // more than the budget.
+            val overBudget = visitedManifest && skippedBytes > MAX_PEEK_SKIP_BYTES
+            return !done && !overBudget && walked++ < MAX_PEEK_ENTRIES
+        }
+    }
+
+    private fun peekEntry(zis: ZipInputStream, entry: java.util.zip.ZipEntry, state: PeekState) {
+        val entryName = entry.name.substringAfterLast('/')
+        when {
+            !entry.isDirectory && entryName == "thumbnail.png" -> {
+                state.thumbnail = readCapped(zis, MAX_THUMBNAIL_BYTES)
+                state.visitedThumbnail = true
+            }
+            !entry.isDirectory && entryName == "project.json" -> {
+                state.name = readCapped(zis, MAX_MANIFEST_BYTES)
+                    ?.decodeToString()
+                    ?.let(::projectNameFromJson)
+                state.visitedManifest = true
+            }
+            else -> state.skippedBytes += zis.skip(Long.MAX_VALUE).coerceAtLeast(0L)
+        }
     }
 
     /** Reads the current entry, giving up (null) rather than allocating past [limit]. */
@@ -244,6 +272,8 @@ class ProjectFileScanner @Inject constructor(
     private companion object {
         const val MAX_RESULTS = 60
         const val MAX_DEPTH = 4
+        const val MAX_PEEK_ENTRIES = 2_000
+        const val MAX_PEEK_SKIP_BYTES = 4L * 1024 * 1024
         const val MAX_THUMBNAIL_BYTES = 4 * 1024 * 1024
         const val MAX_MANIFEST_BYTES = 8 * 1024 * 1024
     }

@@ -81,15 +81,18 @@ class CustomBrushRepositoryTest {
         val ids = (1..12).map { "id$it-3fa1c2b0-1234-4abc-9def-0123456789ab" }
         val executor = java.util.concurrent.Executors.newFixedThreadPool(8)
         try {
-            val tasks = ids.map { id ->
+            // Half the ids end deleted and half saved, so "reported == on disk" can't hold trivially.
+            val tasks = ids.mapIndexed { index, id ->
                 java.util.concurrent.Callable {
                     repository.save(id, brush)
                     repository.delete(id)
-                    repository.save(id, brush)
+                    if (index % 2 == 0) repository.save(id, brush)
                 }
             }
             executor.invokeAll(tasks).forEach { it.get() }
-            repository.refresh()
+            // No refresh() here: that would rebuild the observed list from disk and make the
+            // comparison below true by construction. The state the concurrent calls left behind
+            // is what's under test.
 
             val reported = repository.brushes.value.map { it.id }.toSet()
             val onDisk = File(tempFilesDir, "brushes").listFiles()

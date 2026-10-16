@@ -180,9 +180,8 @@ android {
                 )
                 signingConfig = signingConfigs.findByName("release")
             }
-            debug {
-                signingConfig = signingConfigs.findByName("release") ?: signingConfig
-            }
+            // Debug builds use AGP's default debug keystore. They used to be signed with the release
+            // key, which made every CI debug artifact a validly signed update of the Play app.
         }
 
         compileOptions {

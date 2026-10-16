@@ -163,6 +163,42 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `import never overwrites an existing project with the same id`() = runTest {
+        val dir = File(tempFilesDir, "projects/dup_id").also { it.mkdirs() }
+        File(dir, "project.json").writeText("""{"id":"dup_id","name":"Newer local"}""")
+        File(dir, "layer.png").writeBytes(byteArrayOf(9, 9, 9))
+
+        val result = importZip(
+            zipOf(
+                "project.json" to
+                    """{"id":"dup_id","name":"Old export","mapPath":"/f/projects/dup_id/map.bin"}""".toByteArray(),
+                "layer.png" to byteArrayOf(1, 2, 3),
+            ),
+        )
+
+        assertTrue("collision must still import", result != null)
+        val newId = result!!.id
+        assertTrue(newId != "dup_id")
+        // Local project untouched.
+        assertEquals("""{"id":"dup_id","name":"Newer local"}""", File(dir, "project.json").readText())
+        assertEquals(listOf<Byte>(9, 9, 9), File(dir, "layer.png").readBytes().toList())
+        // Import landed beside it, with its own paths rebased to the new id.
+        assertEquals(listOf<Byte>(1, 2, 3), File(tempFilesDir, "projects/$newId/layer.png").readBytes().toList())
+        assertEquals("Old export", persisted(newId).name)
+        assertEquals("/f/projects/$newId/map.bin", persisted(newId).mapPath)
+        // No staging debris.
+        assertFalse(File(tempFilesDir, "import_staging").walkTopDown().any { it.isFile })
+    }
+
+    @Test
+    fun `import rejects archives with too many entries`() = runTest {
+        val entries = (0..10_000).map { "f$it" to ByteArray(0) }.toTypedArray()
+        val result = importZip(zipOf("project.json" to projectJson("many_entries"), *entries))
+        assertNull(result)
+        assertFalse(File(tempFilesDir, "projects/many_entries").exists())
+    }
+
+    @Test
     fun `import rejects archives with a path-traversal project id`() = runTest {
         val result = importZip(zipOf("project.json" to projectJson("../escape")))
         assertNull("hostile project.id must reject the whole import", result)

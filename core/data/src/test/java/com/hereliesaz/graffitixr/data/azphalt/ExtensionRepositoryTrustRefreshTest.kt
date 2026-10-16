@@ -72,4 +72,21 @@ class ExtensionRepositoryTrustRefreshTest {
         // Different keys with a current generation do rescan.
         assertTrue(repo.applyFetchedTrustStore(otherKeysBody, repo.currentMutationGeneration()))
     }
+
+    @Test
+    fun `an empty signingKeys list revokes the cached keys but a malformed body does not`() {
+        val repo = repository()
+        assertTrue(repo.applyFetchedTrustStore(keysBody, repo.currentMutationGeneration()))
+
+        // Not a trust-store document: ignored.
+        assertFalse(repo.applyFetchedTrustStore("not json", repo.currentMutationGeneration()))
+        assertFalse(repo.applyFetchedTrustStore("""{"other":[]}""", repo.currentMutationGeneration()))
+        // Keys are still the original ones: re-applying them is a no-op.
+        assertFalse(repo.applyFetchedTrustStore(keysBody, repo.currentMutationGeneration()))
+
+        // A genuine empty list is a revocation and is adopted...
+        assertTrue(repo.applyFetchedTrustStore("""{"signingKeys":[]}""", repo.currentMutationGeneration()))
+        // ...so the old keys are no longer trusted: adopting them again is a change.
+        assertTrue(repo.applyFetchedTrustStore(keysBody, repo.currentMutationGeneration()))
+    }
 }
