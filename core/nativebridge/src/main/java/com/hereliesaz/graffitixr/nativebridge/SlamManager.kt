@@ -343,7 +343,7 @@ class SlamManager @Inject constructor(
     }
 
     fun loadSuperPoint(assetManager: AssetManager): Boolean = nativeLoadSuperPoint(assetManager)
-    /** Optional distortion head (docs/DISTORTION_HEAD.md). False (inert) if the asset isn't bundled. */
+    /** Optional distortion head (see DistortionHead.h). False (inert) if the asset isn't bundled. */
     fun loadDistortionHead(assetManager: AssetManager): Boolean = nativeLoadDistortionHead(assetManager)
     fun loadLowLightEnhancer(assetManager: AssetManager) = nativeLoadLowLightEnhancer(assetManager)
 

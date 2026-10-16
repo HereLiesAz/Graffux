@@ -631,7 +631,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * Widened Krita-style entry point: every dab owns its resolved colour, flow and hardness.
      *
      * [buildUp] (default false) mirrors [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush.
-     * buildUp] / StampBrushRenderer.paintDabs' own compositing choice: false takes each pixel's
+     * buildUp] / the former CPU renderer's compositing choice: false takes each pixel's
      * single strongest dab in this call rather than compounding every overlap (matching
      * paintRoundDabsMaxCombined, so a dragged soft round brush doesn't read as hardened on the GPU
      * live-paint path either); true composites sequentially in submission order instead.
@@ -685,21 +685,21 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * shaders/stamp_masked.comp counterpart to [stampResolvedDabs]: each dab samples [maskAlpha8]
      * (an R8 alpha-only tip texture, [maskWidth]x[maskHeight], white=full coverage) in its own
      * rotated/scaled local space instead of using the round coverage falloff -- the GPU-side
-     * counterpart to StampBrushRenderer's masked-tip CPU path (docs/Krita Brush Engine Adoption.md
+     * counterpart to the former CPU masked-tip path (docs/Krita Brush Engine Adoption.md
      * item 15). The mask texture is only re-uploaded natively when its dimensions or content differ
      * from the previous call, so repeated calls with the same tip within one stroke are cheap.
      *
      * [grainAlpha8] (item 15's texture/grain follow-up) is an optional second single-channel tile
      * -- pre-baked exactly like [com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache]'s own
      * grain-tile cache, so this only ever multiplies coverage down, matching
-     * `StampBrushRenderer.applyGrain`'s CPU math. `null` (the default) disables grain for this
+     * the former CPU grain math. `null` (the default) disables grain for this
      * call. [grainCanvasLocked]/[grainScale]/[grainPhaseX]/[grainPhaseY] mirror
      * `GrainBehavior.CANVAS_LOCKED` vs `MOVING`, `AzphaltBrush.grainScale`, and the caller's
      * already-resolved per-stroke phase (`grainOffsetX`/`Y` plus any `grainRandomOffsetPerStroke`
      * draw), same as the CPU path resolves them once per stroke.
      *
      * [secondaryDabs] (item 15's masked/dual-brush follow-up) is an optional second tip composited
-     * onto each primary dab -- the GPU counterpart to `StampBrushRenderer.paintMaskedDabs`'
+     * onto each primary dab -- the dual-brush secondary tip, applied
      * DST_IN/DST_OUT secondary-tip compositing. When non-empty it must be exactly `dabs.size()`
      * long (same index, parallel arrays -- a per-STROKE feature, matching how
      * `AzphaltBrush.maskedBrush` attaches a `MaskDab` to every dab or none). [secondaryMaskAlpha8]/
@@ -809,7 +809,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      *
      * [sampleSource] (item 11's Sample Merged follow-up) is an optional composite of the other
      * visible layers, ARGB ints in the same layout [android.graphics.Bitmap.getPixels] produces --
-     * the GPU counterpart to `ColorSmudgeEngine.apply`'s `sampleSource` parameter. When supplied
+     * the GPU counterpart to the Sample Merged option of Color Smudge. When supplied
      * (with matching positive [sampleSourceWidth]/[sampleSourceHeight]), every dab in this call
      * reads pickup from it instead of the active layer, matching the CPU reference's `readSource`
      * vs `pixels` split exactly. It is converted to RGBA byte order here -- R,G,B,A per pixel, the
@@ -1331,7 +1331,7 @@ data class ResolvedBrushDab(
     /** This dab's own resolved edge falloff (0 = soft, 1 = hard) -- see AzphaltBrush.hardness and
      *  a HARDNESS BrushSensorBinding. Always sent per-dab (unlike the historical [stampDabs]
      *  entry point) so a pressure/tilt-driven hardness dynamic renders identically on the GPU
-     *  path as it already does on StampBrushRenderer's CPU path. */
+     *  path as the (deleted) CPU path did. */
     val hardness: Float = 1f,
     val contactDepth: Float = 1f,
     val reservoirLoad: Float = 1f,
@@ -1361,7 +1361,7 @@ data class MaskedBrushDab(
  * `com.hereliesaz.graffitixr.common.azphalt.MaskDab`, the CPU-side equivalent, except
  * [keepInside] is pre-resolved from `MaskedBrushBlendMode` + `invert` into a single flag rather
  * than shipping the enum across the JNI boundary (`true` = `DST_IN`/keep-inside, `false` =
- * `DST_OUT`/cut -- see `StampBrushRenderer.paintMaskedDabs`' `keepInside` local for the exact
+ * `DST_OUT`/cut -- see the dual-brush cut (`keepInside`) in the shader for the exact
  * resolution rule this must match).
  */
 data class SecondaryBrushDab(

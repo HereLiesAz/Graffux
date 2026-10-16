@@ -12,7 +12,7 @@ import android.graphics.Bitmap
  * Stamps three overlapping dabs — a big soft one, two smaller harder ones — in solid red at 70%
  * flow, so a passing run visibly shows both the hardness/radius falloff profile and SRC_OVER
  * build-up where the dabs overlap, the two things the stamp shader has to get right to match
- * `StampBrushRenderer`'s CPU round-tip path.
+ * the former CPU round-tip renderer (deleted).
  */
 object GpuStampEngineSelfTest {
 

@@ -8,7 +8,7 @@
 #include <vector>
 
 /**
- * Distortion head (design: docs/DISTORTION_HEAD.md). A small learned head on a frozen SuperPoint
+ * Distortion head (optional learned head). A small learned head on a frozen SuperPoint
  * backbone, exported self-contained to ONNX: two gray views in (current crop + canonical fingerprint
  * patch), one tensor out:
  *

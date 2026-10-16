@@ -392,7 +392,8 @@ impl Engine {
 pub fn height_region(dabs: &[HeightDab], width: i32, height: i32) -> Rect {
     let mut out: Option<Rect> = None;
     for d in dabs {
-        if d.radius <= 0.0 {
+        // non-finite (NaN included) radius or centre would overflow the i32 box below.
+        if d.radius <= 0.0 || !d.radius.is_finite() || !d.x.is_finite() || !d.y.is_finite() {
             continue;
         }
         let x0 = (d.x - d.radius).floor() as i32;

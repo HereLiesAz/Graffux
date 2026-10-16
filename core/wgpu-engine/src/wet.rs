@@ -341,7 +341,8 @@ impl Engine {
     /// The stroke's dabs for [`Engine::wet_transfer`] and [`Engine::wet_deposit`]; clears their
     /// flags.
     pub fn wet_set_dabs(&mut self, dabs: &[MaterialDab]) -> bool {
-        let Some(mut gpu) = self.wet.take() else {
+        // Borrowed in place (not `take`n): a panic below must not leave the simulation gone.
+        let Some(gpu) = self.wet.as_mut() else {
             return false;
         };
         if dabs.len() > gpu.dab_capacity {
@@ -380,7 +381,6 @@ impl Engine {
         }
         gpu.dab_count = dabs.len();
         gpu.dab_region = dab_region(dabs, self.width, self.height);
-        self.wet = Some(gpu);
         self.ok()
     }
 
@@ -531,13 +531,17 @@ impl Engine {
 
     /// The control words: each tile's active flag (row-major, nonzero = active), as many zero
     /// words, the reservoir load the last transfer ended on (f32 bits), then one flag word per
-    /// current dab ([`WET_FLAG_HEIGHT`], [`WET_FLAG_WETNESS`]). Reads `out.len()` words, at most
-    /// the tiles' two sets, the load and the dabs.
+    /// current dab ([`WET_FLAG_HEIGHT`], [`WET_FLAG_WETNESS`]). `out` must hold all of them
+    /// (the tiles' two sets, the load and the dabs) or the call fails.
     pub fn wet_read_ctl(&mut self, out: &mut [u32]) -> bool {
         let Some(gpu) = self.wet.as_ref() else {
             return false;
         };
-        let count = (gpu.tiles as usize * 2 + 1 + gpu.dab_count).min(out.len());
+        let count = gpu.tiles as usize * 2 + 1 + gpu.dab_count;
+        if out.len() < count {
+            // A short buffer would silently drop dab flags; fail instead.
+            return false;
+        }
         let src = gpu.ctl.clone();
         let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut out[..count]);
         self.wet_read_bytes(&src, 0, bytes) && self.ok()
@@ -842,7 +846,7 @@ fn dab_region(dabs: &[MaterialDab], width: i32, height: i32) -> Rect {
 
 impl Engine {
     /// Color Smudge samples, gates and deposits the wet simulation's canvas wetness
-    /// (`ColorSmudgeEngine`'s persistent-wetness path) until turned off. False when turning it on
+    /// (the persistent-wetness path of the former CPU Color Smudge engine) until turned off. False when turning it on
     /// without a wet simulation ([`Engine::wet_begin`]).
     pub fn set_smudge_wetness(&mut self, on: bool) -> bool {
         if on && self.wet.is_none() {

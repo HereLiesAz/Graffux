@@ -403,7 +403,7 @@ void MobileGS::relocThreadFunc() {
             }
         }
 
-        // Distortion head (optional, docs/DISTORTION_HEAD.md): when the model + canonical patch are
+        // Distortion head (optional, see DistortionHead.h): when the model + canonical patch are
         // present, compare the live view (cropped around the coarse match centroid) against the
         // fingerprint patch -> matchability (relock confidence) + coverage (= painting-progress). The
         // corners/H -> IPPE prior is a later increment; here we consume the cheap signals. Inert unless

@@ -1,4 +1,4 @@
-// WGSL port of core/nativebridge/src/main/cpp/shaders/color_smudge.comp -- identical math, one
+// WGSL port of the retired GLSL color_smudge.comp (deleted; this WGSL is now the only implementation) -- identical math, one
 // pipeline for every ordered phase. The C++ engines submit phases sequentially with a
 // compute->compute barrier between them; here each phase is its own dispatch inside one compute
 // pass, and wgpu inserts the storage barrier between dispatches automatically. Per-dispatch
@@ -73,7 +73,7 @@ fn reservoir_base() -> i32 {
 fn reservoir_color_index() -> i32 { return reservoir_base(); }
 fn reservoir_meta_index() -> i32 { return reservoir_base() + 1; }
 fn reservoir_sample_index() -> i32 { return reservoir_base() + 2; }
-// x = this dab's mobility (ColorSmudgeEngine.wetnessMobility), y = its sampled canvas wetness.
+// x = this dab's mobility (the former CPU ColorSmudgeEngine.wetnessMobility (deleted; this shader is the reference now)), y = its sampled canvas wetness.
 fn wet_index() -> i32 { return reservoir_base() + 3; }
 fn wet_enabled() -> bool { return (pc.wet_flags & 1u) != 0u; }
 fn mobility() -> f32 {
@@ -318,7 +318,7 @@ fn reservoir_pickup(gid: vec2<i32>) {
     }
 }
 
-// ColorSmudgeEngine.weightedWetness at the dab centre, then wetnessMobility: the wetter of the
+// the former CPU ColorSmudgeEngine.weightedWetness (deleted; this shader is the reference now) at the dab centre, then wetnessMobility: the wetter of the
 // canvas and the brush's own dilution.
 fn wet_sample(gid: vec2<i32>) {
     if (gid.x != 0 || gid.y != 0) { return; }

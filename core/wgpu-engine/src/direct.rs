@@ -90,6 +90,10 @@ pub fn stroke_contribution(painted: [u8; 4], base: [u8; 4]) -> [f32; 4] {
     }
     let p = painted.map(|v| v as f32 / 255.0);
     let b = base.map(|v| v as f32 / 255.0);
+    // An overlay can only add coverage; an erase (less opaque than the base) has nothing to draw.
+    if p[3] < b[3] - 0.004 {
+        return [0.0; 4];
+    }
     if b[3] >= 0.999 {
         return [p[0], p[1], p[2], 1.0];
     }
@@ -467,7 +471,14 @@ impl Engine {
         self.queue.submit([encoder.finish()]);
         d.stroke = true;
         d.presents = 0;
-        self.direct_draw(MODE_CLEAR, None) && self.ok()
+        let ok = self.direct_draw(MODE_CLEAR, None) && self.ok();
+        if !ok {
+            // Kotlin treats a failed begin as "not showing" and never calls end: don't leave STROKE set.
+            if let Some(d) = self.direct.as_mut() {
+                d.stroke = false;
+            }
+        }
+        ok
     }
 
     /// Shows the stroke so far. `matrix` maps a target pixel to layer pixels
@@ -735,6 +746,13 @@ mod tests {
             }
         }
         assert_eq!(stroke_contribution([1, 2, 3, 4], [1, 2, 3, 4]), [0.0; 4]);
+    }
+
+    #[test]
+    fn erased_pixels_contribute_nothing() {
+        // Erasing an opaque or translucent base must not paint opaque black.
+        assert_eq!(stroke_contribution([0, 0, 0, 0], [100, 100, 100, 255]), [0.0; 4]);
+        assert_eq!(stroke_contribution([0, 0, 0, 0], [40, 40, 40, 80]), [0.0; 4]);
     }
 
     #[test]
