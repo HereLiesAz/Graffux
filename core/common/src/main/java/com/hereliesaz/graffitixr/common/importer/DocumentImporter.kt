@@ -44,7 +44,6 @@ object DocumentImporter {
             starts(header, '8'.code, 'B'.code, 'P'.code, 'S'.code) || ext == "psd" || ext == "psb" -> DocumentFormat.PSD
             starts(header, '%'.code, 'P'.code, 'D'.code, 'F'.code) -> DocumentFormat.PDF
             ext == "ai" || ext == "pdf" -> DocumentFormat.PDF
-            isZip(header) && ext == "procreate" -> DocumentFormat.PROCREATE
             ext == "procreate" -> DocumentFormat.PROCREATE
             ext == "canva" -> DocumentFormat.CANVA
             isRasterImage(header) || ext in IMAGE_EXTS -> DocumentFormat.IMAGE
@@ -63,11 +62,6 @@ object DocumentImporter {
         } else {
             null
         }
-
-    private fun isZip(h: ByteArray): Boolean =
-        starts(h, 'P'.code, 'K'.code, 0x03, 0x04) ||
-            starts(h, 'P'.code, 'K'.code, 0x05, 0x06) || // empty archive
-            starts(h, 'P'.code, 'K'.code, 0x07, 0x08)    // spanned
 
     private fun isRasterImage(h: ByteArray): Boolean =
         starts(h, 0x89, 'P'.code, 'N'.code, 'G'.code) ||  // PNG

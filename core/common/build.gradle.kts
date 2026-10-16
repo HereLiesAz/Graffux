@@ -22,10 +22,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 
@@ -55,9 +52,6 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
-    // Location (Fixes Unresolved reference 'FusedLocationProviderClient')
-    implementation(libs.play.services.location)
-
     // Provider Installer (Fixes SSLHandshakeException)
     implementation(libs.play.services.base)
 
@@ -72,19 +66,6 @@ dependencies {
     // `api` for json: UiSchema/UiControl (azphalt/UiSchema.kt) expose JsonElement in their own
     // public API, so downstream modules (feature:editor) need it on their compile classpath too.
     api(libs.kotlinx.serialization.json)
-    implementation(libs.kotlinx.serialization.cbor)
-
-    // Crypto: Ed25519 signature + trust verification for azphalt `.azp` packages
-    // (spec/package-format.md § Signing). Android's built-in Ed25519 (java.security) is only API 33+,
-    // but this app's minSdk is 26, so Bouncy Castle provides it everywhere. Version pinned to match
-    // the root build's forced 1.86 (already on the app classpath transitively).
-    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
-
-    // Networking (Crash Reporting)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.gson)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
 
     // Logging
     implementation(libs.timber)
@@ -94,6 +75,10 @@ dependencies {
     ksp(libs.hilt.compiler)
 
     testImplementation(libs.junit)
+    // Op/BrushStroke CBOR round-trip tests, and Ed25519 keys for the .azp signature tests (the
+    // signing code itself lives in core:engine, which carries Bouncy Castle).
+    testImplementation(libs.kotlinx.serialization.cbor)
+    testImplementation("org.bouncycastle:bcprov-jdk18on:1.86")
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
