@@ -231,7 +231,7 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `RemoveLayerById drops the layer without reactivating (spectator path)`() {
+    fun `RemoveLayerById drops the layer and falls back to the next drawable one (spectator path)`() {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.RemoveLayerById("a"))
         assertEquals(listOf("b"), out.layers.map { it.id })
@@ -277,11 +277,18 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `SetLayers replaces the list but leaves active id untouched`() {
+    fun `SetLayers replaces the list and keeps the active id while it survives`() {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.SetLayers(listOf(lyr("a"))))
         assertEquals(listOf("a"), out.layers.map { it.id })
         assertEquals("a", out.activeLayerId)
+    }
+
+    @Test
+    fun `SetLayers reconciles an active id the new list no longer contains`() {
+        val s = state(lyr("a"), lyr("b"), active = "a")
+        val out = reduce(s, EditorIntent.SetLayers(listOf(lyr("b"))))
+        assertEquals("b", out.activeLayerId)
     }
 
     @Test

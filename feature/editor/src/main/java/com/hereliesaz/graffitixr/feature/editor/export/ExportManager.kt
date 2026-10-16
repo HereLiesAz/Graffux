@@ -281,7 +281,7 @@ class ExportManager @Inject constructor() {
      * via a throwaway [Layer] built from the anchor's transform snapshot rather than a full mutable
      * layer, since callers (Color Smudge replay) only have that snapshot, not the live layer object.
      * The result is always exactly `anchorBitmap.width × anchorBitmap.height`, matching what
-     * [ColorSmudgeEngine.apply]'s `sampleSource` parameter requires pixel-for-pixel.
+     * the GPU smudge's Sample Merged source requires pixel-for-pixel.
      */
     fun compositeOtherLayersForSampling(
         anchorBitmap: Bitmap,

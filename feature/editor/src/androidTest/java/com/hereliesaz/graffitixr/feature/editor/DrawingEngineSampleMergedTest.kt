@@ -18,7 +18,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 
 /**
  * [DrawingEngine]'s Tool.SMUDGE branch actually calling [ExportManager.compositeOtherLayersForSampling]
- * and threading the result into [ColorSmudgeEngine.apply]'s `sampleSource` -- the real end-to-end
+ * and threading the result into the GPU smudge's `sampleSource` -- the real end-to-end
  * wiring for item 11 ("Sample Merged"), as opposed to [ColorSmudgeSampleMergedTest] (the primitive
  * itself, fed a hand-built composite) or [com.hereliesaz.graffitixr.feature.editor.export.ExportManagerSampleMergedTest]
  * (the coordinate remap alone). No physical device involved: the active layer starts fully

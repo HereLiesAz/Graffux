@@ -174,7 +174,7 @@ internal object EditorReducer {
             // redoing a RemoveLayer), which otherwise leaves activeLayerId dangling — the
             // Transform panel, selection outline, and every adjustment control key off
             // `layers.find { it.id == activeLayerId }` and silently no-op once that lookup
-            // misses. Mirrors RemoveLayer's fallback below.
+            // misses. Mirrors RemoveLayer's fallback above.
             activeLayerId = if (intent.layers.any { it.id == state.activeLayerId }) {
                 state.activeLayerId
             } else {

@@ -53,8 +53,8 @@ internal object GpuStampCommit {
 
     /**
      * [stroke] painted onto a copy of [bitmap] on the GPU, unclipped; null when the GPU is
-     * unavailable. Same dab lists as DrawingEngine's CPU branch ([StrokeDabs]), so the two only
-     * ever differ in the rasterizer. The caller excludes impasto strokes (GpuImpastoStroke /
+     * unavailable. Its dab lists come from [StrokeDabs], shared with the replay session and the
+     * Impasto strokes (which also stamp their colour through [stampOnto]). The caller excludes impasto strokes (GpuImpastoStroke /
      * GpuImpastoV2Stroke own those); a substrate stroke paints here like any other, against the
      * surface it snapshotted ([StampPaint.substrate]).
      */
@@ -85,7 +85,7 @@ internal object GpuStampCommit {
         return stampOnto(engine, batches, paint)
     }
 
-    /** The stroke's batches and paint for a layer the size of [layer] (StrokeDabs, as the CPU branch). */
+    /** The stroke's batches and paint for a layer the size of [layer] (from [StrokeDabs]). */
     private fun batches(
         stroke: StrokeCommand,
         brush: AzphaltBrush,
@@ -100,9 +100,17 @@ internal object GpuStampCommit {
         return StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches) to StampPaint.of(stroke, brush)
     }
 
-    /** [painted] kept only inside [clip]; [base]'s pixels everywhere else. No clip: [painted]. */
+    /**
+     * [painted] kept only inside [clip]; [base]'s pixels everywhere else. No clip: [painted].
+     * Throws [StrokeRenderException] (recycling [painted]) when the clipped copy cannot be
+     * allocated: returning [painted] unclipped would paint outside the selection.
+     */
     fun keepInside(base: Bitmap, painted: Bitmap, clip: Path?): Bitmap {
-        val out = clip?.let { SafeBitmap.copy(base) } ?: return painted
+        if (clip == null) return painted
+        val out = SafeBitmap.copy(base) ?: run {
+            painted.recycle()
+            throw StrokeRenderException("Out of memory clipping a stroke to its selection")
+        }
         val canvas = Canvas(out)
         SelectionMask.clip(canvas, clip)
         canvas.drawBitmap(painted, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) })
@@ -128,7 +136,7 @@ internal object GpuStampCommit {
                 stampOnto(engine, batches, paint) &&
                 engine.readback(target)
         } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
-            Log.w(TAG, "GPU stamp commit failed; the CPU renderer takes this stroke", e)
+            Log.w(TAG, "GPU stamp commit failed; the stroke is not painted", e)
             false
         } finally {
             engine.destroy()

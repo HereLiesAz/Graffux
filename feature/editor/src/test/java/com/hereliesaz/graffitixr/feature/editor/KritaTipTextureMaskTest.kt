@@ -131,8 +131,11 @@ class KritaTipTextureMaskTest {
         val a = blank(64, 64)
         val b = blank(64, 64)
         val seed = 445566L
-        StampBrushRenderer.paintStroke(Canvas(a), path, brush, Color.BLUE, 14f, 0.7f, seed, grain = grain)
-        StampBrushRenderer.paintStroke(Canvas(b), path, brush, Color.BLUE, 14f, 0.7f, seed, grain = grain)
+        val dabs = com.hereliesaz.graffitixr.common.azphalt.BrushStamps.dabs(
+            com.hereliesaz.graffitixr.common.model.CatmullRom.densify(path), 14f, brush, seed,
+        )
+        StampBrushRenderer.paintDabs(Canvas(a), dabs, brush, Color.BLUE, 0.7f, grain = grain, seed = seed)
+        StampBrushRenderer.paintDabs(Canvas(b), dabs, brush, Color.BLUE, 0.7f, grain = grain, seed = seed)
         assertEquals(pixelList(a), pixelList(b))
         grain.recycle()
     }

@@ -209,7 +209,9 @@ class SelectionTest {
             intensity = 0.5f,
             selection = square,
         )
-        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(brush))
+        // No GPU in a JVM test: the stroke itself fails to paint (and composite says so by throwing),
+        // after the clip has been derived, which is what this checks.
+        runCatching { DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(brush)) }
 
         // The clip is derived from the command's own selection, not from live editor state.
         verify { SelectionMask.bitmapPath(eq(square), eq(100), eq(100), any(), any(), any()) }

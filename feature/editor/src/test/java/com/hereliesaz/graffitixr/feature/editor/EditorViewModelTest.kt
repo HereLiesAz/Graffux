@@ -291,6 +291,28 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `opening another project straight from this one resets the undo and redo history`() = runTest {
+        // File > Open / New replace the current project without passing through null, so the
+        // reset used to happen only on close: the next project opened with this one's undo stack,
+        // and an Undo restored (and saved) this project's layers into it.
+        val uri = Uri.parse("content://test/image.png")
+        viewModel.onAddLayer(uri)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.undoCount > 0)
+
+        currentProjectFlow.value = GraffitiProject(id = "another-project")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("another-project", viewModel.uiState.value.projectId)
+        assertEquals(0, viewModel.uiState.value.undoCount)
+        assertEquals(0, viewModel.uiState.value.redoCount)
+        val layersBefore = viewModel.uiState.value.layers
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Undo must not bring the previous project's layers back", layersBefore, viewModel.uiState.value.layers)
+    }
+
+    @Test
     fun `saveProject calls updateProject when project exists`() = runTest {
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)

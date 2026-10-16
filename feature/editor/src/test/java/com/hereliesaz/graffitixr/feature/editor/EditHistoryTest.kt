@@ -6,6 +6,7 @@ import com.hereliesaz.graffitixr.common.azphalt.TileDelta
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -199,5 +200,57 @@ class EditHistoryTest {
         h.clear()
         assertEquals(0, h.undoCount)
         assertEquals(0, h.redoCount)
+    }
+
+    private fun ref() = io.mockk.mockk<com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref>()
+
+    @Test
+    fun `a second tile-delta attach frees the GPU snapshot it replaces`() {
+        val freed = mutableListOf<Any>()
+        val h = EditHistory(onGpuUndoDiscarded = { freed += it })
+        val command = stroke()
+        h.pushDraw("layer-1", command)
+        val first = ref()
+        val second = ref()
+        h.attachTileDeltas(command, listOf(snapshot()), 4, 4, first)
+        h.attachTileDeltas(command, listOf(snapshot()), 4, 4, second)
+        assertEquals(listOf<Any>(first), freed)
+        h.clear()
+        assertEquals(listOf<Any>(first, second), freed)
+    }
+
+    @Test
+    fun `forgetting a snapshot no entry holds any more does not free it twice`() {
+        val freed = mutableListOf<Any>()
+        val h = EditHistory(maxStackSize = 1, onGpuUndoDiscarded = { freed += it })
+        val command = stroke()
+        h.pushDraw("layer-1", command)
+        val snapshot = ref()
+        h.attachTileDeltas(command, listOf(snapshot()), 4, 4, snapshot)
+        h.pushDraw("layer-1", stroke()) // trims the entry, freeing its snapshot
+        assertEquals(listOf<Any>(snapshot), freed)
+        h.forgetGpuUndo(snapshot)
+        assertEquals(listOf<Any>(snapshot), freed)
+    }
+
+    @Test
+    fun `dropDraw removes the failed stroke from either stack and frees its snapshot`() {
+        val freed = mutableListOf<Any>()
+        val h = EditHistory(onGpuUndoDiscarded = { freed += it })
+        val kept = stroke()
+        val failed = stroke()
+        h.pushDraw("layer-1", kept)
+        h.pushDraw("layer-1", failed)
+        val snapshot = ref()
+        h.attachTileDeltas(failed, listOf(snapshot()), 4, 4, snapshot)
+        assertTrue(h.dropDraw(failed))
+        assertEquals(1, h.undoCount)
+        assertTrue((h.undoStackTopForTest() as EditCommand.Draw).command === kept)
+        assertEquals(listOf<Any>(snapshot), freed)
+
+        h.popUndo { it } // kept is now redoable
+        assertTrue(h.dropDraw(kept))
+        assertEquals(0, h.redoCount)
+        assertFalse(h.dropDraw(kept))
     }
 }

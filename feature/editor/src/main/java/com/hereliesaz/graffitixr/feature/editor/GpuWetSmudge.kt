@@ -6,9 +6,10 @@ import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.GpuWetSimulation
 
 /**
- * Color Smudge with persistent canvas wetness on the GPU: the CPU path's
- * `advanceMaterialTo` / `ColorSmudgeEngine.apply` / confine / `settleMaterial` sequence, run on the
- * wet simulation (GpuWetSimulation) of the engine that holds the layer.
+ * Color Smudge with persistent canvas wetness on the GPU: material advance, the smudge, the
+ * selection confine and the settle tick ([WetnessReplayState.advanceMaterialTo] /
+ * [WetnessReplayState.settleMaterial]'s sequence), run on the wet simulation (GpuWetSimulation) of
+ * the engine that holds the layer.
  *
  * 1. The layer and its [WetnessReplayState] go to the simulation; material time advances from the
  *    state's last recorded uptime to the stroke's first (pigment transport, then wetness flux and
@@ -26,8 +27,12 @@ internal object GpuWetSmudge {
     /**
      * Runs [smudge] on [engine] (whose layer holds [layer]) with [state]'s wetness. [firstUptime] and
      * [lastUptime] are the stroke's first and last recorded sample times; [coverage] (one value per
-     * pixel, null = everywhere) is where the smudge may deposit wetness. False when a stage fails;
-     * [state] is then unchanged.
+     * pixel, null = everywhere) is where the smudge may deposit wetness.
+     *
+     * Never touches [state]: returns the wetness to [Result.applyTo] it once the caller has also
+     * read the layer back, or null when a stage failed. Restoring here, before the caller's
+     * readback, left the state holding a deposit whose pixels never landed when that readback
+     * failed.
      */
     @Suppress("LongParameterList")
     fun run(
@@ -39,7 +44,7 @@ internal object GpuWetSmudge {
         selection: Selection?,
         coverage: FloatArray?,
         smudge: () -> Boolean,
-    ): Boolean {
+    ): Result? {
         val wet = GpuWetSimulation(engine)
         val elapsed = elapsedSeconds(state, firstUptime)
         val ready = begin(wet, layer, state, coverage) &&
@@ -50,8 +55,12 @@ internal object GpuWetSmudge {
         val n = layer.width * layer.height
         val wetness = FloatArray(n)
         val read = settled && wet.read(IntArray(n), FloatArray(n), wetness)
-        if (read) state.restore(wetness, lastUptime ?: firstUptime ?: state.lastUptimeMillis)
-        return read
+        return if (read) Result(wetness, lastUptime ?: firstUptime ?: state.lastUptimeMillis) else null
+    }
+
+    /** A finished wet smudge's wetness, marked through [lastUptime]. */
+    class Result(private val wetness: FloatArray, private val lastUptime: Long?) {
+        fun applyTo(state: WetnessReplayState) = state.restore(wetness, lastUptime)
     }
 
     /** [layer] (straight ARGB) and [state]'s wetness and active tiles into the simulation. */
