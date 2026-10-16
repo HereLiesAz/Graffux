@@ -4,23 +4,12 @@ import com.hereliesaz.graffitixr.common.model.ArScanMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.MuralMethod
-import com.hereliesaz.graffitixr.common.model.AppLanguage
 import kotlinx.coroutines.flow.Flow
 
 /**
  * Interface for managing application-wide settings.
  */
 interface SettingsRepository {
-    /**
-     * A flow emitting the current user preference for app language.
-     */
-    val language: Flow<AppLanguage>
-
-    /**
-     * Updates the user's language preference.
-     */
-    suspend fun setLanguage(language: AppLanguage)
-
     /**
      * A flow emitting the current user preference for handedness.
      * True for right-handed (default), False for left-handed.
@@ -43,30 +32,6 @@ interface SettingsRepository {
     val muralMethod: Flow<MuralMethod>
     
     suspend fun setMuralMethod(method: MuralMethod)
-
-    /** Whether to draw an orange boundary rectangle around the AR overlay quad when anchor is active. */
-    val showAnchorBoundary: Flow<Boolean>
-
-    suspend fun setShowAnchorBoundary(show: Boolean)
-
-    /**
-     * Set once a device proves it can't run forced hardware-stereo (ARCore motion-stereo disparity
-     * fails / VIO never tracks): future sessions skip the stereo config and stay on Canvas, so the
-     * broken path can't thrash the device. Cleared when the user explicitly re-selects Mural.
-     */
-    val forcedStereoUnstable: Flow<Boolean>
-
-    suspend fun setForcedStereoUnstable(unstable: Boolean)
-
-    /**
-     * Cached result of the one-time hardware-stereo capability probe:
-     * -1 = not yet probed, 0 = device can't run forced stereo (use mono), 1 = stereo tracks (use it).
-     * Probing runs a short throwaway stereo session on a worker thread the first time AR is entered,
-     * so we only adopt the dual-lens path on a device whose motion-stereo actually tracks.
-     */
-    val stereoCapability: Flow<Int>
-
-    suspend fun setStereoCapability(value: Int)
 
     /** Whether distances are displayed in imperial (ft) rather than metric (m/cm). */
     val isImperialUnits: Flow<Boolean>
@@ -97,32 +62,14 @@ interface SettingsRepository {
 
     /** Canvas background color as ARGB Int. Default is opaque black (0xFF000000). */
     val backgroundColor: Flow<Int>
-    suspend fun setBackgroundColor(argb: Int)
-
-    /** Minimum viewpoint shift (degrees) before a re-observation parallax-verifies a voxel. Default 4. */
-    val parallaxMinDegrees: Flow<Float>
-    suspend fun setParallaxMinDegrees(deg: Float)
-
-    /** ARCore camera target frame rate: 60 (default) or 30. Lower = less power/heat. */
-    val cameraTargetFps: Flow<Int>
-    suspend fun setCameraTargetFps(fps: Int)
-
-    /** Perception-throttle triggers: each, when on, drops perception to 30fps while active. Default on. */
-    val throttleOnThermal: Flow<Boolean>
-    suspend fun setThrottleOnThermal(on: Boolean)
-    val throttleOnPowerSave: Flow<Boolean>
-    suspend fun setThrottleOnPowerSave(on: Boolean)
-    val throttleOnLowBattery: Flow<Boolean>
-    suspend fun setThrottleOnLowBattery(on: Boolean)
-    val throttleOnLag: Flow<Boolean>
-    suspend fun setThrottleOnLag(on: Boolean)
 
     /**
-     * Master toggle for the adaptive AR frame-rate coach (gates heavy SLAM work while idle, plus the
-     * battery-tier degradation). Default on. Off = always full rate (more drain, no behaviour change).
+     * Minimum viewpoint shift (degrees) before a re-observation parallax-verifies a point. Default 4.
+     * Stored only: nothing reads or writes it yet (the native setter it would feed is a no-op while
+     * the AR/SLAM stack is being rewired).
      */
-    val adaptiveRateEnabled: Flow<Boolean>
-    suspend fun setAdaptiveRateEnabled(on: Boolean)
+    val parallaxMinDegrees: Flow<Float>
+    suspend fun setParallaxMinDegrees(deg: Float)
 
     /**
      * The user's saved colour swatches, as ARGB ints, in the order they arranged them. Ordered, so

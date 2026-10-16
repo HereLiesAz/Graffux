@@ -155,8 +155,8 @@ fun SettingsScreen(
             // fourteen options that all resolve to the same English resources: the dead control this
             // audit keeps finding, rather than a feature waiting to work.
             //
-            // `AppLanguage` and `SettingsRepository.language` stay where they are, in the shared
-            // core modules GraffitiXR also consumes. Nothing in Graffux reads them.
+            // `AppLanguage` stays in the shared core:common module; `SettingsRepository` no longer
+            // carries a language preference, since nothing in Graffux read or wrote it.
 
             Text(
                 "Privacy",

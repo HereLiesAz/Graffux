@@ -63,21 +63,28 @@ class PredictionReportRepository @Inject constructor(
     /**
      * Uploads one stroke-data file to [DATA_BRANCH] (created from the default branch on first use)
      * as `stroke-data/<name>`. Needs the token to have Contents: read and write on this repository.
-     * No-op success when no token is stored. See tools/stroke-model/README.md.
+     * Succeeds only when GitHub has the file afterwards -- a created file, or one already there from
+     * an earlier upload whose response was lost. Fails when no token is stored, so callers that
+     * delete on success keep the file. See tools/stroke-model/README.md.
      */
     suspend fun uploadStrokeData(name: String, bytes: ByteArray): Result<Unit> = withContext(dispatchers.io) {
         runCatching {
-            val token = tokenStore.load(KEY_TOKEN) ?: return@runCatching
+            val token = tokenStore.load(KEY_TOKEN) ?: error("No GitHub token stored")
             ensureDataBranch(token)
+            val path = "$REPO_URL/contents/stroke-data/$name"
+            // Ask rather than infer from a 422: GitHub also answers 422 for bad content, an oversized
+            // blob or a bad branch, none of which mean the data is safely stored.
+            val existing = request("GET", "$path?ref=$DATA_BRANCH", token, null)
+            if (existing in HTTP_OK) return@runCatching
+            if (existing == HTTP_UNAUTHORIZED) disconnect()
             val json = JSONObject()
                 .put("message", "stroke data: $name")
                 .put("branch", DATA_BRANCH)
                 .put("content", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
                 .toString()
-            val code = request("PUT", "$REPO_URL/contents/stroke-data/$name", token, json)
+            val code = request("PUT", path, token, json)
             if (code == HTTP_UNAUTHORIZED) disconnect()
-            // 422: a file with this name already exists (an earlier upload whose response was lost).
-            check(code in HTTP_OK || code == HTTP_UNPROCESSABLE) { "GitHub refused $name (HTTP $code)" }
+            check(code in HTTP_OK) { "GitHub refused $name (HTTP $code)" }
         }
     }
 

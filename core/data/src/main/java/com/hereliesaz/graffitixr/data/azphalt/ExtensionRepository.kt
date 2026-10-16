@@ -445,8 +445,9 @@ class ExtensionRepository @Inject constructor(
         val resolvedEntry = entryPath ?: ext.manifest.entry ?: return
         val resolvedPath = ext.filePath(resolvedEntry) ?: return
         val file = File(resolvedPath)
-        if (!file.exists()) return
-        
+        // isFile, not exists: an entry of "" or "." resolves to the install directory itself.
+        if (!file.isFile) return
+
         val caps = ext.manifest.capabilities?.map { it.wire }?.toSet() ?: emptySet()
         // Scope assetRead to THIS extension's own install dir, whatever host the caller passed in.
         val host: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost =
@@ -515,8 +516,8 @@ class ExtensionRepository @Inject constructor(
     private fun loadCachedTrustStore(): TrustStore {
         val file = File(context.filesDir, TRUST_CACHE_FILE)
         if (!file.exists()) return TrustStore.EMPTY
-        val keys = runCatching { parseSigningKeys(file.readText()) }.getOrDefault(emptyList())
-        return if (keys.isEmpty()) TrustStore.EMPTY else TrustStore(keys)
+        val keys = runCatching { parseSigningKeys(file.readText()) }.getOrNull()
+        return if (keys.isNullOrEmpty()) TrustStore.EMPTY else TrustStore(keys)
     }
 
     private fun refreshTrustStore() {
@@ -548,11 +549,19 @@ class ExtensionRepository @Inject constructor(
      * Returns true only when this call rescanned and published [installed].
      */
     internal fun applyFetchedTrustStore(body: String, generationAtStart: Long): Boolean {
-        val keys = parseSigningKeys(body)
-        val store = TrustStore(keys)
-        if (keys.isEmpty() || store == trustStore) return false
+        // null = not a trust-store document (malformed, or no signingKeys array): keep what we have.
+        // An explicit empty list is a real answer -- the registry revoking every key -- and applies.
+        val store = parseSigningKeys(body)?.let { TrustStore(it) }
+        if (store == null || store == trustStore) return false
         return synchronized(lock) {
-            File(context.filesDir, TRUST_CACHE_FILE).writeText(body)
+            // Write-then-rename so a kill mid-write can't leave truncated JSON in the cache.
+            val cache = File(context.filesDir, TRUST_CACHE_FILE)
+            val tmp = File(context.filesDir, "$TRUST_CACHE_FILE.tmp")
+            tmp.writeText(body)
+            if (!tmp.renameTo(cache)) {
+                tmp.copyTo(cache, overwrite = true)
+                tmp.delete()
+            }
             trustStore = store
             installer = AzpInstaller(extensionsRoot, store)
             val unchanged = mutationGeneration == generationAtStart
@@ -564,15 +573,16 @@ class ExtensionRepository @Inject constructor(
     /** Test seam: the current [mutationGeneration]. */
     internal fun currentMutationGeneration(): Long = synchronized(lock) { mutationGeneration }
 
-    private fun parseSigningKeys(json: String): List<TrustedKey> = runCatching {
+    /** The document's keys (possibly empty), or null when [json] isn't a trust-store document. */
+    private fun parseSigningKeys(json: String): List<TrustedKey>? = runCatching {
         val root = Json.parseToJsonElement(json).jsonObject
-        val arr = root["signingKeys"]?.jsonArray ?: return emptyList()
+        val arr = root["signingKeys"]?.jsonArray ?: return@runCatching null
         arr.mapNotNull { el ->
             val obj = el.jsonObject
             val pk = obj["publicKey"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
             TrustedKey(pk, obj["keyId"]?.jsonPrimitive?.contentOrNull, obj["label"]?.jsonPrimitive?.contentOrNull)
         }
-    }.getOrDefault(emptyList())
+    }.getOrNull()
 
     companion object {
         private const val TRUST_CACHE_FILE = "azphalt-trust-keys.json"

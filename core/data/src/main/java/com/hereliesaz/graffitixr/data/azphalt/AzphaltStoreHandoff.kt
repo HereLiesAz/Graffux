@@ -135,9 +135,10 @@ object AzphaltStoreHandoff {
             if (ExtensionInventory.parse(document).isNotEmpty()) {
                 putExtra(EXTRA_INVENTORY, document)
             }
-            // The authority goes out regardless, because it is the answer to the case the inventory
-            // extra cannot cover: the provider has no size limit, so a host whose inventory did not
-            // fit is exactly the host a store most needs to come back and read.
+            // For any host that has an inventory, the authority goes out whether or not the document
+            // above fit, because it is the answer to the case the inventory extra cannot cover: the
+            // provider has no size limit, so a host whose inventory did not fit is exactly the host a
+            // store most needs to come back and read. A host with no installs sends neither extra.
             putExtra(EXTRA_STATE_AUTHORITY, ExtensionStateProvider.authority(appId))
         }
     }

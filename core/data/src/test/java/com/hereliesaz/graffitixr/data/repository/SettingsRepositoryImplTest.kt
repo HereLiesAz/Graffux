@@ -4,7 +4,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.hereliesaz.graffitixr.common.model.AppLanguage
 import com.hereliesaz.graffitixr.common.model.ArScanMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
@@ -33,15 +32,6 @@ import org.robolectric.RuntimeEnvironment
 class SettingsRepositoryImplTest {
 
     private val repo = SettingsRepositoryImpl(RuntimeEnvironment.getApplication())
-
-    @Test
-    fun `setLanguage persists and is read back through the language flow`() = runTest {
-        repo.setLanguage(AppLanguage.FRENCH)
-        assertEquals(AppLanguage.FRENCH, repo.language.first())
-
-        repo.setLanguage(AppLanguage.SYSTEM)
-        assertEquals(AppLanguage.SYSTEM, repo.language.first())
-    }
 
     @Test
     fun `setRightHanded persists false then true`() = runTest {
@@ -170,9 +160,6 @@ class SettingsRepositoryImplTest {
         assertFalse(repo.isImperialUnits.first())
         assertEquals(0xFF000000.toInt(), repo.backgroundColor.first())
         assertEquals(4.0f, repo.parallaxMinDegrees.first())
-        assertEquals(60, repo.cameraTargetFps.first())
-        assertTrue(repo.throttleOnLag.first())
-        assertEquals(-1, repo.stereoCapability.first())
     }
 
     @Test
