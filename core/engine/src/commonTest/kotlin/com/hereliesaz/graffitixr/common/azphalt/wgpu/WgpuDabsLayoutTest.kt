@@ -32,12 +32,15 @@ class WgpuDabsLayoutTest {
             x = 11f, y = 22f, radius = 33f, alpha = 0.5f, angleDeg = 44f,
             tipRatio = 0.25f, hardness = 0.75f, contactDepth = 0.6f,
         )
-        val packed = WgpuDabs.resolvedRound(listOf(dab), OPAQUE_COLOR, 0, BrushColorSource.PLAIN, 1f)
+        val packed = WgpuDabs.resolvedRound(
+            listOf(dab), OPAQUE_COLOR, 0, BrushColorSource.PLAIN, 1f, substrateResponse = 0.4f,
+        )
         assertEquals(DAB_FLOATS, packed.size)
         assertEquals(11f, packed[DAB_LAYOUT.indexOf("x")])
         assertEquals(22f, packed[DAB_LAYOUT.indexOf("y")])
         assertEquals(33f, packed[DAB_LAYOUT.indexOf("radius")])
-        assertEquals(0.5f, packed[DAB_LAYOUT.indexOf("alpha")])
+        // Strength = alpha * contactDepth, matching RoundStampCompositor (0.5 * 0.6).
+        assertEquals(0.3f, packed[DAB_LAYOUT.indexOf("alpha")], 1e-6f)
         assertEquals(44f, packed[DAB_LAYOUT.indexOf("angleDeg")])
         assertEquals(0x33 / 255f, packed[DAB_LAYOUT.indexOf("colorR")])
         assertEquals(0x66 / 255f, packed[DAB_LAYOUT.indexOf("colorG")])
@@ -46,6 +49,7 @@ class WgpuDabsLayoutTest {
         // resolvedRound feeds the round shader, which reads slot 11 as hardness (not tipRatio).
         assertEquals(0.75f, packed[DAB_LAYOUT.indexOf("hardness|tipRatio")])
         assertEquals(0.6f, packed[DAB_LAYOUT.indexOf("contactDepth")])
+        assertEquals(0.4f, packed[DAB_LAYOUT.indexOf("substrateResponse")])
     }
 
     @Test
