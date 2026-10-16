@@ -15,7 +15,6 @@ import com.hereliesaz.graffitixr.common.model.LayerFrame
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.SlamManager
-import com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.ink.InkAffine
@@ -169,22 +168,21 @@ internal class DrawingEngine(
         /** Where [base] sits in the layer's frame; null = the bitmap is the frame. */
         frame: LayerFrame? = null,
     ): Bitmap {
-        val epoch = GpuDeviceLoss.epoch()
-        val result = try {
+        val result = retryRenderOnce(
+            retriable = command.tool != Tool.LIQUIFY,
+            onRetry = { e ->
+                android.util.Log.w("DrawingEngine", "stroke render failed (${e.message}); retrying once on a fresh engine")
+            },
+        ) { attempt ->
             if (command.tool == Tool.LIQUIFY) applyLiquify(base, command, frame)
             else applyTool(
                 base, command, otherLayers = { otherLayers },
                 heightMap = heightMap, wetnessState = wetnessState,
-                impastoMaterialState = impastoMaterialState, liveWet = liveWet, frame = frame,
-            )
-        } catch (e: StrokeRenderException) {
-            // A GPU stroke that failed because the device was lost paints once more on a fresh
-            // engine; the live engine died with the device. Any other failure is the caller's.
-            if (command.tool == Tool.LIQUIFY || !GpuDeviceLoss.since(epoch)) throw e
-            applyTool(
-                base, command, otherLayers = { otherLayers },
-                heightMap = heightMap, wetnessState = wetnessState,
-                impastoMaterialState = impastoMaterialState, frame = frame,
+                impastoMaterialState = impastoMaterialState,
+                // The live engine is only good for the first attempt (it died with the device, or
+                // is the very engine that failed).
+                liveWet = if (attempt == 0) liveWet else null,
+                frame = frame,
             )
         }
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
@@ -530,3 +528,21 @@ private fun bitmapPixels(bitmap: Bitmap): IntArray =
 /** Where a wet smudge may deposit wetness: 1 inside the selection's [region], 0 outside; null = all. */
 private fun wetnessCoverage(region: android.graphics.Region?, width: Int, height: Int): FloatArray? =
     region?.let { r -> FloatArray(width * height) { i -> if (r.contains(i % width, i / width)) 1f else 0f } }
+
+/**
+ * Runs [block] (attempt 0); if it throws [StrokeRenderException] and [retriable], runs it once more
+ * (attempt 1) on whatever fresh engine the block builds. A cold first stroke often fails on a
+ * device-creation race or an engine-lease timeout that a second try, now warm, does not hit; this
+ * used to be limited to a lost device. A second failure propagates to the caller.
+ */
+internal suspend fun <T> retryRenderOnce(
+    retriable: Boolean = true,
+    onRetry: (StrokeRenderException) -> Unit = {},
+    block: suspend (attempt: Int) -> T,
+): T = try {
+    block(0)
+} catch (e: StrokeRenderException) {
+    if (!retriable) throw e
+    onRetry(e)
+    block(1)
+}
