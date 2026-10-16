@@ -50,7 +50,7 @@ fun ExtensionParamsPanel(
     onClose: () -> Unit,
 ) {
     // The overlay host is wrap-content; this viewport must bound its own height.
-    val controlsMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
+    val controlsMaxHeight = LocalConfiguration.current.screenHeightDp.dp * PANEL_MAX_HEIGHT_FRACTION
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),

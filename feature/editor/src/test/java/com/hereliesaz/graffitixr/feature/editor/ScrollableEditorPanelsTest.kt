@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
 import com.hereliesaz.graffitixr.common.azphalt.AZPHALT_SPEC_VERSION
@@ -86,7 +87,8 @@ class ScrollableEditorPanelsTest {
             }
         }
         rule.onNodeWithText("Control 1").assertIsDisplayed()
-        rule.onNodeWithText("Run").assertIsDisplayed()
+        // AzButton exposes its label as the content description, not as a Text node.
+        rule.onNodeWithContentDescription("Run").assertIsDisplayed()
     }
 
     @Test
