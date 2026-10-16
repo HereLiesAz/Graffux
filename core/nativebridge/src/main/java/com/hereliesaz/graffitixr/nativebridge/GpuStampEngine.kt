@@ -2,7 +2,6 @@
 package com.hereliesaz.graffitixr.nativebridge
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.view.Surface
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassBudget
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
@@ -46,6 +45,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          */
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
+        private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
         private const val TAG = "GpuStampEngine"
         private val documentLock = Any()
         private var documentHandle = 0L
@@ -166,16 +166,22 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             val document = if (!closeDocument) {
                 0L
             } else {
-                documentLease.acquire()
-                try {
-                    synchronized(documentLock) {
-                        documentHandle.also {
-                            documentHandle = 0L
-                            documentKey = null
+                // Bounded like initDocument: a lease holder that never destroy()s must not hang
+                // calibration or a memory-pressure trim forever. On timeout the document stays open.
+                if (documentLease.tryAcquire(DOCUMENT_TRIM_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                    try {
+                        synchronized(documentLock) {
+                            documentHandle.also {
+                                documentHandle = 0L
+                                documentKey = null
+                            }
                         }
+                    } finally {
+                        documentLease.release()
                     }
-                } finally {
-                    documentLease.release()
+                } else {
+                    android.util.Log.w(TAG, "trimPool: document lease still held after ${DOCUMENT_TRIM_WAIT_MS}ms; keeping it")
+                    0L
                 }
             }
             val cached = synchronized(poolLock) {
@@ -651,26 +657,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         if (substrate != null && !substrateHeightUploaded) return false
-        val flat = FloatArray(dabs.size * 15)
-        for (i in dabs.indices) {
-            val d = dabs[i]
-            val base = i * 15
-            flat[base] = d.x
-            flat[base + 1] = d.y
-            flat[base + 2] = d.radius
-            flat[base + 3] = d.alpha
-            flat[base + 4] = d.angleDeg
-            flat[base + 5] = Color.red(d.colorArgb) / 255f
-            flat[base + 6] = Color.green(d.colorArgb) / 255f
-            flat[base + 7] = Color.blue(d.colorArgb) / 255f
-            flat[base + 8] = Color.alpha(d.colorArgb) / 255f
-            flat[base + 9] = d.flow
-            flat[base + 10] = d.hardness.coerceIn(0f, 1f)
-            flat[base + 11] = d.contactDepth.coerceIn(0f, 1f)
-            flat[base + 12] = d.reservoirLoad.coerceIn(0f, 1f)
-            flat[base + 13] = d.depositionRate.coerceIn(0f, 1f)
-            flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
-        }
+        val flat = DabPacking.packResolved(dabs)
         val cfg = substrate?.sanitized()
         return timed(PassKind.STAMP) { onGpu {
             nativeStampResolvedDabs(
@@ -750,26 +737,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
                 "secondaryMaskAlpha8 too small: need ${secondaryMaskWidth * secondaryMaskHeight}, got ${secondaryMaskAlpha8.size}"
             }
         }
-        val flat = FloatArray(dabs.size * 15)
-        for (i in dabs.indices) {
-            val d = dabs[i]
-            val base = i * 15
-            flat[base] = d.x
-            flat[base + 1] = d.y
-            flat[base + 2] = d.radius
-            flat[base + 3] = d.alpha
-            flat[base + 4] = d.angleDeg
-            flat[base + 5] = Color.red(d.colorArgb) / 255f
-            flat[base + 6] = Color.green(d.colorArgb) / 255f
-            flat[base + 7] = Color.blue(d.colorArgb) / 255f
-            flat[base + 8] = Color.alpha(d.colorArgb) / 255f
-            flat[base + 9] = d.flow
-            flat[base + 10] = d.tipRatio
-            flat[base + 11] = d.contactDepth.coerceIn(0f, 1f)
-            flat[base + 12] = d.reservoirLoad.coerceIn(0f, 1f)
-            flat[base + 13] = d.depositionRate.coerceIn(0f, 1f)
-            flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
-        }
+        val flat = DabPacking.packMasked(dabs)
         val secondaryFlat = if (secondaryDabs.isNotEmpty()) {
             FloatArray(secondaryDabs.size * 8).also { out ->
                 for (i in secondaryDabs.indices) {

@@ -2,6 +2,7 @@
 package com.hereliesaz.graffitixr.nativebridge
 
 import android.graphics.Bitmap
+import android.graphics.Color
 
 /**
  * On-device proof that [GpuStampEngine] (the wgpu engine) actually works on the phone it's running
@@ -67,6 +68,30 @@ object GpuStampEngineSelfTest {
             !engine.readback(bitmap) -> failure(
                 "readback() failed after a successful stampDabs() — the GPU→CPU copy didn't " +
                     "complete. Check logcat tag WgpuStampEngine.",
+            )
+            else -> verifyPixels(bitmap, center)
+        }
+    }
+
+    /**
+     * The boolean returns above only prove the calls completed; a driver can return a transparent or
+     * wrongly coloured bitmap. The core of the small, opaque dab must be solid red and the far
+     * corner (outside every dab) untouched.
+     */
+    private fun verifyPixels(bitmap: Bitmap, center: Float): Result {
+        val core = bitmap.getPixel((center - 40f).toInt(), (center - 20f).toInt())
+        val corner = bitmap.getPixel(2, 2)
+        val coreOk = Color.alpha(core) >= 200 && Color.red(core) >= 200 &&
+            Color.green(core) <= 40 && Color.blue(core) <= 40
+        val cornerOk = Color.alpha(corner) == 0
+        return when {
+            !coreOk -> failure(
+                "The GPU produced wrong pixels: the dab core read back as " +
+                    "#${Integer.toHexString(core)} instead of solid red.",
+            )
+            !cornerOk -> failure(
+                "The GPU produced wrong pixels: an untouched corner read back as " +
+                    "#${Integer.toHexString(corner)} instead of transparent.",
             )
             else -> Result(success = true, message = "wgpu stamp engine works on this device.", bitmap = bitmap)
         }
