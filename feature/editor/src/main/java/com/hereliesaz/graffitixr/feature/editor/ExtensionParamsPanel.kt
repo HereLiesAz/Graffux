@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -48,6 +49,8 @@ fun ExtensionParamsPanel(
     onBack: () -> Unit,
     onClose: () -> Unit,
 ) {
+    // The overlay host is wrap-content; this viewport must bound its own height.
+    val controlsMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -71,7 +74,9 @@ fun ExtensionParamsPanel(
         }
 
         Column(
-            modifier = Modifier.verticalScroll(rememberScrollState()),
+            modifier = Modifier
+                .heightIn(max = controlsMaxHeight)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ControlList(schema.controls, params, onParamChanged, onRun)
