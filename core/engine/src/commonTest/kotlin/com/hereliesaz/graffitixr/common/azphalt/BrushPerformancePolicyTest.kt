@@ -89,8 +89,7 @@ class BrushPerformancePolicyTest {
         val seed = 93017L
         val expected = BrushStamps.dynamicDabs(samples, diameter, brush, seed)
         val generator = IncrementalDynamicDabGenerator(diameter, brush, seed)
-        val total = samples.last().distancePx
-        val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
+        val actual = generator.appendLive(samples)
 
         assertTrue(expected.isNotEmpty())
         assertEquals(expected.size, actual.size)

@@ -11,10 +11,11 @@ import kotlin.random.Random
 /**
  * Stateful live resolver for dynamic/taper/mechanical stamp brushes.
  *
- * The authoritative commit path still uses [BrushStamps.dynamicDabs]. Live painting deliberately
- * treats end-taper/lift-off as provisional until finger-up because the final stroke length does not
- * exist yet. Everything else is resolved once as the stroke advances, so input cost depends on the
- * new segment rather than the accumulated stroke history.
+ * This is the single dynamic resolver: the live stroke, commit/undo replay ([LiveStrokeDabs]) and
+ * [BrushStamps.dynamicDabs] all run it over the samples in order. Everything is resolved causally
+ * as the stroke advances -- the pressure fade against the running [StrokeLengthPredictor] estimate
+ * passed to [append], the first-dab blot from what has been sampled so far -- so input cost depends
+ * on the new segment rather than the accumulated stroke history.
  */
 class IncrementalDynamicDabGenerator(
     diameterPx: Float,
@@ -48,13 +49,11 @@ class IncrementalDynamicDabGenerator(
     private var dwellMs = 0f
     private var mechanicalState = BrushMechanicalState()
     private var predictedStrokeTotal = 0f
-    private var peakSpeed = 1e-4f
 
     fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
         val sample = sampleIn.copy(predicted = false)
-        if (sample.speedPxPerMs > peakSpeed) peakSpeed = sample.speedPxPerMs
         val prev = previous
         if (prev == null) {
             previous = sample
@@ -105,12 +104,13 @@ class IncrementalDynamicDabGenerator(
         val contact = mechanics.contact
         val taper = brush.taper
         val blot = brush.blot
-        // Only the brush's configured start taper; the automatic speed-driven one is gone (see
-        // BrushStamps.dynamicDabs).
+        // Only a brush's own configured start taper shapes the stroke. The automatic speed-driven
+        // start/lift tapers and size shrink were removed at the owner's call (a static brush has no
+        // speed input, so adding any dynamic setting must not change its width), and so was the end
+        // taper: it needs the stroke's final length, which the live stroke never has.
         val startTaperT = if (taper.startLengthPx > 0f) (at / taper.startLengthPx).coerceIn(0f, 1f) else 1f
         val taperSize = lerp(taper.minSize, 1f, startTaperT)
         val taperOpacity = lerp(taper.minOpacity, 1f, startTaperT)
-        val speedSizeFactor = 1f - (sample.speedPxPerMs / peakSpeed).coerceIn(0f, 1f) * SPEED_SIZE_SENSITIVITY
 
         val dwellGrowthFactor = if (blot.dwellRampMs > 0f) {
             val dwellT = (dwellMs / blot.dwellRampMs).coerceIn(0f, 1f)
@@ -144,7 +144,7 @@ class IncrementalDynamicDabGenerator(
             val scatR = rng.nextFloat()
             val longitudinalR = longRng.nextFloat()
             val radius = baseRadius * fadedSizeMultiplier *
-                taperSize * blotSize * speedSizeFactor * contact.widthMultiplier *
+                taperSize * blotSize * contact.widthMultiplier *
                 (1f - brush.sizeJitter * sizeR)
             val alpha = (brush.opacity * fadedOpacityMultiplier *
                 taperOpacity * blotOpacity * (1f - brush.opacityJitter * opacR)).coerceIn(0f, 1f)
@@ -330,7 +330,6 @@ class IncrementalDynamicDabGenerator(
         const val RAD_TO_DEG = 57.29578f
         const val DEG_TO_RAD = 0.017453292f
         const val EPSILON = 1e-4f
-        const val SPEED_SIZE_SENSITIVITY = 0.2f
         const val MASK_SEED_SALT = 0x4D41534B5F544950L
         const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
         const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L

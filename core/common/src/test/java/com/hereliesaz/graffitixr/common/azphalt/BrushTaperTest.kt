@@ -30,15 +30,13 @@ class BrushTaperTest {
         )
         val dabs = BrushStamps.dynamicDabs(straight200, 20f, brush, seed = 5L)
         val first = dabs.first()
-        // straight200 is at constant peak speed so speedSizeFactor=0.8; first dab: minSize*0.8 ≈ 0.8.
-        // The taper is the dominant effect; first.radius is well below the mid-stroke value.
+        // First dab: minSize * baseRadius = 1, well below the mid-stroke value.
         assertTrue(first.radius < 1.5f)
         assertTrue(first.alpha < 0.25f)
-        // straight200 ends at constant speed so liftDecelT=0 → no natural end zone. x≈100 is
-        // clear of the 60px start zone. At peak speed, speedSizeFactor=0.8 applies throughout.
+        // x≈100 is clear of the 60px start zone, so the taper is fully released there. Speed never
+        // shrinks a dab (no automatic speed shaping), so it is the full base radius.
         val mid = dabs.minByOrNull { kotlin.math.abs(it.x - 100f) }!!
-        // Taper fully released at mid-stroke; speed sensitivity at constant peak ≈ 80% of baseRadius.
-        assertEquals(10f * 0.8f, mid.radius, 0.3f)
+        assertEquals(10f, mid.radius, 1e-3f)
         assertEquals(1f, mid.alpha, 0.02f)
     }
 

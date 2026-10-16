@@ -93,8 +93,7 @@ class BrushContactPhaseDabParityTest {
     fun touchdownReversalAndLiftStayIdenticalLiveAndCanonical() {
         val expected = BrushStamps.dynamicDabs(samples, 10f, brush, 4242L)
         val generator = IncrementalDynamicDabGenerator(10f, brush, 4242L)
-        val total = samples.last().distancePx
-        val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
+        val actual = generator.appendLive(samples)
 
         assertTrue(expected.isNotEmpty())
         assertEquals(expected.size, actual.size)

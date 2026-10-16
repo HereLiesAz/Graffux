@@ -89,8 +89,7 @@ class BrushMorphologyDabParityTest {
             val brush = brush(morphology)
             val expected = BrushStamps.dynamicDabs(samples, 10f, brush, 9917L)
             val generator = IncrementalDynamicDabGenerator(10f, brush, 9917L)
-            val total = samples.last().distancePx
-            val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
+            val actual = generator.appendLive(samples)
 
             assertTrue(expected.isNotEmpty(), morphology.name)
             assertEquals(expected.size, actual.size, morphology.name)

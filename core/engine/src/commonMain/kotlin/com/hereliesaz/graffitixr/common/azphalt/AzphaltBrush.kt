@@ -103,6 +103,10 @@ data class BrushTaper(
  * milliseconds a full 0->1 pressure rise would take to count as maximally sharp -- smaller is more
  * sensitive). Finger input with no real pressure axis reports a flat, instant 1.0 and so never
  * triggers this; it only ever does anything with a stylus. 1 (the default) disables it.
+ *
+ * Both growth factors are resolved causally, as the stroke is drawn: the very first dab is stamped
+ * on touchdown, before any dwell or a second sample exists, so it carries neither. They shape the
+ * blot dabs laid after that, as the dwell and the press rate become known.
  */
 @Serializable
 data class BrushBlot(

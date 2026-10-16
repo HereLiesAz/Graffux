@@ -94,7 +94,11 @@ class BrushStampsTest {
         // A straight vertical stroke heads at +90°; followStroke should set every dab's angle to it.
         val brush = hardRound.copy(followStroke = true)
         val dabs = BrushStamps.dabs(listOf(0f, 0f, 0f, 10f), 8f, brush, seed = 1L)
-        dabs.forEach { d -> assertEquals(90f, d.angleDeg, 1e-3f) }
+        // The first dab has no previous centre (the live stroke stamps it before the next one
+        // exists), so it keeps the base angle; every later dab follows the heading.
+        assertEquals(0f, dabs.first().angleDeg, 1e-3f)
+        assertTrue(dabs.size > 1)
+        dabs.drop(1).forEach { d -> assertEquals(90f, d.angleDeg, 1e-3f) }
         // Without followStroke the angle is just the brush's base angle.
         val fixed = BrushStamps.dabs(listOf(0f, 0f, 0f, 10f), 8f, hardRound.copy(angle = 15f), seed = 1L)
         fixed.forEach { d -> assertEquals(15f, d.angleDeg, 1e-3f) }
@@ -345,7 +349,7 @@ class BrushStampsTest {
             return BrushStamps.dynamicDabs(
                 dwellThenMoveSamples(dwellMs, moveLengthPx = 200f, moveSteps = 20),
                 diameterPx = 10f, brush = brush, seed = 5L,
-            ).first().radius
+            )[1].radius // the live stroke knows the dwell once the pen moves: the second dab
         }
 
         val none = firstDabRadius(0L)
@@ -398,7 +402,7 @@ class BrushStampsTest {
             )
             return BrushStamps.dynamicDabs(
                 tapSamples(firstPressure, secondPressure, dtMs), diameterPx = 10f, brush = brush, seed = 5L,
-            ).first().radius
+            )[1].radius // dab 0 is stamped before the second sample shows how sharp the tap was
         }
 
         // A gentle press: pressure barely rises over 80ms -- sharpnessT ~ 0, no extra growth.
