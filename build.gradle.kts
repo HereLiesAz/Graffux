@@ -25,7 +25,7 @@ buildscript {
         "org.bouncycastle:bcprov-jdk18on:1.86",
         "org.bouncycastle:bcpkix-jdk18on:1.86",
         "org.bouncycastle:bcutil-jdk18on:1.86",
-        // Kotlin 2.4.0 emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a
+        // Kotlin 2.4.x emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a
         // kotlin-metadata-jvm that only reads up to 2.3.0 — its KSP processor fails the build with
         // "Provided Metadata instance has version 2.4.0, while maximum supported version is 2.3.0".
         // Force the matching 2.4.0 reader onto every classpath (incl. the KSP processor) so Hilt

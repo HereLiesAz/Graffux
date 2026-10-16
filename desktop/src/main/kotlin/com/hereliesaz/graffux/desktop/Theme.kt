@@ -32,6 +32,12 @@ object GraffuxColors {
     val Black = Color(0xFF000000)
     val White = Color(0xFFFFFFFF)
     val Gray = Color(0xFF5D5D5D)
+
+    // Desktop-only names for literals core:design's DarkColorScheme inlines (kept in sync by the test).
+    val SurfaceVariant = Color(0xFF2A2A30)
+    val OnSurfaceVariant = Color(0xFFC6C6CE)
+    val Outline = Color(0xFF4A4A54)
+    val OutlineVariant = Color(0xFF3A3A42)
 }
 
 // Mirrors core:design's DarkColorScheme (Theme.kt) entry for entry; ThemeColorSyncTest compares the
@@ -42,15 +48,15 @@ private val GraffuxDarkColorScheme = darkColorScheme(
     tertiary = GraffuxColors.NeonGreen,
     background = GraffuxColors.Black,
     surface = GraffuxColors.Black,
-    surfaceVariant = Color(0xFF2A2A30),
+    surfaceVariant = GraffuxColors.SurfaceVariant,
     onPrimary = GraffuxColors.Black,
     onSecondary = GraffuxColors.Black,
     onTertiary = GraffuxColors.Black,
     onBackground = GraffuxColors.White,
     onSurface = GraffuxColors.White,
-    onSurfaceVariant = Color(0xFFC6C6CE),
-    outline = Color(0xFF4A4A54),
-    outlineVariant = Color(0xFF3A3A42),
+    onSurfaceVariant = GraffuxColors.OnSurfaceVariant,
+    outline = GraffuxColors.Outline,
+    outlineVariant = GraffuxColors.OutlineVariant,
 )
 
 /**

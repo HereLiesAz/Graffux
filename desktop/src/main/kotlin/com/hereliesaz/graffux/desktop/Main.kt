@@ -114,6 +114,7 @@ fun main() = application {
                         lastSavedPath = canvasState.exportPng()?.absolutePath
                         saveError = null
                     } catch (e: Exception) {
+                        lastSavedPath = null
                         saveError = e.message ?: "Failed to save image"
                     }
                     true
@@ -133,7 +134,7 @@ fun main() = application {
                     lastSavedPath = lastSavedPath,
                     saveError = saveError,
                     onSaved = { lastSavedPath = it; saveError = null },
-                    onSaveError = { saveError = it },
+                    onSaveError = { lastSavedPath = null; saveError = it },
                 )
             }
         }

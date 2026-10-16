@@ -17,8 +17,8 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Adjustments** — opacity, brightness, contrast, saturation, colour balance, curves (a monotone
   cubic-spline LUT baked into the layer), invert, colour-lookup (`.cube` LUT) extensions.
 - **Paint** — brush and eraser with size + hardness, colour, node-edited vector paths (Pen), Heal,
-  Clone, Blur, Sharpen, Smudge, Liquify (OpenCV-backed), Dodge, Burn, Colorize, plus symmetry and
-  wraparound painting modes. Brush Studio for building custom brushes.
+  Clone, Blur, Sharpen, Smudge, Liquify (OpenCV-backed), Dodge, Burn, Colorize, plus
+  wraparound painting mode. Brush Studio for building custom brushes.
 - **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, add/remove/replace,
   save named selections, colour-fill/copy/cut/paste within a selection.
 - **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.

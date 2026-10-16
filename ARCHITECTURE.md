@@ -9,9 +9,9 @@ Read before proposing structural changes. Never recalled — opened.
 ## Current version
 
 - App version: `versionMajor.versionMinor.versionPatch`, computed from `version.properties`
-  and auto-incremented on every `assembleDebug`/`bundleRelease` — do not hardcode a snapshot
-  of it here, it drifts on the next local build. See `CLAUDE.md`'s "versionCode and Play
-  publishing" section before touching that file or this one.
+  and bumped by the release workflow, not by the build — do not hardcode a snapshot of it here,
+  it drifts on the next release. See `CLAUDE.md`'s "version.properties and versionCode" section
+  before touching that file or this one.
 - Kotlin `2.4.20`, AGP `9.4.1`.
 - `AzNavRail` (`com.github.HereLiesAz.AzNavRail:aznavrail`) `11.18`+ required — `11.15`
   through `11.17` have the reloc-item-under-`azUnattachedHostItem` bug described below;
@@ -56,10 +56,10 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    pixels from. A destructive async operation (merge, flatten, duplicate) must bracket its
    work in `EditorIntent.SetLoading(true/false)` — the loading state blocks input for the
    duration, closing the window where an Undo tap could race the in-flight composite.
-3. **`version.properties` is never reverted, restored, or `git checkout`-ed.** It
-   auto-increments on `assembleDebug`/`bundleRelease`; that's intended. `versionCode` is
-   computed from the *committed* `versionBuild + 1`, and CI does not write the increment
-   back — see `CLAUDE.md` for the exact failure mode this has caused repeatedly.
+3. **`version.properties` is never reverted, restored, or `git checkout`-ed.** The Gradle
+   build never increments it; `HereLiesAz/workflows` `android-release.yml` computes `versionCode`
+   (highest of the file and every code Play has accepted, + 1) and records the published pair back
+   to it with a `[skip ci]` commit. See `CLAUDE.md`.
 4. **`ConfigureRailItems` is not `@Composable`.** It's a plain extension function on
    `AzNavHostScope`, so any Compose state it needs (`remember { mutableStateOf(...) }`) has
    to live in the calling `@Composable` (`GraffuxApp`) and thread down as a parameter or

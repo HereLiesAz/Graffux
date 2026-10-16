@@ -7,6 +7,15 @@ Companion to:
 
 This file is the **authoritative implementation checkpoint and session TODO**. The roadmap documents describe intended architecture; this file records what has actually landed, what remains partial, and what has not started.
 
+> **Engine note (updated).** The Vulkan and OpenGL ES stamp engines this file was first written
+> against were deleted in 2026-09; `core/wgpu-engine` (Rust, wgpu) is now the only GPU stroke
+> renderer, behind `StampEngine.h` in `:core:nativebridge`, with the CPU renderer as the reference
+> and fallback (see `ARCHITECTURE.md`, "Retired"). Where this file says "wgpu" for a feature
+> that landed while the Vulkan engine existed, the behaviour was carried over to the wgpu engine as
+> the same CPU-parity contract; the historical test classes `Vulkan*InstrumentedTest` keep their
+> old names but drive `GpuStampEngine` (wgpu). Real-device parity runs are manual: CI has no
+> emulator or GPU, so `connectedAndroidTest` is not part of the pipeline.
+
 Status legend:
 
 - ✅ **Implemented / landed** — code is on `main` and the hosted build/test gate for the tranche has been completed or merged through its validation PR.
@@ -16,7 +25,7 @@ Status legend:
 
 ## 2026-09-19 checkpoint
 
-Current `main` includes the session's material, telemetry, brush-mechanics, morphology, physical-population, and validation work plus Vulkan reservoir parity, translucent-pickup hardening, the versioned media-profile boundary, the consolidated material golden matrix, and minimal material controls.
+Current `main` includes the session's material, telemetry, brush-mechanics, morphology, physical-population, and validation work plus wgpu reservoir parity, translucent-pickup hardening, the versioned media-profile boundary, the consolidated material golden matrix, and minimal material controls.
 
 The session began with the material-aware 2.5D sequence:
 
@@ -78,12 +87,12 @@ Implemented:
 - ✅ Explicit `LEGACY_RGB` compatibility mode.
 - ✅ `PIGMENT_RYB` bounded subtractive/artist-space approximation.
 - ✅ Pigment mixing integrated into Color Smudge only when explicitly selected.
-- ✅ Exact matching RYB transform ported to the Vulkan Color Smudge shader.
+- ✅ Exact matching RYB transform ported to the wgpu Color Smudge shader.
 - ✅ Native mode values preserve historical ABI meaning for legacy modes.
 - ✅ Failed/unavailable GPU execution recomputes from the pristine source through the CPU reference.
 - ✅ Golden coverage includes ratio endpoints, yellow + blue, cyan + red, high-chroma complements, black/white tinting, repeated mixing, order symmetry, and alpha preservation.
 - ✅ Hosted unit/build/native-shader validation completed for the pigment tranche.
-- 🟡 CPU ↔ Vulkan instrumentation is compiled, but real Android Vulkan-device pixel parity is still a hardware gate.
+- 🟡 CPU ↔ wgpu instrumentation is compiled, but real Android GPU-device pixel parity is still a hardware gate.
 - ⬜ Full spectral/Kubelka-Munk mixing remains research-only and is not required unless the bounded mixer visibly fails.
 
 Compatibility:
@@ -106,16 +115,16 @@ Implemented:
 - ✅ Pickup samples contact material before the dab mutates it and affects subsequent dabs rather than retroactively changing the sampling dab.
 - ✅ Smear and Dulling both feed reservoir pickup while keeping their existing spatial behavior.
 - ✅ Sample Merged can supply pickup from the same pre-composited source used by Color Smudge.
-- ✅ Native/Vulkan reservoir depletion, pickup, carried-colour contamination, and ordered post-dab pickup are implemented in the existing Color Smudge backend.
+- ✅ Native/wgpu reservoir depletion, pickup, carried-colour contamination, and ordered post-dab pickup are implemented in the existing Color Smudge backend.
 - ✅ Renderer-neutral resolved plans carry per-dab distance and Color Rate dynamics into the native reservoir state machine.
-- ✅ Real-device Vulkan parity instrumentation covers Smear, Dulling, pigment pickup, and translucent layer pickup.
+- ✅ Real-device wgpu parity instrumentation covers Smear, Dulling, pigment pickup, and translucent layer pickup.
 - ✅ Non-Sample-Merged translucent pickup unpremultiplies `layerImage` before alpha-weighted sampling, preventing double-alpha darkening while preserving the straight-alpha Sample Merged path.
-- ✅ Failed/unavailable Vulkan execution still falls back to the CPU reference rather than dropping reservoir state.
+- ✅ Failed/unavailable wgpu execution still falls back to the CPU reference rather than dropping reservoir state.
 - ✅ Minimal artist-facing **Load / Pickup / Pigment Mixing** controls are wired to the existing Color Smudge/Wet Mix state rather than a second material backend.
 
 Still pending:
 
-- 🟡 Execute the existing CPU ↔ Vulkan pigment/reservoir parity suite on representative real Android Vulkan hardware and record the results.
+- 🟡 Execute the existing CPU ↔ wgpu pigment/reservoir parity suite on representative real Android GPU hardware and record the results.
 - ✅ Persistent canvas wetness is now supplied by Phase 4; pickup samples real canvas wetness when canonical wet material exists instead of fabricating it from display colour.
 - ⬜ Per-sub-tuft reservoir load; current reservoir is stroke-level.
 
@@ -123,7 +132,7 @@ Compatibility/backend gate:
 
 - ✅ `pickupRate = 0` remains the historical default path.
 - ✅ Imported Krita presets keep pickup at the Graffux default of zero.
-- ✅ Positive pickup has native/Vulkan support; unsupported/failed GPU execution recomputes through the CPU reference instead of silently ignoring pickup.
+- ✅ Positive pickup has native/wgpu support; unsupported/failed GPU execution recomputes through the CPU reference instead of silently ignoring pickup.
 
 ### Phase 3 — Substrate-aware deposition and dry-brush breakup — 🟡 backend and product activation implemented; hardware gate remains
 
@@ -135,17 +144,17 @@ Implemented:
 - ✅ Contact-depth-vs-substrate-height deposition rule.
 - ✅ Crest/tooth scumble and dry breakup under light contact.
 - ✅ Pressure-driven substrate penetration/full coverage.
-- ✅ Existing paint height fills substrate valleys in the CPU renderer and Vulkan path.
+- ✅ Existing paint height fills substrate valleys in the CPU renderer and wgpu path.
 - ✅ CPU commit/replay integration uses the same substrate context.
-- ✅ Vulkan has a dedicated static R8 substrate texture rather than hijacking brush grain, plus the existing-height channel needed for CPU/Vulkan valley-filling parity.
+- ✅ wgpu has a dedicated static R8 substrate texture rather than hijacking brush grain, plus the existing-height channel needed for CPU/wgpu valley-filling parity.
 - ✅ Substrate response `0` preserves the historical renderer path.
-- ✅ Hosted native/shader/editor validation for the Phase-3 Vulkan tranches is landed.
+- ✅ Hosted native/shader/editor validation for the Phase-3 wgpu tranches is landed.
 - ✅ Editor substrate session state: the project picks a canvas surface (`SubstratePreset`: Smooth, Cold-press paper, Canvas weave, Brick / concrete; procedurally generated, deterministic 128² R8 tiles) from Document size → Surface. It is stored in the project file (`GraffitiProject.canvasSubstrateId`; missing or unknown id = Smooth), routed through `EditorIntent.SetCanvasSubstrate` → `EditorReducer` → `EditorUiState.canvasSubstrateId`, and snapshotted on each stamp `StrokeCommand.substrateId` so undo/redo/replay deposit against the surface the stroke was drawn on (legacy commands = Smooth).
 - ✅ Per-brush `AzphaltBrush.substrateResponse` (0..1, default 0; Brush Studio → Texture → Substrate response; parsed from brush params with 0 when absent). Live stroke, commit and replay resolve the same `StampSubstrate` and upload the preset tile once per engine; a Smooth surface or zero response passes no substrate, which is the exact historical stamp path. The Basic Brush (no Azphalt brush) never takes the substrate.
 
 Still open:
 
-- 🟡 Real Android Vulkan execution remains a hardware parity gate.
+- 🟡 Real Android wgpu execution remains a hardware parity gate.
 - ⬜ Optional fibre-direction/anisotropy behavior.
 
 Coarse stable tuft contacts now feed the same contact-depth model rather than requiring a separate bristle-specific substrate backend.
@@ -168,7 +177,7 @@ Implemented and merged in PR #394:
 - ✅ `LayerStore` carries baked/live wetness snapshots through commit, undo/redo rebuild, and old-stroke baking.
 - ✅ Undo back to a never-wet history clears stale live wetness state.
 - ✅ New wetness deposition respects the active selection while already-wet material may continue its global deterministic evolution.
-- ✅ Legacy/no-field Color Smudge remains byte-identical and stays eligible for the existing Vulkan path.
+- ✅ Legacy/no-field Color Smudge remains byte-identical and stays eligible for the existing wgpu path.
 - ✅ Persistent-wetness Color Smudge intentionally uses the CPU correctness path until native Color Smudge owns an equivalent canonical wetness image; this is a performance/backend optimization, not a missing Phase-4 behavior.
 - ✅ Hosted `testDebugUnitTest test` and `assembleDebug` passed on the Phase-4 merge head.
 
@@ -392,7 +401,7 @@ Still pending:
 Already true:
 
 - ✅ Mechanics resolve before rendering.
-- ✅ CPU/Vulkan stamp paths consume resolved geometry rather than reinterpreting raw pressure/tilt/orientation.
+- ✅ CPU/wgpu stamp paths consume resolved geometry rather than reinterpreting raw pressure/tilt/orientation.
 - ✅ Incremental/live mechanics operate on new stroke work rather than recomputing total stroke history.
 - ✅ Physical tuft counts are bounded.
 - ✅ Basic/static brush remains the compatibility/latency baseline.
@@ -460,18 +469,18 @@ Implemented or substantially covered:
 - ✅ fixed-diameter physical bundles;
 - ✅ ferrule/root pose independence from drag heading;
 - ✅ pigment CPU reference/golden vectors;
-- ✅ pigment Vulkan build integration;
+- ✅ pigment wgpu build integration;
 - ✅ deterministic reservoir charge/depletion;
 - ✅ deterministic CPU reservoir pickup and compatibility gate;
-- ✅ native/Vulkan reservoir depletion + pickup implementation and device-test instrumentation;
+- ✅ native/wgpu reservoir depletion + pickup implementation and device-test instrumentation;
 - ✅ translucent non-Sample-Merged reservoir sampling parity regression coverage;
 - ✅ consolidated current-material golden fixture matrix;
 - ✅ versioned media-profile boundary and exact legacy-dry profile.
 
 Still useful/required:
 
-- ⬜ real-device CPU ↔ Vulkan pigment parity execution;
-- 🟡 execute the landed native/Vulkan reservoir pickup parity tests on representative real Android Vulkan hardware;
+- ⬜ real-device CPU ↔ wgpu pigment parity execution;
+- 🟡 execute the landed native/wgpu reservoir pickup parity tests on representative real Android GPU hardware;
 - ⬜ explicit end-to-end finger-contact-change tuft geometry parity fixture;
 - ⬜ larger visual golden suite for straight drag, 90° corner, 180° reversal, pressure ramp, tilt sweep, hover roll/lean, and each morphology;
 - ⬜ physical performance baselines on Adreno high/mid and Mali high/mid tiers;
@@ -483,12 +492,12 @@ Still useful/required:
 
 This is the recommended order from the current state, not the original dependency order.
 
-1. Run the existing **CPU ↔ Vulkan pigment + reservoir/pickup/substrate parity suite on real Android Vulkan hardware** and record the device/result matrix.
+1. Run the existing **CPU ↔ wgpu pigment + reservoir/pickup/substrate parity suite on real Android GPU hardware** and record the device/result matrix.
 2. Complete the remaining Phase-0 measurement gap: physical-device material latency/performance baselines, including the landed Phase-5 material path.
 3. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
 4. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
 5. Measure the landed deterministic tuft capability tiers on representative Adreno/Mali devices and set evidence-based performance thresholds.
-6. Finish Phase-3 product activation: execute the real-device Vulkan parity gate for substrate strokes (editor substrate session state, presets and per-brush response are wired).
+6. Finish Phase-3 product activation: execute the real-device wgpu parity gate for substrate strokes (editor substrate session state, presets and per-brush response are wired).
 7. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary and completed Phase-3/4/5 material channels.
 8. Expand the versioned material sidecar only if a future feature introduces another canonical per-layer material channel; Phase-5 height + wetness persistence is already landed.
 9. Add/record representative artist-reference and physical-device validation for Phase-5 height settling and wet/dry optical response.
@@ -526,8 +535,8 @@ Experimental rendering/content-generation work only; no current critical-path de
 
 Even though the Phase-5 implementation and its canonical height/wetness persistence are now landed, the following broader product gates remain explicit before calling the overall system production-complete:
 
-- real Android Vulkan parity for pigment mode;
-- real Android Vulkan execution/results for the landed pigment, reservoir/pickup, and substrate parity suites;
+- real Android wgpu parity for pigment mode;
+- real Android wgpu execution/results for the landed pigment, reservoir/pickup, and substrate parity suites;
 - representative physical-device telemetry validation;
 - physical tuft population **performance measurements/thresholds** on the already-landed deterministic capability tiers;
 - artist tuning/reference strokes for morphology and lifecycle behavior;
