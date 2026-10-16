@@ -60,6 +60,11 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(hi, lo, c <= vec3<f32>(0.04045));
 }
 
+fn tap(x: i32, y: i32) -> vec4<f32> {
+    let i = u32(y) * u32(params.layer_width) + u32(x);
+    return contribution(unpack4x8unorm(src[i]), unpack4x8unorm(base[i]));
+}
+
 @fragment
 fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     if (params.mode != 0) {
@@ -71,8 +76,20 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let lp = vec2<i32>(floor(q));
     var out = vec4<f32>(0.0);
     if (lp.x >= 0 && lp.y >= 0 && lp.x < params.layer_width && lp.y < params.layer_height) {
-        let i = u32(lp.y) * u32(params.layer_width) + u32(lp.x);
-        out = contribution(unpack4x8unorm(src[i]), unpack4x8unorm(base[i]));
+        // Bilinear, like the Compose draw this hands off to (no nearest -> bilinear pop at lift-off).
+        // Taps are texel centres at +0.5; coordinates clamp to the layer edge. The contribution is
+        // premultiplied, so it blends linearly.
+        let f = q - vec2<f32>(0.5);
+        let b = vec2<i32>(floor(f));
+        let w = f - vec2<f32>(b);
+        let hi = vec2<i32>(params.layer_width - 1, params.layer_height - 1);
+        let p00 = clamp(b, vec2<i32>(0), hi);
+        let p11 = clamp(b + vec2<i32>(1), vec2<i32>(0), hi);
+        let c00 = tap(p00.x, p00.y);
+        let c10 = tap(p11.x, p00.y);
+        let c01 = tap(p00.x, p11.y);
+        let c11 = tap(p11.x, p11.y);
+        out = mix(mix(c00, c10, w.x), mix(c01, c11, w.x), w.y);
     }
     if ((params.flags & 2) != 0 && out.a > 0.0) {
         out = vec4<f32>(out.rgb / out.a, out.a);

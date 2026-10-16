@@ -765,6 +765,12 @@ mod tests {
 
     #[test]
     fn shader_parses() {
-        naga::front::wgsl::parse_str(DIRECT_WGSL).expect("direct.wgsl parses");
+        let module = naga::front::wgsl::parse_str(DIRECT_WGSL).expect("direct.wgsl parses");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        )
+        .validate(&module)
+        .expect("direct.wgsl validates");
     }
 }

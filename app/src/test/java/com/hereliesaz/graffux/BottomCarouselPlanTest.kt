@@ -297,18 +297,6 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `rail Undo and Redo show only while the open sheet is not already offering them`() {
-        // Open sheet on screen: its tab row has Undo/Redo, so the rail must not duplicate them.
-        assertFalse(railHistoryItemsVisible(carouselOnScreen = true, sheetOpen = true))
-        // Sheet shut: the rail carries them.
-        assertTrue(railHistoryItemsVisible(carouselOnScreen = true, sheetOpen = false))
-        // Carousel off screen (hidden from the areas dropdown, a panel up, UI hidden): rail carries them
-        // whatever the sheet's remembered state.
-        assertTrue(railHistoryItemsVisible(carouselOnScreen = false, sheetOpen = true))
-        assertTrue(railHistoryItemsVisible(carouselOnScreen = false, sheetOpen = false))
-    }
-
-    @Test
     fun `sheet settles by fling first, then by the nearer side`() {
         assertTrue(carouselSheetSettlesOpen(fractionShut = 0.9f, velocityDpPerSec = -1_000f))
         assertFalse(carouselSheetSettlesOpen(fractionShut = 0.1f, velocityDpPerSec = 1_000f))

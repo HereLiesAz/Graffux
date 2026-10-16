@@ -4,8 +4,8 @@ import com.hereliesaz.graffitixr.common.model.InkUtensil
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 
 /**
- * The Jetpack Ink utensils as brush-list entries: rail item id, classifier, label and glyph, one per
- * [InkUtensil] and in its order. Every surface that lists brushes (the `grp.brushRail` today) reads
+ * The Jetpack Ink utensils as brush-list entries: classifier, label and glyph, one per
+ * [InkUtensil] and in its order. Every surface that lists brushes (the carousel's Ink page) reads
  * this rather than spelling the four out again, the same reason [TOOL_CATALOG] exists — so adding
  * a utensil to [InkUtensil] puts it in every brush list with no other change.
  *
@@ -13,7 +13,6 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
  */
 internal data class InkUtensilEntry(
     val utensil: InkUtensil,
-    val railId: String,
     val classifier: String,
     val label: String,
     val icon: Int,
@@ -22,7 +21,6 @@ internal data class InkUtensilEntry(
 internal val INK_UTENSIL_CATALOG: List<InkUtensilEntry> = InkUtensil.entries.map { utensil ->
     InkUtensilEntry(
         utensil = utensil,
-        railId = "brushRail.${utensil.id}",
         classifier = "brush.${utensil.id}",
         label = utensil.displayName,
         icon = when (utensil) {

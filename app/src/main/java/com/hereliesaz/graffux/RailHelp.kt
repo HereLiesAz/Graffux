@@ -80,9 +80,6 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     // second tap adds another text layer rather than putting the first one down.
     "tool.text" to "Tap to add a new text layer immediately. It's an action, not a mode — it never " +
         "shows as the active tool the way the other buttons here do.",
-    "tool.wraparound" to
-        "The canvas tiles past its own edges: a stroke that leaves one side comes back on the " +
-        "other. For seamless patterns.",
 
     // ── Layers ───────────────────────────────────────────────────────────────────────────────────
     "grp.layers" to
@@ -91,19 +88,8 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "— adjust, blend mode, transform, alpha lock, clipping, styles, and so on. A layer marked " +
         "amber is linked to the one you are on and will move with it.",
     "layer.add" to "Add a new blank layer on top of the stack.",
-    "grp.brushRail" to
-        "Installed brushes, plus Brush Studio for making your own. The plain round brush is the " +
-        "one selected when none of the others are. The Ink Pen, Ink Marker, Ink Highlighter and " +
-        "Ink Dashed Line are Android's low-latency Jetpack Ink utensils; they take size, colour, " +
-        "opacity and the stabiliser, but not softness.",
-    "brush.studio" to
-        "Edits the brush you are holding, or makes a new one if you are on the built-in round brush.",
 
     // ── Windows and the rest ─────────────────────────────────────────────────────────────────────
-    "tool.options" to
-        "The dials that belong to whatever tool is in your hand, and only those — stroke " +
-        "stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow. A dial that is missing is " +
-        "one the current tool does not have.",
     "tool.animation" to
         "Animation Assist. Each top-level layer becomes one frame; the window plays them, steps " +
         "through them, and draws onion skins of the neighbouring frames. Closing the window turns " +

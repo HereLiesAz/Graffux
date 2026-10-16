@@ -210,8 +210,11 @@ class CalibrationCoordinator(
                 calibrate(force)
             } catch (e: CancellationException) {
                 throw e
-            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-                // A probe that throws is a failed run, never a crash: keep the default tier.
+            } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                // A probe that throws is a failed run, never a crash: keep the default tier. Throwable,
+                // not Exception: a missing or broken native GPU library surfaces as an Error
+                // (UnsatisfiedLinkError, NoClassDefFoundError), which would otherwise escape this
+                // coroutine as an uncaught exception.
                 runCatching { android.util.Log.w(TAG, "calibration failed", e) }
                 _state.value = CalibrationState.FAILED
             } finally {

@@ -36,15 +36,6 @@ internal fun carouselTabEnabled(tab: CarouselTab, undoCount: Int, redoCount: Int
     is CarouselTab.Page -> true
 }
 
-/**
- * Whether the rail's own Undo and Redo items are shown. They exist for when the carousel's tab row
- * (which has Undo and Redo at its ends) is not on screen: shown while the sheet is shut, or while the
- * carousel is off screen for any other reason (hidden from the areas dropdown, a bottom panel up, the
- * UI hidden for capture); gone while the open sheet already offers both, so the two never duplicate.
- */
-internal fun railHistoryItemsVisible(carouselOnScreen: Boolean, sheetOpen: Boolean): Boolean =
-    !(carouselOnScreen && sheetOpen)
-
 /** A vertical fling faster than this (dp/s) decides the sheet's side on its own. */
 private const val SHEET_FLING_DP_PER_SEC = 400f
 

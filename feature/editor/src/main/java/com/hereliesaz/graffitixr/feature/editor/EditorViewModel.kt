@@ -249,6 +249,7 @@ private const val MAX_ALPHA = 255
 
 /** Display frames between publishing the committed stroke and clearing the live overlay. */
 private const val OVERLAY_HANDOFF_FRAMES = 2
+private const val NANOS_PER_MS = 1_000_000L
 private const val ALPHA_MAX_F = 255f
 
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
@@ -1350,7 +1351,40 @@ class EditorViewModel @Inject constructor(
                 }
             }
             stale?.release()
+            warmGpuDocument(source.width, source.height)
         }
+    }
+
+    private val gpuWarmLatch = GpuWarmLatch()
+
+    /**
+     * Creates the wgpu device, pipelines and document handle for [width]x[height] before the first
+     * touch (cold, this took long enough that the first stroke or two of a project never showed up:
+     * the live engine was not ready, and the commit then built a second one from scratch). The
+     * lease is taken and handed straight back, so a stroke that starts meanwhile only waits for the
+     * handle's creation and then reuses it. Once per size and tuning epoch (see [GpuWarmLatch]).
+     */
+    private fun warmGpuDocument(width: Int, height: Int) {
+        if (strokeLayerId != null) return
+        val key = GpuWarmLatch.Key(width, height, GpuStampEngine.tuningEpoch)
+        if (!gpuWarmLatch.claim(key)) return
+        val t0 = System.nanoTime()
+        var ok = false
+        try {
+            com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
+            val engine = GpuStampEngine(collectTelemetry = true)
+            try {
+                ok = engine.initDocument(width, height)
+            } finally {
+                engine.destroy()
+            }
+        } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+            Breadcrumbs.record("gpu warmup failed: ${e.javaClass.simpleName}")
+        }
+        if (!ok) gpuWarmLatch.release(key)
+        val ms = (System.nanoTime() - t0) / NANOS_PER_MS
+        Breadcrumbs.record("gpu warmup ${width}x$height ${if (ok) "ready" else "unavailable"} in ${ms}ms")
+        strokeLog("gpu warmup ${width}x$height ${if (ok) "ready" else "unavailable"} in ${ms}ms")
     }
 
     /** Drops any pre-warmed stroke and its pending build. */
@@ -4791,6 +4825,7 @@ class EditorViewModel @Inject constructor(
             stampGeneratedHeldDabs.clear()
             stampAirbrushConsumedSampleCount = 0
             viewModelScope.launch(dispatchers.default) {
+                val setupT0 = System.nanoTime()
                 val work = warm?.work ?: SafeBitmap.copy(originalBitmap) ?: return@launch
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
                 // it with the document's current pixels before any dab is stamped. Both native calls
@@ -4944,6 +4979,10 @@ class EditorViewModel @Inject constructor(
                     // stampSeed, so a late copy from a superseded stroke is dropped (guards the race).
                     if (stampSeed == currentSeed && stampBrushForStroke === stampBrush && strokeLayerId == layerId) {
                         stampLiveBitmap = work
+                        strokeLog(
+                            "live engine ready in ${(System.nanoTime() - setupT0) / NANOS_PER_MS}ms " +
+                                "gpu=$gpuReady warm=${warm != null}",
+                        )
                         // Same sticky-clip trick as the brush preview: bound the stamp canvas once.
                         stampLiveCanvas = Canvas(work).also { c ->
                             SelectionMask.clip(
@@ -5003,6 +5042,10 @@ class EditorViewModel @Inject constructor(
                     } else {
                         // Superseded by a newer stroke before this coroutine finished — don't leak
                         // the GPU engine this branch may have just stood up.
+                        strokeLog(
+                            "live engine setup superseded after ${(System.nanoTime() - setupT0) / NANOS_PER_MS}ms " +
+                                "(stroke ended before it was ready; commit replays instead)",
+                        )
                         if (wgpuDirectStarted) GpuStampEngine.DirectSurface.endStroke()
                         gpuEngine?.destroy()
                     }
@@ -7626,9 +7669,9 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetLoading(true))
 
         viewModelScope.launch(dispatchers.default) {
-            val metrics = context.resources.displayMetrics
-            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            // The merged layer takes the size every fresh layer gets (screen x render scale), not raw
+            // screen pixels, so a merged layer is not sharper/heavier than its neighbours.
+            val (w, h) = newLayerSize()
             // A failed composite or artifact write (OOM, disk full) leaves both layers as they were;
             // it must neither crash the app nor leave the loading spinner up for good.
             val (merged, path) = try {

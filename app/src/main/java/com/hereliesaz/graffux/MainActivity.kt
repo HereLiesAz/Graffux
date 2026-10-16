@@ -100,7 +100,6 @@ import com.hereliesaz.graffitixr.feature.editor.AnimationWindow
 import com.hereliesaz.graffitixr.feature.editor.BackgroundColorDialog
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.feature.editor.BlendModePicker
-import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 import com.hereliesaz.graffitixr.feature.editor.BrushStudioWindow
 import com.hereliesaz.graffitixr.feature.editor.BrushTipsManagerWindow
 import com.hereliesaz.graffitixr.feature.editor.CustomBrushesWindow
@@ -319,13 +318,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // that ends up rendered somewhere unreachable (a real failure mode of the FLOATING anchor's
     // screen-edge-docking/persistence machinery, not merely a hypothetical one this app has hit).
     var showLayersRail by remember { mutableStateOf(true) }
-    // Same "core, not opt-in" contract as showLayersRail above: a quick-pick strip of brush
-    // thumbnails, always reachable while painting, rather than only through the rail's collapsed
-    // "Brushes" group or the full "My Brushes" gallery window -- neither of which stays visible
-    // while a stroke is in progress the way this does.
-    var showBrushRail by remember { mutableStateOf(true) }
-    // The bottom carousel (BottomCarousel.kt): additive to the brush rail and Tool Options window,
-    // not a replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
+    // The bottom carousel (BottomCarousel.kt): additive to the Tool Options window, not a
+    // replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
     // outright, and its own chevron collapses it to a single button when the canvas needs the room.
     var showCarousel by remember { mutableStateOf(true) }
     var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)) }
@@ -600,7 +594,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val activeClassifiers = activeRailClassifiers(
         RailClassifierInputs(
             uiState, brushes, customBrushes,
-            modelWindowOpen = showModelDialog, toolOptionsOpen = heroExpansion.expandedKey != null,
+            modelWindowOpen = showModelDialog,
             activeInkUtensil = activeInkUtensil,
         ),
     ).toMutableSet().apply {
@@ -704,7 +698,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 activeInkUtensil = activeInkUtensil,
                 railExpansion = railExpansion,
                 brushes = brushes,
-                brushPreviews = brushPreviews,
                 customBrushes = customBrushes,
                 installedExtensionCount = allInstalledExtensions.size,
                 strings = strings,
@@ -725,41 +718,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     heroExpansion.collapse()
                     carouselUi = carouselUi.copy(category = category, sheetOpen = true)
                 },
-                toolOptionsOpen = heroExpansion.expandedKey != null,
                 showLayersRail = showLayersRail,
-                showBrushRail = showBrushRail,
                 onOpenBrushGallery = { showBrushGallery = true },
                 onOpenBrushTipsManager = { showBrushTipsManager = true },
                 drawingUiHidden = { drawingUiHidden },
             )
 
             // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
-            // "the order in the DSL determines the order in the rail" (guide §3), so these are simply
-            // declared last. Nor does it animate a rail item in or out (azKinetics covers the drawer
-            // menu only, guide §2 B2), so Undo/Redo are toggled by declaring them or not — the DSL
-            // re-runs on every recomposition.
+            // "the order in the DSL determines the order in the rail" (guide §3), so this is simply
+            // declared last. Undo/Redo are not on the rail: the carousel's tab row carries them.
             val viewMoved = uiState.viewportZoom != 1f ||
                 uiState.viewportOffset != Offset.Zero ||
                 uiState.viewportRotation != 0f
-            val railHistory = railHistoryItemsVisible(carouselOnScreen, carouselUi.sheetOpen)
-            if (railHistory) {
-                azRailItem(
-                    id = "history.undo", text = strings.adj.undo, content = GraffuxIcons.Undo,
-                    color = navItemColor, disabled = uiState.undoCount == 0,
-                    info = "Undo the last change", onClick = { vm.onUndoClicked() },
-                )
-            }
             azRailItem(
                 id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
                 disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
             )
-            if (railHistory) {
-                azRailItem(
-                    id = "history.redo", text = strings.adj.redo, content = GraffuxIcons.Redo,
-                    color = navItemColor, disabled = uiState.redoCount == 0,
-                    info = "Redo the last undone change", onClick = { vm.onRedoClicked() },
-                )
-            }
 
             if (showAnimationRail) {
                 azUnattachedHostItem(
@@ -1194,7 +1168,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 onToggle = onToggle,
                             )
                         areaToggle("Layers", showLayersRail) { showLayersRail = it }
-                        areaToggle("Brushes", showBrushRail) { showBrushRail = it }
                         areaToggle("Carousel", showCarousel) { showCarousel = it }
                         areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
                         areaToggle("3D", showModelRail) { showModelRail = it }
@@ -1965,14 +1938,11 @@ private const val TRANSFORM_ID = "grp.transform"
 private fun modeRailClassifiers(
     uiState: EditorUiState,
     modelWindowOpen: Boolean,
-    toolOptionsOpen: Boolean,
 ): Set<String> = buildSet {
-    if (uiState.wrapAroundMode) add("tool.wraparound")
     // Time-lapse lives inside the Animation window now, so the thing that lights up for it is the
     // window's own item — otherwise a recording in progress would show nowhere in the rail.
     if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
     if (modelWindowOpen) add("tool.model")
-    if (toolOptionsOpen) add("tool.options")
     if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
     if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) add("tool.cloneSource")
     if (uiState.selection?.inverted == true) add("tool.selectInvert")
@@ -2013,8 +1983,6 @@ internal data class RailClassifierInputs(
     // floating window's. It is here at all because an item that opens a window has to light up while
     // that window is open, or the rail says nothing about a panel sitting over the artwork.
     val modelWindowOpen: Boolean,
-    /** Whether the Tool Options window is open — same reasoning as [modelWindowOpen]. */
-    val toolOptionsOpen: Boolean,
     /**
      * The view-model's `activeInkUtensil`. Ink is classified by this, never by `activeBrushName`: a
      * stamp brush may share a utensil's name (the built-in "Ink Pen" does).
@@ -2038,7 +2006,7 @@ internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = 
     // and nothing ever added it, so it faked the state in its label instead.
 
     // Modes and toggles that stay on until turned off.
-    addAll(modeRailClassifiers(uiState, modelWindowOpen, toolOptionsOpen))
+    addAll(modeRailClassifiers(uiState, modelWindowOpen))
 
     // Which panel is open — the rail item that opened it stays lit while it is.
     //
@@ -2063,7 +2031,6 @@ internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = 
     // of its list.
     if (uiState.activeBrushName == null) add("grp.brushes")
     addAll(activeBrushClassifiers(uiState.activeBrushName, brushes, customBrushes, activeInkUtensil))
-    if (uiState.brushStudioDraft != null) add("brush.studio")
 
     // The layer being edited, and the two mode pickers — each always lights exactly one member,
     // because each is a choice among all of its options rather than an on/off.
@@ -2105,7 +2072,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     uiState: EditorUiState,
     activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?,
     brushes: List<Pair<String, String>>,
-    brushPreviews: Map<String, android.graphics.Bitmap>,
     customBrushes: List<CustomBrush>,
     // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't
     // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and
@@ -2125,9 +2091,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     modelWindowOpen: Boolean,
     onToolOptionsClicked: () -> Unit,
     onToolGroupRequested: (CarouselCategory) -> Unit,
-    toolOptionsOpen: Boolean,
     showLayersRail: Boolean,
-    showBrushRail: Boolean,
     onOpenBrushGallery: () -> Unit,
     onOpenBrushTipsManager: () -> Unit,
     /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */
@@ -2139,7 +2103,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     val activeIds = activeRailClassifiers(
         RailClassifierInputs(
             uiState, brushes, customBrushes,
-            modelWindowOpen = modelWindowOpen, toolOptionsOpen = toolOptionsOpen,
+            modelWindowOpen = modelWindowOpen,
             activeInkUtensil = activeInkUtensil,
         ),
     ) + setOfNotNull(selectedToolGroup?.let(::carouselGroupRailId))
@@ -2263,10 +2227,10 @@ private fun AzNavHostScope.ConfigureRailItems(
     // below them, drawn from the Graffux set (`GraffuxIcons`, generated by branding/icons/build.py)
     // rather than a general-purpose library — a broom stood in for the eraser and a squiggle for
     // smudge, because a library built for dashboards has no drawing for either.
-    // Long-press opens Brush Studio on the brush currently in hand -- same "edit this brush" vs
-    // "make a new one" resolution as the "Brush Studio" entry in the brush group below, and the
-    // one long-press mechanic AzNavRail 11.42 gives a plain rail item (a small popup, not a
-    // direct jump -- see stateItem's own doc comment for why).
+    // Long-press opens a small menu: Brush Studio on the brush currently in hand ("edit this brush"
+    // when a custom one is selected, "make a new one" otherwise), the My Brushes gallery, and the
+    // Brush Tips manager. This is the one long-press mechanic AzNavRail 11.42 gives a plain rail
+    // item (a small popup, not a direct jump -- see stateItem's own doc comment for why).
     toolItem(
         Tool.BRUSH, uiState.activeBrushName ?: navStrings.brush, GraffuxIcons.Brush,
         hiddenMenu = {
@@ -2274,6 +2238,8 @@ private fun AzNavHostScope.ConfigureRailItems(
                 val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
                 vm.onOpenBrushStudio(editing)
             }
+            listItem("My Brushes") { onOpenBrushGallery() }
+            listItem("Brush Tips") { onOpenBrushTipsManager() }
         },
     )
     toolItem(Tool.ERASER, "Eraser", GraffuxIcons.Eraser)
@@ -2345,10 +2311,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         VECTOR_ID, "Vector", GraffuxIcons.PenInk,
     ) { onToolGroupRequested(CarouselCategory.VECTOR) }
 
-    // Wrap-around canvas: strokes (and the canvas itself) tile past the edges instead of clipping.
-    // Backend was complete (EditorScreen tiles the canvas, ImageProcessor tiles stroke rendering) but
-    // toggleWrapAroundMode() had no caller anywhere in the UI, so it could never actually be turned on.
-    modeItem("tool.wraparound", "Wrap Around", GraffuxIcons.StampPattern) { vm.toggleWrapAroundMode() }
     // ── The two workspaces ────────────────────────────────────────────────────────────────────────
     // Animation and 3D are not tools you reach for mid-stroke; they are surfaces you set up and then
     // work inside, and both have far more state than a rail item can show. Each is one item here
@@ -2377,15 +2339,8 @@ private fun AzNavHostScope.ConfigureRailItems(
     // is in that layer's own hidden menu with the rest of its properties. Brush *opacity* is gone
     // outright: layer opacity is already an Adjust knob, and the rail slider claimed to move "the
     // value buildStrokePaint actually samples" when only one of fourteen tools ever read it.)
-    stateItem("tool.options", "Tool Options", GraffuxIcons.BrushSettings) { onToolOptionsClicked() }
-
-    // No brush group in the main rail strip: every brush (round, built-in, custom, and every
-    // installed extension) lives exclusively in the detached `grp.brushRail` below, alongside My
-    // Brushes and Brush Studio -- see that host's own doc comment. There used to be a second,
-    // near-identical `grp.brushes` collapsed rail group here too, which meant every brush the
-    // user owned was reachable from two different places in the UI at once for no reason, and its
-    // host button wore `GraffuxIcons.BrushLibrary` -- three stacked diamonds, a layers glyph, not
-    // a brush -- as the main rail's one entry point into painting tools.
+    // No brush group in the main rail strip: brushes are picked from the bottom carousel, and the
+    // Brush tool's long-press menu opens Brush Studio, My Brushes and the Brush Tips manager.
     //
     // `"grp.brushes"` survives as a bare classifier string (see ConfigureRailItems' own use of it
     // for "no extension selected") even with no rail item of that id anymore -- classifiers are
@@ -2485,125 +2440,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         }
     }
 
-    // Brushes, as a persistent quick-pick strip of thumbnails on the opposite screen edge from the
-    // main rail -- the same OPPOSITE-anchored, always-reachable-while-painting pattern grp.layers
-    // uses just above (see that host's own doc comment for why OPPOSITE rather than FLOATING).
-    // Stacks below grp.layers in that column automatically; the two were never meant to compete for
-    // the same reach the way an expand-collapse rail group would.
-    //
-    // The ONLY brush entry point in the app: there used to be a second, near-identical `grp.brushes`
-    // group collapsed into the main rail strip too, which put every brush the user owned in two
-    // different places in the UI. My Brushes and Brush Studio, which that group used to host, moved
-    // down here alongside the flat per-brush entries (round/built-in/custom/every installed
-    // extension) rather than living anywhere else. Every flat entry's own classifier
-    // (`classifiers = setOf("brush.…")`) still matches what `ConfigureRailItems` (see its own
-    // "no rail item of that id anymore" comment above) tracks as the active brush, so
-    // railColor()/activeRailClassifiers() highlight the right one here with no separate bookkeeping.
-    //
-    // Each item's own content IS the brush's preview -- BrushPreview (BrushStudioWindow.kt),
-    // already used as My Brushes' own gallery thumbnail, reused directly rather than rendering a
-    // second thumbnail pipeline from scratch. Brush extensions (the `brushes` list) fall back to a
-    // plain icon: resolving an installed extension's actual AzphaltBrush here would mean plumbing
-    // its asset resolver through this builder for a preview alone, real work of its own rather than
-    // a one-line addition -- left as a known gap rather than guessed at.
-    //
-    // Host icon is GraffuxIcons.Brush -- an actual paintbrush silhouette -- not BrushLibrary (three
-    // stacked diamonds, which reads as a layers glyph, not a brush; a real user-reported defect).
-    // Yes, this duplicates the Tool.BRUSH rail item's own icon; a host button that looks like a
-    // brush is worth more than one that looks unique but wrong.
-    if (showBrushRail) {
-        azUnattachedHostItem(
-            id = "grp.brushRail",
-            text = "Brushes",
-            anchor = AzUnattachedAnchor.OPPOSITE,
-            content = GraffuxIcons.Brush,
-            color = navItemColor,
-            shape = AzButtonShape.NONE_SQUARE,
-            initiallyExpanded = railExpansion["grp.brushRail"] ?: false,
-            // Collapses while drawing, re-expands after the hold, only if the user had it open.
-            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.brushRail"] ?: false, drawingUiHidden()) },
-            onExpandedChange = {
-                if (DrawingRailFold.persistExpansionChange(it, drawingUiHidden())) {
-                    vm.onRailHostExpansionChanged("grp.brushRail", it)
-                }
-            },
-        )
-        // "Round" is the first bundled preset (BuiltInBrushes.round) -- the GPU stamp Round, which
-        // replaced the legacy Catmull-Rom round that used to have its own entry here.
-        com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets.forEach { preset ->
-            azRailSubItem(
-                id = "brushRail.builtin.${preset.name}", hostId = "grp.brushRail", text = preset.name,
-                content = AzComposableContent {
-                    BrushPreview(preset, uiState.activeColor, uiState.secondaryColor, height = 32.dp)
-                },
-                classifiers = setOf("brush.builtin.${preset.name}"),
-                color = railColor("brush.builtin.${preset.name}"),
-                shape = AzButtonShape.SQUARE,
-                onClick = { vm.selectBuiltInBrush(preset.name) },
-            )
-        }
-        // Jetpack Ink's stock families, each its own art utensil (not a mode of the round brush).
-        INK_UTENSIL_CATALOG.forEach { entry ->
-            azRailSubItem(
-                id = entry.railId, hostId = "grp.brushRail", text = entry.label,
-                content = entry.icon,
-                classifiers = setOf(entry.classifier),
-                color = railColor(entry.classifier),
-                shape = AzButtonShape.SQUARE,
-                onClick = { vm.selectInkUtensil(entry.utensil) },
-            )
-        }
-        customBrushes.forEach { custom ->
-            azRailSubItem(
-                id = "brushRail.custom.${custom.id}", hostId = "grp.brushRail", text = custom.brush.name,
-                content = AzComposableContent {
-                    BrushPreview(custom.brush, uiState.activeColor, uiState.secondaryColor, height = 32.dp)
-                },
-                classifiers = setOf("brush.custom.${custom.id}"),
-                color = railColor("brush.custom.${custom.id}"),
-                shape = AzButtonShape.SQUARE,
-                onClick = { vm.selectCustomBrush(custom.id) },
-            )
-        }
-        brushes.forEach { (id, name) ->
-            azRailSubItem(
-                id = "brushRail.ext.$id", hostId = "grp.brushRail", text = name,
-                content = brushPreviews[id]?.let { BitmapPainter(it.asImageBitmap()) }
-                    ?: GraffuxIcons.BrushImport,
-                classifiers = setOf("brush.$id"),
-                color = railColor("brush.$id"),
-                shape = AzButtonShape.SQUARE,
-                onClick = { vm.selectBrushExtension(id) },
-            )
-        }
-        // A gallery over every saved custom brush — pick one, edit it, or delete it — distinct from
-        // the flat per-brush entries above (which only ever select).
-        subItem(
-            id = "brush.gallery", hostId = "grp.brushRail", text = "My Brushes",
-            content = GraffuxIcons.BrushLibrary,
-            onClick = onOpenBrushGallery,
-        )
-        // Opens on the brush currently in hand, so "Brush Studio" reads as "edit this brush" when
-        // one is selected and "make a new one" when it isn't — Procreate's own behaviour.
-        stateSubItem(
-            id = "brush.studio", hostId = "grp.brushRail", text = "Brush Studio",
-            content = GraffuxIcons.BrushSettings, shape = AzButtonShape.SQUARE,
-        ) {
-            val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
-            vm.onOpenBrushStudio(editing)
-        }
-        // An extension can bundle several brushes, and this strip is reached for constantly while
-        // painting -- not every one of them earns a permanent slot in it. Opens the hide/show list
-        // rather than hiding one directly (no long-press on a plain rail item yet -- see
-        // BrushTipsManagerWindow's own doc comment).
-        azRailSubItem(
-            id = "brushRail.manage", hostId = "grp.brushRail", text = "Manage Brush Tips",
-            content = GraffuxIcons.BrushSettings,
-            color = navItemColor,
-            onClick = onOpenBrushTipsManager,
-        )
-    }
-
     // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
     // Actions menu), keeping the rail to the tools you reach for mid-stroke.
 
@@ -2646,11 +2482,6 @@ private fun AzNavHostScope.ConfigureRailItems(
     azItemState(
         id = "grp.layers",
         badge = uiState.layers.count { it.parentId == null }.takeIf { it > 0 }?.toString(),
-    )
-    azItemState(
-        id = "grp.brushRail",
-        // +1 for the built-in round brush, which is a real choice in the list and not a placeholder.
-        badge = (brushes.size + customBrushes.size + 1).toString(),
     )
     azItemState(id = "adj.extensions", badge = installedExtensionCount.takeIf { it > 0 }?.toString())
     // Frames, but only while Animation Assist is on: outside it the layer count is what `grp.layers`

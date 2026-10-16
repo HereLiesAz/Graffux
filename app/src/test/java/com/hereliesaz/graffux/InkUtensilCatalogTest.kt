@@ -22,13 +22,11 @@ class InkUtensilCatalogTest {
     }
 
     @Test
-    fun `rail ids and classifiers are unique, derived from the stable id, and live in the brush rail`() {
-        val ids = INK_UTENSIL_CATALOG.map { it.railId }
+    fun `classifiers are unique and derived from the stable id`() {
+        val ids = INK_UTENSIL_CATALOG.map { it.classifier }
         assertEquals(ids.size, ids.toSet().size)
         INK_UTENSIL_CATALOG.forEach {
-            assertEquals("brushRail.${it.utensil.id}", it.railId)
             assertEquals("brush.${it.utensil.id}", it.classifier)
-            assertTrue(it.railId.startsWith("brushRail."))
         }
     }
 

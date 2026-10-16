@@ -23,13 +23,12 @@ import org.junit.Test
  */
 class RailClassifiersTest {
 
-    private fun classifiers(state: EditorUiState, modelOpen: Boolean = false, optionsOpen: Boolean = false) =
+    private fun classifiers(state: EditorUiState, modelOpen: Boolean = false) =
         activeRailClassifiers(RailClassifierInputs(
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
             modelWindowOpen = modelOpen,
-            toolOptionsOpen = optionsOpen,
         ))
 
     @Test
@@ -110,13 +109,11 @@ class RailClassifiersTest {
 
     @Test
     fun `windows whose state lives outside UiState still light their openers`() {
-        // Both are composable state in GraffuxApp rather than editor state, which is precisely why
-        // they are parameters — an item that opens a window has to light up while it is open.
+        // Composable state in GraffuxApp rather than editor state, which is precisely why
+        // it is a parameter — an item that opens a window has to light up while it is open.
         assertTrue("tool.model" in classifiers(EditorUiState(), modelOpen = true))
-        assertTrue("tool.options" in classifiers(EditorUiState(), optionsOpen = true))
         val none = classifiers(EditorUiState())
         assertFalse("tool.model" in none)
-        assertFalse("tool.options" in none)
     }
 
     @Test
@@ -199,7 +196,6 @@ class SecondaryRailClassifiersTest {
             brushes = emptyList(),
             customBrushes = emptyList(),
             modelWindowOpen = false,
-            toolOptionsOpen = false,
         ))
         assertFalse("brush.ink.pen" in lit)
         assertTrue("brush.builtin.Ink Pen" in lit)
@@ -213,7 +209,6 @@ class SecondaryRailClassifiersTest {
             brushes = emptyList(),
             customBrushes = emptyList(),
             modelWindowOpen = false,
-            toolOptionsOpen = false,
             activeInkUtensil = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
         ))
         assertTrue("brush.ink.pen" in lit)

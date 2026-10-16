@@ -135,7 +135,12 @@ internal object EditorReducer {
         is EditorIntent.AddLayer -> state.copy(
             layers = state.layers + intent.layer,
             activeLayerId = intent.layer.id,
-            activeTool = intent.activeToolOverride ?: Tool.NONE,
+            // A blank paint layer added while a brush or eraser is in hand keeps it (like
+            // ActivateLayer): resetting to NONE left the rail showing the brush while the next
+            // touch was a canvas pan, so the first stroke on a new layer did nothing.
+            activeTool = intent.activeToolOverride
+                ?: state.activeTool.takeIf { intent.layer.isSketch && (it == Tool.BRUSH || it == Tool.ERASER) }
+                ?: Tool.NONE,
             activePanel = if (intent.resetActivePanel) EditorPanel.NONE else state.activePanel,
         )
         is EditorIntent.RemoveLayer -> {

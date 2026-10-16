@@ -81,10 +81,12 @@ fn composite(src_rgb: vec3<f32>, a: f32, dst: vec4<f32>) -> vec4<f32> {
 
 fn stamp_coverage(dist_from_center: f32, radius: f32, hardness: f32) -> f32 {
     if (radius <= 0.0) { return 0.0; }
+    // A hard round tip is binary at layer resolution (stair-stepped edge). Give it a one-pixel
+    // analytic ramp centred on the radius instead: coverage = clamp(radius - d + 0.5, 0, 1).
+    if (hardness >= 0.999) { return clamp(radius - dist_from_center + 0.5, 0.0, 1.0); }
     let t = dist_from_center / radius;
     if (t <= hardness) { return 1.0; }
     if (t >= 1.0) { return 0.0; }
-    if (hardness >= 0.999) { return 1.0 - (t - hardness) / 0.001; }
     return 1.0 - (t - hardness) / (1.0 - hardness);
 }
 
@@ -147,7 +149,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let center = d.geometry.xy;
         let radius = max(d.geometry.z, 0.5);
         let dab_alpha = d.geometry.w;
-        if (abs(p.x - center.x) > radius || abs(p.y - center.y) > radius) { continue; }
+        // +0.5: the hard tip's anti-aliased ramp reaches half a pixel past the radius.
+        if (abs(p.x - center.x) > radius + 0.5 || abs(p.y - center.y) > radius + 0.5) { continue; }
         let has_resolved_paint = d.paint1.z >= 0.5;
         let dab_hardness = select(pc.hardness, d.paint1.w, has_resolved_paint);
         var coverage = stamp_coverage(distance(p, center), radius, dab_hardness);
