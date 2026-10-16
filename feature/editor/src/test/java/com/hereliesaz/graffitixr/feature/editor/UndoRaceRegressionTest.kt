@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -33,22 +34,18 @@ import org.robolectric.annotation.GraphicsMode
 import org.junit.runner.RunWith
 
 /**
- * A glee audit found that a stroke's async commit coroutine (`commitStampStroke`,
- * `processNewStroke`) was never registered in `rebuildJobs` -- the map
+ * A glee audit found that a stroke's async commit coroutine (`commitStampStroke`)
+ * was never registered in `rebuildJobs` -- the map
  * `rebuildLayerBitmap`/`applyTileDeltaFastPath` use to cancel each other's stale publishes. So a
  * fast Undo landing right after a stroke commit could race that commit's own in-flight publish:
  * if the commit coroutine happened to take longer than undo's own rebuild, its never-cancelled
  * publish could land after undo's and silently resurrect the just-undone stroke's pixels.
  *
- * This tests the mechanism directly -- that the commit's job is (a) registered in `rebuildJobs`
- * at all and (b) actually cancelled by an immediately following undo -- rather than trying to
- * reproduce the exact bitmap race end-to-end. An end-to-end pixel comparison was tried first and
- * discarded: under `StandardTestDispatcher`, every coroutine here runs perfectly synchronously and
- * deterministically, and a later-launched coroutine's continuations always dequeue (and thus
- * publish) after an earlier-launched one's equal-depth continuations regardless of cancellation --
- * so undo's rebuild always "wins" the last-publish race by sheer enqueue order whether or not the
- * fix is present, and no pixel-level assertion can distinguish the two. Asserting on the job
- * object itself has no such blind spot.
+ * The undo tests check the mechanism -- that the commit's job is (a) registered in `rebuildJobs`
+ * and (b) cancelled by an immediately following undo -- because under `StandardTestDispatcher`
+ * undo's rebuild always publishes last by enqueue order, fix or no fix. They also check what the
+ * layer finally shows. The back-to-back test needs no such caveat: losing the first commit is
+ * visible in the pixels.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -60,6 +57,7 @@ class UndoRaceRegressionTest {
     private lateinit var vm: EditorViewModel
     private val canvasSize = IntSize(48, 48)
     private val brush = AzphaltBrush(name = "Solid", hardness = 1f, opacity = 1f)
+    private val exportManager = mockk<com.hereliesaz.graffitixr.feature.editor.export.ExportManager>(relaxed = true)
 
     @Before
     fun setUp() {
@@ -100,7 +98,7 @@ class UndoRaceRegressionTest {
             projectRepository = projects,
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
-            exportManager = mockk(relaxed = true),
+            exportManager = exportManager,
             context = org.robolectric.RuntimeEnvironment.getApplication(),
             slamManager = mockk(relaxed = true),
             dispatchers = dispatchers,
@@ -189,5 +187,84 @@ class UndoRaceRegressionTest {
         )
 
         dispatcher.scheduler.advanceUntilIdle()
+        // What the user sees: the layer is red again, not cleared.
+        val shown = vm.uiState.value.layers.first { it.id == "L" }.bitmap!!
+        assertEquals(Color.RED, shown.getPixel(10, 10))
+        assertEquals(0, vm.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `two commits on a layer back to back both land, in order`() = runTest(dispatcher) {
+        // The second commit used to cancel the first (whose publish then never ran) and render from
+        // the layer as it was before either: the first stroke vanished from the screen and the
+        // saved file while history and the replay list kept it.
+        val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+        val layer = Layer(id = "L", name = "Layer", bitmap = original)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        vm.putLayerBaseForTest("L", original)
+        vm.onLayerActivated("L")
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.setActiveColor(androidx.compose.ui.graphics.Color(1f, 0f, 0f, 0.5f))
+        vm.onColorFillSelection()
+        vm.setActiveColor(androidx.compose.ui.graphics.Color(0f, 0f, 1f, 0.5f))
+        vm.onColorFillSelection()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        val pixel = vm.uiState.value.layers.first { it.id == "L" }.bitmap!!.getPixel(10, 10)
+        assertTrue("the first (red) fill is missing: ${Integer.toHexString(pixel)}", Color.red(pixel) > 40)
+        assertTrue("the second (blue) fill is missing: ${Integer.toHexString(pixel)}", Color.blue(pixel) > 40)
+        assertTrue("blue went on last, over red", Color.blue(pixel) > Color.red(pixel))
+        assertEquals(2, vm.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `while time-lapse records, every committed change captures a frame`() = runTest(dispatcher) {
+        // Frames used to be captured only by a stroke path nothing called: a recording held the one
+        // frame taken at start, however much was painted.
+        val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(Layer(id = "L", name = "Layer", bitmap = original))))
+        vm.putLayerBaseForTest("L", original)
+        vm.onLayerActivated("L")
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.dispatchForTest(EditorIntent.SetDocumentSize(canvasSize.width, canvasSize.height))
+        vm.dispatchForTest(EditorIntent.ToggleTimeLapseRecording)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        repeat(2) {
+            vm.onColorFillSelection()
+            dispatcher.scheduler.advanceUntilIdle()
+        }
+
+        io.mockk.verify(exactly = 2) {
+            exportManager.compositeToDocument(any(), any(), any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `a stroke that cannot be painted leaves the undo history as it was`() = runTest(dispatcher) {
+        // No GPU in a JVM test, so the stamp stroke's commit fails. It used to stay in history
+        // (and the replay list) although the layer never showed it; Undo then "undid" nothing.
+        val original = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+        val layer = Layer(id = "L", name = "Layer", bitmap = original)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        vm.putLayerBaseForTest("L", original)
+        vm.onLayerActivated("L")
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize))
+        vm.selectCustomBrush("solid")
+        vm.setActiveTool(Tool.BRUSH)
+        dispatcher.scheduler.advanceUntilIdle()
+        val undoBefore = vm.uiState.value.undoCount
+
+        vm.onStrokeStart(BrushSample(12f, 12f, uptimeMillis = 0L), canvasSize)
+        val shownBefore = vm.uiState.value.layers.first { it.id == "L" }.bitmap
+        vm.onStrokePoint(BrushSample(18f, 12f, uptimeMillis = 16L))
+        vm.onStrokeEnd()
+        assertEquals(undoBefore + 1, vm.uiState.value.undoCount)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(undoBefore, vm.uiState.value.undoCount)
+        assertTrue(vm.uiState.value.layers.first { it.id == "L" }.bitmap === shownBefore)
     }
 }

@@ -121,19 +121,32 @@ class GpuTuningController private constructor(context: Context) {
     companion object {
         @Volatile private var instance: GpuTuningController? = null
 
+        /** Whether calibration is running now (the canvas pre-warm leaves it alone if so). */
+        fun isCalibrating(): Boolean = instance?.coordinator?.isRunning == true
+
         /**
          * Before a canvas GPU engine is created (a stroke's engine, Smudge's): if calibration is
          * running, stop it and wait until its engine is gone (CalibrationCoordinator.stopForCanvas).
          * Blocking, for the non-suspending engine factories; they run on stroke workers, and it
          * returns at once when no calibration runs (the normal case), so it costs nothing there.
+         * Never blocks the main thread: called there, it returns without waiting. An interrupt
+         * while waiting is kept on the thread rather than swallowed.
          */
-        /** Whether calibration is running now (the canvas pre-warm leaves it alone if so). */
-        fun isCalibrating(): Boolean = instance?.coordinator?.isRunning == true
-
         fun stopCalibrationForCanvas() {
             val coordinator = instance?.coordinator ?: return
             if (!coordinator.isRunning) return
-            runCatching { runBlocking { coordinator.stopForCanvas() } }
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                android.util.Log.w("GpuTuningController", "stopCalibrationForCanvas on the main thread; not waiting")
+                return
+            }
+            try {
+                runBlocking { coordinator.stopForCanvas() }
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                // Calibration failing to stop must not fail the stroke; its engine still yields.
+                android.util.Log.w("GpuTuningController", "Calibration did not stop cleanly", e)
+            }
         }
 
         fun get(context: Context): GpuTuningController =

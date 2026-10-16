@@ -13,7 +13,7 @@ import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 
 /**
  * The retouch tools on the GPU. Every one paints the same round dabs at a constant width along the
- * stroke's polyline (GpuBasicStroke.eraserRuns: the round-capped line the CPU tools drew):
+ * stroke's polyline (GpuBasicStroke.eraserRuns: a round-capped line):
  *
  * * Burn and Dodge stamp black / white at `intensity * 0.3` with the round shader's DARKEN /
  *   LIGHTEN, Heal stamps the colour at half alpha over the layer, and Color washes it over at
@@ -136,14 +136,23 @@ internal object GpuRetouchStroke {
         frame: LayerFrame? = null,
     ): Bitmap? {
         val target = SafeBitmap.copy(bitmap) ?: return null
-        GpuTuningController.stopCalibrationForCanvas()
-        val engine = runCatching { GpuStampEngine() }.getOrNull()
-        val painted = engine != null && try {
+        var engine: GpuStampEngine? = null
+        // Caught like every sibling GPU stroke: a native failure must fail this stroke (null), not
+        // escape the replay with [target] leaked.
+        val painted = try {
+            GpuTuningController.stopCalibrationForCanvas()
+            engine = GpuStampEngine()
             engine.init(target.width, target.height) && engine.upload(target) &&
                 paintOnto(engine, stroke, mapped, brushScale, target.width, target.height, cloneOffset, frame) &&
                 engine.readback(target)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            target.recycle()
+            throw e
+        } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+            android.util.Log.w("GpuRetouchStroke", "GPU ${stroke.tool} stroke failed; the stroke is not painted", e)
+            false
         } finally {
-            engine.destroy()
+            engine?.destroy()
         }
         if (!painted) target.recycle()
         return target.takeIf { painted }

@@ -26,8 +26,7 @@ internal data class BasicPaint(
 ) {
     companion object {
         /**
-         * [flow] is the colour's own alpha times the stroke's opacity ceiling, as the CPU replay
-         * composites it; feathering softens the dab edge ([hardness] 1 = hard).
+         * [flow] is the colour's own alpha times the stroke's opacity ceiling; feathering softens the dab edge ([hardness] 1 = hard).
          */
         fun of(colorArgb: Int, opacity: Float, feathering: Float) = BasicPaint(
             colorArgb = colorArgb,
@@ -63,7 +62,7 @@ internal data class BasicPaint(
  * segment (EditorViewModel.drawCurveRun); [runs] places exactly those from a recorded stroke, and
  * the commit and undo/redo replay stamp them the same way the live stroke did. Dabs combine by
  * stroke-wide max (`strokeMax`), so overlapping segments never stack opacity: the same
- * whole-stroke opacity ceiling as the CPU replay.
+ * whole-stroke opacity ceiling live, on commit and on replay.
  */
 internal object GpuBasicStroke {
 
@@ -97,7 +96,7 @@ internal object GpuBasicStroke {
 
     /**
      * The Eraser's dabs: constant radius ([baseWidth] / 2) along [mapped] as a polyline, tiled 3x3
-     * under wrap-around -- the round-capped, round-joined line the CPU eraser drew.
+     * under wrap-around -- a round-capped, round-joined line.
      */
     fun eraserRuns(
         mapped: List<Offset>,
@@ -181,7 +180,7 @@ internal object GpuBasicStroke {
 
     /**
      * A recorded Basic Brush stroke painted onto a copy of [bitmap] on the GPU, unclipped; null
-     * when the GPU is unavailable (the caller then takes the CPU renderer).
+     * when the GPU is unavailable (the stroke is then not painted; there is no CPU renderer).
      */
     fun paintStroke(bitmap: Bitmap, stroke: StrokeCommand, mapped: List<Offset>, brushScale: Float): Bitmap? {
         val target = SafeBitmap.copy(bitmap)
@@ -203,7 +202,7 @@ internal object GpuBasicStroke {
                 stampRuns(engine, runs, paint) &&
                 engine.readback(target)
         } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
-            Log.w(TAG, "GPU Basic Brush commit failed; the CPU renderer takes this stroke", e)
+            Log.w(TAG, "GPU Basic Brush commit failed; the stroke is not painted", e)
             false
         } finally {
             engine.destroy()

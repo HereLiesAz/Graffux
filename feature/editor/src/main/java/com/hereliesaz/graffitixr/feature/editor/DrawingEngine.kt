@@ -33,14 +33,21 @@ internal const val IMPASTO_LIGHT_ELEVATION_DEG = 45f
 internal const val IMPASTO_LIGHT_STRENGTH = 0.6f
 
 /**
+ * A stroke that could not be painted: a GPU stage failed (there is no CPU renderer to fall back
+ * to) or a working copy could not be allocated. [DrawingEngine] throws it instead of returning the
+ * layer without the stroke, so no caller publishes a layer silently missing strokes.
+ */
+internal class StrokeRenderException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
+/**
  * The stroke-compositing pipeline, extracted from EditorViewModel: turns a base bitmap plus
- * recorded [StrokeCommand]s into a rendered bitmap. This is the CPU/OpenCV-bound "how strokes
- * become pixels" logic; the ViewModel still owns when to invoke it, the dispatcher hop, the
- * UiState update, and persistence.
+ * recorded [StrokeCommand]s into a rendered bitmap. This is the "how strokes become pixels" logic
+ * (the GPU stroke renderers, plus OpenCV/SLAM for Liquify and warps); the ViewModel still owns
+ * when to invoke it, the dispatcher hop, the UiState update, and persistence.
  *
- * Pure with respect to the editor's state (input bitmap + strokes → output bitmap); its only
- * dependencies are the OpenCV [ImageProcessor] and [SlamManager] (for Liquify warps). Callers
- * run these on a background dispatcher — they are CPU-heavy and must not touch the main thread.
+ * Pure with respect to the editor's state (input bitmap + strokes -> output bitmap). Callers run
+ * these on a background dispatcher: they block on GPU work and full-layer copies and must not
+ * touch the main thread.
  */
 internal class DrawingEngine(
     private val slamManager: SlamManager,
@@ -53,8 +60,10 @@ internal class DrawingEngine(
      * Throws if that first copy cannot be allocated. Returning [base] itself would be worse than
      * failing: callers publish the result as the layer's live bitmap, which would alias
      * [LayerStore]'s pristine base into the UI and let the next in-place stroke corrupt the one
-     * copy every rebuild and undo depends on. Both callers already treat a thrown rebuild as
-     * "leave the layer as it was", which is the correct outcome.
+     * copy every rebuild and undo depends on. Likewise throws [StrokeRenderException] when any
+     * stroke fails to paint (after one repaint on a fresh engine), rather than returning a layer
+     * holding only the strokes before it. Both callers treat a thrown rebuild as "leave the layer
+     * as it was", which is the correct outcome.
      *
      * [otherLayers] is read fresh for every stroke in the list (not snapshotted once) since it
      * only feeds Color Smudge's "Sample Merged" (item 11): the *current* state of the other
@@ -85,6 +94,7 @@ internal class DrawingEngine(
         // Consecutive plain GPU strokes share one engine (GpuReplaySession). Impasto's per-stroke raw
         // colour capture reads every result on the CPU, so it gains nothing there.
         val session = if (impastoMaterialState == null) GpuReplaySession() else null
+        @Suppress("TooGenericExceptionCaught") // Rethrown: only the intermediate copy is released.
         try {
             for (stroke in strokes) {
                 val replay = session?.takeIf { !it.broken && replaysOnSession(stroke, heightMap) }
@@ -96,7 +106,8 @@ internal class DrawingEngine(
                     impastoMaterialState = impastoMaterialState, replay = replay, frame = frame,
                 )
                 if (replay != null && replay.broken) {
-                    // The GPU failed: repaint what it held, then this stroke, on the CPU path.
+                    // The shared GPU session failed: repaint what it held, then this stroke, each on
+                    // a fresh engine. A second failure throws.
                     current = synced(session, current, otherLayers, heightMap, frame)
                     next = applyTool(
                         current, stroke, otherLayers = otherLayers,
@@ -110,14 +121,17 @@ internal class DrawingEngine(
                 current = next
             }
             return synced(session, current, otherLayers, heightMap, frame)
+        } catch (e: Throwable) {
+            if (current !== base && !current.isRecycled) current.recycle()
+            throw e
         } finally {
             session?.close()
         }
     }
 
     /**
-     * [current] with the GPU replay's pending strokes landed in it: read back, or, when the GPU
-     * failed, repainted on the CPU path over its pixels from before them.
+     * [current] with the GPU replay's pending strokes landed in it: read back, or, when the shared
+     * session failed, repainted one by one on fresh engines over its pixels from before them.
      */
     private suspend fun synced(
         session: GpuReplaySession?,
@@ -137,6 +151,11 @@ internal class DrawingEngine(
     }
 
 
+    /**
+     * [command] painted onto a copy of [base]. Throws [StrokeRenderException] when it cannot be
+     * painted (after one retry on a fresh engine if the GPU device was lost meanwhile); callers
+     * must not record the stroke as landed then.
+     */
     @Suppress("LongParameterList")
     suspend fun applySingleStroke(
         base: Bitmap,
@@ -151,16 +170,18 @@ internal class DrawingEngine(
         frame: LayerFrame? = null,
     ): Bitmap {
         val epoch = GpuDeviceLoss.epoch()
-        var result = if (command.tool == Tool.LIQUIFY) applyLiquify(base, command, frame)
-        else applyTool(
-            base, command, otherLayers = { otherLayers },
-            heightMap = heightMap, wetnessState = wetnessState,
-            impastoMaterialState = impastoMaterialState, liveWet = liveWet, frame = frame,
-        )
-        // A GPU stroke that failed because the device was lost (a failed GPU call leaves the layer
-        // as it was) paints once more on a fresh engine; the live engine died with the device.
-        if (result === base && command.tool != Tool.LIQUIFY && GpuDeviceLoss.since(epoch)) {
-            result = applyTool(
+        val result = try {
+            if (command.tool == Tool.LIQUIFY) applyLiquify(base, command, frame)
+            else applyTool(
+                base, command, otherLayers = { otherLayers },
+                heightMap = heightMap, wetnessState = wetnessState,
+                impastoMaterialState = impastoMaterialState, liveWet = liveWet, frame = frame,
+            )
+        } catch (e: StrokeRenderException) {
+            // A GPU stroke that failed because the device was lost paints once more on a fresh
+            // engine; the live engine died with the device. Any other failure is the caller's.
+            if (command.tool == Tool.LIQUIFY || !GpuDeviceLoss.since(epoch)) throw e
+            applyTool(
                 base, command, otherLayers = { otherLayers },
                 heightMap = heightMap, wetnessState = wetnessState,
                 impastoMaterialState = impastoMaterialState, frame = frame,
@@ -204,10 +225,10 @@ internal class DrawingEngine(
                 handles, stroke.canvasSize.width, stroke.canvasSize.height, lf,
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
-            return ImageWarp.warp(bitmap, inBitmap) ?: bitmap
+            return ImageWarp.warp(bitmap, inBitmap) ?: failed(stroke, "warp")
         }
         if (stroke.fillSelection) {
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: failed(stroke, "copy")
             val canvas = android.graphics.Canvas(target)
             SelectionMask.clip(canvas, paintClip)
             if (clipPath == null) {
@@ -220,7 +241,7 @@ internal class DrawingEngine(
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         if (stroke.clearAll) {
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: failed(stroke, "copy")
             val canvas = android.graphics.Canvas(target)
             SelectionMask.clip(canvas, paintClip)
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
@@ -240,10 +261,11 @@ internal class DrawingEngine(
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
         if (stroke.tool == Tool.FILL) {
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: failed(stroke, "copy")
             val p = mapped.firstOrNull() ?: return target
-            val seedX = p.x.toInt()
-            val seedY = p.y.toInt()
+            // floor, not toInt(): truncation toward zero put a tap at x in (-1, 0) on pixel 0.
+            val seedX = kotlin.math.floor(p.x).toInt()
+            val seedY = kotlin.math.floor(p.y).toInt()
             val selectedRegion = SelectionMask.region(clipPath, target.width, target.height)
             val hasPaintedSeed = seedX in 0 until target.width &&
                 seedY in 0 until target.height &&
@@ -280,7 +302,7 @@ internal class DrawingEngine(
                 lf.originX, lf.originY,
             )
             // On Android's hardware canvas (InkGpuRaster): the layer, then the stroke clipped to the
-            // selection. A failed render leaves the layer as it was.
+            // selection. A failed render fails the stroke.
             val painted = InkGpuRaster.render(bitmap.width, bitmap.height) { canvas ->
                 canvas.drawBitmap(bitmap, 0f, 0f, null)
                 val saved = canvas.save()
@@ -289,16 +311,16 @@ internal class DrawingEngine(
                     canvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode, lf.width, lf.height,
                 )
                 canvas.restoreToCount(saved)
-            } ?: return bitmap
+            } ?: failed(stroke, "Ink render")
             return SelectionMask.feather(bitmap, painted, clipPath, featherRadius)
         }
         stroke.stampBrush?.let { brush ->
             // The GPU paints every stamp stroke: Impasto v1 (GpuImpastoStroke: colour, height deposit
-            // and relief in one session; under a selection the height deposits wherever the dabs
-            // reach and the lit colour is kept inside it), Impasto v2 (GpuImpastoV2Stroke: the wet
-            // material simulation, selection included) and the plain stamp (GpuStampCommit, or the
-            // replay's shared session). There is no CPU renderer: a failed GPU call leaves the
-            // layer as it was.
+            // and relief in one session; under a selection the height deposit is gated by its
+            // coverage and the lit colour is kept inside it), Impasto v2 (GpuImpastoV2Stroke: the
+            // wet material simulation, selection included) and the plain stamp (GpuStampCommit, or
+            // the replay's shared session). There is no CPU renderer: a failed GPU call fails the
+            // stroke.
             val impasto = heightMap?.takeIf {
                 brush.impastoThicknessRate > 0f && it.size == bitmap.width * bitmap.height
             }
@@ -307,15 +329,18 @@ internal class DrawingEngine(
                     bitmap, stroke, brush, mapped, brushScale,
                     ImpastoV2Layer(impasto, wetnessState, impastoMaterialState, liveWet),
                     StrokeSelection(clipPath, featherRadius),
-                ) ?: bitmap
+                ) ?: failed(stroke, "Impasto v2")
             }
             val painted = when {
-                impasto != null -> GpuImpastoStroke.paintStroke(bitmap, stroke, brush, mapped, brushScale, impasto)
+                impasto != null -> GpuImpastoStroke.paintStroke(
+                    bitmap, stroke, brush, mapped, brushScale, impasto,
+                    GpuImpastoV2Stroke.coverage(StrokeSelection(clipPath, featherRadius), bitmap.width, bitmap.height),
+                )
                 replay != null -> return replay.paint(bitmap, stroke) {
                     GpuStampCommit.paintOnto(it, stroke, brush, mapped, brushScale, bitmap)
                 }
                 else -> GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
-            } ?: return bitmap
+            } ?: failed(stroke, "stamp")
             return SelectionMask.feather(
                 bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
             )
@@ -325,7 +350,7 @@ internal class DrawingEngine(
         // settings so changing Tool Options later cannot alter undo/redo. A null snapshot is a legacy
         // command and intentionally receives the exact old Smear/intensity preset.
         if (stroke.tool == Tool.SMUDGE) {
-            val target = SafeBitmap.copy(bitmap) ?: return bitmap
+            val target = SafeBitmap.copy(bitmap) ?: failed(stroke, "copy")
             val width = target.width
             val height = target.height
             val baseSettings = stroke.colorSmudgeSettings ?: ColorSmudgeEngine.Settings(
@@ -358,12 +383,11 @@ internal class DrawingEngine(
             }
 
             // Sample Merged: composite the other visible layers into this layer's own pixel space
-            // (exact resolution match, required by both ColorSmudgeEngine.apply's sampleSource
-            // contract and GpuStampEngine.colorSmudge's sampleSource contract) so pickup reads
+            // (exact resolution match, required by GpuStampEngine.colorSmudge's sampleSource
+            // contract) so pickup reads
             // what's actually visible underneath/around this layer instead of only this layer's own
             // paint. A mismatched/empty result degrades safely to each path's own single-layer
-            // fallback. Computed once, ahead of the GPU attempt below, so the GPU and CPU paths read
-            // the identical composite rather than risking two different other-layer snapshots.
+            // fallback. Computed once, ahead of the GPU attempt below.
             val sampleSource = if (settings.sampleMerged) {
                 val others = otherLayers()
                 if (others.isNotEmpty()) {
@@ -393,6 +417,8 @@ internal class DrawingEngine(
                     )
                 }
             }
+            // The wet path's wetness lands in [persistentWetness] only once the layer is read back too.
+            var wetResult: GpuWetSmudge.Result? = null
             val gpuPainted = runCatching {
                 com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
                 val engine = GpuStampEngine()
@@ -402,18 +428,22 @@ internal class DrawingEngine(
                             engine, target, persistentWetness,
                             mappedSamples.firstOrNull()?.uptimeMillis, mappedSamples.lastOrNull()?.uptimeMillis,
                             wetSelection, wetnessCoverage(wetnessRegion, width, height),
-                        ) { smudgeOn(engine) }
+                        ) { smudgeOn(engine) }?.also { wetResult = it } != null
                     } else {
                         smudgeOn(engine)
                     } && engine.readback(target)
                 } finally {
                     engine.destroy()
                 }
-            }.getOrDefault(false)
-            // No CPU renderer: a failed GPU stage leaves the layer as it was. The wet path confined to
-            // the selection on the GPU, before its settle tick.
+            }.onFailure { android.util.Log.w(TAG, "GPU smudge failed", it) }.getOrDefault(false)
+            // No CPU renderer: a failed GPU stage fails the stroke. The wet path confined to the
+            // selection on the GPU, before its settle tick.
+            if (!gpuPainted) {
+                target.recycle()
+                failed(stroke, "smudge")
+            }
+            persistentWetness?.let { state -> wetResult?.applyTo(state) }
             return when {
-                !gpuPainted -> bitmap.also { target.recycle() }
                 persistentWetness != null -> target
                 else -> SelectionMask.confine(bitmap, target, clipPath, featherRadius)
             }
@@ -421,18 +451,18 @@ internal class DrawingEngine(
 
         // Basic Brush and Eraser paint on the GPU, the same dab runs the live stroke stamped
         // (GpuBasicStroke); alpha lock is the GPU's SRC_ATOP. No CPU renderer: a failed GPU call
-        // leaves the layer as it was.
+        // fails the stroke.
         if (replay != null) {
             return replay.paint(bitmap, stroke) { GpuBasicStroke.paintOnto(it, stroke, mapped, brushScale, bitmap) }
         }
         if (stroke.tool == Tool.BRUSH || stroke.tool == Tool.ERASER) {
-            val painted = GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale) ?: return bitmap
+            val painted = GpuBasicStroke.paintStroke(bitmap, stroke, mapped, brushScale) ?: failed(stroke, "Basic")
             return SelectionMask.feather(
                 bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
             )
         }
-        // The retouch tools paint on the GPU too (GpuRetouchStroke); a failed GPU call leaves the
-        // layer as it was. Any other tool paints nothing.
+        // The retouch tools paint on the GPU too (GpuRetouchStroke); a failed GPU call fails the
+        // stroke. Any other tool paints nothing.
         if (stroke.tool !in GpuRetouchStroke.TOOLS) return bitmap
         val cloneOffset = stroke.cloneOffset?.let { off ->
             SelectionMask.mapDelta(
@@ -440,7 +470,8 @@ internal class DrawingEngine(
                 stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
             )
         }
-        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset, lf) ?: return bitmap
+        val painted = GpuRetouchStroke.paintStroke(bitmap, stroke, mapped, brushScale, cloneOffset, lf)
+            ?: failed(stroke, "retouch")
         return SelectionMask.feather(
             bitmap, GpuStampCommit.keepInside(bitmap, painted, paintClip), clipPath, featherRadius,
         )
@@ -456,7 +487,7 @@ internal class DrawingEngine(
         val flatArr = FloatArray(mapped.size * 2)
         mapped.forEachIndexed { i, pt -> flatArr[i * 2] = pt.x; flatArr[i * 2 + 1] = pt.y }
         slamManager.applyLiquify(flatArr, stroke.brushSize, 0.5f)
-        val baked = SafeBitmap.copy(bitmap) ?: return bitmap
+        val baked = SafeBitmap.copy(bitmap) ?: failed(stroke, "copy")
         slamManager.bakeLiquify(baked)
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, lf, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
@@ -466,12 +497,19 @@ internal class DrawingEngine(
         )
         return SelectionMask.confine(bitmap, baked, clipPath, featherRadius)
     }
+
+    private fun failed(stroke: StrokeCommand, stage: String): Nothing =
+        throw StrokeRenderException("${stroke.tool} stroke failed to paint ($stage)")
+
+    private companion object {
+        const val TAG = "DrawingEngine"
+    }
 }
 
 /**
  * Whether [stroke] paints only through GpuReplaySession: a plain stamp brush, Basic Brush (alpha
- * lock included) or Eraser stroke, no selection, Impasto, or tool that reads the pixels
- * on the CPU.
+ * lock included) or Eraser stroke, with no selection, Impasto, Ink, warp or fill/clear (each of
+ * those needs the pixels outside the session).
  */
 private fun replaysOnSession(
     stroke: StrokeCommand,

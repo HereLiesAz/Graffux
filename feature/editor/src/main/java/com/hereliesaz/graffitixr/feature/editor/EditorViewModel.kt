@@ -726,6 +726,53 @@ class EditorViewModel @Inject constructor(
         runCatching { GpuStampEngine.refreshResident(ticket.stroke, generation, committed, rows) }
     }
 
+    /** The bitmap [layerId] currently shows, or null. */
+    private fun publishedBitmap(layerId: String): Bitmap? = _uiState.value.layers.find { it.id == layerId }?.bitmap
+
+    /**
+     * Launches a stroke commit for [layerId] as the layer's tracked job in [rebuildJobs]. Unlike a
+     * rebuild it does not cancel the commit already in flight: it waits for that one to publish
+     * first, so back-to-back strokes both land. Cancelling the previous commit dropped its stroke's
+     * pixels (its publish never ran) while history and the layer's stroke list kept the stroke.
+     * The commit itself renders onto [publishedBitmap] as it is after that wait.
+     *
+     * Cancelling the returned job (an undo's rebuild, the tile-delta fast path) cancels the commit
+     * it was waiting on too, so no earlier commit publishes over the undo.
+     */
+    private fun launchLayerCommit(
+        layerId: String,
+        block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
+    ): Job {
+        val previous = rebuildJobs[layerId]
+        val job = viewModelScope.launch(dispatchers.default) {
+            previous?.join()
+            block()
+        }
+        if (previous != null) {
+            job.invokeOnCompletion { cause ->
+                if (cause is kotlinx.coroutines.CancellationException) previous.cancel()
+            }
+        }
+        rebuildJobs[layerId] = job
+        return job
+    }
+
+    /**
+     * A stroke commit that could not be painted ([DrawingEngine] throws rather than return the
+     * layer without it): the layer keeps its pixels, so the stroke leaves the layer's replay list,
+     * the undo history and the Ink ledger too, keeping all of them in step with what is shown. Its
+     * live preview ([preview]) is dropped if it is still the one on screen. Main thread.
+     */
+    private fun abandonFailedCommit(layerId: String, command: StrokeCommand, error: Throwable, preview: Bitmap? = null) {
+        android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke; dropping it", error)
+        layerStore.removeStroke(layerId, command)
+        if (history.dropDraw(command)) updateHistoryCounts()
+        if (command.inkStroke != null) inkLedger.onUndo(layerId, command)
+        _liveStroke.update { s -> if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
+        if (strokeLayerId == null) endOverlayStroke(afterFrames = 0)
+        Toast.makeText(context, "Couldn't paint that stroke", Toast.LENGTH_SHORT).show()
+    }
+
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
     private val drawingEngine = DrawingEngine(slamManager)
 
@@ -885,6 +932,10 @@ class EditorViewModel @Inject constructor(
         strokeCollectedSamples.toList()
     }
     private var strokeLayerId: String? = null
+    // The layer bitmap the in-flight stroke started on (and its live preview was seeded from). A
+    // commit that finds the layer showing anything else (an earlier stroke's commit published
+    // meanwhile) renders the stroke again onto what is shown; see launchLayerCommit.
+    private var strokeStartBitmap: Bitmap? = null
     private var strokeCanvasW: Int = 0
     private var strokeCanvasH: Int = 0
     // Layer transform snapshot captured at stroke start — held constant for the whole stroke.
@@ -1428,6 +1479,17 @@ class EditorViewModel @Inject constructor(
                                 layer
                             }
                         }
+                        // Opening another project straight from this one (File > Open / New) never
+                        // passes through the null branch below, so its reset happens here: the
+                        // previous project's undo stack and layer caches must not survive into this
+                        // one, where an undo would restore the old project's layers and save them
+                        // over this project's manifest. Only a layer kept with its bitmap above (the
+                        // same id and file) keeps its cache. In-flight commits target the old layers.
+                        rebuildJobs.values.forEach { it.cancel() }
+                        rebuildJobs.clear()
+                        history.clear()
+                        layerStore.retainOnly(layers.filter { it.bitmap != null }.map { it.id }.toSet())
+                        updateHistoryCounts()
 
                         dispatch(
                             EditorIntent.LoadedProject(
@@ -2025,69 +2087,9 @@ class EditorViewModel @Inject constructor(
         return true
     }
 
-    fun processNewStroke(layerId: String, activeBitmap: Bitmap, command: StrokeCommand, layer: Layer) {
-        layerStore.addStroke(layerId, command)
-
-        history.pushDraw(layerId, command)
-        updateHistoryCounts()
-        maybeBakeOldStrokes(layerId)
-
-        // Impasto (item 12): continue building on the layer's current live height map (already
-        // reflecting every stroke since the last full rebuild, same relationship activeBitmap has
-        // to the layer's own base+strokes), falling back to the baked height base on this layer's
-        // first live paint since a rebuild/load. A defensive copy, same reasoning as heightWorking
-        // elsewhere in this file: applySingleStroke mutates in place.
-        val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, activeBitmap.width * activeBitmap.height)).copyOf()
-        val materialWorking = if (layerStore.hasImpastoMaterialState(layerId)) {
-            layerStore.liveImpastoMaterialCopy(
-                layerId, activeBitmap.width, activeBitmap.height, bitmapPixels(activeBitmap),
-            )
-        } else {
-            null
-        }
-
-        // Tracked in rebuildJobs -- see commitStampStroke's identical comment for why: without
-        // this, a fast Undo racing this stroke's own in-flight commit could have its rebuild's
-        // publish overwritten by this coroutine's, silently resurrecting the just-undone stroke.
-        rebuildJobs[layerId]?.cancel()
-        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-            val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
-            val newBitmap = drawingEngine.applySingleStroke(
-                activeBitmap, command, otherLayers, heightWorking,
-                impastoMaterialState = materialWorking,
-                frame = layer.frame(activeBitmap.width, activeBitmap.height),
-            )
-            if (materialWorking != null && !strokeNeedsImpastoMaterial(command)) {
-                // A non-material edit intentionally flattens the current appearance into pigment.
-                // This is preferable to retaining stale raw pigment that a later v2 stroke would
-                // otherwise resurrect underneath the user's intervening edit.
-                materialWorking.replaceRawColor(bitmapPixels(newBitmap))
-            }
-
-            withContext(dispatchers.main) {
-                materialWorking?.let { layerStore.putLiveImpastoMaterial(layerId, it) }
-                _uiState.update { state ->
-                    state.copy(
-                        layers = state.layers.map {
-                            if (it.id == layerId) it.copy(bitmap = newBitmap, heightMap = heightWorking) else it
-                        },
-                    )
-                }
-                // Painting on a main component has to reach its instances. Idempotent and a no-op
-                // when the document has no components, so it can run on every stroke unconditionally.
-                if (_uiState.value.layers.any { it.componentId != null }) {
-                    dispatch(EditorIntent.SyncComponents)
-                }
-            }
-
-            scheduleDiskSave(layerId, newBitmap, layer.uri)
-            if (_uiState.value.isTimeLapseRecording) captureTimeLapseFrame()
-        }
-    }
-
     /**
      * Composites the current canvas down to a small [TIME_LAPSE_FRAME_MAX_DIM]-ish snapshot and
-     * hands it to [timeLapseRecorder]. Called off the main thread — see [processNewStroke].
+     * hands it to [timeLapseRecorder]. Runs off the main thread; see [captureTimeLapseFrameIfRecording].
      */
     private fun captureTimeLapseFrame() {
         val state = _uiState.value
@@ -2109,6 +2111,19 @@ class EditorViewModel @Inject constructor(
         )
         val consumed = timeLapseRecorder.captureFrame(frame, System.currentTimeMillis())
         if (!consumed) frame.recycle()
+    }
+
+    /**
+     * While recording, one time-lapse frame per change to a layer's pixels: every stroke commit,
+     * clear, fill, undo and redo reaches [scheduleDiskSave], which calls this. Composited off the
+     * main thread.
+     */
+    private fun captureTimeLapseFrameIfRecording() {
+        if (!_uiState.value.isTimeLapseRecording) return
+        viewModelScope.launch(dispatchers.default) {
+            runCatching { captureTimeLapseFrame() }
+                .onFailure { android.util.Log.w("EditorViewModel", "Time-lapse frame failed", it) }
+        }
     }
 
     /** Starts or stops time-lapse recording, saving the finished GIF to Downloads on stop. */
@@ -2514,6 +2529,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun scheduleDiskSave(layerId: String, bitmap: Bitmap, uri: Uri?) {
+        captureTimeLapseFrameIfRecording()
         val path = uri?.path ?: return
         val projectId = _uiState.value.projectId
         val pending = PendingLayerWrite(
@@ -4661,6 +4677,7 @@ class EditorViewModel @Inject constructor(
 
         resetStrokePoints(stabilizedStart, stabilizedStartPressure)
         strokeLayerId = layerId
+        strokeStartBitmap = originalBitmap
         strokeCanvasW = canvasSize.width
         strokeCanvasH = canvasSize.height
         strokeLayerScale = layer.scale
@@ -6001,13 +6018,21 @@ class EditorViewModel @Inject constructor(
         }
         val state = _uiState.value
         val layerId = strokeLayerId ?: return strokeLog("end: no strokeLayerId")
-        val layer = state.layers.find { it.id == layerId } ?: return strokeLog("end: layer $layerId gone")
+        val layer = state.layers.find { it.id == layerId } ?: run {
+            // The layer was deleted or undone away mid-stroke: drop the stroke's live state too, or
+            // its overlay and engines outlive it until the next stroke starts.
+            _liveStroke.update { it.copy(layerId = null, bitmap = null) }
+            endOverlayStroke(afterFrames = 0)
+            clearTransientStrokeState()
+            return strokeLog("end: layer $layerId gone")
+        }
         strokeLog(
             "end: layer=$layerId tool=${state.activeTool} stamp=${stampBrushForStroke != null} " +
                 "points=${strokePointCountForLog()}",
         )
         // This stroke's resident GPU binding, if any; its commit refreshes the GPU copy.
         val ticket = residentTicket?.takeIf { it.strokeGeneration == strokeGeneration && it.layerId == layerId }
+        val startBitmap = strokeStartBitmap
         val points = snapshotStrokePoints()
         // Aligned 1:1 with `points` by index (both grow together — see addStrokePoint). Recorded
         // onto the command so undo/redo replay reproduces the same pressure-responsive width.
@@ -6027,7 +6052,7 @@ class EditorViewModel @Inject constructor(
             commitStampStroke(
                 state, layer, layerId, points, brushSamples, canvasW, canvasH,
                 capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
-                stampGrainForStroke, stampMaskShapeForStroke, strokeSelection,
+                stampGrainForStroke, stampMaskShapeForStroke, strokeSelection, startBitmap,
             )
             clearTransientStrokeState()
             return
@@ -6080,12 +6105,10 @@ class EditorViewModel @Inject constructor(
                 null
             }
 
-            // Tracked in rebuildJobs, same discipline as processNewStroke/commitStampStroke: a
-            // glee audit found this launch (and CLONE's/LIQUIFY's below) was never registered,
-            // so a fast Undo right after a BLUR/SHARPEN/SMUDGE commit could have its rebuild's
-            // publish overwritten by this coroutine's still-in-flight one.
-            rebuildJobs[layerId]?.cancel()
-            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
+            // Tracked in rebuildJobs (launchLayerCommit), same discipline as commitStampStroke: a
+            // fast Undo right after a BLUR/SHARPEN/SMUDGE commit must cancel it, not have its
+            // rebuild's publish overwritten by this coroutine's still-in-flight one.
+            launchLayerCommit(layerId) {
                 // Through the replay path rather than a second composite of its own. This branch
                 // used to build the clip itself and pass the HARD path straight in, which meant a
                 // blur inside a feathered selection committed with a hard edge and then replayed
@@ -6094,20 +6117,32 @@ class EditorViewModel @Inject constructor(
                 // DrawingEngine does not do, and doing it there is the only way the two agree.
                 //
                 // Guarded the same way rebuildLayerBitmap/maybeBakeOldStrokes are: a failure here
-                // logs instead of taking the app down. The stroke is already committed to history
-                // above regardless, so the worst case is this one commit's visual result not
-                // landing — the layer is left exactly as it was, which the next edit re-renders
-                // cleanly from.
+                // logs instead of taking the app down, and the stroke leaves history again
+                // (abandonFailedCommit), since the layer is left exactly as it was.
                 try {
+                    // Onto what the layer shows now: an earlier commit this one waited for may
+                    // have published since `base` was read, and its material state with it.
+                    val from = publishedBitmap(layerId) ?: base
+                    val rebased = from !== base
+                    val wet = if (rebased && wetnessWorking != null) {
+                        layerStore.liveWetnessCopy(layerId, from.width, from.height)
+                    } else {
+                        wetnessWorking
+                    }
+                    val material = if (rebased && materialWorking != null) {
+                        layerStore.liveImpastoMaterialCopy(layerId, from.width, from.height, bitmapPixels(from))
+                    } else {
+                        materialWorking
+                    }
                     val resampled = drawingEngine.applySingleStroke(
-                        base, command,
-                        wetnessState = wetnessWorking,
-                        impastoMaterialState = materialWorking,
-                        frame = layer.frame(base.width, base.height),
+                        from, command,
+                        wetnessState = wet,
+                        impastoMaterialState = material,
+                        frame = layer.frame(from.width, from.height),
                     )
                     withContext(dispatchers.main) {
-                        wetnessWorking?.let { layerStore.putLiveWetness(layerId, it) }
-                        materialWorking?.let { layerStore.putLiveImpastoMaterial(layerId, it) }
+                        wet?.let { layerStore.putLiveWetness(layerId, it) }
+                        material?.let { layerStore.putLiveImpastoMaterial(layerId, it) }
                         _uiState.update { s ->
                             s.copy(
                                 layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
@@ -6122,10 +6157,8 @@ class EditorViewModel @Inject constructor(
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Throwable) {
-                    android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke", e)
-                    withContext(dispatchers.main) {
-                        _liveStroke.update { s -> s.copy(layerId = null, bitmap = null) }
-                        endOverlayStroke(afterFrames = 0)
+                    withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                        abandonFailedCommit(layerId, command, e)
                     }
                 }
             }
@@ -6183,11 +6216,18 @@ class EditorViewModel @Inject constructor(
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
             // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
-            rebuildJobs[layerId]?.cancel()
-            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                val cloned = drawingEngine.applySingleStroke(
-                    base, command, frame = layer.frame(base.width, base.height),
-                )
+            launchLayerCommit(layerId) {
+                val from = publishedBitmap(layerId) ?: base
+                val cloned = try {
+                    drawingEngine.applySingleStroke(from, command, frame = layer.frame(from.width, from.height))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                    withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                        abandonFailedCommit(layerId, command, e)
+                    }
+                    return@launchLayerCommit
+                }
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
@@ -6237,11 +6277,21 @@ class EditorViewModel @Inject constructor(
             maybeBakeOldStrokes(layerId)
 
             // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
-            rebuildJobs[layerId]?.cancel()
-            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                val warped = drawingEngine.applySingleStroke(
-                    base, command, frame = layer.frame(base.width, base.height),
-                )
+            launchLayerCommit(layerId) {
+                // The warp replays from its recorded path, so it renders onto whatever an earlier
+                // commit this one waited for published; `base` is the bitmap from stroke start.
+                val latest = publishedBitmap(layerId)
+                val from = if (latest != null && latest !== (startBitmap ?: layer.bitmap)) latest else base
+                val warped = try {
+                    drawingEngine.applySingleStroke(from, command, frame = layer.frame(from.width, from.height))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                    withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                        abandonFailedCommit(layerId, command, e)
+                    }
+                    return@launchLayerCommit
+                }
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(
@@ -6260,7 +6310,7 @@ class EditorViewModel @Inject constructor(
             // A stroke so fast the background working copy hadn't finished: commit it from its
             // recorded points through DrawingEngine, the GPU path every replay takes. Committing
             // `bitmap` unchanged (the old behaviour) silently dropped the stroke.
-            val bitmap = layer.bitmap ?: return
+            val bitmap = layer.bitmap ?: run { clearTransientStrokeState(); return }
             if (points.isEmpty()) {
                 clearTransientStrokeState()
                 return
@@ -6290,11 +6340,18 @@ class EditorViewModel @Inject constructor(
             history.pushDraw(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
-            rebuildJobs[layerId]?.cancel()
-            rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-                val painted = drawingEngine.applySingleStroke(
-                    bitmap, command, frame = layer.frame(bitmap.width, bitmap.height),
-                )
+            launchLayerCommit(layerId) {
+                val from = publishedBitmap(layerId) ?: bitmap
+                val painted = try {
+                    drawingEngine.applySingleStroke(from, command, frame = layer.frame(from.width, from.height))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                    withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                        abandonFailedCommit(layerId, command, e)
+                    }
+                    return@launchLayerCommit
+                }
                 withContext(dispatchers.main) {
                     _uiState.update { s ->
                         s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = painted) else it })
@@ -6365,24 +6422,35 @@ class EditorViewModel @Inject constructor(
             // (CLONE used to be handled here too. It has its own branch above now, since it must
             // also cover the fast-stroke fallback, which never reaches this code.)
             val basicBrushNeedsCanonicalCommit = state.activeTool == Tool.BRUSH && stampBrushForStroke == null
-            if ((featherRadius > 0f || basicBrushNeedsCanonicalCommit) && base != null) {
+            // The working bitmap holds the layer as it was at stroke start. If an earlier commit is
+            // still in flight, or published since, it lacks that commit's pixels: committing it as
+            // is would erase that stroke (or be overwritten by it), so render through the commit
+            // queue instead.
+            val earlierCommitPending = rebuildJobs[layerId]?.isActive == true ||
+                (startBitmap != null && base !== startBitmap)
+            if ((featherRadius > 0f || basicBrushNeedsCanonicalCommit || earlierCommitPending) && base != null) {
                 val preview = workBitmap
                 // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
-                rebuildJobs[layerId]?.cancel()
-                rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
+                launchLayerCommit(layerId) {
                     try {
-                        // The live GPU layer when the live stroke painted on the GPU; otherwise (or
-                        // if finishing it fails) the stroke painted again from its recorded dabs.
-                        val live = basicHandoff?.let { finishLiveBasic(it, base, command) }
+                        val latest = publishedBitmap(layerId) ?: base
+                        val rebased = latest !== (startBitmap ?: base)
+                        val from = if (rebased) latest else base
+                        val strokeTicket = ticket.takeIf { !rebased }
+                        // The live GPU layer when the live stroke painted on the GPU (and nothing
+                        // published under it since); otherwise, or if finishing it fails, the
+                        // stroke painted again from its recorded dabs.
+                        if (rebased) basicHandoff?.worker?.join()
+                        val live = basicHandoff?.takeIf { !rebased }?.let { finishLiveBasic(it, base, command) }
                         val committed = live ?: drawingEngine.applySingleStroke(
-                            base, command, frame = layer.frame(base.width, base.height),
+                            from, command, frame = layer.frame(from.width, from.height),
                         )
                         // The live GPU layer is exactly what was committed: nothing to diff.
                         val gpuCommitted = live != null
                         val residentChanged = if (gpuCommitted) {
-                            GPU_COMMITTED.takeIf { ticket != null }
+                            GPU_COMMITTED.takeIf { strokeTicket != null }
                         } else {
-                            residentChangedRect(ticket, base, committed)
+                            residentChangedRect(strokeTicket, from, committed)
                         }
                         withContext(dispatchers.main) {
                             _uiState.update { s ->
@@ -6390,8 +6458,9 @@ class EditorViewModel @Inject constructor(
                                     layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
                                 )
                             }
+                            if (rebased) invalidateResident(layerId)
                             refreshResidentAfterCommit(
-                                ticket, layerId, base, committed,
+                                strokeTicket, layerId, from, committed,
                                 residentChanged,
                             )
                             // Only clear the live-stroke preview if it's still ours -- a newer stroke may
@@ -6399,6 +6468,12 @@ class EditorViewModel @Inject constructor(
                             // its preview here would flash the wrong (or no) bitmap for that new stroke.
                             _liveStroke.update { s -> if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
                             scheduleDiskSave(layerId, committed, layer.uri)
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                        withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                            abandonFailedCommit(layerId, command, e, preview)
                         }
                     } finally {
                         withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
@@ -6488,6 +6563,8 @@ class EditorViewModel @Inject constructor(
         // state the moment this returns, while the rasterization below runs later on a background
         // dispatcher and would otherwise find it already null.
         selection: com.hereliesaz.graffitixr.common.model.Selection?,
+        /** The layer bitmap the stroke started on (and its live GPU layer was seeded from). */
+        startBitmap: Bitmap?,
     ) {
         val base = layer.bitmap ?: return strokeLog("commit: layer has no bitmap")
         if (points.isEmpty()) return strokeLog("commit: no points")
@@ -6542,67 +6619,78 @@ class EditorViewModel @Inject constructor(
         // The pre-stroke height base (roadmap item 12): applySingleStroke deposits *this* stroke's own
         // dabs onto it fresh below, so this must be the layer's height map from before this stroke —
         // never stampLiveHeightMap, which already accumulated this same stroke's deposits during the
-        // live-preview drag and would double-deposit if reused here.
-        val heightWorking = (layer.heightMap ?: layerStore.heightBase(layerId, base.width * base.height)).copyOf()
-        val wetnessWorking = if (
-            layerStore.hasWetnessState(layerId) || strokeNeedsPersistentWetness(command)
-        ) {
-            layerStore.liveWetnessCopy(layerId, base.width, base.height)
-        } else {
-            null
-        }
-        val materialWorking = if (
-            layerStore.hasImpastoMaterialState(layerId) || strokeNeedsImpastoMaterial(command)
-        ) {
-            layerStore.liveImpastoMaterialCopy(
-                layerId, base.width, base.height, bitmapPixels(base),
-            )
-        } else {
-            null
-        }
-        // Tracked in rebuildJobs, the same map rebuildLayerBitmap/applyTileDeltaFastPath use to
-        // cancel each other's stale publishes: without this, a fast Undo landing right after this
-        // stroke's own commit could race it -- undo's rebuild publishes the pre-stroke bitmap, then
-        // this coroutine's own publish (already in flight, never cancelled) lands after it and
-        // silently resurrects the just-undone stroke's pixels. Cancelling whatever was previously
-        // in flight for this layer before starting is the same discipline every other publisher
-        // here already follows.
+        // live-preview drag and would double-deposit if reused here. [from] is the bitmap the stroke
+        // is rendered onto; the live material state is copied at its size.
+        fun working(from: Bitmap, liveHeight: FloatArray?) = Triple(
+            (liveHeight ?: layerStore.heightBase(layerId, from.width * from.height)).copyOf(),
+            if (layerStore.hasWetnessState(layerId) || strokeNeedsPersistentWetness(command)) {
+                layerStore.liveWetnessCopy(layerId, from.width, from.height)
+            } else {
+                null
+            },
+            if (layerStore.hasImpastoMaterialState(layerId) || strokeNeedsImpastoMaterial(command)) {
+                layerStore.liveImpastoMaterialCopy(layerId, from.width, from.height, bitmapPixels(from))
+            } else {
+                null
+            },
+        )
+        val workingAtEnd = working(base, layer.heightMap)
+        // Tracked in rebuildJobs (launchLayerCommit), the same map rebuildLayerBitmap/
+        // applyTileDeltaFastPath use to cancel each other's stale publishes: without this, a fast
+        // Undo landing right after this stroke's own commit could race it -- undo's rebuild
+        // publishes the pre-stroke bitmap, then this coroutine's own publish lands after it and
+        // silently resurrects the just-undone stroke's pixels.
         // The live v2 engine restarts from its checkpoint only if the material it checkpointed is
         // still the layer's (no commit, undo or rebuild landed during the stroke).
         val liveWet = handoff.wet?.takeIf { sameMaterial(it.key, layerId, layer) }
-        rebuildJobs[layerId]?.cancel()
-        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
+        launchLayerCommit(layerId) {
+            // A commit or rebuild that published after this stroke started (it waited for it above)
+            // means the live GPU layer and `base` lack that work: render the stroke again onto what
+            // the layer shows now, or the earlier stroke's pixels vanish.
+            val latest = publishedBitmap(layerId) ?: base
+            val rebased = latest !== (startBitmap ?: base)
+            val from = if (rebased) latest else base
+            val (heightWorking, wetnessWorking, materialWorking) = if (rebased) {
+                working(latest, _uiState.value.layers.find { it.id == layerId }?.heightMap)
+            } else {
+                workingAtEnd
+            }
+            val strokeTicket = ticket.takeIf { !rebased }
             // Route through the same DrawingEngine.applySingleStroke every other tool's commit and
-            // every undo/redo replay already uses, instead of hand-rolling a paintStroke call here.
-            // The hand-rolled version used to silently drop grain, the masked/dual tip, secondary
-            // color, sensor dynamics, airbrush, and Impasto the instant a stroke committed -- the live
-            // preview rendered all of that correctly, then it vanished on finger-up. `command` already
-            // carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples; applyTool reads them.
+            // every undo/redo replay already uses, instead of hand-rolling a paint call here.
+            // `command` already carries stampGrain/stampMaskShape/secondaryBrushColor/brushSamples;
+            // applyTool reads them.
             val otherLayers = _uiState.value.layers.filterNot { it.id == layerId }
             // A finished live GPU layer is exactly what is committed.
             var gpuCommitted = false
             var liveCommitted = false
             val target = try {
+                if (rebased) handoff.worker?.join()
                 // The live GPU layer when the live stroke painted on the GPU; otherwise (or if
                 // finishing it fails) the stroke painted again from its recorded dabs.
-                finishLiveStamp(handoff, base, command, brush)
+                (if (rebased) null else finishLiveStamp(handoff, base, command, brush))
                     ?.also { live ->
                         gpuCommitted = true
                         liveCommitted = true
                         materialWorking?.replaceRawColor(bitmapPixels(live))
                     }
                     ?: drawingEngine.applySingleStroke(
-                        base, command, otherLayers, heightWorking,
+                        from, command, otherLayers, heightWorking,
                         wetnessState = wetnessWorking,
                         impastoMaterialState = materialWorking,
-                        liveWet = liveWet?.also { handoff.worker?.join() },
-                        frame = layer.frame(base.width, base.height),
+                        liveWet = liveWet?.takeIf { !rebased }?.also { handoff.worker?.join() },
+                        frame = layer.frame(from.width, from.height),
                     )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 strokeLog("commit: cancelled before publish")
                 throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                    abandonFailedCommit(layerId, command, e, previewBitmap)
+                }
+                return@launchLayerCommit
             }
-            // Item 16's undo fast path: diff `base` against `target` once, here, while both are
+            // Item 16's undo fast path: diff `from` against `target` once, here, while both are
             // already at hand -- pixel-diff based (DirtyRegion.fromPixelDiff), not dab-based, so
             // it doesn't need a resolved dab list this call site doesn't otherwise construct, and
             // stays correct regardless of exactly how applySingleStroke resolved the final pixels.
@@ -6616,43 +6704,40 @@ class EditorViewModel @Inject constructor(
             // redo and any other fast-path consumer, and undo's own canonical-material check (see
             // the `!strokeChangesCanonicalMaterial(...)` guards around `applyTileDeltaFastPath`)
             // is what keeps material strokes on the full-replay path -- not withholding the delta
-            // here. Skipping capture here for material strokes previously left
-            // `command.tileDeltas` null for every impasto stroke, which is a distinct bug from
-            // (and must not be conflated with) undo correctly refusing to *use* the delta for
-            // material state.
-            // The same pixel diff also tells the GPU's resident copy what the CPU commit changed
+            // here.
+            // The same pixel diff also tells the GPU's resident copy what the commit changed
             // (see refreshResidentAfterCommit); null when there is no resident binding.
             var residentChanged: IntArray? = null
             // A commit straight from the live GPU layer knows what it painted: the undo tiles come
             // from that rectangle alone, with no whole-layer read or diff.
-            val livePainted = handoff.paintedRect?.takeIf { liveCommitted && target.width == base.width }
+            val livePainted = handoff.paintedRect?.takeIf { liveCommitted && target.width == from.width }
             // ...and the GPU keeps that rectangle as it was, for undo without an upload.
             var gpuUndo: GpuUndoSnapshots.Ref? = null
             val tileDeltas = if (livePainted != null) {
-                runCatching { regionTileDeltas(base, target, livePainted) }.getOrNull()
+                runCatching { regionTileDeltas(from, target, livePainted) }.getOrNull()
                     ?.also {
-                        if (ticket != null) {
+                        if (strokeTicket != null) {
                             residentChanged = IntArray(RECT_INTS)
-                            gpuUndo = keepGpuUndo(ticket, livePainted)
+                            gpuUndo = keepGpuUndo(strokeTicket, livePainted)
                         }
                     }
             } else runCatching {
-                val beforePixels = IntArray(base.width * base.height)
-                base.getPixels(beforePixels, 0, base.width, 0, 0, base.width, base.height)
+                val beforePixels = IntArray(from.width * from.height)
+                from.getPixels(beforePixels, 0, from.width, 0, 0, from.width, from.height)
                 val afterPixels = IntArray(target.width * target.height)
                 target.getPixels(afterPixels, 0, target.width, 0, 0, target.width, target.height)
-                val dirty = DirtyRegion.fromPixelDiff(beforePixels, afterPixels, base.width, base.height)
+                val dirty = DirtyRegion.fromPixelDiff(beforePixels, afterPixels, from.width, from.height)
                 strokeLog(
-                    "commit: rendered ${target.width}x${target.height} sameObject=${target === base} dirty=$dirty",
+                    "commit: rendered ${target.width}x${target.height} sameObject=${target === from} dirty=$dirty",
                 )
-                if (ticket != null && target.width == base.width && target.height == base.height) {
+                if (strokeTicket != null && target.width == from.width && target.height == from.height) {
                     residentChanged = dirty?.let { intArrayOf(it.left, it.top, it.width, it.height) }
                         ?: IntArray(RECT_INTS)
                 }
                 if (dirty == null) {
                     emptyList()
                 } else {
-                    val grid = TileGrid(base.width, base.height, UNDO_TILE_SIZE)
+                    val grid = TileGrid(from.width, from.height, UNDO_TILE_SIZE)
                     TileDelta.capture(beforePixels, afterPixels, grid, grid.tilesTouching(dirty))
                 }
             }.getOrNull()
@@ -6674,11 +6759,12 @@ class EditorViewModel @Inject constructor(
                         },
                     )
                 }
-                strokeLog("commit: published to $layerId (active=${_uiState.value.activeLayerId})")
+                strokeLog("commit: published to $layerId (active=${_uiState.value.activeLayerId} rebased=$rebased)")
                 // Direct display showed the stroke; the committed layer carries it now.
                 endOverlayStroke(afterFrames = OVERLAY_HANDOFF_FRAMES)
+                if (rebased) invalidateResident(layerId)
                 refreshResidentAfterCommit(
-                    ticket, layerId, base, target,
+                    strokeTicket, layerId, from, target,
                     residentChanged?.let { if (gpuCommitted) GPU_COMMITTED else it },
                 )
                 _liveStroke.update { s -> if (s.bitmap === previewBitmap) s.copy(layerId = null, bitmap = null) else s }
@@ -6689,7 +6775,7 @@ class EditorViewModel @Inject constructor(
                 // otherwise matter for the fast path (see EditHistory.attachTileDeltas's doc
                 // comment for what's still a pre-existing, unrelated race this doesn't fix).
                 if (tileDeltas != null) {
-                    history.attachTileDeltas(command, tileDeltas, base.width, base.height, gpuUndo)
+                    history.attachTileDeltas(command, tileDeltas, from.width, from.height, gpuUndo)
                 }
             }
         }
@@ -7005,12 +7091,6 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Resets the imperative, in-flight stroke/liquify scratch state. These live as ViewModel fields
-     * (not in [EditorUiState]), so the pure reducer can't clear them — any caller that abandons an
-     * in-progress stroke (stroke end, mode switch, project load) must invoke this so a later
-     * onStrokePoint/onStrokeEnd can't commit to a stale layer or bitmap.
-     */
-    /**
      * Cancels the in-flight stroke without committing — a second finger landing mid-stroke means
      * the user is gesturing (two-finger tap = undo, pinch = navigate), not painting; Procreate
      * discards the partial stroke the same way. Nothing has been recorded yet (commands are
@@ -7111,13 +7191,19 @@ class EditorViewModel @Inject constructor(
         history.pushDraw(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
-        viewModelScope.launch(dispatchers.default) {
+        launchLayerCommit(layerId) {
             // Through the replay path, not a second flood of its own. This built the HARD clip and
             // published the result unfeathered, while DrawingEngine's FILL branch feathers — so a
             // bucket fill inside a feathered selection changed edge the first time it was undone.
-            val target = drawingEngine.applySingleStroke(
-                base, command, frame = layer.frame(base.width, base.height),
-            )
+            val from = publishedBitmap(layerId) ?: base
+            val target = try {
+                drawingEngine.applySingleStroke(from, command, frame = layer.frame(from.width, from.height))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) { abandonFailedCommit(layerId, command, e) }
+                return@launchLayerCommit
+            }
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -7270,23 +7356,43 @@ class EditorViewModel @Inject constructor(
         inkLedger.add(layerId, command, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
-        viewModelScope.launch(dispatchers.default) {
-            // One commit per layer at a time, each on the bitmap the previous one published: two
-            // strokes lifted close together both used to start from the same pre-stroke `base`, and
-            // whichever published second erased the other.
-            inkCommitLocks.getOrPut(layerId) { Mutex() }.withLock {
-                val latest = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: base
-                val target = drawingEngine.applySingleStroke(
-                    latest, command, frame = layer.frame(latest.width, latest.height),
-                )
-                withContext(dispatchers.main) {
-                    _uiState.update { s ->
-                        s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+        // The caller's Ink overlay stroke is released exactly once: after the publish, or when the
+        // commit fails or is cancelled (even before it starts, when no finally of its own runs).
+        val released = java.util.concurrent.atomic.AtomicBoolean(false)
+        val release = { if (released.compareAndSet(false, true)) onCommitted() }
+        // Tracked in rebuildJobs like every other commit: an Undo right after this stroke cancels it
+        // instead of having this publish (of a stroke no longer in history) land after the undo, and
+        // it waits for any other commit on the layer instead of racing it.
+        val commitJob = launchLayerCommit(layerId) {
+            try {
+                // One commit per layer at a time, each on the bitmap the previous one published: two
+                // strokes lifted close together both used to start from the same pre-stroke `base`,
+                // and whichever published second erased the other.
+                inkCommitLocks.getOrPut(layerId) { Mutex() }.withLock {
+                    val latest = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: base
+                    val target = try {
+                        drawingEngine.applySingleStroke(latest, command, frame = layer.frame(latest.width, latest.height))
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                        withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                            abandonFailedCommit(layerId, command, e)
+                        }
+                        return@withLock
                     }
-                    scheduleDiskSave(layerId, target, layer.uri)
-                    onCommitted()
+                    withContext(dispatchers.main) {
+                        _uiState.update { s ->
+                            s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
+                        }
+                        scheduleDiskSave(layerId, target, layer.uri)
+                    }
                 }
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) { release() }
             }
+        }
+        commitJob.invokeOnCompletion { cause ->
+            if (cause != null) viewModelScope.launch(dispatchers.main) { release() }
         }
         // Co-op: the same StrokeComplete a round-brush stroke sends, built from the Ink stroke's own
         // inputs (points in layer-bitmap space, pressures, opacity) plus the utensil's id. A guest
@@ -7391,13 +7497,19 @@ class EditorViewModel @Inject constructor(
         maybeBakeOldStrokes(layerId)
         showHud(if (state.selection != null) "Filled selection" else "Filled layer")
 
-        viewModelScope.launch(dispatchers.default) {
+        launchLayerCommit(layerId) {
             // Straight through the replay path rather than a second implementation of the same
             // composite — the one thing the feather work proved is worth insisting on, since a
             // commit that differs from its replay changes the layer on the first undo.
-            val target = drawingEngine.applySingleStroke(
-                base, command, frame = layer.frame(base.width, base.height),
-            )
+            val from = publishedBitmap(layerId) ?: base
+            val target = try {
+                drawingEngine.applySingleStroke(from, command, frame = layer.frame(from.width, from.height))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) { abandonFailedCommit(layerId, command, e) }
+                return@launchLayerCommit
+            }
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -7438,9 +7550,14 @@ class EditorViewModel @Inject constructor(
         // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment: without
         // this, a fast Undo racing this clear's own in-flight publish could have its rebuild's
         // publish overwritten by this coroutine's, silently resurrecting the just-undone clear.
-        rebuildJobs[layerId]?.cancel()
-        rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-            val work = SafeBitmap.copy(base) ?: return@launch
+        launchLayerCommit(layerId) {
+            val from = publishedBitmap(layerId) ?: base
+            val work = SafeBitmap.copy(from) ?: run {
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                    abandonFailedCommit(layerId, command, StrokeRenderException("Out of memory clearing $layerId"))
+                }
+                return@launchLayerCommit
+            }
             val hard = SelectionMask.bitmapPath(
                 command.selection, layer.frame(work.width, work.height), layer.scale, layer.offset, layer.rotationZ,
             )
@@ -7453,7 +7570,7 @@ class EditorViewModel @Inject constructor(
             val canvas = Canvas(work)
             SelectionMask.clip(canvas, SelectionMask.paintClip(hard, radius))
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            val target = SelectionMask.feather(base, work, hard, radius)
+            val target = SelectionMask.feather(from, work, hard, radius)
             withContext(dispatchers.main) {
                 _uiState.update { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
@@ -7502,12 +7619,27 @@ class EditorViewModel @Inject constructor(
             val metrics = context.resources.displayMetrics
             val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
             val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
-            // Composited in paint order (lower first) so the upper layer's blend mode and opacity
-            // resolve against the one it is being merged into, exactly as they do on canvas.
-            val merged = exportManager.compositeLayers(listOf(lower, upper), w, h)
-
-            val filename = "merged_${UUID.randomUUID()}.png"
-            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(merged))
+            // A failed composite or artifact write (OOM, disk full) leaves both layers as they were;
+            // it must neither crash the app nor leave the loading spinner up for good.
+            val (merged, path) = try {
+                // Composited in paint order (lower first) so the upper layer's blend mode and opacity
+                // resolve against the one it is being merged into, exactly as they do on canvas.
+                val composite = exportManager.compositeLayers(listOf(lower, upper), w, h)
+                val filename = "merged_${UUID.randomUUID()}.png"
+                composite to projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(composite))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                }
+                throw e
+            } catch (e: Throwable) {
+                android.util.Log.e("EditorViewModel", "Merge down failed", e)
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    Toast.makeText(context, "Couldn't merge the layers", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
             val mergedLayer = Layer(
                 id = UUID.randomUUID().toString(),
                 name = lower.name,
@@ -9074,7 +9206,14 @@ class EditorViewModel @Inject constructor(
         liveCurveWidths.removeFirst()
     }
 
+    /**
+     * Resets the imperative, in-flight stroke/liquify scratch state. These live as ViewModel fields
+     * (not in [EditorUiState]), so the pure reducer can't clear them — every path that ends or
+     * abandons an in-progress stroke ([onStrokeEnd], [onStrokeCancel]) invokes this so a later
+     * onStrokePoint/onStrokeEnd can't commit to a stale layer or bitmap.
+     */
     private fun clearTransientStrokeState() {
+        strokeStartBitmap = null
         releaseSmudgeLive()
         residentTicket = null
         strokeWorkingBitmap = null

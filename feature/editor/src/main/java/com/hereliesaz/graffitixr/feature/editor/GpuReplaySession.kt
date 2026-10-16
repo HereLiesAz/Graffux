@@ -8,12 +8,13 @@ import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 /**
  * One GPU engine for a whole replay ([DrawingEngine.composite]: undo/redo rebuilds, stroke baking).
  * Consecutive GPU strokes paint onto the engine's layer back to back -- one upload before the first,
- * [GpuStampEngine.beginStroke] between them, one readback when a CPU step next needs the pixels
+ * [GpuStampEngine.beginStroke] between them, one readback when a step outside the session next needs the pixels
  * ([flush]) -- instead of a fresh engine, a full upload and a full readback per stroke.
  *
  * Between [paint] and [flush] the bitmap the strokes were painted onto ([mirror]) holds the pixels
  * from before them; the GPU holds the result. If the GPU fails in that window, [takeLost] hands the
- * caller those strokes to paint again on the CPU over [mirror]'s still-intact pixels.
+ * caller those strokes to paint again, each on its own fresh GPU engine
+ * ([DrawingEngine.composite]'s `synced`), over [mirror]'s still-intact pixels.
  */
 internal class GpuReplaySession : AutoCloseable {
 
@@ -34,7 +35,7 @@ internal class GpuReplaySession : AutoCloseable {
             val e = ready(bitmap)
             e != null && painter(e)
         } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
-            Log.w(TAG, "GPU replay failed; the CPU repaints its strokes", t)
+            Log.w(TAG, "GPU replay failed; its strokes are painted again on fresh engines", t)
             false
         }
         if (ok) pending += stroke else broken = true
