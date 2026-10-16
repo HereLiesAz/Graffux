@@ -1591,7 +1591,10 @@ class EditorViewModel @Inject constructor(
                             val mapPath = projectManager.getMapPath(context, project.id)
                             if (File(mapPath).exists()) {
                                 if (!slamManager.loadModel(mapPath)) {
-                                    android.util.Log.w("EditorViewModel", "SLAM loadModel failed for ${project.id}: $mapPath exists but was not restored")
+                                    android.util.Log.w(
+                                        "EditorViewModel",
+                                        "SLAM loadModel failed for ${project.id}: $mapPath exists but was not restored",
+                                    )
                                 }
                             }
 
@@ -1778,28 +1781,7 @@ class EditorViewModel @Inject constructor(
                     updateHistoryCounts()
                     return
                 }
-                layerStore.addStroke(command.layerId, command.command)
-                inkLedger.onRedo(command.layerId, command.command, command.command.takeIf { it.inkStroke != null })
-                val deltas = command.tileDeltas
-                val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
-                    deltas != null && applyTileDeltaFastPath(
-                        command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
-                        useAfter = true, emitOp = true, gpuUndo = command.gpuUndo,
-                    )
-                if (!fastPathHandled) {
-                    command.gpuUndo?.let {
-                        invalidateResident(command.layerId)
-                        history.forgetGpuUndo(it)
-                    }
-                    rebuildLayerBitmap(command.layerId, emitOp = true)
-                }
-                // Redo re-applies the move, so the marquee moves forward with it again.
-                val delta = command.command.moveDelta
-                if (command.command.tool == Tool.SELECT && delta != null) {
-                    dispatch(EditorIntent.SetSelection(
-                        command.command.selection?.translated(delta)
-                    ))
-                }
+                reapplyRedoneStroke(command)
             }
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
@@ -1813,6 +1795,34 @@ class EditorViewModel @Inject constructor(
             }
         }
         updateHistoryCounts()
+    }
+
+    /** Re-applies [command] to its layer: the tile-delta fast path when it has one, else a full rebuild. */
+    private fun reapplyRedoneStroke(command: EditCommand.Draw) {
+        layerStore.addStroke(command.layerId, command.command)
+        inkLedger.onRedo(command.layerId, command.command, command.command.takeIf { it.inkStroke != null })
+        val deltas = command.tileDeltas
+        val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
+            deltas != null && applyTileDeltaFastPath(
+                command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
+                useAfter = true, emitOp = true, gpuUndo = command.gpuUndo,
+            )
+        if (!fastPathHandled) {
+            command.gpuUndo?.let {
+                invalidateResident(command.layerId)
+                history.forgetGpuUndo(it)
+            }
+            rebuildLayerBitmap(command.layerId, emitOp = true)
+        }
+        redoSelectionMove(command.command)
+    }
+
+    /** Redo re-applies a selection move, so the marquee moves forward with its pixels again. */
+    private fun redoSelectionMove(stroke: StrokeCommand) {
+        val delta = stroke.moveDelta
+        if (stroke.tool == Tool.SELECT && delta != null) {
+            dispatch(EditorIntent.SetSelection(stroke.selection?.translated(delta)))
+        }
     }
 
     /**
@@ -3355,7 +3365,10 @@ class EditorViewModel @Inject constructor(
         // Writes the wall fingerprint + wall feature map to mapPath. False is routine when no AR wall
         // has been captured (nothing to save), so it is logged, not toasted - this runs on every autosave.
         if (!slamManager.saveModel(mapPath)) {
-            android.util.Log.w("EditorViewModel", "SLAM saveModel returned false for $projectId (no wall map to save, or write failed)")
+            android.util.Log.w(
+                "EditorViewModel",
+                "SLAM saveModel returned false for $projectId (no wall map to save, or write failed)",
+            )
         }
 
         val manifestToSave: GraffitiProject

@@ -75,6 +75,15 @@ internal object GpuImpastoV2Stroke {
             ?: (StrokeDabs.fromPath(stroke, brush, mapped, brushScale, width, height) to emptyList())
         // The GPU's tile grid serves both the wetness tiles and the media tiles.
         val usable = wetness == null || wetness.field.tileSize == material.tileSize
+        if (!usable) {
+            // One GPU tile grid serves both fields, so mismatched grids cannot be painted. The stroke
+            // is dropped (the caller keeps the layer as it was) - say so rather than do it silently.
+            android.util.Log.w(
+                TAG,
+                "Impasto v2 stroke dropped: wetness tile ${wetness?.field?.tileSize} " +
+                    "!= material tile ${material.tileSize}",
+            )
+        }
         val target = if (usable) SafeBitmap.copy(bitmap) else null
         // Recorded time is read only from samples that map 1:1 onto the path.
         val samples = stroke.brushSamples.takeIf { it.size == mapped.size }
