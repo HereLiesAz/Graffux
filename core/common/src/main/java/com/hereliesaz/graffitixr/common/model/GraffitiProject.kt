@@ -168,6 +168,12 @@ data class GraffitiProject(
     val documentWidth: Int = 1080,
     val documentHeight: Int = 1080,
 
+    // The canvas surface (SubstratePreset.id: "smooth", "cold_press", "canvas_weave",
+    // "brick_concrete") every stamp stroke in this project deposits against. Stored as the stable id
+    // string so the file format doesn't depend on the engine's enum; projects saved before substrates
+    // existed (and any id this build doesn't know) open as Smooth, their historical look.
+    val canvasSubstrateId: String = "smooth",
+
     // The 3D model loaded into the project, and the texture painted onto it. Both are copied into
     // the project folder rather than referenced where the user picked them: a document picker URI
     // is a grant that expires, so a project reopened next week would find its own model gone. Being

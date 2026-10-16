@@ -28,11 +28,14 @@ internal data class StampPaint(
     val grain: Bitmap?,
     val maskShape: Bitmap?,
     val seed: Long,
+    /** The stroke's snapshotted canvas substrate; null = the exact historical (smooth) path. */
+    val substrate: StampSubstrate? = null,
 ) {
     companion object {
         fun of(stroke: StrokeCommand, brush: AzphaltBrush) = StampPaint(
             brush, stroke.brushColor, stroke.secondaryBrushColor, stroke.flow,
             stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
+            StampSubstrate.of(stroke.substrateId, brush),
         )
     }
 }
@@ -51,8 +54,9 @@ internal object GpuStampCommit {
     /**
      * [stroke] painted onto a copy of [bitmap] on the GPU, unclipped; null when the GPU is
      * unavailable. Same dab lists as DrawingEngine's CPU branch ([StrokeDabs]), so the two only
-     * ever differ in the rasterizer. The caller excludes impasto and substrate strokes, whose CPU
-     * material state the GPU commit doesn't model.
+     * ever differ in the rasterizer. The caller excludes impasto strokes (GpuImpastoStroke /
+     * GpuImpastoV2Stroke own those); a substrate stroke paints here like any other, against the
+     * surface it snapshotted ([StampPaint.substrate]).
      */
     fun paintStroke(
         bitmap: Bitmap,
@@ -135,9 +139,14 @@ internal object GpuStampCommit {
     fun stampOnto(engine: GpuStampEngine, batches: List<Pair<List<Dab>, List<Dab>>>, paint: StampPaint): Boolean {
         val brush = paint.brush
         val baseFlow = paint.flow.coerceIn(0f, 1f)
-        if (gpuPipelineUsesMaskedShader(brush, paint.shape, paint.grain)) {
-            val stamper = MaskedStamper(engine, paint, baseFlow)
-            return batches.all { (movement, held) -> stamper.stampAll(movement, held) }
+        val substrate = paint.substrate
+        // The tile must be resident before a substrate stamp; the engine refuses one otherwise.
+        val hasDabs = batches.any { (m, h) -> m.isNotEmpty() || h.isNotEmpty() }
+        val substrateReady = substrate == null || !hasDabs || substrate.prepare(engine)
+        if (!substrateReady || gpuPipelineUsesMaskedShader(brush, paint.shape, paint.grain)) {
+            return substrateReady && MaskedStamper(engine, paint, baseFlow).let { stamper ->
+                batches.all { (movement, held) -> stamper.stampAll(movement, held) }
+            }
         }
         fun resolve(dab: Dab) = ResolvedBrushDab(
             x = dab.x,
@@ -149,11 +158,15 @@ internal object GpuStampCommit {
             flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
             hardness = dab.hardness,
             contactDepth = dab.contactDepth,
+            substrateResponse = substrate?.response ?: 0f,
         )
+        val params = substrate?.params
         return batches.all { (movement, held) ->
             (movement.isEmpty() ||
-                engine.stampResolvedDabs(movement.map(::resolve), buildUp = brush.buildUp, strokeMax = true)) &&
-                (held.isEmpty() || engine.stampResolvedDabs(held.map(::resolve), buildUp = true))
+                engine.stampResolvedDabs(
+                    movement.map(::resolve), buildUp = brush.buildUp, substrate = params, strokeMax = true,
+                )) &&
+                (held.isEmpty() || engine.stampResolvedDabs(held.map(::resolve), buildUp = true, substrate = params))
         }
     }
 }
@@ -178,6 +191,7 @@ private class MaskedStamper(
         )
     }
     private val secondaryMaskSize = if (secondaryMask != null) GPU_MASK_REFERENCE_SIZE else 0
+    private val substrate = paint.substrate
 
     /** Held dabs carry no secondary geometry live either (renderStampLive's secondaryHeldDabs). */
     fun stampAll(movementDabs: List<Dab>, heldDabs: List<Dab>): Boolean =
@@ -193,6 +207,7 @@ private class MaskedStamper(
         flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
         tipRatio = dab.tipRatio,
         contactDepth = dab.contactDepth,
+        substrateResponse = substrate?.response ?: 0f,
     )
 
     /** Null when a dual-tip brush's dabs lost their secondary geometry: not drawable faithfully. */
@@ -213,6 +228,7 @@ private class MaskedStamper(
             brush.grainBehavior == GrainBehavior.CANVAS_LOCKED, brush.grainScale,
             grainResolution.phaseX, grainResolution.phaseY,
             secondaryDabs, secondaryMask, secondaryMaskSize, secondaryMaskSize,
+            substrate?.params,
         )
     }
 }

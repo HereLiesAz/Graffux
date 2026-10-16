@@ -224,6 +224,11 @@ fun BrushStudioWindow(
                 shape = AzButtonShape.RECTANGLE,
             )
             if (showTexture) {
+                // The canvas surface is per project (Document size → Surface); this is how much this
+                // brush feels it. 0 keeps the brush exactly as it painted before surfaces existed.
+                ParamSlider("Substrate response", draft.substrateResponse, 0f..1f) { v ->
+                    onEdit { it.copy(substrateResponse = v) }
+                }
                 if (draft.grainPath == null) {
                     Text("No grain asset in this brush. Installed brush packages can provide one.", style = MaterialTheme.typography.labelSmall)
                 } else {

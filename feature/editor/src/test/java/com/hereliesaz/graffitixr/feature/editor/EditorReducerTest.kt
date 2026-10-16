@@ -327,4 +327,13 @@ class EditorReducerTest {
         assertEquals(0.2f, out.layers.first().opacity)
         assertEquals(listOf(1f, 2f), out.layers.first().warpMesh)
     }
+
+    @Test
+    fun `SetCanvasSubstrate sets the project surface and normalises unknown ids to smooth`() {
+        val s = state()
+        assertEquals("smooth", s.canvasSubstrateId)
+        val woven = reduce(s, EditorIntent.SetCanvasSubstrate("canvas_weave"))
+        assertEquals("canvas_weave", woven.canvasSubstrateId)
+        assertEquals("smooth", reduce(woven, EditorIntent.SetCanvasSubstrate("velvet")).canvasSubstrateId)
+    }
 }

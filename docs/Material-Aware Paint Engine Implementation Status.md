@@ -125,7 +125,7 @@ Compatibility/backend gate:
 - ✅ Imported Krita presets keep pickup at the Graffux default of zero.
 - ✅ Positive pickup has native/Vulkan support; unsupported/failed GPU execution recomputes through the CPU reference instead of silently ignoring pickup.
 
-### Phase 3 — Substrate-aware deposition and dry-brush breakup — 🟡 backend implemented; product activation/hardware gate remain
+### Phase 3 — Substrate-aware deposition and dry-brush breakup — 🟡 backend and product activation implemented; hardware gate remains
 
 Implemented:
 
@@ -140,10 +140,11 @@ Implemented:
 - ✅ Vulkan has a dedicated static R8 substrate texture rather than hijacking brush grain, plus the existing-height channel needed for CPU/Vulkan valley-filling parity.
 - ✅ Substrate response `0` preserves the historical renderer path.
 - ✅ Hosted native/shader/editor validation for the Phase-3 Vulkan tranches is landed.
+- ✅ Editor substrate session state: the project picks a canvas surface (`SubstratePreset`: Smooth, Cold-press paper, Canvas weave, Brick / concrete; procedurally generated, deterministic 128² R8 tiles) from Document size → Surface. It is stored in the project file (`GraffitiProject.canvasSubstrateId`; missing or unknown id = Smooth), routed through `EditorIntent.SetCanvasSubstrate` → `EditorReducer` → `EditorUiState.canvasSubstrateId`, and snapshotted on each stamp `StrokeCommand.substrateId` so undo/redo/replay deposit against the surface the stroke was drawn on (legacy commands = Smooth).
+- ✅ Per-brush `AzphaltBrush.substrateResponse` (0..1, default 0; Brush Studio → Texture → Substrate response; parsed from brush params with 0 when absent). Live stroke, commit and replay resolve the same `StampSubstrate` and upload the preset tile once per engine; a Smooth surface or zero response passes no substrate, which is the exact historical stamp path. The Basic Brush (no Azphalt brush) never takes the substrate.
 
 Still open:
 
-- 🟡 The editor does not yet expose a selected substrate/media session state, so backend substrate profiles are not yet a normal product-facing canvas choice.
 - 🟡 Real Android Vulkan execution remains a hardware parity gate.
 - ⬜ Optional fibre-direction/anisotropy behavior.
 
@@ -487,7 +488,7 @@ This is the recommended order from the current state, not the original dependenc
 3. Harden brush mechanics on real hardware: premium stylus, pressure-only/basic stylus, and finger traces; tune pressure/tilt/orientation confidence and lifecycle behavior.
 4. Tune the initial **Round / Flat / Filbert / Rigger / Fan / Rake** archetypes with visual reference strokes rather than exposing raw solver coefficients prematurely.
 5. Measure the landed deterministic tuft capability tiers on representative Adreno/Mali devices and set evidence-based performance thresholds.
-6. Finish Phase-3 product activation: choose/wire editor substrate/media session state and execute the real-device Vulkan parity gate.
+6. Finish Phase-3 product activation: execute the real-device Vulkan parity gate for substrate strokes (editor substrate session state, presets and per-brush response are wired).
 7. Build the tuned **Phase 7 semantic media-profile catalogue/product controls** on the landed versioned profile boundary and completed Phase-3/4/5 material channels.
 8. Expand the versioned material sidecar only if a future feature introduces another canonical per-layer material channel; Phase-5 height + wetness persistence is already landed.
 9. Add/record representative artist-reference and physical-device validation for Phase-5 height settling and wet/dry optical response.
@@ -530,7 +531,7 @@ Even though the Phase-5 implementation and its canonical height/wetness persiste
 - representative physical-device telemetry validation;
 - physical tuft population **performance measurements/thresholds** on the already-landed deterministic capability tiers;
 - artist tuning/reference strokes for morphology and lifecycle behavior;
-- Phase-3 product activation and real-device substrate parity;
+- real-device substrate parity (Phase-3 product activation is wired);
 - representative-device performance/visual validation of the landed Phase-5 height settling and wet/dry optics;
 - tuned semantic media-profile catalogue/product UX after engine behavior is stable (the versioned core profile boundary is already landed);
 - persistence/version migration for any **future** canonical material channels beyond the currently persisted Phase-5 height + wetness state.

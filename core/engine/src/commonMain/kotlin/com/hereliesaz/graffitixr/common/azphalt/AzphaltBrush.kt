@@ -320,6 +320,14 @@ data class AzphaltBrush(
      * is coverage rather than ordinary opaque RGB and therefore needs conversion to alpha at load.
      */
     val tipFormat: String? = null,
+    /**
+     * How strongly this brush's dabs respect the project's canvas substrate (Phase 3: tooth,
+     * dry-brush breakup), 0..1. 0 (the default) ignores the substrate entirely and renders exactly as
+     * before substrates existed, whatever surface the project uses. Independent of
+     * [ImpastoMaterialConfig.substrateResponse], which governs the Impasto material solver. Appended
+     * to preserve the positional constructor/serialization contract.
+     */
+    val substrateResponse: Float = 0f,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -345,6 +353,7 @@ data class AzphaltBrush(
         count = count.coerceIn(1, 16),
         countJitter = countJitter.coerceIn(0f, 1f),
         impastoMaterial = impastoMaterial.sanitized(),
+        substrateResponse = substrateResponse.coerceIn(0f, 1f),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -494,6 +503,7 @@ data class AzphaltBrush(
                 countJitter = (f("countJitter") ?: 0f).coerceIn(0f, 1f),
                 impastoMaterial = impastoMaterial,
                 tipFormat = tipFormat,
+                substrateResponse = (f("substrateResponse") ?: 0f).coerceIn(0f, 1f),
             ).sanitized()
         }
     }

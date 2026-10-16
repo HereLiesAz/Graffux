@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.aznavrail.AzButton
 import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
@@ -29,13 +30,20 @@ import com.hereliesaz.graffitixr.design.components.FloatingWindow
  * instead (seeded from the current document); no Apply button there either — typing only updates
  * the local fields, and the values are pushed once, when the window closes. Closing the dialog
  * (however it closes) *is* applying it.
+ *
+ * Below the sizes sits the project's canvas surface ([SubstratePreset]): [currentSubstrateId] is
+ * ticked, and tapping another applies it through [onSubstrate] at once, leaving the window open.
+ * The surface only shows in brushes whose Substrate response is above zero.
  */
+@Suppress("FunctionNaming", "LongParameterList") // Composable naming; the two surface params are optional.
 @Composable
 fun DocumentSizeDialog(
     currentWidth: Int,
     currentHeight: Int,
     onConfirm: (width: Int, height: Int) -> Unit,
     onDismiss: () -> Unit,
+    currentSubstrateId: String = SubstratePreset.DEFAULT.id,
+    onSubstrate: (substrateId: String) -> Unit = {},
 ) {
     var showCustom by remember { mutableStateOf(false) }
     var widthText by remember { mutableStateOf(currentWidth.toString()) }
@@ -94,6 +102,16 @@ fun DocumentSizeDialog(
                     )
                     }
                 }
+
+            Text("Surface", modifier = Modifier.padding(top = 12.dp))
+            val currentSubstrate = SubstratePreset.fromId(currentSubstrateId)
+            SubstratePreset.entries.forEach { preset ->
+                AzButton(
+                    text = if (preset == currentSubstrate) "${preset.displayName} ✓" else preset.displayName,
+                    onClick = { onSubstrate(preset.id) },
+                    shape = AzButtonShape.RECTANGLE,
+                )
+            }
         }
     }
 }

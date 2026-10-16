@@ -198,6 +198,11 @@ data class StrokeCommand(
     // there, so replay interleaves them exactly as live did (StrokeDabs.batches). Null: legacy or
     // remote, replayed as all movement dabs, then all held dabs.
     val stampBatches: List<Int>? = null,
+    // Stamp strokes: the project's canvas substrate (SubstratePreset.id) when the stroke was drawn.
+    // Snapshotted so undo/redo/replay deposits against the same tooth even after the project's
+    // surface changes. Null (legacy/remote) and unknown ids both mean Smooth, the historical path;
+    // it only affects a brush whose substrateResponse is above 0 (see StampSubstrate).
+    val substrateId: String? = null,
 )
 
 /**
@@ -992,6 +997,9 @@ class EditorViewModel @Inject constructor(
     private var stampShapeForStroke: Bitmap? = null
     private var stampGrainForStroke: Bitmap? = null
     private var stampMaskShapeForStroke: Bitmap? = null
+    /** The stroke's canvas substrate, snapshotted at its start: live, commit and replay share it. */
+    private var stampSubstrateForStroke: StampSubstrate? = null
+    private var stampSubstrateIdForStroke: String? = null
     // Bitmap-space stroke points, appended incrementally so each drag frame maps only the NEW points
     // instead of re-mapping the whole stroke (interleaved [x0,y0,…]).
     private val stampMappedPoints = ArrayList<Float>()
@@ -1438,6 +1446,7 @@ class EditorViewModel @Inject constructor(
                             ),
                         )
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
+                        dispatch(EditorIntent.SetCanvasSubstrate(project.canvasSubstrateId))
                         dispatch(EditorIntent.SetSavedSelections(project.savedSelections))
                         restoreModel(project)
 
@@ -3315,6 +3324,7 @@ class EditorViewModel @Inject constructor(
                 cloudPointsPath = cloudPointsPath,
                 documentWidth = _uiState.value.documentWidth,
                 documentHeight = _uiState.value.documentHeight,
+                canvasSubstrateId = _uiState.value.canvasSubstrateId,
                 savedSelections = _uiState.value.savedSelections,
             )
             projectRepository.createProject(manifestToSave)
@@ -3333,6 +3343,7 @@ class EditorViewModel @Inject constructor(
                     cloudPointsPath = cloudPointsPath,
                     documentWidth = _uiState.value.documentWidth,
                     documentHeight = _uiState.value.documentHeight,
+                    canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
                 )
             }
@@ -3618,6 +3629,16 @@ class EditorViewModel @Inject constructor(
     /** Sets the artboard / document size and persists it to the current project. */
     fun setDocumentSize(width: Int, height: Int) {
         dispatch(EditorIntent.SetDocumentSize(width, height))
+        saveProject()
+    }
+
+    /**
+     * Sets the project's canvas surface ([com.hereliesaz.graffitixr.common.azphalt.SubstratePreset.id])
+     * and persists it. Applies to strokes drawn from now on; each existing stroke keeps the surface it
+     * snapshotted ([StrokeCommand.substrateId]), so nothing already painted changes.
+     */
+    fun setCanvasSubstrate(substrateId: String) {
+        dispatch(EditorIntent.SetCanvasSubstrate(substrateId))
         saveProject()
     }
 
@@ -4706,6 +4727,8 @@ class EditorViewModel @Inject constructor(
             stampShapeForStroke = activeStampShape
             stampGrainForStroke = activeStampGrain
             stampMaskShapeForStroke = activeStampMaskShape
+            stampSubstrateIdForStroke = state.canvasSubstrateId
+            stampSubstrateForStroke = StampSubstrate.of(state.canvasSubstrateId, stampBrush)
             val currentSeed = System.nanoTime()
             stampSeed = currentSeed
             stampStampedCount = 0
@@ -5619,6 +5642,11 @@ class EditorViewModel @Inject constructor(
             val colorArgb = _uiState.value.activeColor.toArgb()
             val secondaryColorArgb = _uiState.value.secondaryColor.toArgb()
             val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
+            // The stroke's snapshotted substrate: the commit and replay resolve the same one from
+            // StrokeCommand.substrateId (StampPaint.of), so live == committed == replayed.
+            val substrate = stampSubstrateForStroke
+            val substrateParams = substrate?.params
+            val substrateResponse = substrate?.response ?: 0f
             // Hoisted above the movement/held-specific branches below so Impasto (further down)
             // can deposit/shade the exact same dabs those branches just painted, without
             // re-slicing after stampStampedCount/stampHeldStampedCount have already advanced.
@@ -5755,7 +5783,9 @@ class EditorViewModel @Inject constructor(
                     // stampGpuUsesMaskedPipeline's for which of the two shaders this stroke
                     // uses. A failure here disables it for the rest of THIS stroke only; the
                     // preview stops there and the commit paints the whole stroke on the GPU.
-                    gpuHandled = if (usesMasked) {
+                    gpuHandled = if (substrate != null && !substrate.prepare(engine)) {
+                        false
+                    } else if (usesMasked) {
                         if (maskAlpha8 == null) {
                             false
                         } else {
@@ -5772,6 +5802,7 @@ class EditorViewModel @Inject constructor(
                                     flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                     tipRatio = dab.tipRatio,
                                     contactDepth = dab.contactDepth,
+                                    substrateResponse = substrateResponse,
                                 )
                             }
                             val secondaryDabs = if (hasDualBrush && newDabs.all { it.mask != null }) {
@@ -5800,6 +5831,7 @@ class EditorViewModel @Inject constructor(
                                     grainPhaseX, grainPhaseY,
                                     secondaryDabs, secondaryMaskAlpha8,
                                     secondaryMaskSize, secondaryMaskSize,
+                                    substrateParams,
                                 ) && (usesDirect || engine.readback(work))
                         }
                     } else {
@@ -5815,9 +5847,12 @@ class EditorViewModel @Inject constructor(
                             flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                             hardness = dab.hardness,
                             contactDepth = dab.contactDepth,
+                            substrateResponse = substrateResponse,
                         )
                         val gpuDabs = newDabs.map(::resolve)
-                        engine.stampResolvedDabs(gpuDabs, buildUp = brush.buildUp, strokeMax = true) &&
+                        engine.stampResolvedDabs(
+                            gpuDabs, buildUp = brush.buildUp, substrate = substrateParams, strokeMax = true,
+                        ) &&
                             (usesDirect || engine.readback(work))
                     }
                 }
@@ -5854,7 +5889,9 @@ class EditorViewModel @Inject constructor(
                 if (hasNewHeldDabs && engine != null &&
                     ((!hasNewMovementDabs && gpuActive) || gpuHandled)
                 ) {
-                    gpuHandledHeld = if (usesMasked) {
+                    gpuHandledHeld = if (substrate != null && !substrate.prepare(engine)) {
+                        false
+                    } else if (usesMasked) {
                         if (maskAlpha8 == null) {
                             false
                         } else {
@@ -5871,6 +5908,7 @@ class EditorViewModel @Inject constructor(
                                     flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                                     tipRatio = dab.tipRatio,
                                     contactDepth = dab.contactDepth,
+                                    substrateResponse = substrateResponse,
                                 )
                             }
                             val secondaryHeldDabs = emptyList<SecondaryBrushDab>()
@@ -5882,6 +5920,7 @@ class EditorViewModel @Inject constructor(
                                 grainPhaseX, grainPhaseY,
                                 secondaryHeldDabs, secondaryMaskAlpha8,
                                 secondaryMaskSize, secondaryMaskSize,
+                                substrateParams,
                             ) && (usesDirect || engine.readback(work))
                         }
                     } else {
@@ -5897,9 +5936,10 @@ class EditorViewModel @Inject constructor(
                             flow = (baseFlow * dab.flowMultiplier).coerceAtLeast(0f),
                             hardness = dab.hardness,
                             contactDepth = dab.contactDepth,
+                            substrateResponse = substrateResponse,
                         )
                         val gpuHeldDabs = newHeldDabs.map(::resolveHeld)
-                        engine.stampResolvedDabs(gpuHeldDabs, buildUp = true) &&
+                        engine.stampResolvedDabs(gpuHeldDabs, buildUp = true, substrate = substrateParams) &&
                             (usesDirect || engine.readback(work))
                     }
                     if (!gpuHandledHeld && gpuActive) {
@@ -6484,6 +6524,7 @@ class EditorViewModel @Inject constructor(
         val color = state.activeColor.toArgb()
         val brushSize = state.effectivePaintBrushSize()
         val flow = state.brushFlow
+        val substrateId = stampSubstrateIdForStroke
         val command = StrokeCommand(
             path = points,
             brushSamples = brushSamples,
@@ -6509,6 +6550,7 @@ class EditorViewModel @Inject constructor(
             wrapFrameWidth = strokeLayerFrame.width,
             wrapFrameHeight = strokeLayerFrame.height,
             stampBatches = handoff.batches,
+            substrateId = substrateId,
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
@@ -9098,6 +9140,8 @@ class EditorViewModel @Inject constructor(
         stampShapeForStroke = null
         stampGrainForStroke = null
         stampMaskShapeForStroke = null
+        stampSubstrateForStroke = null
+        stampSubstrateIdForStroke = null
         stampMappedPoints.clear()
         stampPendingMovementDabs.clear()
         synchronized(stampLiveLock) { stampBatchLog.clear() }
