@@ -47,9 +47,9 @@ data class MultipassSettings(
     )
 
     /**
-     * These settings under a device budget (the tier's draft scale, quality levels, refinement
-     * fraction and tile size, all thermally scaled): the user's choices stay, the budget's replace
-     * the engine defaults.
+     * These settings under a device budget: the tier's draft scale, quality levels ([passes]),
+     * refinement fraction and tile size (all thermally scaled) replace whatever these settings held,
+     * user-chosen or default. The remaining settings (transition, overtake, ...) are kept.
      */
     fun withBudget(budget: MultipassBudget?): MultipassSettings = if (budget == null) {
         this

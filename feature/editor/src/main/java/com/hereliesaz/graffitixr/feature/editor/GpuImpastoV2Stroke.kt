@@ -39,13 +39,14 @@ internal class LiveWetEngine(val engine: GpuStampEngine, val key: List<Any?>)
 internal class StrokeSelection(val clipPath: Path?, val featherRadius: Float)
 
 /**
- * An Impasto v2 stroke (the wet material simulation) on the GPU, in one engine session, in the
- * CPU's order (DrawingEngine's v2 branch): the wet material already on the layer advances to the
+ * An Impasto v2 stroke (the wet material simulation) on the GPU, in one engine session: the wet
+ * material already on the layer advances to the
  * stroke's first recorded sample (levelling, pigment transport, wetness drying); the colour is
  * stamped into the raw pigment and kept through the selection; height and reservoir transfer and
  * wetness deposit follow the dabs; one fixed post-contact settle; then the touched region's lit
  * presentation is rebuilt from the raw pigment. The engine's solvers (core/wgpu-engine `wet.wgsl`)
- * follow the CPU references step for step, checked by `tests/wet.rs`.
+ * follow the core/engine Kotlin references (WetMaterialTransport, ImpastoEngine) step for step,
+ * checked by `tests/wet.rs`.
  */
 internal object GpuImpastoV2Stroke {
 
@@ -74,8 +75,17 @@ internal object GpuImpastoV2Stroke {
             ?: (StrokeDabs.fromPath(stroke, brush, mapped, brushScale, width, height) to emptyList())
         // The GPU's tile grid serves both the wetness tiles and the media tiles.
         val usable = wetness == null || wetness.field.tileSize == material.tileSize
+        if (!usable) {
+            // One GPU tile grid serves both fields, so mismatched grids cannot be painted. The stroke
+            // is dropped (the caller keeps the layer as it was) - say so rather than do it silently.
+            android.util.Log.w(
+                TAG,
+                "Impasto v2 stroke dropped: wetness tile ${wetness?.field?.tileSize} " +
+                    "!= material tile ${material.tileSize}",
+            )
+        }
         val target = if (usable) SafeBitmap.copy(bitmap) else null
-        // The CPU reads recorded time only from samples that map 1:1 onto the path.
+        // Recorded time is read only from samples that map 1:1 onto the path.
         val samples = stroke.brushSamples.takeIf { it.size == mapped.size }
         val batches = StrokeDabs.batches(movementDabs, heldDabs, stroke.stampBatches)
         val times = samples?.firstOrNull()?.uptimeMillis to samples?.lastOrNull()?.uptimeMillis
@@ -106,13 +116,16 @@ internal object GpuImpastoV2Stroke {
 
     /**
      * The selection as per-pixel coverage: the feather mask's alpha, or the hard clip as 0/1 (the
-     * CPU clips the colour to it and gates height and wetness with it); null without a selection.
+     * colour is clipped to it and height and wetness are gated by it); null without a selection.
      */
     fun coverage(selection: StrokeSelection, width: Int, height: Int): FloatArray? {
         val clip = selection.clipPath
         return when {
             clip == null -> null
-            selection.featherRadius > 0f -> featherCoverage(clip, width, height, selection.featherRadius)
+            // A feather mask that cannot be allocated still clips, hard-edged: null here would read
+            // as "no selection" and paint the whole layer.
+            selection.featherRadius > 0f ->
+                featherCoverage(clip, width, height, selection.featherRadius) ?: hardCoverage(clip, width, height)
             else -> hardCoverage(clip, width, height)
         }
     }
@@ -132,7 +145,7 @@ internal object GpuImpastoV2Stroke {
         return out
     }
 
-    /** The union of [dabs]' CPU pixel boxes whose [control] flag is set (the CPU's dirty union). */
+    /** The union of [dabs]' pixel boxes whose [control] flag is set (DirtyRegion.fromDabs's union). */
     private fun touched(dabs: List<Dab>, control: IntArray, offset: Int, width: Int, height: Int): DirtyRegion? {
         var out: DirtyRegion? = null
         dabs.forEachIndexed { i, d ->

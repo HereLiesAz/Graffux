@@ -78,9 +78,8 @@ object ToolRanking {
 
     /**
      * A tool name that survived a rename or a deletion is not a tool. Returning null rather than
-     * throwing is what lets a stored list outlive an edit to the enum — `Tool.CROP` was removed
-     * during this audit, and any device that had used it would otherwise crash reading its own
-     * preferences.
+     * throwing is what lets a stored list outlive an edit to the enum — `Tool.CROP` has been
+     * removed, and any device that had used it would otherwise crash reading its own preferences.
      */
     private fun toolOrNull(name: String): Tool? = Tool.entries.firstOrNull { it.name == name }
 }

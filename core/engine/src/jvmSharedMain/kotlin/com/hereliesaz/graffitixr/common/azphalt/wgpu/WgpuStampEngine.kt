@@ -19,7 +19,7 @@ package com.hereliesaz.graffitixr.common.azphalt.wgpu
  */
 @Suppress("TooManyFunctions")
 class WgpuStampEngine private constructor(
-    private var handle: Long,
+    @Volatile private var handle: Long,
     val width: Int,
     val height: Int,
 ) : AutoCloseable {
@@ -53,7 +53,14 @@ class WgpuStampEngine private constructor(
     }
 
     /** An R8 image (tip mask, grain tile, secondary mask). */
-    class AlphaImage(val pixels: ByteArray, val width: Int, val height: Int)
+    class AlphaImage(val pixels: ByteArray, val width: Int, val height: Int) {
+        init {
+            // The native side reads width * height bytes; a short buffer must not reach it.
+            require(width >= 0 && height >= 0 && pixels.size.toLong() >= width.toLong() * height) {
+                "AlphaImage ${width}x$height needs ${width.toLong() * height} bytes, got ${pixels.size}"
+            }
+        }
+    }
 
     val isAlive: Boolean get() = handle != 0L
 
@@ -89,7 +96,7 @@ class WgpuStampEngine private constructor(
         buildUp: Boolean = false,
         substrate: Substrate? = null,
         strokeMax: Boolean = false,
-    ): Boolean = handle != 0L && dabs.size >= DAB_FLOATS &&
+    ): Boolean = handle != 0L && dabs.size >= DAB_FLOATS && dabs.size % DAB_FLOATS == 0 &&
         WgpuNative.nativeStampDabs(handle, dabs, colorArgb, hardness, buildUp, substrate?.toArray(), strokeMax)
 
     /** `stampMaskedDabs`. [secondaryDabs], when given, holds one [SECONDARY_FLOATS] record per dab. */
@@ -107,7 +114,7 @@ class WgpuStampEngine private constructor(
         secondaryDabs: FloatArray? = null,
         secondaryMask: AlphaImage? = null,
         substrate: Substrate? = null,
-    ): Boolean = handle != 0L && dabs.size >= DAB_FLOATS && WgpuNative.nativeStampMaskedDabs(
+    ): Boolean = handle != 0L && dabs.size >= DAB_FLOATS && dabs.size % DAB_FLOATS == 0 && WgpuNative.nativeStampMaskedDabs(
         handle, dabs, colorArgb, 0f, mask.pixels, mask.width, mask.height,
         grain?.pixels, grain?.width ?: 0, grain?.height ?: 0, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
         secondaryDabs, secondaryMask?.pixels, secondaryMask?.width ?: 0, secondaryMask?.height ?: 0,
@@ -136,7 +143,8 @@ class WgpuStampEngine private constructor(
     )
 
     /** Copies the rectangle dirtied since the last readback into [out] (`width * height * 4` bytes). */
-    @Synchronized fun readback(out: ByteArray): Boolean = handle != 0L && WgpuNative.nativeReadback(handle, out)
+    @Synchronized fun readback(out: ByteArray): Boolean =
+        handle != 0L && out.size.toLong() >= layerBytes() && WgpuNative.nativeReadback(handle, out)
 
     /**
      * [readback] that returns the rectangle it copied (only that rectangle crosses from the GPU), an
@@ -144,7 +152,7 @@ class WgpuStampEngine private constructor(
      */
     @Synchronized
     fun readbackRect(out: ByteArray): PixelRect? {
-        if (handle == 0L) return null
+        if (handle == 0L || out.size.toLong() < layerBytes()) return null
         val rect = IntArray(RECT_INTS)
         return if (WgpuNative.nativeReadbackRect(handle, out, rect)) PixelRect(rect[0], rect[1], rect[2], rect[3]) else null
     }
@@ -152,7 +160,10 @@ class WgpuStampEngine private constructor(
     /** Reads [rect] of the layer into [out], tightly packed (`rect.width * 4` bytes per row). */
     @Synchronized
     fun readRegion(rect: PixelRect, out: ByteArray): Boolean =
-        handle != 0L && WgpuNative.nativeReadRegion(handle, rect.x, rect.y, rect.width, rect.height, out)
+        handle != 0L && out.size.toLong() >= rect.width.toLong() * rect.height * BYTES_PER_PIXEL &&
+            WgpuNative.nativeReadRegion(handle, rect.x, rect.y, rect.width, rect.height, out)
+
+    private fun layerBytes(): Long = width.toLong() * height * BYTES_PER_PIXEL
 
     // ---- Resident layers (core/wgpu-engine/src/resident.rs) ----------------------------------
     // A layer stays on the GPU across strokes, keyed by [layerKey] and tagged with a content
@@ -233,6 +244,7 @@ class WgpuStampEngine private constructor(
         const val SECONDARY_FLOATS = 8
         const val SMUDGE_FLOATS = 11
         private const val RECT_INTS = 4
+        private const val BYTES_PER_PIXEL = 4
 
         /** Null when the library is missing or there is no usable GPU adapter. */
         fun create(width: Int, height: Int, backend: Backend = Backend.AUTO): WgpuStampEngine? {

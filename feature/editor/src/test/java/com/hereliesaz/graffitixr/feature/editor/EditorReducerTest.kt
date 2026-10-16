@@ -207,12 +207,6 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `ToggleHandedness flips the handedness flag`() {
-        val s = state(lyr("a")).copy(isRightHanded = true)
-        assertFalse(reduce(s, EditorIntent.ToggleHandedness).isRightHanded)
-    }
-
-    @Test
     fun `SetBrushSizeFixedOnScreen mirrors the persisted Settings toggle into UiState`() {
         val s = state(lyr("a")).copy(brushSizeFixedOnScreen = false)
         assertTrue(reduce(s, EditorIntent.SetBrushSizeFixedOnScreen(true)).brushSizeFixedOnScreen)
@@ -231,7 +225,7 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `RemoveLayerById drops the layer without reactivating (spectator path)`() {
+    fun `RemoveLayerById drops the layer and falls back to the next drawable one (spectator path)`() {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.RemoveLayerById("a"))
         assertEquals(listOf("b"), out.layers.map { it.id })
@@ -277,11 +271,18 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `SetLayers replaces the list but leaves active id untouched`() {
+    fun `SetLayers replaces the list and keeps the active id while it survives`() {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.SetLayers(listOf(lyr("a"))))
         assertEquals(listOf("a"), out.layers.map { it.id })
         assertEquals("a", out.activeLayerId)
+    }
+
+    @Test
+    fun `SetLayers reconciles an active id the new list no longer contains`() {
+        val s = state(lyr("a"), lyr("b"), active = "a")
+        val out = reduce(s, EditorIntent.SetLayers(listOf(lyr("b"))))
+        assertEquals("b", out.activeLayerId)
     }
 
     @Test
@@ -300,6 +301,27 @@ class EditorReducerTest {
         val cleared = reduce(loaded, EditorIntent.ClearProject)
         assertNull(cleared.projectId)
         assertTrue(cleared.layers.isEmpty())
+    }
+
+    @Test
+    fun `ClearProject drops per-project leftovers the next project must not inherit`() {
+        val dirty = state(lyr("a")).copy(
+            colorStyles = listOf(com.hereliesaz.graffitixr.common.model.ColorStyle(name = "c", argb = 0xFF000000)),
+            cloneSource = androidx.compose.ui.geometry.Offset(5f, 6f),
+            isEyedropping = true,
+            isAnimationMode = true,
+            activeFrameIndex = 3,
+            undoCount = 4,
+            redoCount = 2,
+        )
+        val cleared = reduce(dirty, EditorIntent.ClearProject)
+        assertTrue(cleared.colorStyles.isEmpty())
+        assertNull(cleared.cloneSource)
+        assertFalse(cleared.isEyedropping)
+        assertFalse(cleared.isAnimationMode)
+        assertEquals(0, cleared.activeFrameIndex)
+        assertEquals(0, cleared.undoCount)
+        assertEquals(0, cleared.redoCount)
     }
 
     @Test

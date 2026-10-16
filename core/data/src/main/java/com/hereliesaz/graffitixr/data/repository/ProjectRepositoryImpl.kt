@@ -11,11 +11,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,32 +30,60 @@ class ProjectRepositoryImpl @Inject constructor(
     private val _currentProject = MutableStateFlow<GraffitiProject?>(null)
     override val currentProject: StateFlow<GraffitiProject?> = _currentProject.asStateFlow()
 
-    // Serializes the disk write in [updateProject]'s transform overload so two concurrent transforms
-    // (the editor's layer save and AR's wall-feature-map save) always persist the latest merged state.
+    // Serializes every project write and every swap of [_currentProject] (create, load, import,
+    // delete, and the transform overload of [updateProject]). A transform is applied and saved under
+    // this lock, so it always persists the project it edited -- a concurrent project switch can't
+    // redirect the save to a different project -- and two concurrent transforms (the editor's layer
+    // save and AR's wall-feature-map save) persist the latest merged state in order.
     private val saveMutex = Mutex()
+
+    // Ids deleted this session. A late saveArtifact (debounced layer write, thumbnail job) for one of
+    // them must not recreate its directory. Cleared when the id is created/loaded/imported again.
+    // Guarded by [saveMutex].
+    private val deletedIds = mutableSetOf<String>()
 
     // Backing state for the project list so observers see creates/deletes/imports,
     // as the ProjectRepository contract promises. A plain cold flow emitted once.
     private val _projects = MutableStateFlow<List<GraffitiProject>>(emptyList())
-    override val projects: Flow<List<GraffitiProject>> = _projects.onStart { refreshProjects() }
+    override val projects: Flow<List<GraffitiProject>> = _projects.onStart {
+        saveMutex.withLock { _projects.value = getProjects() }
+    }
 
-    private suspend fun refreshProjects() {
-        _projects.value = getProjects()
+    /**
+     * Re-reads just [id] from disk and patches the published list, instead of re-parsing every
+     * project.json on every edit. Callers hold [saveMutex], so publishes are ordered.
+     */
+    private suspend fun refreshProject(id: String) {
+        val fresh = getProject(id)
+        _projects.update { list ->
+            val index = list.indexOfFirst { it.id == id }
+            when {
+                fresh == null -> list.filterNot { it.id == id }
+                index >= 0 -> list.toMutableList().also { it[index] = fresh }
+                else -> list + fresh
+            }
+        }
     }
 
     override suspend fun createProject(name: String): GraffitiProject {
         val newProject = GraffitiProject(name = name)
-        projectManager.saveProject(context, newProject)
-        _currentProject.value = newProject
-        refreshProjects()
+        saveMutex.withLock {
+            projectManager.saveProject(context, newProject)
+            deletedIds.remove(newProject.id)
+            _currentProject.value = newProject
+            refreshProject(newProject.id)
+        }
         return newProject
     }
 
     override suspend fun createProject(project: GraffitiProject) {
         require(projectManager.isSafeProjectId(project.id)) { "Unsafe project id: ${project.id}" }
-        projectManager.saveProject(context, project)
-        _currentProject.value = project
-        refreshProjects()
+        saveMutex.withLock {
+            projectManager.saveProject(context, project)
+            deletedIds.remove(project.id)
+            _currentProject.value = project
+            refreshProject(project.id)
+        }
     }
 
     override suspend fun getProject(id: String): GraffitiProject? {
@@ -67,9 +97,10 @@ class ProjectRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun loadProject(id: String): Result<Unit> {
+    override suspend fun loadProject(id: String): Result<Unit> = saveMutex.withLock {
         val project = getProject(id)
-        return if (project != null) {
+        if (project != null) {
+            deletedIds.remove(id)
             _currentProject.value = project
             Result.success(Unit)
         } else {
@@ -78,68 +109,71 @@ class ProjectRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateProject(project: GraffitiProject) {
-        projectManager.saveProject(context, project)
-        if (_currentProject.value?.id == project.id) {
-            _currentProject.value = project
+        saveMutex.withLock {
+            projectManager.saveProject(context, project)
+            if (_currentProject.value?.id == project.id) {
+                _currentProject.value = project
+            }
+            refreshProject(project.id)
         }
-        refreshProjects()
     }
 
     override suspend fun updateProject(transform: (GraffitiProject) -> GraffitiProject) {
-        // Apply the transform atomically against the live state so two concurrent callers can't both
-        // read the same base and clobber each other's mutation.
-        val updated = _currentProject.updateAndGet { current -> current?.let(transform) } ?: return
-        // Persist under the same mutex deleteProject uses, and write the LATEST merged state (not
-        // this call's `updated` snapshot), so a concurrent transform's disk write can't overwrite
-        // the file with a staler in-memory value. This is what makes the editor's layer save and
-        // AR's wall-map save non-destructive when they run at the same time (docs/AUDIT.md save-race).
+        // Transform and save under one lock: the project saved is exactly the one the transform
+        // edited, a project switch (which takes the same lock) can't land in between, and a
+        // concurrent deleteProject can't be followed by a save that resurrects its directory
+        // (after a delete `_currentProject` is null, so there is nothing to transform or save).
         saveMutex.withLock {
-            // If currentProject is null here, this project was deleted by a concurrent
-            // deleteProject() while we were between updateAndGet and acquiring the lock (`updated`
-            // was non-null, so this can't be "never had a project" — deleteProject is the only other
-            // writer that nulls it). Falling back to `updated` would resurrect the just-deleted
-            // project's directory; skip the save and let the delete stand.
-            val toSave = _currentProject.value ?: return@withLock
-            projectManager.saveProject(context, toSave)
+            val updated = _currentProject.updateAndGet { current -> current?.let(transform) } ?: return@withLock
+            projectManager.saveProject(context, updated)
+            refreshProject(updated.id)
         }
-        refreshProjects()
     }
 
     override suspend fun deleteProject(id: String) {
-        // Same mutex as updateProject's transform overload: without it, a delete racing a concurrent
-        // updateProject{...} could lose the race after the transform reads `_currentProject.value`
-        // but before its save — that save would then recreate the just-deleted project's directory
-        // and resurrect it on disk and in the project list.
         saveMutex.withLock {
             projectManager.deleteProject(context, id)
+            deletedIds.add(id)
             if (_currentProject.value?.id == id) {
                 _currentProject.value = null
             }
+            refreshProject(id)
         }
-        refreshProjects()
     }
 
     override suspend fun saveArtifact(projectId: String, filename: String, data: ByteArray): String = withContext(Dispatchers.IO) {
         require(projectManager.isSafeProjectId(projectId)) { "Unsafe project id: $projectId" }
         val root = File(context.filesDir, "projects/$projectId")
-        if (!root.exists()) root.mkdirs()
         val file = requireNotNull(projectManager.resolveInside(root, filename)) {
             "Unsafe artifact filename: $filename"
         }
-        // Atomic write: a half-written map.bin / fingerprint can crash native loaders.
-        val tmp = File(root, "$filename.tmp")
-        tmp.writeBytes(data)
-        if (!tmp.renameTo(file)) {
-            tmp.copyTo(file, overwrite = true)
+        // Under the same lock as deleteProject, so a delete can't interleave with the write.
+        saveMutex.withLock {
+            if (projectId in deletedIds) {
+                // Deleted while this write was in flight: writing would recreate the directory as an
+                // invisible, never-reclaimed orphan.
+                return@withLock file.absolutePath
+            }
+            file.parentFile?.mkdirs()
+            // Atomic write: a half-written map.bin / fingerprint can crash native loaders. A unique
+            // temp name so concurrent writers to one filename can't share (and truncate) it.
+            val tmp = File(file.parentFile, "${file.name}.${UUID.randomUUID()}.tmp")
+            try {
+                tmp.writeBytes(data)
+                if (!tmp.renameTo(file)) {
+                    tmp.copyTo(file, overwrite = true)
+                }
+            } finally {
+                if (tmp.exists()) tmp.delete()
+            }
+            file.absolutePath
         }
-        if (tmp.exists()) tmp.delete()
-        file.absolutePath
     }
 
     override suspend fun updateTargetFingerprint(projectId: String, path: String) {
         // The transform overload, not getProject(id).copy(...): getProject used to read straight
         // from disk, independent of _currentProject, so it could miss an in-memory-only change (e.g.
-        // a layer edit whose disk write is still in flight) that exists at the moment this runs —
+        // a layer edit whose disk write is still in flight) that exists at the moment this runs --
         // and the plain updateProject(project) overload writes its stale copy unconditionally,
         // discarding that change everywhere it applies. Same hazard, same fix, as
         // EditorViewModel.setBackgroundImage. Guarded on id rather than assuming [projectId] is
@@ -155,8 +189,11 @@ class ProjectRepositoryImpl @Inject constructor(
     override suspend fun importProject(uri: android.net.Uri): Result<GraffitiProject> {
         val project = projectManager.importProjectFromUri(context, uri)
             ?: return Result.failure(Exception("Failed to import project from $uri"))
-        _currentProject.value = project
-        refreshProjects()
+        saveMutex.withLock {
+            deletedIds.remove(project.id)
+            _currentProject.value = project
+            refreshProject(project.id)
+        }
         return Result.success(project)
     }
 }

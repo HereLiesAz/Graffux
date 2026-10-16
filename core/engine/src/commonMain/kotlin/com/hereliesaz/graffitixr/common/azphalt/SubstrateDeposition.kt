@@ -110,16 +110,19 @@ class SubstrateField(
 
     private fun sampleIndex(canvasX: Float, canvasY: Float, profile: SubstrateProfile): Int {
         val scale = profile.textureScale.coerceAtLeast(0.05f)
-        val tx = wrap(floor(canvasX / scale + profile.textureOffsetX).toInt(), width)
-        val ty = wrap(floor(canvasY / scale + profile.textureOffsetY).toInt(), height)
+        // Float arithmetic, as the GPU shader does; only the wrap is widened.
+        val tx = wrap(floor(canvasX / scale + profile.textureOffsetX).toDouble(), width)
+        val ty = wrap(floor(canvasY / scale + profile.textureOffsetY).toDouble(), height)
         return ty * width + tx
     }
 
     private fun unsigned(value: Byte): Int = value.toInt() and 0xFF
 
-    private fun wrap(value: Int, size: Int): Int {
+    /** Wraps in Double so a huge offset tiles correctly instead of saturating at Int.MAX_VALUE. */
+    private fun wrap(value: Double, size: Int): Int {
+        if (!value.isFinite()) return 0
         val remainder = value % size
-        return if (remainder < 0) remainder + size else remainder
+        return (if (remainder < 0) remainder + size else remainder).toInt().coerceIn(0, size - 1)
     }
 }
 

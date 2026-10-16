@@ -26,7 +26,6 @@ class InkPenBlotTest {
 
     private fun line(startMs: Long, fromX: Float): List<BrushSample> = (1..20).map { i ->
         val x = fromX + i * 10f
-        // Speed left at 0 so the speed-thinning factor is 1 everywhere and cannot mask the blot.
         BrushSample(x, 0f, uptimeMillis = startMs + i * 8L, pressure = 1f, distancePx = x)
     }
 
@@ -55,7 +54,7 @@ class InkPenBlotTest {
         for (samples in listOf(sharpPress, restingPress)) {
             val committed = BrushStamps.dynamicDabs(samples, diameter, inkPen, seed).first()
             val generator = IncrementalDynamicDabGenerator(diameter, inkPen, seed)
-            val live = generator.append(samples.first(), predictedTotal = samples.last().distancePx).first()
+            val live = generator.appendLive(samples).first()
             assertEquals(committed.x, live.x, 1e-4f)
             assertEquals(committed.y, live.y, 1e-4f)
             assertEquals(committed.radius, live.radius, 1e-4f)

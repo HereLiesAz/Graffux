@@ -30,7 +30,8 @@ object LiveStrokeDabs {
             }
         } else {
             val generator = IncrementalStaticDabGenerator(diameterPx, brush, seed)
-            for (sample in samples) out.addAll(generator.appendPoint(sample.x, sample.y))
+            // Predicted (not-yet-real) samples never place dabs, as on the dynamic path.
+            for (sample in samples) if (!sample.predicted) out.addAll(generator.appendPoint(sample.x, sample.y))
         }
         return out
     }

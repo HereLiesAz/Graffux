@@ -106,9 +106,9 @@ fn blurred(x: i32, y: i32, factor: i32) -> vec4<f32> {
     let j0 = i32(floor(v));
     let tx = u - f32(i0);
     let ty = v - f32(j0);
-    let top = mix(small_texel(i0, j0, sw, sh), small_texel(i0 + 1, j0, sw, sh), tx);
+    let row_top = mix(small_texel(i0, j0, sw, sh), small_texel(i0 + 1, j0, sw, sh), tx);
     let bottom = mix(small_texel(i0, j0 + 1, sw, sh), small_texel(i0 + 1, j0 + 1, sw, sh), tx);
-    return mix(top, bottom, ty);
+    return mix(row_top, bottom, ty);
 }
 
 fn coverage(px: vec2<f32>) -> f32 {

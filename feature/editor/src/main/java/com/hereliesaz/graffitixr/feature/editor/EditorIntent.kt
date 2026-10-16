@@ -82,9 +82,8 @@ internal sealed interface EditorIntent {
     data class SetViewport(val offset: Offset, val zoom: Float, val rotation: Float = 0f) : EditorIntent
     /** Sets the active snap guide lines (world-space) shown while dragging; empty clears them. */
     data class SetSnapGuides(val x: List<Float>, val y: List<Float>) : EditorIntent
-    data object ToggleHandedness : EditorIntent
     /** Mirrors the persisted Settings "Right-handed" toggle into live UiState — see EditorViewModel's
-     *  init collector. Distinct from [ToggleHandedness] (an in-session flip with no [value] to pass). */
+     *  init collector. */
     data class SetHandedness(val value: Boolean) : EditorIntent
     /** Mirrors the persisted Settings "Imperial units" toggle into live UiState. */
     data class SetImperialUnits(val value: Boolean) : EditorIntent
@@ -92,7 +91,6 @@ internal sealed interface EditorIntent {
     data class SetBrushSizeFixedOnScreen(val value: Boolean) : EditorIntent
     /** Mirrors the persisted per-gesture action mapping into live UiState. */
     data class SetGestureMapping(val mapping: Map<GestureSlot, GestureAction>) : EditorIntent
-    data object ToggleDiagOverlay : EditorIntent
     data object FeedbackShown : EditorIntent
     data class SetBrushSize(val value: Float) : EditorIntent
     data class SetBrushFeathering(val value: Float) : EditorIntent

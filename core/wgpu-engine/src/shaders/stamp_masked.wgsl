@@ -1,4 +1,4 @@
-// WGSL port of core/nativebridge/src/main/cpp/shaders/stamp_masked.comp -- identical math. The
+// WGSL port of the retired GLSL stamp_masked.comp (deleted; this WGSL is now the only implementation) -- identical math. The
 // layer is a packed-RGBA8 storage buffer and the push constants are a uniform buffer, exactly as in
 // the GLES port (see stamp.wgsl's header). GLSL's texture() in a compute shader samples level 0, so
 // it maps to textureSampleLevel(..., 0.0) with the same filter/wrap state the C++ engines bind:

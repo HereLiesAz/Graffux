@@ -16,6 +16,9 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.Contribution
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
 
+/** Share of the screen height an extension panel's scrolling viewport may occupy. */
+internal const val PANEL_MAX_HEIGHT_FRACTION = 0.5f
+
 /**
  * Installed extensions, with a second level for the ones that offer more than one thing to run.
  * A code extension can declare several `contributes.filters`/`.tools`/`.commands`, each its own
@@ -35,7 +38,7 @@ fun ExtensionsPanel(
 ) {
     // The editor overlays this panel in a wrap-content Column. Give its lazy list a
     // finite viewport even when the host has no maximum height constraint.
-    val listMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
+    val listMaxHeight = LocalConfiguration.current.screenHeightDp.dp * PANEL_MAX_HEIGHT_FRACTION
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),

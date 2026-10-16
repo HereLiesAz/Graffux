@@ -72,7 +72,9 @@ fun decodeBoundedBitmap(path: String, maxDimPx: Int): Bitmap? {
  */
 internal fun computeSampleSize(w: Int, h: Int, maxDimPx: Int): Int {
     var sample = 1
-    while ((w / sample > maxDimPx || h / sample > maxDimPx) && sample < (1 shl 30)) {
+    // Ceiling division, as BitmapFactory rounds the decoded size up: 1025 / 2 decodes to 513 px.
+    fun scaled(edge: Int): Long = (edge.toLong() + sample - 1) / sample
+    while ((scaled(w) > maxDimPx || scaled(h) > maxDimPx) && sample < (1 shl 30)) {
         sample *= 2
     }
     return sample

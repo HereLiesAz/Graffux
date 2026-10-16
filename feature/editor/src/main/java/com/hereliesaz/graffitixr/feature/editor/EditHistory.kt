@@ -69,6 +69,9 @@ internal class EditHistory(
             val idx = stack.indexOfLast { it is EditCommand.Draw && it.command === command }
             if (idx < 0) return false
             val entry = stack[idx] as EditCommand.Draw
+            // The entry owns exactly one snapshot: one it already held is freed when replaced
+            // (a second, slower attach), never just dropped.
+            entry.gpuUndo?.takeIf { it != gpuUndo }?.let(onGpuUndoDiscarded)
             stack[idx] = entry.copy(
                 tileDeltas = tileDeltas,
                 tileDeltaCanvasWidth = canvasWidth,
@@ -83,14 +86,35 @@ internal class EditHistory(
     /**
      * Detaches [ref] from whichever entry holds it and frees it: its GPU copy fell out of step
      * with the layer (a swap was refused, or the layer was rebuilt another way), so it must never
-     * be swapped again.
+     * be swapped again. Frees it only if an entry still held it: one already trimmed or cleared was
+     * freed then, and freeing it twice would release a native snapshot handle twice.
      */
     fun forgetGpuUndo(ref: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref) {
+        var held = false
         for (stack in listOf(undoStack, redoStack)) {
             val idx = stack.indexOfFirst { it is EditCommand.Draw && it.gpuUndo == ref }
-            if (idx >= 0) stack[idx] = (stack[idx] as EditCommand.Draw).copy(gpuUndo = null)
+            if (idx >= 0) {
+                stack[idx] = (stack[idx] as EditCommand.Draw).copy(gpuUndo = null)
+                held = true
+            }
         }
-        onGpuUndoDiscarded(ref)
+        if (held) onGpuUndoDiscarded(ref)
+    }
+
+    /**
+     * Removes the [EditCommand.Draw] entry for [command] (by identity) from whichever stack holds
+     * it, freeing its GPU snapshot: the stroke never landed on the layer (its commit failed), so
+     * neither undo nor redo may offer it. Returns whether an entry was removed.
+     */
+    fun dropDraw(command: StrokeCommand): Boolean {
+        for (stack in listOf(undoStack, redoStack)) {
+            val idx = stack.indexOfLast { it is EditCommand.Draw && it.command === command }
+            if (idx >= 0) {
+                stack.removeAt(idx).gpuUndo()?.let(onGpuUndoDiscarded)
+                return true
+            }
+        }
+        return false
     }
 
     /**
@@ -140,6 +164,12 @@ internal class EditHistory(
      * redo it onto.
      */
     fun dropTopRedo(): EditCommand? = redoStack.removeLastOrNull()?.also { it.gpuUndo()?.let(onGpuUndoDiscarded) }
+
+    /**
+     * Symmetric to [dropTopRedo]: discards the counter-entry [popRedo] just speculatively pushed onto
+     * the undo stack, for a redo that turns out to be inapplicable (its layer's cache was evicted).
+     */
+    fun dropTopUndo(): EditCommand? = undoStack.removeLastOrNull()?.also { it.gpuUndo()?.let(onGpuUndoDiscarded) }
 
     /** The most recent undoable entry, or null if the undo stack is empty. Test-only visibility
      *  into whether item 16's tile-delta fast path actually got attached to a given stroke. */

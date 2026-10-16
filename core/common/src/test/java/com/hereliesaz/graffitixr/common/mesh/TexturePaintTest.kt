@@ -169,4 +169,12 @@ class TexturePaintTest {
         assertTrue(TexturePaint.stamps(0.1f, 0.1f, 0.2f, 0.2f, 0, 0, 4f).isEmpty())
         assertTrue(TexturePaint.stamps(0.1f, 0.1f, 0.2f, 0.2f, 512, 0, 4f).isEmpty())
     }
+
+    @Test
+    fun `a step across a tile boundary stays local instead of striping the texture`() {
+        val stamps = TexturePaint.stamps(0.99f, 0.5f, 1.01f, 0.5f, 1000, 1000, spacingPx = 2f)
+        // 20 px of travel: about 10 stamps, all within 10 px of the u=0 / u=1 edge.
+        assertTrue("got ${stamps.size} stamps", stamps.size <= 11)
+        stamps.forEach { assertTrue("x=${it.x}", it.x >= 989f || it.x <= 11f) }
+    }
 }

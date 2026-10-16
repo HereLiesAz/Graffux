@@ -93,6 +93,35 @@ class AzphaltBrushTest {
     }
 
     @Test
+    fun pngGrayAbrSpacingOfOneIsOnePercent() {
+        val b = AzphaltBrush.fromParams("ABR", params("""{"format":"png-gray","spacing":1}"""))
+        assertEquals(0.01f, b.spacing, 1e-6f)
+        val wide = AzphaltBrush.fromParams("ABR", params("""{"format":"png-gray","spacing":1.5}"""))
+        assertEquals(0.015f, wide.spacing, 1e-6f)
+    }
+
+    @Test
+    fun nonFiniteParamsFallBackToDefaults() {
+        val b = AzphaltBrush.fromParams(
+            "Lenient",
+            params(
+                """{"angle":NaN,"rotationPerPx":Infinity,"grainOffsetX":NaN,"spacing":NaN,"opacity":-Infinity}""",
+            ),
+        )
+        assertEquals(0f, b.angle, 0f)
+        assertEquals(0f, b.rotationPerPx, 0f)
+        assertEquals(0f, b.grainOffsetX, 0f)
+        assertEquals(0.1f, b.spacing, 1e-6f)
+        assertEquals(1f, b.opacity, 0f)
+        val s = AzphaltBrush(
+            name = "x", angle = Float.NaN, spacing = Float.NaN, scatter = Float.POSITIVE_INFINITY,
+        ).sanitized()
+        assertEquals(0f, s.angle, 0f)
+        assertEquals(0.1f, s.spacing, 1e-6f)
+        assertEquals(0f, s.scatter, 0f)
+    }
+
+    @Test
     fun flowByPressureShorthandCreatesPressureFlowRoute() {
         val b = AzphaltBrush.fromParams(
             "Pressure",

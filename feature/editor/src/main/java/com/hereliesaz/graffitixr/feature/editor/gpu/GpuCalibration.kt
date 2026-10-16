@@ -227,7 +227,7 @@ class CalibrationCoordinator(
         val info = probe.identity()
         val stored = info?.takeIf { it.isKnown && !force }?.let { store.load(it.identityKey) }
         _state.value = when {
-            // No GPU engine starts on this device: nothing to calibrate, the CPU path is used.
+            // No GPU engine starts on this device: nothing to calibrate (strokes cannot paint there).
             info == null || !info.isKnown -> CalibrationState.FAILED
             stored != null -> {
                 apply(GpuTuning.resolve(info, detect(info), stored.tier, stored.result), info)

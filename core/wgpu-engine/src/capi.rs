@@ -270,7 +270,7 @@ pub unsafe extern "C" fn gfx_wgpu_upload_substrate_height(
             return false;
         }
         engine(e).is_some_and(|e| {
-            e.upload_substrate_height(slice(data, (width * height) as usize), width, height)
+            e.upload_substrate_height(slice(data, (width as usize) * (height as usize)), width, height)
         })
     })
 }
@@ -289,7 +289,7 @@ pub unsafe extern "C" fn gfx_wgpu_upload_paint_height(
             return false;
         }
         engine(e).is_some_and(|e| {
-            e.upload_paint_height(slice(data, (width * height) as usize), width, height)
+            e.upload_paint_height(slice(data, (width as usize) * (height as usize)), width, height)
         })
     })
 }

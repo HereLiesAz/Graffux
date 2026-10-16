@@ -86,9 +86,15 @@ object WgpuDabs {
     /**
      * Resolved round dabs with the exact per-dab colour and strength
      * [com.hereliesaz.graffitixr.common.azphalt.RoundStampCompositor] uses: colour from
-     * [ArgbColor.resolveDabColor], strength `alpha(colour) * dab.alpha * flow * flowMultiplier`
-     * clamped to 0..1 (carried in the dab's alpha, with colour alpha and flow at 1 so the shader's
-     * product reproduces the clamp), and the dab's own hardness in the per-dab hardness slot.
+     * [ArgbColor.resolveDabColor], strength
+     * `alpha(colour) * dab.alpha * flow * flowMultiplier * contactDepth` clamped to 0..1 (carried in
+     * the dab's alpha, with colour alpha and flow at 1 so the shader's product reproduces the
+     * clamp), and the dab's own hardness in the per-dab hardness slot.
+     *
+     * [substrateResponse] (the brush's `AzphaltBrush.substrateResponse`) goes in the material slot
+     * so the shader's substrate gate (`SubstrateDepositionModel.coverageMultiplier`) applies when
+     * the engine has a substrate bound; contactDepth stays in its slot for that gate. Reservoir load
+     * and deposition rate are not modelled on this path and are packed as 1.
      *
      * For `WgpuStampEngine.stampDabs` (the round shader, stamp.wgsl) only: slot 11 is hardness
      * there. Do not feed this to `stampMaskedDabs`, which reads slot 11 as the tip ratio -- see
@@ -100,13 +106,17 @@ object WgpuDabs {
         secondaryColorArgb: Int,
         colorSource: BrushColorSource,
         flow: Float,
+        substrateResponse: Float = 0f,
     ): FloatArray {
         val out = FloatArray(dabs.size * FLOATS)
         val baseFlow = flow.coerceIn(0f, 1f)
+        val response = substrateResponse.coerceIn(0f, 1f)
         dabs.forEachIndexed { i, d ->
             val color = ArgbColor.resolveDabColor(colorArgb, secondaryColorArgb, colorSource, d)
-            val strength = (ArgbColor.alpha(color) / 255f * d.alpha * baseFlow * max(d.flowMultiplier, 0f))
-                .coerceIn(0f, 1f)
+            val strength = (
+                ArgbColor.alpha(color) / 255f * d.alpha * baseFlow * max(d.flowMultiplier, 0f) *
+                    d.contactDepth.coerceIn(0f, 1f)
+                ).coerceIn(0f, 1f)
             val o = i * FLOATS
             out[o] = d.x
             out[o + 1] = d.y
@@ -123,7 +133,7 @@ object WgpuDabs {
             out[o + 12] = d.contactDepth
             out[o + 13] = 1f // reservoirLoad
             out[o + 14] = 1f // depositionRate
-            out[o + 15] = 0f // substrateResponse
+            out[o + 15] = response
         }
         return out
     }

@@ -53,10 +53,11 @@ class PersistentWetnessField(
 
     /**
      * Adds normalized wetness to one pixel and activates its tile. Out-of-bounds coordinates and
-     * non-positive additions are safe no-ops. Returns the resulting pixel wetness.
+     * non-positive (or NaN) additions are safe no-ops. Returns the resulting pixel wetness.
      */
     fun addWetness(x: Int, y: Int, amount: Float): Float {
-        if (x !in 0 until width || y !in 0 until height || amount <= 0f) return wetnessAt(x, y)
+        // `!(amount > 0f)` also rejects NaN, which coerceIn would store and nothing would ever dry.
+        if (x !in 0 until width || y !in 0 until height || !(amount > 0f)) return wetnessAt(x, y)
         activateTile(x / tileSize, y / tileSize)
         val index = y * width + x
         wetness[index] = (wetness[index] + amount).coerceIn(0f, 1f)
@@ -69,7 +70,7 @@ class PersistentWetnessField(
      * when they need shaped deposition.
      */
     fun deposit(region: DirtyRegion, amount: Float) {
-        if (amount <= 0f) return
+        if (!(amount > 0f)) return
         val clamped = region.clampTo(width, height)
         if (clamped.isEmpty) return
         activate(clamped)
@@ -123,7 +124,7 @@ class PersistentWetnessField(
     ): StepStats {
         val dt = deltaSeconds.coerceAtLeast(0f)
         val startingTiles = activeCount
-        if (startingTiles == 0 || dt <= 0f) {
+        if (startingTiles == 0 || !(dt > 0f)) {
             return StepStats(startingTiles, 0, activeCount, totalActiveWetness(), totalActiveWetness())
         }
 
@@ -165,7 +166,8 @@ class PersistentWetnessField(
             }
             val next = ((wetness[index] + deltaScratch[index]).coerceIn(0f, 1f) * dryMultiplier)
                 .coerceIn(0f, 1f)
-            wetness[index] = if (next <= epsilon) 0f else next
+            // NaN (a NaN drying rate) dries to 0 rather than staying stored in a deactivated tile.
+            wetness[index] = if (next > epsilon) next else 0f
             if (wetness[index] > epsilon) {
                 val tileId = tileId(x / tileSize, y / tileSize)
                 stillWetTiles[tileId] = true

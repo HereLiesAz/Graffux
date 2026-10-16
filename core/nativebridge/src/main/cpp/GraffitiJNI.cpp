@@ -14,12 +14,16 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <algorithm>
+#include <exception>
 #include <mutex>
+#include <vector>
 #include <shared_mutex>
 #include "include/MobileGS.h"
 #include "include/StereoProcessor.h"
 #include "include/ImageWarper.h"
 #include "include/StampEngine.h"
+#include "include/JniGuard.h"
 
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "GraffitiJNI", __VA_ARGS__)
 
@@ -239,6 +243,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_NativeCrashHandler_nativeInstall(
     sigaction(SIGFPE,  &sa, &gOldFpe);
 }
 
+// Unlocks the bitmap on every exit path, including a cv::Exception unwinding through the copy.
+struct BitmapLock {
+    JNIEnv* env; jobject bmp;
+    ~BitmapLock() { AndroidBitmap_unlockPixels(env, bmp); }
+};
+
 void bitmapToMat(JNIEnv * env, jobject bitmap, cv::Mat& dst) {
     AndroidBitmapInfo info;
     void* pixels = 0;
@@ -248,9 +258,9 @@ void bitmapToMat(JNIEnv * env, jobject bitmap, cv::Mat& dst) {
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return;
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
+    BitmapLock guard{env, bitmap};
     cv::Mat tmp(info.height, info.width, CV_8UC4, pixels, info.stride);
     tmp.copyTo(dst);
-    AndroidBitmap_unlockPixels(env, bitmap);
 }
 
 void matToBitmap(JNIEnv * env, cv::Mat& src, jobject bitmap) {
@@ -259,7 +269,11 @@ void matToBitmap(JNIEnv * env, cv::Mat& src, jobject bitmap) {
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) return;
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
+    BitmapLock guard{env, bitmap};
     cv::Mat tmp(info.height, info.width, CV_8UC4, pixels, info.stride);
+    // The destination is the bitmap: a source of another size would make copyTo/cvtColor reallocate
+    // `tmp` away from the bitmap's pixels (and write nothing).
+    if (src.cols != tmp.cols || src.rows != tmp.rows) return;
     if(src.type() == CV_8UC4) {
         src.copyTo(tmp);
     } else if(src.type() == CV_8UC3) {
@@ -267,8 +281,8 @@ void matToBitmap(JNIEnv * env, cv::Mat& src, jobject bitmap) {
     } else if(src.type() == CV_8UC1) {
         cv::cvtColor(src, tmp, cv::COLOR_GRAY2RGBA);
     }
-    AndroidBitmap_unlockPixels(env, bitmap);
 }
+
 
 extern "C" jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     gJvm = vm;
@@ -280,13 +294,16 @@ extern "C" {
 JNIEXPORT jfloatArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetAnchorCandidates(
         JNIEnv* env, jobject thiz, jfloat threshold, jint maxCount) {
+    JNI_TRY
     // Voxel/splat map deleted: no splat-based anchor candidates. Callers handle null.
     (void) env; (void) thiz; (void) threshold; (void) maxCount;
     return nullptr;
+    JNI_CATCH(jfloatArray())
 }
 
 JNIEXPORT jfloat JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetVisibleConfidenceAvg(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
         float vis, glob;
@@ -294,10 +311,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetVisibleConfiden
         return vis;
     }
     return 0.0f;
+    JNI_CATCH(jfloat())
 }
 
 JNIEXPORT jfloat JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetGlobalConfidenceAvg(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
         float vis, glob;
@@ -305,22 +324,28 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetGlobalConfidenc
         return glob;
     }
     return 0.0f;
+    JNI_CATCH(jfloat())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUpdateDeviceMotion(JNIEnv* env, jobject thiz, jfloatArray angularVel, jfloatArray linearVel) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
+        // updateDeviceMotion reads 3 floats from each array.
+        if (!angularVel || !linearVel || env->GetArrayLength(angularVel) < 3 || env->GetArrayLength(linearVel) < 3) return;
         jfloat* a = env->GetFloatArrayElements(angularVel, nullptr);
         jfloat* l = env->GetFloatArrayElements(linearVel, nullptr);
-        gSlamEngine->updateDeviceMotion(a, l);
-        env->ReleaseFloatArrayElements(angularVel, a, JNI_ABORT);
-        env->ReleaseFloatArrayElements(linearVel, l, JNI_ABORT);
+        if (a && l) gSlamEngine->updateDeviceMotion(a, l);
+        if (a) env->ReleaseFloatArrayElements(angularVel, a, JNI_ABORT);
+        if (l) env->ReleaseFloatArrayElements(linearVel, l, JNI_ABORT);
     }
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitialize(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::unique_lock<std::shared_mutex> engineLock(gEngineMutex); // writes gSlamEngine/gStereoProcessor/gImageWarper: exclude all concurrent readers
     if (!gSlamEngine) {
         gSlamEngine = new MobileGS();
@@ -329,6 +354,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitialize(JNIEnv*
     if (!gImageWarper) {
         gImageWarper = new ImageWarper();
     }
+    JNI_CATCH()
 }
 
 // Liquify-only init: constructs gImageWarper alone, never gSlamEngine. Liquify's three JNI
@@ -340,151 +366,196 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitialize(JNIEnv*
 // that also uses Liquify) -- this only ever fills in what's still null.
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitImageWarper(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::unique_lock<std::shared_mutex> engineLock(gEngineMutex); // writes gImageWarper: exclude all concurrent readers
     if (!gImageWarper) {
         gImageWarper = new ImageWarper();
     }
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitGl(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->initGl();
     if (gImageWarper) gImageWarper->init();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeResetGlContext(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->resetGlContext();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitVoxelGl(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->initVoxelGl();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitVoxelGlProgram(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->initVoxelGlProgram();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitVoxelGlBuffer(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->initVoxelGlBuffer();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeInitMeshGl(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->initMeshGl();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDestroy(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::unique_lock<std::shared_mutex> engineLock(gEngineMutex); // writes gSlamEngine/gStereoProcessor/gImageWarper: exclude all concurrent readers
     if (gSlamEngine) { delete gSlamEngine; gSlamEngine = nullptr; }
     if (gStereoProcessor) { delete gStereoProcessor; gStereoProcessor = nullptr; }
     if (gImageWarper) { delete gImageWarper; gImageWarper = nullptr; }
+    JNI_CATCH()
 }
 
 JNIEXPORT jint JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetSplatCount(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) return gSlamEngine->getSplatCount();
     return 0;
+    JNI_CATCH(jint())
 }
 
 JNIEXPORT jint JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetImmutableSplatCount(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) return gSlamEngine->getImmutableSplatCount();
     return 0;
+    JNI_CATCH(jint())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetArCoreTrackingState(JNIEnv* env, jobject thiz, jboolean isTracking) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setArCoreTrackingState(isTracking);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeClearMap(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->clearMap();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativePruneByConfidence(JNIEnv* env, jobject thiz, jfloat threshold) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->pruneByConfidence(threshold);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetViewportSize(JNIEnv* env, jobject thiz, jint width, jint height) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setViewportSize(width, height);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetRelocEnabled(JNIEnv* env, jobject thiz, jboolean enabled) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setRelocEnabled(enabled);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetSelfGrowEnabled(JNIEnv* env, jobject thiz, jboolean enabled) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setSelfGrowEnabled(enabled);
+    JNI_CATCH()
 }
 
 JNIEXPORT jint JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetWallKeypointCount(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     return gSlamEngine ? gSlamEngine->getWallKeypointCount() : 0;
+    JNI_CATCH(jint())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallPatch(JNIEnv* env, jobject thiz, jobject bitmap) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine || !bitmap) return;
     cv::Mat img; bitmapToMat(env, bitmap, img);
     gSlamEngine->setWallPatch(img);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallPatchBytes(
         JNIEnv* env, jobject thiz, jbyteArray data, jint size) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine || !data || size <= 0) return;
     // 64-bit product: size*size in 32-bit jint arithmetic overflows for size >= 46341, which would
     // defeat this bounds check before the cv::Mat below reads size*size bytes.
     if ((jlong)size * (jlong)size > (jlong)env->GetArrayLength(data)) return; // expect a size x size single-channel gray buffer
     jbyte* p = env->GetByteArrayElements(data, nullptr);
+    if (!p) return;
     cv::Mat gray(size, size, CV_8UC1, reinterpret_cast<uchar*>(p));
     gSlamEngine->setWallPatch(gray); // clones internally; safe to release after
     env->ReleaseByteArrayElements(data, p, JNI_ABORT);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetVoxelSize(JNIEnv* env, jobject thiz, jfloat size) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setVoxelSize(size);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetParallaxMinDegrees(JNIEnv* env, jobject thiz, jfloat deg) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setParallaxMinDegrees(deg);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetMappingPaused(JNIEnv* env, jobject thiz, jboolean paused) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setMappingPaused(paused);
+    JNI_CATCH()
 }
 
 // Guarded by gFrameStateMutex (see its declaration above), not gEngineMutex.
@@ -500,12 +571,27 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUpdateCamera(
         jfloatArray viewMatrix, jfloatArray projMatrix,
         jfloatArray mappingViewMatrix, jfloatArray mappingProjMatrix,
         jlong timestampNs) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
+        // Each is memcpy'd as 16 floats below: a shorter array would be a heap over-read.
+        if (!viewMatrix || !projMatrix || !mappingViewMatrix || !mappingProjMatrix ||
+            env->GetArrayLength(viewMatrix) < 16 || env->GetArrayLength(projMatrix) < 16 ||
+            env->GetArrayLength(mappingViewMatrix) < 16 || env->GetArrayLength(mappingProjMatrix) < 16) {
+            LOGE("nativeUpdateCamera: matrix arrays must hold 16 floats");
+            return;
+        }
         jfloat* view = env->GetFloatArrayElements(viewMatrix, nullptr);
         jfloat* proj = env->GetFloatArrayElements(projMatrix, nullptr);
         jfloat* mView = env->GetFloatArrayElements(mappingViewMatrix, nullptr);
         jfloat* mProj = env->GetFloatArrayElements(mappingProjMatrix, nullptr);
+        if (!view || !proj || !mView || !mProj) {
+            if (view) env->ReleaseFloatArrayElements(viewMatrix, view, JNI_ABORT);
+            if (proj) env->ReleaseFloatArrayElements(projMatrix, proj, JNI_ABORT);
+            if (mView) env->ReleaseFloatArrayElements(mappingViewMatrix, mView, JNI_ABORT);
+            if (mProj) env->ReleaseFloatArrayElements(mappingProjMatrix, mProj, JNI_ABORT);
+            return;
+        }
 
         gSlamEngine->updateCamera(view, proj);
         gSlamEngine->updateMappingCamera(mView, mProj);
@@ -524,28 +610,36 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUpdateCamera(
         env->ReleaseFloatArrayElements(mappingViewMatrix, mView, JNI_ABORT);
         env->ReleaseFloatArrayElements(mappingProjMatrix, mProj, JNI_ABORT);
     }
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUpdateLightLevel(JNIEnv* env, jobject thiz, jfloat level) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->updateLightLevel(level);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUpdateAnchorTransform(JNIEnv* env, jobject thiz, jfloatArray transform) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
+        if (!transform || env->GetArrayLength(transform) < 16) return; // 16 floats are read
         jfloat* mat = env->GetFloatArrayElements(transform, nullptr);
+        if (!mat) return;
         gSlamEngine->updateAnchorTransform(mat);
         env->ReleaseFloatArrayElements(transform, mat, JNI_ABORT);
     }
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedYuvFrame(
         JNIEnv* env, jobject thiz, jobject yBuffer, jobject uBuffer, jobject vBuffer,
         jint width, jint height, jint yStride, jint uvStride, jint uvPixelStride, jlong timestampNs, jint cvRotateCode) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
 
     if (!gSlamEngine) return;
@@ -555,6 +649,15 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedYuvFrame(
     uint8_t* vData = static_cast<uint8_t*>(env->GetDirectBufferAddress(vBuffer));
 
     if (!yData || !uData || !vData) return;
+
+    // Validate geometry against the buffers before cv::Mat wraps them: NV21 conversion needs even
+    // dimensions, and the Y plane is read as (height-1)*yStride + width bytes.
+    if (width <= 0 || height <= 0 || (width & 1) || (height & 1) || yStride < width || uvStride < 0) return;
+    const jlong yCap = env->GetDirectBufferCapacity(yBuffer);
+    if (yCap < (jlong)(height - 1) * (jlong)yStride + (jlong)width) {
+        LOGE("nativeFeedYuvFrame: Y buffer too small (%lld bytes for %dx%d stride %d)", (long long)yCap, width, height, yStride);
+        return;
+    }
 
     cv::Mat relocFrame;
     bool haveRelocFrame = false;
@@ -627,81 +730,22 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedYuvFrame(
         }
         gSlamEngine->scheduleRelocCheck(relocFrame);
     }
-}
-
-// YuvConverter.nativeYuvToRgbaBitmap — decode a camera-frame YUV_420_888 into a caller-owned
-// ARGB_8888 Bitmap. Reuses the same plane-parsing structure as nativeFeedYuvFrame above (I420 vs
-// NV21/NV12 branch keyed on uvPixelStride) but writes into the bitmap instead of into
-// gLastColorFrame. Replaces the fake "zero-copy" ImageProcessingUtils path (JPEG round-trip).
-JNIEXPORT void JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_YuvConverter_nativeYuvToRgbaBitmap(
-        JNIEnv* env, jobject thiz,
-        jobject yBuffer, jobject uBuffer, jobject vBuffer,
-        jint width, jint height,
-        jint yStride, jint uvRowStride, jint uvPixelStride,
-        jobject outBitmap) {
-
-    uint8_t* yData = static_cast<uint8_t*>(env->GetDirectBufferAddress(yBuffer));
-    uint8_t* uData = static_cast<uint8_t*>(env->GetDirectBufferAddress(uBuffer));
-    uint8_t* vData = static_cast<uint8_t*>(env->GetDirectBufferAddress(vBuffer));
-    if (!yData || !uData || !vData) return;
-
-    // Build the packed NV21 buffer OpenCV's cvtColor understands. This matches the NV21 layout
-    // camera frames from Camera2 / CameraX / ARCore ship in (Y plane, then interleaved V/U).
-    cv::Mat yMat(height, width, CV_8UC1, yData, yStride);
-    cv::Mat nv21(height + height / 2, width, CV_8UC1);
-    yMat.copyTo(nv21(cv::Rect(0, 0, width, height)));
-
-    if (uvPixelStride == 1) {
-        // I420 (planar U then V): pack into interleaved VU rows for NV21.
-        cv::Mat uMat(height / 2, width / 2, CV_8UC1, uData, uvRowStride);
-        cv::Mat vMat(height / 2, width / 2, CV_8UC1, vData, uvRowStride);
-        cv::Mat vuInterleaved(height / 2, width, CV_8UC1, nv21.ptr(height));
-        for (int r = 0; r < height / 2; ++r) {
-            uint8_t* row = vuInterleaved.ptr(r);
-            const uint8_t* uRow = uMat.ptr(r);
-            const uint8_t* vRow = vMat.ptr(r);
-            for (int c = 0; c < width / 2; ++c) {
-                row[2 * c]     = vRow[c];   // V first in NV21
-                row[2 * c + 1] = uRow[c];   // then U
-            }
-        }
-    } else if (uvPixelStride == 2) {
-        // NV21/NV12 semi-planar: the V plane's buffer already contains the interleaved VU (or UV)
-        // rows one byte apart. Copy row-by-row respecting uvRowStride which may be padded past
-        // width. Guard on vBuffer capacity in case of a truncated final row.
-        jlong vCap = env->GetDirectBufferCapacity(vBuffer);
-        size_t limit = (vCap > 0) ? (size_t)vCap : (size_t)((height / 2 - 1) * uvRowStride + width);
-        for (int r = 0; r < height / 2; ++r) {
-            size_t rowStart = r * uvRowStride;
-            size_t rowLen = std::min((size_t)width, (size_t)(limit > rowStart ? limit - rowStart : 0));
-            if (rowLen > 0) std::memcpy(nv21.ptr(height + r), vData + rowStart, rowLen);
-        }
-    } else {
-        // Unusual pixelStride (not 1 or 2). No sane camera exposes this; fill grayscale so the
-        // caller at least gets a visible frame instead of a crash.
-        cv::Mat gray;
-        cv::cvtColor(yMat, gray, cv::COLOR_GRAY2RGBA);
-        matToBitmap(env, gray, outBitmap);
-        return;
-    }
-
-    // NEON-optimised on ARM; runs in a couple ms for 1080p.
-    cv::Mat rgba;
-    cv::cvtColor(nv21, rgba, cv::COLOR_YUV2RGBA_NV21);
-
-    // matToBitmap locks the pixels, copies with cvtColor as needed, then unlocks. rgba is already
-    // CV_8UC4, so this becomes a direct memcpy of `width*height*4` bytes.
-    matToBitmap(env, rgba, outBitmap);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedColorFrame(
         JNIEnv* env, jobject thiz, jobject colorBuffer, jint width, jint height, jlong timestampNs, jint cvRotateCode) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
 
     uint8_t* buffer = static_cast<uint8_t*>(env->GetDirectBufferAddress(colorBuffer));
     if (!buffer || !gSlamEngine) return;
+    // The RGBA frame is read as width*height*4 bytes.
+    if (width <= 0 || height <= 0 || env->GetDirectBufferCapacity(colorBuffer) < (jlong)width * (jlong)height * 4) {
+        LOGE("nativeFeedColorFrame: buffer smaller than %dx%d RGBA", width, height);
+        return;
+    }
 
     cv::Mat relocFrame;
     {
@@ -719,52 +763,66 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedColorFrame(
         cv::rotate(relocFrame, relocFrame, cvRotateCode);
     }
     gSlamEngine->scheduleRelocCheck(relocFrame);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedPointCloud(JNIEnv* env, jobject thiz, jfloatArray points) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
+        if (!points) return;
         jsize len = env->GetArrayLength(points);
         jfloat* ptr = env->GetFloatArrayElements(points, nullptr);
+        if (!ptr) return;
         std::vector<float> pts(ptr, ptr + len);
         gSlamEngine->pushPointCloud(pts);
         env->ReleaseFloatArrayElements(points, ptr, JNI_ABORT);
     }
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedArCoreDepth(
         JNIEnv* env, jobject thiz, jobject depthBuffer, jint width, jint height, jint rowStride, jfloatArray intrArray, jint cpuW, jint cpuH, jint cvRotateCode, jfloat confidence) {
+    JNI_TRY
     // MobileGS::pushFrame is a no-op stub (the voxel/splat 3D reconstruction pipeline it fed was
     // deliberately deleted — see MobileGS.cpp). Decoding the full ARCore depth map here to build a
     // depthMap/intrinsics pair that would only be handed to that no-op would be pure wasted
     // per-frame CPU work, so this function intentionally does nothing else.
     (void) env; (void) thiz; (void) depthBuffer; (void) width; (void) height; (void) rowStride;
     (void) intrArray; (void) cpuW; (void) cpuH; (void) cvRotateCode; (void) confidence;
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDraw(JNIEnv* env, jobject thiz, jboolean debugTint) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->draw(debugTint == JNI_TRUE);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDrawDebugLayers(JNIEnv* env, jobject thiz, jboolean voxels, jboolean mesh) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->drawDebugLayers(voxels == JNI_TRUE, mesh == JNI_TRUE);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDrawCoverage(JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->drawCoverage();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedStereoData(
         JNIEnv* env, jobject thiz, jobject leftBuffer, jobject rightBuffer, jint width, jint height, jlong timestamp) {
+    JNI_TRY
     // MobileGS::pushFrame is a no-op stub (the voxel/splat 3D reconstruction pipeline it fed was
     // deliberately deleted — see MobileGS.cpp), and nothing else reads gStereoProcessor's disparity
     // map. Running StereoProcessor::processStereo per frame here to build a depth map that would
@@ -772,43 +830,56 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeFeedStereoData(
     // does nothing else. gStereoProcessor itself is left unallocated; nativeDestroy's delete on it
     // remains a harmless no-op.
     (void) env; (void) thiz; (void) leftBuffer; (void) rightBuffer; (void) width; (void) height; (void) timestamp;
+    JNI_CATCH()
 }
 
-JNIEXPORT void JNICALL
+// Persist / restore the wall fingerprint + wall feature map (see MobileGS::saveModel). False when
+// there is no engine, nothing to save, or the file is unreadable / not a model container.
+JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSaveModel(JNIEnv* env, jobject thiz, jstring pathStr) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
-    if (gSlamEngine) {
-        const char* path = env->GetStringUTFChars(pathStr, nullptr);
-        gSlamEngine->saveModel(path);
-        env->ReleaseStringUTFChars(pathStr, path);
-    }
+    if (!gSlamEngine || !pathStr) return JNI_FALSE;
+    const char* path = env->GetStringUTFChars(pathStr, nullptr);
+    if (!path) return JNI_FALSE;
+    const bool ok = gSlamEngine->saveModel(path);
+    env->ReleaseStringUTFChars(pathStr, path);
+    return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadModel(JNIEnv* env, jobject thiz, jstring pathStr) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
-    if (gSlamEngine) {
-        const char* path = env->GetStringUTFChars(pathStr, nullptr);
-        gSlamEngine->loadModel(path);
-        env->ReleaseStringUTFChars(pathStr, path);
-    }
+    if (!gSlamEngine || !pathStr) return JNI_FALSE;
+    const char* path = env->GetStringUTFChars(pathStr, nullptr);
+    if (!path) return JNI_FALSE;
+    const bool ok = gSlamEngine->loadModel(path);
+    env->ReleaseStringUTFChars(pathStr, path);
+    return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeImportModel3D(JNIEnv* env, jobject thiz, jstring pathStr) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
-    if (gSlamEngine) {
+    if (gSlamEngine && pathStr) {
         const char* path = env->GetStringUTFChars(pathStr, nullptr);
+        if (!path) return JNI_FALSE;
         bool ok = gSlamEngine->importModel3D(path);
         env->ReleaseStringUTFChars(pathStr, path);
         return ok ? JNI_TRUE : JNI_FALSE;
     }
     return JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadSuperPoint(
         JNIEnv* env, jobject thiz, jobject assetManager) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return JNI_FALSE;
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
@@ -820,11 +891,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadSuperPoint(
     AAsset_close(asset);
     bool ok = gSlamEngine->loadSuperPoint(buf);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadDistortionHead(
         JNIEnv* env, jobject thiz, jobject assetManager) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return JNI_FALSE;
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
@@ -839,11 +912,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadDistortionHead
     AAsset_close(asset);
     bool ok = gSlamEngine->loadDistortionHead(buf);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadLowLightEnhancer(
         JNIEnv* env, jobject thiz, jobject assetManager) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManager);
@@ -857,11 +932,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeLoadLowLightEnhanc
     AAsset_read(asset, buf.data(), (off_t)size);
     AAsset_close(asset);
     gSlamEngine->loadLowLightEnhancer(buf);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFingerprint(
         JNIEnv* env, jobject thiz, jbyteArray descArray, jint rows, jint cols, jint type, jfloatArray ptsArray) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     // Defensive validation (a malformed/old .gxr must never crash native): non-null refs, a valid
     // OpenCV type (a bogus one makes the cv::Mat ctor throw a cv::Exception → hard process crash,
@@ -875,10 +952,18 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFingerp
     if (depth < 0 || depth > CV_64F || channels < 1 || channels > 4) return;
     if ((jlong)rows * (jlong)cols * (jlong)CV_ELEM_SIZE(type) > (jlong)env->GetArrayLength(descArray)) return;
 
+    // One 3D point per descriptor row: reloc indexes points3d with a descriptor row index, so a
+    // truncated/older .gxr with fewer points would read past the vector.
+    if (env->GetArrayLength(ptsArray) != rows * 3) {
+        LOGE("nativeRestoreWallFingerprint: points (%d floats) != rows (%d) * 3", (int)env->GetArrayLength(ptsArray), rows);
+        return;
+    }
     jbyte* descData = env->GetByteArrayElements(descArray, nullptr);
+    if (!descData) return;
     cv::Mat descriptors(rows, cols, type, descData);
     jsize ptsLen = env->GetArrayLength(ptsArray);
     jfloat* ptsData = env->GetFloatArrayElements(ptsArray, nullptr);
+    if (!ptsData) { env->ReleaseByteArrayElements(descArray, descData, JNI_ABORT); return; }
     std::vector<cv::Point3f> points3d;
     for (int i = 0; i + 2 < ptsLen; i += 3) {
         points3d.push_back(cv::Point3f(ptsData[i], ptsData[i+1], ptsData[i+2]));
@@ -886,12 +971,14 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFingerp
     gSlamEngine->restoreWallFingerprint(descriptors, points3d);
     env->ReleaseByteArrayElements(descArray, descData, JNI_ABORT);
     env->ReleaseFloatArrayElements(ptsArray, ptsData, JNI_ABORT);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFingerprintMetric(
         JNIEnv* env, jobject thiz, jbyteArray descArray, jint rows, jint cols, jint type,
         jfloatArray ptsArray, jfloatArray anchorArray, jfloatArray intrArray) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     // Same defensive validation as the plain restore: reject a malformed/old .gxr before cv::Mat
     // wraps the descriptor blob (valid OpenCV type + 64-bit overflow-safe size check), and only pass
@@ -903,10 +990,16 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFingerp
     int channels = CV_MAT_CN(type);
     if (depth < 0 || depth > CV_64F || channels < 1 || channels > 4) return;
     if ((jlong)rows * (jlong)cols * (jlong)CV_ELEM_SIZE(type) > (jlong)env->GetArrayLength(descArray)) return;
+    if (env->GetArrayLength(ptsArray) != rows * 3) {
+        LOGE("nativeRestoreWallFingerprintMetric: points (%d floats) != rows (%d) * 3", (int)env->GetArrayLength(ptsArray), rows);
+        return;
+    }
     jbyte* descData = env->GetByteArrayElements(descArray, nullptr);
+    if (!descData) return;
     cv::Mat descriptors(rows, cols, type, descData);
     jsize ptsLen = env->GetArrayLength(ptsArray);
     jfloat* ptsData = env->GetFloatArrayElements(ptsArray, nullptr);
+    if (!ptsData) { env->ReleaseByteArrayElements(descArray, descData, JNI_ABORT); return; }
     std::vector<cv::Point3f> points3d;
     points3d.reserve(ptsLen / 3);
     for (int i = 0; i + 2 < ptsLen; i += 3) {
@@ -919,6 +1012,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFingerp
     env->ReleaseFloatArrayElements(ptsArray, ptsData, JNI_ABORT);
     if (anchor) env->ReleaseFloatArrayElements(anchorArray, anchor, JNI_ABORT);
     if (intr)   env->ReleaseFloatArrayElements(intrArray, intr, JNI_ABORT);
+    JNI_CATCH()
 }
 
 // Persistent wall feature map (Phase 2a: store only). Mirrors the metric-fingerprint restore but
@@ -929,6 +1023,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFeature
         JNIEnv* env, jobject thiz, jbyteArray descArray, jint rows, jint cols, jint type,
         jfloatArray ptsArray, jfloatArray confArray, jintArray obsArray,
         jfloatArray anchorArray, jfloatArray intrArray) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     // Defensive validation (a malformed/old .gxr must never crash native): null refs, a valid
     // OpenCV type (a bogus one makes the cv::Mat ctor throw a cv::Exception -> hard process crash,
@@ -953,8 +1048,10 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFeature
     if (obsLen > 0 && obsLen != rows) return;
 
     jbyte* descData = env->GetByteArrayElements(descArray, nullptr);
+    if (!descData) return;
     cv::Mat descriptors(rows, cols, type, descData);
     jfloat* ptsData = env->GetFloatArrayElements(ptsArray, nullptr);
+    if (!ptsData) { env->ReleaseByteArrayElements(descArray, descData, JNI_ABORT); return; }
     std::vector<cv::Point3f> points3d;
     points3d.reserve(rows);
     for (int i = 0; i + 2 < ptsLen; i += 3)
@@ -982,34 +1079,44 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeRestoreWallFeature
     env->ReleaseFloatArrayElements(ptsArray, ptsData, JNI_ABORT);
     if (anchor) env->ReleaseFloatArrayElements(anchorArray, anchor, JNI_ABORT);
     if (intr)   env->ReleaseFloatArrayElements(intrArray, intr, JNI_ABORT);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeClearWallFeatureMap(JNIEnv*, jobject) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->clearWallFeatureMap();
+    JNI_CATCH()
 }
 
 JNIEXPORT jint JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetMapPointCount(JNIEnv*, jobject) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     return gSlamEngine ? gSlamEngine->getMapPointCount() : 0;
+    JNI_CATCH(jint())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetMapRelocEnabled(JNIEnv*, jobject, jboolean enabled) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setMapRelocEnabled(enabled == JNI_TRUE);
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetMapBuildEnabled(JNIEnv*, jobject, jboolean enabled) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setMapBuildEnabled(enabled == JNI_TRUE);
+    JNI_CATCH()
 }
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeExportWallFeatureMap(JNIEnv* env, jobject) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return nullptr;
     std::vector<uint8_t> blob = gSlamEngine->exportWallFeatureMap();
@@ -1018,6 +1125,15 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeExportWallFeatureM
     if (!arr) return nullptr;
     env->SetByteArrayRegion(arr, 0, (jsize)blob.size(), reinterpret_cast<const jbyte*>(blob.data()));
     return arr;
+    JNI_CATCH(jbyteArray())
+}
+
+// A 16-bit depth image is read as depth[dy * depthStride + 2 * dx]: the buffer must hold the last
+// row and the stride must cover a row.
+static bool depthBufferUsable(JNIEnv* env, jobject buf, jint w, jint h, jint stride) {
+    if (w <= 0 || h <= 0 || stride < 2 * w) return false;
+    const jlong cap = env->GetDirectBufferCapacity(buf);
+    return cap >= (jlong)(h - 1) * (jlong)stride + 2 * (jlong)w;
 }
 
 jobject buildFingerprintObject(JNIEnv* env, const MobileGS::FingerprintData& fd) {
@@ -1112,6 +1228,7 @@ jobject buildFingerprintObject(JNIEnv* env, const MobileGS::FingerprintData& fd)
 JNIEXPORT jobject JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallFingerprint(
         JNIEnv* env, jobject thiz, jobject bitmap, jobject mask, jobject depthBuffer, jint depthW, jint depthH, jint depthStride, jfloatArray intrArray, jfloatArray viewMatArray) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
 
     if (!gSlamEngine) return nullptr;
@@ -1121,10 +1238,15 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallFingerprint
 
     cv::Mat maskMat;
     if (mask) bitmapToMat(env, mask, maskMat);
+    // A mask of another size makes ORB detectAndCompute throw (cv::Exception).
+    if (!maskMat.empty() && (maskMat.size() != image.size())) maskMat.release();
 
-    auto* depthData = static_cast<const uint8_t*>(env->GetDirectBufferAddress(depthBuffer));
-    jfloat* intr = intrArray ? env->GetFloatArrayElements(intrArray, nullptr) : nullptr;
-    jfloat* view = viewMatArray ? env->GetFloatArrayElements(viewMatArray, nullptr) : nullptr;
+    const uint8_t* depthData = depthBuffer ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(depthBuffer)) : nullptr;
+    if (depthData && !depthBufferUsable(env, depthBuffer, depthW, depthH, depthStride)) depthData = nullptr;
+    jfloat* intr = (intrArray && env->GetArrayLength(intrArray) >= 4) ? env->GetFloatArrayElements(intrArray, nullptr) : nullptr;
+    jfloat* view = (viewMatArray && env->GetArrayLength(viewMatArray) >= 16) ? env->GetFloatArrayElements(viewMatArray, nullptr) : nullptr;
+    // Depth back-projection needs intrinsics; without them skip depth rather than dereference null.
+    if (!intr) depthData = nullptr;
 
     MobileGS::FingerprintData fd = gSlamEngine->generateFingerprint(image, maskMat, depthData, depthW, depthH, depthStride, intr, view);
 
@@ -1132,27 +1254,33 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetWallFingerprint
     if (viewMatArray && view) env->ReleaseFloatArrayElements(viewMatArray, view, JNI_ABORT);
 
     return buildFingerprintObject(env, fd);
+    JNI_CATCH(jobject())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetArtworkFingerprint(
         JNIEnv* env, jobject thiz, jobject bitmap, jobject depthBuffer, jint depthW, jint depthH, jint depthStride, jfloatArray intrArray, jfloatArray viewMatArray) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) {
         cv::Mat composite;
         bitmapToMat(env, bitmap, composite);
-        auto* depthData = static_cast<const uint8_t*>(env->GetDirectBufferAddress(depthBuffer));
-        jfloat* intr = intrArray ? env->GetFloatArrayElements(intrArray, nullptr) : nullptr;
-        jfloat* view = viewMatArray ? env->GetFloatArrayElements(viewMatArray, nullptr) : nullptr;
+        const uint8_t* depthData = depthBuffer ? static_cast<const uint8_t*>(env->GetDirectBufferAddress(depthBuffer)) : nullptr;
+        if (depthData && !depthBufferUsable(env, depthBuffer, depthW, depthH, depthStride)) depthData = nullptr;
+        jfloat* intr = (intrArray && env->GetArrayLength(intrArray) >= 4) ? env->GetFloatArrayElements(intrArray, nullptr) : nullptr;
+        jfloat* view = (viewMatArray && env->GetArrayLength(viewMatArray) >= 16) ? env->GetFloatArrayElements(viewMatArray, nullptr) : nullptr;
+        if (!intr) depthData = nullptr;
         gSlamEngine->setArtworkFingerprint(composite, depthData, depthW, depthH, depthStride, intr, view);
         if (intrArray && intr) env->ReleaseFloatArrayElements(intrArray, intr, JNI_ABORT);
         if (viewMatArray && view) env->ReleaseFloatArrayElements(viewMatArray, view, JNI_ABORT);
     }
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeAnnotateKeypoints(
         JNIEnv* env, jobject thiz, jobject bitmap) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
     cv::Mat frame;
@@ -1183,11 +1311,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeAnnotateKeypoints(
     cv::drawKeypoints(annotated, kps, annotated, cv::Scalar(0, 255, 0, 255), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
     matToBitmap(env, annotated, bitmap);
+    JNI_CATCH()
 }
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDetectSuperPoint(
         JNIEnv* env, jobject thiz, jobject bitmap) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return nullptr;
     cv::Mat image; bitmapToMat(env, bitmap, image);
@@ -1211,11 +1341,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDetectSuperPoint(
     std::memcpy(ptr + 2 + 2*n, dc.ptr<float>(0), (size_t)n * d * sizeof(float));
     env->ReleaseFloatArrayElements(result, ptr, 0);
     return result;
+    JNI_CATCH(jfloatArray())
 }
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetFingerprintKeypoints(
         JNIEnv* env, jobject thiz, jobject bitmap, jobject mask) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return nullptr;
     cv::Mat image; bitmapToMat(env, bitmap, image);
@@ -1234,11 +1366,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetFingerprintKeyp
     for (size_t i = 0; i < pts.size(); ++i) { ptr[i * 2] = pts[i].x; ptr[i * 2 + 1] = pts[i].y; }
     env->ReleaseFloatArrayElements(result, ptr, 0);
     return result;
+    JNI_CATCH(jfloatArray())
 }
 
 JNIEXPORT jfloatArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetKeypoints(
         JNIEnv* env, jobject thiz, jobject bitmap) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return nullptr;
     cv::Mat frame;
@@ -1267,82 +1401,106 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetKeypoints(
     env->ReleaseFloatArrayElements(result, ptr, 0);
 
     return result;
+    JNI_CATCH(jfloatArray())
 }
 
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetSplatsVisible(JNIEnv* env, jobject, jboolean visible) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setSplatsVisible(visible);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetAnchorTransform(JNIEnv* env, jobject) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
+    // No engine => no transform: null (callers treat it as "none"), not an all-zero matrix that
+    // looks like a real, non-invertible one.
+    if (!gSlamEngine) return nullptr;
     jfloatArray result = env->NewFloatArray(16);
     if (!result) return nullptr;
-    if (gSlamEngine) {
-        float mat[16];
-        gSlamEngine->getAnchorTransform(mat);
-        env->SetFloatArrayRegion(result, 0, 16, mat);
-    }
+    float mat[16];
+    gSlamEngine->getAnchorTransform(mat);
+    env->SetFloatArrayRegion(result, 0, 16, mat);
     return result;
+    JNI_CATCH(jfloatArray())
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetPaintingProgress(JNIEnv* env, jobject) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) return gSlamEngine->getPaintingProgress();
     return 0.0f;
+    JNI_CATCH(jfloat())
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetArScanMode(JNIEnv* env, jobject, jint mode) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setArScanMode(mode);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetMuralMethod(JNIEnv* env, jobject, jint method) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setMuralMethod(method);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetStageTimings(JNIEnv* env, jobject, jfloatArray out) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
+    if (!out || env->GetArrayLength(out) < 5) return;
     float buf[5] = {0,0,0,0,0};
     gSlamEngine->getStageTimingsAndReset(buf);
     env->SetFloatArrayRegion(out, 0, 5, buf);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeSetStageEnabled(JNIEnv* env, jobject, jint stage, jboolean enabled) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gSlamEngine) gSlamEngine->setStageEnabled((int) stage, enabled == JNI_TRUE);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetRelocResult(JNIEnv* env, jobject, jfloatArray out) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
+    if (!out || env->GetArrayLength(out) < 19) return;
     float buf[19];
     gSlamEngine->getRelocResult(buf);
     env->SetFloatArrayRegion(out, 0, 19, buf);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetFingerprintAnchor(JNIEnv* env, jobject, jfloatArray out) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
+    if (!out || env->GetArrayLength(out) < 16) return;
     float buf[16];
     gSlamEngine->getFingerprintAnchor(buf);
     env->SetFloatArrayRegion(out, 0, 16, buf);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetPersistentMesh(JNIEnv* env, jobject, jfloatArray vertices, jfloatArray weights) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
     std::vector<float> v, w;
@@ -1353,18 +1511,22 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeGetPersistentMesh(
         env->SetFloatArrayRegion(vertices, 0, std::min((jsize)v.size(), vlen), v.data());
         env->SetFloatArrayRegion(weights, 0, std::min((jsize)w.size(), wlen), w.data());
     }
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeUnrollMesh(JNIEnv* env, jobject, jfloatArray vertices) {
+    JNI_TRY
     // Voxel/splat map deleted: SurfaceMesh / unroller removed. Return an empty (non-null) UV array.
     (void) vertices;
     return env->NewFloatArray(0);
+    JNI_CATCH(jfloatArray())
 }
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeExportFingerprint(
         JNIEnv* env, jobject thiz) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return nullptr;
     std::vector<uint8_t> fingerprint = gSlamEngine->exportFingerprint();
@@ -1374,23 +1536,29 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeExportFingerprint(
     if (!result) return nullptr;
     env->SetByteArrayRegion(result, 0, (jsize)fingerprint.size(), (jbyte*)fingerprint.data());
     return result;
+    JNI_CATCH(jbyteArray())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeAlignToFingerprint(
         JNIEnv* env, jobject thiz, jbyteArray data) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gSlamEngine) return;
+    if (!data) return;
     jsize size = env->GetArrayLength(data);
     jbyte* buffer = env->GetByteArrayElements(data, nullptr);
+    if (!buffer) return;
 
     gSlamEngine->alignToFingerprint((uint8_t*)buffer, size);
 
     env->ReleaseByteArrayElements(data, buffer, JNI_ABORT);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativePrepareLiquify(JNIEnv* env, jobject, jobject bitmap) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gImageWarper) return;
     AndroidBitmapInfo info;
@@ -1408,10 +1576,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativePrepareLiquify(JNI
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
     gImageWarper->setSourceImage(static_cast<uint8_t*>(pixels), info.width, info.height);
     AndroidBitmap_unlockPixels(env, bitmap);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeApplyLiquify(JNIEnv* env, jobject, jfloatArray strokeArr, jfloat brushSize, jfloat intensity) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gImageWarper) return;
     jsize len = env->GetArrayLength(strokeArr);
@@ -1426,16 +1596,20 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeApplyLiquify(JNIEn
     }
     gImageWarper->applyLiquify(stroke, brushSize, intensity);
     env->ReleaseFloatArrayElements(strokeArr, ptr, JNI_ABORT);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeDrawLiquify(JNIEnv* env, jobject, jint width, jint height) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (gImageWarper) gImageWarper->draw(width, height);
+    JNI_CATCH()
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv* env, jobject, jobject outBitmap) {
+    JNI_TRY
     std::shared_lock<std::shared_mutex> engineLock(gEngineMutex); // keeps gSlamEngine/gStereoProcessor/gImageWarper alive for the duration of this call
     if (!gImageWarper) return;
     AndroidBitmapInfo info;
@@ -1450,6 +1624,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_SlamManager_nativeBakeLiquify(JNIEnv
         LOGE("nativeBakeLiquify: bakeToBitmap declined (buffer/source size mismatch or no source set)");
     }
     AndroidBitmap_unlockPixels(env, outBitmap);
+    JNI_CATCH()
 }
 
 } // extern "C"
@@ -1477,12 +1652,14 @@ extern "C" {
 JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInit(
     JNIEnv*, jobject, jint width, jint height) {
+    JNI_TRY
     auto* engine = graffux::createStampEngine();
     if (!engine->init(width, height)) {
         delete engine;
         return 0;
     }
     return reinterpret_cast<jlong>(engine);
+    JNI_CATCH(jlong())
 }
 
 // Seeds the layer with `inBitmap`'s current pixels — the reverse of nativeReadbackRect below.
@@ -1492,6 +1669,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInit(
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUpload(
     JNIEnv* env, jobject, jlong handle, jobject inBitmap) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
@@ -1514,6 +1692,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUpload(
     bool ok = engine->upload(static_cast<const uint8_t*>(pixels), capacity);
     AndroidBitmap_unlockPixels(env, inBitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // `dabData` is a flat float array, 5 floats per dab (x, y, radius, alpha, angleDeg) — the same
@@ -1522,9 +1701,11 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUpload(
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampDabs(
     JNIEnv* env, jobject, jlong handle, jfloatArray dabData, jint colorArgb, jfloat hardness) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
 
+    if (!dabData) return JNI_FALSE;
     jsize len = env->GetArrayLength(dabData);
     if (len <= 0 || len % 5 != 0) return JNI_FALSE;
     jsize dabCount = len / 5;
@@ -1541,6 +1722,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampDabs(
 
     bool ok = engine->stampDabs(dabs, static_cast<uint32_t>(colorArgb), hardness);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // ---- Resident layers and rectangle readback (StampEngine's optional methods; wgpu only) ------
@@ -1563,28 +1745,38 @@ static uint8_t* gfxLockLayerBitmap(JNIEnv* env, graffux::StampEngine* engine, jo
     return static_cast<uint8_t*>(pixels);
 }
 
+// A caller rectangle must lie inside the layer before it is used to index the locked bitmap
+// (64-bit math: x + w must not wrap).
+static bool gfxRectInside(const graffux::StampEngine* engine, const int32_t r[4]) {
+    if (r[0] < 0 || r[1] < 0 || r[2] <= 0 || r[3] <= 0) return false;
+    return (int64_t)r[0] + r[2] <= engine->width() && (int64_t)r[1] + r[3] <= engine->height();
+}
+
 // ---- Live impasto display (StampEngine's optional methods; wgpu only) ----------------------
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuImpastoDisplay_nativeShade(
         JNIEnv*, jclass, jlong handle, jint x, jint y, jint w, jint h, jfloat azimuthDeg, jfloat elevationDeg,
         jfloat strength) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->isInitialized() &&
                    engine->shadeImpastoReliefToDisplay(x, y, w, h, azimuthDeg, elevationDeg, strength)
                ? JNI_TRUE
                : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // Reads `rect` of the display buffer into the same rectangle of the full-layer `bitmap`.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuImpastoDisplay_nativeRead(
         JNIEnv* env, jclass, jlong handle, jobject bitmap, jintArray rect) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || rect == nullptr || env->GetArrayLength(rect) < 4) return JNI_FALSE;
-    jint r[4];
-    env->GetIntArrayRegion(rect, 0, 4, r);
-    if (r[2] <= 0 || r[3] <= 0) return JNI_FALSE;
+    int32_t r[4];
+    env->GetIntArrayRegion(rect, 0, 4, reinterpret_cast<jint*>(r));
+    if (!gfxRectInside(engine, r)) return JNI_FALSE;
     std::vector<uint8_t> block(static_cast<size_t>(r[2]) * r[3] * 4);
     if (!engine->readImpastoDisplay(r[0], r[1], r[2], r[3], block.data(), block.size())) return JNI_FALSE;
     size_t capacity = 0;
@@ -1597,94 +1789,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuImpastoDisplay_nativeRead(
     }
     AndroidBitmap_unlockPixels(env, bitmap);
     return JNI_TRUE;
-}
-
-// ---- Document store (StampEngine's optional doc* methods; wgpu only) -----------------------
-// Layer images cross as full-layer ARGB_8888 bitmaps (gfxLockLayerBitmap's requirements); a rect
-// read or write touches only that rectangle of the bitmap. Generations come back as jlong (0 =
-// failure or unsupported).
-
-static bool gfxRect(JNIEnv* env, jintArray rect, int32_t out[4]) {
-    if (rect == nullptr || env->GetArrayLength(rect) < 4) return false;
-    jint v[4];
-    env->GetIntArrayRegion(rect, 0, 4, v);
-    for (int i = 0; i < 4; i++) out[i] = v[i];
-    return true;
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocOpen(JNIEnv*, jobject, jlong handle) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    return engine && engine->isInitialized() && engine->docOpen() ? JNI_TRUE : JNI_FALSE;
-}
-
-// op: 0 put (whole `bitmap`), 1 clear, 3 copy layer `other` into `key`, 4 generation.
-JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocLayer(
-        JNIEnv* env, jobject, jlong handle, jint op, jlong key, jlong other, jobject bitmap) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    if (!engine || !engine->isInitialized()) return 0;
-    if (op != 0) {
-        return static_cast<jlong>(engine->docLayer(op, static_cast<uint64_t>(key), static_cast<uint64_t>(other),
-                                                   nullptr, nullptr, 0));
-    }
-    if (bitmap == nullptr) return 0;
-    size_t capacity = 0;
-    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
-    if (!pixels) return 0;
-    const uint64_t generation = engine->docLayer(0, static_cast<uint64_t>(key), 0, nullptr, pixels, capacity);
-    AndroidBitmap_unlockPixels(env, bitmap);
-    return static_cast<jlong>(generation);
-}
-
-// Writes `rect` of layer `key` from the same rectangle of the full-layer `bitmap`.
-JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocWrite(
-        JNIEnv* env, jobject, jlong handle, jlong key, jobject bitmap, jintArray rect) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    int32_t r[4];
-    if (!engine || !engine->isInitialized() || !gfxRect(env, rect, r) || r[2] <= 0 || r[3] <= 0) return 0;
-    size_t capacity = 0;
-    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
-    if (!pixels) return 0;
-    const size_t stride = static_cast<size_t>(engine->width()) * 4;
-    std::vector<uint8_t> block(static_cast<size_t>(r[2]) * r[3] * 4);
-    for (int32_t row = 0; row < r[3]; row++) {
-        memcpy(block.data() + static_cast<size_t>(row) * r[2] * 4,
-               pixels + static_cast<size_t>(r[1] + row) * stride + static_cast<size_t>(r[0]) * 4,
-               static_cast<size_t>(r[2]) * 4);
-    }
-    AndroidBitmap_unlockPixels(env, bitmap);
-    return static_cast<jlong>(engine->docLayer(2, static_cast<uint64_t>(key), 0, r, block.data(), block.size()));
-}
-
-JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocDrop(JNIEnv*, jobject, jlong handle, jlong key) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    return engine && engine->isInitialized() && engine->docLayerDrop(static_cast<uint64_t>(key)) ? JNI_TRUE : JNI_FALSE;
-}
-
-JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocBind(JNIEnv*, jobject, jlong handle, jlong key) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    if (!engine || !engine->isInitialized()) return 0;
-    return static_cast<jlong>(engine->docLayerBind(static_cast<uint64_t>(key)));
-}
-
-// `rect` (int[4]) receives the {x, y, w, h} the stroke painted.
-JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocCommit(
-        JNIEnv* env, jobject, jlong handle, jlong key, jlong session, jintArray rect) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    if (!engine || !engine->isInitialized() || rect == nullptr || env->GetArrayLength(rect) < 4) return 0;
-    int32_t r[4] = {0, 0, 0, 0};
-    const uint64_t generation =
-        engine->docLayerCommit(static_cast<uint64_t>(key), static_cast<uint64_t>(session), r);
-    if (generation != 0) {
-        const jint values[4] = {r[0], r[1], r[2], r[3]};
-        env->SetIntArrayRegion(rect, 0, 4, values);
-    }
-    return static_cast<jlong>(generation);
+    JNI_CATCH(jboolean())
 }
 
 // Undo snapshots (StampEngine::docSnapshot); `args` is {a, b, c}. `rect` (int[4]) is read for op 0 and receives the
@@ -1692,6 +1797,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocCommit(
 JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuUndoSnapshots_nativeDocSnapshot(
         JNIEnv* env, jobject, jlong handle, jint op, jlongArray args, jintArray rect) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || args == nullptr || env->GetArrayLength(args) < 3) return 0;
     jlong a[3];
@@ -1704,34 +1810,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuUndoSnapshots_nativeDocSnapshot(
         op, static_cast<uint64_t>(a[0]), static_cast<uint64_t>(a[1]), static_cast<uint64_t>(a[2]), r);
     if (op == 1 && out != 0) env->SetIntArrayRegion(rect, 0, 4, r);
     return static_cast<jlong>(out);
-}
-
-// Reads `rect` of layer `key` into the same rectangle of the full-layer `bitmap`.
-JNIEXPORT jboolean JNICALL
-Java_com_hereliesaz_graffitixr_nativebridge_GpuDocumentLayers_nativeDocRead(
-        JNIEnv* env, jobject, jlong handle, jlong key, jobject bitmap, jintArray rect) {
-    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
-    int32_t r[4];
-    if (!engine || !engine->isInitialized() || !gfxRect(env, rect, r) || r[2] <= 0 || r[3] <= 0) return JNI_FALSE;
-    std::vector<uint8_t> block(static_cast<size_t>(r[2]) * r[3] * 4);
-    if (!engine->docLayerRead(static_cast<uint64_t>(key), r[0], r[1], r[2], r[3], block.data(), block.size())) {
-        return JNI_FALSE;
-    }
-    size_t capacity = 0;
-    uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
-    if (!pixels) return JNI_FALSE;
-    const size_t stride = static_cast<size_t>(engine->width()) * 4;
-    for (int32_t row = 0; row < r[3]; row++) {
-        memcpy(pixels + static_cast<size_t>(r[1] + row) * stride + static_cast<size_t>(r[0]) * 4,
-               block.data() + static_cast<size_t>(row) * r[2] * 4, static_cast<size_t>(r[2]) * 4);
-    }
-    AndroidBitmap_unlockPixels(env, bitmap);
-    return JNI_TRUE;
+    JNI_CATCH(jlong())
 }
 
 // `rect` (int[4], may be null) receives the {x, y, w, h} actually copied.
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadbackRect(JNIEnv* env, jobject, jlong handle, jobject outBitmap, jintArray rect) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
     size_t capacity = 0;
@@ -1745,23 +1830,29 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadbackRect(JN
         env->SetIntArrayRegion(rect, 0, 4, values);
     }
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSupportsResidentLayers(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->isInitialized() && engine->supportsResidentLayers() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBindLayer(JNIEnv*, jobject, jlong handle, jlong key, jlong generation) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return 0;
     return static_cast<jlong>(engine->bindLayer(static_cast<uint64_t>(key), static_cast<uint64_t>(generation)));
+    JNI_CATCH(jlong())
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadLayer(JNIEnv* env, jobject, jlong handle, jlong key, jlong generation, jobject inBitmap) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !engine->supportsResidentLayers()) return 0;
     size_t capacity = 0;
@@ -1771,19 +1862,23 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadLayer(JNI
                                                  static_cast<uint64_t>(generation), pixels, capacity);
     AndroidBitmap_unlockPixels(env, inBitmap);
     return static_cast<jlong>(session);
+    JNI_CATCH(jlong())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeCommitLayer(JNIEnv*, jobject, jlong handle, jlong key, jlong session, jlong generation) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
     return engine->commitLayer(static_cast<uint64_t>(key), static_cast<uint64_t>(session),
                                static_cast<uint64_t>(generation)) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JNIEnv* env, jobject, jlong handle, jlongArray ids,
                       jobject bitmap, jintArray rect) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !engine->supportsResidentLayers()) return JNI_FALSE;
     if (ids == nullptr || rect == nullptr || env->GetArrayLength(ids) < 3 || env->GetArrayLength(rect) < 4) {
@@ -1793,6 +1888,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JN
     jint r[4];
     env->GetLongArrayRegion(ids, 0, 3, id);
     env->GetIntArrayRegion(rect, 0, 4, r);
+    if (!gfxRectInside(engine, reinterpret_cast<const int32_t*>(r))) return JNI_FALSE;
     size_t capacity = 0;
     uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
     if (!pixels) return JNI_FALSE;
@@ -1801,37 +1897,47 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JN
                                          static_cast<uint64_t>(id[2]), pixels, capacity, r[0], r[1], r[2], r[3]);
     AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInvalidateLayer(JNIEnv*, jobject, jlong handle, jlong key) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
     return engine->invalidateLayer(static_cast<uint64_t>(key)) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInvalidateAllLayers(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (engine && engine->isInitialized()) engine->invalidateAllLayers();
+    JNI_CATCH()
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetResidentBudget(JNIEnv*, jobject, jlong handle, jlong bytes) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (engine && engine->isInitialized() && bytes >= 0) engine->setResidentBudget(static_cast<uint64_t>(bytes));
+    JNI_CATCH()
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDeviceLost(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->deviceLost() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // ---- Multipass rendering (wgpu only, experimental; StampEngine.h defaults to unsupported) ----
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetMultipass(JNIEnv* env, jobject, jlong handle, jfloatArray params) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
     std::vector<float> values;
@@ -1841,24 +1947,30 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetMultipass(JN
         if (n > 0) env->GetFloatArrayRegion(params, 0, n, values.data());
     }
     return engine->setMultipass(values.data(), values.size()) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jint JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefine(JNIEnv*, jobject, jlong handle, jfloat budgetMs) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return 0;
     return engine->refine(budgetMs);
+    JNI_CATCH(jint())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeFlushMultipass(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_TRUE;
     return engine->flushMultipass() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jdoubleArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeMultipassStats(JNIEnv* env, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return nullptr;
     double stats[16] = {0};
@@ -1867,20 +1979,24 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeMultipassStats(
     jdoubleArray out = env->NewDoubleArray(static_cast<jsize>(n));
     if (out != nullptr) env->SetDoubleArrayRegion(out, 0, static_cast<jsize>(n), stats);
     return out;
+    JNI_CATCH(jdoubleArray())
 }
 
 // ---- Direct display (wgpu only; StampEngine.h defaults to unsupported) -----------------------
 
 JNIEXPORT jint JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectCapabilities(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return 0;
     return static_cast<jint>(engine->directCapabilities());
+    JNI_CATCH(jint())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectAttach(
     JNIEnv* env, jobject, jlong handle, jobject surface, jint width, jint height) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !surface || width <= 0 || height <= 0) return JNI_FALSE;
     ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
@@ -1888,23 +2004,29 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectAttach(
     const bool ok = engine->directAttach(window, width, height);
     ANativeWindow_release(window);  // directAttach() holds its own reference
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectDetach(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (engine) engine->directDetach();
+    JNI_CATCH()
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectBeginStroke(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->isInitialized() && engine->directBeginStroke() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectPresent(
     JNIEnv* env, jobject, jlong handle, jfloatArray matrix, jboolean newBatch) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return JNI_FALSE;
     float m[6];
@@ -1915,21 +2037,26 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectPresent(
         mp = m;
     }
     return engine->directPresent(mp, newBatch == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDirectEndStroke(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->isInitialized() && engine->directEndStroke() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDestroy(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (engine) {
         engine->destroy();
         delete engine;
     }
+    JNI_CATCH()
 }
 
 // ---- Per-device tuning and telemetry (GpuTuning.kt / GpuTelemetry.kt) ----------------------
@@ -1937,21 +2064,26 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDestroy(JNIEnv*
 // Process-wide: applies to engines created after the call.
 JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampTuning(JNIEnv*, jobject, jint stampTile, jboolean timestamps) {
+    JNI_TRY
     graffux::stampTuning().stampTile.store(stampTile == 8 ? 8 : 16);
     graffux::stampTuning().timestamps.store(timestamps == JNI_TRUE);
+    JNI_CATCH()
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeGpuInfo(JNIEnv* env, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return nullptr;
     const std::string info = engine->gpuInfo();
     return info.empty() ? nullptr : env->NewStringUTF(info.c_str());
+    JNI_CATCH(jstring())
 }
 
 // {kind, nanos} pairs flattened; null when the engine has no GPU timings to give.
 JNIEXPORT jlongArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeTakePassTimings(JNIEnv* env, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return nullptr;
     constexpr size_t kCapacityPairs = 1024;
@@ -1962,6 +2094,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeTakePassTimings
     if (out == nullptr) return nullptr;
     env->SetLongArrayRegion(out, 0, static_cast<jsize>(n * 2), reinterpret_cast<const jlong*>(buffer.data()));
     return out;
+    JNI_CATCH(jlongArray())
 }
 
 } // extern "C"

@@ -8,6 +8,20 @@ import kotlin.test.assertTrue
 
 class PersistentWetnessFieldTest {
     @Test
+    fun nanWetnessIsNeverStored() {
+        val field = PersistentWetnessField(width = 64, height = 64, tileSize = 32)
+        assertEquals(0f, field.addWetness(3, 3, Float.NaN))
+        field.deposit(DirtyRegion(0, 0, 8, 8), Float.NaN)
+        assertTrue(field.isIdle)
+
+        field.addWetness(3, 3, 0.5f)
+        field.advance(deltaSeconds = 0.1f, dryingRate = Float.NaN, transportRate = 0.5f)
+        assertFalse(field.wetnessAt(3, 3).isNaN())
+        field.advance(deltaSeconds = Float.NaN, dryingRate = 0.1f, transportRate = 0.5f)
+        assertFalse(field.wetnessAt(3, 3).isNaN())
+    }
+
+    @Test
     fun idleAdvanceDoesNoPixelWork() {
         val field = PersistentWetnessField(width = 128, height = 128, tileSize = 64)
         val stats = field.advance(deltaSeconds = 1f, dryingRate = 0.2f, transportRate = 0.8f)

@@ -9,6 +9,9 @@ android {
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Consumer rules: applied to whatever app minifies against this library. As plain
+        // `proguardFiles` on a non-minified library module they were never read by anyone.
+        consumerProguardFiles("proguard-rules.pro")
         ndk {
             // Build only for ARM architectures (skip x86/x86_64 emulator builds)
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
@@ -43,10 +46,6 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
         }
     }
 

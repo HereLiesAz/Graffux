@@ -35,9 +35,11 @@ private val DarkColorScheme = darkColorScheme(
     // Several call sites draw this at 40% over black, so it has to be light enough to survive that
     // and still stay clearly behind the content it sits under.
     surfaceVariant = Color(0xFF2A2A30),
-    onPrimary = White,
-    onSecondary = White,
-    onTertiary = White,
+    // Black, not White: the accents are neon. White on HotPink is ~3.5:1, on Cyan ~1.25:1 and on
+    // NeonGreen ~1.36:1; Black is ~6:1, ~16.7:1 and ~14.6:1.
+    onPrimary = Black,
+    onSecondary = Black,
+    onTertiary = Black,
     onBackground = White,
     onSurface = White,
     // Dimmed, not white: this is what makes a subtitle read as subordinate to its title.
@@ -49,17 +51,11 @@ private val DarkColorScheme = darkColorScheme(
 private val LightColorScheme = lightColorScheme(
     primary = HotPink,
     secondary = Cyan,
-    tertiary = NeonGreen
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    tertiary = NeonGreen,
+    // The M3 default on-colors are white, which is unreadable on these neon accents (see above).
+    onPrimary = Black,
+    onSecondary = Black,
+    onTertiary = Black,
 )
 
 /**

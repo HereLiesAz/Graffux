@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.nativebridge
 
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -27,7 +28,14 @@ class GpuStampEngineInstrumentedTest {
 
     private fun initializedEngine(width: Int = SIZE, height: Int = SIZE): GpuStampEngine {
         val engine = engine()
-        assumeTrue("Device has no usable wgpu adapter", engine.init(width, height))
+        val ready = engine.init(width, height)
+        if (!ready) {
+            // Still a skip (adapter-less emulators exist) but never a silent one: this shows in logcat
+            // and the test report, so a CI lane that is supposed to have a GPU can notice.
+            Log.w("GpuStampEngineTest", "SKIPPED: device has no usable wgpu adapter; GPU parity is NOT verified here")
+            System.err.println("GpuStampEngineTest SKIPPED: no usable wgpu adapter; GPU parity NOT verified")
+        }
+        assumeTrue("SKIPPED (GPU parity NOT verified): device has no usable wgpu adapter", ready)
         return engine
     }
 
@@ -91,6 +99,8 @@ class GpuStampEngineInstrumentedTest {
         val center = output.getPixel(SIZE / 2, SIZE / 2)
         val corner = output.getPixel(0, 0)
         assertNotEquals("The dab did not affect its center pixel", 0x00000000, center)
+        // A wrong colour (e.g. swapped channels) must fail too, not just "non-zero".
+        assertEquals("Dab centre is not red", COLOR_RED, center)
         assertEquals("A distant pixel changed outside the dab", 0x00000000, corner)
     }
 

@@ -19,8 +19,8 @@ package com.hereliesaz.graffitixr.common.model
  * every already-drawn segment is permanently final, which uniform Catmull-Rom's own boundary
  * handling does not guarantee for the most recent one — so live preview stays on the straight
  * chords it already draws, and the curved, smoothed version appears once the stroke commits. This
- * mirrors this session's whole-stroke-opacity fix: the live path approximates, the authoritative
- * path is exact, and the two are allowed to differ transiently.
+ * mirrors how whole-stroke opacity is handled: the live path approximates, the authoritative path
+ * is exact, and the two are allowed to differ transiently.
  *
  * Pure and Android-free, the same interleaved `[x0,y0,x1,y1,…]` convention as [BrushStamps] and
  * [PathSimplify].

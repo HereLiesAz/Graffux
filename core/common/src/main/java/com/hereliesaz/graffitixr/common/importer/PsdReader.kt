@@ -27,6 +27,9 @@ object PsdReader {
     private const val SIGNATURE_8BIM = 0x3842494DL // "8BIM"
     private const val MAX_DIMENSION = 30000 // Photoshop's own canvas cap; guards against junk sizes.
 
+    /** Channel ids composed into a layer: red, green, blue and transparency (-1). */
+    private val COMPOSED_CHANNELS = setOf(0, 1, 2, -1)
+
     /**
      * [ByteArray]/[IntArray] wrappers that turn an [OutOfMemoryError] into [PsdFormatException].
      *
@@ -244,7 +247,10 @@ object PsdReader {
         val planes = HashMap<Int, ByteArray>(rec.channels.size)
         for (ch in rec.channels) {
             val chEnd = c.pos + ch.length
-            planes[ch.id] = readChannelPlane(c, w, h)
+            // Only colour and transparency are composed. Mask channels (-2 user, -3 real) have their
+            // own rectangle, so decoding them at the layer's w*h could run past their data and fail
+            // the whole import; they are skipped by their declared length instead.
+            readComposedPlane(c, ch.id, w, h, planes)
             c.pos = chEnd // trust the declared length for alignment
         }
 
@@ -268,6 +274,11 @@ object PsdReader {
             opacity = rec.opacity, isVisible = rec.isVisible, blendMode = rec.blendMode,
             vectorPaths = vectorPaths,
         )
+    }
+
+    /** Reads channel [id] into [planes] if it is one that is composed; otherwise leaves it unread. */
+    private fun readComposedPlane(c: Cursor, id: Int, w: Int, h: Int, planes: MutableMap<Int, ByteArray>) {
+        if (id in COMPOSED_CHANNELS) planes[id] = readChannelPlane(c, w, h)
     }
 
     /** Reads a single `w*h` channel plane (compression flag + data) into a byte array. */

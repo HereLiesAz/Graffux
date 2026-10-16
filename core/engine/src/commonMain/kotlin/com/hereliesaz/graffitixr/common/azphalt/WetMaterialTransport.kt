@@ -14,6 +14,10 @@ import kotlin.math.roundToInt
  * matches this reference exactly. Channel transfer is equal/opposite integer mass, so every exchange
  * conserves the summed ARGB channel values exactly before ordinary 0..255 bounds.
  *
+ * Pixels are straight (non-premultiplied) ARGB and every channel, alpha included, is exchanged
+ * independently, exactly as `wet.wgsl` does; at a fringe against fully transparent pixels the RGB
+ * channels therefore diffuse toward 0 along with alpha.
+ *
  * This deliberately is not a fluid solver. It is a small deterministic diffusion proxy whose job
  * is to make wet paint locally mobile while keeping dry/idle documents cheap.
  */

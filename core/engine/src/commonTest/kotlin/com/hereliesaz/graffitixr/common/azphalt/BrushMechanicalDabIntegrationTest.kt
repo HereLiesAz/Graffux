@@ -134,8 +134,7 @@ class BrushMechanicalDabIntegrationTest {
     fun liveAndCanonicalGeneratorsShareMechanicalStateResolution() {
         val expected = BrushStamps.dynamicDabs(samples, 10f, brush, 77L)
         val generator = IncrementalDynamicDabGenerator(10f, brush, 77L)
-        val total = samples.last().distancePx
-        val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
+        val actual = generator.appendLive(samples)
 
         assertDabsEqual(expected, actual)
     }
@@ -227,8 +226,7 @@ class BrushMechanicalDabIntegrationTest {
         )
         val expected = BrushStamps.dynamicDabs(samples, 10f, tuftBrush, 77L)
         val generator = IncrementalDynamicDabGenerator(10f, tuftBrush, 77L)
-        val total = samples.last().distancePx
-        val actual = samples.flatMap { generator.append(it, predictedTotal = total) }
+        val actual = generator.appendLive(samples)
 
         assertTrue(expected.isNotEmpty())
         assertDabsEqual(expected, actual)
@@ -257,8 +255,7 @@ class BrushMechanicalDabIntegrationTest {
         )
         val expected = BrushStamps.dynamicDabs(cornerSamples, 10f, tuftBrush, 991L)
         val generator = IncrementalDynamicDabGenerator(10f, tuftBrush, 991L)
-        val total = cornerSamples.last().distancePx
-        val actual = cornerSamples.flatMap { generator.append(it, predictedTotal = total) }
+        val actual = generator.appendLive(cornerSamples)
 
         assertTrue(expected.isNotEmpty())
         assertTrue(expected.map { it.angleDeg }.distinct().size > 1)
@@ -309,7 +306,7 @@ class BrushMechanicalDabIntegrationTest {
 
         val expected = BrushStamps.dynamicDabs(splitSamples, 12f, tuftBrush, 444L)
         val generator = IncrementalDynamicDabGenerator(12f, tuftBrush, 444L)
-        val actual = splitSamples.flatMap { generator.append(it, predictedTotal = splitSamples.last().distancePx) }
+        val actual = generator.appendLive(splitSamples)
 
         assertDabsEqual(expected, actual)
         val groups = expected.chunked(5).filter { it.size == 5 }

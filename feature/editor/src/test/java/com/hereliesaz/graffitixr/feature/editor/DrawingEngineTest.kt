@@ -81,4 +81,19 @@ class DrawingEngineTest {
         verify { slamManager.bakeLiquify(any()) }
     }
 
+    @Test
+    fun `composite throws when a stroke cannot be painted instead of returning the layer without it`() = runTest {
+        // No GPU in a JVM test: the retouch stroke's engine cannot start. composite used to hand back
+        // the strokes before it as if the replay had succeeded, and undo published that truncated
+        // layer. It must fail so the caller keeps the layer as it was.
+        val base = bitmap()
+        val thrown = runCatching { engine.composite(base, listOf(stroke(Tool.BLUR))) }.exceptionOrNull()
+        org.junit.Assert.assertTrue("got $thrown", thrown is StrokeRenderException)
+    }
+
+    @Test
+    fun `applySingleStroke throws when the stroke cannot be painted`() = runTest {
+        val thrown = runCatching { engine.applySingleStroke(bitmap(), stroke(Tool.BLUR)) }.exceptionOrNull()
+        org.junit.Assert.assertTrue("got $thrown", thrown is StrokeRenderException)
+    }
 }

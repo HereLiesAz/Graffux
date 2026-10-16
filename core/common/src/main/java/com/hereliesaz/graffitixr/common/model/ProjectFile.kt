@@ -42,17 +42,21 @@ object ProjectFile {
     private val ILLEGAL = charArrayOf('/', '\\', ':', '*', '?', '"', '<', '>', '|')
 
     /**
-     * The maximum length of the name portion. Filesystems generally cap a whole filename at 255
-     * bytes; leaving room for the extension and a `(1)` de-duplication suffix that a document
-     * provider may add keeps a long title from being silently truncated into a different file.
+     * The maximum length of the name portion, in characters and in UTF-8 bytes. Filesystems
+     * generally cap a whole filename at 255 bytes; leaving room for the extension and a `(1)`
+     * de-duplication suffix that a document provider may add keeps a long title from being
+     * silently truncated into a different file. The byte cap is what binds for non-ASCII names
+     * (120 CJK characters are 360 bytes).
      */
     private const val MAX_NAME_LENGTH = 120
+    private const val MAX_NAME_BYTES = 240
 
     /**
      * The filename to offer the user for a project called [projectName] — a sanitised name with
      * [DOT_EXTENSION] on the end, never blank, never already-doubled.
      */
-    fun suggestedFileName(projectName: String?): String = sanitizeName(projectName) + DOT_EXTENSION
+    fun suggestedFileName(projectName: String?): String =
+        sanitizeName(withoutProjectExtension(projectName.orEmpty())) + DOT_EXTENSION
 
     /**
      * The project name inside [fileName]: any directory prefix and known project extension removed.
@@ -61,14 +65,13 @@ object ProjectFile {
      */
     fun projectNameFrom(fileName: String?): String {
         val bare = fileName.orEmpty().substringAfterLast('/').substringAfterLast('\\')
-        val withoutExtension = when {
-            bare.endsWith(DOT_EXTENSION, ignoreCase = true) ->
-                bare.dropLast(DOT_EXTENSION.length)
-            bare.endsWith(".$LEGACY_EXTENSION", ignoreCase = true) ->
-                bare.dropLast(LEGACY_EXTENSION.length + 1)
-            else -> bare
-        }
-        return sanitizeName(withoutExtension)
+        return sanitizeName(withoutProjectExtension(bare))
+    }
+
+    private fun withoutProjectExtension(name: String): String = when {
+        name.endsWith(DOT_EXTENSION, ignoreCase = true) -> name.dropLast(DOT_EXTENSION.length)
+        name.endsWith(".$LEGACY_EXTENSION", ignoreCase = true) -> name.dropLast(LEGACY_EXTENSION.length + 1)
+        else -> name
     }
 
     /** Whether [fileName] looks like a project file this app can open. */
@@ -91,8 +94,26 @@ object ProjectFile {
             // Windows silently strips trailing dots and spaces, which would make the name the app
             // thinks it saved and the name on disk disagree.
             .trimEnd('.', ' ')
-            .take(MAX_NAME_LENGTH)
+            .truncated()
             .trimEnd('.', ' ')
         return cleaned.ifBlank { FALLBACK_NAME }
+    }
+
+    /**
+     * At most [MAX_NAME_LENGTH] chars and [MAX_NAME_BYTES] UTF-8 bytes, cut on a code-point
+     * boundary so a surrogate pair (an emoji) is never split into a lone surrogate.
+     */
+    private fun String.truncated(): String {
+        var end = 0
+        var bytes = 0
+        while (end < length) {
+            val cp = codePointAt(end)
+            val chars = Character.charCount(cp)
+            val cpBytes = String(Character.toChars(cp)).toByteArray(Charsets.UTF_8).size
+            if (end + chars > MAX_NAME_LENGTH || bytes + cpBytes > MAX_NAME_BYTES) break
+            end += chars
+            bytes += cpBytes
+        }
+        return substring(0, end)
     }
 }

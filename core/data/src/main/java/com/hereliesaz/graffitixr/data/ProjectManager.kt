@@ -50,11 +50,17 @@ class ProjectManager @Inject constructor(
 
     companion object {
         /**
-         * Cap on total decompressed bytes accepted from an imported/peer-received `.gxr` archive.
+         * Cap on total decompressed bytes accepted from an imported/peer-received `.fux` archive.
          * Both sources are untrusted (a shared file, or the co-op wire), so a zip bomb must not
          * be able to fill the app sandbox. Generous vs. real projects (multi-layer PNGs).
          */
         private const val MAX_IMPORT_BYTES = 512L * 1024 * 1024
+
+        /** Cap on entries in an imported archive (each costs a temp file + inode). */
+        private const val MAX_IMPORT_ENTRIES = 10_000
+
+        /** project.json is decoded as one String; real ones are well under a megabyte. */
+        private const val MAX_PROJECT_JSON_BYTES = 32L * 1024 * 1024
     }
 
     fun getProjectList(context: Context): List<String> {
@@ -167,12 +173,16 @@ class ProjectManager @Inject constructor(
      * project.json that would fail to parse and silently drop the project on next load.
      */
     private fun atomicWriteText(target: File, text: String) {
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(text)
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
+        // A unique temp name per write: unlocked writers (import, migration) must never share one.
+        val tmp = File(target.parentFile, "${target.name}.${java.util.UUID.randomUUID()}.tmp")
+        try {
+            tmp.writeText(text)
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true)
+            }
+        } finally {
+            if (tmp.exists()) tmp.delete()
         }
-        if (tmp.exists()) tmp.delete()
     }
 
     suspend fun loadProject(context: Context, projectId: String): LoadedProject? = withContext(Dispatchers.IO) {
@@ -216,9 +226,10 @@ class ProjectManager @Inject constructor(
 
     /**
      * Migrates a decoded project and, when the migration changed anything, persists it so the
-     * next read sees layer visuals rather than `legacyVisuals`. Every path that turns a
-     * `project.json` into the live project (disk load, `.fux` import, co-op spectator load) goes
-     * through here; only [loadProjectMetadata] stays in-memory, because it is a read-only listing.
+     * next read sees layer visuals rather than `legacyVisuals`. Used by [loadProject], the
+     * `.fux` import and the co-op spectator load. The app's own disk load goes through
+     * [loadProjectMetadata], which migrates in memory only; that migration is persisted by the next
+     * ordinary save.
      */
     private suspend fun migrateAndPersist(context: Context, decoded: GraffitiProject): GraffitiProject {
         val migrated = migrateInMemory(decoded)
@@ -342,83 +353,182 @@ class ProjectManager @Inject constructor(
         return total
     }
 
+    /**
+     * Imports a `.fux` archive as a NEW local project directory; it never overwrites an existing one.
+     * When the archive's project id is already on disk (re-opening an older export of a project you
+     * kept editing) the import gets a fresh id and its `projects/<oldId>/` path references are
+     * rebased, so both copies survive. Files are staged beside `projects/` and moved in with a
+     * single directory rename, so a failure part-way leaves nothing behind.
+     */
     suspend fun importProjectFromUri(context: Context, uri: Uri): GraffitiProject? = withContext(Dispatchers.IO) {
-        var extractedFiles: Map<String, File> = emptyMap()
+        val extracted = ExtractedArchive()
         return@withContext try {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 ZipInputStream(inputStream).use { zis ->
-                    var projectData: GraffitiProject? = null
-                    val extracted = mutableMapOf<String, File>()
-                    extractedFiles = extracted
-                    var totalBytes = 0L
-
-                    var entry = zis.nextEntry
-                    while (entry != null) {
-                        val name = entry.name
-                        val relativeName = if (name.contains('/')) name.substringAfter('/') else name
-
-                        if (!entry.isDirectory && relativeName.isNotEmpty()) {
-                            val tmpFile = File.createTempFile("gxr_", null, context.cacheDir)
-                            val newTotal = FileOutputStream(tmpFile).use { fos ->
-                                streamEntryBounded(zis, fos, totalBytes)
-                            }
-                            if (newTotal == null) {
-                                tmpFile.delete()
-                                Log.e("ProjectManager", "Import aborted: archive exceeds $MAX_IMPORT_BYTES bytes")
-                                return@use null
-                            }
-                            totalBytes = newTotal
-                            if (relativeName == "project.json") {
-                                try {
-                                    projectData = json.decodeFromString<GraffitiProject>(tmpFile.readText())
-                                } catch (e: Exception) {
-                                    Log.e("ProjectManager", "Failed to parse project.json", e)
-                                }
-                            }
-                            extracted[relativeName] = tmpFile
-                        }
-                        zis.closeEntry()
-                        entry = zis.nextEntry
-                    }
-
-                    val project = projectData ?: return@use null
-                    // project.id comes from the (untrusted) archive and becomes a path segment.
-                    if (!isSafeProjectId(project.id)) {
-                        Log.e("ProjectManager", "Import rejected: unsafe project id")
+                    if (!extractArchive(zis, "gxr_", stripTopDir = true, into = extracted)) {
                         return@use null
                     }
-                    val destDir = File(context.filesDir, "projects/${project.id}").also { it.mkdirs() }
-
-                    for ((name, tmpFile) in extracted) {
-                        // Zip-Slip guard: entry names are attacker-controlled and may contain
-                        // ".." components that escape destDir.
-                        val dest = resolveInside(destDir, name)
-                        if (dest == null) {
-                            Log.w("ProjectManager", "Skipping zip entry escaping project dir: $name")
-                            tmpFile.delete()
-                            continue
-                        }
-                        dest.parentFile?.mkdirs()
-                        // renameTo can silently fail across filesystems (cache vs files dir) or when
-                        // the destination exists — fall back to an explicit copy so an imported
-                        // project is never left with missing files.
-                        if (dest.exists()) dest.delete()
-                        if (!tmpFile.renameTo(dest)) {
-                            tmpFile.copyTo(dest, overwrite = true)
-                            tmpFile.delete()
-                        }
-                    }
-
-                    // project.json is now on disk under destDir; migrate it there too.
-                    migrateAndPersist(context, project)
+                    installExtracted(context, extracted)
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("ProjectManager", "Import failed", e)
             null
         } finally {
-            // Temp files are only renamed away on the success path; clear any stragglers.
-            extractedFiles.values.forEach { if (it.exists()) it.delete() }
+            // Temp files are only moved away on the success path; clear any stragglers.
+            extracted.files.values.forEach { if (it.exists()) it.delete() }
+        }
+    }
+
+    /** Temp files for each archive entry (keyed by in-project relative name) plus project.json's text. */
+    private class ExtractedArchive {
+        val files = mutableMapOf<String, File>()
+        var projectJson: String? = null
+    }
+
+    /**
+     * Streams every entry of [zis] into [into] under the cumulative byte cap, an entry-count cap and
+     * a project.json size cap (project.json is read into a String, and an OutOfMemoryError is not an
+     * Exception, so it must be bounded up front). Returns false when a cap is exceeded.
+     */
+    private fun extractArchive(
+        zis: ZipInputStream,
+        prefix: String,
+        stripTopDir: Boolean,
+        into: ExtractedArchive,
+    ): Boolean {
+        var totalBytes = 0L
+        var count = 0
+        var withinCaps = true
+        var entry = zis.nextEntry
+        while (entry != null && withinCaps) {
+            val name = entry.name
+            val relativeName = if (stripTopDir && name.contains('/')) name.substringAfter('/') else name
+            if (!entry.isDirectory && relativeName.isNotEmpty()) {
+                val newTotal = if (++count > MAX_IMPORT_ENTRIES) {
+                    Log.e("ProjectManager", "Archive rejected: more than $MAX_IMPORT_ENTRIES entries")
+                    null
+                } else {
+                    extractEntry(zis, prefix, relativeName, totalBytes, into)
+                }
+                if (newTotal == null) withinCaps = false else totalBytes = newTotal
+            }
+            if (withinCaps) {
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+        return withinCaps
+    }
+
+    /** Copies the current entry to a temp file; returns the new running byte total, or null over a cap. */
+    private fun extractEntry(
+        zis: ZipInputStream,
+        prefix: String,
+        relativeName: String,
+        totalBytes: Long,
+        into: ExtractedArchive,
+    ): Long? {
+        val tmpFile = File.createTempFile(prefix, null, context.cacheDir)
+        val newTotal = try {
+            FileOutputStream(tmpFile).use { fos -> streamEntryBounded(zis, fos, totalBytes) }
+        } catch (e: Exception) {
+            tmpFile.delete()
+            throw e
+        }
+        val isManifest = relativeName == "project.json"
+        if (newTotal == null || (isManifest && tmpFile.length() > MAX_PROJECT_JSON_BYTES)) {
+            tmpFile.delete()
+            Log.e("ProjectManager", "Archive rejected: over the size limits")
+            return null
+        }
+        if (isManifest) into.projectJson = tmpFile.readText()
+        // A duplicate entry name replaces the earlier one; don't leak its temp file.
+        into.files.put(relativeName, tmpFile)?.delete()
+        return newTotal
+    }
+
+    /** The archive's project.json decoded, or null when it is missing, unparseable or has an unsafe id. */
+    private fun parseArchiveProject(extracted: ExtractedArchive): GraffitiProject? {
+        val project = extracted.projectJson?.let {
+            try {
+                json.decodeFromString<GraffitiProject>(it)
+            } catch (e: Exception) {
+                Log.e("ProjectManager", "Failed to parse project.json", e)
+                null
+            }
+        }
+        // project.id comes from the (untrusted) archive and becomes a path segment.
+        if (project != null && !isSafeProjectId(project.id)) {
+            Log.e("ProjectManager", "Archive rejected: unsafe project id")
+            return null
+        }
+        return project
+    }
+
+    /**
+     * Moves an extracted archive into `projects/<id>/` transactionally and returns the (migrated)
+     * project, or null if the archive has no usable project.json or the id is unsafe. Never touches an
+     * existing project directory: on an id collision the project is given a new id and its absolute
+     * `/projects/<oldId>/` paths are rewritten to the new one. On any failure the staging directory
+     * and the half-installed project directory are removed.
+     */
+    private suspend fun installExtracted(context: Context, extracted: ExtractedArchive): GraffitiProject? {
+        val original = parseArchiveProject(extracted) ?: return null
+        val projectsDir = File(context.filesDir, "projects")
+        var project = original
+        var projectJsonOverride: String? = null
+        if (File(projectsDir, original.id).exists()) {
+            val newId = java.util.UUID.randomUUID().toString()
+            val rebased = requireNotNull(extracted.projectJson)
+                .replace("/projects/${original.id}/", "/projects/$newId/")
+            project = json.decodeFromString<GraffitiProject>(rebased).copy(id = newId)
+            projectJsonOverride = json.encodeToString(project)
+            Log.i("ProjectManager", "Project id ${original.id} already exists; importing as $newId")
+        }
+        val destDir = File(projectsDir, project.id)
+        val staging = File(context.filesDir, "import_staging/${java.util.UUID.randomUUID()}")
+        var installed = false
+        var result: GraffitiProject? = null
+        try {
+            stageFiles(extracted, staging, projectJsonOverride)
+            projectsDir.mkdirs()
+            // Atomic, and fails (rather than merging) if something created destDir meanwhile.
+            check(staging.renameTo(destDir)) { "Couldn't move imported project into place" }
+            installed = true
+            // project.json is now on disk under destDir; migrate it there too.
+            result = migrateAndPersist(context, project)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (installed) destDir.deleteRecursively()
+            throw e
+        } catch (e: Exception) {
+            Log.e("ProjectManager", "Install failed; rolling back", e)
+            if (installed) destDir.deleteRecursively()
+        } finally {
+            staging.deleteRecursively()
+        }
+        return result
+    }
+
+    /** Moves each extracted temp file into [staging], skipping Zip-Slip names; swaps in [projectJsonOverride]. */
+    private fun stageFiles(extracted: ExtractedArchive, staging: File, projectJsonOverride: String?) {
+        staging.mkdirs()
+        for ((name, tmpFile) in extracted.files) {
+            // Zip-Slip guard: entry names are attacker-controlled and may contain ".." components.
+            val dest = resolveInside(staging, name)
+            if (dest == null) {
+                Log.w("ProjectManager", "Skipping zip entry escaping project dir: $name")
+                continue
+            }
+            dest.parentFile?.mkdirs()
+            if (name == "project.json" && projectJsonOverride != null) {
+                dest.writeText(projectJsonOverride)
+            } else if (!tmpFile.renameTo(dest)) {
+                // renameTo can fail across filesystems (cache vs files dir).
+                tmpFile.copyTo(dest, overwrite = true)
+            }
         }
     }
 
@@ -500,70 +610,24 @@ class ProjectManager @Inject constructor(
     suspend fun loadAsSpectator(bytes: ByteArray) = withContext(Dispatchers.IO) {
         if (bytes.isEmpty()) return@withContext
 
-        var extractedFiles: Map<String, File> = emptyMap()
+        val extracted = ExtractedArchive()
         try {
             ZipInputStream(bytes.inputStream()).use { zis ->
-                var projectData: GraffitiProject? = null
-                val extracted = mutableMapOf<String, File>()
-                extractedFiles = extracted
-                var totalBytes = 0L
-
-                var entry = zis.nextEntry
-                while (entry != null) {
-                    val name = entry.name
-                    if (!entry.isDirectory && name.isNotEmpty()) {
-                        val tmpFile = File.createTempFile("gxr_spec_", null, context.cacheDir)
-                        val newTotal = FileOutputStream(tmpFile).use { fos ->
-                            streamEntryBounded(zis, fos, totalBytes)
-                        }
-                        if (newTotal == null) {
-                            tmpFile.delete()
-                            Log.e("ProjectManager", "Spectator load aborted: archive exceeds $MAX_IMPORT_BYTES bytes")
-                            return@use
-                        }
-                        totalBytes = newTotal
-                        if (name == "project.json") {
-                            projectData = json.decodeFromString<GraffitiProject>(tmpFile.readText())
-                        }
-                        extracted[name] = tmpFile
-                    }
-                    zis.closeEntry()
-                    entry = zis.nextEntry
-                }
-
-                val project = projectData ?: return@use
                 // The archive arrived over the co-op wire — id and entry names are untrusted.
-                if (!isSafeProjectId(project.id)) {
-                    Log.e("ProjectManager", "Spectator load rejected: unsafe project id")
-                    return@use
-                }
-                val destDir = File(context.filesDir, "projects/${project.id}").also { it.mkdirs() }
-
-                for ((name, tmpFile) in extracted) {
-                    val dest = resolveInside(destDir, name)
-                    if (dest == null) {
-                        Log.w("ProjectManager", "Skipping zip entry escaping project dir: $name")
-                        tmpFile.delete()
-                        continue
-                    }
-                    dest.parentFile?.mkdirs()
-                    if (!tmpFile.renameTo(dest)) {
-                        tmpFile.copyTo(dest, overwrite = true)
-                    }
-                    if (tmpFile.exists()) tmpFile.delete()
-                }
-
-                val migrated = migrateAndPersist(context, project)
+                if (!extractArchive(zis, "gxr_spec_", stripTopDir = false, into = extracted)) return@use
+                val migrated = installExtracted(context, extracted) ?: return@use
                 withContext(Dispatchers.Main) {
                     projectRepositoryProvider.get().createProject(migrated)
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("ProjectManager", "loadAsSpectator failed", e)
         } finally {
-            // Temp files are only renamed/copied away on the success path; clear any stragglers
-            // left by an early return or an exception (e.g. an unparseable project.json).
-            extractedFiles.values.forEach { if (it.exists()) it.delete() }
+            // Temp files are only moved away on the success path; clear any stragglers
+            // left by an early return or an exception.
+            extracted.files.values.forEach { if (it.exists()) it.delete() }
         }
     }
 

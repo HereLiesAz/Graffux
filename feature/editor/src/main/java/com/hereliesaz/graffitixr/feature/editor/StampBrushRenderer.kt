@@ -14,7 +14,6 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.GrainBehavior
-import com.hereliesaz.graffitixr.common.model.CatmullRom
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
@@ -33,9 +32,9 @@ internal data class GrainResolution(val tile: Bitmap?, val phaseX: Float, val ph
 
 /**
  * Resolves [grain] into its pre-baked tile plus this stroke's sampling phase -- the single source
- * of truth both the CPU masked-tip path ([StampBrushRenderer.paintMaskedDabs]) and the GPU masked
- * pipeline's live-preview setup (`EditorViewModel.onStrokeStart`) call, so the two never drift
- * apart on how [AzphaltBrush.grainRandomOffsetPerStroke]'s seeded draw is resolved.
+ * of truth the GPU commit ([GpuStampCommit]), the GPU live-preview setup
+ * (`EditorViewModel.onStrokeStart`) and the preview thumbnail's masked-tip path call, so they never
+ * drift apart on how [AzphaltBrush.grainRandomOffsetPerStroke]'s seeded draw is resolved.
  */
 internal fun resolveGrainTileAndPhase(grain: Bitmap?, brush: AzphaltBrush, seed: Long): GrainResolution {
     val grainTile = grain?.let {
@@ -50,7 +49,9 @@ internal fun resolveGrainTileAndPhase(grain: Bitmap?, brush: AzphaltBrush, seed:
 }
 
 /**
- * Android correctness renderer for resolved stamp dabs.
+ * Android Canvas renderer for resolved stamp dabs. Committed strokes and replays paint on the GPU
+ * ([GpuStampCommit]); this renders only the installed-brush preview thumbnail
+ * ([paintDynamicStroke]) and supplies [resolvedColor], which the GPU dab lists share.
  *
  * The fast historical round/image paths remain untouched for ordinary brushes. Ratio, grain, or a
  * masked second tip opt a dab into the Krita-style mask pipeline: reusable tip masks come from
@@ -58,36 +59,6 @@ internal fun resolveGrainTileAndPhase(grain: Bitmap?, brush: AzphaltBrush, seed:
  * and only then is the result tinted/composited onto the destination.
  */
 internal object StampBrushRenderer {
-
-    fun paintStroke(
-        canvas: Canvas,
-        points: List<Float>,
-        brush: AzphaltBrush,
-        colorArgb: Int,
-        diameterPx: Float,
-        flow: Float,
-        seed: Long,
-        stamp: Bitmap? = null,
-        grain: Bitmap? = null,
-        maskStamp: Bitmap? = null,
-        secondaryColorArgb: Int = colorArgb,
-        substrate: SubstrateRenderContext? = null,
-    ) {
-        val curved = CatmullRom.densify(points)
-        paintDabs(
-            canvas,
-            BrushStamps.dabs(curved, diameterPx, brush, seed),
-            brush,
-            colorArgb,
-            flow,
-            stamp,
-            grain,
-            maskStamp,
-            seed,
-            secondaryColorArgb,
-            substrate = substrate,
-        )
-    }
 
     fun paintDynamicStroke(
         canvas: Canvas,
@@ -101,7 +72,6 @@ internal object StampBrushRenderer {
         grain: Bitmap? = null,
         maskStamp: Bitmap? = null,
         secondaryColorArgb: Int = colorArgb,
-        substrate: SubstrateRenderContext? = null,
     ) {
         paintDabs(
             canvas,
@@ -114,7 +84,6 @@ internal object StampBrushRenderer {
             maskStamp,
             seed,
             secondaryColorArgb,
-            substrate = substrate,
         )
     }
 
@@ -136,15 +105,13 @@ internal object StampBrushRenderer {
         // ordinary movement dabs, which use paintRoundDabsMaxCombined's own-max compositing instead --
         // see that function's doc comment for why movement dabs must NOT use this same build-up.
         allowBuildUp: Boolean = false,
-        substrate: SubstrateRenderContext? = null,
     ) {
         if (dabs.isEmpty()) return
-        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null ||
-            (substrate != null && (stamp != null || allowBuildUp || brush.buildUp))
+        val advancedMaskPipeline = brush.tipRatio != 1f || grain != null || brush.maskedBrush != null
         if (advancedMaskPipeline) {
             paintMaskedDabs(
                 canvas, dabs, brush, colorArgb, secondaryColorArgb, flow,
-                stamp, grain, maskStamp, seed, substrate,
+                stamp, grain, maskStamp, seed,
             )
             return
         }
@@ -181,79 +148,9 @@ internal object StampBrushRenderer {
             paintRoundDabsSequential(canvas, dabs, brush, colorArgb, secondaryColorArgb, flow)
         } else {
             paintRoundDabsMaxCombined(
-                canvas, dabs, brush, colorArgb, secondaryColorArgb, flow, substrate,
+                canvas, dabs, brush, colorArgb, secondaryColorArgb, flow,
             )
         }
-    }
-
-    /**
-     * Live-preview repaint for the plain round (no custom tip, no grain, no masked/dual-tip),
-     * non-build-up path -- the one that renders via [paintRoundDabsMaxCombined].
-     *
-     * A live stroke used to be painted incrementally: each new frame's own handful of new dabs was
-     * `SRC_OVER`'d onto the same accumulating bitmap `paintDabs` had already drawn the previous
-     * frame's dabs onto. That matched a full re-render back when every dab composited the same way
-     * -- one more `SRC_OVER` on top of the last, in any grouping -- but [paintRoundDabsMaxCombined]
-     * breaks that equivalence: it only takes the max of alphas *within the one dabs list it's given
-     * in a single call*. Painting frame 1's three dabs as their own max-combined batch, then frame
-     * 2's three NEW dabs as a second, separate max-combined batch `SRC_OVER`'d on top of the first,
-     * reproduces exactly the hardened-edge-on-a-drag bug max-combine exists to prevent -- just at
-     * frame granularity instead of per-dab. Visibly, a live stroke shows distinct hard-edged dabs
-     * (each frame's own tiny batch) that only resolve into one smooth soft stroke once the finger
-     * lifts and the whole thing is committed as a single [paintDabs] call.
-     *
-     * The fix: every frame, restore this stroke's own bounding box from [baseBitmap] (a pristine
-     * snapshot of the layer from before this stroke's first dab -- undoing whatever the previous
-     * frame's own composite left there) and then max-combine the ENTIRE stroke's dabs so far in one
-     * call, via [paintRoundDabsMaxCombined]. Every frame is therefore a genuine full re-render of
-     * the stroke, matching what committing it produces, and the redraw cost tracks the stroke's own
-     * screen-space footprint (via [paintRoundDabsMaxCombined]'s own tight bounding box) rather than
-     * the whole canvas or the whole document.
-     *
-     * Not used for the shaped-tip, masked, grained, or build-up paths: those all composite
-     * sequentially (`SRC_OVER`, dab over dab), which genuinely IS stable incrementally frame to
-     * frame -- a later frame's `SRC_OVER` on top of an earlier frame's is exactly what committing
-     * those brushes does too, so they were never affected by this bug and keep using [paintDabs]
-     * with only each frame's new dabs.
-     */
-    fun repaintRoundStrokeFromBase(
-        canvas: Canvas,
-        baseBitmap: Bitmap,
-        dabs: List<Dab>,
-        brush: AzphaltBrush,
-        colorArgb: Int,
-        flow: Float,
-        secondaryColorArgb: Int = colorArgb,
-        substrate: SubstrateRenderContext? = null,
-    ) {
-        if (dabs.isEmpty()) return
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        for (d in dabs) {
-            val r = max(d.radius, 0.5f)
-            if (d.x - r < minX) minX = d.x - r
-            if (d.x + r > maxX) maxX = d.x + r
-            if (d.y - r < minY) minY = d.y - r
-            if (d.y + r > maxY) maxY = d.y + r
-        }
-        if (minX > maxX || minY > maxY) return
-        val left = floor(minX).toInt().coerceIn(0, baseBitmap.width)
-        val top = floor(minY).toInt().coerceIn(0, baseBitmap.height)
-        val right = ceil(maxX).toInt().coerceIn(0, baseBitmap.width)
-        val bottom = ceil(maxY).toInt().coerceIn(0, baseBitmap.height)
-        if (right <= left || bottom <= top) return
-        // SRC, not the default SRC_OVER a null Paint would use: the base is frequently transparent
-        // there (nothing painted outside the document, or simply nothing there yet), and blending a
-        // transparent source over whatever the previous frame already drew is a no-op -- it must
-        // REPLACE this region's pixels with the base's, not composite over them.
-        val restorePaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
-        val region = android.graphics.Rect(left, top, right, bottom)
-        canvas.drawBitmap(baseBitmap, region, region, restorePaint)
-        paintRoundDabsMaxCombined(
-            canvas, dabs, brush, colorArgb, secondaryColorArgb, flow, substrate,
-        )
     }
 
     /** The original per-dab `RadialGradient` + `SRC_OVER` compositing -- every dab builds on
@@ -330,7 +227,6 @@ internal object StampBrushRenderer {
         colorArgb: Int,
         secondaryColorArgb: Int,
         flow: Float,
-        substrate: SubstrateRenderContext? = null,
     ) {
         val baseFlow = flow.coerceIn(0f, 1f)
 
@@ -377,14 +273,7 @@ internal object StampBrushRenderer {
                     val dx = px + 0.5f - d.x
                     val rNorm = hypot(dx, dy) / radius
                     if (rNorm < 1f) {
-                        val deposition = substrate?.depositionAt(
-                            px + 0.5f,
-                            py + 0.5f,
-                            d,
-                            canvas.width,
-                            canvas.height,
-                        ) ?: 1f
-                        val localAlpha = BrushStamps.stampCoverage(rNorm, d.hardness) * strength * deposition
+                        val localAlpha = BrushStamps.stampCoverage(rNorm, d.hardness) * strength
                         val idx = rowBase + (px - left)
                         if (localAlpha > alphaBuf[idx]) {
                             alphaBuf[idx] = localAlpha
@@ -424,7 +313,6 @@ internal object StampBrushRenderer {
         grain: Bitmap?,
         maskStamp: Bitmap?,
         seed: Long,
-        substrate: SubstrateRenderContext? = null,
     ) {
         val scratch = DabScratch()
         val drawPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -506,17 +394,6 @@ internal object StampBrushRenderer {
                         grainPhaseY,
                     )
                 }
-                if (substrate != null) {
-                    applySubstrate(
-                        scratch.primary,
-                        substrate,
-                        dab,
-                        left,
-                        top,
-                        destination.width,
-                        destination.height,
-                    )
-                }
 
                 val dabColor = resolvedColor(baseColor, secondaryColor, brush, dab)
                 val alphaVal = (
@@ -531,38 +408,6 @@ internal object StampBrushRenderer {
         } finally {
             scratch.close()
         }
-    }
-
-    private fun applySubstrate(
-        mask: Bitmap,
-        substrate: SubstrateRenderContext,
-        dab: Dab,
-        globalLeft: Int,
-        globalTop: Int,
-        canvasWidth: Int,
-        canvasHeight: Int,
-    ) {
-        val width = mask.width
-        val height = mask.height
-        val pixels = IntArray(width * height)
-        mask.getPixels(pixels, 0, width, 0, 0, width, height)
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val index = y * width + x
-                val currentAlpha = Color.alpha(pixels[index])
-                if (currentAlpha == 0) continue
-                val deposition = substrate.depositionAt(
-                    globalLeft + x + 0.5f,
-                    globalTop + y + 0.5f,
-                    dab,
-                    canvasWidth,
-                    canvasHeight,
-                )
-                val outAlpha = (currentAlpha * deposition).roundToInt().coerceIn(0, 255)
-                pixels[index] = (outAlpha shl 24) or 0x00FFFFFF
-            }
-        }
-        mask.setPixels(pixels, 0, width, 0, 0, width, height)
     }
 
     private fun drawCenteredMask(

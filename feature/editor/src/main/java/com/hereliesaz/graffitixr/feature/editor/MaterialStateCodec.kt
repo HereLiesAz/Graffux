@@ -236,7 +236,9 @@ internal object MaterialStateCodec {
         for (y in top until bottom) {
             var index = y * width + left
             for (x in left until right) {
-                out.writeFloat(values[index].coerceIn(0f, 1f))
+                // NaN survives coerceIn and the reader rejects it, which would drop the whole
+                // layer's material on reload; persist it as empty instead.
+                out.writeFloat(finiteUnit(values[index]))
                 index++
             }
         }
@@ -304,7 +306,7 @@ internal object MaterialStateCodec {
     ) {
         val m = entry.medium.sanitized()
         out.writeFloat(entry.weight)
-        out.writeInt(m.mixingModel.ordinal)
+        out.writeInt(mixingModelId(m.mixingModel))
         out.writeFloat(m.viscosity)
         out.writeFloat(m.yieldLikeStrength)
         out.writeFloat(m.dryingRate)
@@ -324,9 +326,7 @@ internal object MaterialStateCodec {
     ): ImpastoMaterialReplayState.TileMediumSnapshot {
         val weight = input.readFloat()
         require(weight.isFinite() && weight > 0f) { "Invalid material medium weight" }
-        val mixingOrdinal = input.readInt()
-        val mixing = MaterialMixingModel.entries.getOrNull(mixingOrdinal)
-            ?: error("Invalid material mixing model")
+        val mixing = mixingModelFor(input.readInt()) ?: error("Invalid material mixing model")
         fun next(): Float = input.readFloat().also {
             require(it.isFinite()) { "Material medium contains a non-finite value" }
         }
@@ -363,7 +363,27 @@ internal object MaterialStateCodec {
     private const val VALID_FLAGS_V1 = FLAG_HEIGHT or FLAG_WETNESS
     private const val VALID_FLAGS_V2 = VALID_FLAGS_V1 or FLAG_RAW_COLOR or FLAG_MEDIUM
     private const val NO_TIME = Long.MIN_VALUE
-    private const val DEFAULT_TILE_SIZE = 64
+    // The wetness field's own tile size: the codec's tiles must line up with the field it stores.
+    private const val DEFAULT_TILE_SIZE =
+        com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE
+
+    private fun finiteUnit(value: Float): Float = if (value.isNaN()) 0f else value.coerceIn(0f, 1f)
+
+    /**
+     * The on-disk id of a mixing model. Explicit rather than the enum's ordinal, so reordering or
+     * inserting a [MaterialMixingModel] can never remap files already written (these values are
+     * the ordinals every existing file was written with).
+     */
+    private fun mixingModelId(model: MaterialMixingModel): Int = when (model) {
+        MaterialMixingModel.LEGACY_RGB -> 0
+        MaterialMixingModel.PIGMENT_RYB -> 1
+    }
+
+    private fun mixingModelFor(id: Int): MaterialMixingModel? = when (id) {
+        0 -> MaterialMixingModel.LEGACY_RGB
+        1 -> MaterialMixingModel.PIGMENT_RYB
+        else -> null
+    }
     private const val MAX_TILE_SIZE = 512
     private const val MAX_PIXELS = 16_777_216L // 4096²; above the editor's phone-first raster budget.
     private const val ZERO_EPSILON = 1e-6f

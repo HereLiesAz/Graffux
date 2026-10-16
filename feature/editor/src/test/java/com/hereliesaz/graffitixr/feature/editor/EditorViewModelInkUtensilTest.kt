@@ -335,6 +335,70 @@ class EditorViewModelInkUtensilTest {
     }
 
     @Test
+    fun `an Undo right after an Ink stroke cancels its commit so the undone stroke never publishes`() {
+        io.mockk.mockkConstructor(DrawingEngine::class)
+        try {
+            val committedBitmap = mockk<Bitmap>(relaxed = true)
+            coEvery {
+                anyConstructed<DrawingEngine>()
+                    .applySingleStroke(any(), any(), any(), any(), any(), any(), any(), any())
+            } returns committedBitmap
+            viewModel = newViewModel()
+            withLayer()
+            val layerId = viewModel.uiState.value.activeLayerId!!
+            var released = false
+            viewModel.commitInkStroke(
+                mockk(relaxed = true), listOf(Offset(1f, 1f)), listOf(1f),
+                com.hereliesaz.graffitixr.common.model.InkUtensil.PEN, IntSize(100, 100),
+            ) { released = true }
+
+            // Registered like every other commit, so the undo below can cancel it.
+            val commitJob = viewModel.rebuildJobForTest(layerId)
+            assertNotNull(commitJob)
+            viewModel.onUndoClicked()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(commitJob!!.isCancelled)
+            val shown = viewModel.uiState.value.layers.first { it.id == layerId }.bitmap
+            assertTrue("the undone Ink stroke's bitmap was published", shown !== committedBitmap)
+            assertTrue("the Ink overlay must be released even when the commit is cancelled", released)
+            assertTrue(viewModel.inkLedgerStrokes(layerId).isEmpty())
+        } finally {
+            io.mockk.unmockkConstructor(DrawingEngine::class)
+        }
+    }
+
+    @Test
+    fun `an Ink stroke that fails to paint leaves history, the ledger and the layer as they were`() {
+        io.mockk.mockkConstructor(DrawingEngine::class)
+        try {
+            coEvery {
+                anyConstructed<DrawingEngine>()
+                    .applySingleStroke(any(), any(), any(), any(), any(), any(), any(), any())
+            } throws StrokeRenderException("no GPU")
+            viewModel = newViewModel()
+            withLayer()
+            val layerId = viewModel.uiState.value.activeLayerId!!
+            val before = viewModel.uiState.value.layers.first { it.id == layerId }.bitmap
+            val undoBefore = viewModel.uiState.value.undoCount
+            var released = false
+            viewModel.commitInkStroke(
+                mockk(relaxed = true), listOf(Offset(1f, 1f)), listOf(1f),
+                com.hereliesaz.graffitixr.common.model.InkUtensil.PEN, IntSize(100, 100),
+            ) { released = true }
+            assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("the failed stroke must leave the undo stack", undoBefore, viewModel.uiState.value.undoCount)
+            assertTrue(viewModel.inkLedgerStrokes(layerId).isEmpty())
+            assertTrue(before === viewModel.uiState.value.layers.first { it.id == layerId }.bitmap)
+            assertTrue(released)
+        } finally {
+            io.mockk.unmockkConstructor(DrawingEngine::class)
+        }
+    }
+
+    @Test
     fun `a peer's reconstructed Ink stroke joins the Ink ledger the Figma SVG export reads`() {
         withLayer()
         val layerId = viewModel.uiState.value.activeLayerId!!

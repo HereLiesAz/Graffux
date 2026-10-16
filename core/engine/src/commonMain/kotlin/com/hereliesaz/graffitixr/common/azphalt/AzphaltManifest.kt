@@ -42,7 +42,6 @@ data class AzphaltManifest(
      * Static store-card preview (spec/extension-manifest.md § preview) — surfaced in registry search so
      * a host can render a browse grid without downloading or executing the package.
      */
-    /** Static store-card preview. */
     val preview: Preview? = null,
     /** Present only on a `kind: "app"` manifest (spec/companion-app.md). */
     val app: kotlinx.serialization.json.JsonObject? = null,
@@ -87,7 +86,8 @@ data class PackEntry(
 fun validatePackManifest(m: AzphaltManifest): String? {
     if (m.kind != ExtensionKind.PACK) return "not a pack (kind=${m.kind.wire})"
     val pack = m.pack ?: return "pack manifest has no `pack` block"
-    // Header-only: no code entry/runtime, capabilities, or assets (app/mcp blocks aren't modelled here).
+    // Header-only: no code entry/runtime, capabilities, or assets. The `app`/`mcp` blocks are not
+    // checked here.
     if (m.entry != null || m.runtime != null) return "a pack must not declare code (entry/runtime)"
     if (m.capabilities.isNotEmpty()) return "a pack must not declare capabilities"
     if (m.assets.isNotEmpty()) return "a pack must not declare assets"

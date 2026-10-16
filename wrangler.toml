@@ -1,5 +1,11 @@
 name = "graffux"
 compatibility_date = "2026-08-26"
 
+# Assets-only Worker: no `main`, no build step. Serves ./docs (index.html, favicon.svg,
+# PRIVACY_POLICY.md); the research notes in the same directory are excluded by docs/.assetsignore.
+# If Workers Builds (dashboard) is connected to this repo, set its Build command to empty/`true`
+# so it does not try to build the Gradle/Cargo/pip projects at the repo root, and Deploy to
+# `npx wrangler deploy`. Non-production branch builds run `wrangler versions upload`, which needs
+# the Worker to have been deployed once from the production branch.
 [assets]
 directory = "./docs"

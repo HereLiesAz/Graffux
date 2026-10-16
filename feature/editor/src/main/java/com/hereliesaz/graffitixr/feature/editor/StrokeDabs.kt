@@ -9,8 +9,8 @@ import com.hereliesaz.graffitixr.common.model.CatmullRom
 
 /**
  * The dab lists a recorded stamp stroke commits and replays with, shared by the GPU commit
- * ([GpuStampCommit]) and the CPU renderer (DrawingEngine), so the two only ever differ in the
- * rasterizer. [mapped] is the stroke's path already mapped into the layer bitmap.
+ * ([GpuStampCommit]), the GPU replay session and the Impasto strokes, so they never differ in
+ * which dabs they stamp. [mapped] is the stroke's path already mapped into the layer bitmap.
  */
 internal object StrokeDabs {
 

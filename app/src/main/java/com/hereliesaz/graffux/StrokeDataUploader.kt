@@ -8,7 +8,8 @@ import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 /**
  * Sends finished stroke-data session files (StrokeDataStore) to the repository's `stroke-data`
  * branch for training (tools/stroke-model), deleting each once GitHub has it. Needs the Settings
- * token with Contents: read and write. Without a token nothing is sent and files keep accumulating.
+ * token with Contents: read and write. Without a token nothing is sent or deleted, and files keep
+ * accumulating.
  */
 class StrokeDataUploader(
     private val context: Context,

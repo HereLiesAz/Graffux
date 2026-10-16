@@ -40,6 +40,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -136,7 +137,7 @@ import kotlin.math.roundToInt
  * Graffux entry point — hosts the shared [EditorScreen] (the single source of truth for the
  * multi-layer image editor, migrated from GraffitiXR into :feature:editor). The Hilt-provided
  * [EditorViewModel] and its whole dependency graph (core modules + native bridge) resolve here; the
- * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.[span_3](start_span)[span_3](end_span)
+ * screen forces DESIGN mode, so no AR / SLAM / co-op is involved.
  */
 /**
  * Back to a plain `ComponentActivity`. It was briefly an `AppCompatActivity` so that
@@ -150,8 +151,13 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val sharedImage = incomingImageUri(intent)
-        val azpInstallUrl = azphaltInstallUrl(intent)
+        // Launch intents are acted on once. A recreation (rotation, dark-mode or locale change)
+        // hands back the same original intent with a non-null savedInstanceState; replaying it would
+        // add the shared image to the project a second time and re-raise an install prompt the user
+        // already answered.
+        val firstLaunch = savedInstanceState == null
+        val sharedImage = if (firstLaunch) incomingImageUri(intent) else null
+        val azpInstallUrl = if (firstLaunch) azphaltInstallUrl(intent) else null
         setContent {
             // The app's own theme, not a bare `MaterialTheme`. Graffux is a dark app, but a bare
             // MaterialTheme() takes Material 3's default **light** scheme, whose `onSurface` is a
@@ -186,29 +192,27 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Extracts a single image [Uri] from an inbound share/view intent, or null if this launch isn't one.[span_4](start_span)[span_4](end_span)
+ * Extracts a single image [Uri] from an inbound `ACTION_SEND` share intent, or null if this launch
+ * isn't one. Only `content://` streams are taken: a sender naming a `file://` path would have
+ * Graffux open that path with Graffux's own file access.
  */
 private fun incomingImageUri(intent: Intent?): Uri? {
-    if (intent == null) return null
-    val isImage = intent.type?.startsWith("image/") == true
-    return when (intent.action) {
-        Intent.ACTION_SEND ->
-            if (isImage) IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) else null
-        Intent.ACTION_VIEW -> intent.data?.takeIf { isImage }
-        else -> null
-    }
+    if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("image/") != true) return null
+    return IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+        ?.takeIf { it.scheme == "content" }
 }
 
 /**
  * Extracts an azphalt package download URL from an `azphalt://install` deep link, or null if this
- * launch isn't one. The web storefront redirects here after a purchase; the URI's `url` query
- * parameter carries the HTTPS download URL for the `.azp` package.
+ * launch isn't one or the URL isn't an acceptable `https` address (see [parseAzphaltInstallTarget]).
+ * The web storefront redirects here after a purchase; the URI's `url` query parameter carries the
+ * HTTPS download URL for the `.azp` package.
  */
 private fun azphaltInstallUrl(intent: Intent?): String? {
     if (intent?.action != Intent.ACTION_VIEW) return null
     val data = intent.data ?: return null
     if (data.scheme != "azphalt" || data.host != "install") return null
-    return data.getQueryParameter("url")
+    return parseAzphaltInstallTarget(data.getQueryParameter("url"))?.url
 }
 
 // The brush-size range (MIN_BRUSH_SIZE..MAX_BRUSH_SIZE) the edge slider and the hero card's Size
@@ -379,20 +383,26 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // primitive: the only signal the user ever got was a Toast *after* the extension was already
     // on disk. Route it through a real confirmation instead, naming the URL so there's something
     // to actually evaluate before it downloads and installs anything.
-    var pendingAzphaltInstallUrl by remember { mutableStateOf<String?>(null) }
+    // Saveable, so an open prompt survives a rotation (the intent is no longer replayed to refill it).
+    var pendingAzphaltInstallUrl by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(azphaltInstallUrl) {
-        pendingAzphaltInstallUrl = azphaltInstallUrl
+        if (azphaltInstallUrl != null) pendingAzphaltInstallUrl = azphaltInstallUrl
     }
     pendingAzphaltInstallUrl?.let { url ->
-        ConfirmDialog(
-            title = "Install extension?",
-            message = "Something wants Graffux to download and install an extension from:\n\n" +
-                "$url\n\nExtensions can add code that runs inside Graffux. Only install one " +
-                "if you trust where this came from.",
-            confirmLabel = "Install",
-            onConfirm = { vm.installExtensionFromUrl(url); pendingAzphaltInstallUrl = null },
-            onDismiss = { pendingAzphaltInstallUrl = null },
-        )
+        val target = parseAzphaltInstallTarget(url)
+        if (target == null) {
+            pendingAzphaltInstallUrl = null
+        } else {
+            ConfirmDialog(
+                title = "Install extension?",
+                message = "Something wants Graffux to download and install an extension from:\n\n" +
+                    "${target.host}\n\nFull address:\n${truncateInstallUrl(url)}\n\nExtensions can add " +
+                    "code that runs inside Graffux. Only install one if you trust where this came from.",
+                confirmLabel = "Install",
+                onConfirm = { vm.installExtensionFromUrl(url); pendingAzphaltInstallUrl = null },
+                onDismiss = { pendingAzphaltInstallUrl = null },
+            )
+        }
     }
 
     // Autosave is debounced so a flurry of strokes doesn't re-encode a full-screen PNG on each one.
@@ -1164,7 +1174,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 if (carouselOnScreen) ExpandedHeroLayer(heroExpansion)
             }
 
-            // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)[span_5](start_span)[span_5](end_span)
+            // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)
             onscreen(alignment = Alignment.TopEnd) {
                 if (!uiState.hideUiForCapture) {
                     AzDropdownMenu(navController = navController) {
@@ -1254,6 +1264,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 }
                                 context.startActivity(chooser)
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                // The scope going away (rotation, leaving composition) isn't a failed
+                                // share, and must not raise a "Couldn't share" popup.
+                                throw e
                             } catch (t: Throwable) {
                                 // Was a logcat line and nothing else: Share appeared to do nothing
                                 // at all, with no way for the user to tell a failure from a slow

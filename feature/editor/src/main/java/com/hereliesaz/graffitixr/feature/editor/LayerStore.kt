@@ -279,6 +279,20 @@ internal class LayerStore {
         return true
     }
 
+    /**
+     * Removes [command] (by identity) from [layerId]'s strokes, wherever it sits: a stroke whose
+     * commit failed never reached the layer, so a later replay must not paint it either.
+     */
+    fun removeStroke(layerId: String, command: StrokeCommand) {
+        val list = layerStrokes[layerId] ?: return
+        val removed = synchronized(list) {
+            val idx = list.indexOfLast { it === command }
+            if (idx >= 0) list.removeAt(idx)
+            idx >= 0
+        }
+        if (removed) contentChanged?.invoke(layerId)
+    }
+
     /** How many strokes are queued for replay on [layerId]. */
     fun strokeCount(layerId: String): Int {
         val list = layerStrokes[layerId] ?: return 0

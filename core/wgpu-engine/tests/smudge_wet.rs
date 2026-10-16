@@ -1,5 +1,5 @@
 //! Color Smudge on the wet simulation's canvas wetness (`Engine::set_smudge_wetness`): the canvas
-//! wetness gates how much the carrier picks up (ColorSmudgeEngine.wetnessMobility), and every
+//! wetness gates how much the carrier picks up (the former CPU ColorSmudgeEngine.wetnessMobility (deleted; this shader is the reference now)), and every
 //! smudged pixel deposits `dilution * mask * opacity` wetness, activating its tile, as
 //! PersistentWetnessField.addWetness does. Runs once per backend with an adapter.
 
