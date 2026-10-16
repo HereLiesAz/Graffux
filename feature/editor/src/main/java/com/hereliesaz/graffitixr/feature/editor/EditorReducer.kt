@@ -246,7 +246,10 @@ internal object EditorReducer {
         // changed layer list — except here the list is always empty, so there's nothing to look up
         // and the id must simply go. Every other id/selection that only makes sense against the
         // layer set being cleared goes with it, or the next project opened inherits the previous
-        // one's dangling marquee, path-edit target, or warp handles.
+        // one's dangling marquee, path-edit target, or warp handles. The same goes for the other
+        // per-project leftovers: the style registry, the clone source (a canvas coordinate of the old
+        // document), the eyedropper, animation mode/frame, and the undo/redo counters (their stacks
+        // are cleared by the caller alongside this intent).
         EditorIntent.ClearProject -> state.copy(
             projectId = null,
             layers = emptyList(),
@@ -258,6 +261,14 @@ internal object EditorReducer {
             selectedNodeIndex = null,
             warpHandles = emptyList(),
             savedSelections = emptyList(),
+            colorStyles = emptyList(),
+            textStyles = emptyList(),
+            cloneSource = null,
+            isEyedropping = false,
+            isAnimationMode = false,
+            activeFrameIndex = 0,
+            undoCount = 0,
+            redoCount = 0,
         )
         else -> null
     }

@@ -304,6 +304,27 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `ClearProject drops per-project leftovers the next project must not inherit`() {
+        val dirty = state(lyr("a")).copy(
+            colorStyles = listOf(com.hereliesaz.graffitixr.common.model.ColorStyle(name = "c", argb = 0xFF000000)),
+            cloneSource = androidx.compose.ui.geometry.Offset(5f, 6f),
+            isEyedropping = true,
+            isAnimationMode = true,
+            activeFrameIndex = 3,
+            undoCount = 4,
+            redoCount = 2,
+        )
+        val cleared = reduce(dirty, EditorIntent.ClearProject)
+        assertTrue(cleared.colorStyles.isEmpty())
+        assertNull(cleared.cloneSource)
+        assertFalse(cleared.isEyedropping)
+        assertFalse(cleared.isAnimationMode)
+        assertEquals(0, cleared.activeFrameIndex)
+        assertEquals(0, cleared.undoCount)
+        assertEquals(0, cleared.redoCount)
+    }
+
+    @Test
     fun `LoadedProject activates a layer so reopening a project leaves something selected`() {
         // Regression: LoadedProject used to leave activeLayerId null and lean on the SetLayers that
         // follows it, but the view model only dispatches that when a layer still needs its bitmap

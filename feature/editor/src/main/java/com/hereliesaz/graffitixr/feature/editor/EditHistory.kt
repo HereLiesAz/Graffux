@@ -165,6 +165,12 @@ internal class EditHistory(
      */
     fun dropTopRedo(): EditCommand? = redoStack.removeLastOrNull()?.also { it.gpuUndo()?.let(onGpuUndoDiscarded) }
 
+    /**
+     * Symmetric to [dropTopRedo]: discards the counter-entry [popRedo] just speculatively pushed onto
+     * the undo stack, for a redo that turns out to be inapplicable (its layer's cache was evicted).
+     */
+    fun dropTopUndo(): EditCommand? = undoStack.removeLastOrNull()?.also { it.gpuUndo()?.let(onGpuUndoDiscarded) }
+
     /** The most recent undoable entry, or null if the undo stack is empty. Test-only visibility
      *  into whether item 16's tile-delta fast path actually got attached to a given stroke. */
     internal fun undoStackTopForTest(): EditCommand? = undoStack.lastOrNull()

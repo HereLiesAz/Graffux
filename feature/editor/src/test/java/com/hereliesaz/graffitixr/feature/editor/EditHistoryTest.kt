@@ -88,6 +88,20 @@ class EditHistoryTest {
     }
 
     @Test
+    fun `dropTopUndo discards the entry popRedo speculatively queued`() {
+        val h = EditHistory()
+        h.pushDraw("layer-1", stroke())
+        h.popUndo { it }                          // redo has 1, undo has 0
+        h.popRedo { it }                          // undo has 1 again, redo has 0
+        assertEquals(1, h.undoCount)
+
+        val dropped = h.dropTopUndo()
+        assertTrue(dropped is EditCommand.Draw)
+        assertEquals(0, h.undoCount)
+        assertEquals(0, h.redoCount)
+    }
+
+    @Test
     fun `popUndo on empty history returns null and records nothing`() {
         val h = EditHistory()
         assertNull(h.popUndo { it })

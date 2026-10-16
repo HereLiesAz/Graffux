@@ -1769,6 +1769,15 @@ class EditorViewModel @Inject constructor(
                 // Redo re-applies a stroke through the CPU replay, not a GPU stroke: stale copy,
                 // unless the stroke's GPU snapshot re-applies it too (applyTileDeltaFastPath).
                 if (command.gpuUndo == null) invalidateResident(command.layerId)
+                if (layerStore.base(command.layerId) == null) {
+                    // Mirror of the undo path: the layer's cache was evicted, so there is no base to
+                    // replay this stroke onto. addStroke would invent a stroke list for a layer with
+                    // nothing to rebuild, and the rebuild would no-op while the counters moved.
+                    // popRedo already pushed its counterpart onto the undo stack - drop that.
+                    history.dropTopUndo()
+                    updateHistoryCounts()
+                    return
+                }
                 layerStore.addStroke(command.layerId, command.command)
                 inkLedger.onRedo(command.layerId, command.command, command.command.takeIf { it.inkStroke != null })
                 val deltas = command.tileDeltas
@@ -8850,43 +8859,50 @@ class EditorViewModel @Inject constructor(
 
     /** File > New's body. Callers invalidate resident layers first, on the main thread. */
     private suspend fun createNewProjectNamed(name: String) {
-        run {
-            canvasEngineLogged = false
-            val project = createProjectWithScreenSize(name)
-            val projectId = project.id
-            Breadcrumbs.record("project created")
+        canvasEngineLogged = false
+        val project = createProjectWithScreenSize(name)
+        val projectId = project.id
+        Breadcrumbs.record("project created")
 
-            val (blankBitmap, frame, baseBitmap) = createBlankPaintBitmap()
-            val filename = "layer_${UUID.randomUUID()}.png"
-            val localUri = try {
-                val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
-                "file://$path".toUri()
-            } catch (_: Exception) { null }
+        val (blankBitmap, frame, baseBitmap) = createBlankPaintBitmap()
+        val filename = "layer_${UUID.randomUUID()}.png"
+        // A Background layer with no backing file would never persist (scheduleDiskSave skips a null
+        // uri), silently losing every stroke on the project's first layer. So a failed write aborts the
+        // creation instead: the half-made project is removed and the throw reaches guardProjectCreation,
+        // which reports it and leaves the project dialog up for a retry.
+        val localUri = try {
+            val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
+            "file://$path".toUri()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            runCatching { projectRepository.deleteProject(projectId) }
+            throw IllegalStateException("Couldn't write the first layer - storage may be full", e)
+        }
 
-            val bgLayer = Layer(
-                id = UUID.randomUUID().toString(),
-                name = "Background",
-                isSketch = true,
-                bitmap = blankBitmap,
-                uri = localUri,
-                frameWidth = frame.width,
-                frameHeight = frame.height,
-                originX = frame.originX,
-                originY = frame.originY,
-            )
+        val bgLayer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = "Background",
+            isSketch = true,
+            bitmap = blankBitmap,
+            uri = localUri,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            originX = frame.originX,
+            originY = frame.originY,
+        )
 
-            // Wait for the currentProject collector to publish the new (layerless) project first, as
-            // ensureProjectId does: otherwise its LoadedProject can land after AddLayer below, and
-            // with a project already open (File > New) the Background layer is added to the OLD
-            // project's layer list, then wiped, and the first save persists the wrong layers.
-            _uiState.first { it.projectId == projectId }
-            withContext(dispatchers.main) {
-                if (baseBitmap != null) layerStore.putBase(bgLayer.id, baseBitmap)
-                else putLayerBase(bgLayer.id, blankBitmap)
-                layerStore.initStrokes(bgLayer.id)
-                dispatch(EditorIntent.AddLayer(bgLayer))
-                saveProject()
-            }
+        // Wait for the currentProject collector to publish the new (layerless) project first, as
+        // ensureProjectId does: otherwise its LoadedProject can land after AddLayer below, and
+        // with a project already open (File > New) the Background layer is added to the OLD
+        // project's layer list, then wiped, and the first save persists the wrong layers.
+        _uiState.first { it.projectId == projectId }
+        withContext(dispatchers.main) {
+            if (baseBitmap != null) layerStore.putBase(bgLayer.id, baseBitmap)
+            else putLayerBase(bgLayer.id, blankBitmap)
+            layerStore.initStrokes(bgLayer.id)
+            dispatch(EditorIntent.AddLayer(bgLayer))
+            saveProject()
         }
     }
 
