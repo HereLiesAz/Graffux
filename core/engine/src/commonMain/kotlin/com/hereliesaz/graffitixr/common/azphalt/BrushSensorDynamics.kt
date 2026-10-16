@@ -203,9 +203,13 @@ data class BrushResponseCurve(
         return BrushResponseCurve(cleaned)
     }
 
-    fun evaluate(input: Float): Float {
-        val p = sanitized().points
-        val x = input.coerceIn(0f, 1f)
+    fun evaluate(input: Float): Float = sanitized().evaluateSanitized(input)
+
+    /** [evaluate] for a curve that is already [sanitized], without re-sorting it per call. */
+    internal fun evaluateSanitized(input: Float): Float {
+        val p = points
+        // NaN input reads as 0, not as the curve's last (full-output) point.
+        val x = if (input.isNaN()) 0f else input.coerceIn(0f, 1f)
         if (x <= p.first().x) return p.first().y
         if (x >= p.last().x) return p.last().y
         for (i in 0 until p.lastIndex) {
@@ -259,9 +263,11 @@ data class BrushSensorBinding(
 
     fun map(raw: Float): Float {
         val b = sanitized()
-        var t = ((raw - b.inputMin) / (b.inputMax - b.inputMin)).coerceIn(0f, 1f)
+        val normalized = (raw - b.inputMin) / (b.inputMax - b.inputMin)
+        // A NaN sensor reading (e.g. NaN pressure) is no input, not full input.
+        var t = if (normalized.isNaN()) 0f else normalized.coerceIn(0f, 1f)
         if (b.invert) t = 1f - t
-        val curved = b.curve.evaluate(t)
+        val curved = b.curve.evaluateSanitized(t)
         return b.outputMin + (b.outputMax - b.outputMin) * curved
     }
 }

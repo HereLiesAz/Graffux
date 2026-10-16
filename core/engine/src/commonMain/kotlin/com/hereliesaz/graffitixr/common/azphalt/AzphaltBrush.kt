@@ -335,29 +335,35 @@ data class AzphaltBrush(
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
-        spacing = spacing.coerceIn(0.01f, 4f),
-        tipRatio = tipRatio.coerceIn(0.05f, 1f),
-        opacity = opacity.coerceIn(0f, 1f),
-        hardness = hardness.coerceIn(0f, 1f),
-        sizeJitter = sizeJitter.coerceIn(0f, 1f),
-        opacityJitter = opacityJitter.coerceIn(0f, 1f),
-        scatter = scatter.coerceAtLeast(0f),
-        scatterLongitudinal = scatterLongitudinal.coerceAtLeast(0f),
-        grainScale = grainScale.coerceIn(0.05f, 16f),
-        grainStrength = grainStrength.coerceIn(0f, 1f),
-        colorMix = colorMix.coerceIn(0f, 1f),
+        // coerceIn passes NaN through, so every float is made finite first (an imported brush's
+        // lenient JSON can carry NaN/Infinity literals).
+        angle = angle.finiteOr(0f),
+        rotationPerPx = rotationPerPx.finiteOr(0f),
+        grainOffsetX = grainOffsetX.finiteOr(0f),
+        grainOffsetY = grainOffsetY.finiteOr(0f),
+        spacing = spacing.finiteOr(0.1f).coerceIn(0.01f, 4f),
+        tipRatio = tipRatio.finiteOr(1f).coerceIn(0.05f, 1f),
+        opacity = opacity.finiteOr(1f).coerceIn(0f, 1f),
+        hardness = hardness.finiteOr(1f).coerceIn(0f, 1f),
+        sizeJitter = sizeJitter.finiteOr(0f).coerceIn(0f, 1f),
+        opacityJitter = opacityJitter.finiteOr(0f).coerceIn(0f, 1f),
+        scatter = scatter.finiteOr(0f).coerceAtLeast(0f),
+        scatterLongitudinal = scatterLongitudinal.finiteOr(0f).coerceAtLeast(0f),
+        grainScale = grainScale.finiteOr(1f).coerceIn(0.05f, 16f),
+        grainStrength = grainStrength.finiteOr(1f).coerceIn(0f, 1f),
+        colorMix = colorMix.finiteOr(0f).coerceIn(0f, 1f),
         maskedBrush = maskedBrush?.sanitized(),
         dynamics = dynamics.map(BrushSensorBinding::sanitized),
         contact = contact.sanitized(),
         taper = taper.sanitized(),
         blot = blot.sanitized(),
-        airbrushDabsPerSecond = airbrushDabsPerSecond.coerceAtLeast(0f),
-        airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.coerceAtLeast(0f),
-        impastoThicknessRate = impastoThicknessRate.coerceAtLeast(0f),
+        airbrushDabsPerSecond = airbrushDabsPerSecond.finiteOr(0f).coerceAtLeast(0f),
+        airbrushStillnessRadiusPx = airbrushStillnessRadiusPx.finiteOr(0f).coerceAtLeast(0f),
+        impastoThicknessRate = impastoThicknessRate.finiteOr(0f).coerceAtLeast(0f),
         count = count.coerceIn(1, 16),
-        countJitter = countJitter.coerceIn(0f, 1f),
+        countJitter = countJitter.finiteOr(0f).coerceIn(0f, 1f),
         impastoMaterial = impastoMaterial.sanitized(),
-        substrateResponse = substrateResponse.coerceIn(0f, 1f),
+        substrateResponse = substrateResponse.finiteOr(0f).coerceIn(0f, 1f),
     )
 
     fun spacingReferencePx(diameterPx: Float): Float =
@@ -365,7 +371,8 @@ data class AzphaltBrush(
 
     companion object {
         fun fromParams(name: String, params: JsonObject?): AzphaltBrush {
-            fun f(key: String): Float? = (params?.get(key) as? JsonPrimitive)?.floatOrNull
+            // Lenient JSON reads a bare NaN/Infinity literal as a float; treat it as absent.
+            fun f(key: String): Float? = (params?.get(key) as? JsonPrimitive)?.floatOrNull?.takeIf { it.isFinite() }
             fun s(key: String): String? =
                 (params?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             fun b(key: String): Boolean? = (params?.get(key) as? JsonPrimitive)?.booleanOrNull
@@ -407,8 +414,9 @@ data class AzphaltBrush(
             fun normalizedSpacing(): Float {
                 val raw = f("spacing") ?: return 0.1f
                 // ABR spacing is a percentage that can exceed 100% (Photoshop allows up to 1000%),
-                // so the conversion must cover the full supported range, not just 1..100.
-                return if (tipFormat.equals("png-gray", ignoreCase = true) && raw > 1f && raw <= 1000f) {
+                // so the conversion must cover the full supported range, not just 1..100. 1 is
+                // Photoshop's 1% minimum, not 100%.
+                return if (tipFormat.equals("png-gray", ignoreCase = true) && raw >= 1f && raw <= 1000f) {
                     raw / 100f
                 } else {
                     raw
@@ -512,3 +520,5 @@ data class AzphaltBrush(
         }
     }
 }
+
+private fun Float.finiteOr(default: Float): Float = if (isFinite()) this else default

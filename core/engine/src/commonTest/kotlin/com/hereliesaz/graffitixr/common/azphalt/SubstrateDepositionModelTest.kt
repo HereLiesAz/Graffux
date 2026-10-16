@@ -175,4 +175,14 @@ class SubstrateDepositionModelTest {
         val afterCallerMutation = field.sample(-2f, 0f, profile)
         assertEquals(wrappedNegative, afterCallerMutation)
     }
+
+    @Test
+    fun hugeTextureOffsetsStillTileInsteadOfSaturating() {
+        // Cells 0..3 hold heights 0, 85, 170, 255 in one row.
+        val field = SubstrateField(4, 1, byteArrayOf(0, 85, 170.toByte(), 255.toByte()))
+        val profile = SubstrateProfile(heightScale = 1f, textureOffsetX = 4e9f + 1f)
+        // 4e9 + 1 rounds to 4e9 in Float, a multiple of 4: cell 0. Saturating at Int.MAX_VALUE
+        // (2147483647 % 4 == 3) read cell 3.
+        assertEquals(0f, field.sample(0.5f, 0f, profile).height, 1e-6f)
+    }
 }

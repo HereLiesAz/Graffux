@@ -159,13 +159,16 @@ object WgpuLibrary {
         val fileName = System.mapLibraryName(NAME)
         val stream = WgpuLibrary::class.java.getResourceAsStream("/native/${platformDirectory()}/$fileName")
             ?: return false
-        return attempt("resource") {
-            val dir = Files.createTempDirectory("graffux-wgpu")
-            val target = dir.resolve(fileName)
-            stream.use { Files.copy(it, target, StandardCopyOption.REPLACE_EXISTING) }
-            target.toFile().deleteOnExit()
-            dir.toFile().deleteOnExit()
-            System.load(target.toAbsolutePath().toString())
+        // `use` outermost so the stream closes even when the temp directory cannot be created.
+        return stream.use { input ->
+            attempt("resource") {
+                val dir = Files.createTempDirectory("graffux-wgpu")
+                val target = dir.resolve(fileName)
+                Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING)
+                target.toFile().deleteOnExit()
+                dir.toFile().deleteOnExit()
+                System.load(target.toAbsolutePath().toString())
+            }
         }
     }
 }
