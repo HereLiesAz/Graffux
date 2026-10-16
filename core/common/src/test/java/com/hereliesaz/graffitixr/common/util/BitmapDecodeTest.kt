@@ -30,6 +30,13 @@ class BitmapDecodeTest {
     }
 
     @Test
+    fun `an odd edge one past the limit does not round its way over it`() {
+        // BitmapFactory decodes 1025 at sample 2 to 513 px (rounded up), one past 512.
+        assertEquals(4, computeSampleSize(1025, 100, 512))
+        assertEquals(2, computeSampleSize(1024, 100, 512))
+    }
+
+    @Test
     fun `sample size is powers of two only`() {
         // 5000 / 4 = 1250 < 2000, so sample = 4 (not 3).
         assertEquals(4, computeSampleSize(5000, 5000, 2000))

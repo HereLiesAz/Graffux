@@ -21,6 +21,9 @@ class ProjectFileTest {
         // Typing the extension yourself is the obvious thing to do, and "Mural.fux.fux" is the
         // obvious way to punish it.
         assertEquals("Mural.fux", ProjectFile.suggestedFileName(ProjectFile.projectNameFrom("Mural.fux")))
+        // Callers pass the raw project name, so suggestedFileName must not double it either.
+        assertEquals("Mural.fux", ProjectFile.suggestedFileName("Mural.fux"))
+        assertEquals("Mural.fux", ProjectFile.suggestedFileName("Mural.gxr"))
     }
 
     @Test
@@ -78,6 +81,19 @@ class ProjectFileTest {
         val name = ProjectFile.suggestedFileName("x".repeat(500))
         assertTrue("got ${name.length} chars", name.length < 255)
         assertTrue(name.endsWith(".fux"))
+    }
+
+    @Test
+    fun `a long non-ASCII name is capped by UTF-8 bytes`() {
+        val name = ProjectFile.suggestedFileName("壁".repeat(200))
+        assertTrue("got ${name.toByteArray(Charsets.UTF_8).size} bytes", name.toByteArray(Charsets.UTF_8).size <= 244)
+    }
+
+    @Test
+    fun `the cap never splits a surrogate pair`() {
+        val name = ProjectFile.sanitizeName("a" + "🎨".repeat(100))
+        assertFalse(name.last().isHighSurrogate())
+        assertEquals(name, String(name.toByteArray(Charsets.UTF_8), Charsets.UTF_8))
     }
 
     @Test

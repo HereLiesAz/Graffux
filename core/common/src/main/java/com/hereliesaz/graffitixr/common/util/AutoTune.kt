@@ -83,7 +83,8 @@ fun computeImageStats(pixels: IntArray, minAlpha: Int = 16): ImageStats {
  *  - **colour balance**: tint the art toward the wall's colour cast so it integrates under that light.
  */
 fun computeAutoTune(wall: ImageStats, art: ImageStats): AutoTuneResult {
-    val opacity = (0.9f - (wall.contrast / 128f) * 0.25f).coerceIn(0.6f, 0.9f)
+    // Rises with wall contrast (the KDoc's intent); the old formula fell with it.
+    val opacity = (MIN_AUTO_OPACITY + (wall.contrast / 128f) * 0.25f).coerceIn(MIN_AUTO_OPACITY, 0.9f)
 
     val lumDelta = (wall.luminance - art.luminance) / 255f
     val brightness = (lumDelta * 0.25f).coerceIn(-0.2f, 0.2f)
@@ -118,3 +119,6 @@ private fun colorfulness(s: ImageStats): Float {
 
 /** Turn a per-channel wall-cast ratio (channel/meanChannel, ~1 = neutral) into a gentle, clamped tint. */
 private fun castNudge(ratio: Float): Float = (1f + (ratio - 1f) * 0.5f).coerceIn(0.85f, 1.15f)
+
+/** Opacity auto-tune gives artwork on a flat wall; busier walls rise from here to 0.9. */
+private const val MIN_AUTO_OPACITY = 0.65f

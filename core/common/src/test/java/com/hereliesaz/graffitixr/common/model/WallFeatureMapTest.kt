@@ -70,4 +70,27 @@ class WallFeatureMapTest {
         assertEquals(WallFeatureMap(), decoded)
         assertEquals(0, decoded.pointCount)
     }
+
+    @Test
+    fun `a descriptor blob shorter than rows x cols x elemSize is rejected`() {
+        // 2 rows x 1000 cols of CV_8U needs 2000 bytes; 64 would be read out of bounds natively.
+        val short = runCatching {
+            WallFeatureMap(
+                points3d = FloatArray(6), descriptorsData = ByteArray(64), descriptorsRows = 2, descriptorsCols = 1000,
+            )
+        }
+        assertTrue(short.isFailure)
+        // CV_32F (type 5) is 4 bytes per element: 2 x 32 needs 256 bytes, not 64.
+        val wrongType = runCatching {
+            WallFeatureMap(
+                points3d = FloatArray(6), descriptorsData = ByteArray(64),
+                descriptorsRows = 2, descriptorsCols = 32, descriptorsType = 5,
+            )
+        }
+        assertTrue(wrongType.isFailure)
+        WallFeatureMap(
+            points3d = FloatArray(6), descriptorsData = ByteArray(256),
+            descriptorsRows = 2, descriptorsCols = 32, descriptorsType = 5,
+        )
+    }
 }

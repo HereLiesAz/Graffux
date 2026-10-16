@@ -109,7 +109,8 @@ internal object ConstraintSolver {
 }
 
 /**
- * A layer's size for layout purposes. Vector layers measure their shapes; everything else falls
+ * A layer's size for layout purposes. A vector layer measures its first shape (the one whose box
+ * stands for the layer; later shapes are not unioned in); everything else falls
  * back to its scaled declared extent, since a raster layer's true pixel size isn't available in
  * this pure module.
  */

@@ -45,6 +45,7 @@ data class Fingerprint(
                 }
             }
         }
+        requireDescriptorBlobCovers(descriptorsData, descriptorsRows, descriptorsCols, descriptorsType)
     }
 
     override fun equals(other: Any?): Boolean {

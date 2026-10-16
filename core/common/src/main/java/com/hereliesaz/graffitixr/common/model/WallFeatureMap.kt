@@ -53,6 +53,7 @@ data class WallFeatureMap(
         require(descriptorsRows == 0 || descriptorsData.size % descriptorsRows == 0) {
             "descriptorsData (${descriptorsData.size}) must divide evenly into $descriptorsRows rows"
         }
+        requireDescriptorBlobCovers(descriptorsData, descriptorsRows, descriptorsCols, descriptorsType)
         require(confidence.isEmpty() || confidence.size == descriptorsRows) {
             "confidence (${confidence.size}) must be empty or == descriptorsRows ($descriptorsRows)"
         }

@@ -26,6 +26,9 @@ class IncrementalDabPlacer(stepPx: Float) {
         private set
 
     fun append(x: Float, y: Float): List<Float> {
+        // A NaN would poison lastX/lastY for the rest of the stroke and an infinity would place
+        // dabs forever; a non-finite point is dropped instead.
+        if (!x.isFinite() || !y.isFinite()) return emptyList()
         if (!started) {
             started = true
             lastX = x

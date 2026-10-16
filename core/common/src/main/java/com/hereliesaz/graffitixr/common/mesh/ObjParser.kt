@@ -39,7 +39,9 @@ object ObjParser {
         val emitted = HashMap<Triple<Int, Int, Int>, Int>()
         val outVertices = ArrayList<Float>()
         val outIndices = ArrayList<Int>()
-        var sawNormals = false
+        // Emitted vertices whose corner carried no usable normal. Tracked per vertex, not per file:
+        // a file can have `vn` lines and still have faces that don't reference them.
+        val missingNormals = HashSet<Int>()
 
         text.lineSequence().forEach { rawLine ->
             val line = rawLine.substringBefore('#').trim()
@@ -56,11 +58,11 @@ object ObjParser {
                     uvs.add(parts.float(1))
                     // OBJ's V axis points up, GL texture space points down. Flipping here means the
                     // renderer and the later paint-to-texture path both work in GL convention.
-                    uvs.add(1f - parts.float(2))
+                    // V is optional in the format (a 1-D texture coordinate); it defaults to 0.
+                    uvs.add(1f - parts.floatOr(2, 0f))
                 }
                 "vn" -> {
                     normals.add(parts.float(1)); normals.add(parts.float(2)); normals.add(parts.float(3))
-                    sawNormals = true
                 }
                 "f" -> {
                     val corners = parts.drop(1)
@@ -71,7 +73,7 @@ object ObjParser {
                     for (i in 1 until corners.size - 1) {
                         listOf(corners[0], corners[i], corners[i + 1]).forEach { corner ->
                             val idx = emitCorner(
-                                corner, positions, uvs, normals, emitted, outVertices,
+                                corner, positions, uvs, normals, emitted, outVertices, missingNormals,
                             )
                             outIndices.add(idx)
                         }
@@ -86,7 +88,7 @@ object ObjParser {
 
         val vertices = outVertices.toFloatArray()
         val indices = outIndices.toIntArray()
-        if (!sawNormals) generateNormals(vertices, indices)
+        if (missingNormals.isNotEmpty()) generateNormals(vertices, indices, missingNormals)
         return Mesh(vertices, indices)
     }
 
@@ -94,6 +96,7 @@ object ObjParser {
      * Resolves one `f` corner to an emitted vertex index, adding the vertex the first time that
      * exact position/uv/normal combination is seen.
      */
+    @Suppress("LongParameterList") // the parse's accumulators, threaded through one helper
     private fun emitCorner(
         corner: String,
         positions: List<Float>,
@@ -101,6 +104,7 @@ object ObjParser {
         normals: List<Float>,
         emitted: HashMap<Triple<Int, Int, Int>, Int>,
         out: ArrayList<Float>,
+        missingNormals: MutableSet<Int>,
     ): Int {
         val bits = corner.split('/')
         val vi = resolve(bits.getOrNull(0), positions.size / 3)
@@ -131,6 +135,7 @@ object ObjParser {
         }
 
         val index = out.size / Mesh.FLOATS_PER_VERTEX - 1
+        if (ni < 0) missingNormals += index
         emitted[key] = index
         return index
     }
@@ -150,9 +155,10 @@ object ObjParser {
     /**
      * Area-weighted vertex normals from face winding, for a model exported without them. Accumulate
      * each triangle's cross product onto its three corners, then normalise — shared vertices end up
-     * smoothly averaged, which is what makes a curved surface read as curved.
+     * smoothly averaged, which is what makes a curved surface read as curved. Only the vertices in
+     * [targets] are written; vertices with a normal from the file keep it.
      */
-    private fun generateNormals(vertices: FloatArray, indices: IntArray) {
+    private fun generateNormals(vertices: FloatArray, indices: IntArray, targets: Set<Int>) {
         val stride = Mesh.FLOATS_PER_VERTEX
         val n = Mesh.NORMAL_OFFSET
 
@@ -175,6 +181,7 @@ object ObjParser {
             val nz = ux * vy - uy * vx
 
             for (base in intArrayOf(a, b, c)) {
+                if (base / stride !in targets) continue
                 vertices[base + n] += nx
                 vertices[base + n + 1] += ny
                 vertices[base + n + 2] += nz
@@ -184,6 +191,10 @@ object ObjParser {
 
         var v = 0
         while (v < vertices.size) {
+            if (v / stride !in targets) {
+                v += stride
+                continue
+            }
             val x = vertices[v + n]
             val y = vertices[v + n + 1]
             val z = vertices[v + n + 2]
@@ -203,9 +214,13 @@ object ObjParser {
         }
     }
 
+    /** [float] for an optional trailing field: [default] when the line stops before [index]. */
+    private fun List<String>.floatOr(index: Int, default: Float): Float =
+        if (index < size) float(index) else default
+
     private fun List<String>.float(index: Int): Float =
-        getOrNull(index)?.toFloatOrNull()
-            ?: throw ObjParseException("Malformed line: expected a number at position $index")
+        getOrNull(index)?.toFloatOrNull()?.takeIf { it.isFinite() }
+            ?: throw ObjParseException("Malformed line: expected a finite number at position $index")
 
     private val WHITESPACE = Regex("\\s+")
 }

@@ -21,6 +21,20 @@ class SerializersTest {
     }
 
     @Test
+    fun `a layer with non-finite float fields still saves, as their neutral values`() {
+        val layer = com.hereliesaz.graffitixr.common.model.Layer(
+            id = "l", name = "l", scale = Float.NaN, rotationZ = Float.POSITIVE_INFINITY, opacity = Float.NaN,
+        )
+        val decoded = json.decodeFromString(
+            com.hereliesaz.graffitixr.common.model.Layer.serializer(),
+            json.encodeToString(com.hereliesaz.graffitixr.common.model.Layer.serializer(), layer),
+        )
+        assertEquals(1f, decoded.scale, 0f)
+        assertEquals(0f, decoded.rotationZ, 0f)
+        assertEquals(1f, decoded.opacity, 0f)
+    }
+
+    @Test
     fun `OffsetSerializer handles invalid input gracefully`() {
         val invalidJson = "\"invalid\""
         val deserialized = json.decodeFromString(OffsetSerializer, invalidJson)

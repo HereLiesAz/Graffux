@@ -9,6 +9,8 @@ import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 
 /**
  * Intercepts uncaught exceptions and dumps logs to a file for reporting on next launch.
@@ -124,16 +126,29 @@ class CrashReporter internal constructor(
         fun deviceLabel(): String =
             "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}"
 
+        /** How long the crashing thread waits for logcat before chaining to the default handler. */
+        private const val LOGCAT_TIMEOUT_MS = 3_000L
+
         private fun collectLogcat(): String {
             var process: Process? = null
             return try {
-                process = Runtime.getRuntime()
-                    .exec(arrayOf("logcat", "-d", "-t", "1000", "--pid=${android.os.Process.myPid()}"))
-                InputStreamReader(process.inputStream).use { it.readText() }
+                // stderr merged into stdout so an error message can't fill an undrained pipe.
+                val started = ProcessBuilder("logcat", "-d", "-t", "1000", "--pid=${android.os.Process.myPid()}")
+                    .redirectErrorStream(true)
+                    .start()
+                process = started
+                // Read on a daemon thread with a deadline: the crashing thread blocks here, and the
+                // chained default handler (the actual process kill) must not wait on a hung logcat.
+                val output = AtomicReference<String?>(null)
+                val reader = thread(isDaemon = true, name = "crash-logcat") {
+                    runCatching { InputStreamReader(started.inputStream).use { output.set(it.readText()) } }
+                }
+                reader.join(LOGCAT_TIMEOUT_MS)
+                output.get() ?: "Logcat timed out after $LOGCAT_TIMEOUT_MS ms"
             } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
                 "Failed to collect Logcat: ${e.message}"
             } finally {
-                // Release the subprocess's pipes/FDs; readText() above already drained stdout.
+                // Release the subprocess's pipes/FDs, and unblock the reader if it timed out.
                 process?.destroy()
             }
         }

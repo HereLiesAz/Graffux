@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
  * directions. **Constraints** pin a child to its frame's edges and let it react to a resize.
  * **Auto-layout** takes the frame's children and positions them itself, in a row or a column.
  *
- * A layer's [Layer.offset] is relative to the canvas centre (see VectorShape's doc). Constraints
+ * A layer's [Layer.offset] is relative to the canvas centre. Constraints
  * treat a child's offset as the centre of its box and take the frame's box in the children's own
  * space (see [LayoutOps.localFrameRect]). Auto-layout predates that and positions from the frame's
  * offset, treating a child's offset as its top-left; the two never run on the same frame (auto-layout

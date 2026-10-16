@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BrushSensorDynamicsTest {
+    @Test
+    fun `a NaN sensor reading maps as no input, not full input`() {
+        val binding = BrushSensorBinding(BrushSensor.PRESSURE, BrushParameter.SIZE, outputMin = 0.2f, outputMax = 1f)
+        assertEquals(0.2f, binding.map(Float.NaN), 1e-6f)
+        assertEquals(0f, BrushResponseCurve().evaluate(Float.NaN), 0f)
+    }
+
 
     @Test
     fun `predicted sample never contaminates real stroke kinematics`() {

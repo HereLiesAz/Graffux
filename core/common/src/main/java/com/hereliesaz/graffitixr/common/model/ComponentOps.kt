@@ -115,6 +115,13 @@ object ComponentOps {
         // Content.
         uri = source.uri,
         bitmap = source.bitmap,
+        // Where that bitmap sits in its frame, and its height channel, travel with the pixels: an
+        // instance handed a main's grown bitmap with its own stale origin draws it shifted.
+        frameWidth = source.frameWidth,
+        frameHeight = source.frameHeight,
+        originX = source.originX,
+        originY = source.originY,
+        heightMap = source.heightMap,
         shapes = source.shapes,
         textParams = source.textParams,
         warpMesh = source.warpMesh,
@@ -127,6 +134,7 @@ object ComponentOps {
         colorBalanceB = source.colorBalanceB,
         isInverted = source.isInverted,
         // Everything else — id, name, parentId, offset, scale, rotation*, isVisible, opacity,
-        // blendMode, locks, instanceOf — is deliberately left as the instance had it.
+        // blendMode, locks, instanceOf, and layoutWidth/Height (constraints resize each instance
+        // on its own) — is deliberately left as the instance had it.
     )
 }

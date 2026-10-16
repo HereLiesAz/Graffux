@@ -22,10 +22,10 @@ class XrealGlassProvider @Inject constructor(
 
     override val name: String = "Xreal Air"
 
-    override val capabilities: Set<GlassCapability> = setOf(
-        GlassCapability.SPATIAL_DISPLAY,
-        GlassCapability.IMU_TRACKING
-    )
+    // Only what this provider actually supplies. It does not read the glasses' IMU or camera yet
+    // (imuSamples/cameraFrames stay the SensorSource defaults: empty, UNKNOWN intrinsics), so it
+    // must not advertise IMU_TRACKING -- WearableManager would hand it SLAM's sensor stream.
+    override val capabilities: Set<GlassCapability> = setOf(GlassCapability.SPATIAL_DISPLAY)
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -77,15 +77,18 @@ class XrealGlassProvider @Inject constructor(
 
     private fun checkUsbConnection() {
         val deviceList = usbManager.deviceList
-        // Xreal Vendor IDs: 0x3318, 0x0483 (Nreal/Xreal)
-        val isXrealFound = deviceList.values.any {
-            it.vendorId == 0x3318 || it.vendorId == 0x0483
-        }
+        // 0x3318 is Xreal/Nreal's USB vendor ID. 0x0483 is STMicroelectronics (any STM32 board
+        // or ST-Link), so matching it reported unrelated devices as connected glasses.
+        val isXrealFound = deviceList.values.any { it.vendorId == XREAL_VENDOR_ID }
 
         _connectionState.value = if (isXrealFound) {
             ConnectionState.Connected
         } else {
             ConnectionState.Disconnected
         }
+    }
+
+    private companion object {
+        const val XREAL_VENDOR_ID = 0x3318
     }
 }

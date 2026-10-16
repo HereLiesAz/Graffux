@@ -150,3 +150,26 @@ object BlendModeSerializer : KSerializer<BlendMode> {
         }
     }
 }
+
+/**
+ * A plain [Float] model field that must never make a save throw. kotlinx.serialization's default
+ * Json rejects NaN/Infinity, so one NaN from a degenerate gesture (a 0/0 pinch scale) would fail
+ * every later save and autosave; like [OffsetSerializer], a non-finite value is persisted as the
+ * field's neutral default instead. The wire format is an ordinary float.
+ */
+abstract class FiniteFloatSerializer(private val fallback: Float) : KSerializer<Float> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("FiniteFloat$fallback", PrimitiveKind.FLOAT)
+
+    override fun serialize(encoder: Encoder, value: Float) =
+        encoder.encodeFloat(if (value.isFinite()) value else fallback)
+
+    override fun deserialize(decoder: Decoder): Float =
+        decoder.decodeFloat().let { if (it.isFinite()) it else fallback }
+}
+
+/** [FiniteFloatSerializer] for fields whose neutral value is 0 (rotation, brightness, sizes). */
+object FiniteFloatOrZeroSerializer : FiniteFloatSerializer(0f)
+
+/** [FiniteFloatSerializer] for fields whose neutral value is 1 (scale, opacity, multipliers). */
+object FiniteFloatOrOneSerializer : FiniteFloatSerializer(1f)

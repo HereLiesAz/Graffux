@@ -87,9 +87,13 @@ object TexturePaint {
         val end = toPixel(toU, toV, width, height)
         if (isSeamJump(fromU, fromV, toU, toV)) return listOf(end)
 
-        val start = toPixel(fromU, fromV, width, height)
-        val dx = end.x - start.x
-        val dy = end.y - start.y
+        // Interpolate in raw UV and wrap each stamp. Wrapping the two ends first and joining them
+        // would turn a step across a tile boundary (u 0.99 -> 1.01) into a stripe across the whole
+        // texture (x 0.99W -> 0.01W).
+        val du = toU - fromU
+        val dv = toV - fromV
+        val dx = du * width
+        val dy = dv * height
         val distance = sqrt(dx * dx + dy * dy)
         val spacing = spacingPx.coerceAtLeast(0.5f)
         if (distance <= spacing) return listOf(end)
@@ -100,7 +104,7 @@ object TexturePaint {
         // string of darker beads along the stroke.
         return (1..steps).map { i ->
             val t = i.toFloat() / steps
-            Stamp(start.x + dx * t, start.y + dy * t)
+            if (i == steps) end else toPixel(fromU + du * t, fromV + dv * t, width, height)
         }
     }
 

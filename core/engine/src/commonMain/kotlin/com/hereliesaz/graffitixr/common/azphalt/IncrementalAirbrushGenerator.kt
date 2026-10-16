@@ -12,14 +12,16 @@ class IncrementalAirbrushGenerator(
     seed: Long,
 ) {
     private val diameter = diameterPx.coerceAtLeast(0f)
-    private val intervalMs = if (dabsPerSecond > 0f) (1000f / dabsPerSecond).coerceAtLeast(1f) else Float.POSITIVE_INFINITY
+    // Double, like nextEmitTime: Float ms stop resolving whole milliseconds past 2^24 ms (4.7 h of
+    // uptime), where `nextEmitTime += intervalMs` stalls and the emit loop never ends.
+    private val intervalMs = if (dabsPerSecond > 0f) (1000.0 / dabsPerSecond).coerceAtLeast(1.0) else Double.POSITIVE_INFINITY
     private val baseRadius = diameter / 2f
     private val rng = Random(seed xor AIRBRUSH_SEED_SALT)
     private val seed = seed
 
     private var anchor: BrushSample? = null
     private var startTime = 0L
-    private var nextEmitTime = 0f
+    private var nextEmitTime = 0.0
     private var index = 0
 
     fun append(sample: BrushSample): List<Dab> {
@@ -28,18 +30,18 @@ class IncrementalAirbrushGenerator(
         if (currentAnchor == null) {
             anchor = sample.copy(predicted = false)
             startTime = sample.uptimeMillis
-            nextEmitTime = sample.uptimeMillis.toFloat() + intervalMs
+            nextEmitTime = sample.uptimeMillis.toDouble() + intervalMs
             return emptyList()
         }
 
         if (hypot(sample.x - currentAnchor.x, sample.y - currentAnchor.y) > stillnessRadiusPx) {
             anchor = sample.copy(predicted = false)
-            nextEmitTime = sample.uptimeMillis.toFloat() + intervalMs
+            nextEmitTime = sample.uptimeMillis.toDouble() + intervalMs
             return emptyList()
         }
 
         val out = ArrayList<Dab>()
-        while (nextEmitTime < sample.uptimeMillis.toFloat()) {
+        while (nextEmitTime < sample.uptimeMillis.toDouble()) {
             val heldSample = currentAnchor.copy(uptimeMillis = nextEmitTime.toLong(), predicted = false)
             val dynamic = BrushSensorEngine.resolve(heldSample, brush.dynamics, startTime, seed, index)
             val sizeR = rng.nextFloat()

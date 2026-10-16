@@ -43,10 +43,9 @@ data class ImpastoLevelStats(
  * than each reimplementing height accumulation and lighting.
  *
  * Height values are normalized 0..1 "paint thickness", entirely independent of the colour channel.
- * Nothing here persists a height map anywhere, attaches one to a layer, or feeds one into
- * [BrushStamps]/[StampBrushRenderer] automatically — callers own storage, lifetime, and wiring.
- * Deliberately scoped this way: layer persistence (save/load, undo snapshots, export) is a much
- * larger, riskier change this primitive does not attempt.
+ * This object holds no state: it never stores a height map or attaches one to a layer. Callers own
+ * storage, lifetime and wiring (the editor's stroke commit/replay persists the height-map
+ * contribution onto the layer, see [AzphaltBrush.impastoThicknessRate]).
  */
 object ImpastoEngine {
 

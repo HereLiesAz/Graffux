@@ -17,6 +17,16 @@ class StrokeStabilizerTest {
     }
 
     @Test
+    fun `a low Stabilization level still smooths`() {
+        for (level in 1..9) {
+            val s = StrokeStabilizer()
+            s.stabilize(Offset(0f, 0f), level)
+            val out = s.stabilize(Offset(10f, 0f), level)
+            assertTrue("level $level returned the raw point", out.x < 10f)
+        }
+    }
+
+    @Test
     fun `default algorithm argument is Stabilization, the original moving-average behaviour`() {
         val s = StrokeStabilizer()
         val raw = Offset(10f, 0f)
