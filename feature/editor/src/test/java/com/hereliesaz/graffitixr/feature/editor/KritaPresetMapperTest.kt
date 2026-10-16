@@ -110,7 +110,6 @@ class KritaPresetMapperTest {
         requireNotNull(settings)
         assertEquals(defaults.radiusPx, settings.radiusPx)
         assertEquals(defaults.feathering, settings.feathering)
-        assertEquals(defaults.wrapAround, settings.wrapAround)
         assertEquals(defaults.dilution, settings.dilution)
         assertEquals(defaults.chargeDecayRate, settings.chargeDecayRate)
         assertEquals(defaults.pickupRate, settings.pickupRate)

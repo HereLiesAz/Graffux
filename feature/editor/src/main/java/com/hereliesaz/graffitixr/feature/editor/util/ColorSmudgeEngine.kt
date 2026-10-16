@@ -2,22 +2,21 @@ package com.hereliesaz.graffitixr.feature.editor.util
 
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
-import com.hereliesaz.graffitixr.common.azphalt.ArgbColor
 import com.hereliesaz.graffitixr.common.azphalt.BrushReservoirModel
 import com.hereliesaz.graffitixr.common.azphalt.BrushReservoirState
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorEngine
 import com.hereliesaz.graffitixr.common.azphalt.MaterialColor
-import com.hereliesaz.graffitixr.common.azphalt.MaterialColorMixer
 import com.hereliesaz.graffitixr.common.azphalt.MaterialMixingModel
-import com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField
 import kotlin.math.ceil
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 /**
- * CPU correctness/reference implementation for Graffux's wet-paint paint-op.
+ * Settings and renderer-neutral dab planning for Graffux's wet-paint paint-op. The pixels are
+ * painted on the GPU ([com.hereliesaz.graffitixr.feature.editor.GpuColorSmudge] /
+ * [com.hereliesaz.graffitixr.feature.editor.GpuWetSmudge]); this object resolves the resampling and
+ * sensor curves into [ResolvedPlan]s that the GPU consumes. There is no CPU pixel path.
  *
  * This is one engine, not two. Krita's Color Smudge (Smear/Dulling/Color Rate) and Procreate's
  * Wet Mix (Charge/Dilution/Pull/Attack) describe the same underlying operation — sample nearby
@@ -43,7 +42,7 @@ import kotlin.math.roundToInt
  *   that discovered it. Default 0 keeps the historical path byte-compatible.
  * - [Settings.mixingModel] selects the colour interaction math. [MaterialMixingModel.LEGACY_RGB]
  *   is the byte-compatible default. [MaterialMixingModel.PIGMENT_RYB] uses the material-aware
- *   CPU reference so carried/deposited colour behaves more like artist pigments while preserving
+ *   pigment model so carried/deposited colour behaves more like artist pigments while preserving
  *   the exact historical path for every existing preset.
  *
  * Attack, Grade, Blur, and Wetness Jitter — Procreate's remaining Wet Mix sliders — don't need new
@@ -106,7 +105,6 @@ object ColorSmudgeEngine {
         /** Dulling sample radius relative to [radiusPx]. */
         val smudgeRadius: Float = 1f,
         val feathering: Float = 0f,
-        val wrapAround: Boolean = false,
         /** Whether smudging transports alpha along with RGB. */
         val smearAlpha: Boolean = true,
         /** Initial foreground/reservoir colour used when [colorRate] > 0. */
@@ -114,11 +112,10 @@ object ColorSmudgeEngine {
         /** Optional Krita-style sensor routes. */
         val dynamics: List<BrushSensorBinding> = emptyList(),
         /**
-         * Krita's Sample Merged: when true and a `sampleSource` is supplied to [apply], Smear's
-         * pickup and Dulling's weighted average read from that separate composite buffer instead
-         * of the active layer's own pixels — painting always still writes to the active layer.
-         * Recorded on the stroke like every other setting, so replay is deterministic regardless
-         * of whether a caller currently supplies a source (see [apply]'s `sampleSource` doc).
+         * Krita's Sample Merged: when true and the renderer is given a merged composite, Smear's
+         * pickup and Dulling's weighted average read from that composite instead of the active
+         * layer's own pixels — painting always still writes to the active layer. Recorded on the
+         * stroke like every other setting, so replay is deterministic.
          */
         val sampleMerged: Boolean = false,
     )
@@ -151,10 +148,9 @@ object ColorSmudgeEngine {
     )
 
     /**
-     * Resolves the exact resampling and sensor curves the CPU implementation uses into renderer-
-     * neutral dabs. Vulkan consumes this plan rather than reimplementing input/sensor semantics.
-     * Canvas-dependent reservoir pickup is resolved natively from the same per-dab sensor
-     * multiplier and distance increment, so CPU and Vulkan evolve the same stroke-local state.
+     * Resolves resampling and sensor curves into renderer-neutral dabs. The GPU consumes this plan
+     * rather than reimplementing input/sensor semantics. Canvas-dependent reservoir pickup is
+     * resolved natively from the same per-dab sensor multiplier and distance increment.
      */
     fun resolvePlans(
         stroke: List<Offset>,
@@ -198,72 +194,6 @@ object ColorSmudgeEngine {
     internal fun usesPersistentWetness(settings: Settings): Boolean =
         settings.dilution.coerceIn(0f, 1f) > 0f
 
-    /**
-     * @param sampleSource Optional pre-composited "what the artist can see" buffer, same
-     *   dimensions as [pixels], used for colour pickup instead of the active layer's own pixels
-     *   when [Settings.sampleMerged] is set. Ignored (falls back to sampling [pixels] itself,
-     *   identical to `sampleMerged = false`) when null or mismatched in size — a caller with no
-     *   merged composite available degrades to the historical single-layer behaviour rather than
-     *   crashing or silently misbehaving. Painting always writes to [pixels] regardless.
-     */
-    fun apply(
-        pixels: IntArray,
-        width: Int,
-        height: Int,
-        stroke: List<Offset>,
-        settings: Settings,
-        samples: List<BrushSample> = emptyList(),
-        strokeSeed: Long = 0L,
-        sampleSource: IntArray? = null,
-        wetnessField: PersistentWetnessField? = null,
-        wetnessClip: ((x: Int, y: Int) -> Boolean)? = null,
-    ) {
-        if (stroke.isEmpty() || width <= 0 || height <= 0 || pixels.size < width * height) return
-        val persistentWetness = wetnessField?.takeIf {
-            it.width == width && it.height == height &&
-                (usesPersistentWetness(settings) || !it.isIdle)
-        }
-        applyOne(
-            pixels, width, height, stroke, settings, samples, strokeSeed, sampleSource,
-            persistentWetness, wetnessClip,
-        )
-    }
-
-    private fun applyOne(
-        pixels: IntArray,
-        width: Int,
-        height: Int,
-        stroke: List<Offset>,
-        settings: Settings,
-        samples: List<BrushSample>,
-        strokeSeed: Long,
-        sampleSource: IntArray?,
-        wetnessField: PersistentWetnessField?,
-        wetnessClip: ((x: Int, y: Int) -> Boolean)?,
-    ) {
-        val radius = settings.radiusPx.coerceAtLeast(1f)
-        val step = (radius / 2f).coerceAtLeast(1f)
-        val path = resampleWithTelemetry(stroke, samples, step)
-        if (path.isEmpty()) return
-        val kernel = BrushKernel(radius, settings.feathering)
-        val startTime = samples.firstOrNull()?.uptimeMillis ?: 0L
-        val readSource = if (settings.sampleMerged && sampleSource != null && sampleSource.size == pixels.size) {
-            sampleSource
-        } else {
-            pixels
-        }
-        when (settings.mode) {
-            Mode.SMEAR -> smear(
-                pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed,
-                step, wetnessField, wetnessClip,
-            )
-            Mode.DULLING -> dull(
-                pixels, readSource, width, height, path, kernel, settings, startTime, strokeSeed,
-                step, wetnessField, wetnessClip,
-            )
-        }
-    }
-
     private fun initialReservoir(settings: Settings): BrushReservoirState = BrushReservoirState(
         load = 1f,
         wetness = settings.dilution.coerceIn(0f, 1f),
@@ -278,11 +208,10 @@ object ColorSmudgeEngine {
         strokeSeed: Long,
         dabIndex: Int,
         distancePx: Float,
-        reservoirOverride: BrushReservoirState? = null,
     ): Resolved {
-        // The default path remains analytic and byte-compatible with historical Charge. Pickup mode
-        // supplies an evolving reservoir so sampled material can refill/contaminate later dabs.
-        val reservoir = reservoirOverride?.sanitized() ?: BrushReservoirModel.stateAtDistance(
+        // Analytic Charge depletion. Pickup (canvas-dependent refill) is resolved natively from the
+        // per-dab colorRateMultiplier and distance increment this plan carries.
+        val reservoir = BrushReservoirModel.stateAtDistance(
             initial = initialReservoir(settings),
             depletionRatePerPx = settings.chargeDecayRate,
             distancePx = distancePx,
@@ -311,474 +240,6 @@ object ColorSmudgeEngine {
             (settings.smudgeRadius * dynamic.smudgeRadiusMultiplier).coerceAtLeast(0.05f),
             dynamic.colorRateMultiplier.coerceAtLeast(0f),
         )
-    }
-
-    /** Spatial carrier. This remains Graffux's original directional smudge when dynamics are empty. */
-    private fun smear(
-        pixels: IntArray,
-        readSource: IntArray,
-        width: Int,
-        height: Int,
-        path: List<DabPoint>,
-        kernel: BrushKernel,
-        settings: Settings,
-        strokeStartUptimeMillis: Long,
-        strokeSeed: Long,
-        step: Float,
-        wetnessField: PersistentWetnessField?,
-        wetnessClip: ((x: Int, y: Int) -> Boolean)?,
-    ) {
-        val carrier = IntArray(kernel.size)
-        val start = path.first().position
-        val pickupEnabled = usesStatefulReservoir(settings)
-        var reservoir = initialReservoir(settings)
-        var previousDistancePx = 0f
-
-        // Edge extension prevents a stroke started at a layer border from seeding the carrier with
-        // transparent black and dragging a translucent band into otherwise opaque artwork.
-        forEachKernel(kernel) { dx, dy, k, _ ->
-            val sx = (start.x.toInt() + dx).coerceIn(0, width - 1)
-            val sy = (start.y.toInt() + dy).coerceIn(0, height - 1)
-            carrier[k] = readSource[sy * width + sx]
-        }
-
-        for (i in 1 until path.size) {
-            val dab = path[i]
-            val distancePx = i * step
-            if (pickupEnabled) {
-                reservoir = BrushReservoirModel.stateAtDistance(
-                    reservoir,
-                    settings.chargeDecayRate,
-                    distancePx - previousDistancePx,
-                )
-                previousDistancePx = distancePx
-            }
-            val resolved = resolve(
-                settings,
-                dab.sample,
-                strokeStartUptimeMillis,
-                strokeSeed,
-                i,
-                distancePx,
-                reservoirOverride = reservoir.takeIf { pickupEnabled },
-            )
-            val cx = dab.position.x.toInt()
-            val cy = dab.position.y.toInt()
-            val sampledWetness = wetnessField?.let {
-                weightedWetness(it, cx, cy, kernel.r, settings.wrapAround)
-            }
-            val mobility = wetnessMobility(settings, sampledWetness)
-            // Sample the material contact before this dab mutates pixels. The resulting pickup is
-            // applied after rendering, so it only changes the brush's subsequent carried pigment.
-            val reservoirSample = if (pickupEnabled) {
-                weightedAverage(readSource, width, height, cx, cy, kernel.r, settings.wrapAround)
-            } else {
-                Color.TRANSPARENT
-            }
-            val carriedPaintColor = if (pickupEnabled) reservoir.carriedColor.toArgb() else settings.paintColor
-
-            forEachKernel(kernel) { dx, dy, k, mask ->
-                if (mask <= 0f) return@forEachKernel
-                val idx = indexOf(cx + dx, cy + dy, width, height, settings.wrapAround)
-                if (idx < 0) return@forEachKernel
-
-                // Spatial Smear pickup remains separate from material-reservoir pickup: this carrier
-                // transports local colour inside the footprint, while reservoir pickup contaminates
-                // foreground pigment that is deposited by later dabs.
-                val pickedUp = readSource[idx]
-                val under = pixels[idx]
-                carrier[k] = mixArgb(
-                    pickedUp, carrier[k], resolved.smudgeRate * mobility,
-                    settings.smearAlpha, settings.mixingModel,
-                )
-                var out = mixArgb(
-                    under,
-                    carrier[k],
-                    mask * resolved.opacity,
-                    settings.smearAlpha,
-                    settings.mixingModel,
-                )
-                if (resolved.colorRate > 0f) {
-                    val pigment = dilutedPigment(settings, pickedUp, carriedPaintColor)
-                    out = mixArgb(
-                        out,
-                        pigment,
-                        mask * resolved.opacity * resolved.colorRate,
-                        includeAlpha = true,
-                        model = settings.mixingModel,
-                    )
-                }
-                pixels[idx] = out
-                depositWetness(
-                    wetnessField, cx + dx, cy + dy, width, height, settings.wrapAround,
-                    settings.dilution * mask * resolved.opacity, wetnessClip,
-                )
-            }
-
-            if (pickupEnabled) {
-                reservoir = pickupIntoReservoir(
-                    reservoir, reservoirSample, settings, sampledWetness,
-                )
-            }
-        }
-    }
-
-    /** Local colour mixing followed by brush-footprint deposition. */
-    private fun dull(
-        pixels: IntArray,
-        readSource: IntArray,
-        width: Int,
-        height: Int,
-        path: List<DabPoint>,
-        kernel: BrushKernel,
-        settings: Settings,
-        strokeStartUptimeMillis: Long,
-        strokeSeed: Long,
-        step: Float,
-        wetnessField: PersistentWetnessField?,
-        wetnessClip: ((x: Int, y: Int) -> Boolean)?,
-    ) {
-        val pickupEnabled = usesStatefulReservoir(settings)
-        var reservoir = initialReservoir(settings)
-        var previousDistancePx = 0f
-
-        for (i in 1 until path.size) {
-            val dab = path[i]
-            val distancePx = i * step
-            if (pickupEnabled) {
-                reservoir = BrushReservoirModel.stateAtDistance(
-                    reservoir,
-                    settings.chargeDecayRate,
-                    distancePx - previousDistancePx,
-                )
-                previousDistancePx = distancePx
-            }
-            val resolved = resolve(
-                settings,
-                dab.sample,
-                strokeStartUptimeMillis,
-                strokeSeed,
-                i,
-                distancePx,
-                reservoirOverride = reservoir.takeIf { pickupEnabled },
-            )
-            val cx = dab.position.x.toInt()
-            val cy = dab.position.y.toInt()
-            val sampleRadius = (settings.radiusPx * resolved.smudgeRadius).roundToInt().coerceAtLeast(1)
-            // Dulling already has exactly the representative pre-write contact sample the reservoir
-            // needs, so the same sampled colour drives both local Dulling and post-dab pickup.
-            val sampled = weightedAverage(
-                readSource, width, height, cx, cy, sampleRadius, settings.wrapAround,
-            )
-            val sampledWetness = wetnessField?.let {
-                weightedWetness(it, cx, cy, sampleRadius, settings.wrapAround)
-            }
-            val mobility = wetnessMobility(settings, sampledWetness)
-            val carriedPaintColor = if (pickupEnabled) reservoir.carriedColor.toArgb() else settings.paintColor
-
-            forEachKernel(kernel) { dx, dy, _, mask ->
-                if (mask <= 0f) return@forEachKernel
-                val idx = indexOf(cx + dx, cy + dy, width, height, settings.wrapAround)
-                if (idx < 0) return@forEachKernel
-                val under = pixels[idx]
-                var out = mixArgb(
-                    under,
-                    sampled,
-                    mask * resolved.opacity * resolved.smudgeRate * mobility,
-                    settings.smearAlpha,
-                    settings.mixingModel,
-                )
-                if (resolved.colorRate > 0f) {
-                    val pigment = dilutedPigment(settings, sampled, carriedPaintColor)
-                    out = mixArgb(
-                        out,
-                        pigment,
-                        mask * resolved.opacity * resolved.colorRate,
-                        includeAlpha = true,
-                        model = settings.mixingModel,
-                    )
-                }
-                pixels[idx] = out
-                depositWetness(
-                    wetnessField, cx + dx, cy + dy, width, height, settings.wrapAround,
-                    settings.dilution * mask * resolved.opacity, wetnessClip,
-                )
-            }
-
-            if (pickupEnabled) {
-                reservoir = pickupIntoReservoir(reservoir, sampled, settings, sampledWetness)
-            }
-        }
-    }
-
-    /**
-     * Material pickup fills only reservoir capacity that depletion has already freed. This keeps
-     * load bounded, makes a nearly empty brush contaminate faster than a full one, and avoids
-     * inventing a second hidden depletion mechanism. Alpha scales material presence so transparent
-     * canvas cannot contaminate the brush with meaningless RGB.
-     */
-    private fun pickupIntoReservoir(
-        state: BrushReservoirState,
-        sampledArgb: Int,
-        settings: Settings,
-        sampledWetness: Float? = null,
-    ): BrushReservoirState {
-        val current = state.sanitized()
-        val pickupRate = settings.pickupRate.coerceIn(0f, 1f)
-        val capacity = (1f - current.load).coerceIn(0f, 1f)
-        if (pickupRate <= 0f || capacity <= 0f) return current
-
-        val sampled = MaterialColor.fromArgb(sampledArgb)
-        val materialPresence = sampled.alpha.coerceIn(0f, 1f)
-        if (materialPresence <= 0f) return current
-        val wetnessEligibility = wetnessMobility(settings, sampledWetness)
-
-        return BrushReservoirModel.transfer(
-            state = current,
-            sampledColor = sampled,
-            sampledWetness = sampledWetness ?: current.wetness,
-            pickupRequest = capacity * pickupRate * materialPresence * wetnessEligibility,
-            mixingModel = settings.mixingModel,
-        ).state
-    }
-
-    private fun wetnessMobility(settings: Settings, sampledWetness: Float?): Float {
-        if (sampledWetness == null) return 1f
-        // Canvas wetness is the material mobility source; the brush's own vehicle can re-wet a dry
-        // contact, so use whichever is wetter. A layer with no persistent field never reaches this
-        // path and therefore keeps the exact historical unconditional-smudge behavior.
-        return maxOf(
-            sampledWetness.coerceIn(0f, 1f),
-            settings.dilution.coerceIn(0f, 1f),
-        )
-    }
-
-    private fun depositWetness(
-        field: PersistentWetnessField?,
-        x: Int,
-        y: Int,
-        width: Int,
-        height: Int,
-        wrapAround: Boolean,
-        amount: Float,
-        clip: ((x: Int, y: Int) -> Boolean)?,
-    ) {
-        if (field == null || amount <= 0f) return
-        val px: Int
-        val py: Int
-        if (wrapAround) {
-            px = ((x % width) + width) % width
-            py = ((y % height) + height) % height
-        } else {
-            if (x !in 0 until width || y !in 0 until height) return
-            px = x
-            py = y
-        }
-        if (clip != null && !clip(px, py)) return
-        field.addWetness(px, py, amount)
-    }
-
-    private fun weightedWetness(
-        field: PersistentWetnessField,
-        cx: Int,
-        cy: Int,
-        radius: Int,
-        wrapAround: Boolean,
-    ): Float {
-        val rr = radius.toFloat().coerceAtLeast(1f)
-        var sum = 0f
-        var sumWeight = 0f
-        for (dy in -radius..radius) {
-            for (dx in -radius..radius) {
-                val distance = hypot(dx.toFloat(), dy.toFloat())
-                if (distance > rr) continue
-                val weight = (1f - distance / rr).coerceIn(0f, 1f)
-                if (weight <= 0f) continue
-                val x: Int
-                val y: Int
-                if (wrapAround) {
-                    x = ((cx + dx) % field.width + field.width) % field.width
-                    y = ((cy + dy) % field.height + field.height) % field.height
-                } else {
-                    x = cx + dx
-                    y = cy + dy
-                    if (x !in 0 until field.width || y !in 0 until field.height) continue
-                }
-                sum += field.wetnessAt(x, y) * weight
-                sumWeight += weight
-            }
-        }
-        return if (sumWeight > 0f) (sum / sumWeight).coerceIn(0f, 1f) else 0f
-    }
-
-    /**
-     * Procreate's Dilution: the pigment about to be deposited is itself pre-mixed with [under] —
-     * the colour already at/near this pixel — before being blended into the canvas at the caller's
-     * `colorRate`. [Settings.dilution] = 0 (the default) returns [paintColor] unchanged, matching
-     * historical Color Rate deposition exactly.
-     */
-    private fun dilutedPigment(settings: Settings, under: Int, paintColor: Int = settings.paintColor): Int {
-        val dilution = settings.dilution.coerceIn(0f, 1f)
-        if (dilution <= 0f) return paintColor
-        return mixArgb(
-            under,
-            paintColor,
-            1f - dilution,
-            includeAlpha = true,
-            model = settings.mixingModel,
-        )
-    }
-
-    private class BrushKernel(radius: Float, feathering: Float) {
-        val r: Int = radius.toInt().coerceAtLeast(1)
-        val diameter: Int = r * 2 + 1
-        val mask: FloatArray = FloatArray(diameter * diameter)
-        val size: Int get() = mask.size
-
-        init {
-            // Keep the historical falloff byte-for-byte in shape: solid core + smoothstep rim.
-            val soft = 0.25f + feathering.coerceIn(0f, 1f) * 0.7f
-            for (dy in -r..r) {
-                for (dx in -r..r) {
-                    val t = hypot(dx.toFloat(), dy.toFloat()) / r
-                    mask[(dy + r) * diameter + (dx + r)] = when {
-                        t >= 1f -> 0f
-                        t <= 1f - soft -> 1f
-                        else -> {
-                            val u = (1f - t) / soft
-                            u * u * (3f - 2f * u)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private inline fun forEachKernel(
-        kernel: BrushKernel,
-        block: (dx: Int, dy: Int, index: Int, mask: Float) -> Unit,
-    ) {
-        for (dy in -kernel.r..kernel.r) {
-            for (dx in -kernel.r..kernel.r) {
-                val k = (dy + kernel.r) * kernel.diameter + (dx + kernel.r)
-                block(dx, dy, k, kernel.mask[k])
-            }
-        }
-    }
-
-    private fun indexOf(x: Int, y: Int, width: Int, height: Int, wrapAround: Boolean): Int {
-        val ix: Int
-        val iy: Int
-        if (wrapAround) {
-            ix = ((x % width) + width) % width
-            iy = ((y % height) + height) % height
-        } else {
-            if (x !in 0 until width || y !in 0 until height) return -1
-            ix = x
-            iy = y
-        }
-        return iy * width + ix
-    }
-
-    /**
-     * A glee audit found this averaged RGB in straight-alpha space: a fully-transparent sample's
-     * (often meaningless leftover-black) RGB was weighted purely by its spatial distance, the same
-     * as an opaque neighbour's — so Dulling's colour pickup near any transparent edge (an erased
-     * patch, the edge of the artwork) darkened towards black regardless of how little that sample
-     * should actually have contributed. RGB is now weighted by spatial weight *times* the sample's
-     * own alpha (i.e. averaged in premultiplied space, then un-premultiplied by the alpha-weighted
-     * sum), which is what correctly blending colours of differing opacity requires; alpha itself is
-     * still a plain spatially-weighted average, unaffected.
-     */
-    private fun weightedAverage(
-        pixels: IntArray,
-        width: Int,
-        height: Int,
-        cx: Int,
-        cy: Int,
-        radius: Int,
-        wrapAround: Boolean,
-    ): Int {
-        var sumA = 0.0
-        var sumR = 0.0
-        var sumG = 0.0
-        var sumB = 0.0
-        var sumW = 0.0
-        var sumAlphaWeight = 0.0
-        val rr = radius.toFloat()
-        for (dy in -radius..radius) {
-            for (dx in -radius..radius) {
-                val distance = hypot(dx.toFloat(), dy.toFloat())
-                if (distance > rr) continue
-                val idx = indexOf(cx + dx, cy + dy, width, height, wrapAround)
-                if (idx < 0) continue
-                val weight = (1f - distance / rr).coerceIn(0f, 1f)
-                if (weight <= 0f) continue
-                val p = pixels[idx]
-                val alpha = (p ushr 24 and 0xFF)
-                val alphaWeight = weight * (alpha / 255.0)
-                sumA += alpha * weight
-                sumR += (p shr 16 and 0xFF) * alphaWeight
-                sumG += (p shr 8 and 0xFF) * alphaWeight
-                sumB += (p and 0xFF) * alphaWeight
-                sumW += weight
-                sumAlphaWeight += alphaWeight
-            }
-        }
-        if (sumW <= 0.0) {
-            val idx = indexOf(cx, cy, width, height, wrapAround)
-            return if (idx >= 0) pixels[idx] else Color.TRANSPARENT
-        }
-        // Every sample in range was fully transparent: there's no colour to un-premultiply from,
-        // so fall back to reading the centre pixel's RGB rather than dividing by zero.
-        if (sumAlphaWeight <= 0.0) {
-            val idx = indexOf(cx, cy, width, height, wrapAround)
-            val centre = if (idx >= 0) pixels[idx] else 0
-            return ArgbColor.argb(
-                (sumA / sumW).roundToInt().coerceIn(0, 255),
-                (centre shr 16 and 0xFF),
-                (centre shr 8 and 0xFF),
-                (centre and 0xFF),
-            )
-        }
-        return ArgbColor.argb(
-            (sumA / sumW).roundToInt().coerceIn(0, 255),
-            (sumR / sumAlphaWeight).roundToInt().coerceIn(0, 255),
-            (sumG / sumAlphaWeight).roundToInt().coerceIn(0, 255),
-            (sumB / sumAlphaWeight).roundToInt().coerceIn(0, 255),
-        )
-    }
-
-    /**
-     * Material-aware interpolation. Legacy RGB deliberately calls the original helper unchanged so
-     * existing regression vectors remain byte-for-byte stable; only the explicit pigment mode takes
-     * the renderer-independent material mixer path.
-     */
-    private fun mixArgb(
-        a: Int,
-        b: Int,
-        t: Float,
-        includeAlpha: Boolean,
-        model: MaterialMixingModel,
-    ): Int = if (model == MaterialMixingModel.LEGACY_RGB) {
-        lerpArgb(a, b, t, includeAlpha)
-    } else {
-        MaterialColorMixer.mixArgb(a, b, t, model, includeAlpha)
-    }
-
-    /** `a` moved towards `b` by `t`, rounded per channel so repeated pickup cannot bias dark. */
-    private fun lerpArgb(a: Int, b: Int, t: Float, includeAlpha: Boolean): Int {
-        val f = t.coerceIn(0f, 1f)
-        val aa = a ushr 24 and 0xFF
-        val ba = b ushr 24 and 0xFF
-        val ia = if (includeAlpha) aa + (ba - aa) * f else aa.toFloat()
-        val ir = (a shr 16 and 0xFF) + ((b shr 16 and 0xFF) - (a shr 16 and 0xFF)) * f
-        val ig = (a shr 8 and 0xFF) + ((b shr 8 and 0xFF) - (a shr 8 and 0xFF)) * f
-        val ib = (a and 0xFF) + ((b and 0xFF) - (a and 0xFF)) * f
-        return (ia.roundToInt().coerceIn(0, 255) shl 24) or
-            (ir.roundToInt().coerceIn(0, 255) shl 16) or
-            (ig.roundToInt().coerceIn(0, 255) shl 8) or
-            ib.roundToInt().coerceIn(0, 255)
     }
 
     /**

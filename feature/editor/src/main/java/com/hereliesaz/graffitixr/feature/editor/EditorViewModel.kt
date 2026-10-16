@@ -904,7 +904,7 @@ class EditorViewModel @Inject constructor(
     // recompute; the commit stays the single source of truth for what actually gets painted.
     private var resampleJob: kotlinx.coroutines.Job? = null
     private var resampleOriginalBitmap: Bitmap? = null
-    // SMUDGE only: fixed once per stroke so every live-preview frame's ColorSmudgeEngine.apply call
+    // SMUDGE only: fixed once per stroke so every live-preview frame's ColorSmudgeEngine.resolvePlans call
     // (each a from-scratch replay of the whole stroke so far, not an incremental append — see
     // onStrokePoint's RESAMPLING_TOOLS branch) resolves any seed-dependent dynamics identically
     // frame to frame. Independent of the real commit seed (System.nanoTime() at onStrokeEnd), the
@@ -914,7 +914,7 @@ class EditorViewModel @Inject constructor(
     // The selected azphalt stamp brush's parsed definition (null = legacy built-in round brush, no
     // longer selectable from the UI). Starts on the bundled GPU Round so every brush, default
     // included, shares one stamp pipeline. Set by selectBrushExtension/selectBuiltInBrush; read at
-    // stroke-commit to route through StampBrushRenderer.
+    // stroke start for the live GPU stamp and recorded on the committed command.
     private var activeStampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
     // Decoded primary, grain, and secondary-mask assets for the active brush.
@@ -927,14 +927,6 @@ class EditorViewModel @Inject constructor(
     // preview, the commit, and history replay all render identically.
     private var stampLiveBitmap: Bitmap? = null
     private var stampLiveCanvas: Canvas? = null
-    // A pristine snapshot of [stampLiveBitmap] taken once, before this stroke's first dab -- never
-    // touched again. Needed by StampBrushRenderer.repaintRoundStrokeFromBase (see its own doc
-    // comment): a live plain-round, non-build-up stroke re-composites its ENTIRE dab list from
-    // scratch every frame rather than SRC_OVER-ing only each frame's new dabs onto whatever the
-    // previous frame already drew, which is what actually keeps a live drag's soft edge matching a
-    // committed stroke's -- and that full re-composite needs to start from what the layer looked
-    // like before this stroke, not from stampLiveBitmap's own already-mutated pixels.
-    private var stampLivePreStrokeBase: Bitmap? = null
     private var stampStampedCount: Int = 0
     // Item 13's airbrush held-run dabs (AirbrushEngine.heldDabs) are tracked as their own
     // independent incremental prefix, painted after each frame's new movement dabs -- see the
@@ -1008,10 +1000,9 @@ class EditorViewModel @Inject constructor(
     // Design.md §9 Phase 3), and only while it's actually kept in sync with [stampLiveBitmap].
     // [stampGpuActive] is the single source of truth for whether new dabs should be attempted on
     // the GPU this stroke; a failure at any point (init/upload/stamp/readback) clears it for the
-    // REST of the stroke and every dab from then on falls back to [StampBrushRenderer.paintDabs]
-    // on the same, already-correct [stampLiveCanvas] — never a partial GPU composite silently left
-    // stale. The one-shot commit (`commitStampStroke`) never touches this: it always re-renders the
-    // whole stroke on the CPU from scratch, so a live preview that fell back partway through never
+    // REST of the stroke. The commit (`commitStampStroke`) finishes on this engine when it is
+    // still live, and otherwise re-renders the whole stroke from its recorded dabs on the GPU
+    // (DrawingEngine.applySingleStroke), so a live preview that failed partway through never
     // affects what's actually saved.
     //
     // [stampGpuUsesMaskedPipeline] picks which shader this stroke dispatches to: false is the
@@ -1076,8 +1067,8 @@ class EditorViewModel @Inject constructor(
     private var stampGpuMaskAlpha8: ByteArray? = null
     private var stampGpuMaskSize: Int = 0
     // Item 15's texture/grain follow-up: mirrors stampGpuMaskAlpha8/stampGpuMaskSize, resolved
-    // once per stroke via StampBrushRenderer.resolveGrainTileAndPhase (the same function the CPU
-    // masked-tip path uses) so the two paths never disagree on grainRandomOffsetPerStroke's seeded
+    // once per stroke via resolveGrainTileAndPhase (the same function GpuStampCommit uses) so the
+    // live preview and the commit never disagree on grainRandomOffsetPerStroke's seeded
     // draw. Null tile means this stroke has no grain -- stampMaskedDabs() treats that as "disabled".
     private var stampGpuGrainAlpha8: ByteArray? = null
     private var stampGpuGrainWidth: Int = 0
@@ -1235,7 +1226,6 @@ class EditorViewModel @Inject constructor(
         val tuning: EngineTuning,
     ) {
         val work: Bitmap get() = copies.work
-        val preStrokeBase: Bitmap get() = copies.preStrokeBase
         val engine: GpuStampEngine? get() = bound?.engine
         val residentStroke: ResidentStroke? get() = bound?.residentStroke
 
@@ -1245,8 +1235,8 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** A stroke's working copy of the layer and its pristine pre-stroke base. */
-    private class StrokeCopies(val work: Bitmap, val preStrokeBase: Bitmap)
+    /** A stroke's working copy of the layer. */
+    private class StrokeCopies(val work: Bitmap)
 
     /** A seeded engine and its binding to the layer's resident copy (null: uploaded instead). */
     private class BoundEngine(val engine: GpuStampEngine, val residentStroke: ResidentStroke?)
@@ -1288,14 +1278,13 @@ class EditorViewModel @Inject constructor(
         prewarmJob = viewModelScope.launch(dispatchers.default) {
             val residentGeneration = layerResidency.generationFor(layerId, source)
             val work = SafeBitmap.copy(source) ?: return@launch
-            val base = SafeBitmap.copy(work) ?: return@launch
             if (!isActive) return@launch
             val tuning = EngineTuning()
             // No engine is prewarmed: the document engine is leased to one stroke at a time, and an
             // idle lease would hold up the previous stroke's commit and calibration. Binding the
             // layer at stroke start is a resident hit on the document engine, no upload.
             val built = PrewarmedStroke(
-                layerId, source, residentGeneration, StrokeCopies(work, base), null, tuning,
+                layerId, source, residentGeneration, StrokeCopies(work), null, tuning,
             )
             val stale = synchronized(prewarmLock) {
                 if (!isActive) {
@@ -4744,7 +4733,6 @@ class EditorViewModel @Inject constructor(
             stampGpuImpastoHeight = false
             stampGpuWetLive = false
             stampGpuWetCheckpoint = null
-            stampLivePreStrokeBase = null
             // Guard against a leaked engine if this ever runs without a prior onStrokeEnd/
             // clearTransientStrokeState in between (there shouldn't be one, but destroy() is cheap
             // to call defensively and a leaked GPU device is not). Locked: a previous stroke's
@@ -4915,10 +4903,6 @@ class EditorViewModel @Inject constructor(
                 } else {
                     null
                 }
-                // See stampLivePreStrokeBase's own doc comment: a pristine, never-repainted copy of
-                // `work` from before this stroke's first dab, needed to fully re-composite a live
-                // plain-round stroke from scratch every frame.
-                val preStrokeBaseSeed = warm?.preStrokeBase ?: SafeBitmap.copy(work)
                 // Direct display: the geometry comes from the UI (main thread, cheap); the overlay's
                 // two full-layer GPU passes run here, off the main thread, before any dab lands.
                 // Never alongside an Ink utensil: the two must not both draw one stroke. The wgpu
@@ -4955,7 +4939,6 @@ class EditorViewModel @Inject constructor(
                         stampLiveMaterialState = impastoMaterialSeed
                         stampLiveMaterialSelection = materialSelectionSeed
                         stampLiveShadedBitmap = shadedBitmapSeed
-                        stampLivePreStrokeBase = preStrokeBaseSeed
                         // Locked: a background onStrokePoint batch (see stampGpuJob) can read/swap
                         // stampGpuEngine concurrently with this publish -- see stampLiveLock's doc
                         // comment for why an unlocked write here would leave that read unsafe.
@@ -5410,7 +5393,6 @@ class EditorViewModel @Inject constructor(
                         val settings = baseSmudgeSettings.copy(
                             radiusPx = (brushSizePx / 2f).coerceAtLeast(1f),
                             feathering = feathering,
-                            wrapAround = false,
                             paintColor = paintColor,
                         )
                         val plans = ColorSmudgeEngine.resolvePlans(
@@ -5535,7 +5517,6 @@ class EditorViewModel @Inject constructor(
         // prefix, so re-drawing dabs beyond the count already stamped matches a full re-render.
         val canvas = stampLiveCanvas ?: return          // copy not ready yet; points still collected
         val work = stampLiveBitmap ?: return
-        val preStrokeBase = stampLivePreStrokeBase
         // Map only the points not yet mapped (per-point transform, so a tail maps the same as the
         // whole) and append to the cache — avoids re-mapping the full stroke every drag frame.
         val all = snapshotStrokePoints()
@@ -6482,8 +6463,8 @@ class EditorViewModel @Inject constructor(
     /**
      * Commit an azphalt stamp-brush stroke: record a replayable [StrokeCommand] (carrying the brush,
      * flow, and the seed fixed at stroke start so undo/redo re-composites identically), then
-     * rasterize the whole stroke onto a fresh copy of the layer bitmap via [StampBrushRenderer] off
-     * the main thread and publish it. The seed itself is `System.nanoTime()` at stroke start, not
+     * finish the live GPU stroke (or paint it again from its recorded dabs on the GPU, via
+     * [DrawingEngine.applySingleStroke]) off the main thread and publish it. The seed itself is `System.nanoTime()` at stroke start, not
      * derived from the stroke's content -- two visually-identical strokes drawn at different times
      * jitter differently -- but once recorded on the command, replay always reads that same stored
      * value, so [DrawingEngine] reproduces this exact stroke identically on every replay.
@@ -9133,7 +9114,6 @@ class EditorViewModel @Inject constructor(
         stampLiveMaterialState = null
         stampLiveMaterialSelection = null
         stampLiveShadedBitmap = null
-        stampLivePreStrokeBase = null
         stampStampedCount = 0
         stampHeldStampedCount = 0
         stampBrushForStroke = null

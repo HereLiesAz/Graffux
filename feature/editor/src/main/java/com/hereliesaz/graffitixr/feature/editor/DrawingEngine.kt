@@ -344,7 +344,6 @@ internal class DrawingEngine(
             val settings = baseSettings.copy(
                 radiusPx = (stroke.brushSize * brushScale / 2f).coerceAtLeast(1f),
                 feathering = stroke.feathering,
-                wrapAround = false,
                 paintColor = stroke.brushColor,
             )
             val plans = ColorSmudgeEngine.resolvePlans(
