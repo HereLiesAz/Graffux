@@ -35,7 +35,6 @@ import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.util.ContourTrace
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
-import com.hereliesaz.graffitixr.common.util.computeAutoTune
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
@@ -62,7 +61,6 @@ import com.hereliesaz.graffitixr.nativebridge.ResolvedBrushDab
 import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.ResidentStroke
-import com.hereliesaz.graffitixr.common.util.imageStats
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
@@ -616,8 +614,14 @@ class EditorViewModel @Inject constructor(
      * Wired to AzNavRail's per-host `onExpandedChange` (10.11), which fires on manual toggles only.
      */
     fun onRailHostExpansionChanged(hostId: String, expanded: Boolean) {
+        // Guard by the project open when the toggle happened: the update runs on io, so a project
+        // switch in between must not receive the previous project's rail state.
+        val projectId = projectRepository.currentProject.value?.id ?: return
         viewModelScope.launch(dispatchers.io) {
-            projectRepository.updateProject { it.copy(railExpansion = it.railExpansion + (hostId to expanded)) }
+            projectRepository.updateProject {
+                if (it.id != projectId) it
+                else it.copy(railExpansion = it.railExpansion + (hostId to expanded))
+            }
         }
     }
 
@@ -1416,9 +1420,8 @@ class EditorViewModel @Inject constructor(
             }
         }
         // The Settings screen's "Right-handed" toggle persisted correctly but nothing ever read it
-        // back — MainActivity's rail docking side was driven by uiState.isRightHanded, a field only
-        // ToggleHandedness (itself never called) could change, so it silently stayed at its default
-        // regardless of what the user set in Settings.
+        // back — MainActivity's rail docking side is driven by uiState.isRightHanded, which would
+        // otherwise stay at its default regardless of what the user set in Settings.
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.isRightHanded.collect { isRight ->
                 dispatch(EditorIntent.SetHandedness(isRight))
@@ -1587,7 +1590,9 @@ class EditorViewModel @Inject constructor(
                             slamManager.clearMap()
                             val mapPath = projectManager.getMapPath(context, project.id)
                             if (File(mapPath).exists()) {
-                                slamManager.loadModel(mapPath)
+                                if (!slamManager.loadModel(mapPath)) {
+                                    android.util.Log.w("EditorViewModel", "SLAM loadModel failed for ${project.id}: $mapPath exists but was not restored")
+                                }
                             }
 
                             project.fingerprint?.let { fp ->
@@ -2243,15 +2248,22 @@ class EditorViewModel @Inject constructor(
             (_contributionParams.value[key] as? com.hereliesaz.graffitixr.common.azphalt.ParamValue.Str)?.value
         
         override fun colorActive(): Int = _uiState.value.activeColor.toArgb()
+        // Symmetric with [colorActive], which hands out `activeColor.toArgb()`: the Int is the same
+        // packed 8-bit-per-channel value, so what an extension sets is what it reads back.
         override fun colorSetActive(rgba: Int) {
-            // Unused for now, but should dispatch intent
+            dispatch(EditorIntent.SetActiveColor(Color(rgba)))
         }
         
         // Not reached: ExtensionRepository.executeCodeExtension wraps this host in an
         // ExtensionScopedSandboxHost that serves assetRead from the invoking extension's own dir.
         override fun assetRead(path: String): ByteArray? = null
-        override fun selectionSize(): Int = 0
-        override fun selectionRead(): ByteArray = ByteArray(0)
+        // The `selection` capability is not implemented: the on-canvas selection is a screen-space
+        // path with no defined pixel-mask wire format for extensions, so these used to report an
+        // empty selection regardless of reality. Fail loudly instead; runCodeExtension surfaces it.
+        override fun selectionSize(): Int =
+            throw UnsupportedOperationException("The 'selection' extension capability is not supported yet")
+        override fun selectionRead(): ByteArray =
+            throw UnsupportedOperationException("The 'selection' extension capability is not supported yet")
         override fun layerCount(): Int = _uiState.value.layers.size
     }
 
@@ -3297,11 +3309,15 @@ class EditorViewModel @Inject constructor(
         val currentProject = projectRepository.currentProject.value
         val updatedLayers = _uiState.value.layers.map { it.toOverlayLayer() }
 
-        // Paths derive from the (immutable) project id. Persist the SLAM world first so they're valid.
+        // Paths derive from the (immutable) project id.
         val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
         val mapPath = projectManager.getMapPath(context, projectId)
         val cloudPointsPath = projectManager.getCloudPointsPath(context, projectId)
-        slamManager.saveModel(mapPath)
+        // Writes the wall fingerprint + wall feature map to mapPath. False is routine when no AR wall
+        // has been captured (nothing to save), so it is logged, not toasted - this runs on every autosave.
+        if (!slamManager.saveModel(mapPath)) {
+            android.util.Log.w("EditorViewModel", "SLAM saveModel returned false for $projectId (no wall map to save, or write failed)")
+        }
 
         val manifestToSave: GraffitiProject
         if (currentProject == null) {
@@ -4030,34 +4046,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /**
-     * First-run doodle demo: on the scribble->artwork swap, pre-set the adjustment knobs to values
-     * that read well against the wall. Combines [wall] (from the doodle capture) with the active
-     * layer's own colour/contrast and applies through the existing setters (which route the
-     * multiplicative/additive knobs to the AR mode-adjustment and colour balance to the layer, exactly
-     * as the AR composite consumes them). A starting point the user then fine-tunes — not a hard grade.
-     */
-    // GraffitiXR's, not Graffux's. It grades the artwork against a photographed WALL, and Graffux
-    // has no camera, no capture and therefore no wall to pass — every caller would have to invent
-    // one. Left unwired here on purpose rather than given a Graffux entry point that grades against
-    // something this function was not written to compare against.
-    fun autoTuneActiveLayer(wall: com.hereliesaz.graffitixr.common.util.ImageStats?) {
-        if (wall == null) return
-        val bitmap = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }?.bitmap ?: return
-        viewModelScope.launch(dispatchers.default) {
-            val art = bitmap.imageStats()
-            val t = computeAutoTune(wall, art)
-            withContext(dispatchers.main) {
-                onOpacityChanged(t.opacity)
-                onBrightnessChanged(t.brightness)
-                onContrastChanged(t.contrast)
-                onSaturationChanged(t.saturation)
-                onColorBalanceRChanged(t.colorBalanceR)
-                onColorBalanceGChanged(t.colorBalanceG)
-                onColorBalanceBChanged(t.colorBalanceB)
-            }
-        }
-    }
     // These (and setLayerTransform below) are also the absolute setters TransformPanel's numeric
     // fields commit through on every keystroke — unlike the drag-gesture path, which brackets its
     // whole gesture in onAdjustmentStart()/onAdjustmentEnd() (pushHistory + saveProject), nothing

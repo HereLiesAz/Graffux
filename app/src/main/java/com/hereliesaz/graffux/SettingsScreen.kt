@@ -155,8 +155,8 @@ fun SettingsScreen(
             // fourteen options that all resolve to the same English resources: the dead control this
             // audit keeps finding, rather than a feature waiting to work.
             //
-            // `AppLanguage` stays in the shared core:common module; `SettingsRepository` no longer
-            // carries a language preference, since nothing in Graffux read or wrote it.
+            // `SettingsRepository` carries no language preference, since nothing in Graffux read or
+            // wrote it (and the unused `AppLanguage` enum has been deleted).
 
             Text(
                 "Privacy",

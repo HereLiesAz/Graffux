@@ -207,12 +207,6 @@ class EditorReducerTest {
     }
 
     @Test
-    fun `ToggleHandedness flips the handedness flag`() {
-        val s = state(lyr("a")).copy(isRightHanded = true)
-        assertFalse(reduce(s, EditorIntent.ToggleHandedness).isRightHanded)
-    }
-
-    @Test
     fun `SetBrushSizeFixedOnScreen mirrors the persisted Settings toggle into UiState`() {
         val s = state(lyr("a")).copy(brushSizeFixedOnScreen = false)
         assertTrue(reduce(s, EditorIntent.SetBrushSizeFixedOnScreen(true)).brushSizeFixedOnScreen)
