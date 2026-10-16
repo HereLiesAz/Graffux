@@ -41,6 +41,11 @@ fn contribution(painted: vec4<f32>, under: vec4<f32>) -> vec4<f32> {
     if (all(painted == under)) {
         return vec4<f32>(0.0);
     }
+    // An overlay can only add coverage: where the stroke ERASED (less opaque than the base) there is
+    // nothing to draw. Without this an opaque base shows the erased pixel as opaque black.
+    if (painted.a < under.a - 0.004) {
+        return vec4<f32>(0.0);
+    }
     if (under.a >= 0.999) {
         return vec4<f32>(painted.rgb, 1.0);
     }

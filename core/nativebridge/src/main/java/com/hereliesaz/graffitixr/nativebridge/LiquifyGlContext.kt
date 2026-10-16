@@ -29,8 +29,19 @@ import java.util.concurrent.CountDownLatch
  * `nativeInitGl()`).
  */
 internal class LiquifyGlContext(private val onContextReady: () -> Unit) {
-    private val thread = HandlerThread("LiquifyGL").apply { start() }
-    private val handler = Handler(thread.looper)
+    // The thread is started on demand and dropped by release(): SlamManager is a singleton that
+    // outlives the editor ViewModel whose onCleared() calls destroy(), so the next Liquify session
+    // must get a fresh thread/context instead of posting to a quit looper (which would hang).
+    private val threadLock = Any()
+    private var thread: HandlerThread? = null
+    private var handler: Handler? = null
+
+    private fun liveHandler(): Handler = synchronized(threadLock) {
+        handler?.let { return it }
+        val t = HandlerThread("LiquifyGL").apply { start() }
+        thread = t
+        Handler(t.looper).also { handler = it }
+    }
 
     // Touched only on the GL thread -- no lock needed as long as every access happens via
     // runOnGlThread/release, both of which post onto the same single-threaded Handler.
@@ -50,7 +61,7 @@ internal class LiquifyGlContext(private val onContextReady: () -> Unit) {
         val latch = CountDownLatch(1)
         var result: T? = null
         var error: Throwable? = null
-        handler.post {
+        val posted = liveHandler().post {
             try {
                 ensureContext()
                 result = block()
@@ -60,6 +71,8 @@ internal class LiquifyGlContext(private val onContextReady: () -> Unit) {
                 latch.countDown()
             }
         }
+        // post() is false when the looper is quitting: the lambda would never run and await() would hang.
+        check(posted) { "LiquifyGlContext: the GL thread is shutting down" }
         latch.await()
         error?.let { throw it }
         @Suppress("UNCHECKED_CAST")
@@ -68,6 +81,17 @@ internal class LiquifyGlContext(private val onContextReady: () -> Unit) {
 
     private fun ensureContext() {
         if (contextReady) return
+        try {
+            createContext()
+        } catch (t: Throwable) {
+            // Don't leak the half-built display/context: every retry would otherwise add another.
+            teardownContext()
+            throw t
+        }
+        onContextReady()
+    }
+
+    private fun createContext() {
         display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         check(display != EGL14.EGL_NO_DISPLAY) { "LiquifyGlContext: eglGetDisplay failed" }
         val version = IntArray(2)
@@ -106,23 +130,33 @@ internal class LiquifyGlContext(private val onContextReady: () -> Unit) {
             "LiquifyGlContext: eglMakeCurrent failed"
         }
         contextReady = true
-        onContextReady()
     }
 
-    /** Tears down the EGL context and stops the dedicated thread. Safe to call more than once. */
-    fun release() {
-        handler.post {
-            if (display != EGL14.EGL_NO_DISPLAY) {
-                EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
-                if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
-                if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
-                EGL14.eglTerminate(display)
-            }
-            display = EGL14.EGL_NO_DISPLAY
-            context = EGL14.EGL_NO_CONTEXT
-            surface = EGL14.EGL_NO_SURFACE
-            contextReady = false
+    private fun teardownContext() {
+        if (display != EGL14.EGL_NO_DISPLAY) {
+            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
+            if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
+            EGL14.eglTerminate(display)
         }
-        thread.quitSafely()
+        display = EGL14.EGL_NO_DISPLAY
+        context = EGL14.EGL_NO_CONTEXT
+        surface = EGL14.EGL_NO_SURFACE
+        contextReady = false
+    }
+
+    /**
+     * Tears down the EGL context and stops the dedicated thread. Safe to call more than once; a
+     * later [runOnGlThread] starts a fresh thread and context.
+     */
+    fun release() {
+        synchronized(threadLock) {
+            val h = handler ?: return
+            val t = thread
+            handler = null
+            thread = null
+            h.post { teardownContext() }
+            t?.quitSafely()
+        }
     }
 }

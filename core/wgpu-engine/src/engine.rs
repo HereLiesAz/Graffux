@@ -1441,7 +1441,8 @@ impl Engine {
         if dabs.is_empty() || p.mask_width == 0 || p.mask_height == 0 {
             return false;
         }
-        if p.mask.len() < (p.mask_width * p.mask_height) as usize {
+        let mask_len = (p.mask_width as u64) * (p.mask_height as u64);
+        if (p.mask.len() as u64) < mask_len {
             return false;
         }
         if !p.secondary_dabs.is_empty() && p.secondary_dabs.len() != dabs.len() {
@@ -1451,7 +1452,7 @@ impl Engine {
             return self.mp_submit_masked(dabs, color_argb, hardness, p);
         }
         let r8 = wgpu::TextureFormat::R8Unorm;
-        let mask = &p.mask[..(p.mask_width * p.mask_height) as usize];
+        let mask = &p.mask[..mask_len as usize];
         Self::ensure_tex(
             &self.device,
             &self.queue,
@@ -1646,8 +1647,19 @@ impl Engine {
         // Multipass: Color Smudge reads the layer it writes, so everything queued lands first and
         // the smudge runs at full quality right away (it has no draft yet; see multipass.rs).
         self.mp_drain();
-        let sample_source =
-            sample_source.filter(|(s, w, h)| *w > 0 && *h > 0 && s.len() >= (*w * *h * 4) as usize);
+        // A supplied but unusable Sample-Merged source (empty, short, or not the layer's size) fails
+        // the call; silently smudging from the active layer instead would paint the wrong colours.
+        if let Some((s, w, h)) = sample_source {
+            let need = (w as i64).checked_mul(h as i64).and_then(|n| n.checked_mul(4));
+            let ok = w > 0
+                && h > 0
+                && w == self.width
+                && h == self.height
+                && need.is_some_and(|n| s.len() as i64 >= n);
+            if !ok {
+                return false;
+            }
+        }
         let has_sample_merged = sample_source.is_some();
         if let Some((src, w, h)) = sample_source {
             Self::ensure_tex(

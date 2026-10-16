@@ -2,6 +2,7 @@
 package com.hereliesaz.graffitixr.nativebridge
 
 import android.graphics.Bitmap
+import android.graphics.Color
 
 /**
  * On-device proof that [GpuStampEngine] (the wgpu engine) actually works on the phone it's running
@@ -12,11 +13,16 @@ import android.graphics.Bitmap
  * Stamps three overlapping dabs — a big soft one, two smaller harder ones — in solid red at 70%
  * flow, so a passing run visibly shows both the hardness/radius falloff profile and SRC_OVER
  * build-up where the dabs overlap, the two things the stamp shader has to get right to match
- * `StampBrushRenderer`'s CPU round-tip path.
+ * the former CPU round-tip renderer (deleted).
  */
 object GpuStampEngineSelfTest {
 
     private const val SIZE = 256
+    private const val CORE_DX = 40f // the small opaque dab's offset from the centre
+    private const val CORE_DY = 20f
+    private const val CORNER = 2
+    private const val SOLID = 200
+    private const val FAINT = 40
 
     data class Result(
         val success: Boolean,
@@ -67,6 +73,30 @@ object GpuStampEngineSelfTest {
             !engine.readback(bitmap) -> failure(
                 "readback() failed after a successful stampDabs() — the GPU→CPU copy didn't " +
                     "complete. Check logcat tag WgpuStampEngine.",
+            )
+            else -> verifyPixels(bitmap, center)
+        }
+    }
+
+    /**
+     * The boolean returns above only prove the calls completed; a driver can return a transparent or
+     * wrongly coloured bitmap. The core of the small, opaque dab must be solid red and the far
+     * corner (outside every dab) untouched.
+     */
+    private fun verifyPixels(bitmap: Bitmap, center: Float): Result {
+        val core = bitmap.getPixel((center - CORE_DX).toInt(), (center - CORE_DY).toInt())
+        val corner = bitmap.getPixel(CORNER, CORNER)
+        val coreOk = Color.alpha(core) >= SOLID && Color.red(core) >= SOLID &&
+            Color.green(core) <= FAINT && Color.blue(core) <= FAINT
+        val cornerOk = Color.alpha(corner) == 0
+        return when {
+            !coreOk -> failure(
+                "The GPU produced wrong pixels: the dab core read back as " +
+                    "#${Integer.toHexString(core)} instead of solid red.",
+            )
+            !cornerOk -> failure(
+                "The GPU produced wrong pixels: an untouched corner read back as " +
+                    "#${Integer.toHexString(corner)} instead of transparent.",
             )
             else -> Result(success = true, message = "wgpu stamp engine works on this device.", bitmap = bitmap)
         }

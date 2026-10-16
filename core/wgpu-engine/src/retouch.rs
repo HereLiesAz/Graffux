@@ -99,7 +99,10 @@ impl Engine {
         }
         let mut region = Rect::default();
         for d in dabs {
-            let r = d[2].max(0.5);
+            if !(d[0].is_finite() && d[1].is_finite() && d[2].is_finite()) {
+                continue;
+            }
+            let r = d[2].clamp(0.5, 1.0e6);
             let x0 = (d[0] - r).floor() as i32;
             let y0 = (d[1] - r).floor() as i32;
             let x1 = (d[0] + r).ceil() as i32 + 1;

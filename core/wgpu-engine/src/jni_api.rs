@@ -43,11 +43,18 @@ fn bytes(env: &mut JNIEnv, array: &JByteArray) -> Option<Vec<u8>> {
     env.convert_byte_array(array).ok()
 }
 
-fn records<T: bytemuck::Pod>(data: &[f32]) -> Vec<T> {
+/// Splits packed floats into records. `None` when the length is not a whole number of records,
+/// so a packer stride error fails the call instead of silently dropping a trailing partial dab.
+fn records<T: bytemuck::Pod>(data: &[f32]) -> Option<Vec<T>> {
     let per = std::mem::size_of::<T>() / 4;
-    data.chunks_exact(per)
-        .map(|c| bytemuck::pod_read_unaligned(bytemuck::cast_slice(c)))
-        .collect()
+    if per == 0 || !data.len().is_multiple_of(per) {
+        return None;
+    }
+    Some(
+        data.chunks_exact(per)
+            .map(|c| bytemuck::pod_read_unaligned(bytemuck::cast_slice(c)))
+            .collect(),
+    )
 }
 
 /// [enabled, hasPaintHeight, baseHeight, heightScale, textureScale, offsetX, offsetY]
@@ -213,7 +220,9 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
             return false;
         };
         let sub = substrate(floats(&mut env, &substrate_params));
-        let dabs: Vec<GpuDab> = records(&d);
+        let Some(dabs) = records::<GpuDab>(&d) else {
+            return false;
+        };
         e.stamp_dabs(
             &dabs,
             color_argb as u32,
@@ -264,12 +273,18 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
             return false;
         }
         let g = bytes(&mut env, &grain);
-        let sd: Vec<GpuSecondaryDab> = floats(&mut env, &secondary_dabs)
-            .map(|s| records(&s))
-            .unwrap_or_default();
+        let sd: Vec<GpuSecondaryDab> = match floats(&mut env, &secondary_dabs) {
+            Some(s) => match records(&s) {
+                Some(r) => r,
+                None => return false,
+            },
+            None => Vec::new(),
+        };
         let sm = bytes(&mut env, &secondary_mask);
         let sub = substrate(floats(&mut env, &substrate_params));
-        let dabs: Vec<GpuDab> = records(&d);
+        let Some(dabs) = records::<GpuDab>(&d) else {
+            return false;
+        };
         let params = MaskedParams {
             mask: &m,
             mask_width: mask_width as u32,
@@ -317,7 +332,9 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
         let Some(d) = floats(&mut env, &dabs) else {
             return false;
         };
-        let dabs: Vec<ColorSmudgeDab> = records(&d);
+        let Some(dabs) = records::<ColorSmudgeDab>(&d) else {
+            return false;
+        };
         let src = bytes(&mut env, &sample_source);
         let source = src.as_deref().map(|s| (s, sample_width, sample_height));
         e.color_smudge(
@@ -652,5 +669,18 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
             array.into_raw()
         }
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn records_rejects_a_trailing_partial_record() {
+        let per = std::mem::size_of::<GpuDab>() / 4;
+        assert_eq!(records::<GpuDab>(&vec![0.0; per * 2]).map(|r| r.len()), Some(2));
+        assert!(records::<GpuDab>(&vec![0.0; per * 2 + 1]).is_none());
+        assert!(records::<GpuDab>(&[]).is_some_and(|r| r.is_empty()));
     }
 }

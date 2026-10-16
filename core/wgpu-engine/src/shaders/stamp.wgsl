@@ -1,6 +1,6 @@
-// WGSL port of core/nativebridge/src/main/cpp/shaders/stamp.comp -- identical math, statement for
+// WGSL port of the retired GLSL stamp.comp (deleted; this WGSL is now the only implementation) -- identical math, statement for
 // statement. Two deliberate representation changes, both copied from the GLES port
-// (shaders/gles/stamp.comp) rather than invented here:
+// (the retired GLSL) rather than invented here:
 //  * the layer is a storage buffer of packed RGBA8 words (unpack4x8unorm/pack4x8unorm) instead of
 //    an rgba8 storage image, because read+write rgba8 storage textures are not portable across
 //    wgpu's backends (GL/WebGPU in particular);

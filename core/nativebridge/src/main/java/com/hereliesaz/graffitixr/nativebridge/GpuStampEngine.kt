@@ -2,7 +2,6 @@
 package com.hereliesaz.graffitixr.nativebridge
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.view.Surface
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassBudget
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
@@ -46,6 +45,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          */
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
+        private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
         private const val TAG = "GpuStampEngine"
         private val documentLock = Any()
         private var documentHandle = 0L
@@ -166,16 +166,22 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             val document = if (!closeDocument) {
                 0L
             } else {
-                documentLease.acquire()
-                try {
-                    synchronized(documentLock) {
-                        documentHandle.also {
-                            documentHandle = 0L
-                            documentKey = null
+                // Bounded like initDocument: a lease holder that never destroy()s must not hang
+                // calibration or a memory-pressure trim forever. On timeout the document stays open.
+                if (documentLease.tryAcquire(DOCUMENT_TRIM_WAIT_MS, TimeUnit.MILLISECONDS)) {
+                    try {
+                        synchronized(documentLock) {
+                            documentHandle.also {
+                                documentHandle = 0L
+                                documentKey = null
+                            }
                         }
+                    } finally {
+                        documentLease.release()
                     }
-                } finally {
-                    documentLease.release()
+                } else {
+                    android.util.Log.w(TAG, "trimPool: document lease still held after ${DOCUMENT_TRIM_WAIT_MS}ms")
+                    0L
                 }
             }
             val cached = synchronized(poolLock) {
@@ -376,7 +382,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     val isInitialized: Boolean get() = nativeHandle != 0L
 
-    /** The native handle, for [GpuDocumentLayers] (same module); 0 when not initialized. */
+    /** The native handle, for the GPU helper classes in this module; 0 when not initialized. */
     internal val handleForDocument: Long get() = nativeHandle
 
     /**
@@ -631,7 +637,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * Widened Krita-style entry point: every dab owns its resolved colour, flow and hardness.
      *
      * [buildUp] (default false) mirrors [com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush.
-     * buildUp] / StampBrushRenderer.paintDabs' own compositing choice: false takes each pixel's
+     * buildUp] / the former CPU renderer's compositing choice: false takes each pixel's
      * single strongest dab in this call rather than compounding every overlap (matching
      * paintRoundDabsMaxCombined, so a dragged soft round brush doesn't read as hardened on the GPU
      * live-paint path either); true composites sequentially in submission order instead.
@@ -651,26 +657,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     ): Boolean {
         if (!isInitialized || dabs.isEmpty()) return false
         if (substrate != null && !substrateHeightUploaded) return false
-        val flat = FloatArray(dabs.size * 15)
-        for (i in dabs.indices) {
-            val d = dabs[i]
-            val base = i * 15
-            flat[base] = d.x
-            flat[base + 1] = d.y
-            flat[base + 2] = d.radius
-            flat[base + 3] = d.alpha
-            flat[base + 4] = d.angleDeg
-            flat[base + 5] = Color.red(d.colorArgb) / 255f
-            flat[base + 6] = Color.green(d.colorArgb) / 255f
-            flat[base + 7] = Color.blue(d.colorArgb) / 255f
-            flat[base + 8] = Color.alpha(d.colorArgb) / 255f
-            flat[base + 9] = d.flow
-            flat[base + 10] = d.hardness.coerceIn(0f, 1f)
-            flat[base + 11] = d.contactDepth.coerceIn(0f, 1f)
-            flat[base + 12] = d.reservoirLoad.coerceIn(0f, 1f)
-            flat[base + 13] = d.depositionRate.coerceIn(0f, 1f)
-            flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
-        }
+        val flat = DabPacking.packResolved(dabs)
         val cfg = substrate?.sanitized()
         return timed(PassKind.STAMP) { onGpu {
             nativeStampResolvedDabs(
@@ -685,21 +672,21 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * shaders/stamp_masked.comp counterpart to [stampResolvedDabs]: each dab samples [maskAlpha8]
      * (an R8 alpha-only tip texture, [maskWidth]x[maskHeight], white=full coverage) in its own
      * rotated/scaled local space instead of using the round coverage falloff -- the GPU-side
-     * counterpart to StampBrushRenderer's masked-tip CPU path (docs/Krita Brush Engine Adoption.md
+     * counterpart to the former CPU masked-tip path (docs/Krita Brush Engine Adoption.md
      * item 15). The mask texture is only re-uploaded natively when its dimensions or content differ
      * from the previous call, so repeated calls with the same tip within one stroke are cheap.
      *
      * [grainAlpha8] (item 15's texture/grain follow-up) is an optional second single-channel tile
      * -- pre-baked exactly like [com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache]'s own
      * grain-tile cache, so this only ever multiplies coverage down, matching
-     * `StampBrushRenderer.applyGrain`'s CPU math. `null` (the default) disables grain for this
+     * the former CPU grain math. `null` (the default) disables grain for this
      * call. [grainCanvasLocked]/[grainScale]/[grainPhaseX]/[grainPhaseY] mirror
      * `GrainBehavior.CANVAS_LOCKED` vs `MOVING`, `AzphaltBrush.grainScale`, and the caller's
      * already-resolved per-stroke phase (`grainOffsetX`/`Y` plus any `grainRandomOffsetPerStroke`
      * draw), same as the CPU path resolves them once per stroke.
      *
      * [secondaryDabs] (item 15's masked/dual-brush follow-up) is an optional second tip composited
-     * onto each primary dab -- the GPU counterpart to `StampBrushRenderer.paintMaskedDabs`'
+     * onto each primary dab -- the dual-brush secondary tip, applied
      * DST_IN/DST_OUT secondary-tip compositing. When non-empty it must be exactly `dabs.size()`
      * long (same index, parallel arrays -- a per-STROKE feature, matching how
      * `AzphaltBrush.maskedBrush` attaches a `MaskDab` to every dab or none). [secondaryMaskAlpha8]/
@@ -750,26 +737,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
                 "secondaryMaskAlpha8 too small: need ${secondaryMaskWidth * secondaryMaskHeight}, got ${secondaryMaskAlpha8.size}"
             }
         }
-        val flat = FloatArray(dabs.size * 15)
-        for (i in dabs.indices) {
-            val d = dabs[i]
-            val base = i * 15
-            flat[base] = d.x
-            flat[base + 1] = d.y
-            flat[base + 2] = d.radius
-            flat[base + 3] = d.alpha
-            flat[base + 4] = d.angleDeg
-            flat[base + 5] = Color.red(d.colorArgb) / 255f
-            flat[base + 6] = Color.green(d.colorArgb) / 255f
-            flat[base + 7] = Color.blue(d.colorArgb) / 255f
-            flat[base + 8] = Color.alpha(d.colorArgb) / 255f
-            flat[base + 9] = d.flow
-            flat[base + 10] = d.tipRatio
-            flat[base + 11] = d.contactDepth.coerceIn(0f, 1f)
-            flat[base + 12] = d.reservoirLoad.coerceIn(0f, 1f)
-            flat[base + 13] = d.depositionRate.coerceIn(0f, 1f)
-            flat[base + 14] = d.substrateResponse.coerceIn(0f, 1f)
-        }
+        val flat = DabPacking.packMasked(dabs)
         val secondaryFlat = if (secondaryDabs.isNotEmpty()) {
             FloatArray(secondaryDabs.size * 8).also { out ->
                 for (i in secondaryDabs.indices) {
@@ -809,7 +777,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      *
      * [sampleSource] (item 11's Sample Merged follow-up) is an optional composite of the other
      * visible layers, ARGB ints in the same layout [android.graphics.Bitmap.getPixels] produces --
-     * the GPU counterpart to `ColorSmudgeEngine.apply`'s `sampleSource` parameter. When supplied
+     * the GPU counterpart to the Sample Merged option of Color Smudge. When supplied
      * (with matching positive [sampleSourceWidth]/[sampleSourceHeight]), every dab in this call
      * reads pickup from it instead of the active layer, matching the CPU reference's `readSource`
      * vs `pixels` split exactly. It is converted to RGBA byte order here -- R,G,B,A per pixel, the
@@ -834,7 +802,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         sampleSourceWidth: Int = 0,
         sampleSourceHeight: Int = 0,
     ): Boolean {
-        if (!isInitialized || dabs.size < 2) return false
+        // A supplied but unusable Sample Merged source fails the stroke rather than smudging the layer.
+        val sourceOk = sampleSource == null || sampleSourceFits(sampleSource, sampleSourceWidth, sampleSourceHeight)
+        if (!isInitialized || dabs.size < 2 || !sourceOk) return false
         val flat = FloatArray(dabs.size * 8)
         for (i in dabs.indices) {
             val d = dabs[i]
@@ -848,10 +818,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             flat[base + 6] = d.colorRateMultiplier
             flat[base + 7] = d.distanceDeltaPx
         }
-        val sampleSourceRgba8 = if (
-            sampleSource != null && sampleSourceWidth > 0 && sampleSourceHeight > 0 &&
-            sampleSource.size >= sampleSourceWidth * sampleSourceHeight
-        ) {
+        // A supplied but unusable Sample Merged source fails the stroke instead of silently
+        // smudging from the active layer (which would paint the wrong colours and report success).
+        val sampleSourceRgba8 = if (sampleSource != null) {
             val pixelCount = sampleSourceWidth * sampleSourceHeight
             val bytes = ByteArray(pixelCount * 4)
             for (i in 0 until pixelCount) {
@@ -874,6 +843,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         if (!ok) healthy = false
         return ok
     }
+
+    private fun sampleSourceFits(source: IntArray, width: Int, height: Int): Boolean =
+        width > 0 && height > 0 && source.size >= width.toLong() * height
 
     /** Benchmark result chosen on this GPU after the first Smudge call. */
     @Synchronized
@@ -1331,7 +1303,7 @@ data class ResolvedBrushDab(
     /** This dab's own resolved edge falloff (0 = soft, 1 = hard) -- see AzphaltBrush.hardness and
      *  a HARDNESS BrushSensorBinding. Always sent per-dab (unlike the historical [stampDabs]
      *  entry point) so a pressure/tilt-driven hardness dynamic renders identically on the GPU
-     *  path as it already does on StampBrushRenderer's CPU path. */
+     *  path as the (deleted) CPU path did. */
     val hardness: Float = 1f,
     val contactDepth: Float = 1f,
     val reservoirLoad: Float = 1f,
@@ -1361,7 +1333,7 @@ data class MaskedBrushDab(
  * `com.hereliesaz.graffitixr.common.azphalt.MaskDab`, the CPU-side equivalent, except
  * [keepInside] is pre-resolved from `MaskedBrushBlendMode` + `invert` into a single flag rather
  * than shipping the enum across the JNI boundary (`true` = `DST_IN`/keep-inside, `false` =
- * `DST_OUT`/cut -- see `StampBrushRenderer.paintMaskedDabs`' `keepInside` local for the exact
+ * `DST_OUT`/cut -- see the dual-brush cut (`keepInside`) in the shader for the exact
  * resolution rule this must match).
  */
 data class SecondaryBrushDab(
