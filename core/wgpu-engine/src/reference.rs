@@ -28,15 +28,16 @@ fn coverage(dist: f32, radius: f32, hardness: f32) -> f32 {
     if radius <= 0.0 {
         return 0.0;
     }
+    if hardness >= 0.999 {
+        // One-pixel analytic ramp centred on the radius (stamp.wgsl `stamp_coverage`).
+        return (radius - dist + 0.5).clamp(0.0, 1.0);
+    }
     let t = dist / radius;
     if t <= hardness {
         return 1.0;
     }
     if t >= 1.0 {
         return 0.0;
-    }
-    if hardness >= 0.999 {
-        return 1.0 - (t - hardness) / 0.001;
     }
     1.0 - (t - hardness) / (1.0 - hardness)
 }
@@ -80,7 +81,7 @@ pub fn stamp(
             let mut best_rgb = [0.0f32; 3];
             for d in dabs {
                 let radius = d.radius.max(0.5);
-                if (p.0 - d.x).abs() > radius || (p.1 - d.y).abs() > radius {
+                if (p.0 - d.x).abs() > radius + 0.5 || (p.1 - d.y).abs() > radius + 0.5 {
                     continue;
                 }
                 let resolved = d.resolved >= 0.5;
@@ -130,5 +131,27 @@ pub fn stamp(
             }
             layer[idx] = pack(dst);
         }
+    }
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::coverage;
+
+    #[test]
+    fn hard_tip_has_one_pixel_antialiased_edge() {
+        assert_eq!(coverage(0.0, 10.0, 1.0), 1.0);
+        assert_eq!(coverage(9.5, 10.0, 1.0), 1.0);
+        assert!((coverage(10.0, 10.0, 1.0) - 0.5).abs() < 1e-6);
+        assert_eq!(coverage(10.5, 10.0, 1.0), 0.0);
+        let mid = coverage(9.8, 10.0, 1.0);
+        assert!(mid > 0.5 && mid < 1.0);
+    }
+
+    #[test]
+    fn soft_tip_is_unchanged() {
+        assert_eq!(coverage(3.0, 10.0, 0.5), 1.0);
+        assert!((coverage(7.5, 10.0, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!(coverage(10.0, 10.0, 0.5), 0.0);
     }
 }

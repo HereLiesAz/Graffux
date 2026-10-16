@@ -144,6 +144,18 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `AddLayer of a blank sketch layer keeps a brush or eraser in hand`() {
+        val sketch = lyr("b").copy(isSketch = true)
+        val brush = state(lyr("a"), active = "a").copy(activeTool = Tool.BRUSH)
+        assertEquals(Tool.BRUSH, reduce(brush, EditorIntent.AddLayer(sketch)).activeTool)
+        val eraser = brush.copy(activeTool = Tool.ERASER)
+        assertEquals(Tool.ERASER, reduce(eraser, EditorIntent.AddLayer(sketch)).activeTool)
+        // Other tools, and non-sketch layers, still clear it.
+        assertEquals(Tool.NONE, reduce(brush.copy(activeTool = Tool.LIQUIFY), EditorIntent.AddLayer(sketch)).activeTool)
+        assertEquals(Tool.NONE, reduce(brush, EditorIntent.AddLayer(lyr("c"))).activeTool)
+    }
+
+    @Test
     fun `RemoveLayer reactivates the first remaining layer when the active one is removed`() {
         val s = state(lyr("a"), lyr("b"), active = "a")
         val out = reduce(s, EditorIntent.RemoveLayer("a"))

@@ -152,21 +152,22 @@ fn present_follows_the_on_screen_affine() {
         let mut e = Engine::with_backends(W, H, b).expect("adapter");
         let base = seed(W, H);
         assert!(e.upload(&base));
-        // A target twice the layer's size, shifted by (5, 3) layer pixels.
+        // A target twice the layer's size, shifted by (5, 3) layer pixels (an integer shift, so the
+        // bilinear sampler lands exactly on texel centres and the mapping is checkable per pixel).
         let (tw, th) = (W * 2, H * 2);
         assert!(e.direct_attach_offscreen(tw, th, TextureFormat::Bgra8Unorm));
         assert!(e.direct_begin_stroke());
         stamp(&mut e, 0);
         stamp(&mut e, 1);
-        let m = [0.5, 0.0, 5.0, 0.0, 0.5, 3.0];
+        let m = [1.0, 0.0, 5.0, 0.0, 1.0, 3.0];
         assert!(e.direct_present(Some(m), true));
         let shown = e.direct_read_offscreen().unwrap();
         let want_layer = expected(&e.read_all().unwrap(), &base);
         let mut worst = 0u8;
         for y in 0..th {
             for x in 0..tw {
-                let lx = ((x as f32 + 0.5) * 0.5 + 5.0).floor() as i32;
-                let ly = ((y as f32 + 0.5) * 0.5 + 3.0).floor() as i32;
+                let lx = ((x as f32 + 0.5) + 5.0).floor() as i32;
+                let ly = ((y as f32 + 0.5) + 3.0).floor() as i32;
                 let got = &shown[((y * tw + x) * 4) as usize..][..4];
                 let want: [u8; 4] = if lx < W && ly < H {
                     want_layer[((ly * W + lx) * 4) as usize..][..4]
@@ -295,5 +296,38 @@ fn detach_and_capabilities() {
         assert!(!e.direct_present(Some(IDENTITY), true));
         // Unusable formats are refused.
         assert!(!e.direct_attach_offscreen(W, H, TextureFormat::Rgba16Float));
+    }
+}
+
+/// Half a layer pixel of offset must blend the two neighbours (bilinear, matching Compose's draw
+/// after the hand-off), not snap to one of them (the old nearest sampler).
+#[test]
+fn present_is_bilinear_between_texels() {
+    for (name, b) in backends() {
+        let mut e = Engine::with_backends(W, H, b).expect("adapter");
+        let base = vec![0u8; (W * H * 4) as usize];
+        assert!(e.upload(&base));
+        assert!(e.direct_attach_offscreen(W, H, TextureFormat::Bgra8Unorm));
+        assert!(e.direct_begin_stroke());
+        stamp(&mut e, 0);
+        let m = [1.0, 0.0, 0.5, 0.0, 1.0, 0.0];
+        assert!(e.direct_present(Some(m), true));
+        let shown = e.direct_read_offscreen().unwrap();
+        let layer = e.read_all().unwrap();
+        let alpha = |lx: i32, ly: i32| -> f32 {
+            let lx = lx.clamp(0, W - 1);
+            layer[((ly * W + lx) * 4 + 3) as usize] as f32
+        };
+        let mut worst = 0.0f32;
+        for y in 0..H {
+            for x in 0..W {
+                // BGRA target: alpha is byte 3 either way.
+                let got = shown[((y * W + x) * 4 + 3) as usize] as f32;
+                // q.x = x + 1.0 -> taps at x + 0.5 and x + 1.5 -> layer texels x and x+1 at w = 0.5.
+                let want = 0.5 * alpha(x, y) + 0.5 * alpha(x + 1, y);
+                worst = worst.max((got - want).abs());
+            }
+        }
+        assert!(worst <= 3.0, "[{name}] bilinear alpha off by {worst}");
     }
 }
