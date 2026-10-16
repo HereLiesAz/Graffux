@@ -585,6 +585,27 @@ class ExtensionRepository @Inject constructor(
     }.getOrNull()
 
     companion object {
+        /**
+         * The one check every URL-driven install passes before a connection is opened: an absolute
+         * `https` URL with a real host and no `user@` part (`https://trusted.example@evil.example/x`
+         * would otherwise display a trusted-looking name while connecting to the host after the `@`).
+         * The deep-link parser applies the same rule up front for the confirmation dialog; enforcing
+         * it here as well means a caller that bypasses the parser is still held to it.
+         *
+         * @throws IllegalArgumentException when [raw] is not acceptable.
+         */
+        fun requireSecureInstallUrl(raw: String): java.net.URL {
+            val uri = try {
+                java.net.URI(raw.trim())
+            } catch (e: java.net.URISyntaxException) {
+                throw IllegalArgumentException("Not a valid download address", e)
+            }
+            require(uri.scheme.equals("https", ignoreCase = true)) { "Downloads must use https" }
+            require(!uri.host.isNullOrBlank()) { "The download address has no host" }
+            require(uri.rawUserInfo == null) { "The download address must not contain credentials" }
+            return uri.toURL()
+        }
+
         private const val TRUST_CACHE_FILE = "azphalt-trust-keys.json"
         // The canonical `www.` host, not the bare domain -- see AzphaltStoreHandoff.WEB_STORE_URL:
         // the bare domain 308-redirects here, which this raw HttpURLConnection doesn't follow, so it

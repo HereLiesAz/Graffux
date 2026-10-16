@@ -47,9 +47,13 @@ class GpuLayerResidency(
         return generation
     }
 
-    /** Current generation of [layerId], or null if no stroke has asked about it since the last change. */
+    /**
+     * Current generation of [layerId], or null if no stroke has asked about it since the last change
+     * -- or if the bitmap it was recorded for has since been collected (the weak referent is gone,
+     * so no GPU copy can still correspond to live pixels).
+     */
     @Synchronized
-    fun currentGeneration(layerId: String): Long? = entries[layerId]?.takeIf { it.source != null }?.generation
+    fun currentGeneration(layerId: String): Long? = entries[layerId]?.takeIf { it.source?.get() != null }?.generation
 
     /** True if a GPU copy tagged [generation] still matches [layerId]'s content. */
     @Synchronized

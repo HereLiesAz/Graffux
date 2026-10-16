@@ -2213,6 +2213,8 @@ class EditorViewModel @Inject constructor(
                     Toast.makeText(context, "$successMessage (${dest.absolutePath})", Toast.LENGTH_LONG).show()
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // a cancelled scope must not turn into a failure toast (the finally still cleans up)
         } catch (e: Exception) {
             withContext(dispatchers.main) {
                 Toast.makeText(context, "$failurePrefix: ${e.message}", Toast.LENGTH_LONG).show()
@@ -2222,8 +2224,23 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Clears the loading overlay and tells the user why an export died (including out-of-memory). */
+    private suspend fun reportExportFailure(prefix: String, t: Throwable) {
+        android.util.Log.e("EditorViewModel", prefix, t)
+        val reason = if (t is OutOfMemoryError) "out of memory" else t.message
+        withContext(dispatchers.main) {
+            dispatch(EditorIntent.SetLoading(false))
+            Toast.makeText(context, "$prefix: $reason", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCleared() {
         com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.remove(onDeviceLost)
+        // Cleared mid-stroke, the in-flight stamp/round-brush/smudge GPU engines would otherwise leak:
+        // this is the one teardown that destroys them. Before discardPrewarm, because it can
+        // reschedule a prewarm.
+        runCatching { clearTransientStrokeState() }
+            .onFailure { android.util.Log.w("EditorViewModel", "Stroke teardown on clear failed", it) }
         discardPrewarm()
         // Resident GPU layer copies live in pooled engines that outlive this editor; free them.
         runCatching { GpuStampEngine.invalidateAllResident() }
@@ -2410,6 +2427,8 @@ class EditorViewModel @Inject constructor(
                     _extensionContributionsFor.value = null
                     dispatch(EditorIntent.DismissPanel)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 withContext(dispatchers.main) {
                     Toast.makeText(context, "Extension execution failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -2589,7 +2608,14 @@ class EditorViewModel @Inject constructor(
      */
     private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean {
         try {
-            if (bitmap.isRecycled) return false
+            if (bitmap.isRecycled) {
+                // A recycled bitmap can never be written, now or on retry: reporting failure would
+                // keep its pendingWrites entry forever (retried at every ON_STOP flush) and, upstream,
+                // read as "storage may be full". Whoever replaced the pixels schedules a save of the
+                // live bitmap, so there is nothing left to owe the disk for this one.
+                android.util.Log.w("EditorViewModel", "Skipping save of recycled bitmap for layer $layerId")
+                return true
+            }
             val file = java.io.File(path)
             val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
             java.io.FileOutputStream(tmp).use { out ->
@@ -3239,6 +3265,8 @@ class EditorViewModel @Inject constructor(
                 }
                 projectManager.writeProjectArchive(context, projectId, uri)
                 withContext(dispatchers.main) { toast("Saved “$cleanName”") }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.e("EditorViewModel", "Save As failed", e)
                 withContext(dispatchers.main) {
@@ -3287,6 +3315,8 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) { toast("Opened “${project.name}”") }
         }
         project != null
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
     } catch (e: Exception) {
         android.util.Log.e("EditorViewModel", "Open project failed", e)
         withContext(dispatchers.main) { toast("Couldn't open that project.") }
@@ -3479,11 +3509,13 @@ class EditorViewModel @Inject constructor(
                         Toast.makeText(context, "Failed to save image", Toast.LENGTH_LONG).show()
                     }
                 }
-            } catch (e: Exception) {
-                withContext(dispatchers.main) {
-                    dispatch(EditorIntent.SetLoading(false))
-                    Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dispatch(EditorIntent.SetLoading(false))
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+                // Throwable, not Exception: an OutOfMemoryError compositing a large document would
+                // otherwise skip this and leave the loading overlay up for good.
+                reportExportFailure("Export error", t)
             }
         }
     }
@@ -8674,11 +8706,11 @@ class EditorViewModel @Inject constructor(
                         Toast.makeText(context, "Animation export produced no frames", Toast.LENGTH_LONG).show()
                     }
                 }
-            } catch (e: Exception) {
-                withContext(dispatchers.main) {
-                    dispatch(EditorIntent.SetLoading(false))
-                    Toast.makeText(context, "Animation export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dispatch(EditorIntent.SetLoading(false))
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+                reportExportFailure("Animation export failed", t)
             }
         }
     }
@@ -9684,7 +9716,10 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val now = System.currentTimeMillis()
             try {
-                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                // https + host + no userinfo, enforced here so every caller is checked, not just the
+                // deep-link parser (a thrown IllegalArgumentException lands in the toast below).
+                val target = com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.requireSecureInstallUrl(url)
+                val connection = target.openConnection() as java.net.HttpURLConnection
                 connection.connectTimeout = 15_000
                 connection.readTimeout = 30_000
                 connection.connect()
@@ -10542,11 +10577,11 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
                 copyToDownloads(file, "application/json", "Figma bundle saved to Downloads", "Figma export failed")
                 if (inkStrokes.isNotEmpty()) writeInkSvg(File(dir, "$safeName-ink.svg"), inkStrokes, docW, docH)
-            } catch (e: Exception) {
-                withContext(dispatchers.main) {
-                    dispatch(EditorIntent.SetLoading(false))
-                    Toast.makeText(context, "Figma export failed: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dispatch(EditorIntent.SetLoading(false))
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+                reportExportFailure("Figma export failed", t)
             }
         }
     }
