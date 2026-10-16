@@ -131,7 +131,9 @@ val stageWgpuHostLibrary = tasks.register<Sync>("stageWgpuHostLibrary") {
     from(File(wgpuTargetDir, "release")) { include(hostLibName) }
     into(wgpuResourcesDir.map { it.dir("native/$hostOs-$hostArch") })
     val require = wgpuRequire
-    val skip = wgpuSkip || cargoExecutable == null
+    // Without cargo the library cannot exist: fine for an optional build (CPU-only), but with
+    // -Pgraffux.wgpu.require=true that is exactly the failure the flag is for, so don't skip the check.
+    val skip = wgpuSkip || (cargoExecutable == null && !require)
     doLast {
         if (!destinationDir.resolve(hostLibName).isFile && !skip) {
             val message = "$hostLibName was not built; the desktop canvas will use the CPU compositor."

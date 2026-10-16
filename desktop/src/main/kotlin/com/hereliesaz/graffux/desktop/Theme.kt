@@ -14,14 +14,15 @@ import androidx.compose.ui.graphics.Color
  *
  * Android's Roboto Condensed type scale (`Typography.kt`) is NOT replicated here: it's loaded via
  * `androidx.compose.ui.text.googlefonts.GoogleFont.Provider`, an Android-Google-Play-Services
- * mechanism with no desktop equivalent in this Compose Multiplatform version (1.12.0) — bundling
+ * mechanism with no desktop equivalent in this Compose Multiplatform version (1.12.1) — bundling
  * the TTFs directly would require wiring up `org.jetbrains.compose.resources`' font-resource
  * codegen (a new Gradle module convention, not just a dependency bump), which is out of scope for
  * this pass. Desktop text still renders in Compose's stock default font. See DESKTOP.md.
  *
- * [ThemeColorSyncTest] guards this copy against drifting from `core:design`'s `Color.kt`: since no
- * module can see both files at compile time, it compares their hex literals as text instead of via
- * the type system. Keep it passing — don't edit the values here without also updating `Color.kt`,
+ * [ThemeColorSyncTest] guards this copy against drifting from `core:design`: since no module can
+ * see both files at compile time, it compares the brand tokens in `Color.kt` and the full
+ * `DarkColorScheme` in `Theme.kt` (name by name, resolved to hex) as text instead of via the type
+ * system. Keep it passing — don't edit the values here without also updating `Color.kt`,
  * or vice versa.
  */
 object GraffuxColors {
@@ -30,23 +31,26 @@ object GraffuxColors {
     val NeonGreen = Color(0xFF39FF14)
     val Black = Color(0xFF000000)
     val White = Color(0xFFFFFFFF)
-    val DarkGrey = Color(0xFF2C2C2C)
     val Gray = Color(0xFF5D5D5D)
 }
 
+// Mirrors core:design's DarkColorScheme (Theme.kt) entry for entry; ThemeColorSyncTest compares the
+// two schemes' named arguments, so keep the argument names and values identical.
 private val GraffuxDarkColorScheme = darkColorScheme(
     primary = GraffuxColors.HotPink,
     secondary = GraffuxColors.Cyan,
     tertiary = GraffuxColors.NeonGreen,
     background = GraffuxColors.Black,
-    surface = GraffuxColors.DarkGrey,
+    surface = GraffuxColors.Black,
+    surfaceVariant = Color(0xFF2A2A30),
     onPrimary = GraffuxColors.Black,
     onSecondary = GraffuxColors.Black,
     onTertiary = GraffuxColors.Black,
     onBackground = GraffuxColors.White,
     onSurface = GraffuxColors.White,
-    outline = GraffuxColors.Gray,
-    outlineVariant = GraffuxColors.HotPink,
+    onSurfaceVariant = Color(0xFFC6C6CE),
+    outline = Color(0xFF4A4A54),
+    outlineVariant = Color(0xFF3A3A42),
 )
 
 /**
