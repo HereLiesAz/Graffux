@@ -2,6 +2,9 @@ package com.hereliesaz.graffux
 
 import android.app.Application
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -75,26 +78,30 @@ class CarouselHeroSliderUiTest {
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                    BottomCarousel(
-                        ui = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true),
-                        onUiChange = {},
-                        content = CarouselContent(
-                            entries = carouselEntries(CarouselCategory.BRUSHES, inputs),
-                            brushColor = Color.White,
-                            secondaryColor = Color.Red,
-                            extensionPreviews = emptyMap(),
-                            heroState = HeroAdjustmentState(
-                                brushSize = brushSize, brushFlow = 1f, brushOpacity = 1f, brushFeathering = 0f,
-                                smudgeRate = 0.5f, stabilizerLevel = 0, magicWandTolerance = 32,
+                    // In the app, CarouselSheet's vertical draggable owns side-card drags and so
+                    // cancels their tap; mirror that ancestor so a side-card swipe isn't a click.
+                    Box(Modifier.draggable(rememberDraggableState {}, Orientation.Vertical)) {
+                        BottomCarousel(
+                            ui = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true),
+                            onUiChange = {},
+                            content = CarouselContent(
+                                entries = carouselEntries(CarouselCategory.BRUSHES, inputs),
+                                brushColor = Color.White,
+                                secondaryColor = Color.Red,
+                                extensionPreviews = emptyMap(),
+                                heroState = HeroAdjustmentState(
+                                    brushSize = brushSize, brushFlow = 1f, brushOpacity = 1f, brushFeathering = 0f,
+                                    smudgeRate = 0.5f, stabilizerLevel = 0, magicWandTolerance = 32,
+                                ),
+                                onAdjust = { _, setter, v -> if (setter == HeroSetter.BRUSH_SIZE) brushSize = v },
+                                onMore = { mores += it.key },
                             ),
-                            onAdjust = { _, setter, v -> if (setter == HeroSetter.BRUSH_SIZE) brushSize = v },
-                            onMore = { mores += it.key },
-                        ),
-                        history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),
-                        onEntryClick = { clicks += it.key },
-                        onToggleFavorite = {},
-                        expansion = expansion,
-                    )
+                            history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),
+                            onEntryClick = { clicks += it.key },
+                            onToggleFavorite = {},
+                            expansion = expansion,
+                        )
+                    }
                     ExpandedHeroLayer(expansion)
                 }
             }
