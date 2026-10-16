@@ -96,6 +96,22 @@ class ComponentOpsTest {
     }
 
     @Test
+    fun `a main whose bitmap grew past its frame hands instances the new placement`() {
+        val heights = FloatArray(4)
+        val edited = stack().map {
+            if (it.id == "main") {
+                it.copy(frameWidth = 100, frameHeight = 80, originX = -40, originY = -10, heightMap = heights)
+            } else it
+        }
+        val inst = ComponentOps.syncInstances(edited).first { it.id == "inst" }
+        assertEquals(100, inst.frameWidth)
+        assertEquals(80, inst.frameHeight)
+        assertEquals(-40, inst.originX)
+        assertEquals(-10, inst.originY)
+        assertTrue(inst.heightMap === heights)
+    }
+
+    @Test
     fun `propagation never overwrites what the instance owns`() {
         // The whole reason to place a second copy is that it sits somewhere else, at another size,
         // possibly hidden. A sync that clobbered any of this would make instances useless.

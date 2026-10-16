@@ -46,7 +46,10 @@ class WearableManager @Inject constructor(
         connectionJob = scope.launch {
             provider.connectionState.collect { state ->
                 _activeSensorSource.value = when (state) {
-                    is ConnectionState.Connected -> provider
+                    // A connected provider with no sensor stream (e.g. display-only glasses) must
+                    // not replace the phone as the sensor source, or SLAM loses its inputs.
+                    is ConnectionState.Connected ->
+                        if (provider.suppliesSensorData()) provider else phoneSensorSource
                     is ConnectionState.Disconnected,
                     is ConnectionState.Error -> phoneSensorSource
                     else -> _activeSensorSource.value
@@ -64,3 +67,6 @@ class WearableManager @Inject constructor(
         _activeSensorSource.value = phoneSensorSource
     }
 }
+
+private fun SmartGlassProvider.suppliesSensorData(): Boolean =
+    GlassCapability.IMU_TRACKING in capabilities || GlassCapability.CAMERA_FEED in capabilities

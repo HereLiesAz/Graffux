@@ -259,4 +259,43 @@ class ObjParserTest {
         // must be emitted. The old key collapsed the first and third into one, emitting two.
         assertEquals(3, mesh.vertexCount)
     }
+
+    @Test
+    fun `faces that skip the file's normals still get generated ones`() {
+        val mesh = ObjParser.parse(
+            """
+            v 0 0 0
+            v 1 0 0
+            v 0 1 0
+            vn 0 0 1
+            vt 0 0
+            f 1/1 2/1 3/1
+            """.trimIndent(),
+        )
+        for (v in 0 until mesh.vertices.size / Mesh.FLOATS_PER_VERTEX) {
+            val n = normal(mesh, v)
+            assertEquals(1f, sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]), 1e-4f)
+            assertEquals(1f, n[2], 1e-4f)
+        }
+    }
+
+    @Test
+    fun `a one-dimensional vt is accepted with v defaulting to 0`() {
+        val mesh = ObjParser.parse(
+            """
+            v 0 0 0
+            v 1 0 0
+            v 0 1 0
+            vt 0.5
+            f 1/1 2/1 3/1
+            """.trimIndent(),
+        )
+        assertEquals(0.5f, uv(mesh, 0)[0], 1e-6f)
+        assertEquals(1f, uv(mesh, 0)[1], 1e-6f) // V flipped into GL convention: 1 - 0
+    }
+
+    @Test(expected = ObjParser.ObjParseException::class)
+    fun `a non-finite vertex coordinate is rejected`() {
+        ObjParser.parse("v nan 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3")
+    }
 }

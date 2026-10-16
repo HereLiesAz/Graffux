@@ -27,6 +27,9 @@ object PsdReader {
     private const val SIGNATURE_8BIM = 0x3842494DL // "8BIM"
     private const val MAX_DIMENSION = 30000 // Photoshop's own canvas cap; guards against junk sizes.
 
+    /** Channel ids composed into a layer: red, green, blue and transparency (-1). */
+    private val COMPOSED_CHANNELS = setOf(0, 1, 2, -1)
+
     /**
      * [ByteArray]/[IntArray] wrappers that turn an [OutOfMemoryError] into [PsdFormatException].
      *
@@ -244,7 +247,10 @@ object PsdReader {
         val planes = HashMap<Int, ByteArray>(rec.channels.size)
         for (ch in rec.channels) {
             val chEnd = c.pos + ch.length
-            planes[ch.id] = readChannelPlane(c, w, h)
+            // Only colour and transparency are composed. Mask channels (-2 user, -3 real) have their
+            // own rectangle, so decoding them at the layer's w*h could run past their data and fail
+            // the whole import; they are skipped by their declared length instead.
+            if (ch.id in COMPOSED_CHANNELS) planes[ch.id] = readChannelPlane(c, w, h)
             c.pos = chEnd // trust the declared length for alignment
         }
 

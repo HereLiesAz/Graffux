@@ -80,8 +80,9 @@ class StrokeStabilizer {
     }
 
     private fun movingAverage(rawPoint: Offset, level: Int): Offset {
-        // History capacity scales with level, e.g., max 20 points
-        val capacity = (level / 100f * 20).toInt().coerceAtLeast(1)
+        // History capacity scales with level, up to 20 points. At least 2: a capacity of 1 returns
+        // the raw point, which made levels 1-9 do nothing.
+        val capacity = (level / 100f * 20).toInt().coerceAtLeast(2)
 
         history.add(rawPoint)
         if (history.size > capacity) {
@@ -92,7 +93,7 @@ class StrokeStabilizer {
         var sumY = 0f
         var totalWeight = 0f
 
-        // Exponential weighting: recent points matter more
+        // Linear weighting: recent points matter more
         for (i in history.indices) {
             val weight = (i + 1).toFloat()
             sumX += history[i].x * weight

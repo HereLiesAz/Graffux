@@ -8,6 +8,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import com.hereliesaz.graffitixr.common.serialization.BlendModeSerializer
+import com.hereliesaz.graffitixr.common.serialization.FiniteFloatOrOneSerializer
+import com.hereliesaz.graffitixr.common.serialization.FiniteFloatOrZeroSerializer
 import com.hereliesaz.graffitixr.common.serialization.OffsetSerializer
 import com.hereliesaz.graffitixr.common.serialization.UriSerializer
 import com.hereliesaz.graffitixr.common.util.StabilizerAlgorithm
@@ -22,8 +24,8 @@ import kotlinx.serialization.Transient
  * VECTOR is likewise only meaningful going forward from where [Layer.shapes] is actually set at
  * construction (see the two `Layer(..., type = LayerType.VECTOR, shapes = ...)` call sites) — the
  * real, load-bearing vector/raster distinction elsewhere in this codebase is still
- * `shapes.isNotEmpty()` (see [Layer.isRaster]), not this field; `type` itself is only genuinely
- * branched on for [GROUP].
+ * `shapes.isNotEmpty()` (see [Layer.isRaster]), not this field; `type` itself is branched on for
+ * [GROUP], and for [RASTER] by [Layer.supportsAlphaLock].
  */
 @Serializable
 enum class LayerType {
@@ -56,12 +58,19 @@ data class Layer(
     @Transient
     val heightMap: FloatArray? = null,
     val isVisible: Boolean = true,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val opacity: Float = 1.0f,
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val brightness: Float = 0.0f,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val contrast: Float = 1.0f,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val saturation: Float = 1.0f,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val colorBalanceR: Float = 1.0f,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val colorBalanceG: Float = 1.0f,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val colorBalanceB: Float = 1.0f,
     val isImageLocked: Boolean = false,
     /**
@@ -94,8 +103,11 @@ data class Layer(
     val warpMesh: List<Float> = emptyList(),
     @Serializable(with = OffsetSerializer::class)
     val offset: Offset = Offset.Zero,
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val rotationX: Float = 0f,
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val rotationY: Float = 0f,
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val rotationZ: Float = 0f,
     /**
      * Opts this layer into 3D-specific controls: X/Y rotation fields in [TransformPanel] and
@@ -105,6 +117,7 @@ data class Layer(
      * the time this app is used for plain 2D editing.
      */
     val is3D: Boolean = false,
+    @Serializable(with = FiniteFloatOrOneSerializer::class)
     val scale: Float = 1.0f,
     /**
      * A raster layer's frame: the fixed reference rectangle its transform and the canvas mapping
@@ -141,7 +154,9 @@ data class Layer(
      * true pixel size lives on its bitmap, which this pure module can't see, so the size that
      * participates in layout is declared rather than guessed.
      */
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val layoutWidth: Float = 0f,
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val layoutHeight: Float = 0f,
     /**
      * Krita's "hold frame": how many animation ticks this frame's Animation Assist frame (see
@@ -402,13 +417,13 @@ data class EditorUiState(
     // Named selections the user has put aside (Procreate's Save & Load). Stored as part of the
     // project, so a region worked out once survives closing the app.
     val savedSelections: List<SavedSelection> = emptyList(),
-    // Which Transform mode the panel is in, and — while it is a bending one — where the handles
-    // currently sit, in screen space like every other gesture-authored geometry here. Empty means
-    // the grid has not been laid over the layer yet.
     // The editor canvas's current size in px. Screen-space geometry — selections, clone sources,
     // warp handles — is only meaningful against the canvas it was authored on, and until now the
     // only record of that was whatever the last brush stroke happened to set.
     val canvasSize: IntSize = IntSize.Zero,
+    // Which Transform mode the panel is in, and — while it is a bending one — where the handles
+    // currently sit, in screen space like every other gesture-authored geometry here. Empty means
+    // the grid has not been laid over the layer yet.
     val transformMode: TransformMode = TransformMode.FREEFORM,
     val warpHandles: List<Offset> = emptyList(),
     // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is

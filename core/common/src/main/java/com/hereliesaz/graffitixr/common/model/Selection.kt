@@ -162,7 +162,7 @@ data class Selection(
     val inverted: Boolean = false,
     val featherPx: Float = 0f,
 ) {
-    /** The single-polygon compatibility constructor for path-only callers. */
+    /** The [outline], under the single-polygon name path-only callers use. */
     val path: List<Offset> get() = outline
 
     companion object {

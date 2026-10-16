@@ -145,7 +145,8 @@ object SelectionGeometry {
      *
      * A [canvasSize] that differs from the current selection's forces a replace: the rings are
      * screen-space and a different canvas is a different space, so folding into it would put the
-     * old region somewhere it was never drawn.
+     * old region somewhere it was never drawn. Under Remove that replace is "remove from nothing",
+     * so the stale selection is cleared (null), not kept.
      */
     fun compose(
         current: Selection?,

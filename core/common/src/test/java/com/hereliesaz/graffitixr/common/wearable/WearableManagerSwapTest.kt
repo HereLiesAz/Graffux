@@ -49,4 +49,16 @@ class WearableManagerSwapTest {
         }
         assertSame(phoneSource, active)
     }
+
+    @Test
+    fun `a display-only provider leaves the phone as the sensor source`() = runBlocking {
+        val phoneSource = PhoneSensorSource()
+        val provider = FakeProvider(capabilities = setOf(GlassCapability.SPATIAL_DISPLAY))
+        val manager = WearableManager(setOf(provider), phoneSource)
+        manager.activate(provider)
+        withTimeout(2_000) { provider.connectionState.first { it == ConnectionState.Connected } }
+        // Give the collector a chance to run, then confirm it did not swap.
+        kotlinx.coroutines.delay(100)
+        assertSame(phoneSource, manager.activeSensorSource.value)
+    }
 }

@@ -124,6 +124,21 @@ class PsdReaderTest {
     }
 
     @Test
+    fun maskChannelsAreSkippedRatherThanDecodedAtLayerSize() {
+        val w = 2; val h = 2; val chLen = 2 + w * h
+        // A user mask (-2) has its own (here 1x1) rectangle: its data is shorter than the layer's
+        // w*h, and it is the last thing in the file. Decoding it as a layer-sized plane read past EOF.
+        val rec = layerRecord("Masked", 0, 0, h, w, listOf(0, 1, 2, -2), chLen)
+        val colour = rawChannel(byteArrayOf(10, 20, 30, 40)) +
+            rawChannel(byteArrayOf(11, 21, 31, 41)) +
+            rawChannel(byteArrayOf(12, 22, 32, 42))
+        val mask = rawChannel(byteArrayOf(0x7F))
+        val doc = PsdReader.read(psdWithLayers(w, h, 1, rec + colour + mask))
+        assertEquals(1, doc.layers.size)
+        assertEquals(0xFF0A0B0C.toInt(), doc.layers[0].pixel(0, 0))
+    }
+
+    @Test
     fun readsRleCompressedChannels() {
         val w = 2; val h = 2
         // RLE plane: per row a 2-byte literal run "[0x01][b0][b1]" => rowBytes=3, table=[3,3].
