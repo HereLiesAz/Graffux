@@ -44,9 +44,7 @@ internal class WgpuDirectDisplay<S : Any>(private val natives: Natives<S>) {
      * `surfaceDestroyed` while a producer is still connected.
      */
     fun setSurface(surface: S?, width: Int, height: Int) {
-        // A size change on the same Surface also detaches: the swapchain keeps its old size, so the
-        // next begin() must re-attach at the new one.
-        if (surface !== this.surface || surface == null || width != this.width || height != this.height) {
+        if (surface !== this.surface || surface == null) {
             if (owner != 0L) natives.detach(owner)
             owner = 0L
             showing = false

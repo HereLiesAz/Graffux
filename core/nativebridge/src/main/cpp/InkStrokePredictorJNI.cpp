@@ -2,6 +2,8 @@
 
 #include <memory>
 
+#include "include/JniGuard.h"
+
 #include "ink_stroke_modeler/internal/prediction/kalman_predictor.h"
 #include "ink_stroke_modeler/params.h"
 #include "ink_stroke_modeler/types.h"
@@ -64,24 +66,29 @@ Engine* FromHandle(jlong handle) {
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeCreate(
         JNIEnv*, jobject, jfloat accelerationWeight, jfloat jerkWeight, jdouble measurementNoise) {
+    JNI_TRY
     auto engine = std::make_unique<Engine>(accelerationWeight, jerkWeight, measurementNoise);
     return reinterpret_cast<jlong>(engine.release());
+    JNI_CATCH(jlong())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeReset(
         JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = FromHandle(handle);
     if (!engine) return JNI_FALSE;
     engine->predictor.Reset();
     engine->lastTimeSeconds = 0.0;
     engine->lastPressure = 1.0f;
     return JNI_TRUE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeRecord(
         JNIEnv*, jobject, jlong handle, jfloat x, jfloat y, jlong uptimeMillis, jfloat pressure) {
+    JNI_TRY
     auto* engine = FromHandle(handle);
     if (!engine) return JNI_FALSE;
     const double seconds = static_cast<double>(uptimeMillis) / 1000.0;
@@ -89,6 +96,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeRecord(
     engine->lastTimeSeconds = seconds;
     engine->lastPressure = pressure;
     return JNI_TRUE;
+    JNI_CATCH(jboolean())
 }
 
 // [x, y, vx, vy, ax, ay, jx, jy, timeMs, pressure] in pixels and seconds (velocity px/s, etc.),
@@ -97,6 +105,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeRecord(
 extern "C" JNIEXPORT jdoubleArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeEstimate(
         JNIEnv* env, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = FromHandle(handle);
     if (!engine) return nullptr;
     const auto state = engine->predictor.GetEstimatedState();
@@ -119,10 +128,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeEstimate(
     if (!output) return nullptr;
     env->SetDoubleArrayRegion(output, 0, kCount, values);
     return output;
+    JNI_CATCH(jdoubleArray())
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_InkStrokePredictor_nativeDestroy(
         JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     delete FromHandle(handle);
+    JNI_CATCH()
 }

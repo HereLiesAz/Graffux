@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber") // the wire layout is a table of fixed float slots
+
 package com.hereliesaz.graffitixr.nativebridge
 
 /**

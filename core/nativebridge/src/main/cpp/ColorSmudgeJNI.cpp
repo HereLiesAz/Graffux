@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <vector>
 
+#include "include/JniGuard.h"
 #include "include/StampEngine.h"
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -9,6 +10,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeColorSmudge(
         jfloat feathering, jboolean smearAlpha, jint paintColorArgb, jfloat dilution,
         jfloat baseColorRate, jfloat chargeDecayRate, jfloat pickupRate,
         jbyteArray sampleSourceRgba8, jint sampleSourceWidth, jint sampleSourceHeight) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized() || !dabData) return JNI_FALSE;
     const jsize length = env->GetArrayLength(dabData);
@@ -35,22 +37,20 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeColorSmudge(
     }
     env->ReleaseFloatArrayElements(dabData, ptr, JNI_ABORT);
 
-    // Item 11 (Sample Merged): a null sampleSourceRgba8 (or non-positive dims, or too few bytes)
-    // disables it for this call, same "null disables" optionality every other optional-array JNI
-    // entry point in this codebase follows -- see StampDynamicsJNI.cpp's grain/secondary-tip
-    // handling for the fuller precedent this mirrors.
+    // Item 11 (Sample Merged): a null sampleSourceRgba8 means "not requested" (smudge from the
+    // active layer). A supplied but unusable source (non-positive dims, too few bytes, failed pin)
+    // FAILS the call: silently smudging from the layer instead would paint the wrong colours while
+    // reporting success.
     jbyte* sampleSourceData = nullptr;
-    bool hasSampleSource =
-        sampleSourceRgba8 != nullptr && sampleSourceWidth > 0 && sampleSourceHeight > 0;
-    if (hasSampleSource) {
+    bool hasSampleSource = false;
+    if (sampleSourceRgba8 != nullptr) {
+        if (sampleSourceWidth <= 0 || sampleSourceHeight <= 0) return JNI_FALSE;
         const jsize sampleSourceLen = env->GetArrayLength(sampleSourceRgba8);
         const jlong required = static_cast<jlong>(sampleSourceWidth) * sampleSourceHeight * 4;
-        if (static_cast<jlong>(sampleSourceLen) < required) {
-            hasSampleSource = false;
-        } else {
-            sampleSourceData = env->GetByteArrayElements(sampleSourceRgba8, nullptr);
-            if (!sampleSourceData) hasSampleSource = false;
-        }
+        if (static_cast<jlong>(sampleSourceLen) < required) return JNI_FALSE;
+        sampleSourceData = env->GetByteArrayElements(sampleSourceRgba8, nullptr);
+        if (!sampleSourceData) return JNI_FALSE;
+        hasSampleSource = true;
     }
 
     bool ok = engine->colorSmudge(
@@ -61,11 +61,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeColorSmudge(
 
     if (sampleSourceData) env->ReleaseByteArrayElements(sampleSourceRgba8, sampleSourceData, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeColorSmudgeBenchmarkInfo(
         JNIEnv* env, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !engine->isInitialized()) return nullptr;
     const auto info = engine->colorSmudgeBenchmarkInfo();
@@ -80,4 +82,5 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeColorSmudgeBenc
     if (!out) return nullptr;
     env->SetLongArrayRegion(out, 0, 5, values);
     return out;
+    JNI_CATCH(jlongArray())
 }

@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <vector>
 #include <algorithm>
+#include "include/JniGuard.h"
 #include "include/StampEngine.h"
 
 namespace {
@@ -26,6 +27,7 @@ SubstrateStampParams substrateParams(jboolean enabled, jboolean hasPaintHeight,
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadSubstrateHeight(
         JNIEnv* env, jobject, jlong handle, jbyteArray heightR8, jint width, jint height) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !heightR8 || width <= 0 || height <= 0) return JNI_FALSE;
     const jsize count = env->GetArrayLength(heightR8);
@@ -35,11 +37,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadSubstrate
     const bool ok = engine->uploadSubstrateHeight(reinterpret_cast<const uint8_t*>(data), width, height);
     env->ReleaseByteArrayElements(heightR8, data, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadPaintHeight(
         JNIEnv* env, jobject, jlong handle, jfloatArray heightMap, jint width, jint height) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !heightMap || width <= 0 || height <= 0) return JNI_FALSE;
     const jsize count = env->GetArrayLength(heightMap);
@@ -49,6 +53,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadPaintHeig
     const bool ok = engine->uploadPaintHeight(data, width, height);
     env->ReleaseFloatArrayElements(heightMap, data, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -57,6 +62,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampResolvedDa
         jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight, jfloat substrateHeightScale,
         jfloat substrateTextureScale, jfloat substrateOffsetX, jfloat substrateOffsetY,
         jboolean strokeMax) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !dabData) return JNI_FALSE;
     const jsize count = env->GetArrayLength(dabData);
@@ -99,6 +105,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampResolvedDa
     return engine->stampDabs(dabs, 0xFFFFFFFFu, 1.0f, buildUp == JNI_TRUE, substrate,
                              strokeMax == JNI_TRUE)
         ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -111,6 +118,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs
         jint secondaryMaskHeight, jboolean hasSubstrate, jboolean hasPaintHeight, jfloat substrateBaseHeight,
         jfloat substrateHeightScale, jfloat substrateTextureScale, jfloat substrateOffsetX,
         jfloat substrateOffsetY) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !dabData || !maskAlpha8) return JNI_FALSE;
     if (maskWidth <= 0 || maskHeight <= 0) return JNI_FALSE;
@@ -174,8 +182,19 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs
     jfloat* secondaryData = nullptr;
     jbyte* secondaryMaskData = nullptr;
     std::vector<GpuSecondaryDab> secondaryDabs;
-    bool hasSecondaryArrays = secondaryDabData != nullptr && secondaryMaskAlpha8 != nullptr &&
-                               secondaryMaskWidth > 0 && secondaryMaskHeight > 0;
+    // Either array supplied means a dual-brush tip was requested: any inconsistency FAILS the call
+    // (stamping the primary tip alone would report success for a brush that was never drawn).
+    const bool secondaryRequested = secondaryDabData != nullptr || secondaryMaskAlpha8 != nullptr;
+    bool hasSecondaryArrays = secondaryRequested;
+    auto failSecondary = [&]() {
+        if (grainData) env->ReleaseByteArrayElements(grainAlpha8, grainData, JNI_ABORT);
+        env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
+        return JNI_FALSE;
+    };
+    if (secondaryRequested && (secondaryDabData == nullptr || secondaryMaskAlpha8 == nullptr ||
+                               secondaryMaskWidth <= 0 || secondaryMaskHeight <= 0)) {
+        return failSecondary();
+    }
     if (hasSecondaryArrays) {
         constexpr int kSecondaryStride = 8;  // x,y,radius,tipRatio,alpha,angle,flowMultiplier,keepInside
         const jsize secondaryCount = env->GetArrayLength(secondaryDabData);
@@ -184,15 +203,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs
         bool secondarySizesOk = secondaryCount == expectedCount &&
             static_cast<jlong>(secondaryMaskLen) >= static_cast<jlong>(secondaryMaskWidth) * secondaryMaskHeight;
         if (!secondarySizesOk) {
-            hasSecondaryArrays = false;
+            return failSecondary();
         } else {
             secondaryData = env->GetFloatArrayElements(secondaryDabData, nullptr);
             secondaryMaskData = secondaryData ? env->GetByteArrayElements(secondaryMaskAlpha8, nullptr) : nullptr;
             if (!secondaryData || !secondaryMaskData) {
                 if (secondaryData) env->ReleaseFloatArrayElements(secondaryDabData, secondaryData, JNI_ABORT);
-                hasSecondaryArrays = false;
-                secondaryData = nullptr;
-                secondaryMaskData = nullptr;
+                return failSecondary();
             } else {
                 secondaryDabs.reserve(dabs.size());
                 for (jsize i = 0; i < secondaryCount; i += kSecondaryStride) {
@@ -228,6 +245,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs
     if (grainData) env->ReleaseByteArrayElements(grainAlpha8, grainData, JNI_ABORT);
     env->ReleaseByteArrayElements(maskAlpha8, maskData, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // Impasto v1 (StampEngine's optional methods; JNI_FALSE when the engine lacks them).
@@ -235,6 +253,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeStampMaskedDabs
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadImpastoHeight(
         JNIEnv* env, jobject, jlong handle, jfloatArray heights) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !heights) return JNI_FALSE;
     const jsize count = env->GetArrayLength(heights);
@@ -243,11 +262,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadImpastoHe
     const bool ok = engine->uploadImpastoHeight(data, static_cast<size_t>(count));
     env->ReleaseFloatArrayElements(heights, data, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadImpastoHeight(
         JNIEnv* env, jobject, jlong handle, jfloatArray out) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !out) return JNI_FALSE;
     const jsize count = env->GetArrayLength(out);
@@ -257,11 +278,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadImpastoHeig
     // Copy back only on success; abandon the buffer otherwise.
     env->ReleaseFloatArrayElements(out, data, ok ? 0 : JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDepositImpastoHeight(
         JNIEnv* env, jobject, jlong handle, jfloatArray dabs, jfloat hardness, jfloat thickness) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !dabs) return JNI_FALSE;
     const jsize count = env->GetArrayLength(dabs);
@@ -271,15 +294,18 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeDepositImpastoH
     const bool ok = engine->depositImpastoHeight(data, static_cast<size_t>(count / 4), hardness, thickness);
     env->ReleaseFloatArrayElements(dabs, data, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeShadeImpastoRelief(
         JNIEnv*, jobject, jlong handle, jint x, jint y, jint w, jint h, jfloat azimuthDeg,
         jfloat elevationDeg, jfloat strength) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine) return JNI_FALSE;
     return engine->shadeImpastoRelief(x, y, w, h, azimuthDeg, elevationDeg, strength) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // Impasto v2, the wet material simulation (StampEngine's optional wet* methods; JNI_FALSE when the
@@ -289,6 +315,7 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetBegin(
         JNIEnv* env, jobject, jlong handle, jintArray raw, jfloatArray height, jfloatArray wetness,
         jintArray active, jint tileSize, jfloatArray media) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !raw || !height || !wetness || !active || !media) return JNI_FALSE;
     const jsize count = env->GetArrayLength(raw);
@@ -312,11 +339,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetBegin(
     if (heightData) env->ReleaseFloatArrayElements(height, heightData, JNI_ABORT);
     if (rawData) env->ReleaseIntArrayElements(raw, rawData, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetBuffer(
         JNIEnv* env, jobject, jlong handle, jint which, jfloatArray data) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine) return JNI_FALSE;
     if (!data) return engine->wetBuffer(which, nullptr, 0) ? JNI_TRUE : JNI_FALSE;
@@ -326,11 +355,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetBuffer(
     const bool ok = engine->wetBuffer(which, values, static_cast<size_t>(count));
     env->ReleaseFloatArrayElements(data, values, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetOp(
         JNIEnv* env, jobject, jlong handle, jint op, jfloatArray args) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine) return JNI_FALSE;
     if (!args) return engine->wetOp(op, nullptr, 0) ? JNI_TRUE : JNI_FALSE;
@@ -340,11 +371,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetOp(
     const bool ok = engine->wetOp(op, values, static_cast<size_t>(count));
     env->ReleaseFloatArrayElements(args, values, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetRead(
         JNIEnv* env, jobject, jlong handle, jintArray raw, jfloatArray height, jfloatArray wetness) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !raw || !height || !wetness) return JNI_FALSE;
     const jsize count = env->GetArrayLength(raw);
@@ -361,11 +394,13 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetRead(
     if (heightData) env->ReleaseFloatArrayElements(height, heightData, mode);
     if (rawData) env->ReleaseIntArrayElements(raw, rawData, mode);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetReadFlags(
         JNIEnv* env, jobject, jlong handle, jintArray out) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !out) return JNI_FALSE;
     const jsize count = env->GetArrayLength(out);
@@ -374,19 +409,24 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuWetSimulation_nativeWetReadFlags(
     const bool ok = engine->wetReadFlags(reinterpret_cast<uint32_t*>(data), static_cast<size_t>(count));
     env->ReleaseIntArrayElements(out, data, ok ? 0 : JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeBeginStroke(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->beginStroke() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampMode(JNIEnv*, jobject, jlong handle,
                                                                              jint mode) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->setStampMode(mode) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // Blur / Sharpen / Clone. Params additionally carry {logicalLeft, Top, Width, Height}.
@@ -394,6 +434,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampMode(JN
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuRetouch_nativeRetouch(JNIEnv* env, jobject, jlong handle, jint kind,
                                                                      jfloatArray params, jfloatArray dabs) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !params || !dabs || env->GetArrayLength(params) < 5) return JNI_FALSE;
     jfloat p[9] = {};
@@ -407,6 +448,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuRetouch_nativeRetouch(JNIEnv* env
                            static_cast<int>(p[7]), static_cast<int>(p[8]))
                ? JNI_TRUE
                : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // Selection at commit (StampEngine's optional selection methods; JNI_FALSE when unsupported).
@@ -414,6 +456,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuRetouch_nativeRetouch(JNIEnv* env
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSetSelection(
         JNIEnv* env, jclass, jlong handle, jbyteArray coverage) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine) return JNI_FALSE;
     if (!coverage) return engine->setSelection(nullptr, 0) ? JNI_TRUE : JNI_FALSE;
@@ -423,18 +466,22 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSetSelection(
     const bool ok = engine->setSelection(reinterpret_cast<const uint8_t*>(data), static_cast<size_t>(len));
     env->ReleaseByteArrayElements(coverage, data, JNI_ABORT);
     return ok ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeSelectionOp(JNIEnv*, jclass, jlong handle, jint op) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     return engine && engine->selectionOp(op) ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
 }
 
 // The current stroke's painted rectangle into `out` (int[4] {x, y, w, h}).
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeStrokeRect(
         JNIEnv* env, jclass, jlong handle, jintArray out) {
+    JNI_TRY
     auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
     if (!engine || !out || env->GetArrayLength(out) < 4) return JNI_FALSE;
     int r[4] = {0, 0, 0, 0};
@@ -442,4 +489,5 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuSelection_nativeStrokeRect(
     const jint values[4] = {r[0], r[1], r[2], r[3]};
     env->SetIntArrayRegion(out, 0, 4, values);
     return JNI_TRUE;
+    JNI_CATCH(jboolean())
 }

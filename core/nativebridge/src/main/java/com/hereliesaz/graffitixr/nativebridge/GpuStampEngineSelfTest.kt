@@ -18,6 +18,11 @@ import android.graphics.Color
 object GpuStampEngineSelfTest {
 
     private const val SIZE = 256
+    private const val CORE_DX = 40f // the small opaque dab's offset from the centre
+    private const val CORE_DY = 20f
+    private const val CORNER = 2
+    private const val SOLID = 200
+    private const val FAINT = 40
 
     data class Result(
         val success: Boolean,
@@ -79,10 +84,10 @@ object GpuStampEngineSelfTest {
      * corner (outside every dab) untouched.
      */
     private fun verifyPixels(bitmap: Bitmap, center: Float): Result {
-        val core = bitmap.getPixel((center - 40f).toInt(), (center - 20f).toInt())
-        val corner = bitmap.getPixel(2, 2)
-        val coreOk = Color.alpha(core) >= 200 && Color.red(core) >= 200 &&
-            Color.green(core) <= 40 && Color.blue(core) <= 40
+        val core = bitmap.getPixel((center - CORE_DX).toInt(), (center - CORE_DY).toInt())
+        val corner = bitmap.getPixel(CORNER, CORNER)
+        val coreOk = Color.alpha(core) >= SOLID && Color.red(core) >= SOLID &&
+            Color.green(core) <= FAINT && Color.blue(core) <= FAINT
         val cornerOk = Color.alpha(corner) == 0
         return when {
             !coreOk -> failure(

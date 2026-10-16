@@ -330,13 +330,14 @@ class SlamManager @Inject constructor(
         nativeSetArCoreTrackingState(isTracking)
     }
 
-    fun saveModel(path: String) {
-        nativeSaveModel(path)
-    }
+    /**
+     * Persists the wall fingerprint + wall feature map to [path]. False when the SLAM engine isn't
+     * running, there is nothing to save, or the write failed.
+     */
+    fun saveModel(path: String): Boolean = nativeSaveModel(path)
 
-    fun loadModel(path: String) {
-        nativeLoadModel(path)
-    }
+    /** Restores what [saveModel] wrote. False when the engine isn't running or the file isn't a model. */
+    fun loadModel(path: String): Boolean = nativeLoadModel(path)
 
     fun importModel3D(path: String): Boolean {
         return nativeImportModel3D(path)
@@ -538,8 +539,8 @@ class SlamManager @Inject constructor(
     private external fun nativeSetArCoreTrackingState(isTracking: Boolean)
     private external fun nativeClearMap()
     private external fun nativePruneByConfidence(threshold: Float)
-    private external fun nativeSaveModel(path: String)
-    private external fun nativeLoadModel(path: String)
+    private external fun nativeSaveModel(path: String): Boolean
+    private external fun nativeLoadModel(path: String): Boolean
     private external fun nativeImportModel3D(path: String): Boolean
     private external fun nativeLoadSuperPoint(assetManager: AssetManager): Boolean
     private external fun nativeLoadDistortionHead(assetManager: AssetManager): Boolean

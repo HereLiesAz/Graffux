@@ -5,6 +5,8 @@
 #include <android/log.h>
 #include <cstring>
 #include <vector>
+#include <cstdio>
+#include <exception>
 #include <fstream>
 #include <cmath>
 #include <numeric>
@@ -136,8 +138,14 @@ void MobileGS::mapThreadFunc() {
             frame = std::move(mFrameQueue.front());
             mFrameQueue.erase(mFrameQueue.begin());
         }
-        processDepthFrame(frame.depth, frame.color, frame.viewMatrix, frame.projMatrix,
-                          frame.hasIntrinsics ? frame.intrinsics : nullptr, frame.isYuv, frame.confidence);
+        try {
+            processDepthFrame(frame.depth, frame.color, frame.viewMatrix, frame.projMatrix,
+                              frame.hasIntrinsics ? frame.intrinsics : nullptr, frame.isYuv, frame.confidence);
+        } catch (const std::exception& e) {
+            LOGE("map thread: frame dropped (%s)", e.what());   // never std::terminate the process
+        } catch (...) {
+            LOGE("map thread: frame dropped (unknown exception)");
+        }
     }
 }
 
@@ -222,6 +230,7 @@ void MobileGS::relocThreadFunc() {
     setpriority(PRIO_PROCESS, 0, 10); // Standard background priority
     JniThreadAttacher attacher;
     while (mRelocRunning) {
+      try {   // a cv::Exception on this std::thread would otherwise be std::terminate
         cv::Mat frame;
         float relocView[16];
         {
@@ -300,13 +309,16 @@ void MobileGS::relocThreadFunc() {
             const std::vector<cv::KeyPoint>& kps = (preKps && preDescs) ? *preKps : localKps;
             const cv::Mat& descs = (preKps && preDescs) ? *preDescs : localDescs;
             if (descs.empty() || wallDescs.empty()) return;
-            if (descs.type() != wallDescs.type()) return;
+            if (descs.type() != wallDescs.type() || descs.cols != wallDescs.cols) return;
+            // One 3D point per descriptor row; a shorter point list (corrupt restore) must not be indexed.
+            if (wallKps3d.size() < (size_t)wallDescs.rows) return;
 
             cv::Ptr<cv::DescriptorMatcher>& matcher = (descs.type() == CV_32F) ? mL2Matcher : mMatcher;
             std::vector<std::vector<cv::DMatch>> matches;
             matcher->knnMatch(descs, wallDescs, matches, 2);
             for (auto& match : matches) {
                 if (match.size() < 2) continue;
+                if (match[0].trainIdx < 0 || match[0].trainIdx >= (int)wallKps3d.size()) continue;
                 if (match[0].distance < 0.75f * match[1].distance) {
                     cv::Point2f p = kps[match[0].queryIdx].pt;
                     if (!Hback.empty()) {
@@ -384,7 +396,7 @@ void MobileGS::relocThreadFunc() {
                 cv::Mat gatedDescs((int)visible.size(), mapDescs.cols, mapDescs.type());
                 for (size_t i = 0; i < visible.size(); ++i)
                     mapDescs.row(visible[i]).copyTo(gatedDescs.row((int)i));
-                if (!baseDescs.empty() && baseDescs.type() == gatedDescs.type()) {
+                if (!baseDescs.empty() && baseDescs.type() == gatedDescs.type() && baseDescs.cols == gatedDescs.cols) {
                     cv::Ptr<cv::DescriptorMatcher>& matcher = (baseDescs.type() == CV_32F) ? mL2Matcher : mMatcher;
                     std::vector<std::vector<cv::DMatch>> matches;
                     matcher->knnMatch(baseDescs, gatedDescs, matches, 2);
@@ -511,9 +523,17 @@ void MobileGS::relocThreadFunc() {
 
         // Teleological gatekeeper: update painting-progress from how much of the artwork base the clean
         // frame now corroborates. No-op until an artwork is registered; read-only on the reloc set.
-        tryUpdateFingerprint(gray);
+        // Fresh = PnP published a new pose during THIS iteration (mapPriorSeq was read before it ran).
+        tryUpdateFingerprint(gray, mPnpResultSeq.load(std::memory_order_relaxed) != mapPriorSeq);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      } catch (const std::exception& e) {
+        LOGE("Relocalization iteration failed: %s", e.what());
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      } catch (...) {
+        LOGE("Relocalization iteration failed: unknown exception");
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      }
     }
 }
 bool MobileGS::computeRectifyHomography(const float* viewCur16, cv::Mat& Hcur_fp,
@@ -565,9 +585,11 @@ bool MobileGS::computeRectifyHomography(const float* viewCur16, cv::Mat& Hcur_fp
     double cosA = std::abs(nCur[2]) / (cv::norm(nCur) + 1e-9);
     obliquityDeg = std::acos(std::min(1.0, cosA)) * 180.0 / CV_PI;
 
-    // Plane-induced homography current-image <- fingerprint-image:  H = K (R - t nᵀ / d) K⁻¹.
+    // Plane-induced homography current-image <- fingerprint-image. For the plane n.X = d (d > 0) and
+    // X_cur = R X + t:  X_cur = (R + t nT / d) X, so H = K (R + t nT / d) K^-1. (The minus form belongs
+    // to the n.X + d = 0 convention; with it any real baseline produced a wrong warp.)
     cv::Matx33d K(fx, 0, cx, 0, fy, cy, 0, 0, 1);
-    cv::Matx33d M = R - (1.0 / d) * (cv::Matx31d(t[0], t[1], t[2]) * cv::Matx13d(n[0], n[1], n[2]));
+    cv::Matx33d M = R + (1.0 / d) * (cv::Matx31d(t[0], t[1], t[2]) * cv::Matx13d(n[0], n[1], n[2]));
     cv::Matx33d Hc = K * M * K.inv();
     if (std::abs(Hc(2,2)) < 1e-9) return false;
     Hc = (1.0 / Hc(2,2)) * Hc;
@@ -702,7 +724,7 @@ void MobileGS::growMapFromReloc(const glm::mat4& camFromFp, const std::vector<cv
     if (added > 0) LOGI("Map build: +%d pts (map now %zu)", added, mMapPoints3D.size());
 }
 
-void MobileGS::tryUpdateFingerprint(const cv::Mat& grayClean) {
+void MobileGS::tryUpdateFingerprint(const cv::Mat& grayClean, bool freshRelock) {
     cv::Mat artDescs;
     {
         std::lock_guard<std::mutex> lock(mMutex);
@@ -718,7 +740,7 @@ void MobileGS::tryUpdateFingerprint(const cv::Mat& grayClean) {
     bool sp = mSuperPoint.isLoaded() && (artDescs.type() == CV_32F);
     if (sp && !mSuperPoint.detect(grayClean, kps, descs)) sp = false;
     if (!sp) mFeatureDetector->detectAndCompute(grayClean, cv::noArray(), kps, descs);
-    if (descs.empty() || descs.type() != artDescs.type()) return;
+    if (descs.empty() || descs.type() != artDescs.type() || descs.cols != artDescs.cols) return;
 
     cv::Ptr<cv::DescriptorMatcher>& matcher = (descs.type() == CV_32F) ? mL2Matcher : mMatcher;
     std::vector<std::vector<cv::DMatch>> matches;
@@ -753,7 +775,10 @@ void MobileGS::tryUpdateFingerprint(const cv::Mat& grayClean) {
     {
         std::lock_guard<std::mutex> lock(mMutex);
         seq = mPnpResultSeq.load(std::memory_order_relaxed);
-        if (seq == mLastGrowSeq) return;          // no fresh relock this tick — pose would be stale
+        // Stale pose guard: the pose must come from a relock PnP just published for THIS frame. The old
+        // check (seq != mLastGrowSeq) alone also passed when an earlier relock was never "claimed"
+        // (no artwork yet / self-grow off), so the current frame was back-projected with an old pose.
+        if (!freshRelock || seq == mLastGrowSeq) return;
         inliers = mPnpInlierCount.load(std::memory_order_relaxed);
         const float* M = mPnpCamFromFpWorld;      // camera_from_fpWorld, column-major (OpenCV frame)
         R = cv::Matx33d(M[0], M[4], M[8], M[1], M[5], M[9], M[2], M[6], M[10]);
@@ -805,6 +830,8 @@ void MobileGS::tryUpdateFingerprint(const cv::Mat& grayClean) {
     {
         std::lock_guard<std::mutex> lock(mMutex);
         if (mWallDescriptors.type() != newDescs.type() || mWallDescriptors.cols != newDescs.cols || mWallKeypoints3D.size() > 5000) return;
+        // The fingerprint was replaced/cleared since the snapshot above: don't graft marks onto another project's set.
+        if (mWallKeypoints3D.size() != wall.size() || mWallDescriptors.rows != (int)wall.size()) return;
         for (int i = 0; i < (int)newPts.size(); ++i) {
             mWallKeypoints3D.push_back(newPts[i]);
             mWallDescriptors.push_back(newDescs.row(i));
@@ -815,8 +842,13 @@ void MobileGS::tryUpdateFingerprint(const cv::Mat& grayClean) {
 void MobileGS::setArCoreTrackingState(bool t) { mIsArCoreTracking.store(t, std::memory_order_relaxed); }
 
 void MobileGS::destroy() {
-    mMapRunning = false;
     mRelocRunning = false;
+    {
+        // Under the queue mutex: the map thread evaluates its wait predicate holding it, so a flag flip +
+        // notify outside it could land between that check and the wait and be lost (join() then hangs).
+        std::lock_guard<std::mutex> qlock(mQueueMutex);
+        mMapRunning = false;
+    }
     mQueueCv.notify_all();
     {
         std::lock_guard<std::mutex> lock(mRelocMutex);
@@ -827,18 +859,106 @@ void MobileGS::destroy() {
 }
 
 // Voxel/splat map deleted: .gxr keeps the fingerprint; old model.map files are ignored.
-void MobileGS::saveModel(const std::string& p) {}
-void MobileGS::loadModel(const std::string& p) {}
+// Container: u32 magic "GXM1", then two blobs, each u64 length + bytes: the wall fingerprint
+// (exportFingerprint format) and the persistent wall feature map (exportWallFeatureMap format).
+// Either blob may be empty. Written to a temp file and renamed so a crash never leaves a torn model.
+namespace {
+constexpr uint32_t kModelMagic = 0x314D5847u;  // 'G','X','M','1' little-endian
+bool writeBlob(std::ofstream& f, const std::vector<uint8_t>& b) {
+    const uint64_t n = b.size();
+    f.write(reinterpret_cast<const char*>(&n), sizeof(n));
+    if (n) f.write(reinterpret_cast<const char*>(b.data()), static_cast<std::streamsize>(n));
+    return static_cast<bool>(f);
+}
+bool readBlob(std::ifstream& f, uint64_t& remaining, std::vector<uint8_t>& out) {
+    uint64_t n = 0;
+    if (remaining < sizeof(n)) return false;
+    f.read(reinterpret_cast<char*>(&n), sizeof(n));
+    remaining -= sizeof(n);
+    if (!f || n > remaining) return false;      // length is peer/disk data: never allocate past the file
+    out.resize(static_cast<size_t>(n));
+    if (n) f.read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(n));
+    remaining -= n;
+    return static_cast<bool>(f);
+}
+}  // namespace
+
+bool MobileGS::saveModel(const std::string& p) {
+    if (p.empty()) return false;
+    const std::vector<uint8_t> fp = exportFingerprint();
+    const std::vector<uint8_t> map = exportWallFeatureMap();
+    if (fp.empty() && map.empty()) return false;   // nothing to persist
+    const std::string tmp = p + ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f.write(reinterpret_cast<const char*>(&kModelMagic), sizeof(kModelMagic));
+        if (!writeBlob(f, fp) || !writeBlob(f, map)) { f.close(); std::remove(tmp.c_str()); return false; }
+        f.flush();
+        if (!f) { f.close(); std::remove(tmp.c_str()); return false; }
+    }
+    if (std::rename(tmp.c_str(), p.c_str()) != 0) { std::remove(tmp.c_str()); return false; }
+    return true;
+}
+
+bool MobileGS::loadModel(const std::string& p) {
+    std::ifstream f(p, std::ios::binary | std::ios::ate);
+    if (!f) return false;
+    const std::streamoff total = f.tellg();
+    if (total < static_cast<std::streamoff>(sizeof(uint32_t))) return false;
+    f.seekg(0);
+    uint32_t magic = 0;
+    f.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    if (!f || magic != kModelMagic) return false;   // e.g. an old voxel model.map: ignored
+    uint64_t remaining = static_cast<uint64_t>(total) - sizeof(magic);
+    std::vector<uint8_t> fp, map;
+    if (!readBlob(f, remaining, fp) || !readBlob(f, remaining, map)) return false;
+    bool any = false;
+    if (!fp.empty()) { alignToFingerprint(fp.data(), fp.size()); any = true; }
+    if (!map.empty()) any = importWallFeatureMapBlob(map.data(), map.size()) || any;
+    return any;
+}
+
+bool MobileGS::importWallFeatureMapBlob(const uint8_t* data, size_t size) {
+    constexpr size_t kHeader = 4 * sizeof(int32_t);
+    if (!data || size < kHeader) return false;
+    int32_t n, rows, cols, type;
+    memcpy(&n, data, 4); memcpy(&rows, data + 4, 4); memcpy(&cols, data + 8, 4); memcpy(&type, data + 12, 4);
+    if (n <= 0 || n > 100000 || rows != n || cols <= 0 || cols > 100000) return false;
+    const int depth = CV_MAT_DEPTH(type), ch = CV_MAT_CN(type);
+    if (depth < 0 || depth > CV_64F || ch < 1 || ch > 4) return false;
+    const uint64_t perPoint = 3 * sizeof(float) + sizeof(float) + sizeof(int32_t);
+    const uint64_t descBytes = static_cast<uint64_t>(rows) * static_cast<uint64_t>(cols) * CV_ELEM_SIZE(type);
+    const uint64_t need = kHeader + static_cast<uint64_t>(n) * perPoint + 16 * sizeof(float) + 4 * sizeof(float) + descBytes;
+    if (static_cast<uint64_t>(size) < need) return false;
+    const uint8_t* ptr = data + kHeader;
+    std::vector<cv::Point3f> pts(static_cast<size_t>(n));
+    memcpy(pts.data(), ptr, static_cast<size_t>(n) * 3 * sizeof(float)); ptr += static_cast<size_t>(n) * 3 * sizeof(float);
+    std::vector<float> conf(static_cast<size_t>(n));
+    memcpy(conf.data(), ptr, static_cast<size_t>(n) * sizeof(float)); ptr += static_cast<size_t>(n) * sizeof(float);
+    std::vector<int> obs(static_cast<size_t>(n));
+    memcpy(obs.data(), ptr, static_cast<size_t>(n) * sizeof(int32_t)); ptr += static_cast<size_t>(n) * sizeof(int32_t);
+    float anchor[16], intr[4];
+    memcpy(anchor, ptr, sizeof(anchor)); ptr += sizeof(anchor);
+    memcpy(intr, ptr, sizeof(intr)); ptr += sizeof(intr);
+    cv::Mat descs(rows, cols, type);
+    memcpy(descs.data, ptr, static_cast<size_t>(descBytes));
+    restoreWallFeatureMap(descs, pts, conf, obs, anchor, intr);
+    return true;
+}
 bool MobileGS::importModel3D(const std::string& p) { return false; }
 void MobileGS::setViewportSize(int w, int h) { mScreenWidth = w; mScreenHeight = h; }
 void MobileGS::setRelocEnabled(bool e) { mRelocEnabled = e; }
 void MobileGS::restoreWallFingerprint(const cv::Mat& d, const std::vector<cv::Point3f>& p) {
+    // Reloc indexes the points with a descriptor row index: they must pair 1:1.
+    if (static_cast<size_t>(d.rows) != p.size()) { LOGE("restoreWallFingerprint: %zu points vs %d descriptor rows", p.size(), d.rows); return; }
     std::lock_guard<std::mutex> lock(mMutex);
     mWallDescriptors = d.clone();
     mWallKeypoints3D = p;
 }
 void MobileGS::restoreWallFingerprintMetric(const cv::Mat& d, const std::vector<cv::Point3f>& p,
                                             const float* anchorMatrix16, const float* intrinsics4) {
+    if (static_cast<size_t>(d.rows) != p.size()) { LOGE("restoreWallFingerprintMetric: %zu points vs %d descriptor rows", p.size(), d.rows); return; }
     std::lock_guard<std::mutex> lock(mMutex);
     mWallDescriptors = d.clone();
     mWallKeypoints3D = p;
@@ -937,6 +1057,7 @@ void MobileGS::alignToFingerprint(const uint8_t* data, size_t size) {
     int channels = CV_MAT_CN(descType);
     if (depth < 0 || depth > CV_64F || channels < 1 || channels > 4) return;
     if (descRows == 0 || descCols == 0 || descRows > 100000 || descCols > 100000) return;
+    if (descRows != numPoints) return;   // one 3D point per descriptor row (reloc indexes one by the other)
 
     uint64_t descDataSize = static_cast<uint64_t>(descRows) * descCols * CV_ELEM_SIZE(descType);
     if (static_cast<uint64_t>(end - ptr) < descDataSize) return;
@@ -948,9 +1069,16 @@ void MobileGS::alignToFingerprint(const uint8_t* data, size_t size) {
         std::lock_guard<std::mutex> lock(mMutex);
         mWallKeypoints3D = std::move(points3d);
         mWallDescriptors = descs.clone();
-        mRelocRequested = true; // Trigger relocalization thread to start searching
+        // The peer's blob carries no capture view/intrinsics: drop the previous project's so PnP uses
+        // its defaults and the rectifying warp is skipped, instead of mixing frames.
+        memset(mFingerprintIntrinsics, 0, 4 * sizeof(float));
+        mHasFingerprintView = false;
+        mLastGrowSeq = 0;
     }
-    LOGI("Co-op: Received fingerprint with %u points. Relocalization triggered.", numPoints);
+    // No mRelocRequested here: setting it with no frame staged made scheduleRelocCheck() return early
+    // forever (it never reached its notify) and the reloc thread was never woken. The next camera frame
+    // reaches scheduleRelocCheck(), which now sees a fingerprint and wakes the thread properly.
+    LOGI("Co-op: Received fingerprint with %u points; relocalization starts with the next frame.", numPoints);
 }
 void MobileGS::scheduleRelocCheck(const cv::Mat& f) {
     // Feed the latest camera frame to the background relocalization thread. Previously a no-op, which
@@ -1145,8 +1273,14 @@ MobileGS::FingerprintData MobileGS::generateFingerprint(
     // Optionally enhance the RGB frame under low light before grayscale conversion
     cv::Mat workFrame = image;
     if (mEnhancer.isLoaded() && mLightLevel < kLowLightThreshold) {
+        // LowLightEnhancer::enhance is CV_8UC3-only; `image` is RGBA from bitmapToMat. Feeding 4 channels
+        // made the ONNX forward throw and the enhancement silently never applied (the overlay in
+        // getFingerprintKeypoints already drops alpha first -- mirror it).
+        cv::Mat rgb;
+        if (image.channels() == 4) cv::cvtColor(image, rgb, cv::COLOR_RGBA2RGB);
+        else rgb = image;
         cv::Mat enhanced;
-        if (mEnhancer.enhance(image, enhanced)) workFrame = enhanced;
+        if (mEnhancer.enhance(rgb, enhanced)) workFrame = enhanced;
     }
 
     cv::Mat gray;
@@ -1195,7 +1329,7 @@ MobileGS::FingerprintData MobileGS::generateFingerprint(
         return {};
     }
 
-    if (!depthData || depthW <= 0 || depthH <= 0 || depthStride <= 0) {
+    if (!depthData || depthW <= 0 || depthH <= 0 || depthStride <= 0 || !intr) {   // depth needs intrinsics
         FingerprintData fd;
         fd.keypoints = kps;
         fd.descriptors = descs.clone();
@@ -1210,7 +1344,7 @@ MobileGS::FingerprintData MobileGS::generateFingerprint(
     std::vector<cv::Point3f>   pts3d;
     std::vector<int>           validIdx;
 
-    int tooClose = 0, tooFar = 0, missing = 0;
+    int tooClose = 0, missing = 0;
 
     for (int i = 0; i < (int)kps.size(); ++i) {
         const auto& kp = kps[i];
@@ -1236,8 +1370,8 @@ MobileGS::FingerprintData MobileGS::generateFingerprint(
     LOGI("generateFingerprint: %zu/%zu keypoints have valid depth (scaleX=%.4f, scaleY=%.4f, depthW=%d, depthH=%d)",
          validKps.size(), kps.size(), scaleX, scaleY, depthW, depthH);
     if (validKps.empty()) {
-        LOGE("generateFingerprint: no valid depth. Counts: tooClose=%d, tooFar=%d, missing=%d. Total kps=%zu",
-             tooClose, tooFar, missing, kps.size());
+        LOGE("generateFingerprint: no valid depth. Counts: tooClose=%d, missing=%d. Total kps=%zu",
+             tooClose, missing, kps.size());
         return {};
     }
 

@@ -180,7 +180,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
                         documentLease.release()
                     }
                 } else {
-                    android.util.Log.w(TAG, "trimPool: document lease still held after ${DOCUMENT_TRIM_WAIT_MS}ms; keeping it")
+                    android.util.Log.w(TAG, "trimPool: document lease still held after ${DOCUMENT_TRIM_WAIT_MS}ms")
                     0L
                 }
             }
@@ -382,7 +382,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     val isInitialized: Boolean get() = nativeHandle != 0L
 
-    /** The native handle, for [GpuDocumentLayers] (same module); 0 when not initialized. */
+    /** The native handle, for the GPU helper classes in this module; 0 when not initialized. */
     internal val handleForDocument: Long get() = nativeHandle
 
     /**
@@ -802,7 +802,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         sampleSourceWidth: Int = 0,
         sampleSourceHeight: Int = 0,
     ): Boolean {
-        if (!isInitialized || dabs.size < 2) return false
+        // A supplied but unusable Sample Merged source fails the stroke rather than smudging the layer.
+        val sourceOk = sampleSource == null || sampleSourceFits(sampleSource, sampleSourceWidth, sampleSourceHeight)
+        if (!isInitialized || dabs.size < 2 || !sourceOk) return false
         val flat = FloatArray(dabs.size * 8)
         for (i in dabs.indices) {
             val d = dabs[i]
@@ -816,10 +818,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             flat[base + 6] = d.colorRateMultiplier
             flat[base + 7] = d.distanceDeltaPx
         }
-        val sampleSourceRgba8 = if (
-            sampleSource != null && sampleSourceWidth > 0 && sampleSourceHeight > 0 &&
-            sampleSource.size >= sampleSourceWidth * sampleSourceHeight
-        ) {
+        // A supplied but unusable Sample Merged source fails the stroke instead of silently
+        // smudging from the active layer (which would paint the wrong colours and report success).
+        val sampleSourceRgba8 = if (sampleSource != null) {
             val pixelCount = sampleSourceWidth * sampleSourceHeight
             val bytes = ByteArray(pixelCount * 4)
             for (i in 0 until pixelCount) {
@@ -842,6 +843,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         if (!ok) healthy = false
         return ok
     }
+
+    private fun sampleSourceFits(source: IntArray, width: Int, height: Int): Boolean =
+        width > 0 && height > 0 && source.size >= width.toLong() * height
 
     /** Benchmark result chosen on this GPU after the first Smudge call. */
     @Synchronized
