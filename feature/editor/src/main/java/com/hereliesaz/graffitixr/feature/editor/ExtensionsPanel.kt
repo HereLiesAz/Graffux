@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.Contribution
@@ -32,6 +33,9 @@ fun ExtensionsPanel(
     onBack: () -> Unit,
     onClose: () -> Unit,
 ) {
+    // The editor overlays this panel in a wrap-content Column. Give its lazy list a
+    // finite viewport even when the host has no maximum height constraint.
+    val listMaxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.5f
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -64,7 +68,7 @@ fun ExtensionsPanel(
 
         if (activeExtension != null) {
             val contributions = contributionsOf(activeExtension)
-            LazyColumn(Modifier.fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = listMaxHeight)) {
                 items(contributions) { (kindLabel, contribution) ->
                     Row(
                         modifier = Modifier
@@ -87,7 +91,7 @@ fun ExtensionsPanel(
                 modifier = Modifier.padding(vertical = 16.dp)
             )
         } else {
-            LazyColumn(Modifier.fillMaxWidth()) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = listMaxHeight)) {
                 items(extensions) { extension ->
                     Row(
                         modifier = Modifier

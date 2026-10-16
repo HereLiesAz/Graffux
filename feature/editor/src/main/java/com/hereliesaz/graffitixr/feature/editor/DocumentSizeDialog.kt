@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,10 +57,9 @@ fun DocumentSizeDialog(
     }
 
     FloatingWindow(title = "Document size", onDismiss = ::confirmAndDismiss) {
-        Column(
-            modifier = Modifier.verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        // FloatingWindow already scrolls its content; a second vertical scroller receives
+        // unbounded height from the outer one and crashes during measurement.
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             DOCUMENT_PRESETS.forEach { preset ->
                 if (preset.isCustom) {
                     AzButton(
