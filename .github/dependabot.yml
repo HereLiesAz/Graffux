@@ -50,3 +50,15 @@ updates:
       actions:
         patterns:
           - "*"
+
+  - package-ecosystem: "cargo"
+    directory: "/core/wgpu-engine"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "pip"
+    directory: "/tools/stroke-model"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3

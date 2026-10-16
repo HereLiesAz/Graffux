@@ -60,7 +60,7 @@ fun Knob(
     modifier: Modifier = Modifier,
     color: Color = Color.White,
     defaultValue: Float = valueRange.start,
-    valueFormatter: (Float) -> String = { "%.2f".format(it) }
+    valueFormatter: (Float) -> String = { String.format(java.util.Locale.ROOT, "%.2f", it) }
 ) {
     // Mapping angle: 135 (bottom left) to 405 (bottom right)
     val minAngle = 135f
@@ -68,7 +68,8 @@ fun Knob(
 
     // Helper to map value to angle
     fun valueToAngle(v: Float): Float {
-        val normalized = (v - valueRange.start) / (valueRange.endInclusive - valueRange.start)
+        val span = valueRange.endInclusive - valueRange.start
+        val normalized = if (span == 0f) 0f else (v - valueRange.start) / span
         return minAngle + normalized * (maxAngle - minAngle)
     }
 
@@ -191,6 +192,6 @@ fun Knob(
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text = text, style = MaterialTheme.typography.labelSmall, color = Color.White)
+        Text(text = text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
