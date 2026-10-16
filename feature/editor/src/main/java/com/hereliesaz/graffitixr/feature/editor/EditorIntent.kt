@@ -76,6 +76,8 @@ internal sealed interface EditorIntent {
     data class SetCanvasBackground(val color: Color) : EditorIntent
     /** Sets the artboard / document pixel dimensions. */
     data class SetDocumentSize(val width: Int, val height: Int) : EditorIntent
+    /** The project's canvas surface, by [com.hereliesaz.graffitixr.common.azphalt.SubstratePreset.id]. */
+    data class SetCanvasSubstrate(val substrateId: String) : EditorIntent
     /** Sets the infinite-canvas camera (pan offset + zoom). */
     data class SetViewport(val offset: Offset, val zoom: Float, val rotation: Float = 0f) : EditorIntent
     /** Sets the active snap guide lines (world-space) shown while dragging; empty clears them. */

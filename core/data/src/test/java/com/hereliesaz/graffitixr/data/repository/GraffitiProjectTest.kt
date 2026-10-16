@@ -133,4 +133,21 @@ class GraffitiProjectTest {
         assertEquals(null, decoded.modelName)
         assertEquals(null, decoded.modelTexturePath)
     }
+
+    @Test
+    fun `serialization preserves the canvas substrate`() {
+        val project = GraffitiProject(id = "id", name = "n", canvasSubstrateId = "canvas_weave")
+
+        val decoded = json.decodeFromString<GraffitiProject>(json.encodeToString(project))
+
+        assertEquals("canvas_weave", decoded.canvasSubstrateId)
+    }
+
+    @Test
+    fun `a project saved before substrates existed opens as smooth`() {
+        val decoded = json.decodeFromString<GraffitiProject>("""{"id":"id","name":"n"}""")
+
+        assertEquals("smooth", decoded.canvasSubstrateId)
+        assertEquals("smooth", GraffitiProject().canvasSubstrateId)
+    }
 }

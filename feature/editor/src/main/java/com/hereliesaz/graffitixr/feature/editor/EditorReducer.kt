@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.common.model.ColorStyle
 import com.hereliesaz.graffitixr.common.model.ComponentOps
 import com.hereliesaz.graffitixr.common.model.EditorPanel
@@ -194,6 +195,10 @@ internal object EditorReducer {
         is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
+        // Normalised through the catalog so an unknown id can never reach a stroke as anything but Smooth.
+        is EditorIntent.SetCanvasSubstrate -> state.copy(
+            canvasSubstrateId = SubstratePreset.fromId(intent.substrateId).id,
+        )
         is EditorIntent.SetDocumentSize -> state.copy(
             documentWidth = intent.width.coerceIn(1, 8192),
             documentHeight = intent.height.coerceIn(1, 8192),

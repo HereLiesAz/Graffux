@@ -1304,6 +1304,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         // applies once, when the dialog closes.
                         onConfirm = { w, h -> vm.setDocumentSize(w, h) },
                         onDismiss = { showDocDialog = false },
+                        currentSubstrateId = uiState.canvasSubstrateId,
+                        onSubstrate = { vm.setCanvasSubstrate(it) },
                     )
                 }
 

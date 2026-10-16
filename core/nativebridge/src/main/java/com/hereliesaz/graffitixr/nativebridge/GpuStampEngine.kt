@@ -369,6 +369,9 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private var poolKey: PoolKey? = null
     private var healthy = true
     private var substrateHeightUploaded = false
+    /** Identity of the tile last uploaded by [ensureSubstrateHeight]; meaningful only while
+     *  [substrateHeightUploaded] (init/destroy clear that flag, so a stale key forces a re-upload). */
+    private var substrateHeightKey: String? = null
     private var paintHeightUploaded = false
 
     val isInitialized: Boolean get() = nativeHandle != 0L
@@ -507,7 +510,21 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         }
         val ok = onGpu { nativeUploadSubstrateHeight(nativeHandle, heightR8, width, height) }
         substrateHeightUploaded = ok
+        substrateHeightKey = null
         if (!ok) healthy = false
+        return ok
+    }
+
+    /**
+     * [uploadSubstrateHeight] unless the tile identified by [key] is already this engine's substrate
+     * since its last [init]/[initDocument]. [heightR8] is only invoked when an upload is needed, so a
+     * caller can hand over a lazily copied tile. Returns whether the tile is resident.
+     */
+    @Synchronized
+    fun ensureSubstrateHeight(key: String, width: Int, height: Int, heightR8: () -> ByteArray): Boolean {
+        if (substrateHeightUploaded && substrateHeightKey == key) return true
+        val ok = uploadSubstrateHeight(heightR8(), width, height)
+        substrateHeightKey = if (ok) key else null
         return ok
     }
 

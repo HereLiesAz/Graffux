@@ -433,6 +433,9 @@ data class EditorUiState(
     // Artboard / document dimensions in pixels (the fixed design/output size).
     val documentWidth: Int = 1080,
     val documentHeight: Int = 1080,
+    // The project's canvas surface (SubstratePreset.id in core/engine): the tooth every stamp brush
+    // with a non-zero substrate response deposits against. "smooth" is the historical, tooth-free path.
+    val canvasSubstrateId: String = "smooth",
     // One-shot: set to a freshly-created text layer's id so the UI can immediately open its
     // edit-text box. Cleared once consumed.
     val autoEditTextLayerId: String? = null,
