@@ -171,7 +171,7 @@ internal class DrawingEngine(
         val result = retryRenderOnce(
             retriable = command.tool != Tool.LIQUIFY,
             onRetry = { e ->
-                android.util.Log.w("DrawingEngine", "stroke render failed (${e.message}); retrying once on a fresh engine")
+                android.util.Log.w("DrawingEngine", "stroke render failed (${e.message}); retrying once")
             },
         ) { attempt ->
             if (command.tool == Tool.LIQUIFY) applyLiquify(base, command, frame)

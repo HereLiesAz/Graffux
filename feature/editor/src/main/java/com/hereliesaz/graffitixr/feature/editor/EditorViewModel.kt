@@ -249,6 +249,7 @@ private const val MAX_ALPHA = 255
 
 /** Display frames between publishing the committed stroke and clearing the live overlay. */
 private const val OVERLAY_HANDOFF_FRAMES = 2
+private const val NANOS_PER_MS = 1_000_000L
 private const val ALPHA_MAX_F = 255f
 
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
@@ -1381,7 +1382,7 @@ class EditorViewModel @Inject constructor(
             Breadcrumbs.record("gpu warmup failed: ${e.javaClass.simpleName}")
         }
         if (!ok) gpuWarmLatch.release(key)
-        val ms = (System.nanoTime() - t0) / 1_000_000L
+        val ms = (System.nanoTime() - t0) / NANOS_PER_MS
         Breadcrumbs.record("gpu warmup ${width}x$height ${if (ok) "ready" else "unavailable"} in ${ms}ms")
         strokeLog("gpu warmup ${width}x$height ${if (ok) "ready" else "unavailable"} in ${ms}ms")
     }
@@ -4979,7 +4980,7 @@ class EditorViewModel @Inject constructor(
                     if (stampSeed == currentSeed && stampBrushForStroke === stampBrush && strokeLayerId == layerId) {
                         stampLiveBitmap = work
                         strokeLog(
-                            "live engine ready in ${(System.nanoTime() - setupT0) / 1_000_000L}ms " +
+                            "live engine ready in ${(System.nanoTime() - setupT0) / NANOS_PER_MS}ms " +
                                 "gpu=$gpuReady warm=${warm != null}",
                         )
                         // Same sticky-clip trick as the brush preview: bound the stamp canvas once.
@@ -5042,7 +5043,7 @@ class EditorViewModel @Inject constructor(
                         // Superseded by a newer stroke before this coroutine finished — don't leak
                         // the GPU engine this branch may have just stood up.
                         strokeLog(
-                            "live engine setup superseded after ${(System.nanoTime() - setupT0) / 1_000_000L}ms " +
+                            "live engine setup superseded after ${(System.nanoTime() - setupT0) / NANOS_PER_MS}ms " +
                                 "(stroke ended before it was ready; commit replays instead)",
                         )
                         if (wgpuDirectStarted) GpuStampEngine.DirectSurface.endStroke()
@@ -7668,9 +7669,9 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetLoading(true))
 
         viewModelScope.launch(dispatchers.default) {
-            val metrics = context.resources.displayMetrics
-            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            // The merged layer takes the size every fresh layer gets (screen x render scale), not raw
+            // screen pixels, so a merged layer is not sharper/heavier than its neighbours.
+            val (w, h) = newLayerSize()
             // A failed composite or artifact write (OOM, disk full) leaves both layers as they were;
             // it must neither crash the app nor leave the loading spinner up for good.
             val (merged, path) = try {
