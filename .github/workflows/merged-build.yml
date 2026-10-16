@@ -1,8 +1,12 @@
 name: Merged Build & Release
 
+# Branch work is built through its pull request (pull_request -> main); `push` is main only.
+# Triggering on push to every branch as well ran the full build twice per same-repo PR update
+# (refs/heads/x and refs/pull/N/merge are different concurrency groups, so they never cancelled
+# each other) and exposed nothing extra: a branch without a PR has nothing to gate.
 on:
   push:
-    branches: [ "**" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -52,10 +56,31 @@ jobs:
           cache-read-only: false
           dependency-graph: generate-submit-and-upload
 
+      # core:engine is Kotlin Multiplatform (android library + jvm "desktop" target): it registers
+      # no testDebugUnitTest and no plain `test`, so those two tasks alone silently skip its
+      # commonTest suite (BrushStamps, RoundStampCompositor, ...). Name its tasks explicitly.
+      # :desktop's plain-JVM `test` (ThemeColorSyncTest, GpuStrokeParityTest, ...) is covered by
+      # the `test` task. Instrumented tests (feature/editor androidTest, connectedAndroidTest) are
+      # NOT run in CI: GitHub-hosted runners have no emulator/KVM, so they are run by hand on a device.
       - name: Run unit tests
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest test --build-cache
+          ./gradlew testDebugUnitTest test :core:engine:desktopTest :core:engine:testAndroidHostTest --build-cache
+
+  # The Rust stamp engine's own tests (~130 #[test] functions plus tests/layout_parity.rs). Gradle
+  # only ever runs `cargo build` for it, so without this job a WGSL or layout regression ships
+  # green. GPU-dependent tests skip themselves when the runner exposes no wgpu adapter.
+  wgpu-engine-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Run cargo test
+        working-directory: core/wgpu-engine
+        run: cargo test --locked
 
       - name: Upload test reports
         if: failure()
@@ -124,32 +149,6 @@ jobs:
             echo "$GOOGLE_SERVICES" > app/google-services.json
           fi
 
-      # A glee audit of the CI pipeline found this step ran unconditionally -- on every push to
-      # every branch and every pull_request (this workflow's own `on:` trigger), decoding the
-      # signing key to disk for runs that will never publish anything and don't need it at all:
-      # a PR/branch build works fine falling back to the default debug key (see the comment on
-      # the exit-0 branch below). Scoped to the same "push to main" condition the release steps
-      # further down already use, matching release-aab.yml's own signing-only-on-release pattern
-      # and narrowing how often the decoded key sits on a CI runner's disk to the one case that
-      # actually needs it.
-      - name: Decode signing keystore
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          KEYSTORE_RAW: ${{ secrets.KEYSTORE_RAW }}
-        run: |
-          # Empty secret (e.g. on a fork without access) → skip; the debug build then signs with the
-          # default debug key rather than failing the whole CI run.
-          if [ -z "$KEYSTORE_RAW" ]; then
-            echo "::warning::KEYSTORE_RAW secret is empty — building with the default debug key."
-            exit 0
-          fi
-          echo "$KEYSTORE_RAW" | base64 -d > app/keystore.jks
-          if [ ! -s app/keystore.jks ]; then
-            echo "::error::Decoded keystore is empty — KEYSTORE_RAW is not valid base64."
-            exit 1
-          fi
-          echo "Keystore decoded to app/keystore.jks ($(stat -c%s app/keystore.jks) bytes)"
-
       - name: Set up JDK 21
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -170,10 +169,11 @@ jobs:
           dependency-graph: disabled
 
       # The wgpu stamp engine (core/wgpu-engine) is cross-compiled by Gradle with cargo; the runner
-      # image ships rustup/cargo but not the Android target. The build below passes
-      # -Pgraffux.wgpu.require=true (read by core/nativebridge/build.gradle.kts), so a missing
+      # image ships rustup/cargo but not the Android target. core/nativebridge/build.gradle.kts
+      # requires the library by default (only -Pgraffux.wgpu.skip=true opts out), so a missing
       # target or a cargo failure fails the build loudly instead of silently shipping an APK
-      # without libgraffux_wgpu.so (where Settings -> GPU engine -> wgpu falls back to the CPU).
+      # without libgraffux_wgpu.so. (-Pgraffux.wgpu.require is read only by :desktop, which this
+      # job does not build.)
       - name: Add the Rust Android targets (arm64-v8a, armeabi-v7a)
         run: |
           rustup target add aarch64-linux-android
@@ -184,23 +184,17 @@ jobs:
 
       - name: Build with Gradle
         id: gradle-build
-        env:
-          # No GITHUB_TOKEN/GH_TOKEN here — nothing in the Gradle build reads either, and this
-          # process tree resolves and executes every Gradle plugin and third-party dependency in
-          # gradle/libs.versions.toml, which is not a place to hand a credential that doesn't
-          # need to be there.
-          # Consumed by the signingConfigs.release block in app/build.gradle.kts. The debug build type
-          # uses this release config when the keystore is present (see app/build.gradle.kts), keeping
-          # the auto-published artifact's signature stable; absent it, the default debug key is used.
-          KEYSTORE_FILE: ${{ github.workspace }}/app/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        # No env: block on purpose. No GITHUB_TOKEN/GH_TOKEN and no signing secrets here: this
+        # process tree resolves and executes every Gradle plugin and third-party dependency (and,
+        # on a PR, whatever build.gradle.kts the pushed code contains). assembleDebug signs with
+        # the default debug keystore (app/build.gradle.kts), so the release keystore is neither
+        # needed nor decoded in this workflow; release signing happens in HereLiesAz/workflows'
+        # android-release.yml.
         run: |
           set +e
 
-          # Build the APK (signing comes from the env-driven signingConfigs.release in Gradle)
-          ./gradlew assembleDebug --build-cache -Pgraffux.wgpu.require=true > build.log 2>&1
+          # Build the debug APK (signed with the default debug keystore)
+          ./gradlew assembleDebug --build-cache > build.log 2>&1
 
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
@@ -216,22 +210,38 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // The raw build log is deliberately NOT embedded here. GitHub's ::add-mask::/secret
-            // masking rewrites the *live log stream* the run page shows you; it does not touch
-            // this script's own API request body. This job's build step has KEYSTORE_PASSWORD,
-            // KEY_ALIAS and KEY_PASSWORD in its env, so a Gradle failure that happens to echo one
-            // of them would otherwise be posted verbatim into a permanent, more widely readable
-            // issue instead of just the masked run log. Link to the run instead — its log view
-            // still gets GitHub's masking.
+            // The raw build log is deliberately NOT embedded here: GitHub's secret masking rewrites
+            // the live log stream, not this script's API request body. Link to the run instead.
+            // De-duplicated: one open issue per ref. A failing branch/PR used to file a new issue
+            // (pinging external agents) on every push.
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const assignee = 'gemini-code-assist';
+            const title = `Build Failure on ${context.eventName === 'pull_request' ? 'PR #' + context.issue.number : context.ref}`;
             const body = `@${assignee} /jules debug this build error\n\nBuild log: ${runUrl}`;
+
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'jules,bug',
+              per_page: 100,
+            });
+            const existing = open.find(i => i.title === title && !i.pull_request);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Another failure on this ref: ${runUrl}`,
+              });
+              return;
+            }
 
             try {
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: `Build Failure on ${context.eventName === 'pull_request' ? 'PR #' + context.issue.number : context.ref}`,
+                title,
                 body,
                 labels: ['jules', 'bug'],
                 assignees: [assignee]
@@ -241,7 +251,7 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: `Build Failure on ${context.eventName === 'pull_request' ? 'PR #' + context.issue.number : context.ref}`,
+                title,
                 body,
                 labels: ['jules', 'bug']
               });
@@ -264,10 +274,12 @@ jobs:
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: release_vars
         run: |
-          # version.properties is the SINGLE SOURCE OF TRUTH for the version. The gradle build already
-          # incremented versionBuild (the Android versionCode) and versionPatch and baked them into the
-          # artifact; read the SAME values here. NEVER derive the version from the git commit count —
-          # that scheme collides with versionBuild and causes Play "downgrade" versionCode rejections.
+          # Nothing in this workflow or the Gradle build increments anything. version.properties holds
+          # the pair last recorded by HereLiesAz/workflows' android-release.yml after a Play
+          # publish (versionMajor/Minor/Patch/Build); this rolling debug release only reuses it to
+          # NAME the artifact. The real release versionCode/versionName are decided by that
+          # workflow (highest code Play has accepted + 1) and passed to Gradle as -P properties.
+          # NEVER derive a version from the git commit count.
           MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
           MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
           PATCH=$(grep '^versionPatch=' version.properties | cut -d'=' -f2 | tr -d '\r ')

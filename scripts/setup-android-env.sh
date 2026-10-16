@@ -33,7 +33,9 @@ set -euo pipefail
 # override it if you mean to.
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/sdk}"
 
-# Pinned to what the project actually declares. Keep in lockstep with:
+# Pinned to what the project declares, except the NDK: no module sets ndkVersion, so
+# SDK_NDK is this script's own pick (the wgpu cross-compile finds whatever NDK the Android Gradle
+# plugin resolves in $ANDROID_HOME/ndk). Keep in lockstep with:
 #   app/build.gradle.kts                 compileSdk / targetSdk
 #   core/nativebridge/build.gradle.kts   externalNativeBuild.cmake.version
 # A mismatch here does not fail fast — Gradle silently downloads what it needs
@@ -138,7 +140,9 @@ $SUDO apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     libglu1-mesa \
-    libpulse0
+    libpulse0 \
+    build-essential \
+    pkg-config
 
 # The ALSA runtime was renamed in Ubuntu 24.04 (time_t transition). Try the new
 # name, fall back to the old one, and carry on if neither exists — it is only
@@ -227,6 +231,25 @@ fi
 printf '  %s\n' "${PACKAGES[@]}"
 "$SDKMANAGER" "${PACKAGES[@]}"
 
+# ── Rust toolchain ───────────────────────────────────────────────────────────
+# The app cannot be built without cargo: core/wgpu-engine (the only stroke renderer) is
+# cross-compiled by core/nativebridge's Gradle build for arm64-v8a and armeabi-v7a, and a host
+# without cargo fails at stageWgpuJniLibs unless -Pgraffux.wgpu.skip=true. Install rustup (minimal
+# profile) if cargo is missing, then add the two Android targets (idempotent).
+log "Rust toolchain"
+export PATH="$HOME/.cargo/bin:$PATH"
+if ! command -v cargo >/dev/null 2>&1; then
+    tmp_rustup="$(mktemp)"
+    curl -fsSL --retry 3 --retry-delay 2 -o "$tmp_rustup" https://sh.rustup.rs
+    sh "$tmp_rustup" -y --profile minimal --default-toolchain stable
+    rm -f "$tmp_rustup"
+fi
+rustup target add aarch64-linux-android armv7-linux-androideabi
+echo "cargo: $(cargo --version)"
+if ! grep -q 'cargo/bin' /etc/profile.d/android-sdk.sh 2>/dev/null; then
+    echo 'export PATH=$PATH:$HOME/.cargo/bin' | $SUDO tee -a /etc/profile.d/android-sdk.sh >/dev/null
+fi
+
 # ── AVD ──────────────────────────────────────────────────────────────────────
 if [ "$EMULATOR_OK" = "1" ]; then
     log "Virtual device '$AVD_NAME'"
@@ -290,6 +313,7 @@ log "Ready"
 cat <<EOF
   ANDROID_HOME  $ANDROID_HOME
   REPO_ROOT     ${REPO_ROOT:-<not found>}
+  Rust          $(cargo --version 2>/dev/null || echo missing)
   JDK           $(java -version 2>&1 | grep -i "version" | head -1)
   Emulator      $([ "$EMULATOR_OK" = "1" ] && echo "AVD '$AVD_NAME'" || echo "not provisioned — $KVM_REASON")
 

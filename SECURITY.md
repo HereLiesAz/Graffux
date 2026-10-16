@@ -1,21 +1,21 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+Graffux is a continuously released app. Only the latest release (the newest build on Google Play and
+the latest GitHub release of `main`) receives security fixes; older builds are not patched.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+## Reporting a vulnerability
 
-## Reporting a Vulnerability
+Please report suspected vulnerabilities privately through GitHub security advisories for
+`HereLiesAz/Graffux`:
 
-Use this section to tell people how to report a vulnerability.
+<https://github.com/HereLiesAz/Graffux/security/advisories/new>
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+Do not open a public issue or pull request for a security problem. Include what you found, the
+affected version or commit, and steps to reproduce if you can.
+
+You can expect an acknowledgement within a few days. If the report is accepted, the fix ships in the
+next release and you will be credited in the advisory unless you prefer otherwise; if it is declined,
+the advisory thread will say why. The app works on-device and keeps its documents local; see
+`docs/PRIVACY_POLICY.md` for what data it handles.
