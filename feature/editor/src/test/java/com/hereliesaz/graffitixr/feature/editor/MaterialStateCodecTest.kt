@@ -132,4 +132,19 @@ class MaterialStateCodecTest {
             MaterialStateCodec.Snapshot(width = 4, height = 4, heightMap = FloatArray(15)),
         )
     }
+
+    @Test
+    fun `a NaN in a stored channel is persisted as empty instead of losing the layer's material`() {
+        val width = 8
+        val height = 8
+        val heights = FloatArray(width * height)
+        heights[0] = 0.5f
+        heights[1] = Float.NaN
+        val decoded = MaterialStateCodec.decode(
+            MaterialStateCodec.encode(MaterialStateCodec.Snapshot(width = width, height = height, heightMap = heights)),
+        )
+        requireNotNull(decoded) { "one NaN made the whole sidecar undecodable" }
+        assertEquals(0.5f, decoded.heightMap!![0], 0f)
+        assertEquals(0f, decoded.heightMap!![1], 0f)
+    }
 }

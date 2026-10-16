@@ -26,7 +26,8 @@ internal data class BasicPaint(
 ) {
     companion object {
         /**
-         * [flow] is the colour's own alpha times the stroke's opacity ceiling; feathering softens the dab edge ([hardness] 1 = hard).
+         * [flow] is the colour's own alpha times the stroke's opacity ceiling; feathering softens
+         * the dab edge ([hardness] 1 = hard).
          */
         fun of(colorArgb: Int, opacity: Float, feathering: Float) = BasicPaint(
             colorArgb = colorArgb,

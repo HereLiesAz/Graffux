@@ -768,7 +768,9 @@ class EditorViewModel @Inject constructor(
         layerStore.removeStroke(layerId, command)
         if (history.dropDraw(command)) updateHistoryCounts()
         if (command.inkStroke != null) inkLedger.onUndo(layerId, command)
-        _liveStroke.update { s -> if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }
+        _liveStroke.update { s ->
+            if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s
+        }
         if (strokeLayerId == null) endOverlayStroke(afterFrames = 0)
         Toast.makeText(context, "Couldn't paint that stroke", Toast.LENGTH_SHORT).show()
     }
@@ -829,7 +831,6 @@ class EditorViewModel @Inject constructor(
     private var thumbnailJob: kotlinx.coroutines.Job? = null
 
     private var copiedLayerState: Layer? = null
-    private var anchorHalfExtentMeters: Pair<Float, Float>? = null
 
     // Real-time stroke state — valid only between onStrokeStart and onStrokeEnd.
     private var strokeWorkingBitmap: Bitmap? = null
@@ -3179,21 +3180,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** Remove the Mockup wall photo: clears the persisted background URI and the live bitmap. */
-    fun clearBackgroundImage() {
-        viewModelScope.launch(dispatchers.io) {
-            // The transform overload, not updateProject(project.copy(...)) -- same reasoning as
-            // setBackgroundImage above: the plain overload writes whatever snapshot the caller
-            // captured unconditionally, silently reverting anything else that changed in the gap
-            // (e.g. a debounced autosave landing between this coroutine's dispatch and its own
-            // run), and it isn't mutex-protected against a concurrent delete the way this is.
-            projectRepository.updateProject { current -> current.copy(backgroundImageUri = null) }
-            withContext(dispatchers.main) {
-                dispatch(EditorIntent.SetBackgroundBitmap(null))
-            }
-        }
-    }
-
     fun saveProject(name: String? = null) {
         viewModelScope.launch(dispatchers.io) {
             // Throwable, not Exception: an OutOfMemoryError or a native-bridge error here used to
@@ -3509,8 +3495,6 @@ class EditorViewModel @Inject constructor(
         )
     }
 
-    fun toggleHandedness() = dispatch(EditorIntent.ToggleHandedness)
-    fun toggleDiagOverlay() = dispatch(EditorIntent.ToggleDiagOverlay)
     fun setActiveTool(tool: Tool) {
         if (tool == Tool.TEXT) {
             recordToolUse(tool)
@@ -3730,22 +3714,6 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.ReorderLayers(newOrder))
         opEmitter.emit(Op.LayerReorder(newOrder))
         saveProject()
-    }
-
-    fun setAnchorExtent(halfW: Float, halfH: Float) {
-        anchorHalfExtentMeters = Pair(halfW, halfH)
-    }
-
-    private fun fitActiveLayerToAnchor(halfW: Float, halfH: Float) {
-        val state = _uiState.value
-        val layer = state.layers.find { it.id == state.activeLayerId } ?: return
-        val bmp = layer.bitmap ?: return
-        // QUAD_HALF_EXTENT = 5.0f (matches OverlayRenderer.QUAD_HALF_EXTENT)
-        // The composite canvas is 2048×2048. Scale to fill 80% of the anchor extent.
-        val scaleW = halfW * 0.8f * 2048f / (bmp.width * 5.0f)
-        val scaleH = halfH * 0.8f * 2048f / (bmp.height * 5.0f)
-        val scale = minOf(scaleW, scaleH).coerceIn(0.05f, 20f)
-        updateActiveLayer { it.copy(scale = scale, offset = Offset.Zero, rotationX = 0f, rotationY = 0f, rotationZ = 0f) }
     }
 
     override fun onAdjustClicked() = dispatch(EditorIntent.ToggleAdjustPanel)
@@ -4410,17 +4378,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    fun updateAllLayers(transform: (Layer) -> Layer) {
-        _uiState.update { state ->
-            state.copy(layers = state.layers.map(transform))
-        }
-    }
-
-    /**
-     * MVI dispatch: apply a state-only [EditorIntent] through the pure [EditorReducer]. Side
-     * effects (history, persistence, co-op op emission) are orchestrated by the caller around
-     * this call — the reducer itself stays pure.
-     */
     /**
      * Seams for the commit-path tests, which need to put a layer and a selection in place and then
      * read back what was recorded. Both are `internal` and marked, rather than the tests reaching
@@ -4463,6 +4420,11 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun basicLatencySnapshotForTest(): AzphaltLatencyTracker.Snapshot = basicLatencyTracker.snapshot()
 
+    /**
+     * MVI dispatch: apply a state-only [EditorIntent] through the pure [EditorReducer]. Side
+     * effects (history, persistence, co-op op emission) are orchestrated by the caller around
+     * this call — the reducer itself stays pure.
+     */
     private fun dispatch(intent: EditorIntent) {
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
@@ -7201,7 +7163,9 @@ class EditorViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
-                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) { abandonFailedCommit(layerId, command, e) }
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                    abandonFailedCommit(layerId, command, e)
+                }
                 return@launchLayerCommit
             }
             withContext(dispatchers.main) {
@@ -7371,7 +7335,9 @@ class EditorViewModel @Inject constructor(
                 inkCommitLocks.getOrPut(layerId) { Mutex() }.withLock {
                     val latest = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: base
                     val target = try {
-                        drawingEngine.applySingleStroke(latest, command, frame = layer.frame(latest.width, latest.height))
+                        drawingEngine.applySingleStroke(
+                            latest, command, frame = layer.frame(latest.width, latest.height),
+                        )
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
@@ -7507,7 +7473,9 @@ class EditorViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
-                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) { abandonFailedCommit(layerId, command, e) }
+                withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                    abandonFailedCommit(layerId, command, e)
+                }
                 return@launchLayerCommit
             }
             withContext(dispatchers.main) {
@@ -9434,9 +9402,6 @@ class EditorViewModel @Inject constructor(
      *  one's own paint. See [DrawingEngine]'s Tool.SMUDGE branch for where this actually applies. */
     fun setColorSmudgeSampleMerged(enabled: Boolean) =
         _colorSmudgeSettings.update { it.copy(sampleMerged = enabled) }
-
-    fun setColorSmudgeDynamics(bindings: List<com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding>) =
-        _colorSmudgeSettings.update { it.copy(dynamics = bindings) }
 
     /**
      * Installed azphalt brush assets available to paint with (composite id + display name), reactive
