@@ -40,14 +40,15 @@ object AirbrushEngine {
         val diameter = diameterPx.coerceAtLeast(0f)
         if (dabsPerSecond <= 0f || diameter <= 0f || real.size < 2) return emptyList()
 
-        val intervalMs = (1000f / dabsPerSecond).coerceAtLeast(1f)
+        // Double ms: Float stops resolving whole milliseconds past 2^24 ms (4.7 h of uptime).
+        val intervalMs = (1000.0 / dabsPerSecond).coerceAtLeast(1.0)
         val baseRadius = diameter / 2f
         val rng = Random(seed xor AIRBRUSH_SEED_SALT)
         val startTime = real.first().uptimeMillis
         val out = ArrayList<Dab>()
 
         var anchor = real.first()
-        var nextEmitTime = anchor.uptimeMillis.toFloat() + intervalMs
+        var nextEmitTime = anchor.uptimeMillis.toDouble() + intervalMs
         var index = 0
 
         for (i in 1 until real.size) {
@@ -57,10 +58,10 @@ object AirbrushEngine {
                 // Movement broke the held run; the new sample becomes the next anchor and the
                 // deposit cadence restarts from here.
                 anchor = sample
-                nextEmitTime = anchor.uptimeMillis.toFloat() + intervalMs
+                nextEmitTime = anchor.uptimeMillis.toDouble() + intervalMs
                 continue
             }
-            while (nextEmitTime < sample.uptimeMillis.toFloat()) {
+            while (nextEmitTime < sample.uptimeMillis.toDouble()) {
                 val heldSample = anchor.copy(uptimeMillis = nextEmitTime.toLong(), predicted = false)
                 val dynamic = BrushSensorEngine.resolve(heldSample, brush.dynamics, startTime, seed, index)
                 val sizeR = rng.nextFloat()

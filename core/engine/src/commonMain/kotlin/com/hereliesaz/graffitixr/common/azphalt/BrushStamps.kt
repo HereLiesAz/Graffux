@@ -80,7 +80,8 @@ object BrushStamps {
             val ax = points[2 * i]; val ay = points[2 * i + 1]
             val bx = points[2 * i + 2]; val by = points[2 * i + 3]
             val segLen = hypot(bx - ax, by - ay)
-            if (segLen == 0f) continue
+            // A non-finite point has no place on the stroke (an infinite segment would never end).
+            if (segLen == 0f || !segLen.isFinite()) continue
             while (nextAt <= travelled + segLen) {
                 val t = (nextAt - travelled) / segLen
                 out.add(ax + (bx - ax) * t)

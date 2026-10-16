@@ -53,6 +53,8 @@ class IncrementalDynamicDabGenerator(
     fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
+        // A non-finite position would poison the arc length for the rest of the stroke.
+        if (!sampleIn.x.isFinite() || !sampleIn.y.isFinite()) return emptyList()
         val sample = sampleIn.copy(predicted = false)
         val prev = previous
         if (prev == null) {

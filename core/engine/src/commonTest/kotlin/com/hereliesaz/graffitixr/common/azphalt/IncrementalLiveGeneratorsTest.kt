@@ -85,6 +85,18 @@ class IncrementalLiveGeneratorsTest {
         assertDabsEquivalent(expected, actual)
     }
 
+    @Test
+    fun heldAirbrushKeepsItsCadenceAtLargeUptime() {
+        // 30 h of uptime is past Float's whole-millisecond range; a 1 ms cadence must still advance.
+        val t0 = 30L * 60 * 60 * 1000
+        val brush = AzphaltBrush(name = "air")
+        val samples = listOf(BrushSample(5f, 5f, uptimeMillis = t0), BrushSample(5f, 5f, uptimeMillis = t0 + 100))
+        val generator = IncrementalAirbrushGenerator(20f, brush, 1000f, 2f, 1L)
+        val live = samples.flatMap(generator::append)
+        assertEquals(99, live.size)
+        assertEquals(live.size, AirbrushEngine.heldDabs(samples, 20f, brush, 1000f, 2f, 1L).size)
+    }
+
     private fun assertDabsEquivalent(expected: List<Dab>, actual: List<Dab>) {
         assertEquals(expected.size, actual.size, "dab count")
         expected.zip(actual).forEachIndexed { index, (a, b) ->

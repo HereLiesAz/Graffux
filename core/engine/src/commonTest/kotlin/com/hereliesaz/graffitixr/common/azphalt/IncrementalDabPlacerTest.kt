@@ -47,4 +47,19 @@ class IncrementalDabPlacerTest {
         assertEquals(2, fresh.size)
         assertEquals(before + 1, placer.emittedCount)
     }
+
+    @Test
+    fun nonFinitePointsAreDroppedInsteadOfPoisoningOrHangingTheStroke() {
+        val placer = IncrementalDabPlacer(4f)
+        assertEquals(listOf(0f, 0f), placer.append(0f, 0f))
+        assertEquals(emptyList(), placer.append(Float.NaN, 0f))
+        assertEquals(emptyList(), placer.append(Float.POSITIVE_INFINITY, 0f))
+        assertEquals(listOf(4f, 0f), placer.append(4f, 0f))
+    }
+
+    @Test
+    fun batchPlacementSkipsAnInfiniteSegment() {
+        val centres = BrushStamps.place(listOf(0f, 0f, Float.POSITIVE_INFINITY, 0f, 8f, 0f), 4f)
+        assertEquals(listOf(0f, 0f), centres)
+    }
 }
