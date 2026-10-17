@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -117,6 +118,8 @@ fun EditorScreen(
     val strokeRecorder = rememberStrokeDataRecorder(uiState)
     // Where each layer lands on screen, for the direct-display overlay (LiveStrokeOverlayHost).
     val overlayGeometry = remember { OverlayGeometry() }
+    // Zoom-crisp re-renders of layers (HighResOverlayController); empty when off or zoomed out.
+    val highResOverlays by vm.highResOverlays.collectAsState()
     // Separate from EditorUiState because these are transient cache bitmaps, not document state.
     val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
     val strings = rememberAppStrings()
@@ -255,7 +258,9 @@ fun EditorScreen(
                                 contentScale = ContentScale.Fit,
                             )
                         } else {
-                            layerTree.forEach { node ->
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                LocalHighResOverlays provides highResOverlays,
+                            ) { layerTree.forEach { node ->
                                 LayerStackNode(
                                     node,
                                     liveStrokeState,
@@ -264,7 +269,7 @@ fun EditorScreen(
                                     // nine times, and the overlay maps to the real document.
                                     overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
                                 )
-                            }
+                            } }
                         }
                     }
                 }
@@ -903,6 +908,8 @@ private fun LayerStackNode(
                 // the bitmap when the bitmap was the frame), and the bitmap is drawn at its origin
                 // in it, so paint that grew past the frame still lands where it was painted.
                 val frame = layer.frame(displayBmp.width, displayBmp.height)
+                // The crisp overlay, only if built from exactly these pixels and no stroke is live.
+                val crisp = LocalHighResOverlays.current.matching(layer, displayBmp, frame, isLive)
                 Spacer(
                     modifier = Modifier
                         .fillMaxSize()
@@ -922,7 +929,7 @@ private fun LayerStackNode(
                             else
                                 CompositingStrategy.Auto
                         }
-                        .drawBehind { drawLayerBitmap(imageBitmap, frame, colorFilter) }
+                        .drawBehind { drawLayerBitmap(imageBitmap, frame, colorFilter, crisp) }
                         // After graphicsLayer, so the recorded screen mapping includes it.
                         .recordOverlayPlacement(overlayGeometry, layer.id, frame),
                 )
@@ -1629,6 +1636,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLayerBitmap(
     image: androidx.compose.ui.graphics.ImageBitmap,
     frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
     colorFilter: ColorFilter?,
+    crisp: HighResOverlay? = null,
 ) {
     if (frame.width <= 0 || frame.height <= 0) return
     val fit = minOf(size.width / frame.width, size.height / frame.height)
@@ -1638,6 +1646,20 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLayerBitmap(
         translate(left, top)
         scale(fit, fit, pivot = androidx.compose.ui.geometry.Offset.Zero)
     }) {
-        drawImage(image, colorFilter = colorFilter)
+        if (crisp == null) {
+            drawImage(image, colorFilter = colorFilter)
+        } else {
+            // Zoom-crisp view: the base everywhere but the overlay's region, the overlay (rendered at
+            // `scale` x the bitmap's resolution) inside it, in the same transform.
+            val r = crisp.region
+            clipRect(
+                r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat(),
+                clipOp = androidx.compose.ui.graphics.ClipOp.Difference,
+            ) { drawImage(image, colorFilter = colorFilter) }
+            withTransform({
+                translate(r.left.toFloat(), r.top.toFloat())
+                scale(1f / crisp.scale, 1f / crisp.scale, pivot = androidx.compose.ui.geometry.Offset.Zero)
+            }) { drawImage(crisp.image, colorFilter = colorFilter) }
+        }
     }
 }

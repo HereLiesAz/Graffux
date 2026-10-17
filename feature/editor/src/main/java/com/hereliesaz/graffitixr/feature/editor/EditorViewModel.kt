@@ -79,6 +79,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -670,6 +671,39 @@ class EditorViewModel @Inject constructor(
     private val layerStore = LayerStore().also { store ->
         store.contentChanged = { id ->
             if (id == null) layerResidency.invalidateAll() else layerResidency.invalidate(id)
+        }
+    }
+
+    // Zoom-crisp view (HighResOverlayController): re-renders a zoomed-in layer's recorded strokes at a
+    // higher resolution once the user is idle. Transient; the layer's base bitmap stays the source of
+    // truth for save/export. Off entirely with HighResOverlayConfig.ENABLED = false.
+    private val highResOverlayController = HighResOverlayController(
+        scope = viewModelScope,
+        renderDispatcher = dispatchers.default,
+        source = object : HighResOverlaySource {
+            override fun base(layerId: String) = layerStore.base(layerId)
+            override fun strokes(layerId: String) = layerStore.strokes(layerId)
+        },
+        renderer = GpuHighResRenderer(),
+    )
+    internal val highResOverlays get() = highResOverlayController.overlays
+    private val highResTrimCallbacks = object : android.content.ComponentCallbacks2 {
+        override fun onTrimMemory(level: Int) {
+            if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                highResOverlayController.onMemoryPressure()
+            }
+        }
+        override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = Unit
+        override fun onLowMemory() = highResOverlayController.onMemoryPressure()
+    }
+    init {
+        if (HighResOverlayConfig.ENABLED) {
+            highResOverlayController.start(
+                kotlinx.coroutines.flow.combine(_uiState, _liveStroke, ::overlayInputsOf)
+                    .distinctUntilChanged()
+                    .flowOn(dispatchers.default),
+            )
+            context.registerComponentCallbacks(highResTrimCallbacks)
         }
     }
 
@@ -2234,6 +2268,7 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        runCatching { context.unregisterComponentCallbacks(highResTrimCallbacks) }
         com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.remove(onDeviceLost)
         // Cleared mid-stroke, the in-flight stamp/round-brush/smudge GPU engines would otherwise leak:
         // this is the one teardown that destroys them. Before discardPrewarm, because it can
