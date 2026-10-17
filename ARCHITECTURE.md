@@ -430,3 +430,33 @@ codebase is deferred scope or a real gap in the install-report flow.
   `GpuBudget` (collected, since the tier can change mid-session). On Android nothing waits for
   refinement (the CPU commit is the committed layer; the stroke-end refresh drops queued work); on
   desktop stroke end lands it before committing the GPU frame.
+- **Zoomed-in layers get a transient crisp re-render, not a bigger bitmap.** A layer bitmap is
+  screen x `canvasRenderScale`, so zooming the viewport only magnifies it (bilinear, soft).
+  `HighResOverlayController` (`:feature:editor`) fixes that for the common case: once the zoom is above
+  `HighResOverlayConfig.TRIGGER_ZOOM` (1.5) and the editor has been quiet for `DEBOUNCE_MS` (250 ms), it
+  replays the layer's recorded strokes through `GpuReplaySession` / `GpuStampCommit` / `GpuBasicStroke`
+  into a bitmap of the visible region (plus a margin) at an integer 2-4x scale, off the main thread.
+  EditorScreen's `drawLayerBitmap` then draws it instead of the base inside that region, in the same
+  transform. The strokes' dabs are generated exactly as for the base (same mapped path), with the path
+  shifted by the region origin and path and brush size multiplied by the scale.
+
+  ~~~
+  inputs (zoom, viewport, layer keys, live stroke)
+    -> drop overlays whose OverlayContentKey no longer matches the layer (immediately)
+    -> zoom <= 1.5 / wrap-around / animation: clear      live stroke: build nothing
+    -> debounce 250 ms (a new input cancels the render in flight)
+    -> per eligible layer: planRegion(visible, budget) -> GPU replay -> publish if still current
+  ~~~
+
+  Rules that keep it safe: the base bitmap remains the source of truth for save/export and is never
+  touched; at zoom <= 1.5 nothing differs from before (no overlay, same draw call). A layer qualifies
+  only if its base is fully transparent and every retained stroke is a plain stamp, Basic Brush or Eraser
+  stroke (`HighResOverlayPlan.strokeReplayable`: no selection, warp, fill, Ink, smudge, liquify, clone,
+  impasto, grain, dual tip, substrate or wrap-around). That excludes imported rasters and filters, and,
+  because strokes beyond `HISTORY_DEPTH` are baked into the base at base resolution, layers with more than
+  that many strokes (their base is then no longer blank). Everything else silently keeps the bilinear
+  path. All overlays together are capped at 4096 x 4096 pixels (split evenly per layer, 4096 on a side).
+  Any change to a layer's bitmap (new stroke, undo/redo, edit; keyed by identity and
+  `Bitmap.generationId`) drops its overlay; `onTrimMemory` drops them all until the view zooms out. A GPU
+  failure keeps the base path and is logged once. Switch the whole feature off with
+  `HighResOverlayConfig.ENABLED = false`.
