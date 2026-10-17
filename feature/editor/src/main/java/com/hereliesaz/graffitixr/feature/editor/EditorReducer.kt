@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.common.model.ColorStyle
 import com.hereliesaz.graffitixr.common.model.ComponentOps
 import com.hereliesaz.graffitixr.common.model.EditorPanel
+import com.hereliesaz.graffitixr.common.model.CanvasViewport
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
@@ -207,6 +208,11 @@ internal object EditorReducer {
         is EditorIntent.SetDocumentSize -> state.copy(
             documentWidth = intent.width.coerceIn(1, 8192),
             documentHeight = intent.height.coerceIn(1, 8192),
+            // A new canvas size is framed from the top-left like a fresh document, so the grid
+            // margin around it holds whatever the view was doing before.
+            viewportOffset = CanvasViewport.DEFAULT_OFFSET,
+            viewportZoom = 1f,
+            viewportRotation = 0f,
         )
         is EditorIntent.SetViewport -> state.copy(
             viewportOffset = intent.offset,
@@ -228,6 +234,10 @@ internal object EditorReducer {
         is EditorIntent.SetHasClipboard -> state.copy(hasClipboard = intent.has)
         is EditorIntent.LoadedProject -> state.copy(
             projectId = intent.projectId,
+            // Each project opens framed with the grid margin, not wherever the last one was panned.
+            viewportOffset = CanvasViewport.DEFAULT_OFFSET,
+            viewportZoom = 1f,
+            viewportRotation = 0f,
             // Restore the style registry alongside the artwork, then re-resolve: the saved layers
             // carry only style ids, so without this a reopened document would keep the values it
             // last resolved to but silently stop tracking the tokens.

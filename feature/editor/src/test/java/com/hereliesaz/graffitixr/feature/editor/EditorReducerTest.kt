@@ -306,6 +306,22 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `a new canvas size or a loaded project reframes the view with the grid margin`() {
+        val panned = state().copy(
+            viewportOffset = androidx.compose.ui.geometry.Offset(-400f, 900f),
+            viewportZoom = 3f,
+            viewportRotation = 20f,
+        )
+        val resized = reduce(panned, EditorIntent.SetDocumentSize(2480, 3508))
+        assertEquals(com.hereliesaz.graffitixr.common.model.CanvasViewport.DEFAULT_OFFSET, resized.viewportOffset)
+        assertEquals(1f, resized.viewportZoom)
+        assertEquals(0f, resized.viewportRotation)
+        val loaded = reduce(panned, EditorIntent.LoadedProject("p1", listOf(lyr("a"))))
+        assertEquals(com.hereliesaz.graffitixr.common.model.CanvasViewport.DEFAULT_OFFSET, loaded.viewportOffset)
+        assertEquals(1f, loaded.viewportZoom)
+    }
+
+    @Test
     fun `LoadedProject sets id and layers and ClearProject resets them`() {
         val loaded = reduce(state(), EditorIntent.LoadedProject("p1", listOf(lyr("a"))))
         assertEquals("p1", loaded.projectId)
