@@ -2,7 +2,6 @@ package com.hereliesaz.graffitixr.data.repository
 
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.common.model.OverlayLayer
-import com.hereliesaz.graffitixr.common.model.WallFeatureMap
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -50,8 +49,7 @@ class GraffitiProjectTest {
                     warpMesh = listOf(0f, 1f, 2f, 3f),
                     isImageLocked = true
                 )
-            ),
-            targetFingerprintPath = "/path/to/fingerprint"
+            )
         )
 
         assertEquals("test-id", project.id)
@@ -66,29 +64,74 @@ class GraffitiProjectTest {
         assertEquals("Test Project", decoded.name)
         assertEquals(true, decoded.layers[0].isImageLocked)
         assertEquals(listOf(0f, 1f, 2f, 3f), decoded.layers[0].warpMesh)
-        assertEquals("/path/to/fingerprint", decoded.targetFingerprintPath)
     }
 
     @Test
-    fun `serialization preserves the wall feature map`() {
-        // The persistent feature map rides in project.json (and thus the .gxr), parallel to the
-        // fingerprint. Verify it survives the project round-trip intact (descriptor blob included).
-        val map = WallFeatureMap(
-            points3d = floatArrayOf(0f, 0f, 1f, 0.1f, 0.2f, 1.1f),
-            descriptorsData = ByteArray(64) { (it % 251).toByte() },
-            descriptorsRows = 2,
-            descriptorsCols = 32,
-            descriptorsType = 0,
-            confidence = floatArrayOf(0.9f, 0.4f),
-            obsCount = intArrayOf(4, 1),
-            anchor = FloatArray(16) { it.toFloat() },
-            intrinsics = floatArrayOf(500f, 500f, 320f, 240f),
-        )
-        val project = GraffitiProject(id = "id", name = "n", wallFeatureMap = map)
+    fun `a project saved with the removed AR wall-tracking fields still loads`() {
+        // Back-compat: the AR / wall-fingerprint stack (Fingerprint, WallFeatureMap, SLAM map and
+        // point-cloud paths, camera intrinsics/anchor, GPS/sensor calibration snapshots) was deleted,
+        // but project.json files written by older builds still carry those keys. They must be
+        // ignored -- not rejected -- and everything the app still understands must survive.
+        val legacy = """
+            {
+              "id": "legacy-1",
+              "name": "Old wall mural",
+              "documentWidth": 2048,
+              "documentHeight": 1024,
+              "railExpansion": { "host.design": true },
+              "fingerprint": {
+                "keypoints": [ { "x": 1.0, "y": 2.0, "size": 3.0, "angle": 4.0, "response": 5.0, "octave": 1, "class_id": 0 } ],
+                "points3d": [0.0, 0.0, 1.0],
+                "descriptorsData": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
+                "descriptorsRows": 1,
+                "descriptorsCols": 32,
+                "descriptorsType": 0,
+                "patchData": [],
+                "markCenterLocal": [0.1, 0.2, 0.3]
+              },
+              "targetFingerprintPath": "/data/projects/legacy-1/fingerprint.bin",
+              "targetFingerprint": "/data/projects/legacy-1/target.fp",
+              "mapPath": "/data/projects/legacy-1/map.bin",
+              "cloudPointsPath": "/data/projects/legacy-1/cloud_points.bin",
+              "cloudAnchorId": "anchor-42",
+              "fingerprintIntrinsics": [500.0, 500.0, 320.0, 240.0],
+              "fingerprintAnchor": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+              "wallFeatureMap": {
+                "points3d": [0.0, 0.0, 1.0],
+                "descriptorsData": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
+                "descriptorsRows": 1,
+                "descriptorsCols": 32,
+                "descriptorsType": 0,
+                "confidence": [0.9],
+                "obsCount": [4],
+                "anchor": [],
+                "intrinsics": []
+              },
+              "gpsData": { "latitude": 1.0, "longitude": 2.0, "altitude": 3.0, "accuracy": 4.0, "time": 5 },
+              "sensorData": { "azimuth": 1.0, "pitch": 2.0, "roll": 3.0 },
+              "calibrationSnapshots": [
+                { "gpsData": null, "sensorData": { "azimuth": 1.0, "pitch": 2.0, "roll": 3.0 }, "poseMatrix": [1.0], "timestamp": 7 }
+              ]
+            }
+        """.trimIndent()
 
-        val decoded = json.decodeFromString<GraffitiProject>(json.encodeToString(project))
+        val decoded = json.decodeFromString<GraffitiProject>(legacy)
 
-        assertEquals(map, decoded.wallFeatureMap)
+        assertEquals("legacy-1", decoded.id)
+        assertEquals("Old wall mural", decoded.name)
+        assertEquals(2048, decoded.documentWidth)
+        assertEquals(1024, decoded.documentHeight)
+        assertEquals(mapOf("host.design" to true), decoded.railExpansion)
+
+        // Re-saving drops the dead keys instead of carrying them forward.
+        val reencoded = json.encodeToString(decoded)
+        for (key in listOf(
+            "fingerprint", "targetFingerprintPath", "targetFingerprint", "mapPath", "cloudPointsPath",
+            "cloudAnchorId", "fingerprintIntrinsics", "fingerprintAnchor", "wallFeatureMap", "gpsData",
+            "sensorData", "calibrationSnapshots",
+        )) {
+            assertEquals("\"$key\" should no longer be written", false, reencoded.contains("\"$key\""))
+        }
     }
 
     @Test

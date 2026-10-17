@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -22,7 +22,7 @@ import org.junit.Test
 
 class DrawingEngineTest {
 
-    private val slamManager: SlamManager = mockk(relaxed = true)
+    private val liquifyEngine: LiquifyEngine = mockk(relaxed = true)
     private lateinit var engine: DrawingEngine
 
     @Before
@@ -34,7 +34,7 @@ class DrawingEngineTest {
         every {
             ImageProcessor.mapScreenToBitmap(any(), any(), any(), any(), any(), any(), any(), any())
         } returns emptyList<Offset>()
-        engine = DrawingEngine(slamManager)
+        engine = DrawingEngine(liquifyEngine)
     }
 
     @After
@@ -72,13 +72,13 @@ class DrawingEngineTest {
     }
 
     @Test
-    fun `composite routes a LIQUIFY stroke through SlamManager`() = runTest {
+    fun `composite routes a LIQUIFY stroke through LiquifyEngine`() = runTest {
         val base = bitmap()
         engine.composite(base, listOf(stroke(Tool.LIQUIFY)))
 
-        verify { slamManager.prepareLiquify(any()) }
-        verify { slamManager.applyLiquify(any(), any(), any()) }
-        verify { slamManager.bakeLiquify(any()) }
+        verify { liquifyEngine.prepareLiquify(any()) }
+        verify { liquifyEngine.applyLiquify(any(), any(), any()) }
+        verify { liquifyEngine.bakeLiquify(any()) }
     }
 
     @Test

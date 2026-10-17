@@ -138,7 +138,7 @@ class CommitPathRoutingTest {
     private suspend fun assertCommitEqualsReplay(before: Bitmap, what: String) {
         val strokes = vm.recordedStrokesForTest("L")
         assertTrue("$what: nothing was recorded, so there is no replay to compare", strokes.isNotEmpty())
-        val replayed = DrawingEngine(vm.slamManager).composite(before, strokes)
+        val replayed = DrawingEngine(vm.liquifyEngine).composite(before, strokes)
         assertSamePixels(publishedBitmap(), replayed, what)
     }
 
@@ -325,7 +325,7 @@ class CommitPathRoutingTest {
         val strokes = toolVm.recordedStrokesForTest("L")
         assertTrue("$tool: nothing recorded, so it never went through the engine", strokes.isNotEmpty())
         assertEquals("$tool: the recorded command must name the tool it was", tool, strokes.single().tool)
-        assertSamePixels(committed, DrawingEngine(toolVm.slamManager).composite(before, strokes), "$tool")
+        assertSamePixels(committed, DrawingEngine(toolVm.liquifyEngine).composite(before, strokes), "$tool")
     }
 
     @Test
@@ -360,7 +360,7 @@ class CommitPathRoutingTest {
         vm.onStrokeEnd()
         advanceUntilIdle()
 
-        // The fixture's SlamManager is a relaxed mock, so the warp itself is a no-op here and the
+        // The fixture's LiquifyEngine is a relaxed mock, so the warp itself is a no-op here and the
         // committed pixels equal the base. That is fine and still worth asserting: what is under
         // test is that the commit *routed through the engine*, which the recorded command and the
         // agreement below establish. A bake done inline would have produced a bitmap the replay
@@ -430,7 +430,7 @@ class CommitPathRoutingTest {
 
         val strokes = stampVm.recordedStrokesForTest("L")
         assertTrue("nothing was recorded, so there is no replay to compare", strokes.isNotEmpty())
-        val replayed = DrawingEngine(stampVm.slamManager).composite(before, strokes)
+        val replayed = DrawingEngine(stampVm.liquifyEngine).composite(before, strokes)
         assertSamePixels(published(), replayed, "stamp brush with pressure dynamics")
     }
 
@@ -520,7 +520,7 @@ class CommitPathRoutingTest {
 
             val strokes = presetVm.recordedStrokesForTest("L")
             assertTrue("${preset.name}: nothing was recorded", strokes.isNotEmpty())
-            val replayed = DrawingEngine(presetVm.slamManager).composite(before, strokes)
+            val replayed = DrawingEngine(presetVm.liquifyEngine).composite(before, strokes)
             assertSamePixels(published(), replayed, preset.name)
         }
     }

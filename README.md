@@ -17,7 +17,7 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Adjustments** — opacity, brightness, contrast, saturation, colour balance, curves (a monotone
   cubic-spline LUT baked into the layer), invert, colour-lookup (`.cube` LUT) extensions.
 - **Paint** — brush and eraser with size + hardness, colour, node-edited vector paths (Pen), Heal,
-  Clone, Blur, Sharpen, Smudge, Liquify (OpenCV-backed), Dodge, Burn, Colorize, plus
+  Clone, Blur, Sharpen, Smudge, Liquify (native GLES warper), Dodge, Burn, Colorize, plus
   wraparound painting mode. Brush Studio for building custom brushes.
 - **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, add/remove/replace,
   save named selections, colour-fill/copy/cut/paste within a selection.
@@ -44,7 +44,7 @@ invariants, and the AzNavRail version floors the layers panel depends on.
 ## Architecture
 
 MVI: a pure `EditorReducer` maps `EditorIntent`s to the next `EditorUiState`; `EditorViewModel`
-orchestrates side effects (history, persistence, OpenCV) around each dispatch.
+orchestrates side effects (history, persistence) around each dispatch.
 
 | Module | Responsibility |
 |---|---|
@@ -54,7 +54,7 @@ orchestrates side effects (history, persistence, OpenCV) around each dispatch.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence. |
 | `:core:design` | Design system: theme, strings, reusable components. |
-| `:core:nativebridge` | JNI bridge to the native (OpenCV) world used by Liquify and drawing, and to the GPU brush engine. |
+| `:core:nativebridge` | JNI bridge to the native world: the Liquify warper (`LiquifyEngine`) and the GPU brush engine. |
 
 Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app),
 and on the CPU on any device where wgpu can't start. The wgpu library ships for both 64-bit

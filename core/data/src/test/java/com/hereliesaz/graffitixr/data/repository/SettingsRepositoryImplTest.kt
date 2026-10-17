@@ -4,7 +4,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.hereliesaz.graffitixr.common.model.ArScanMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -40,18 +39,6 @@ class SettingsRepositoryImplTest {
 
         repo.setRightHanded(true)
         assertTrue(repo.isRightHanded.first())
-    }
-
-    @Test
-    fun `setArScanMode and setMuralMethod round trip`() = runTest {
-        repo.setArScanMode(ArScanMode.CLOUD_POINTS)
-        assertEquals(ArScanMode.CLOUD_POINTS, repo.arScanMode.first())
-
-        repo.setMuralMethod(com.hereliesaz.graffitixr.common.model.MuralMethod.SURFACE_MESH)
-        assertEquals(
-            com.hereliesaz.graffitixr.common.model.MuralMethod.SURFACE_MESH,
-            repo.muralMethod.first(),
-        )
     }
 
     @Test
@@ -159,7 +146,6 @@ class SettingsRepositoryImplTest {
         // run they still reflect the implementation's default fallback rather than a stored value.
         assertFalse(repo.isImperialUnits.first())
         assertEquals(0xFF000000.toInt(), repo.backgroundColor.first())
-        assertEquals(4.0f, repo.parallaxMinDegrees.first())
     }
 
     @Test

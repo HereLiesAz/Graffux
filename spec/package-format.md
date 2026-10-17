@@ -581,7 +581,7 @@ Capabilities and the host functions each grants (from `WasmSandbox.bindCapabilit
 | `params` | `paramNumber(key)`, `paramBool(key)`, `paramString(key)`, `paramNumberOpt(key, out)`, `paramBoolOpt(key)` — reads declared extension parameters (see § 5.1.1) |
 | `color` | `colorActive()` / `colorSetActive(rgba)` — the app's active RGBA color |
 | `assets` | `assetRead(path)` — read a bundled asset file's bytes |
-| `selection` | `selectionSize()`, `selectionRead()` — the current selection mask |
+| `selection` | `selectionSize()`, `selectionRead()` — declared but not yet available: the host throws `UnsupportedOperationException`, because the selection is a screen-space path and no pixel-mask wire format is defined |
 | `bitmap` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`** — see note below. |
 | `time` | See § 5.2 — handled specially, only via the WASI bridge in `JsSandbox`, not through `AzphaltSandboxHost` at all. |
 | `audio` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`**. |

@@ -2,7 +2,7 @@
 //
 // Graffux — the standalone multi-layer image editor (sketching & photo editing). It hosts the
 // shared :feature:editor and its core modules, which are ALSO consumed by GraffitiXR (the AR mural
-// app) so the editor stays a single source of truth. No AR, SLAM session, or co-op here.
+// app) so the editor stays a single source of truth. No co-op here.
 
 // FILE: app/build.gradle.kts
 import org.gradle.kotlin.dsl.apply

@@ -1,9 +1,7 @@
 package com.hereliesaz.graffitixr.domain.repository
 
-import com.hereliesaz.graffitixr.common.model.ArScanMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
-import com.hereliesaz.graffitixr.common.model.MuralMethod
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -22,16 +20,6 @@ interface SettingsRepository {
      * @param isRight True for right-handed, False for left-handed.
      */
     suspend fun setRightHanded(isRight: Boolean)
-
-    /** Which AR depth/mapping mode the user has selected. Defaults to [ArScanMode.MURAL]. */
-    val arScanMode: Flow<ArScanMode>
-
-    suspend fun setArScanMode(mode: ArScanMode)
-    
-    /** The specific engine used when [ArScanMode.MURAL] is active. */
-    val muralMethod: Flow<MuralMethod>
-    
-    suspend fun setMuralMethod(method: MuralMethod)
 
     /** Whether distances are displayed in imperial (ft) rather than metric (m/cm). */
     val isImperialUnits: Flow<Boolean>
@@ -62,14 +50,6 @@ interface SettingsRepository {
 
     /** Canvas background color as ARGB Int. Default is opaque black (0xFF000000). */
     val backgroundColor: Flow<Int>
-
-    /**
-     * Minimum viewpoint shift (degrees) before a re-observation parallax-verifies a point. Default 4.
-     * Stored only: nothing reads or writes it yet (the native setter it would feed is a no-op while
-     * the AR/SLAM stack is being rewired).
-     */
-    val parallaxMinDegrees: Flow<Float>
-    suspend fun setParallaxMinDegrees(deg: Float)
 
     /**
      * The user's saved colour swatches, as ARGB ints, in the order they arranged them. Ordered, so

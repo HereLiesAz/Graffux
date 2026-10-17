@@ -8,7 +8,7 @@ import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -135,7 +135,7 @@ class SelectionTest {
         every { SelectionMask.mapDelta(any(), any(), any(), any(), any(), any(), any(), any()) } returns Offset(6f, -2f)
         every { SelectionMask.moveRegion(any(), any(), any(), any()) } returns base
 
-        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(moveCommand()))
+        DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).composite(base, listOf(moveCommand()))
 
         verify { SelectionMask.moveRegion(any(), eq(clip), eq(6f), eq(-2f)) }
     }
@@ -145,7 +145,7 @@ class SelectionTest {
         val base = bitmap()
         every { SelectionMask.bitmapPath(any(), any(), any(), any(), any(), any()) } returns mockk(relaxed = true)
 
-        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(moveCommand(delta = null)))
+        DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).composite(base, listOf(moveCommand(delta = null)))
 
         verify(exactly = 0) { SelectionMask.moveRegion(any(), any(), any(), any()) }
     }
@@ -164,7 +164,7 @@ class SelectionTest {
             intensity = 0f,
             clearAll = true,
         )
-        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(clear))
+        DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).composite(base, listOf(clear))
 
         // The clear branch is taken before any paint path.
         verify(exactly = 0) { SelectionMask.moveRegion(any(), any(), any(), any()) }
@@ -187,7 +187,7 @@ class SelectionTest {
             selection = square,
             clearAll = true,
         )
-        DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(clear))
+        DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).composite(base, listOf(clear))
 
         verify { SelectionMask.clip(any(), eq(clip)) }
     }
@@ -211,7 +211,7 @@ class SelectionTest {
         )
         // No GPU in a JVM test: the stroke itself fails to paint (and composite says so by throwing),
         // after the clip has been derived, which is what this checks.
-        runCatching { DrawingEngine(mockk<SlamManager>(relaxed = true)).composite(base, listOf(brush)) }
+        runCatching { DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).composite(base, listOf(brush)) }
 
         // The clip is derived from the command's own selection, not from live editor state.
         verify { SelectionMask.bitmapPath(eq(square), eq(100), eq(100), any(), any(), any()) }

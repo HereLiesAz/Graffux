@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
  * guarded by synchronizing on the list itself, and [strokes] hands out snapshot copies, never
  * the live list (background compositing iterates while strokes land on other threads).
  * The compositing of base + strokes into a display bitmap stays in the ViewModel — it needs the
- * UiState, OpenCV/SLAM, and persistence — this class only owns the caches.
+ * UiState, native engines, and persistence — this class only owns the caches.
  */
 internal class LayerStore {
     private val baseBitmaps = ConcurrentHashMap<String, Bitmap>()

@@ -150,7 +150,7 @@ fun SettingsScreen(
             )
             HorizontalDivider()
             // No language picker. The only translations `:core:design` carried were GraffitiXR's —
-            // its own `app_name`, its AR/Overlay/Mockup mode copy — and they have been removed from
+            // its own `app_name` — and they have been removed from
             // this repository. Graffux ships one language, so a picker here would have offered
             // fourteen options that all resolve to the same English resources: the dead control this
             // audit keeps finding, rather than a feature waiting to work.

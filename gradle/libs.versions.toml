@@ -4,7 +4,6 @@ activityCompose = "1.13.0"
 agp = "9.4.1"
 appcompat = "1.8.0"
 azNavRail = "11.57"
-camerax = "1.6.2"
 coil = "2.7.0"
 constraintlayout = "2.2.2"
 coreKtx = "1.19.1"
@@ -24,7 +23,6 @@ lifecycle = "2.11.0"
 litert = "2.3.0"
 mlkitSubjectSegmentation = "16.0.0-beta1" # ACCEPTED RISK: no stable release as of 2026-04-02
 navigation = "2.10.2"
-opencv = "5.0.0.1"
 playServicesBase = "18.11.0"
 playServicesLocation = "21.4.0"
 segmentationSelfie = "16.0.0-beta6" # ACCEPTED RISK: no stable release as of 2026-04-02
@@ -49,10 +47,6 @@ composeHotReload = "1.2.0"
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
-androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
-androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
-androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
-androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
 androidx-compose-material-icons-core = { module = "androidx.compose.material:material-icons-core", version.ref = "materialIconsCore" }
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended", version.ref = "materialIconsCore" }
 androidx-compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
@@ -110,7 +104,6 @@ mlkit-subject-segmentation = { group = "com.google.android.gms", name = "play-se
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
-opencv = { group = "org.opencv", name = "opencv", version.ref = "opencv" }
 play-services-base = { group = "com.google.android.gms", name = "play-services-base", version.ref = "playServicesBase" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 segmentation-selfie = { module = "com.google.mlkit:segmentation-selfie", version.ref = "segmentationSelfie" }

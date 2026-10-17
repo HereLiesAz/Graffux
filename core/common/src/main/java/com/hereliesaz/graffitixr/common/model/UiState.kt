@@ -24,22 +24,6 @@ enum class Tool {
     TEXT,
 }
 
-enum class ArScanMode {
-    /** User-facing "Canvas": built-in feature-point cloud (no depth API required). */
-    CLOUD_POINTS,
-    /** User-facing "Mural": the engine is picked by [MuralMethod]. */
-    MURAL
-}
-
-enum class MuralMethod {
-    /** Gaussian Splatting (Mural v1) */
-    VOXEL_HASH,
-    /** Surface-Aware Mesh / t-SNE Unroller (Mural v2) */
-    SURFACE_MESH,
-    /** Point Cloud Anchor Offset Handoff (Mural v3) */
-    CLOUD_OFFSET
-}
-
 enum class BlendMode {
     SrcOver, Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn,
     HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity,

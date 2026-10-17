@@ -18,7 +18,6 @@
     <ID>LongMethod:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
     <ID>LongMethod:ImageExt.kt$fun Bitmap.isolateMarkings(tapPos: Pair&lt;Float, Float&gt;? = null): Bitmap</ID>
     <ID>LongMethod:ImpastoEngineTest.kt$ImpastoEngineTest$@Test fun `material presentation can be removed before deterministic reshading`()</ID>
-    <ID>LongParameterList:Fingerprint.kt$Fingerprint.Companion$( keypoints: List&lt;KeyPoint&gt;, points3d: List&lt;Float&gt;, descriptorsData: ByteArray, descriptorsRows: Int, descriptorsCols: Int, descriptorsType: Int, patchData: ByteArray, markCenterLocal: List&lt;Float&gt;, )</ID>
     <ID>LongParameterList:ImportedDocument.kt$ImportedLayer$( val name: String, val argb: IntArray, val width: Int, val height: Int, val left: Int = 0, val top: Int = 0, val opacity: Float = 1f, val isVisible: Boolean = true, val blendMode: BlendMode = BlendMode.SrcOver, /** Editable vector outlines (from a PSD vector mask / shape layer), in document pixels. Empty for * a plain raster layer. Lets the importer preserve real vectors instead of only their pixels. */ val vectorPaths: List&lt;ImportedPath&gt; = emptyList(), )</ID>
     <ID>LongParameterList:LayoutOps.kt$LayoutOps$( anchor: ConstraintAnchor, pos: Float, size: Float, oldOrigin: Float, oldExtent: Float, newOrigin: Float, newExtent: Float, )</ID>
     <ID>LongParameterList:LayoutOpsTest.kt$LayoutOpsTest$( id: String, parent: String, x: Float, y: Float, w: Float = 100f, h: Float = 50f, constraints: Constraints = Constraints(), visible: Boolean = true, )</ID>
@@ -84,8 +83,6 @@
     <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0x89</ID>
     <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0xD8</ID>
     <ID>MagicNumber:DocumentImporter.kt$DocumentImporter$0xFF</ID>
-    <ID>MagicNumber:Fingerprint.kt$31</ID>
-    <ID>MagicNumber:Fingerprint.kt$Fingerprint$3</ID>
     <ID>MagicNumber:ImageExt.kt$0.114</ID>
     <ID>MagicNumber:ImageExt.kt$0.299</ID>
     <ID>MagicNumber:ImageExt.kt$0.587</ID>
@@ -95,10 +92,6 @@
     <ID>MagicNumber:ImageExt.kt$25</ID>
     <ID>MagicNumber:ImageExt.kt$3f</ID>
     <ID>MagicNumber:ImageExt.kt$8</ID>
-    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$3</ID>
-    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$4</ID>
-    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$5</ID>
-    <ID>MagicNumber:KeyPointSerializer.kt$KeyPointSerializer$6</ID>
     <ID>MagicNumber:Mesh.kt$Mesh$1e-4f</ID>
     <ID>MagicNumber:Mesh.kt$Mesh$3</ID>
     <ID>MagicNumber:Mesh.kt$Mesh$4</ID>
@@ -164,11 +157,6 @@
     <ID>MagicNumber:ToolUsage.kt$ToolUsageCodec$3</ID>
     <ID>MagicNumber:VectorPaths.kt$VectorPaths$3</ID>
     <ID>MagicNumber:VectorShape.kt$VectorShape$24</ID>
-    <ID>MagicNumber:WallFeatureMap.kt$WallFeatureMap$16</ID>
-    <ID>MagicNumber:WallFeatureMap.kt$WallFeatureMap$3</ID>
-    <ID>MagicNumber:WallFeatureMap.kt$WallFeatureMap$4</ID>
-    <ID>MagicNumber:XrealGlassProvider.kt$XrealGlassProvider$0x0483</ID>
-    <ID>MagicNumber:XrealGlassProvider.kt$XrealGlassProvider$0x3318</ID>
     <ID>MatchingDeclarationName:LayerTree.kt$LayerNode</ID>
     <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val dabs = AirbrushEngine.heldDabs(samples, 20f, plainBrush, dabsPerSecond = 0f, stillnessRadiusPx = 4f, seed = 1L)</ID>
     <ID>MaxLineLength:AirbrushEngineTest.kt$AirbrushEngineTest$val dabs = AirbrushEngine.heldDabs(samples, 20f, plainBrush, dabsPerSecond = 10f, stillnessRadiusPx = 4f, seed = 1L)</ID>
@@ -186,7 +174,6 @@
     <ID>MaxLineLength:CrashReporter.kt$CrashReporter$process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "1000", "--pid=${android.os.Process.myPid()}"))</ID>
     <ID>MaxLineLength:CrashReporter.kt$CrashReporter.Companion$Regex("""(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth)\s*[=:]\s*[A-Za-z0-9\-_.]{6,}""") to "$1=[REDACTED]"</ID>
     <ID>MaxLineLength:CubeLutTest.kt$CubeLutTest$val lut = parseCubeLut("# a comment\n\nLUT_3D_SIZE 2\n" + "0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1")</ID>
-    <ID>MaxLineLength:Fingerprint.kt$Fingerprint$"descriptor row stride (${descriptorsData.size / descriptorsRows}) must be a multiple of descriptorsCols ($descriptorsCols)"</ID>
     <ID>MaxLineLength:ImpastoEngineTest.kt$ImpastoEngineTest$val shaded = ImpastoEngine.shade(colors, flatHeight, w, h, lightAzimuthDeg = 45f, lightElevationDeg = 30f, strength = 5f)</ID>
     <ID>MaxLineLength:ImpastoEngineTest.kt$ImpastoEngineTest$val shaded = ImpastoEngine.shade(colors, height, w, h, lightAzimuthDeg = 0f, lightElevationDeg = 20f, strength = 4f)</ID>
     <ID>MaxLineLength:LayoutOpsTest.kt$LayoutOpsTest$child("a", "F", x = 20f, y = 0f, w = 360f, constraints = Constraints(horizontal = ConstraintAnchor.STRETCH))</ID>
@@ -197,9 +184,7 @@
     <ID>NestedBlockDepth:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
     <ID>NestedBlockDepth:ImageExt.kt$fun Bitmap.isolateMarkings(tapPos: Pair&lt;Float, Float&gt;? = null): Bitmap</ID>
     <ID>NestedBlockDepth:ObjParser.kt$ObjParser$fun parse(text: String): Mesh</ID>
-    <ID>NewLineAtEndOfFile:ArState.kt$com.hereliesaz.graffitixr.common.model.ArState.kt</ID>
     <ID>NewLineAtEndOfFile:BlendModeSerializer.kt$com.hereliesaz.graffitixr.common.serialization.BlendModeSerializer.kt</ID>
-    <ID>NewLineAtEndOfFile:Fingerprint.kt$com.hereliesaz.graffitixr.common.model.Fingerprint.kt</ID>
     <ID>NewLineAtEndOfFile:ImageExt.kt$com.hereliesaz.graffitixr.common.util.ImageExt.kt</ID>
     <ID>NewLineAtEndOfFile:OffsetSerializer.kt$com.hereliesaz.graffitixr.common.serialization.OffsetSerializer.kt</ID>
     <ID>NewLineAtEndOfFile:OverlayLayer.kt$com.hereliesaz.graffitixr.common.model.OverlayLayer.kt</ID>
@@ -211,7 +196,6 @@
     <ID>ReturnCount:ComponentOps.kt$ComponentOps$fun makeComponent( layers: List&lt;Layer&gt;, layerId: String, componentId: String = UUID.randomUUID().toString(), ): List&lt;Layer&gt;</ID>
     <ID>ReturnCount:ContourTrace.kt$ContourTrace$fun contours(mask: BooleanArray, width: Int, height: Int): List&lt;SelectionRing&gt;</ID>
     <ID>ReturnCount:DocumentImporter.kt$DocumentImporter$private fun starts(h: ByteArray, vararg magic: Int): Boolean</ID>
-    <ID>ReturnCount:Fingerprint.kt$private fun keypointsValueEqual(a: List&lt;KeyPoint&gt;, b: List&lt;KeyPoint&gt;): Boolean</ID>
     <ID>ReturnCount:ImageExt.kt$fun Bitmap.eraseColorBlob(nx: Float, ny: Float): Bitmap</ID>
     <ID>ReturnCount:LayoutOps.kt$LayoutOps$fun applyAutoLayout(layers: List&lt;Layer&gt;, frameId: String, frame: Rect): List&lt;Layer&gt;</ID>
     <ID>ReturnCount:LayoutOps.kt$LayoutOps$fun applyResize( layers: List&lt;Layer&gt;, frameId: String, old: Rect, new: Rect, ): List&lt;Layer&gt;</ID>

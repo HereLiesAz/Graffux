@@ -10,7 +10,7 @@ import com.hereliesaz.graffitixr.common.azphalt.ImpastoMaterialConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
@@ -37,8 +37,8 @@ class DrawingEngineImpastoTest {
         fun setUp() = RenderTestBase.stubNativeLibs()
     }
 
-    private val slamManager: SlamManager = mockk(relaxed = true)
-    private val engine = DrawingEngine(slamManager)
+    private val liquifyEngine: LiquifyEngine = mockk(relaxed = true)
+    private val engine = DrawingEngine(liquifyEngine)
 
     private val w = 40
     private val h = 40

@@ -17,7 +17,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ink_stroke_modeler)
 
-find_package(OpenCV REQUIRED CONFIG)
 set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
 # GPU stamp engine: only the wgpu adapter (WgpuStampEngine.cpp, which dlopen()s
@@ -26,13 +25,7 @@ set(GLM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/glm)
 
 add_library(graffitixr SHARED
     GraffitiJNI.cpp
-    MobileGS.cpp
-    StereoProcessor.cpp
-    SuperPointDetector.cpp
-    DistortionHead.cpp
-    LowLightEnhancer.cpp
     ImageWarper.cpp
-    MlasStub.cpp
     StampDynamicsJNI.cpp
     ColorSmudgeJNI.cpp
     StampEngineFactory.cpp
@@ -50,7 +43,6 @@ find_library(log-lib log)
 
 target_link_libraries(graffitixr
     ${log-lib}
-    OpenCV::opencv_java5
     GLESv3
     EGL
     android

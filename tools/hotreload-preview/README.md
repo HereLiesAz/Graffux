@@ -7,7 +7,7 @@ without restarting anything.
 This module is intentionally **not** a preview of the shipping Android app. Compose Hot Reload
 runs on the JetBrains Runtime and cannot attach to code running on an Android device or emulator,
 so it can't target `:app`, `:feature:editor`, or `:core:design` directly — those depend on
-CameraX/OpenCV/Hilt/native code (or, for `:core:design`, the Android-AAR-only `az-nav-rail`) that
+Hilt/native code (or, for `:core:design`, the Android-AAR-only `az-nav-rail`) that
 don't run on a plain JVM. Use this module to prototype a composable in isolation with fast
 iteration, then port the result back into the real Android module by hand.
 

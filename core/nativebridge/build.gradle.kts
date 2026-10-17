@@ -33,11 +33,6 @@ android {
         }
     }
 
-    // Consume the OpenCV Maven artifact's Prefab part from CMake (find_package(OpenCV)).
-    buildFeatures {
-        prefab = true
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -52,17 +47,6 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
-
-    // The androidTest APK pulls in both this module's own libc++_shared.so (from the NDK build
-    // above) and the OpenCV AAR's copy of the same file, which MergeNativeLibsTask otherwise
-    // rejects as a duplicate. app/build.gradle.kts has the identical fix for the same conflict in
-    // the main app APK; this module's own androidTest variant needed it separately since it builds
-    // its own APK.
-    packaging {
-        jniLibs {
-            pickFirsts += "**/libc++_shared.so"
-        }
-    }
 }
 
 dependencies {
@@ -71,9 +55,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(project(":core:common"))
     implementation(project(":core:domain"))
-    // OpenCV from Maven Central. Its Prefab part exposes the native C++ world to CMake
-    // (find_package(OpenCV) → OpenCV::opencv_java5) and auto-packages libopencv_java5.so.
-    implementation(libs.opencv)
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     androidTestImplementation(libs.androidx.junit)

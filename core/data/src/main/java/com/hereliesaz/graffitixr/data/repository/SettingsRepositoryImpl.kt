@@ -10,10 +10,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.hereliesaz.graffitixr.common.model.ArScanMode
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
-import com.hereliesaz.graffitixr.common.model.MuralMethod
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -34,13 +32,10 @@ class SettingsRepositoryImpl @Inject constructor(
 ) : SettingsRepository {
 
     private val IS_RIGHT_HANDED = booleanPreferencesKey("is_right_handed")
-    private val AR_SCAN_MODE = stringPreferencesKey("ar_scan_mode")
-    private val MURAL_METHOD = stringPreferencesKey("mural_method")
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
     private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
     private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
-    private val PARALLAX_MIN_DEG = floatPreferencesKey("parallax_min_degrees")
     private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
     private val INPUT_SAMPLE_RATE_HZ = intPreferencesKey("input_sample_rate_hz")
     private val CANVAS_RENDER_SCALE = floatPreferencesKey("canvas_render_scale")
@@ -59,37 +54,6 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setRightHanded(isRight: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[IS_RIGHT_HANDED] = isRight
-        }
-    }
-
-    override val arScanMode: Flow<ArScanMode> = context.dataStore.data
-        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
-        .map { preferences ->
-            when (preferences[AR_SCAN_MODE]) {
-                ArScanMode.CLOUD_POINTS.name -> ArScanMode.CLOUD_POINTS
-                else -> ArScanMode.MURAL  // default
-            }
-        }
-
-    override val muralMethod: Flow<MuralMethod> = context.dataStore.data
-        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
-        .map { preferences ->
-            when (preferences[MURAL_METHOD]) {
-                MuralMethod.SURFACE_MESH.name -> MuralMethod.SURFACE_MESH
-                MuralMethod.CLOUD_OFFSET.name -> MuralMethod.CLOUD_OFFSET
-                else -> MuralMethod.VOXEL_HASH // default
-            }
-        }
-
-    override suspend fun setMuralMethod(method: MuralMethod) {
-        context.dataStore.edit { preferences ->
-            preferences[MURAL_METHOD] = method.name
-        }
-    }
-
-    override suspend fun setArScanMode(mode: ArScanMode) {
-        context.dataStore.edit { preferences ->
-            preferences[AR_SCAN_MODE] = mode.name
         }
     }
 
@@ -127,16 +91,6 @@ class SettingsRepositoryImpl @Inject constructor(
     override val backgroundColor: Flow<Int> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
         .map { preferences -> preferences[BACKGROUND_COLOR] ?: 0xFF000000.toInt() }
-
-    override val parallaxMinDegrees: Flow<Float> = context.dataStore.data
-        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
-        .map { preferences -> preferences[PARALLAX_MIN_DEG] ?: 4.0f }
-
-    override suspend fun setParallaxMinDegrees(deg: Float) {
-        context.dataStore.edit { preferences ->
-            preferences[PARALLAX_MIN_DEG] = deg
-        }
-    }
 
     override val savedPalette: Flow<List<Int>> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
