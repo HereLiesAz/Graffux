@@ -3894,7 +3894,7 @@ class EditorViewModel @Inject constructor(
     /** Resets the camera to identity (100%, centred, unrotated). */
     fun resetViewport() {
         val changedZoom = _uiState.value.viewportZoom != 1f
-        dispatch(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
+        dispatch(EditorIntent.SetViewport(CanvasViewport.DEFAULT_OFFSET, 1f, 0f))
         if (changedZoom) showBrushHud()
     }
 
