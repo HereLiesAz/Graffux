@@ -724,17 +724,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 drawingUiHidden = { drawingUiHidden },
             )
 
-            // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
-            // "the order in the DSL determines the order in the rail" (guide §3), so this is simply
-            // declared last. Undo/Redo are not on the rail: the carousel's tab row carries them.
-            val viewMoved = uiState.viewportZoom != 1f ||
-                uiState.viewportOffset != Offset.Zero ||
-                uiState.viewportRotation != 0f
-            azRailItem(
-                id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
-                disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
-            )
-
             if (showAnimationRail) {
                 azUnattachedHostItem(
                     id = "area.animation", text = "Animation",
@@ -2257,17 +2246,6 @@ private fun AzNavHostScope.ConfigureRailItems(
         color = navItemColor, content = AzComposableContent { BrushSizePad(vm, onToolOptionsClicked) },
     )
 
-    // ── Transform · Selection ──────────────────────────────────────────────────────────────────────
-    // Transform leads the rest of the strip; the Selection nested rail sits below it.
-
-    stateItem(
-        TRANSFORM_ID, "Crop & Transform", GraffuxIcons.Crop,
-    ) { onToolGroupRequested(CarouselCategory.TRANSFORM) }
-
-    stateItem(
-        SELECT_ID, "Selection", GraffuxIcons.SelectAll,
-    ) { onToolGroupRequested(CarouselCategory.SELECTION) }
-
     // The colour item shows the current colour itself, the way Procreate's swatch does, rather than
     // a generic palette glyph that says nothing about what you're about to paint with — filling a
     // painter's-palette silhouette ([PaletteSwatch]) rather than a plain square chip, so the shape
@@ -2447,6 +2425,26 @@ private fun AzNavHostScope.ConfigureRailItems(
     // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
     // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
     // windows under one name is how a user ends up in the wrong one.
+
+    // ── Crop & Transform · Selection · Fit ────────────────────────────────────────────────────────
+    // Canvas-level controls, grouped at the foot of the strip directly above Help. Fit is disabled
+    // until the view has moved off the default framing. Undo/Redo are not on the rail: the
+    // carousel's tab row carries them.
+    stateItem(
+        TRANSFORM_ID, "Crop & Transform", GraffuxIcons.Crop,
+    ) { onToolGroupRequested(CarouselCategory.TRANSFORM) }
+
+    stateItem(
+        SELECT_ID, "Selection", GraffuxIcons.SelectAll,
+    ) { onToolGroupRequested(CarouselCategory.SELECTION) }
+
+    val viewMoved = uiState.viewportZoom != 1f ||
+        uiState.viewportOffset != Offset.Zero ||
+        uiState.viewportRotation != 0f
+    azRailItem(
+        id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
+        disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
+    )
 
     // The `?`. It opens the library's help overlay, which draws a card for every item currently in
     // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
