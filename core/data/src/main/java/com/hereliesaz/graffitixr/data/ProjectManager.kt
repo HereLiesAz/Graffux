@@ -77,57 +77,11 @@ class ProjectManager @Inject constructor(
         }
     }
 
-    fun getMapPath(context: Context, projectId: String): String {
-        require(isSafeProjectId(projectId)) { "Unsafe project id: $projectId" }
-        val root = File(context.filesDir, "projects/$projectId")
-        if (!root.exists()) root.mkdirs()
-        return File(root, "map.bin").absolutePath
-    }
-
-    /**
-     * Returns the path to the auxiliary mesh persistence file used by SurfaceMesh.
-     */
-    fun getMeshPath(context: Context, projectId: String): String {
-        return getMapPath(context, projectId) + ".mesh"
-    }
-
-    fun getCloudPointsPath(context: Context, projectId: String): String {
-        require(isSafeProjectId(projectId)) { "Unsafe project id: $projectId" }
-        val root = File(context.filesDir, "projects/$projectId")
-        if (!root.exists()) root.mkdirs()
-        return File(root, "cloud_points.bin").absolutePath
-    }
-
     suspend fun saveProject(context: Context, projectData: GraffitiProject, targetImages: List<Bitmap>? = null, thumbnail: Bitmap? = null) = withContext(Dispatchers.IO) {
         val root = File(context.filesDir, "projects/${projectData.id}")
         if (!root.exists()) root.mkdirs()
 
-        // The target fingerprint must survive EVERY routine save (layer edits, autosave, re-entering
-        // AR, etc.) and change only when the user creates a NEW target — which is the one path that
-        // passes a non-null fingerprint. So when the incoming project carries no fingerprint, carry
-        // over whatever is already persisted instead of nulling it. This makes it impossible for any
-        // other writer (or a stale-snapshot race) to wipe the saved target.
-        val incoming = if (projectData.fingerprint == null) {
-            val existing = try {
-                val f = File(root, "project.json")
-                if (f.exists()) json.decodeFromString<GraffitiProject>(f.readText()) else null
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e // never swallow cancellation
-            } catch (e: Exception) {
-                null
-            }
-            if (existing != null) {
-                projectData.copy(
-                    fingerprint = existing.fingerprint,
-                    fingerprintIntrinsics = existing.fingerprintIntrinsics,
-                    fingerprintAnchor = existing.fingerprintAnchor,
-                    // Preserve the legacy target-fingerprint references too, so no save without them
-                    // can wipe an existing target.
-                    targetFingerprint = projectData.targetFingerprint ?: existing.targetFingerprint,
-                    targetFingerprintPath = projectData.targetFingerprintPath ?: existing.targetFingerprintPath,
-                )
-            } else projectData
-        } else projectData
+        val incoming = projectData
 
         val thumbnailUri = if (thumbnail != null) {
             val file = File(root, "thumbnail.png")
