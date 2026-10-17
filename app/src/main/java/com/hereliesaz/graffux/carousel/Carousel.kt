@@ -22,6 +22,8 @@ import androidx.compose.animation.core.DecayAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.rememberSplineBasedDecay
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.TargetedFlingBehavior
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
@@ -38,6 +40,7 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerSnapDistance
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -371,6 +374,7 @@ internal fun Carousel(
 }
 
 // Graffux fork: the original Carousel body, with the pager padding the pinned mode needs.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Carousel(
     state: CarouselState,
@@ -405,99 +409,107 @@ private fun Carousel(
     val snapPosition = remember(pageSize) { KeylineSnapPosition(pageSize) }
 
     val bringIntoViewSpec = remember(state, pageSize) { CarouselBringIntoViewSpec(state, pageSize) }
+    // Foundation 1.12 removed the pager's `bringIntoViewSpec` parameter; the pager now reads the
+    // default spec from LocalBringIntoViewSpec. Provide ours to the pager, and restore the outer
+    // spec for page content so nested scrollables keep their normal behavior.
+    val outerBringIntoViewSpec = LocalBringIntoViewSpec.current
 
-    if (orientation == Orientation.Horizontal) {
-        HorizontalPager(
-            state = state.pagerState,
-            // Only pass cross axis padding as main axis padding will be handled by the strategy
-            contentPadding =
-                PaddingValues(
-                    start = with(density) { pagerBeforePadding.toDp() },
-                    top = contentPadding.calculateTopPadding(),
-                    end = with(density) { pagerAfterPadding.toDp() },
-                    bottom = contentPadding.calculateBottomPadding(),
-                ),
-            pageSize = pageSize,
-            pageSpacing = itemSpacing,
-            beyondViewportPageCount = maxNonFocalVisibleItemCount,
-            snapPosition = snapPosition,
-            flingBehavior = flingBehavior,
-            userScrollEnabled = userScrollEnabled,
-            bringIntoViewSpec = bringIntoViewSpec,
-            modifier = modifier.semantics { role = Role.Carousel },
-        ) { page ->
-            val carouselItemInfo = remember { CarouselItemDrawInfoImpl() }
-            val scope = remember { CarouselItemScopeImpl(itemInfo = carouselItemInfo) }
-            val clipShape = remember {
-                object : Shape {
-                    override fun createOutline(
-                        size: Size,
-                        layoutDirection: LayoutDirection,
-                        density: Density,
-                    ): Outline {
-                        return Outline.Rectangle(carouselItemInfo.maskRect)
+    CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoViewSpec) {
+        if (orientation == Orientation.Horizontal) {
+            HorizontalPager(
+                state = state.pagerState,
+                // Only pass cross axis padding as main axis padding will be handled by the strategy
+                contentPadding =
+                    PaddingValues(
+                        start = with(density) { pagerBeforePadding.toDp() },
+                        top = contentPadding.calculateTopPadding(),
+                        end = with(density) { pagerAfterPadding.toDp() },
+                        bottom = contentPadding.calculateBottomPadding(),
+                    ),
+                pageSize = pageSize,
+                pageSpacing = itemSpacing,
+                beyondViewportPageCount = maxNonFocalVisibleItemCount,
+                snapPosition = snapPosition,
+                flingBehavior = flingBehavior,
+                userScrollEnabled = userScrollEnabled,
+                modifier = modifier.semantics { role = Role.Carousel },
+            ) { page ->
+                val carouselItemInfo = remember { CarouselItemDrawInfoImpl() }
+                val scope = remember { CarouselItemScopeImpl(itemInfo = carouselItemInfo) }
+                val clipShape = remember {
+                    object : Shape {
+                        override fun createOutline(
+                            size: Size,
+                            layoutDirection: LayoutDirection,
+                            density: Density,
+                        ): Outline {
+                            return Outline.Rectangle(carouselItemInfo.maskRect)
+                        }
+                    }
+                }
+
+                Box(
+                    modifier =
+                        Modifier.carouselItem(
+                            index = page,
+                            state = state,
+                            strategy = { pageSize.strategy },
+                            carouselItemDrawInfo = carouselItemInfo,
+                            clipShape = clipShape,
+                            isVertical = false,
+                        )
+                ) {
+                    CompositionLocalProvider(LocalBringIntoViewSpec provides outerBringIntoViewSpec) {
+                        scope.content(page)
                     }
                 }
             }
-
-            Box(
-                modifier =
-                    Modifier.carouselItem(
-                        index = page,
-                        state = state,
-                        strategy = { pageSize.strategy },
-                        carouselItemDrawInfo = carouselItemInfo,
-                        clipShape = clipShape,
-                        isVertical = false,
-                    )
-            ) {
-                scope.content(page)
-            }
-        }
-    } else if (orientation == Orientation.Vertical) {
-        VerticalPager(
-            state = state.pagerState,
-            // Only pass cross axis padding as main axis padding will be handled by the strategy
-            contentPadding =
-                PaddingValues(
-                    start = contentPadding.calculateStartPadding(LocalLayoutDirection.current),
-                    end = contentPadding.calculateEndPadding(LocalLayoutDirection.current),
-                ),
-            pageSize = pageSize,
-            pageSpacing = itemSpacing,
-            beyondViewportPageCount = maxNonFocalVisibleItemCount,
-            snapPosition = snapPosition,
-            flingBehavior = flingBehavior,
-            userScrollEnabled = userScrollEnabled,
-            bringIntoViewSpec = bringIntoViewSpec,
-            modifier = modifier.semantics { role = Role.Carousel },
-        ) { page ->
-            val carouselItemInfo = remember { CarouselItemDrawInfoImpl() }
-            val scope = remember { CarouselItemScopeImpl(itemInfo = carouselItemInfo) }
-            val clipShape = remember {
-                object : Shape {
-                    override fun createOutline(
-                        size: Size,
-                        layoutDirection: LayoutDirection,
-                        density: Density,
-                    ): Outline {
-                        return Outline.Rectangle(carouselItemInfo.maskRect)
+        } else if (orientation == Orientation.Vertical) {
+            VerticalPager(
+                state = state.pagerState,
+                // Only pass cross axis padding as main axis padding will be handled by the strategy
+                contentPadding =
+                    PaddingValues(
+                        start = contentPadding.calculateStartPadding(LocalLayoutDirection.current),
+                        end = contentPadding.calculateEndPadding(LocalLayoutDirection.current),
+                    ),
+                pageSize = pageSize,
+                pageSpacing = itemSpacing,
+                beyondViewportPageCount = maxNonFocalVisibleItemCount,
+                snapPosition = snapPosition,
+                flingBehavior = flingBehavior,
+                userScrollEnabled = userScrollEnabled,
+                modifier = modifier.semantics { role = Role.Carousel },
+            ) { page ->
+                val carouselItemInfo = remember { CarouselItemDrawInfoImpl() }
+                val scope = remember { CarouselItemScopeImpl(itemInfo = carouselItemInfo) }
+                val clipShape = remember {
+                    object : Shape {
+                        override fun createOutline(
+                            size: Size,
+                            layoutDirection: LayoutDirection,
+                            density: Density,
+                        ): Outline {
+                            return Outline.Rectangle(carouselItemInfo.maskRect)
+                        }
                     }
                 }
-            }
 
-            Box(
-                modifier =
-                    Modifier.carouselItem(
-                        index = page,
-                        state = state,
-                        strategy = { pageSize.strategy },
-                        carouselItemDrawInfo = carouselItemInfo,
-                        clipShape = clipShape,
-                        isVertical = true,
-                    )
-            ) {
-                scope.content(page)
+                Box(
+                    modifier =
+                        Modifier.carouselItem(
+                            index = page,
+                            state = state,
+                            strategy = { pageSize.strategy },
+                            carouselItemDrawInfo = carouselItemInfo,
+                            clipShape = clipShape,
+                            isVertical = true,
+                        )
+                ) {
+                    CompositionLocalProvider(LocalBringIntoViewSpec provides outerBringIntoViewSpec) {
+                        scope.content(page)
+                    }
+                }
             }
         }
     }
