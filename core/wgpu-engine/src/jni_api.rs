@@ -4,11 +4,12 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use jni::errors::LogErrorAndDefault;
 use jni::objects::{JByteArray, JClass, JFloatArray, JIntArray, JLongArray, ReleaseMode};
 use jni::sys::{
     jboolean, jdoubleArray, jfloat, jint, jlong, jlongArray, jstring, JNI_FALSE, JNI_TRUE,
 };
-use jni::JNIEnv;
+use jni::{Env, EnvUnowned};
 
 use crate::engine::{
     BackendChoice, ColorSmudgeDab, Engine, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
@@ -26,17 +27,17 @@ unsafe fn engine<'a>(handle: jlong) -> Option<&'a mut Engine> {
     (handle as *mut Engine).as_mut()
 }
 
-fn floats(env: &mut JNIEnv, array: &JFloatArray) -> Option<Vec<f32>> {
+fn floats(env: &Env, array: &JFloatArray) -> Option<Vec<f32>> {
     if array.is_null() {
         return None;
     }
-    let len = env.get_array_length(array).ok()? as usize;
+    let len = array.len(env).ok()?;
     let mut out = vec![0f32; len];
-    env.get_float_array_region(array, 0, &mut out).ok()?;
+    array.get_region(env, 0, &mut out).ok()?;
     Some(out)
 }
 
-fn bytes(env: &mut JNIEnv, array: &JByteArray) -> Option<Vec<u8>> {
+fn bytes(env: &Env, array: &JByteArray) -> Option<Vec<u8>> {
     if array.is_null() {
         return None;
     }
@@ -75,7 +76,7 @@ fn substrate(data: Option<Vec<f32>>) -> SubstrateParams {
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeCreate(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     width: jint,
     height: jint,
@@ -92,7 +93,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeDestroy(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) {
@@ -104,7 +105,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeClear(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jboolean {
@@ -113,96 +114,106 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUpload(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     rgba: JByteArray,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        if rgba.is_null() {
-            return false;
-        }
-        // SAFETY: no other JNI call happens while the elements are borrowed.
-        let Ok(elements) = (unsafe { env.get_array_elements(&rgba, ReleaseMode::NoCopyBack) })
-        else {
-            return false;
-        };
-        e.upload(bytemuck::cast_slice(&elements))
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            if rgba.is_null() {
+                return false;
+            }
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(elements) = (unsafe { rgba.get_elements(env, ReleaseMode::NoCopyBack) }) else {
+                return false;
+            };
+            e.upload(bytemuck::cast_slice(&elements))
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUploadRows(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     rgba: JByteArray,
     y: jint,
     rows: jint,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        if rgba.is_null() {
-            return false;
-        }
-        // SAFETY: no other JNI call happens while the elements are borrowed.
-        let Ok(elements) = (unsafe { env.get_array_elements(&rgba, ReleaseMode::NoCopyBack) })
-        else {
-            return false;
-        };
-        e.upload_rows(bytemuck::cast_slice(&elements), y, rows)
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            if rgba.is_null() {
+                return false;
+            }
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(elements) = (unsafe { rgba.get_elements(env, ReleaseMode::NoCopyBack) }) else {
+                return false;
+            };
+            e.upload_rows(bytemuck::cast_slice(&elements), y, rows)
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUploadSubstrateHeight(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     data: JByteArray,
     width: jint,
     height: jint,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        let Some(d) = bytes(&mut env, &data) else {
-            return false;
-        };
-        e.upload_substrate_height(&d, width, height)
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            let Some(d) = bytes(env, &data) else {
+                return false;
+            };
+            e.upload_substrate_height(&d, width, height)
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUploadPaintHeight(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     data: JFloatArray,
     width: jint,
     height: jint,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        let Some(d) = floats(&mut env, &data) else {
-            return false;
-        };
-        e.upload_paint_height(&d, width, height)
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            let Some(d) = floats(env, &data) else {
+                return false;
+            };
+            e.upload_paint_height(&d, width, height)
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeStampDabs(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     dabs: JFloatArray,
@@ -212,32 +223,35 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     substrate_params: JFloatArray,
     stroke_max: jboolean,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        let Some(d) = floats(&mut env, &dabs) else {
-            return false;
-        };
-        let sub = substrate(floats(&mut env, &substrate_params));
-        let Some(dabs) = records::<GpuDab>(&d) else {
-            return false;
-        };
-        e.stamp_dabs(
-            &dabs,
-            color_argb as u32,
-            hardness,
-            build_up != 0,
-            sub,
-            stroke_max != 0,
-        )
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            let Some(d) = floats(env, &dabs) else {
+                return false;
+            };
+            let sub = substrate(floats(env, &substrate_params));
+            let Some(dabs) = records::<GpuDab>(&d) else {
+                return false;
+            };
+            e.stamp_dabs(
+                &dabs,
+                color_argb as u32,
+                hardness,
+                build_up,
+                sub,
+                stroke_max,
+            )
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeStampMaskedDabs(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     dabs: JFloatArray,
@@ -259,59 +273,62 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     secondary_height: jint,
     substrate_params: JFloatArray,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        let Some(d) = floats(&mut env, &dabs) else {
-            return false;
-        };
-        let Some(m) = bytes(&mut env, &mask) else {
-            return false;
-        };
-        if mask_width <= 0 || mask_height <= 0 {
-            return false;
-        }
-        let g = bytes(&mut env, &grain);
-        let sd: Vec<GpuSecondaryDab> = match floats(&mut env, &secondary_dabs) {
-            Some(s) => match records(&s) {
-                Some(r) => r,
-                None => return false,
-            },
-            None => Vec::new(),
-        };
-        let sm = bytes(&mut env, &secondary_mask);
-        let sub = substrate(floats(&mut env, &substrate_params));
-        let Some(dabs) = records::<GpuDab>(&d) else {
-            return false;
-        };
-        let params = MaskedParams {
-            mask: &m,
-            mask_width: mask_width as u32,
-            mask_height: mask_height as u32,
-            grain: g
-                .as_deref()
-                .filter(|_| grain_width > 0 && grain_height > 0)
-                .map(|g| (g, grain_width as u32, grain_height as u32)),
-            grain_canvas_locked: grain_canvas_locked != 0,
-            grain_scale,
-            grain_phase_x,
-            grain_phase_y,
-            secondary_dabs: &sd,
-            secondary_mask: sm
-                .as_deref()
-                .filter(|_| secondary_width > 0 && secondary_height > 0)
-                .map(|m| (m, secondary_width as u32, secondary_height as u32)),
-            substrate: sub,
-        };
-        e.stamp_masked_dabs(&dabs, color_argb as u32, hardness, &params)
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            let Some(d) = floats(env, &dabs) else {
+                return false;
+            };
+            let Some(m) = bytes(env, &mask) else {
+                return false;
+            };
+            if mask_width <= 0 || mask_height <= 0 {
+                return false;
+            }
+            let g = bytes(env, &grain);
+            let sd: Vec<GpuSecondaryDab> = match floats(env, &secondary_dabs) {
+                Some(s) => match records(&s) {
+                    Some(r) => r,
+                    None => return false,
+                },
+                None => Vec::new(),
+            };
+            let sm = bytes(env, &secondary_mask);
+            let sub = substrate(floats(env, &substrate_params));
+            let Some(dabs) = records::<GpuDab>(&d) else {
+                return false;
+            };
+            let params = MaskedParams {
+                mask: &m,
+                mask_width: mask_width as u32,
+                mask_height: mask_height as u32,
+                grain: g
+                    .as_deref()
+                    .filter(|_| grain_width > 0 && grain_height > 0)
+                    .map(|g| (g, grain_width as u32, grain_height as u32)),
+                grain_canvas_locked,
+                grain_scale,
+                grain_phase_x,
+                grain_phase_y,
+                secondary_dabs: &sd,
+                secondary_mask: sm
+                    .as_deref()
+                    .filter(|_| secondary_width > 0 && secondary_height > 0)
+                    .map(|m| (m, secondary_width as u32, secondary_height as u32)),
+                substrate: sub,
+            };
+            e.stamp_masked_dabs(&dabs, color_argb as u32, hardness, &params)
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeColorSmudge(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     dabs: JFloatArray,
@@ -325,58 +342,63 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     sample_width: jint,
     sample_height: jint,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        let Some(d) = floats(&mut env, &dabs) else {
-            return false;
-        };
-        let Some(dabs) = records::<ColorSmudgeDab>(&d) else {
-            return false;
-        };
-        let src = bytes(&mut env, &sample_source);
-        let source = src.as_deref().map(|s| (s, sample_width, sample_height));
-        e.color_smudge(
-            &dabs,
-            mode,
-            radius_px,
-            feathering,
-            smear_alpha != 0,
-            paint_color_argb as u32,
-            dilution,
-            source,
-        )
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            let Some(d) = floats(env, &dabs) else {
+                return false;
+            };
+            let Some(dabs) = records::<ColorSmudgeDab>(&d) else {
+                return false;
+            };
+            let src = bytes(env, &sample_source);
+            let source = src.as_deref().map(|s| (s, sample_width, sample_height));
+            e.color_smudge(
+                &dabs,
+                mode,
+                radius_px,
+                feathering,
+                smear_alpha,
+                paint_color_argb as u32,
+                dilution,
+                source,
+            )
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeReadback(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     out: JByteArray,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        if out.is_null() {
-            return false;
-        }
-        // CopyBack: readback writes only the dirty rectangle, the rest of `out` must survive.
-        // SAFETY: no other JNI call happens while the elements are borrowed.
-        let Ok(mut elements) = (unsafe { env.get_array_elements(&out, ReleaseMode::CopyBack) })
-        else {
-            return false;
-        };
-        e.readback(bytemuck::cast_slice_mut(&mut elements))
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            if out.is_null() {
+                return false;
+            }
+            // CopyBack: readback writes only the dirty rectangle, the rest of `out` must survive.
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(mut elements) = (unsafe { out.get_elements(env, ReleaseMode::CopyBack) }) else {
+                return false;
+            };
+            e.readback(bytemuck::cast_slice_mut(&mut elements))
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdapterDescription(
-    env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jstring {
@@ -386,25 +408,19 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
             .unwrap_or_default()
     }))
     .unwrap_or_default();
-    env.new_string(text)
-        .map(|s| s.into_raw())
-        .unwrap_or(std::ptr::null_mut())
+    env.with_env(|env| Ok::<_, jni::errors::Error>(env.new_string(text)?.into_raw()))
+        .resolve::<LogErrorAndDefault>()
 }
 
 // ---- Dirty-rect readback and resident layers ---------------------------------------------
 
 /// Runs `f` with `array` borrowed as bytes (no copy back).
-fn with_bytes<R>(
-    env: &mut JNIEnv,
-    array: &JByteArray,
-    fallback: R,
-    f: impl FnOnce(&[u8]) -> R,
-) -> R {
+fn with_bytes<R>(env: &mut Env, array: &JByteArray, fallback: R, f: impl FnOnce(&[u8]) -> R) -> R {
     if array.is_null() {
         return fallback;
     }
     // SAFETY: no other JNI call happens while the elements are borrowed.
-    match unsafe { env.get_array_elements(array, ReleaseMode::NoCopyBack) } {
+    match unsafe { array.get_elements(env, ReleaseMode::NoCopyBack) } {
         Ok(elements) => f(bytemuck::cast_slice(&elements)),
         Err(_) => fallback,
     }
@@ -416,40 +432,43 @@ fn session(f: impl FnOnce() -> u64) -> jlong {
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeReadbackRect(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     out: JByteArray,
     rect: JIntArray,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        if out.is_null() {
-            return false;
-        }
-        let result = {
-            // SAFETY: no other JNI call happens while the elements are borrowed.
-            let Ok(mut elements) = (unsafe { env.get_array_elements(&out, ReleaseMode::CopyBack) })
-            else {
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
                 return false;
             };
-            e.readback_rect(bytemuck::cast_slice_mut(&mut elements))
-        };
-        let Some((x, y, w, h)) = result else {
-            return false;
-        };
-        if !rect.is_null() {
-            let _ = env.set_int_array_region(&rect, 0, &[x, y, w, h]);
-        }
-        true
+            if out.is_null() {
+                return false;
+            }
+            let result = {
+                // SAFETY: no other JNI call happens while the elements are borrowed.
+                let Ok(mut elements) = (unsafe { out.get_elements(env, ReleaseMode::CopyBack) })
+                else {
+                    return false;
+                };
+                e.readback_rect(bytemuck::cast_slice_mut(&mut elements))
+            };
+            let Some((x, y, w, h)) = result else {
+                return false;
+            };
+            if !rect.is_null() {
+                let _ = rect.set_region(env, 0, &[x, y, w, h]);
+            }
+            true
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeReadRegion(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     x: jint,
@@ -458,25 +477,27 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     h: jint,
     out: JByteArray,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        if out.is_null() {
-            return false;
-        }
-        // SAFETY: no other JNI call happens while the elements are borrowed.
-        let Ok(mut elements) = (unsafe { env.get_array_elements(&out, ReleaseMode::CopyBack) })
-        else {
-            return false;
-        };
-        e.read_region(x, y, w, h, bytemuck::cast_slice_mut(&mut elements))
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            if out.is_null() {
+                return false;
+            }
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(mut elements) = (unsafe { out.get_elements(env, ReleaseMode::CopyBack) }) else {
+                return false;
+            };
+            e.read_region(x, y, w, h, bytemuck::cast_slice_mut(&mut elements))
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeBindLayer(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     key: jlong,
@@ -487,26 +508,29 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUploadLayer(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     key: jlong,
     generation: jlong,
     rgba: JByteArray,
 ) -> jlong {
-    session(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return 0;
-        };
-        with_bytes(&mut env, &rgba, 0, |b| {
-            e.upload_layer(key as u64, generation as u64, b)
-        })
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(session(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return 0;
+            };
+            with_bytes(env, &rgba, 0, |b| {
+                e.upload_layer(key as u64, generation as u64, b)
+            })
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeCommitLayer(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     key: jlong,
@@ -522,7 +546,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeRefreshLayer(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     key: jlong,
@@ -534,25 +558,28 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     w: jint,
     h: jint,
 ) -> jboolean {
-    guard(|| {
-        let Some(e) = (unsafe { engine(handle) }) else {
-            return false;
-        };
-        with_bytes(&mut env, &rgba, false, |b| {
-            e.refresh_layer(
-                key as u64,
-                session as u64,
-                generation as u64,
-                b,
-                (x, y, w, h),
-            )
-        })
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(e) = (unsafe { engine(handle) }) else {
+                return false;
+            };
+            with_bytes(env, &rgba, false, |b| {
+                e.refresh_layer(
+                    key as u64,
+                    session as u64,
+                    generation as u64,
+                    b,
+                    (x, y, w, h),
+                )
+            })
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeInvalidateLayer(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     key: jlong,
@@ -562,7 +589,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeInvalidateAllLayers(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) {
@@ -575,7 +602,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeSetResidentBudget(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     bytes: jlong,
@@ -590,7 +617,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 /// {resident layer count, bytes held}.
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeResidentStats(
-    env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jlongArray {
@@ -598,14 +625,12 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
         unsafe { engine(handle) }.map_or((0, 0), |e| e.resident_stats())
     }))
     .unwrap_or((0, 0));
-    match env.new_long_array(2) {
-        Ok(array) => {
-            let array: JLongArray = array;
-            let _ = env.set_long_array_region(&array, 0, &[n as i64, bytes as i64]);
-            array.into_raw()
-        }
-        Err(_) => std::ptr::null_mut(),
-    }
+    env.with_env(|env| {
+        let array: JLongArray = env.new_long_array(2)?;
+        array.set_region(env, 0, &[n as i64, bytes as i64])?;
+        Ok::<_, jni::errors::Error>(array.into_raw())
+    })
+    .resolve::<LogErrorAndDefault>()
 }
 
 // ---- Multipass rendering (experimental; see multipass.rs) ------------------------------------
@@ -613,22 +638,25 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 /// `params` = MultipassConfig floats; null or short takes defaults (null = off).
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeSetMultipass(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     params: JFloatArray,
 ) -> jboolean {
-    guard(|| {
-        let values = floats(&mut env, &params).unwrap_or_default();
-        unsafe { engine(handle) }
-            .is_some_and(|e| e.set_multipass(MultipassConfig::from_floats(&values)))
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let values = floats(env, &params).unwrap_or_default();
+            unsafe { engine(handle) }
+                .is_some_and(|e| e.set_multipass(MultipassConfig::from_floats(&values)))
+        }))
     })
+    .resolve::<LogErrorAndDefault>()
 }
 
 /// 1 = work or animation remains, 0 = idle, -1 = failure.
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeRefine(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
     budget_ms: jfloat,
@@ -641,7 +669,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeFlush(
-    _env: JNIEnv,
+    _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jboolean {
@@ -651,7 +679,7 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 /// MultipassStats::to_array().
 #[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeMultipassStats(
-    env: JNIEnv,
+    mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
 ) -> jdoubleArray {
@@ -663,13 +691,12 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
     let Some(stats) = stats else {
         return std::ptr::null_mut();
     };
-    match env.new_double_array(stats.len() as i32) {
-        Ok(array) => {
-            let _ = env.set_double_array_region(&array, 0, &stats);
-            array.into_raw()
-        }
-        Err(_) => std::ptr::null_mut(),
-    }
+    env.with_env(|env| {
+        let array = env.new_double_array(stats.len())?;
+        array.set_region(env, 0, &stats)?;
+        Ok::<_, jni::errors::Error>(array.into_raw())
+    })
+    .resolve::<LogErrorAndDefault>()
 }
 
 #[cfg(test)]
@@ -679,7 +706,10 @@ mod tests {
     #[test]
     fn records_rejects_a_trailing_partial_record() {
         let per = std::mem::size_of::<GpuDab>() / 4;
-        assert_eq!(records::<GpuDab>(&vec![0.0; per * 2]).map(|r| r.len()), Some(2));
+        assert_eq!(
+            records::<GpuDab>(&vec![0.0; per * 2]).map(|r| r.len()),
+            Some(2)
+        );
         assert!(records::<GpuDab>(&vec![0.0; per * 2 + 1]).is_none());
         assert!(records::<GpuDab>(&[]).is_some_and(|r| r.is_empty()));
     }
