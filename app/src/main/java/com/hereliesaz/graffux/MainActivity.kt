@@ -731,17 +731,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 drawingUiHidden = { drawingUiHidden },
             )
 
-            // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
-            // "the order in the DSL determines the order in the rail" (guide §3), so this is simply
-            // declared last. Undo/Redo are not on the rail: the carousel's tab row carries them.
-            val viewMoved = uiState.viewportZoom != 1f ||
-                uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
-                uiState.viewportRotation != 0f
-            azRailItem(
-                id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
-                disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
-            )
-
             if (showAnimationRail) {
                 azUnattachedHostItem(
                     id = "area.animation", text = "Animation",
@@ -2464,7 +2453,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     ) { onToolGroupRequested(CarouselCategory.SELECTION) }
 
     val viewMoved = uiState.viewportZoom != 1f ||
-        uiState.viewportOffset != Offset.Zero ||
+        uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
         uiState.viewportRotation != 0f
     azRailItem(
         id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
