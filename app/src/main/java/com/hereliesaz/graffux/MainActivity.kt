@@ -84,6 +84,7 @@ import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.CanvasViewport
 import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
@@ -722,6 +723,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onOpenBrushGallery = { showBrushGallery = true },
                 onOpenBrushTipsManager = { showBrushTipsManager = true },
                 drawingUiHidden = { drawingUiHidden },
+            )
+
+            // Bottom of the rail. AzNavRail 11.52 has no footer/bottom-anchor slot for rail items:
+            // "the order in the DSL determines the order in the rail" (guide §3), so this is simply
+            // declared last. Undo/Redo are not on the rail: the carousel's tab row carries them.
+            val viewMoved = uiState.viewportZoom != 1f ||
+                uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
+                uiState.viewportRotation != 0f
+            azRailItem(
+                id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
+                disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
             )
 
             if (showAnimationRail) {
