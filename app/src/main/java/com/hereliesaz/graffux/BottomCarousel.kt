@@ -129,6 +129,10 @@ internal val HeroExpandedSize = androidx.compose.ui.unit.DpSize(
     HeroCardHeight + PreviewHeight + PreviewGap,
 )
 private val TabRowHeight = 36.dp
+
+/** Clear space between the screen edge and the Undo/Redo icons, and between each icon and the pill. */
+private val HistoryEdgeGap = 16.dp
+private val HistoryPillGap = 8.dp
 internal val CardShape = RoundedCornerShape(20.dp)
 
 /** Which page is showing and whether the sheet is open — host-owned, so it survives recomposition. */
@@ -396,8 +400,9 @@ private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, his
         }
     }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = HistoryEdgeGap),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(HistoryPillGap),
     ) {
         CAROUSEL_TABS.forEach { tab ->
             when (tab) {

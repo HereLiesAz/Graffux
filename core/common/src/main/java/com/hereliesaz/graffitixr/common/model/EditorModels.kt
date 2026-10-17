@@ -444,7 +444,8 @@ data class EditorUiState(
     val showColorPicker: Boolean = false,
     val showDiagOverlay: Boolean = false,
 
-    val canvasBackground: Color = Color.Black,
+    // Dark gray until the user picks their own colour.
+    val canvasBackground: Color = DEFAULT_CANVAS_BACKGROUND,
     // Artboard / document dimensions in pixels (the fixed design/output size).
     val documentWidth: Int = 1080,
     val documentHeight: Int = 1080,
@@ -458,7 +459,7 @@ data class EditorUiState(
     // Infinite-canvas camera: maps the layer "world" (the screen-sized document space each layer's
     // offset/scale is expressed in) onto the physical screen. screen = viewportOffset + world *
     // viewportZoom (top-left origin). Identity (Zero / 1f) reproduces the pre-camera behaviour.
-    val viewportOffset: Offset = Offset.Zero,
+    val viewportOffset: Offset = CanvasViewport.DEFAULT_OFFSET,
     val viewportZoom: Float = 1f,
     // Camera rotation in degrees (two-finger twist rotates the whole canvas about the pinch centroid).
     val viewportRotation: Float = 0f,
@@ -467,3 +468,21 @@ data class EditorUiState(
     val snapGuidesX: List<Float> = emptyList(),
     val snapGuidesY: List<Float> = emptyList(),
 )
+
+
+/** The canvas surround colour a new document starts with, until the user sets their own. */
+private const val DARK_GRAY_ARGB = 0xFF2B2B2BL
+val DEFAULT_CANVAS_BACKGROUND: Color = Color(DARK_GRAY_ARGB)
+
+/**
+ * The editor's reference grid and the default framing of the canvas against it. The canvas starts
+ * (and Fit returns) [MARGIN_SQUARES] grid squares in from the top and left screen edges, so that much
+ * of the grid shows outside the artboard on those sides.
+ */
+object CanvasViewport {
+    /** World-pixel size of one reference-grid square. Keep equal to the `spacing` default of the
+     *  grid and rulers in EditorScreen.kt. */
+    const val GRID_SPACING = 48f
+    const val MARGIN_SQUARES = 1.5f
+    val DEFAULT_OFFSET: Offset = Offset(GRID_SPACING * MARGIN_SQUARES, GRID_SPACING * MARGIN_SQUARES)
+}
