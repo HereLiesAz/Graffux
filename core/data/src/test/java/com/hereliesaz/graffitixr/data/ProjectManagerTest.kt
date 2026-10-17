@@ -85,7 +85,7 @@ class ProjectManagerTest {
     }
 
     @Test
-    fun `a project.json written before the AR stack was removed still loads and re-saves cleanly`() = runTest {
+    fun `a legacy project file written before the AR stack was removed still loads and re-saves cleanly`() = runTest {
         val dir = File(tempFilesDir, "projects/legacy_ar").also { it.mkdirs() }
         File(dir, "project.json").writeText(
             """
