@@ -65,7 +65,7 @@ import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.export.artboardRect
@@ -546,7 +546,7 @@ class EditorViewModel @Inject constructor(
     private val projectManager: ProjectManager,
     private val exportManager: ExportManager,
     @ApplicationContext private val context: Context,
-    internal val slamManager: SlamManager,
+    internal val liquifyEngine: LiquifyEngine,
     private val dispatchers: DispatcherProvider,
     private val opEmitter: OpEmitter,
     private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository,
@@ -781,7 +781,7 @@ class EditorViewModel @Inject constructor(
     }
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
-    private val drawingEngine = DrawingEngine(slamManager)
+    private val drawingEngine = DrawingEngine(liquifyEngine)
 
     private fun strokeNeedsPersistentWetness(command: StrokeCommand): Boolean =
         (command.tool == Tool.SMUDGE &&
@@ -1620,50 +1620,6 @@ class EditorViewModel @Inject constructor(
                             }
                         }
 
-                        viewModelScope.launch(dispatchers.io) {
-                            slamManager.clearMap()
-                            val mapPath = projectManager.getMapPath(context, project.id)
-                            if (File(mapPath).exists()) {
-                                if (!slamManager.loadModel(mapPath)) {
-                                    android.util.Log.w(
-                                        "EditorViewModel",
-                                        "SLAM loadModel failed for ${project.id}: $mapPath exists but was not restored",
-                                    )
-                                }
-                            }
-
-                            project.fingerprint?.let { fp ->
-                                val intr = project.fingerprintIntrinsics
-                                val anchor = project.fingerprintAnchor
-                                if (intr.size >= 4 && anchor.size == 16) {
-                                    // Metric fingerprint: replay the true capture intrinsics + anchor
-                                    // so reload reloc matches the live capture, not a default guess.
-                                    slamManager.restoreWallFingerprintMetric(
-                                        fp.descriptorsData,
-                                        fp.descriptorsRows,
-                                        fp.descriptorsCols,
-                                        fp.descriptorsType,
-                                        fp.points3d.toFloatArray(),
-                                        anchor.toFloatArray(),
-                                        intr.toFloatArray(),
-                                    )
-                                } else {
-                                    slamManager.restoreWallFingerprint(
-                                        fp.descriptorsData,
-                                        fp.descriptorsRows,
-                                        fp.descriptorsCols,
-                                        fp.descriptorsType,
-                                        fp.points3d.toFloatArray()
-                                    )
-                                }
-                                // Restore the distortion-head canonical patch (256x256 raw gray).
-                                if (fp.patchData.isNotEmpty()) {
-                                    val s = kotlin.math.sqrt(fp.patchData.size.toDouble()).toInt()
-                                    if (s * s == fp.patchData.size) slamManager.setWallPatchBytes(fp.patchData, s)
-                                }
-                            }
-                        }
-
                         project.backgroundImageUri?.let { uri ->
                             viewModelScope.launch(dispatchers.io) {
                                 val bitmap = ImageUtils.loadBitmapAsync(context, uri)
@@ -1675,7 +1631,6 @@ class EditorViewModel @Inject constructor(
                     }
                 } else {
                     dispatch(EditorIntent.ClearProject)
-                    slamManager.clearMap()
                     layerStore.clear()
                     history.clear()
                     inkLedger.clear()
@@ -2036,7 +1991,7 @@ class EditorViewModel @Inject constructor(
 
         rebuildJobs[layerId]?.cancel()
         rebuildJobs[layerId] = viewModelScope.launch(dispatchers.default) {
-            // Compositing replays strokes through OpenCV (and SLAM for Liquify). Guard it so a
+            // Compositing replays strokes through the GPU engine (and the Liquify warper). Guard it so a
             // failure during undo/redo logs instead of taking down the app — the stroke list and
             // base are unchanged, so the next edit re-renders cleanly.
             try {
@@ -2297,7 +2252,7 @@ class EditorViewModel @Inject constructor(
         // going away" (ViewModel.onCleared, unlike a config change, only fires once nothing will
         // read this ViewModel again). Harmless when Liquify was never touched this session: destroy()
         // null-checks every native pointer and no-ops the GL release if the context was never built.
-        slamManager.destroy()
+        liquifyEngine.destroy()
         super.onCleared()
     }
 
@@ -3394,16 +3349,6 @@ class EditorViewModel @Inject constructor(
 
         // Paths derive from the (immutable) project id.
         val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
-        val mapPath = projectManager.getMapPath(context, projectId)
-        val cloudPointsPath = projectManager.getCloudPointsPath(context, projectId)
-        // Writes the wall fingerprint + wall feature map to mapPath. False is routine when no AR wall
-        // has been captured (nothing to save), so it is logged, not toasted - this runs on every autosave.
-        if (!slamManager.saveModel(mapPath)) {
-            android.util.Log.w(
-                "EditorViewModel",
-                "SLAM saveModel returned false for $projectId (no wall map to save, or write failed)",
-            )
-        }
 
         val manifestToSave: GraffitiProject
         if (currentProject == null) {
@@ -3413,8 +3358,6 @@ class EditorViewModel @Inject constructor(
                 layers = updatedLayers,
                 colorStyles = _uiState.value.colorStyles,
                 textStyles = _uiState.value.textStyles,
-                mapPath = mapPath,
-                cloudPointsPath = cloudPointsPath,
                 documentWidth = _uiState.value.documentWidth,
                 documentHeight = _uiState.value.documentHeight,
                 canvasSubstrateId = _uiState.value.canvasSubstrateId,
@@ -3422,9 +3365,8 @@ class EditorViewModel @Inject constructor(
             )
             projectRepository.createProject(manifestToSave)
         } else {
-            // Atomic read-modify-write: a concurrent AR wall-feature-map save merges into the SAME
-            // currentProject, so writing a full stale copy here would drop its wall map (and vice
-            // versa). The transform only touches the editor-owned fields. (docs/AUDIT.md save-race)
+            // Atomic read-modify-write: the transform only touches the editor-owned fields, so a
+            // concurrent writer to the same currentProject is never overwritten by a stale copy.
             projectRepository.updateProject { current ->
                 current.copy(
                     name = name ?: current.name,
@@ -3432,15 +3374,13 @@ class EditorViewModel @Inject constructor(
                     colorStyles = _uiState.value.colorStyles,
                     textStyles = _uiState.value.textStyles,
                     lastModified = System.currentTimeMillis(),
-                    mapPath = mapPath,
-                    cloudPointsPath = cloudPointsPath,
                     documentWidth = _uiState.value.documentWidth,
                     documentHeight = _uiState.value.documentHeight,
                     canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
                 )
             }
-            // The merged result the repository just persisted (includes any AR wall map).
+            // The merged result the repository just persisted.
             manifestToSave = projectRepository.currentProject.value ?: return null
         }
 
@@ -3507,46 +3447,26 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Export the current design as a PNG saved to the gallery.
-     *
-     * @param backgroundBitmap When non-null, used as the export's background (Overlay: the CameraX
-     *   still; AR: the composited GL framebuffer readback that already includes the wall-anchored
-     *   overlay). When null, per-mode default applies: Mockup reads uiState.backgroundBitmap;
-     *   Overlay/AR paths without a captured frame fall back to transparent (only reachable if
-     *   the caller neglected to supply one); Trace/Design have no background.
-     * @param skipLayerComposite When true, the [backgroundBitmap] IS the export — no layers are
-     *   drawn on top. Set by the AR path because the GL readback already contains the layers as
-     *   the wall-anchored quad; drawing them again would double-draw.
+     * Export the current design as a PNG saved to the gallery. The export is the document's layers
+     * composited over a transparent background (the PNG writer preserves alpha).
      */
-    fun exportImage(backgroundBitmap: Bitmap? = null, skipLayerComposite: Boolean = false) {
+    fun exportImage() {
         viewModelScope.launch(dispatchers.default) {
             dispatch(EditorIntent.SetLoading(true))
             try {
-                val exportBitmap = if (skipLayerComposite && backgroundBitmap != null) {
-                    // AR path: GL readback already contains camera + wall-anchored overlay.
-                    // Save as-is; drawing the flat editor layers on top would double-draw them.
-                    backgroundBitmap
-                } else {
-                    val metrics = context.resources.displayMetrics
-                    val bgBmp = backgroundBitmap
-                    // Trace previously baked canvasBackground colour into the export. Spec is
-                    // "overlay layers only, no background", so use TRANSPARENT unconditionally —
-                    // the PNG writer (saveBitmapToGallery uses CompressFormat.PNG) preserves alpha.
-                    exportManager.compositeToDocument(
-                        _uiState.value.layers,
-                        metrics.widthPixels,
-                        metrics.heightPixels,
-                        _uiState.value.documentWidth,
-                        _uiState.value.documentHeight,
-                        backgroundBitmap = bgBmp,
-                        backgroundColor = android.graphics.Color.TRANSPARENT,
-                    )
-                }
+                val metrics = context.resources.displayMetrics
+                val exportBitmap = exportManager.compositeToDocument(
+                    _uiState.value.layers,
+                    metrics.widthPixels,
+                    metrics.heightPixels,
+                    _uiState.value.documentWidth,
+                    _uiState.value.documentHeight,
+                    backgroundBitmap = null,
+                    backgroundColor = android.graphics.Color.TRANSPARENT,
+                )
 
                 val success = saveBitmapToGallery(context, exportBitmap)
-                // Only recycle what this function allocated: on the AR path exportBitmap *is* the
-                // caller's backgroundBitmap, which the caller still owns.
-                if (exportBitmap !== backgroundBitmap) exportBitmap.recycle()
+                exportBitmap.recycle()
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
@@ -4747,16 +4667,13 @@ class EditorViewModel @Inject constructor(
         strokeDynamics = if (state.activeTool == Tool.BRUSH && activeStampBrush == null) BrushDynamics.State() else null
 
         if (state.activeTool == Tool.LIQUIFY) {
-            // Deliberately NOT slamManager.ensureInitialized(): that also boots the full SLAM
-            // engine (MobileGS -- two permanent background relocalization/mapping threads plus an
-            // ORB detector) for a tool that only ever warps a 2D bitmap. prepareLiquify() below
-            // lazily constructs just the native ImageWarper on first use instead (see
-            // LiquifyGlContext.kt), the only piece Liquify's JNI calls ever touch.
+            // prepareLiquify() below lazily constructs the native ImageWarper (and its GL thread)
+            // on first use; see LiquifyGlContext.kt.
             // Store the original bitmap so live-preview warps can be applied from a clean copy.
             // A failed copy means no clean original to warp previews from; the stroke simply
             // doesn't start, which beats an NPE inside prepareLiquify on the main thread.
             liquifyOriginalBitmap = SafeBitmap.copy(originalBitmap, mutable = false) ?: return
-            slamManager.prepareLiquify(originalBitmap)
+            liquifyEngine.prepareLiquify(originalBitmap)
             _liveStroke.update { it.copy(layerId = layerId) }
             return
         }
@@ -5378,13 +5295,13 @@ class EditorViewModel @Inject constructor(
                 )
 
                 val strokeArr = floatArrayOf(mapped[0].x, mapped[0].y, mapped[1].x, mapped[1].y)
-                slamManager.applyLiquify(strokeArr, brushSize, 0.5f)
+                liquifyEngine.applyLiquify(strokeArr, brushSize, 0.5f)
             }
 
             liquifyJob?.cancel()
             liquifyJob = viewModelScope.launch(dispatchers.default) {
                 val warpBitmap = SafeBitmap.copy(original) ?: return@launch
-                slamManager.bakeLiquify(warpBitmap)
+                liquifyEngine.bakeLiquify(warpBitmap)
 
                 if (isActive) {
                     withContext(dispatchers.main) {
@@ -6295,7 +6212,7 @@ class EditorViewModel @Inject constructor(
         // Liquify. Its own branch, beside the other tools with no live paint, and for the same
         // reason: it commits through DrawingEngine rather than doing the work itself.
         //
-        // It used to bake here directly — `slamManager.bakeLiquify(baked)` on a copy — which bypassed
+        // It used to bake here directly — `liquifyEngine.bakeLiquify(baked)` on a copy — which bypassed
         // the engine entirely. So the committed warp covered the whole layer while the *replay*, which
         // does go through the engine, confined it to the selection: the layer changed the first time
         // it was undone. Same bug class as the blur, the bucket and the clone; the fourth found in

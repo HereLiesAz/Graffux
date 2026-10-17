@@ -10,7 +10,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -34,7 +34,7 @@ class DynamicStampReplayTest {
         fun setUp() = RenderTestBase.stubNativeLibs()
     }
 
-    private val engine = DrawingEngine(mockk<SlamManager>(relaxed = true))
+    private val engine = DrawingEngine(mockk<LiquifyEngine>(relaxed = true))
     private val canvasSize = IntSize(64, 40)
 
     private fun base(): Bitmap = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.WHITE)

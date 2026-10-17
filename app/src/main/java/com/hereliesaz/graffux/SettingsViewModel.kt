@@ -20,8 +20,7 @@ import javax.inject.Inject
  * Backs the Graffux [SettingsScreen] with the design-relevant slice of [SettingsRepository] —
  * handedness (which side the nav rail docks to), measurement units (used by the rulers), whether
  * the brush size slider is locked to a constant on-screen footprint, the two performance dials and
- * the gesture map, plus a tutorial reset. The AR-only preferences the
- * repository also holds aren't surfaced here, since Graffux is a design-only host. Each flow is
+ * the gesture map, plus a tutorial reset. Each flow is
  * cached as a [StateFlow] for the UI; writes are persisted off the main thread.
  */
 @HiltViewModel
@@ -76,7 +75,7 @@ class SettingsViewModel @Inject constructor(
 
     // No language flow, and no AppCompatDelegate.setApplicationLocales collector. `:core:design`
     // shipped no translations of its own — the `values-*` directories it carried were GraffitiXR's,
-    // down to its `app_name` and its AR-mode copy, and they are gone. Applying a locale that has no
+    // down to its `app_name`, and they are gone. Applying a locale that has no
     // resources behind it changes nothing except which language Android *thinks* the UI is in, which
     // is worse than not offering the switch. `SettingsRepository.language` still exists for
     // GraffitiXR, which consumes these same core modules and does have the translations.

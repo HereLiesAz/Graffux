@@ -10,7 +10,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensor
 import com.hereliesaz.graffitixr.common.azphalt.BrushSensorBinding
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
@@ -35,8 +35,8 @@ class AirbrushWiringTest {
         fun setUp() = RenderTestBase.stubNativeLibs()
     }
 
-    private val slamManager: SlamManager = mockk(relaxed = true)
-    private val engine = DrawingEngine(slamManager)
+    private val liquifyEngine: LiquifyEngine = mockk(relaxed = true)
+    private val engine = DrawingEngine(liquifyEngine)
 
     /** A no-op dynamics binding, present only so `brush.dynamics.isNotEmpty()` selects the
      *  sensor-driven branch this test targets, without perturbing size/opacity. */

@@ -155,7 +155,7 @@ class ProjectRepositoryImpl @Inject constructor(
                 return@withLock file.absolutePath
             }
             file.parentFile?.mkdirs()
-            // Atomic write: a half-written map.bin / fingerprint can crash native loaders. A unique
+            // Atomic write: a half-written artifact can be read back as truncated data. A unique
             // temp name so concurrent writers to one filename can't share (and truncate) it.
             val tmp = File(file.parentFile, "${file.name}.${UUID.randomUUID()}.tmp")
             try {

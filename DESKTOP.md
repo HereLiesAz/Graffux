@@ -353,7 +353,7 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   "brush" icon rather than a per-brush icon — Android's `GraffuxIcons` almost certainly has
   distinct icons per brush type, not looked up here.
 - Every other item in "What's deliberately NOT done in this pass" below (layers, selection tools,
-  Brush Studio, extensions manager, the AR/vision pipeline, GPU acceleration) is exactly as missing
+  Brush Studio, extensions manager, GPU acceleration) is exactly as missing
   from the UI as it was before — this pass is about how the existing surface *looks*, not about
   growing that surface.
 
@@ -387,7 +387,7 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   selection has both a fixed 8-swatch row and a real HSV disc picker (see below), but the desktop
   app doesn't yet reproduce layers, selection tools, Brush Studio, or an extensions manager. This is
   a UI population gap now, not a library-capability gap.
-- **No Hilt DI, OpenCV, CameraX, or the AR/vision pipeline.** Those are genuinely Android-only
+- **No Hilt DI or ML Kit segmentation.** Those are genuinely Android-only
   dependencies (camera capture, ML Kit segmentation, wall-surface detection, image import/warp) with
   no Compose Multiplatform or portable-Kotlin equivalent available — not attempted, not planned as
   a near-term follow-up.

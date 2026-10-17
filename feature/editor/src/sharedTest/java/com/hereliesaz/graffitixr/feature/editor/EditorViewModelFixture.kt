@@ -64,7 +64,7 @@ internal object EditorViewModelFixture {
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
             context = ApplicationProvider.getApplicationContext<android.app.Application>(),
-            slamManager = mockk(relaxed = true),
+            liquifyEngine = mockk(relaxed = true),
             dispatchers = dispatchers(d),
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,

@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -33,8 +33,8 @@ class DrawingEngineSampleMergedTest {
         fun setUp() = RenderTestBase.stubNativeLibs()
     }
 
-    private val slamManager: SlamManager = mockk(relaxed = true)
-    private val engine = DrawingEngine(slamManager)
+    private val liquifyEngine: LiquifyEngine = mockk(relaxed = true)
+    private val engine = DrawingEngine(liquifyEngine)
 
     private val w = 48
     private val h = 32

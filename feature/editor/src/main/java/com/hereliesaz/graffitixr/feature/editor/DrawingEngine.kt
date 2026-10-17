@@ -14,7 +14,7 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerFrame
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.ink.InkAffine
@@ -41,7 +41,7 @@ internal class StrokeRenderException(message: String, cause: Throwable? = null) 
 /**
  * The stroke-compositing pipeline, extracted from EditorViewModel: turns a base bitmap plus
  * recorded [StrokeCommand]s into a rendered bitmap. This is the "how strokes become pixels" logic
- * (the GPU stroke renderers, plus OpenCV/SLAM for Liquify and warps); the ViewModel still owns
+ * (the GPU stroke renderers, plus the Liquify warper); the ViewModel still owns
  * when to invoke it, the dispatcher hop, the UiState update, and persistence.
  *
  * Pure with respect to the editor's state (input bitmap + strokes -> output bitmap). Callers run
@@ -49,7 +49,7 @@ internal class StrokeRenderException(message: String, cause: Throwable? = null) 
  * touch the main thread.
  */
 internal class DrawingEngine(
-    private val slamManager: SlamManager,
+    private val liquifyEngine: LiquifyEngine,
     private val exportManager: ExportManager = ExportManager(),
 ) {
 
@@ -477,16 +477,16 @@ internal class DrawingEngine(
 
     private suspend fun applyLiquify(bitmap: Bitmap, stroke: StrokeCommand, frame: LayerFrame? = null): Bitmap {
         val lf = frame ?: LayerFrame.of(bitmap.width, bitmap.height)
-        slamManager.prepareLiquify(bitmap)
+        liquifyEngine.prepareLiquify(bitmap)
         val mapped = ImageProcessor.mapScreenToBitmap(
             stroke.path, stroke.canvasSize.width, stroke.canvasSize.height, lf,
             stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )
         val flatArr = FloatArray(mapped.size * 2)
         mapped.forEachIndexed { i, pt -> flatArr[i * 2] = pt.x; flatArr[i * 2 + 1] = pt.y }
-        slamManager.applyLiquify(flatArr, stroke.brushSize, 0.5f)
+        liquifyEngine.applyLiquify(flatArr, stroke.brushSize, 0.5f)
         val baked = SafeBitmap.copy(bitmap) ?: failed(stroke, "copy")
-        slamManager.bakeLiquify(baked)
+        liquifyEngine.bakeLiquify(baked)
         val clipPath = SelectionMask.bitmapPath(
             stroke.selection, lf, stroke.layerScale, stroke.layerOffset, stroke.layerRotationZ,
         )

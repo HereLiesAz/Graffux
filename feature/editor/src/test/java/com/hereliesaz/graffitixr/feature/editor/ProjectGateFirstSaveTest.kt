@@ -82,7 +82,7 @@ class ProjectGateFirstSaveTest {
         return EditorViewModel(
             projectRepository = projects, settingsRepository = settings,
             projectManager = mockk(relaxed = true), exportManager = mockk(relaxed = true),
-            context = RuntimeEnvironment.getApplication(), slamManager = mockk(relaxed = true),
+            context = RuntimeEnvironment.getApplication(), liquifyEngine = mockk(relaxed = true),
             dispatchers = EditorViewModelFixture.dispatchers(dispatcher), opEmitter = mockk(relaxed = true),
             extensionRepository = extensions, repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes, figmaRepository = figma, projectFileScanner = mockk(relaxed = true),

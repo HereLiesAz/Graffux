@@ -100,7 +100,7 @@ class UndoRaceRegressionTest {
             projectManager = mockk(relaxed = true),
             exportManager = exportManager,
             context = org.robolectric.RuntimeEnvironment.getApplication(),
-            slamManager = mockk(relaxed = true),
+            liquifyEngine = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,

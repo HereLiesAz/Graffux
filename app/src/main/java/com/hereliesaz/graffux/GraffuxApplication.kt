@@ -21,8 +21,8 @@ import javax.inject.Inject
 
 /**
  * Graffux's Application. Triggers Hilt code generation and loads the native libraries the shared
- * editor relies on (OpenCV + the graffitixr native bridge — the editor's Liquify tool bakes through
- * SlamManager). Deliberately lean: no AR/SLAM session bring-up, no co-op. Crash reports stay local
+ * editor relies on (the graffitixr native bridge — the editor's Liquify tool bakes through
+ * LiquifyEngine). Deliberately lean: no co-op. Crash reports stay local
  * in the cache directory unless a GitHub token was pasted in Settings (TEMPORARY, see
  * CrashIssueUploader).
  */

@@ -8,7 +8,7 @@ import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -48,9 +48,9 @@ class LiquifySelectionTest {
 
     private val canvas = IntSize(48, 48)
 
-    /** A SlamManager whose bake repaints the entire layer — the loudest possible "it warped". */
-    private fun repaintingSlam(): SlamManager {
-        val slam = mockk<SlamManager>(relaxed = true)
+    /** A LiquifyEngine whose bake repaints the entire layer — the loudest possible "it warped". */
+    private fun repaintingSlam(): LiquifyEngine {
+        val slam = mockk<LiquifyEngine>(relaxed = true)
         every { slam.bakeLiquify(any()) } answers {
             android.graphics.Canvas(firstArg<Bitmap>()).drawColor(Color.MAGENTA)
         }
