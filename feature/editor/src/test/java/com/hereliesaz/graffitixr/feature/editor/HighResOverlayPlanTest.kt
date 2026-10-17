@@ -62,7 +62,7 @@ class HighResOverlayPlanTest {
     @Test
     fun visibleBoundsShrinkWithZoom() {
         // Zoom 2 about the top-left origin: the screen shows the top-left quarter of the layer.
-        val b = HighResOverlayPlan.visibleBounds(inputs(zoom = 2f), layer())
+        val b = HighResOverlayRegion.visibleBounds(inputs(zoom = 2f), layer())
         assertEquals(0f, b.left, 1e-2f)
         assertEquals(0f, b.top, 1e-2f)
         assertEquals(500f, b.right, 1e-2f)
@@ -71,7 +71,7 @@ class HighResOverlayPlanTest {
 
     @Test
     fun regionAddsMarginAndClampsToTheBitmap() {
-        val plan = HighResOverlayPlan.planRegion(
+        val plan = HighResOverlayRegion.planRegion(
             FloatBounds(0f, 0f, 500f, 1000f), 1000, 2000, 2, 4096L * 4096L,
         )!!
         assertEquals(PixelRect(0, 0, 625, 1250), plan.region)
@@ -80,7 +80,7 @@ class HighResOverlayPlanTest {
 
     @Test
     fun regionOutsideTheBitmapPlansNothing() {
-        assertNull(HighResOverlayPlan.planRegion(FloatBounds(-500f, -500f, -10f, -10f), 1000, 2000, 2, 1L shl 24))
+        assertNull(HighResOverlayRegion.planRegion(FloatBounds(-500f, -500f, -10f, -10f), 1000, 2000, 2, 1L shl 24))
     }
 
     @Test
@@ -88,7 +88,7 @@ class HighResOverlayPlanTest {
         val total = HighResOverlayConfig.MAX_TOTAL_PIXELS
         for (budget in listOf(total, total / 2, total / 3, 1_000_000L)) {
             for (scale in 2..4) {
-                val plan = HighResOverlayPlan.planRegion(
+                val plan = HighResOverlayRegion.planRegion(
                     FloatBounds(0f, 0f, 6000f, 6000f), 6000, 6000, scale, budget,
                 )!!
                 val px = plan.region.width.toLong() * plan.scale * plan.region.height * plan.scale
@@ -102,14 +102,14 @@ class HighResOverlayPlanTest {
     @Test
     fun scaleDropsBeforeTheRegionShrinks() {
         // 1000x1000 fits at scale 2 (4M) but not at 4 (16M) in a 4M budget: scale falls to 2.
-        val plan = HighResOverlayPlan.planRegion(FloatBounds(0f, 0f, 800f, 800f), 1000, 1000, 4, 4_200_000L)!!
+        val plan = HighResOverlayRegion.planRegion(FloatBounds(0f, 0f, 800f, 800f), 1000, 1000, 4, 4_200_000L)!!
         assertEquals(2, plan.scale)
         assertTrue(plan.region.width >= 1000 || plan.region.width >= 800)
     }
 
     @Test
     fun shrunkRegionStaysAroundTheVisibleCentre() {
-        val plan = HighResOverlayPlan.planRegion(
+        val plan = HighResOverlayRegion.planRegion(
             FloatBounds(2900f, 2900f, 3100f, 3100f), 6000, 6000, 2, 1_000_000L,
         )!!
         assertTrue(plan.region.left <= 3000 && plan.region.right >= 3000)
@@ -145,7 +145,12 @@ class HighResOverlayPlanTest {
         assertFalse(HighResOverlayPlan.needsRefresh(plan, plan, panned))
     }
 
-    private fun stroke(tool: Tool = Tool.BRUSH, wrap: Boolean = false, fill: Boolean = false, substrate: String? = null) =
+    private fun stroke(
+        tool: Tool = Tool.BRUSH,
+        wrap: Boolean = false,
+        fill: Boolean = false,
+        substrate: String? = null,
+    ) =
         StrokeCommand(
             path = listOf(Offset(1f, 1f)), canvasSize = IntSize(10, 10), tool = tool, brushSize = 10f,
             brushColor = 0, intensity = 1f, wrapAroundMode = wrap, fillSelection = fill, substrateId = substrate,
@@ -153,19 +158,20 @@ class HighResOverlayPlanTest {
 
     @Test
     fun onlyPlainStampAndEraserStrokesReplay() {
-        assertTrue(HighResOverlayPlan.strokeReplayable(stroke()))
-        assertTrue(HighResOverlayPlan.strokeReplayable(stroke(Tool.ERASER)))
-        assertFalse(HighResOverlayPlan.strokeReplayable(stroke(Tool.SMUDGE)))
-        assertFalse(HighResOverlayPlan.strokeReplayable(stroke(Tool.LIQUIFY)))
-        assertFalse(HighResOverlayPlan.strokeReplayable(stroke(Tool.FILL)))
-        assertFalse(HighResOverlayPlan.strokeReplayable(stroke(wrap = true)))
-        assertFalse(HighResOverlayPlan.strokeReplayable(stroke(fill = true)))
-        assertFalse(HighResOverlayPlan.strokeReplayable(stroke(substrate = "canvas")))
+        assertTrue(HighResOverlayEligibility.strokeReplayable(stroke()))
+        assertTrue(HighResOverlayEligibility.strokeReplayable(stroke(Tool.ERASER)))
+        assertFalse(HighResOverlayEligibility.strokeReplayable(stroke(Tool.SMUDGE)))
+        assertFalse(HighResOverlayEligibility.strokeReplayable(stroke(Tool.LIQUIFY)))
+        assertFalse(HighResOverlayEligibility.strokeReplayable(stroke(Tool.FILL)))
+        assertFalse(HighResOverlayEligibility.strokeReplayable(stroke(wrap = true)))
+        assertFalse(HighResOverlayEligibility.strokeReplayable(stroke(fill = true)))
+        assertFalse(HighResOverlayEligibility.strokeReplayable(stroke(substrate = "canvas")))
     }
 
     @Test
     fun visibleBoundsAccountForLayerScale() {
-        val b = HighResOverlayPlan.visibleBounds(inputs(zoom = 2f, layers = listOf(layer(scale = 2f))), layer(scale = 2f))
+        val scaled = layer(scale = 2f)
+        val b = HighResOverlayRegion.visibleBounds(inputs(zoom = 2f, layers = listOf(scaled)), scaled)
         assertNotNull(b)
         // Layer drawn twice as large: the screen shows a quarter of the visible width again.
         assertEquals(250f, b.width, 1f)

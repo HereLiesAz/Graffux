@@ -258,7 +258,9 @@ fun EditorScreen(
                                 contentScale = ContentScale.Fit,
                             )
                         } else {
-                            layerTree.forEach { node ->
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                LocalHighResOverlays provides highResOverlays,
+                            ) { layerTree.forEach { node ->
                                 LayerStackNode(
                                     node,
                                     liveStrokeState,
@@ -266,9 +268,8 @@ fun EditorScreen(
                                     // Only the centre tile: wrap-around draws the same layer
                                     // nine times, and the overlay maps to the real document.
                                     overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
-                                    highRes = highResOverlays,
                                 )
-                            }
+                            } }
                         }
                     }
                 }
@@ -816,8 +817,6 @@ private fun LayerStackNode(
     frameAlpha: Float = 1f,
     // Records where this layer's bitmap lands on screen, for the direct-display overlay.
     overlayGeometry: OverlayGeometry? = null,
-    // Zoom-crisp overlays by layer id; an entry draws only while it still matches the layer's pixels.
-    highRes: Map<String, HighResOverlay> = emptyMap(),
 ) {
     val layer = node.layer
     if (!layer.isVisible) return
@@ -910,9 +909,7 @@ private fun LayerStackNode(
                 // in it, so paint that grew past the frame still lands where it was painted.
                 val frame = layer.frame(displayBmp.width, displayBmp.height)
                 // The crisp overlay, only if built from exactly these pixels and no stroke is live.
-                val crisp = highRes[layer.id]?.takeIf {
-                    !isLive && !HighResOverlayPlan.isStale(it.key, overlayKeyOf(layer, displayBmp, frame))
-                }
+                val crisp = LocalHighResOverlays.current.matching(layer, displayBmp, frame, isLive)
                 Spacer(
                     modifier = Modifier
                         .fillMaxSize()
