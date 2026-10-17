@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,15 +47,36 @@ import com.hereliesaz.graffitixr.common.model.ProjectFile
  * Load opens the system file picker; backing out of the picker returns here. Save creates the
  * project under the typed name. GPU calibration runs in the background while this is open
  * (see gpu/CalibrationCoordinator); the busy state covers its capped tail after the tap.
+ *
+ * It also sets the project's canvas size (the screen's by default, a preset, or typed) and offers
+ * to import images up front: [onPickImages] opens the host's picker and [pickedImageCount] reports
+ * what it returned, which the host passes to the ViewModel along with the size on Save.
  */
-@Suppress("FunctionNaming") // Composable naming.
+@Suppress("FunctionNaming", "LongMethod") // Composable naming; one card of stacked sections.
 @Composable
 fun ProjectGateDialog(
     state: ProjectGateState,
     onLoad: () -> Unit,
-    onSave: (name: String) -> Unit,
+    onSave: (name: String, width: Int, height: Int) -> Unit,
+    pickedImageCount: Int = 0,
+    onPickImages: () -> Unit = {},
 ) {
     var name by remember(state.defaultName) { mutableStateOf(state.defaultName) }
+    var sizeChoice by remember(state.defaultName) { mutableStateOf<DocumentPreset?>(null) }
+    var customWidth by remember(state.defaultWidth) { mutableStateOf(state.defaultWidth.toString()) }
+    var customHeight by remember(state.defaultHeight) { mutableStateOf(state.defaultHeight.toString()) }
+    // null = "Screen" (the size projects have always opened at); a preset's isCustom = typed sizes.
+    val choice = sizeChoice
+    val width = when {
+        choice == null -> state.defaultWidth
+        choice.isCustom -> customWidth.toIntOrNull()?.coerceAtLeast(1) ?: state.defaultWidth
+        else -> choice.width
+    }
+    val height = when {
+        choice == null -> state.defaultHeight
+        choice.isCustom -> customHeight.toIntOrNull()?.coerceAtLeast(1) ?: state.defaultHeight
+        else -> choice.height
+    }
     val busy = state.busyLabel != null
     Box(
         modifier = Modifier
@@ -68,7 +93,7 @@ fun ProjectGateDialog(
             modifier = Modifier.padding(24.dp).widthIn(max = 420.dp).testTag(TAG_DIALOG),
         ) {
             Column(
-                modifier = Modifier.padding(20.dp).fillMaxWidth(),
+                modifier = Modifier.padding(20.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Project", style = MaterialTheme.typography.titleLarge)
@@ -80,6 +105,23 @@ fun ProjectGateDialog(
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth().testTag(TAG_NAME),
                 )
+                if (!busy) {
+                    CanvasSizeSection(
+                        state = state,
+                        choice = sizeChoice,
+                        onChoice = { sizeChoice = it },
+                        customWidth = customWidth,
+                        onCustomWidth = { customWidth = it },
+                        customHeight = customHeight,
+                        onCustomHeight = { customHeight = it },
+                    )
+                    AzButton(
+                        text = if (pickedImageCount > 0) "Images: $pickedImageCount — change…" else "Import images…",
+                        onClick = onPickImages,
+                        shape = AzButtonShape.RECTANGLE,
+                        modifier = Modifier.testTag(TAG_IMAGES),
+                    )
+                }
                 if (busy) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -98,7 +140,7 @@ fun ProjectGateDialog(
                         )
                         AzButton(
                             text = "Save",
-                            onClick = { onSave(ProjectFile.sanitizeName(name)) },
+                            onClick = { onSave(ProjectFile.sanitizeName(name), width, height) },
                             shape = AzButtonShape.RECTANGLE,
                             modifier = Modifier.testTag(TAG_SAVE),
                         )
@@ -109,10 +151,62 @@ fun ProjectGateDialog(
     }
 }
 
+/** The canvas-size choices: Screen (null), the document presets, and Custom with typed fields. */
+@Suppress("FunctionNaming", "LongParameterList") // Composable naming; hoisted state for the dialog.
+@Composable
+private fun CanvasSizeSection(
+    state: ProjectGateState,
+    choice: DocumentPreset?,
+    onChoice: (DocumentPreset?) -> Unit,
+    customWidth: String,
+    onCustomWidth: (String) -> Unit,
+    customHeight: String,
+    onCustomHeight: (String) -> Unit,
+) {
+    Text("Canvas size", style = MaterialTheme.typography.titleSmall)
+    (listOf<DocumentPreset?>(null) + DOCUMENT_PRESETS).forEach { option ->
+        val label = when {
+            option == null -> "Screen  (${state.defaultWidth}×${state.defaultHeight})"
+            option.isCustom -> "Custom…"
+            else -> "${option.label}  (${option.width}×${option.height})"
+        }
+        AzButton(
+            text = if (option == choice) "$label ✓" else label,
+            onClick = { onChoice(option) },
+            shape = AzButtonShape.RECTANGLE,
+            modifier = Modifier.testTag("$TAG_SIZE_PREFIX${option?.label ?: "Screen"}"),
+        )
+    }
+    if (choice?.isCustom == true) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SizeField("Width", customWidth, onCustomWidth, TAG_CUSTOM_WIDTH, Modifier.weight(1f))
+            SizeField("Height", customHeight, onCustomHeight, TAG_CUSTOM_HEIGHT, Modifier.weight(1f))
+        }
+    }
+}
+
+@Suppress("FunctionNaming") // Composable naming.
+@Composable
+private fun SizeField(label: String, value: String, onValue: (String) -> Unit, tag: String, modifier: Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValue(it.filter(Char::isDigit).take(MAX_DIGITS)) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier.testTag(tag),
+    )
+}
+
 const val TAG_SCRIM = "projectGate.scrim"
 const val TAG_DIALOG = "projectGate.dialog"
 const val TAG_NAME = "projectGate.name"
 const val TAG_LOAD = "projectGate.load"
 const val TAG_SAVE = "projectGate.save"
 const val TAG_BUSY = "projectGate.busy"
+const val TAG_IMAGES = "projectGate.images"
+const val TAG_SIZE_PREFIX = "projectGate.size."
+const val TAG_CUSTOM_WIDTH = "projectGate.customWidth"
+const val TAG_CUSTOM_HEIGHT = "projectGate.customHeight"
+private const val MAX_DIGITS = 5
 private const val SCRIM_ALPHA = 0.6f

@@ -416,6 +416,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { vm.onAddLayer(it) } }
 
+    // Images chosen in the new-project dialog; they join the project as layers once it exists.
+    var gateImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    val gateImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris -> gateImages = uris }
+
     val referencePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { referenceImageUri = it } }
@@ -1721,7 +1727,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ProjectGateDialog(
                 state = gate,
                 onLoad = { projectOpener.launch(arrayOf("*/*")) },
-                onSave = { name -> vm.onProjectGateSave(name) },
+                onSave = { name, w, h ->
+                    vm.onProjectGateSave(name, w, h, gateImages)
+                    gateImages = emptyList()
+                },
+                pickedImageCount = gateImages.size,
+                onPickImages = {
+                    gateImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
             )
         }
     }

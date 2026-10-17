@@ -3014,13 +3014,24 @@ class EditorViewModel @Inject constructor(
      * [EditorUiState.projectId] and `?: return` when it was null, which silently discarded whatever the
      * user was making; go through this instead so the work always lands somewhere.
      */
-    private suspend fun createProjectWithScreenSize(name: String): GraffitiProject {
-        val metrics = context.resources.displayMetrics
-        val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-        val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
-        val project = GraffitiProject(name = name, documentWidth = w, documentHeight = h)
+    private suspend fun createProjectWithScreenSize(
+        name: String,
+        width: Int? = null,
+        height: Int? = null,
+    ): GraffitiProject {
+        val (screenW, screenH) = screenSize()
+        val project = GraffitiProject(
+            name = name,
+            documentWidth = width ?: screenW,
+            documentHeight = height ?: screenH,
+        )
         projectRepository.createProject(project)
         return project
+    }
+
+    private fun screenSize(): Pair<Int, Int> {
+        val metrics = context.resources.displayMetrics
+        return (metrics.widthPixels.takeIf { it > 0 } ?: 1080) to (metrics.heightPixels.takeIf { it > 0 } ?: 1920)
     }
 
     private suspend fun ensureProjectId(): String {
@@ -8824,7 +8835,10 @@ class EditorViewModel @Inject constructor(
     fun showProjectGate() {
         viewModelScope.launch(dispatchers.io) {
             val n = projectRepository.getProjects().size + 1
-            if (_projectGate.value == null) _projectGate.value = ProjectGateState(defaultName = "Untitled $n")
+            if (_projectGate.value == null) {
+                val (w, h) = screenSize()
+                _projectGate.value = ProjectGateState(defaultName = "Untitled $n", defaultWidth = w, defaultHeight = h)
+            }
             gpuTuning?.coordinator?.onProjectDialogShown()
         }
     }
@@ -8834,7 +8848,7 @@ class EditorViewModel @Inject constructor(
      * for it at most its cap from the tap; past that the canvas opens on the conservative tier and
      * the calibrated one is applied when it lands.
      */
-    fun onProjectGateSave(name: String) {
+    fun onProjectGateSave(name: String, width: Int? = null, height: Int? = null, images: List<Uri> = emptyList()) {
         Breadcrumbs.record("project gate: save pressed")
         val gate = _projectGate.value ?: return
         if (gate.busyLabel != null) return
@@ -8847,9 +8861,11 @@ class EditorViewModel @Inject constructor(
             // by one benchmark step, keeps the steps already measured, and the next project dialog
             // finishes the run. The canvas starts on the conservative default tier meanwhile.
             runCatching { gpuTuning?.coordinator?.stopForCanvas() }
-            val created = guardProjectCreation("Create project") { createNewProjectNamed(name) }
+            val created = guardProjectCreation("Create project") { createNewProjectNamed(name, width, height) }
             // A failed create leaves the dialog up (there is still no project to work in).
             _projectGate.value = if (created) null else gate.copy(busyLabel = null)
+            // Images chosen in the dialog join the new project as layers, in the order picked.
+            if (created) withContext(dispatchers.main) { images.forEach { onAddLayer(it) } }
         }
     }
 
@@ -8898,9 +8914,9 @@ class EditorViewModel @Inject constructor(
     }
 
     /** File > New's body. Callers invalidate resident layers first, on the main thread. */
-    private suspend fun createNewProjectNamed(name: String) {
+    private suspend fun createNewProjectNamed(name: String, width: Int? = null, height: Int? = null) {
         canvasEngineLogged = false
-        val project = createProjectWithScreenSize(name)
+        val project = createProjectWithScreenSize(name, width, height)
         val projectId = project.id
         Breadcrumbs.record("project created")
 
