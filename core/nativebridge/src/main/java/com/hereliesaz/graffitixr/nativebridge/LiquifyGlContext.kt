@@ -20,16 +20,15 @@ import java.util.concurrent.CountDownLatch
  * `GLSurfaceView` in the app is the unrelated 3D model viewer, and it's never current while the 2D
  * editor is painting), so this owns one dedicated thread with a 1x1 pbuffer surface kept current
  * for the thread's entire lifetime, and every native Liquify call is marshalled onto it. Without
- * this, `SlamManager.initGl()` — which every other GLES call in this file's Liquify path
- * ultimately depends on — had no thread with a context to ever be called from, so `ImageWarper`
- * stayed permanently uninitialized and every Liquify stroke silently baked nothing.
+ * it, the native GL init (`nativeInitGl()`) had no thread with a context to ever run on, so
+ * `ImageWarper` stayed permanently uninitialized and every Liquify stroke silently baked nothing.
  *
  * [onContextReady] runs exactly once, on the GL thread, right after the context is first made
  * current — this is where the caller should perform its own one-time GL setup (e.g.
  * `nativeInitGl()`).
  */
 internal class LiquifyGlContext(private val onContextReady: () -> Unit) {
-    // The thread is started on demand and dropped by release(): SlamManager is a singleton that
+    // The thread is started on demand and dropped by release(): LiquifyEngine is a singleton that
     // outlives the editor ViewModel whose onCleared() calls destroy(), so the next Liquify session
     // must get a fresh thread/context instead of posting to a quit looper (which would hang).
     private val threadLock = Any()

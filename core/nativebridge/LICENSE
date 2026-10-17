@@ -3,18 +3,12 @@ Copyright © 2026 HereLiesAz <hereliesaz@gmail.com>
 Required Notice: Copyright © 2026 HereLiesAz
 (https://github.com/HereLiesAz/GraffitiXR)
 
-This module — the native C++ engine (MobileGS, SuperPointDetector,
-StereoProcessor, ImageWarper, DistortionHead, GraffitiJNI, …), the JNI bridge,
-and the Kotlin engine side (SlamManager, depth providers) — is the protected
-core of GraffitiXR: the fingerprint relocalization and teleological SLAM work.
-It is licensed under the PolyForm Noncommercial License 1.0.0, reproduced in
-full below, and is deliberately NOT part of the MIT-licensed extension surface.
-See `docs/LICENSING.md` for the authoritative, path-by-path layout.
-
-NOTE ON BUNDLED THIRD PARTIES: the vendored OpenCV SDK under `libs/opencv/`
-keeps its own upstream license(s) and is not relicensed by this file; it
-includes a GPL-2.0 component (`ittnotify`) — a compliance item to review
-independently of these terms.
+This module — the native C++ engine (ImageWarper, the GPU stamp-engine bridge,
+GraffitiJNI, …), the JNI bridge, and the Kotlin engine side (LiquifyEngine, the
+GPU stamp engine wrappers) — is the protected core of Graffux. It is licensed
+under the PolyForm Noncommercial License 1.0.0, reproduced in full below, and is
+deliberately NOT part of the MIT-licensed extension surface. See
+`docs/LICENSING.md` for the authoritative, path-by-path layout.
 
 ----------------------------------------------------------------------
 

@@ -14,7 +14,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushStamps
 import com.hereliesaz.graffitixr.common.azphalt.Dab
 import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushConfig
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -153,7 +153,7 @@ class ColorSourceMixTest {
 
     @Test
     fun `replay uses snapshotted secondary colour rather than later UI colour`() = runTest {
-        val engine = DrawingEngine(mockk<SlamManager>(relaxed = true))
+        val engine = DrawingEngine(mockk<LiquifyEngine>(relaxed = true))
         val size = IntSize(48, 32)
         val brush = AzphaltBrush(name = "gradient", hardness = 1f, colorSource = BrushColorSource.GRADIENT, colorMix = 1f)
         val command = StrokeCommand(

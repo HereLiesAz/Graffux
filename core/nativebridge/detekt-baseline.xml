@@ -5,15 +5,6 @@
     <ID>ComplexCondition:GpuStampEngine.kt$GpuStampEngine$sampleSource != null &amp;&amp; sampleSourceWidth &gt; 0 &amp;&amp; sampleSourceHeight &gt; 0 &amp;&amp; sampleSource.size &gt;= sampleSourceWidth * sampleSourceHeight</ID>
     <ID>CyclomaticComplexMethod:GpuStampEngine.kt$GpuStampEngine$@Synchronized fun stampMaskedDabs( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: SubstrateStampParams? = null, ): Boolean</ID>
     <ID>LongMethod:GpuStampEngine.kt$GpuStampEngine$@Synchronized fun stampMaskedDabs( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: SubstrateStampParams? = null, ): Boolean</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( bitmap: Bitmap, depthBuffer: ByteBuffer?, depthW: Int, depthH: Int, depthStride: Int, intrinsics: FloatArray, viewMatrix: FloatArray )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( bitmap: Bitmap, mask: Bitmap?, depthBuffer: ByteBuffer, depthW: Int, depthH: Int, depthStride: Int, intrinsics: FloatArray, viewMatrix: FloatArray )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( depthBuffer: ByteBuffer, width: Int, height: Int, rowStride: Int, intrinsics: FloatArray, intrW: Int, intrH: Int, cvRotateCode: Int? = null, confidence: Float = 0.5f )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( descriptorsData: ByteArray, rows: Int, cols: Int, type: Int, points3d: FloatArray, anchorMatrix: FloatArray, intrinsics: FloatArray )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( descriptorsData: ByteArray, rows: Int, cols: Int, type: Int, points3d: FloatArray, anchorMatrix: FloatArray, intrinsics: FloatArray, )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( descriptorsData: ByteArray, rows: Int, cols: Int, type: Int, points3d: FloatArray, confidence: FloatArray, obsCount: IntArray, anchor: FloatArray, intrinsics: FloatArray )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( yBuffer: ByteBuffer, uBuffer: ByteBuffer, vBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvStride: Int, uvPixelStride: Int, timestampNs: Long, cvRotateCode: Int )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$( yBuffer: ByteBuffer, uBuffer: ByteBuffer, vBuffer: ByteBuffer, width: Int, height: Int, yStride: Int, uvStride: Int, uvPixelStride: Int, timestampNs: Long, cvRotateCode: Int? = null )</ID>
-    <ID>LongParameterList:SlamManager.kt$SlamManager$(depthBuffer: ByteBuffer, width: Int, height: Int, rowStride: Int, intrinsics: FloatArray, intrW: Int, intrH: Int, cvRotateCode: Int, confidence: Float)</ID>
     <ID>LongParameterList:GpuStampEngine.kt$GpuStampEngine$( dabs: List&lt;ColorSmudgeDab&gt;, mode: Int, radiusPx: Float, feathering: Float, smearAlpha: Boolean, paintColorArgb: Int, dilution: Float = 0f, baseColorRate: Float = 0f, chargeDecayRate: Float = 0f, pickupRate: Float = 0f, sampleSource: IntArray? = null, sampleSourceWidth: Int = 0, sampleSourceHeight: Int = 0, )</ID>
     <ID>LongParameterList:GpuStampEngine.kt$GpuStampEngine$( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: SubstrateStampParams? = null, )</ID>
     <ID>LongParameterList:GpuStampEngine.kt$GpuStampEngine$( handle: Long, dabData: FloatArray, buildUp: Boolean, hasSubstrate: Boolean, hasPaintHeight: Boolean, substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float, substrateOffsetX: Float, substrateOffsetY: Float, strokeMax: Boolean, )</ID>
@@ -21,13 +12,6 @@
     <ID>LongParameterList:GpuStampEngine.kt$GpuStampEngine$( handle: Long, dabData: FloatArray, mode: Int, radiusPx: Float, feathering: Float, smearAlpha: Boolean, paintColorArgb: Int, dilution: Float, baseColorRate: Float, chargeDecayRate: Float, pickupRate: Float, sampleSourceRgba8: ByteArray?, sampleSourceWidth: Int, sampleSourceHeight: Int, )</ID>
     <ID>MagicNumber:LiquifyGlContext.kt$LiquifyGlContext$3</ID>
     <ID>MagicNumber:LiquifyGlContext.kt$LiquifyGlContext$8</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$16</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$19</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$20</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$3</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$4</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$5</ID>
-    <ID>MagicNumber:SlamManager.kt$SlamManager$96</ID>
     <ID>MagicNumber:GpuStampEngine.kt$GpuStampEngine$0xFF</ID>
     <ID>MagicNumber:GpuStampEngine.kt$GpuStampEngine$10</ID>
     <ID>MagicNumber:GpuStampEngine.kt$GpuStampEngine$11</ID>
@@ -46,11 +30,6 @@
     <ID>MagicNumber:GpuStampEngine.kt$GpuStampEngine$8</ID>
     <ID>MagicNumber:GpuStampEngine.kt$GpuStampEngine$9</ID>
     <ID>MagicNumber:GpuStampEngine.kt$SubstrateStampParams$0.05f</ID>
-    <ID>MaxLineLength:SlamManager.kt$SlamManager$nativeFeedArCoreDepth(depthBuffer, width, height, rowStride, intrinsics, intrW, intrH, cvRotateCode ?: -1, confidence)</ID>
-    <ID>MaxLineLength:SlamManager.kt$SlamManager$nativeFeedYuvFrame(yBuffer, uBuffer, vBuffer, width, height, yStride, uvStride, uvPixelStride, timestampNs, cvRotateCode ?: -1)</ID>
-    <ID>MaxLineLength:SlamManager.kt$SlamManager$private external fun nativeFeedArCoreDepth(depthBuffer: ByteBuffer, width: Int, height: Int, rowStride: Int, intrinsics: FloatArray, intrW: Int, intrH: Int, cvRotateCode: Int, confidence: Float)</ID>
-    <ID>MaxLineLength:SlamManager.kt$SlamManager$private external fun nativeFeedColorFrame(colorBuffer: ByteBuffer, width: Int, height: Int, timestampNs: Long, cvRotateCode: Int)</ID>
-    <ID>MaxLineLength:SlamManager.kt$SlamManager$private external fun nativeFeedStereoData(leftBuffer: ByteBuffer, rightBuffer: ByteBuffer, width: Int, height: Int, timestamp: Long)</ID>
     <ID>MaxLineLength:GpuStampEngine.kt$MaskedBrushDab$/** [ResolvedBrushDab] plus [tipRatio] (height/width of the tip -- see AzphaltBrush.tipRatio), for [GpuStampEngine.stampMaskedDabs]. */</ID>
     <ID>MaxLineLength:GpuStampEngine.kt$GpuStampEngine$"secondaryMaskAlpha8 too small: need ${secondaryMaskWidth * secondaryMaskHeight}, got ${secondaryMaskAlpha8.size}"</ID>
     <ID>MaxLineLength:GpuStampEngine.kt$GpuStampEngine$"secondaryMaskAlpha8/secondaryMaskWidth/secondaryMaskHeight must be supplied when secondaryDabs is non-empty"</ID>
@@ -58,21 +37,13 @@
     <ID>MaxLineLength:GpuStampEngine.kt$GpuStampEngine$require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.readback requires ARGB_8888, got ${bitmap.config}" }</ID>
     <ID>MaxLineLength:GpuStampEngine.kt$GpuStampEngine$require(bitmap.config == Bitmap.Config.ARGB_8888) { "GpuStampEngine.upload requires ARGB_8888, got ${bitmap.config}" }</ID>
     <ID>MaxLineLength:GpuStampEngine.kt$GpuStampEngine$require(grainWidth &gt; 0 &amp;&amp; grainHeight &gt; 0) { "grainWidth/grainHeight must be positive when grainAlpha8 is supplied" }</ID>
-    <ID>NewLineAtEndOfFile:StereoDepthProvider.kt$com.hereliesaz.graffitixr.nativebridge.depth.StereoDepthProvider.kt</ID>
     <ID>NewLineAtEndOfFile:GpuStampEngine.kt$com.hereliesaz.graffitixr.nativebridge.GpuStampEngine.kt</ID>
-    <ID>ReturnCount:SlamManager.kt$SlamManager$fun getWallFeatureMap(): WallFeatureMap?</ID>
-    <ID>ReturnCount:SlamManager.kt$SlamManager$private fun forwardYuvFrame(frame: CameraFrame)</ID>
-    <ID>ReturnCount:StereoDepthProvider.kt$StereoDepthProvider$@Synchronized fun processStereoFrames(left: ByteArray, right: ByteArray, width: Int, height: Int, timestamp: Long)</ID>
-    <ID>ReturnCount:StereoDepthProvider.kt$StereoDepthProvider$@Synchronized fun submitFrame(yPlane: ByteBuffer, width: Int, height: Int, timestamp: Long)</ID>
     <ID>ReturnCount:GpuStampEngine.kt$GpuStampEngine$@Synchronized fun colorSmudgeBenchmarkInfo(): ColorSmudgeBenchmarkInfo?</ID>
     <ID>ReturnCount:GpuStampEngine.kt$GpuStampEngine$@Synchronized fun stampMaskedDabs( dabs: List&lt;MaskedBrushDab&gt;, hardness: Float, maskAlpha8: ByteArray, maskWidth: Int, maskHeight: Int, grainAlpha8: ByteArray? = null, grainWidth: Int = 0, grainHeight: Int = 0, grainCanvasLocked: Boolean = false, grainScale: Float = 1f, grainPhaseX: Float = 0f, grainPhaseY: Float = 0f, secondaryDabs: List&lt;SecondaryBrushDab&gt; = emptyList(), secondaryMaskAlpha8: ByteArray? = null, secondaryMaskWidth: Int = 0, secondaryMaskHeight: Int = 0, substrate: SubstrateStampParams? = null, ): Boolean</ID>
     <ID>ReturnCount:GpuStampEngine.kt$GpuStampEngine$@Synchronized fun stampResolvedDabs( dabs: List&lt;ResolvedBrushDab&gt;, buildUp: Boolean = false, substrate: SubstrateStampParams? = null, strokeMax: Boolean = false, ): Boolean</ID>
     <ID>SwallowedException:NativeCrashHandler.kt$NativeCrashHandler$t: Throwable</ID>
-    <ID>SwallowedException:SlamManager.kt$SlamManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:LiquifyGlContext.kt$LiquifyGlContext$t: Throwable</ID>
     <ID>TooGenericExceptionCaught:NativeCrashHandler.kt$NativeCrashHandler$t: Throwable</ID>
-    <ID>TooGenericExceptionCaught:SlamManager.kt$SlamManager$e: Exception</ID>
-    <ID>TooManyFunctions:SlamManager.kt$SlamManager</ID>
     <ID>LargeClass:GpuStampEngine.kt$GpuStampEngine</ID>
     <ID>TooManyFunctions:GpuStampEngine.kt$GpuStampEngine</ID>
   </CurrentIssues>

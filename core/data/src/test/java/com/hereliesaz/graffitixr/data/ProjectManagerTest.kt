@@ -85,11 +85,29 @@ class ProjectManagerTest {
     }
 
     @Test
-    fun `getMapPath returns correct path and creates directory`() = runTest {
-        val path = manager.getMapPath(mockContext, "map_project")
-        val expectedFile = File(tempFilesDir, "projects/map_project/map.bin")
-        assertEquals(expectedFile.absolutePath, path)
-        assertTrue(expectedFile.parentFile!!.exists())
+    fun `a legacy project file written before the AR stack was removed still loads and re-saves cleanly`() = runTest {
+        val dir = File(tempFilesDir, "projects/legacy_ar").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """
+            {"id":"legacy_ar","name":"Old AR wall","documentWidth":640,
+             "fingerprint":{"keypoints":[],"descriptorsData":[],"descriptorsRows":0,"descriptorsCols":0,"descriptorsType":0},
+             "targetFingerprintPath":"/f/projects/legacy_ar/fp.bin","mapPath":"/f/projects/legacy_ar/map.bin",
+             "cloudPointsPath":"/f/projects/legacy_ar/cloud_points.bin","fingerprintIntrinsics":[1.0,2.0,3.0,4.0],
+             "wallFeatureMap":{"points3d":[],"descriptorsData":[],"descriptorsRows":0,"descriptorsCols":0,"descriptorsType":0},
+             "gpsData":{"latitude":1.0,"longitude":2.0,"altitude":3.0,"accuracy":4.0,"time":5}}
+            """.trimIndent(),
+        )
+
+        val loaded = manager.loadProjectMetadata(mockContext, "legacy_ar")
+        assertEquals("Old AR wall", loaded?.name)
+        assertEquals(640, loaded?.documentWidth)
+
+        manager.saveProject(mockContext, loaded!!)
+        val rewritten = File(dir, "project.json").readText()
+        assertFalse(rewritten.contains("fingerprint", ignoreCase = true))
+        assertFalse(rewritten.contains("wallFeatureMap"))
+        assertFalse(rewritten.contains("mapPath"))
+        assertEquals("Old AR wall", manager.loadProjectMetadata(mockContext, "legacy_ar")?.name)
     }
 
     @Test
@@ -171,7 +189,7 @@ class ProjectManagerTest {
         val result = importZip(
             zipOf(
                 "project.json" to
-                    """{"id":"dup_id","name":"Old export","mapPath":"/f/projects/dup_id/map.bin"}""".toByteArray(),
+                    """{"id":"dup_id","name":"Old export","modelPath":"/f/projects/dup_id/model.obj"}""".toByteArray(),
                 "layer.png" to byteArrayOf(1, 2, 3),
             ),
         )
@@ -185,7 +203,7 @@ class ProjectManagerTest {
         // Import landed beside it, with its own paths rebased to the new id.
         assertEquals(listOf<Byte>(1, 2, 3), File(tempFilesDir, "projects/$newId/layer.png").readBytes().toList())
         assertEquals("Old export", persisted(newId).name)
-        assertEquals("/f/projects/$newId/map.bin", persisted(newId).mapPath)
+        assertEquals("/f/projects/$newId/model.obj", persisted(newId).modelPath)
         // No staging debris.
         assertFalse(File(tempFilesDir, "import_staging").walkTopDown().any { it.isFile })
     }

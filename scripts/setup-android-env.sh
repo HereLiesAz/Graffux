@@ -284,7 +284,7 @@ if [ "$EMULATOR_OK" = "1" ]; then
 fi
 
 # ── ABI sanity check ─────────────────────────────────────────────────────────
-# Graffux ships native code (OpenCV + libgraffitixr via CMake). Both Gradle
+# Graffux ships native code (libgraffitixr via CMake). Both Gradle
 # modules restrict abiFilters, and an emulator whose ABI is not in that list
 # installs the APK and then dies on System.loadLibrary at startup — a confusing
 # failure that reads as an app bug rather than a setup one.

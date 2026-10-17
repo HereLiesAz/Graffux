@@ -8,7 +8,7 @@ import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,7 +42,7 @@ class CommitReplayInvariantTest {
         fun setUp() = RenderTestBase.stubNativeLibs()
     }
 
-    private val engine = DrawingEngine(mockk<SlamManager>(relaxed = true))
+    private val engine = DrawingEngine(mockk<LiquifyEngine>(relaxed = true))
     private val canvas = IntSize(48, 48)
 
     private fun base() = RenderTestBase.filled(48, 48, Color.WHITE)

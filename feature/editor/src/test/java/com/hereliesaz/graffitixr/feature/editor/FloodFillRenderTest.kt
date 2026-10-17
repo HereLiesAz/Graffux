@@ -5,7 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.LayerFrame
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
@@ -48,7 +48,7 @@ class FloodFillRenderTest {
             intensity = 1f,
             fillSelection = true,
         )
-        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+        val painted = DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).applySingleStroke(
             bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
         )
         assertEquals(Color.TRANSPARENT, painted.getPixel(0, 0))
@@ -68,7 +68,7 @@ class FloodFillRenderTest {
             brushColor = Color.RED,
             intensity = 1f,
         )
-        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+        val painted = DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).applySingleStroke(
             bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
         )
         assertEquals(Color.TRANSPARENT, painted.getPixel(0, 0))
@@ -88,7 +88,7 @@ class FloodFillRenderTest {
             brushColor = Color.RED,
             intensity = 1f,
         )
-        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+        val painted = DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).applySingleStroke(
             bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
         )
         assertEquals("off-frame paint is editable", Color.RED, painted.getPixel(2, 9))
@@ -107,7 +107,7 @@ class FloodFillRenderTest {
             brushColor = Color.RED,
             intensity = 1f,
         )
-        val painted = DrawingEngine(mockk<SlamManager>(relaxed = true)).applySingleStroke(
+        val painted = DrawingEngine(mockk<LiquifyEngine>(relaxed = true)).applySingleStroke(
             bitmap, command, frame = LayerFrame(16, 16, originX = -4, originY = -4),
         )
         assertEquals(Color.TRANSPARENT, painted.getPixel(2, 9))

@@ -30,7 +30,7 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
-| `:core:nativebridge` | JNI bridge to the native (OpenCV/wgpu) world used by Liquify, drawing, and GPU compositing. Hosts the GPU stamp engine behind `StampEngine.h`: the adapter over the wgpu engine (the Vulkan and OpenGL ES engines were retired). |
+| `:core:nativebridge` | JNI bridge to the native (GLES/wgpu) world used by Liquify (`LiquifyEngine`, `ImageWarper.cpp`), drawing, and GPU compositing. Hosts the GPU stamp engine behind `StampEngine.h`: the adapter over the wgpu engine (the Vulkan and OpenGL ES engines were retired). |
 | `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a and armeabi-v7a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
 | `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. Its `jvmShared` source set (Android + desktop) holds the JNI wrapper of the wgpu engine. |
 | `:desktop` | The real Graffux desktop app (Linux/Windows, Compose Multiplatform) — not published from this table's other modules, but a third consumer of `:core:engine`'s shared math alongside Android Graffux and GraffitiXR. See `DESKTOP.md`. |
@@ -49,7 +49,7 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
 1. **MVI, one reducer.** All editor state transitions go through `EditorIntent` →
    `EditorReducer.reduce` (`feature/editor/.../EditorReducer.kt`), a pure function with no
    Android dependencies — it's unit-tested in isolation (`EditorReducerTest.kt`).
-   `EditorViewModel` is where every side effect (history, persistence, OpenCV, coroutines)
+   `EditorViewModel` is where every side effect (history, persistence, coroutines)
    lives; the reducer itself must never gain one.
 2. **`EditHistory` snapshots layers, not bitmaps.** Undo/redo pushes `EditorUiState.layers`
    with bitmaps stripped; `LayerStore`'s cached base+stroke data is what a restore rebuilds

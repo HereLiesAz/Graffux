@@ -123,8 +123,8 @@ Vulkan takes the compute job, and the two share GPU memory via `AHardwareBuffer`
 `AHardwareBuffer_allocate` + `EGL_ANDROID_get_native_client_buffer`/`VK_ANDROID_external_memory_
 android_hardware_buffer` on each side) — the same object both APIs import as their respective
 image/texture, no CPU-side copy between them. `core/nativebridge` already links `GLESv3` + `EGL`
-and runs a real EGL context/surface for `MobileGS` (Gaussian-splat AR rendering,
-`core/nativebridge/src/main/cpp/MobileGS.cpp`) — that pattern is what the presentation half reuses;
+and runs a real EGL context/surface for Liquify's `ImageWarper`
+(`core/nativebridge/src/main/cpp/ImageWarper.cpp`, on `LiquifyGlContext`'s dedicated GL thread) — that pattern is what the presentation half reuses;
 the compute half is genuinely new native surface area (a Vulkan instance/device, a compute
 pipeline, SPIR-V shaders compiled at build time via `glslc`).
 
@@ -1305,7 +1305,7 @@ across undo/redo, co-op sync, and disk save. Proposed phasing, each shippable on
    ahead of time (`glslc -mfmt=c`, checked in as `shaders/StampSpv.h`) so the CMake build never
    needs the shader compiler on the host — only `libvulkan.so` from the NDK platform sysroot,
    already linked in `CMakeLists.txt`. Verified by actually building: `:core:nativebridge:
-   externalNativeBuildDebug` compiles and links this against the real OpenCV/Prefab dependency
+   externalNativeBuildDebug` compiles and links this against the NDK sysroot
    for both `arm64-v8a` and `armeabi-v7a`, and the four JNI symbols are present in the resulting
    `libgraffitixr.so` (checked with `nm -D`).
    **Wired into the live stamp-brush preview.** `EditorViewModel.onStrokeStart`'s azphalt-brush

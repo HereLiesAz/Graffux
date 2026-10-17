@@ -160,7 +160,7 @@ The **Wet-in-Wet (Alla Prima)** or **Sfumato** stroke occurs when high-fluid str
 
 ## **Case Study: Integration and Evolution in Graffux**
 
-The concepts detailed in this framework provide a roadmap for the ongoing development of Graffux, a touch-native, multi-layer image editor built in Kotlin and Jetpack Compose for Android72. Graffux utilizes a Model-View-Intent (MVI) architecture with a dedicated JNI bridge connecting to a native OpenCV layer for its drawing and Liquify engines72.
+The concepts detailed in this framework provide a roadmap for the ongoing development of Graffux, a touch-native, multi-layer image editor built in Kotlin and Jetpack Compose for Android72. Graffux utilizes a Model-View-Intent (MVI) architecture with a dedicated JNI bridge connecting to a native layer for its drawing and Liquify engines72.
 
 ### **Current Accomplishments**
 
@@ -177,7 +177,7 @@ To elevate Graffux into a physically based painting simulator, the following enh
 * **Advanced Telemetry Ingestion:** The :feature:editor module must be updated to process Android's MotionEvent.getHistorical\* data, ensuring coalesced touches are captured between frames to feed perfectly smooth B-splines into the native drawing engine.  
 * **Subtractive Color Mixing:** The native C++ layer accessed via the JNI bridge should replace standard RGB alpha compositing with a Kubelka-Munk spectral mixing algorithm63. Utilizing pre-computed lookup tables (like Mixbox) would ensure real-time pigment blending performance on mobile devices without crushing the CPU55.  
 * **2.5D Height Field Rendering:** Rather than flattening strokes into a standard 2D bitmap, the engine must manage a 2.5D canvas buffer where strokes deposit both color and a height value24. A custom OpenGL ES or Vulkan fragment shader could then be implemented within the Android UI stack to calculate real-time normal maps and specular glints based on the stroke's impasto volume24.  
-* **Elastodynamic Brush Models:** The OpenCV stroke engine would need to be augmented or replaced with a lightweight Position-Based Dynamics (PBD) solver to simulate individual bristles dynamically across the canvas surface30.
+* **Elastodynamic Brush Models:** The stroke engine would need to be augmented or replaced with a lightweight Position-Based Dynamics (PBD) solver to simulate individual bristles dynamically across the canvas surface30.
 
 By bridging these physical simulations through its existing JNI architecture, Graffux can evolve from a robust 2D editor into a high-fidelity digital painting ecosystem.
 

@@ -7,7 +7,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
-import com.hereliesaz.graffitixr.nativebridge.SlamManager
+import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
@@ -27,7 +27,7 @@ class DrawingEngineWetnessTest {
 
     private val width = 48
     private val height = 24
-    private val engine = DrawingEngine(mockk<SlamManager>(relaxed = true))
+    private val engine = DrawingEngine(mockk<LiquifyEngine>(relaxed = true))
 
     private fun base(): Bitmap = RenderTestBase.filled(width, height, Color.WHITE).also { bitmap ->
         val pixels = IntArray(width * height) { index ->

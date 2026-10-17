@@ -111,7 +111,7 @@ class LiveStampImpastoTest {
             projectManager = mockk(relaxed = true),
             exportManager = mockk(relaxed = true),
             context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(),
-            slamManager = mockk(relaxed = true),
+            liquifyEngine = mockk(relaxed = true),
             dispatchers = dispatchers,
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,
