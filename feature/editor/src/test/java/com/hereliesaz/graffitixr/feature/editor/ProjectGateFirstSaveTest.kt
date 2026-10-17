@@ -108,6 +108,20 @@ class ProjectGateFirstSaveTest {
     }
 
     @Test
+    fun `the canvas size chosen in the project dialog is the project's document size`() {
+        val vm = build()
+        settle()
+
+        vm.onProjectGateSave("Poster", width = 2480, height = 3508)
+        settle()
+
+        assertEquals(2480, current.value?.documentWidth)
+        assertEquals(3508, current.value?.documentHeight)
+        assertEquals(2480, vm.uiState.value.documentWidth)
+        assertEquals(3508, vm.uiState.value.documentHeight)
+    }
+
+    @Test
     fun `new project over an open one keeps only its own Background layer`() {
         val old = GraffitiProject(name = "Old")
         saved += old
