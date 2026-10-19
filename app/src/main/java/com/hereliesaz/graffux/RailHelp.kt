@@ -35,9 +35,6 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
     "selectShape.AUTOMATIC" to
         "Tap a colour and the region grows to cover everything touching it that looks the same. " +
         "How forgiving 'the same' is comes from Tolerance, in Tool Options.",
-    "selectOp.NEW" to "The next drag replaces whatever is selected.",
-    "selectOp.ADD" to "The next drag is added to the selection — draw several shapes into one region.",
-    "selectOp.REMOVE" to "The next drag is cut out of the selection.",
     "tool.quick" to
         "The radial menu. Normally opened by holding four fingers on the canvas; this button opens " +
         "it in the middle of the screen for when you would rather not.",

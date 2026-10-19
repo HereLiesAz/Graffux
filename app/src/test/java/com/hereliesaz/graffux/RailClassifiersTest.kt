@@ -129,7 +129,6 @@ class RailClassifiersTest {
     fun `every mode picker lights exactly one of its members`() {
         val lit = classifiers(EditorUiState())
         assertTrue(lit.count { it.startsWith("selectShape.") } == 1)
-        assertTrue(lit.count { it.startsWith("selectOp.") } == 1)
         assertTrue(lit.count { it.startsWith("transform.") } == 1)
     }
 }

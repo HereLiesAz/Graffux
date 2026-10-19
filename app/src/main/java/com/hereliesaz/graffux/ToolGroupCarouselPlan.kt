@@ -2,7 +2,6 @@ package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
-import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -73,13 +72,6 @@ internal fun toolGroupCarouselEntries(
                         SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
                     }, description = "Selection shape"))
             }
-            SelectionOp.entries.forEach { op ->
-                command("selectOp.${op.name}", op.label, when (op) {
-                    SelectionOp.NEW -> GraffuxIcons.SelectAll
-                    SelectionOp.ADD -> GraffuxIcons.SelectAdd
-                    SelectionOp.REMOVE -> GraffuxIcons.SelectSubtract
-                }, "How to combine selection regions", s.selectionOp == op)
-            }
             command("tool.quick", "Quick", GraffuxIcons.SelectQuick, "Open selection quick menu")
             command("tool.selectInvert", "Invert", GraffuxIcons.SelectInvert, "Invert the selection",
                 s.selection?.inverted == true)
@@ -142,8 +134,6 @@ internal fun executeToolGroupCommand(
             .firstOrNull { it.name == id.removePrefix("transform.") }?.let(vm::onSetTransformMode)
         id.startsWith("selectShape.") -> SelectionShape.entries
             .firstOrNull { it.name == id.removePrefix("selectShape.") }?.let(vm::onSetSelectionShape)
-        id.startsWith("selectOp.") -> SelectionOp.entries
-            .firstOrNull { it.name == id.removePrefix("selectOp.") }?.let(vm::onSetSelectionOp)
         id == "tool.quick" -> vm.onOpenQuickMenu(screenCenter)
         id == "tool.selectInvert" -> vm.onInvertSelection()
         id == "tool.deselect" -> vm.onClearSelection()

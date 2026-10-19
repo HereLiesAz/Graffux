@@ -81,7 +81,6 @@ import com.hereliesaz.graffitixr.common.model.LinkOps
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
-import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.CanvasViewport
@@ -2036,11 +2035,10 @@ internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = 
     if (uiState.activeBrushName == null) add("grp.brushes")
     addAll(activeBrushClassifiers(uiState.activeBrushName, brushes, customBrushes, activeInkUtensil))
 
-    // The layer being edited, and the two mode pickers — each always lights exactly one member,
+    // The layer being edited, and the mode pickers — each always lights exactly one member,
     // because each is a choice among all of its options rather than an on/off.
     uiState.activeLayerId?.let { add("layer.$it") }
     add("selectShape.${uiState.selectionShape.name}")
-    add("selectOp.${uiState.selectionOp.name}")
     add("transform.${uiState.transformMode.name}")
 } }
 
@@ -2456,10 +2454,14 @@ private fun AzNavHostScope.ConfigureRailItems(
     val viewMoved = uiState.viewportZoom != 1f ||
         uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
         uiState.viewportRotation != 0f
-    azRailItem(
-        id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
-        disabled = !viewMoved, info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
-    )
+    // Only there while there is something to reset: a view already at its default framing has
+    // nothing for Fit to do, so the button isn't shown at all.
+    if (viewMoved) {
+        azRailItem(
+            id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
+            info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
+        )
+    }
 
     // The `?`. It opens the library's help overlay, which draws a card for every item currently in
     // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
