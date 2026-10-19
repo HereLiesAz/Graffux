@@ -1,7 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -50,7 +51,7 @@ class ProjectGateDialogTest {
             ProjectGateDialog(state = ProjectGateState("Untitled 3"), onLoad = {}, onSave = { n, _, _ -> saved = n })
         }
         rule.onNodeWithTag(TAG_NAME).performTextReplacement("Wall piece")
-        rule.onNodeWithTag(TAG_SAVE).performScrollTo().performClick()
+        rule.onNodeWithTag(TAG_SAVE).performClick()
         assertEquals("Wall piece", saved)
     }
 
@@ -77,12 +78,12 @@ class ProjectGateDialogTest {
                 onSave = { _, w, h -> size = w to h },
             )
         }
-        rule.onNodeWithTag(TAG_SAVE).performScrollTo().performClick()
+        rule.onNodeWithTag(TAG_SAVE).performClick()
         assertEquals(1200 to 2400, size)
     }
 
     @Test
-    fun `a chosen preset sets the canvas size`() {
+    fun `a chosen template sets the canvas size`() {
         var size: Pair<Int, Int>? = null
         rule.setContent {
             ProjectGateDialog(
@@ -91,26 +92,72 @@ class ProjectGateDialogTest {
                 onSave = { _, w, h -> size = w to h },
             )
         }
-        rule.onNodeWithTag("${TAG_SIZE_PREFIX}Print A4").performScrollTo().performClick()
-        rule.onNodeWithTag(TAG_SAVE).performScrollTo().performClick()
+        rule.onNodeWithTag(TAG_CATEGORY).performScrollTo().performClick()
+        rule.onNodeWithTag("$TAG_CATEGORY.Paper").performClick()
+        rule.onNodeWithTag("${TAG_TEMPLATE_PREFIX}A4").performScrollTo().performClick()
+        rule.onNodeWithTag(TAG_SAVE).performClick()
         assertEquals(2480 to 3508, size)
     }
 
     @Test
-    fun `custom size uses the typed fields`() {
+    fun `social categories offer banners and stories`() {
+        rule.setContent {
+            ProjectGateDialog(state = ProjectGateState("Untitled 1"), onLoad = {}, onSave = { _, _, _ -> })
+        }
+        rule.onNodeWithTag(TAG_CATEGORY).performScrollTo().performClick()
+        rule.onNodeWithTag("$TAG_CATEGORY.Facebook").performClick()
+        rule.onNodeWithTag("${TAG_TEMPLATE_PREFIX}Cover banner").assertExists()
+        rule.onNodeWithTag("${TAG_TEMPLATE_PREFIX}Story").assertExists()
+    }
+
+    @Test
+    fun `typing a width recomputes the ratio and typing a ratio recomputes the height`() {
         var size: Pair<Int, Int>? = null
         rule.setContent {
             ProjectGateDialog(
-                state = ProjectGateState("Untitled 1"),
+                state = ProjectGateState("Untitled 1", defaultWidth = 960, defaultHeight = 960),
                 onLoad = {},
                 onSave = { _, w, h -> size = w to h },
+                imperial = true,
             )
         }
-        rule.onNodeWithTag("${TAG_SIZE_PREFIX}Custom").performScrollTo().performClick()
-        rule.onNodeWithTag(TAG_CUSTOM_WIDTH).performTextReplacement("640")
-        rule.onNodeWithTag(TAG_CUSTOM_HEIGHT).performTextReplacement("480")
-        rule.onNodeWithTag(TAG_SAVE).performScrollTo().performClick()
-        assertEquals(640 to 480, size)
+        // 960 px at 96 dpi is 10 in. Make the width 20 in (1920 px): the ratio follows.
+        rule.onNodeWithTag(TAG_WIDTH).performScrollTo().performTextReplacement("20")
+        rule.onNodeWithTag(TAG_RATIO).assertTextContains("2:1")
+        // A 16:9 ratio keeps the 1920 px width and sets the height to 1080 px (11.25 in).
+        rule.onNodeWithTag(TAG_RATIO).performScrollTo().performTextReplacement("16:9")
+        rule.onNodeWithTag(TAG_HEIGHT).assertTextContains("11.25")
+        rule.onNodeWithTag(TAG_SAVE).performClick()
+        assertEquals(1920 to 1080, size)
+    }
+
+    @Test
+    fun `changing dpi keeps the pixels and changes the printed size`() {
+        var size: Pair<Int, Int>? = null
+        rule.setContent {
+            ProjectGateDialog(
+                state = ProjectGateState("Untitled 1", defaultWidth = 960, defaultHeight = 960),
+                onLoad = {},
+                onSave = { _, w, h -> size = w to h },
+                imperial = true,
+            )
+        }
+        rule.onNodeWithTag(TAG_DPI).performScrollTo().performClick()
+        rule.onNodeWithTag("$TAG_DPI.300").performClick()
+        rule.onNodeWithTag(TAG_WIDTH).assertTextContains("3.2")
+        rule.onNodeWithTag(TAG_SAVE).performClick()
+        assertEquals(960 to 960, size)
+    }
+
+    @Test
+    fun `every section stays reachable on a short screen`() {
+        rule.setContent {
+            ProjectGateDialog(state = ProjectGateState("Untitled 1"), onLoad = {}, onSave = { _, _, _ -> })
+        }
+        // The body scrolls, so the last field can be brought into view; Save and Load are always shown.
+        rule.onNodeWithTag(TAG_IMAGES).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag(TAG_SAVE).assertIsDisplayed()
+        rule.onNodeWithTag(TAG_LOAD).assertIsDisplayed()
     }
 
     @Test
@@ -127,7 +174,7 @@ class ProjectGateDialogTest {
         }
         rule.onNodeWithTag(TAG_IMAGES).performScrollTo().performClick()
         assertEquals(1, picks)
-        rule.onNodeWithTag(TAG_IMAGES).assertContentDescriptionEquals("Images: 3 — change…")
+        rule.onNodeWithTag(TAG_IMAGES).assertTextEquals("Images: 3 — change…")
     }
 
     @Test

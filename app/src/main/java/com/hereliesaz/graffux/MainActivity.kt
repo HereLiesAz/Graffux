@@ -1724,6 +1724,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onPickImages = {
                     gateImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
+                imperial = uiState.isImperialUnits,
             )
         }
     }
