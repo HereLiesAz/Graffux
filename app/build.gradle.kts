@@ -142,10 +142,10 @@ android {
         // misconfigured signing secret (empty KEY_PASSWORD/KEY_ALIAS, or a keystore that failed
         // to generate) makes `signingConfigs.findByName("release")` null, `release.signingConfig`
         // null, and `bundleRelease`/`assembleRelease` still "succeed" — producing an unsigned AAB
-        // that release-aab.yml's `if-no-files-found: error` check is satisfied by (a file exists)
+        // that the Play release's `if-no-files-found: error` check is satisfied by (a file exists)
         // and that only fails, if it fails at all, much later at the Play upload with a confusing
         // Play-side error. Scoped to CI specifically via KEYSTORE_FILE — that env var is only ever
-        // set by the release workflows (see release-aab.yml / release-apk.yml / merged-build.yml),
+        // set by the release workflows (see android-play-release.yml, android-github-release.yml, merged-build.yml),
         // so a local `./gradlew bundleRelease` with no signing secrets configured still produces
         // an unsigned build for local testing, same as before.
         if (!envKeystoreFile.isNullOrEmpty()) {
