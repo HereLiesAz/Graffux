@@ -25,7 +25,7 @@ class ToolGroupCarouselPlanTest {
         assertTrue(entries.any { it.key == "tool.select" })
         assertTrue(entries.any { it.key == "selectShape.RECTANGLE" })
         assertTrue(entries.any { it.key == "selectShape.ELLIPSE" && it.selected })
-        assertTrue(entries.any { it.key == "selectOp.NEW" })
+        assertTrue(entries.none { it.key.startsWith("selectOp.") })
         assertTrue(entries.any { it.key == "tool.quick" })
         assertTrue(entries.any { it.key == "tool.deselect" })
         assertEquals(entries.map { it.key }.size, entries.map { it.key }.distinct().size)
@@ -55,10 +55,10 @@ class ToolGroupCarouselPlanTest {
             smudgeMode = com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine.Mode.DULLING,
             selectionShape = SelectionShape.RECTANGLE,
             groupEntries = group,
-            favorites = listOf("selectOp.ADD"),
+            favorites = listOf("tool.quick"),
         )
         val favorites = carouselEntries(CarouselCategory.FAVORITES, inputs)
-        assertEquals(listOf("selectOp.ADD"), favorites.map { it.key })
+        assertEquals(listOf("tool.quick"), favorites.map { it.key })
         assertTrue(favorites.single().favorite)
     }
 
