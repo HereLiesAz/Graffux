@@ -582,7 +582,7 @@ Capabilities and the host functions each grants (from `WasmSandbox.bindCapabilit
 | `color` | `colorActive()` / `colorSetActive(rgba)` — the app's active RGBA color |
 | `assets` | `assetRead(path)` — read a bundled asset file's bytes |
 | `selection` | `selectionSize()`, `selectionRead()` — declared but not yet available: the host throws `UnsupportedOperationException`, because the selection is a screen-space path and no pixel-mask wire format is defined |
-| `bitmap` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`** — see note below. |
+| `bitmap` | `bitmapWidth()`, `bitmapHeight()`, `bitmapRead(maxDim, outPtr, outCap, dimsPtr)`, `bitmapWrite(inPtr, len, width, height)` — the active layer's pixels, WASM guests only (see § 5.1.2) |
 | `time` | See § 5.2 — handled specially, only via the WASI bridge in `JsSandbox`, not through `AzphaltSandboxHost` at all. |
 | `audio` | Declared on the manifest `Capability` enum; **no corresponding host functions are bound in `WasmSandbox`**. |
 
@@ -624,11 +624,26 @@ package-relative, the same form as a `files` map key (e.g. `assets/teal.cube`). 
 
 The Wasm bridge's `outCap` truncation contract is unchanged.
 
-**TODO: unconfirmed** — `bitmap` and `audio` are part of the `Capability` wire enum and are described
-in `AzphaltSandboxHost`'s doc comment framing ("Each function represents an access-controlled
-capability"), but no host-function binding for either exists in the current `WasmSandbox`/`JsSandbox`
-source read for this document. Whether that is an intentional "declared for forward-compat, not yet
-wired" gap or a documentation/implementation drift was not resolved from the code alone.
+#### 5.1.2 `bitmap` ABI: reading and replacing the active layer
+
+WASM guests only (`JsSandbox` binds nothing for it). Pixels are straight (non-premultiplied) RGBA8,
+`width * height * 4` bytes, row-major from the top-left. A guest runs in an interpreter under a hard
+time limit (§ 5.4), so the **host does the resampling**: the guest asks for the layer already scaled
+down and hands its result back at that size.
+
+| Function | Signature | Result |
+|---|---|---|
+| `bitmapWidth` | `() -> i32` | the layer's own width; `0` when it has no bitmap |
+| `bitmapHeight` | `() -> i32` | the layer's own height; `0` when it has no bitmap |
+| `bitmapRead` | `(maxDim, outPtr, outCap, dimsPtr) -> i32` | copies the layer scaled (aspect kept) so its long side is at most `maxDim` (`0` = native size; never scaled up), writes its width and height as two little-endian i32 at `dimsPtr`, and returns the full byte size, copying at most `outCap` bytes (like `paramString`). `-1` when there is no bitmap or it is too large to hand over |
+| `bitmapWrite` | `(inPtr, len, width, height) -> i32` | stages the pixels as the layer's contents; the host scales them (smoothly) to the layer's size. `1` when staged, `-1` when refused (no bitmap, or `len != width * height * 4`) |
+
+A write is **staged, not applied**: the host swaps the pixels in only after `run` returns, as one
+undoable step, so a guest that traps or times out leaves the layer untouched. Only the last staged
+write counts. The Graffux editor refuses `bitmapRead` for layers over 16 Mpx.
+
+`audio` is part of the `Capability` wire enum, but no host function for it is bound by `WasmSandbox`
+or `JsSandbox`.
 
 ### 5.2 `time` — a special case (WASI clock/RNG denial)
 
@@ -734,9 +749,8 @@ Two independent layers exist, at two different times:
 
 ## Open items (TODO: unconfirmed)
 
-- **`bitmap` and `audio` capabilities**: declared in the `Capability` wire enum and framed generally
-  by `AzphaltSandboxHost`'s doc comment, but no host-function bridge for either was found in
-  `WasmSandbox`/`JsSandbox`. Not clear from the code alone whether this is deliberate ("declared,
+- **`audio` capability**: declared in the `Capability` wire enum, but no host-function bridge exists
+  in `WasmSandbox`/`JsSandbox`. Not clear from the code alone whether this is deliberate ("declared,
   not yet wired") or a gap.
 - **The normative `spec/extension-manifest.md`, `spec/pack.md`, `spec/companion-app.md`,
   `spec/mcp-server.md`, `spec/ui-schema.md`, and `spec/repository-api.md`** are referenced throughout

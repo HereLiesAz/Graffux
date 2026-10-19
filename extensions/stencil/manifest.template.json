@@ -1,0 +1,18 @@
+{
+  "azphalt": "0.1",
+  "id": "com.hereliesaz.stencil",
+  "name": "Stencil",
+  "version": "@VERSION@",
+  "kind": "code",
+  "license": "MIT",
+  "author": "Az",
+  "description": "Turns a design into stackable stencil sheets: a base sheet over the whole subject, then a midtone and an extreme tone laid over it, the way paint is.",
+  "compat": ">=0.1",
+  "entry": "code/stencil.wasm",
+  "runtime": "wasm",
+  "capabilities": ["bitmap", "params"],
+  "contributes": {
+    "filters": [{ "id": "stencil", "name": "Stencil", "entry": "code/stencil.wasm", "ui": "ui/panel.json" }]
+  },
+  "files": @FILES@
+}

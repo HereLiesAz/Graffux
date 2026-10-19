@@ -278,6 +278,11 @@ private const val CAROUSEL_SETTINGS_PERSIST_DEBOUNCE_MS = 300L
 /** Hard cap for all buffered preview pixels together; prevents a long range from becoming a heap bomb. */
 private const val ANIMATION_PREVIEW_BUFFER_MAX_BYTES = 64L * 1024 * 1024
 
+/** Largest layer (pixels) an extension may read through the `bitmap` capability. */
+private const val MAX_EXTENSION_BITMAP_PIXELS = 16L * 1024 * 1024
+
+private const val BYTE_MASK = 0xFF
+
 data class AnimationPreviewBufferState(
     val frames: Map<Int, Bitmap> = emptyMap(),
     val range: IntRange = IntRange.EMPTY,
@@ -2327,6 +2332,103 @@ class EditorViewModel @Inject constructor(
         override fun layerCount(): Int = _uiState.value.layers.size
     }
 
+    /**
+     * One run's view of the active layer for the `bitmap` capability. Reads hand the extension a
+     * snapshot of the layer's pixels, scaled down natively because a guest runs in an interpreter;
+     * a write is only staged here, and [commitStagedBitmap] swaps it in after the extension
+     * returns, so a run that fails or times out leaves the layer untouched.
+     */
+    private inner class LayerBitmapHost(
+        private val base: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost,
+        val layerId: String?,
+    ) : com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost by base {
+        @Volatile var staged: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels? = null
+
+        private val source: Bitmap? by lazy {
+            layerId?.let { id -> _uiState.value.layers.find { it.id == id }?.bitmap }?.takeUnless { it.isRecycled }
+        }
+
+        override fun bitmapWidth(): Int = source?.width ?: 0
+        override fun bitmapHeight(): Int = source?.height ?: 0
+
+        override fun bitmapRead(maxDim: Int): com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels? {
+            val src = source?.takeIf { it.width.toLong() * it.height <= MAX_EXTENSION_BITMAP_PIXELS } ?: return null
+            val long = maxOf(src.width, src.height)
+            val scaled = if (maxDim > 0 && long > maxDim) {
+                Bitmap.createScaledBitmap(
+                    src,
+                    maxOf(1, (src.width.toLong() * maxDim / long).toInt()),
+                    maxOf(1, (src.height.toLong() * maxDim / long).toInt()),
+                    true,
+                )
+            } else {
+                src
+            }
+            val argb = IntArray(scaled.width * scaled.height)
+            scaled.getPixels(argb, 0, scaled.width, 0, 0, scaled.width, scaled.height)
+            val result = com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels(
+                scaled.width, scaled.height, argbToRgba(argb),
+            )
+            if (scaled !== src) scaled.recycle()
+            return result
+        }
+
+        override fun bitmapWrite(pixels: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels): Boolean {
+            if (source == null) return false
+            staged = pixels
+            return true
+        }
+    }
+
+    /** Packed ARGB ints (what `Bitmap.getPixels` returns) as straight RGBA bytes. */
+    private fun argbToRgba(argb: IntArray): ByteArray {
+        val rgba = ByteArray(argb.size * com.hereliesaz.graffitixr.data.azphalt.sandbox.BITMAP_BYTES_PER_PIXEL)
+        var o = 0
+        for (c in argb) {
+            rgba[o++] = android.graphics.Color.red(c).toByte()
+            rgba[o++] = android.graphics.Color.green(c).toByte()
+            rgba[o++] = android.graphics.Color.blue(c).toByte()
+            rgba[o++] = android.graphics.Color.alpha(c).toByte()
+        }
+        return rgba
+    }
+
+    /** The inverse of [argbToRgba]. */
+    private fun rgbaToArgb(rgba: ByteArray): IntArray {
+        val argb = IntArray(rgba.size / com.hereliesaz.graffitixr.data.azphalt.sandbox.BITMAP_BYTES_PER_PIXEL)
+        var i = 0
+        for (p in argb.indices) {
+            argb[p] = android.graphics.Color.argb(
+                rgba[i + 3].toInt() and BYTE_MASK,
+                rgba[i].toInt() and BYTE_MASK,
+                rgba[i + 1].toInt() and BYTE_MASK,
+                rgba[i + 2].toInt() and BYTE_MASK,
+            )
+            i += com.hereliesaz.graffitixr.data.azphalt.sandbox.BITMAP_BYTES_PER_PIXEL
+        }
+        return argb
+    }
+
+    /** Swaps [staged] in as [layerId]'s pixels (scaled to the layer's size) as one undoable step. */
+    private suspend fun commitStagedBitmap(
+        layerId: String,
+        staged: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels,
+    ) {
+        val target = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: return
+        val argb = rgbaToArgb(staged.rgba)
+        val small = Bitmap.createBitmap(argb, staged.width, staged.height, Bitmap.Config.ARGB_8888)
+        val result = if (small.width == target.width && small.height == target.height) {
+            small
+        } else {
+            Bitmap.createScaledBitmap(small, target.width, target.height, true).also { small.recycle() }
+        }
+        withContext(dispatchers.main) { pushHistory() }
+        putLayerBase(layerId, result)
+        result.recycle()
+        layerStore.initStrokes(layerId)
+        rebuildLayerBitmap(layerId, emitOp = true)
+    }
+
     // Non-null while ExtensionsPanel is showing one extension's declared filters/tools/commands
     // instead of the top-level extension list — see [onExtensionSelected]'s doc comment for why
     // this second level exists at all.
@@ -2455,7 +2557,11 @@ class EditorViewModel @Inject constructor(
     private fun runCodeExtension(id: String, entryPath: String?) {
         viewModelScope.launch(dispatchers.io) {
             try {
-                extensionRepository.executeCodeExtension(id, sandboxHost, entryPath)
+                val layerId = _uiState.value.activeLayerId
+                layerId?.let(::invalidateResident)
+                val runHost = LayerBitmapHost(sandboxHost, layerId)
+                extensionRepository.executeCodeExtension(id, runHost, entryPath)
+                runHost.staged?.let { commitStagedBitmap(layerId!!, it) }
                 // If it succeeds, maybe dismiss the panel
                 withContext(dispatchers.main) {
                     _extensionContributionsFor.value = null
