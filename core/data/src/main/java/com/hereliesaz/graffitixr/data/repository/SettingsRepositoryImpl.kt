@@ -2,6 +2,8 @@ package com.hereliesaz.graffitixr.data.repository
 
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import android.content.Context
+import androidx.compose.ui.graphics.toArgb
+import com.hereliesaz.graffitixr.common.model.DEFAULT_CANVAS_BACKGROUND
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -90,7 +92,7 @@ class SettingsRepositoryImpl @Inject constructor(
 
     override val backgroundColor: Flow<Int> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
-        .map { preferences -> preferences[BACKGROUND_COLOR] ?: 0xFF000000.toInt() }
+        .map { preferences -> preferences[BACKGROUND_COLOR] ?: DEFAULT_CANVAS_BACKGROUND.toArgb() }
 
     override val savedPalette: Flow<List<Int>> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
