@@ -9,6 +9,8 @@ import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import androidx.compose.ui.graphics.toArgb
+import com.hereliesaz.graffitixr.common.model.DEFAULT_CANVAS_BACKGROUND
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -145,7 +147,7 @@ class SettingsRepositoryImplTest {
         // These keys are not touched by any other test in this file, so on first access in this
         // run they still reflect the implementation's default fallback rather than a stored value.
         assertFalse(repo.isImperialUnits.first())
-        assertEquals(0xFF000000.toInt(), repo.backgroundColor.first())
+        assertEquals(DEFAULT_CANVAS_BACKGROUND.toArgb(), repo.backgroundColor.first())
     }
 
     @Test
