@@ -62,11 +62,15 @@ interface AzphaltSandboxHost {
     fun bitmapWrite(pixels: BitmapPixels): Boolean = false
 }
 
-/** Straight (non-premultiplied) RGBA8 pixels, `width * height * 4` bytes, row-major from the top-left. */
+/** Bytes per pixel of [BitmapPixels]: one each for R, G, B, A. */
+const val BITMAP_BYTES_PER_PIXEL = 4
+
+/** Straight (non-premultiplied) RGBA8, `width * height * 4` bytes, row-major from the top-left. */
 class BitmapPixels(val width: Int, val height: Int, val rgba: ByteArray) {
     init {
-        require(width > 0 && height > 0 && rgba.size == width * height * 4) {
-            "a ${width}x$height bitmap needs ${width.toLong() * height * 4} bytes, got ${rgba.size}"
+        require(width > 0 && height > 0 && rgba.size == width * height * BITMAP_BYTES_PER_PIXEL) {
+            val need = width.toLong() * height * BITMAP_BYTES_PER_PIXEL
+            "a ${width}x$height bitmap needs $need bytes, got ${rgba.size}"
         }
     }
 }

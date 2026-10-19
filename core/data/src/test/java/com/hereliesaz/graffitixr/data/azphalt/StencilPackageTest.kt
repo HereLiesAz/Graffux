@@ -49,7 +49,8 @@ class StencilPackageTest {
             }
         }
 
-        val installed = AzpInstaller(tmp.newFolder("extensions")).install(ByteArrayInputStream(out.toByteArray()), nowMs = 1L)
+        val installer = AzpInstaller(tmp.newFolder("extensions"))
+        val installed = installer.install(ByteArrayInputStream(out.toByteArray()), nowMs = 1L)
 
         assertEquals("com.hereliesaz.stencil", installed.id)
         assertEquals(ExtensionKind.CODE, installed.manifest.kind)

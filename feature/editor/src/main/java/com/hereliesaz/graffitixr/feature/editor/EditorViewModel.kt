@@ -281,6 +281,8 @@ private const val ANIMATION_PREVIEW_BUFFER_MAX_BYTES = 64L * 1024 * 1024
 /** Largest layer (pixels) an extension may read through the `bitmap` capability. */
 private const val MAX_EXTENSION_BITMAP_PIXELS = 16L * 1024 * 1024
 
+private const val BYTE_MASK = 0xFF
+
 data class AnimationPreviewBufferState(
     val frames: Map<Int, Bitmap> = emptyMap(),
     val range: IntRange = IntRange.EMPTY,
@@ -2350,8 +2352,7 @@ class EditorViewModel @Inject constructor(
         override fun bitmapHeight(): Int = source?.height ?: 0
 
         override fun bitmapRead(maxDim: Int): com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels? {
-            val src = source ?: return null
-            if (src.width.toLong() * src.height > MAX_EXTENSION_BITMAP_PIXELS) return null
+            val src = source?.takeIf { it.width.toLong() * it.height <= MAX_EXTENSION_BITMAP_PIXELS } ?: return null
             val long = maxOf(src.width, src.height)
             val scaled = if (maxDim > 0 && long > maxDim) {
                 Bitmap.createScaledBitmap(
@@ -2363,20 +2364,13 @@ class EditorViewModel @Inject constructor(
             } else {
                 src
             }
-            val w = scaled.width
-            val h = scaled.height
-            val argb = IntArray(w * h)
-            scaled.getPixels(argb, 0, w, 0, 0, w, h)
+            val argb = IntArray(scaled.width * scaled.height)
+            scaled.getPixels(argb, 0, scaled.width, 0, 0, scaled.width, scaled.height)
+            val result = com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels(
+                scaled.width, scaled.height, argbToRgba(argb),
+            )
             if (scaled !== src) scaled.recycle()
-            val rgba = ByteArray(argb.size * 4)
-            for (i in argb.indices) {
-                val c = argb[i]
-                rgba[i * 4] = (c shr 16).toByte()
-                rgba[i * 4 + 1] = (c shr 8).toByte()
-                rgba[i * 4 + 2] = c.toByte()
-                rgba[i * 4 + 3] = (c ushr 24).toByte()
-            }
-            return com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels(w, h, rgba)
+            return result
         }
 
         override fun bitmapWrite(pixels: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels): Boolean {
@@ -2386,20 +2380,42 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** Packed ARGB ints (what `Bitmap.getPixels` returns) as straight RGBA bytes. */
+    private fun argbToRgba(argb: IntArray): ByteArray {
+        val rgba = ByteArray(argb.size * com.hereliesaz.graffitixr.data.azphalt.sandbox.BITMAP_BYTES_PER_PIXEL)
+        var o = 0
+        for (c in argb) {
+            rgba[o++] = android.graphics.Color.red(c).toByte()
+            rgba[o++] = android.graphics.Color.green(c).toByte()
+            rgba[o++] = android.graphics.Color.blue(c).toByte()
+            rgba[o++] = android.graphics.Color.alpha(c).toByte()
+        }
+        return rgba
+    }
+
+    /** The inverse of [argbToRgba]. */
+    private fun rgbaToArgb(rgba: ByteArray): IntArray {
+        val argb = IntArray(rgba.size / com.hereliesaz.graffitixr.data.azphalt.sandbox.BITMAP_BYTES_PER_PIXEL)
+        var i = 0
+        for (p in argb.indices) {
+            argb[p] = android.graphics.Color.argb(
+                rgba[i + 3].toInt() and BYTE_MASK,
+                rgba[i].toInt() and BYTE_MASK,
+                rgba[i + 1].toInt() and BYTE_MASK,
+                rgba[i + 2].toInt() and BYTE_MASK,
+            )
+            i += com.hereliesaz.graffitixr.data.azphalt.sandbox.BITMAP_BYTES_PER_PIXEL
+        }
+        return argb
+    }
+
     /** Swaps [staged] in as [layerId]'s pixels (scaled to the layer's size) as one undoable step. */
     private suspend fun commitStagedBitmap(
         layerId: String,
         staged: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels,
     ) {
         val target = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: return
-        val argb = IntArray(staged.width * staged.height)
-        for (i in argb.indices) {
-            val r = staged.rgba[i * 4].toInt() and 0xFF
-            val g = staged.rgba[i * 4 + 1].toInt() and 0xFF
-            val b = staged.rgba[i * 4 + 2].toInt() and 0xFF
-            val a = staged.rgba[i * 4 + 3].toInt() and 0xFF
-            argb[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
-        }
+        val argb = rgbaToArgb(staged.rgba)
         val small = Bitmap.createBitmap(argb, staged.width, staged.height, Bitmap.Config.ARGB_8888)
         val result = if (small.width == target.width && small.height == target.height) {
             small

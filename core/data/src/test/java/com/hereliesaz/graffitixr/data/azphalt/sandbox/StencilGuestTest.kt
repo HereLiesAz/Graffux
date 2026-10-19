@@ -36,16 +36,16 @@ class StencilGuestTest {
         override fun bitmapWidth() = if (pixels == null) 0 else w
         override fun bitmapHeight() = if (pixels == null) 0 else h
         override fun bitmapRead(maxDim: Int): BitmapPixels? {
-            if (pixels == null) return null
+            val px = pixels ?: return null
             val long = maxOf(w, h)
-            if (maxDim <= 0 || long <= maxDim) return BitmapPixels(w, h, pixels)
+            val scale = if (maxDim in 1 until long) maxDim.toDouble() / long else 1.0
             // Nearest-neighbour is enough for a fake; the real host scales smoothly.
-            val tw = maxOf(1, w * maxDim / long)
-            val th = maxOf(1, h * maxDim / long)
+            val tw = maxOf(1, (w * scale).toInt())
+            val th = maxOf(1, (h * scale).toInt())
             val out = ByteArray(tw * th * 4)
             for (y in 0 until th) for (x in 0 until tw) {
                 val src = ((y * h / th) * w + (x * w / tw)) * 4
-                System.arraycopy(pixels, src, out, (y * tw + x) * 4, 4)
+                System.arraycopy(px, src, out, (y * tw + x) * 4, 4)
             }
             return BitmapPixels(tw, th, out)
         }
@@ -104,8 +104,9 @@ class StencilGuestTest {
         assertEquals(listOf(255, 255, 255, 255), rgbaAt(base.written!!.rgba, w, 2, 2))
         val secondary = BitmapHost(w, h, img, mapOf("view" to "secondary", "base" to "dark"))
         run(secondary)
-        assertEquals("the base sheet is hidden in the secondary view", listOf(0, 0, 0, 0), rgbaAt(secondary.written!!.rgba, w, 2, 2))
-        assertEquals(listOf(255, 255, 255, 255), rgbaAt(secondary.written!!.rgba, w, w / 2, h / 2))
+        val sheet = secondary.written!!.rgba
+        assertEquals("the base sheet is hidden in the secondary view", listOf(0, 0, 0, 0), rgbaAt(sheet, w, 2, 2))
+        assertEquals(listOf(255, 255, 255, 255), rgbaAt(sheet, w, w / 2, h / 2))
     }
 
     @Test
@@ -141,7 +142,8 @@ class StencilGuestTest {
         val ms = (System.nanoTime() - started) / 1_000_000
         println("stencil 1024x1024 took $ms ms in the interpreter")
         // Headroom for a slower phone and a loaded build machine.
-        assertTrue("took $ms ms against a ${SANDBOX_EXECUTION_TIMEOUT_MS} ms limit", ms < SANDBOX_EXECUTION_TIMEOUT_MS / 2)
+        val budget = SANDBOX_EXECUTION_TIMEOUT_MS / 2
+        assertTrue("took $ms ms against a $SANDBOX_EXECUTION_TIMEOUT_MS ms limit", ms < budget)
         val out = host.written!!
         assertEquals("the guest works at its reduced size", 256, out.width)
         assertEquals(256, out.height)

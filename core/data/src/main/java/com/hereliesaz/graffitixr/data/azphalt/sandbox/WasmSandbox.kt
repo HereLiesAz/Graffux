@@ -14,6 +14,9 @@ import java.nio.charset.StandardCharsets
  *  at 256 MiB regardless of what the module itself declares as its maximum. */
 private const val MAX_GUEST_MEMORY_PAGES = 4096
 
+/** Size of the i32 a guest is handed through a pointer. */
+private const val I32_BYTES = 4
+
 /**
  * Executes a WASM module within an isolated Chicory sandbox.
  * No ambient authority — the guest gets nothing beyond the capability-gated host functions bound
@@ -156,6 +159,11 @@ class WasmSandbox(
                 { _: Instance, _: LongArray -> longArrayOf(host.bitmapHeight().toLong()) }
             )
         )
+        bindBitmapRead()
+        bindBitmapWrite()
+    }
+
+    private fun bindBitmapRead() {
         hostFunctions.add(
             HostFunction(
                 "env", "bitmapRead",
@@ -164,23 +172,24 @@ class WasmSandbox(
                     listOf(ValType.I32),
                 ),
                 { _: Instance, args: LongArray ->
-                    val maxDim = args[0].toInt()
-                    val outPtr = args[1].toInt()
-                    val outCap = args[2].toInt()
-                    val dimsPtr = args[3].toInt()
-                    val pixels = host.bitmapRead(maxDim)
+                    val a = args.map { it.toInt() }
+                    val (outPtr, outCap, dimsPtr) = a.drop(1)
+                    val pixels = host.bitmapRead(a[0])
                     if (pixels == null) {
                         longArrayOf(-1L)
                     } else {
                         val toCopy = Math.min(pixels.rgba.size, Math.max(outCap, 0))
                         instance.memory().write(outPtr, pixels.rgba, 0, toCopy)
                         instance.memory().writeI32(dimsPtr, pixels.width)
-                        instance.memory().writeI32(dimsPtr + 4, pixels.height)
+                        instance.memory().writeI32(dimsPtr + I32_BYTES, pixels.height)
                         longArrayOf(pixels.rgba.size.toLong())
                     }
                 }
             )
         )
+    }
+
+    private fun bindBitmapWrite() {
         hostFunctions.add(
             HostFunction(
                 "env", "bitmapWrite",
@@ -189,14 +198,12 @@ class WasmSandbox(
                     listOf(ValType.I32),
                 ),
                 { _: Instance, args: LongArray ->
-                    val len = args[1].toInt()
-                    val width = args[2].toInt()
-                    val height = args[3].toInt()
+                    val a = args.map { it.toInt() }
+                    val (ptr, len) = a
+                    val (width, height) = a.drop(2)
                     val accepted = len >= 0 && width > 0 && height > 0 &&
-                        width.toLong() * height * 4 == len.toLong() &&
-                        host.bitmapWrite(
-                            BitmapPixels(width, height, instance.memory().readBytes(args[0].toInt(), len)),
-                        )
+                        width.toLong() * height * BITMAP_BYTES_PER_PIXEL == len.toLong() &&
+                        host.bitmapWrite(BitmapPixels(width, height, instance.memory().readBytes(ptr, len)))
                     longArrayOf(if (accepted) 1L else -1L)
                 }
             )
