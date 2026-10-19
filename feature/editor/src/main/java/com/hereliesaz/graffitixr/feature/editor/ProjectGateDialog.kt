@@ -18,7 +18,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -34,8 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.model.ProjectFile
 
 /**
@@ -90,7 +95,7 @@ fun ProjectGateDialog(
         Surface(
             shape = RoundedCornerShape(12.dp),
             tonalElevation = 6.dp,
-            modifier = Modifier.padding(24.dp).widthIn(max = 420.dp).testTag(TAG_DIALOG),
+            modifier = Modifier.padding(24.dp).widthIn(max = 480.dp).testTag(TAG_DIALOG),
         ) {
             Column(
                 modifier = Modifier.padding(20.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -115,12 +120,12 @@ fun ProjectGateDialog(
                         customHeight = customHeight,
                         onCustomHeight = { customHeight = it },
                     )
-                    AzButton(
-                        text = if (pickedImageCount > 0) "Images: $pickedImageCount — change…" else "Import images…",
+                    OutlinedButton(
                         onClick = onPickImages,
-                        shape = AzButtonShape.RECTANGLE,
-                        modifier = Modifier.testTag(TAG_IMAGES),
-                    )
+                        modifier = Modifier.fillMaxWidth().testTag(TAG_IMAGES),
+                    ) {
+                        Text(if (pickedImageCount > 0) "Images: $pickedImageCount — change…" else "Import images…")
+                    }
                 }
                 if (busy) {
                     Row(
@@ -131,19 +136,15 @@ fun ProjectGateDialog(
                         Text(state.busyLabel.orEmpty(), modifier = Modifier.testTag(TAG_BUSY))
                     }
                 } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        AzButton(
-                            text = "Load…",
-                            onClick = onLoad,
-                            shape = AzButtonShape.RECTANGLE,
-                            modifier = Modifier.testTag(TAG_LOAD),
-                        )
-                        AzButton(
-                            text = "Save",
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                    ) {
+                        TextButton(onClick = onLoad, modifier = Modifier.testTag(TAG_LOAD)) { Text("Load…") }
+                        Button(
                             onClick = { onSave(ProjectFile.sanitizeName(name), width, height) },
-                            shape = AzButtonShape.RECTANGLE,
                             modifier = Modifier.testTag(TAG_SAVE),
-                        )
+                        ) { Text("Save") }
                     }
                 }
             }
@@ -152,6 +153,7 @@ fun ProjectGateDialog(
 }
 
 /** The canvas-size choices: Screen (null), the document presets, and Custom with typed fields. */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Suppress("FunctionNaming", "LongParameterList") // Composable naming; hoisted state for the dialog.
 @Composable
 private fun CanvasSizeSection(
@@ -164,18 +166,23 @@ private fun CanvasSizeSection(
     onCustomHeight: (String) -> Unit,
 ) {
     Text("Canvas size", style = MaterialTheme.typography.titleSmall)
-    (listOf<DocumentPreset?>(null) + DOCUMENT_PRESETS).forEach { option ->
-        val label = when {
-            option == null -> "Screen  (${state.defaultWidth}×${state.defaultHeight})"
-            option.isCustom -> "Custom…"
-            else -> "${option.label}  (${option.width}×${option.height})"
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        (listOf<DocumentPreset?>(null) + DOCUMENT_PRESETS).forEach { option ->
+            val label = when {
+                option == null -> "Screen ${state.defaultWidth}×${state.defaultHeight}"
+                option.isCustom -> "Custom"
+                else -> "${option.label} ${option.width}×${option.height}"
+            }
+            FilterChip(
+                selected = option == choice,
+                onClick = { onChoice(option) },
+                label = { Text(label) },
+                modifier = Modifier.testTag("$TAG_SIZE_PREFIX${option?.label ?: "Screen"}"),
+            )
         }
-        AzButton(
-            text = if (option == choice) "$label ✓" else label,
-            onClick = { onChoice(option) },
-            shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.testTag("$TAG_SIZE_PREFIX${option?.label ?: "Screen"}"),
-        )
     }
     if (choice?.isCustom == true) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

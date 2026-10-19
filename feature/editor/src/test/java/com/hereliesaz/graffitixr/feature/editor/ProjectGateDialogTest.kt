@@ -1,7 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -127,7 +127,7 @@ class ProjectGateDialogTest {
         }
         rule.onNodeWithTag(TAG_IMAGES).performScrollTo().performClick()
         assertEquals(1, picks)
-        rule.onNodeWithTag(TAG_IMAGES).assertContentDescriptionEquals("Images: 3 — change…")
+        rule.onNodeWithTag(TAG_IMAGES).assertTextEquals("Images: 3 — change…")
     }
 
     @Test
