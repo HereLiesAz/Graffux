@@ -121,6 +121,88 @@ class WasmSandbox(
         )
     }
 
+    /**
+     * The `bitmap` capability, WASM guests only. Pixels are straight RGBA8, `width * height * 4`
+     * bytes, row-major from the top-left. A guest runs in an interpreter with a hard time limit, so
+     * the host does the resampling: a guest asks for the layer already scaled down and hands its
+     * result back at that smaller size.
+     *
+     *   bitmapWidth() -> i32, bitmapHeight() -> i32
+     *       the layer's own size; 0 when it has no bitmap
+     *   bitmapRead(maxDim, outPtr, outCap, dimsPtr) -> i32
+     *       copies the layer's pixels, scaled so the long side is at most maxDim (0 = native size),
+     *       writes the width and height as two little-endian i32 at dimsPtr, and returns the full
+     *       byte size (copying at most outCap, like paramString); -1 when there is no bitmap or it
+     *       is too large to hand over
+     *   bitmapWrite(inPtr, len, width, height) -> i32
+     *       stages the pixels as the layer's contents, scaled by the host if the size differs;
+     *       1 when staged, -1 when refused
+     *
+     * A write is staged, not applied: the host swaps the layer's pixels in only once `run` returns,
+     * so a guest that traps or times out leaves the layer untouched.
+     */
+    private fun bindBitmapFunctions() {
+        hostFunctions.add(
+            HostFunction(
+                "env", "bitmapWidth",
+                FunctionType.of(emptyList(), listOf(ValType.I32)),
+                { _: Instance, _: LongArray -> longArrayOf(host.bitmapWidth().toLong()) }
+            )
+        )
+        hostFunctions.add(
+            HostFunction(
+                "env", "bitmapHeight",
+                FunctionType.of(emptyList(), listOf(ValType.I32)),
+                { _: Instance, _: LongArray -> longArrayOf(host.bitmapHeight().toLong()) }
+            )
+        )
+        hostFunctions.add(
+            HostFunction(
+                "env", "bitmapRead",
+                FunctionType.of(
+                    listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32),
+                    listOf(ValType.I32),
+                ),
+                { _: Instance, args: LongArray ->
+                    val maxDim = args[0].toInt()
+                    val outPtr = args[1].toInt()
+                    val outCap = args[2].toInt()
+                    val dimsPtr = args[3].toInt()
+                    val pixels = host.bitmapRead(maxDim)
+                    if (pixels == null) {
+                        longArrayOf(-1L)
+                    } else {
+                        val toCopy = Math.min(pixels.rgba.size, Math.max(outCap, 0))
+                        instance.memory().write(outPtr, pixels.rgba, 0, toCopy)
+                        instance.memory().writeI32(dimsPtr, pixels.width)
+                        instance.memory().writeI32(dimsPtr + 4, pixels.height)
+                        longArrayOf(pixels.rgba.size.toLong())
+                    }
+                }
+            )
+        )
+        hostFunctions.add(
+            HostFunction(
+                "env", "bitmapWrite",
+                FunctionType.of(
+                    listOf(ValType.I32, ValType.I32, ValType.I32, ValType.I32),
+                    listOf(ValType.I32),
+                ),
+                { _: Instance, args: LongArray ->
+                    val len = args[1].toInt()
+                    val width = args[2].toInt()
+                    val height = args[3].toInt()
+                    val accepted = len >= 0 && width > 0 && height > 0 &&
+                        width.toLong() * height * 4 == len.toLong() &&
+                        host.bitmapWrite(
+                            BitmapPixels(width, height, instance.memory().readBytes(args[0].toInt(), len)),
+                        )
+                    longArrayOf(if (accepted) 1L else -1L)
+                }
+            )
+        )
+    }
+
     private fun bindOptionalParamFunctions() {
         // paramNumber/paramBool collapse "unset" into 0.0/false and are kept unchanged for
         // guests already built against them. These Opt variants distinguish absence, following
@@ -213,6 +295,10 @@ class WasmSandbox(
                     }
                 )
             )
+        }
+
+        if ("bitmap" in grantedCapabilities) {
+            bindBitmapFunctions()
         }
 
         if ("params" in grantedCapabilities) {

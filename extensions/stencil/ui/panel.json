@@ -1,0 +1,28 @@
+{
+  "controls": [
+    {
+      "type": "select",
+      "key": "view",
+      "label": "Sheet",
+      "default": "all",
+      "options": [
+        { "value": "all", "label": "All sheets stacked" },
+        { "value": "base", "label": "Base: the whole subject" },
+        { "value": "midtone", "label": "Midtone: grey" },
+        { "value": "secondary", "label": "Secondary: the extreme tone" }
+      ]
+    },
+    {
+      "type": "select",
+      "key": "base",
+      "label": "Base colour",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "Automatic (by image)" },
+        { "value": "dark", "label": "Black base" },
+        { "value": "light", "label": "White base" }
+      ]
+    },
+    { "type": "button", "key": "run", "label": "Make stencil", "action": "run" }
+  ]
+}

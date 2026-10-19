@@ -36,4 +36,8 @@ internal class RevocableSandboxHost(private val delegate: AzphaltSandboxHost) : 
     override fun selectionSize(): Int = gate(0) { selectionSize() }
     override fun selectionRead(): ByteArray = gate(ByteArray(0)) { selectionRead() }
     override fun layerCount(): Int = gate(0) { layerCount() }
+    override fun bitmapWidth(): Int = gate(0) { bitmapWidth() }
+    override fun bitmapHeight(): Int = gate(0) { bitmapHeight() }
+    override fun bitmapRead(maxDim: Int): BitmapPixels? = gate(null) { bitmapRead(maxDim) }
+    override fun bitmapWrite(pixels: BitmapPixels): Boolean = gate(false) { bitmapWrite(pixels) }
 }

@@ -278,6 +278,9 @@ private const val CAROUSEL_SETTINGS_PERSIST_DEBOUNCE_MS = 300L
 /** Hard cap for all buffered preview pixels together; prevents a long range from becoming a heap bomb. */
 private const val ANIMATION_PREVIEW_BUFFER_MAX_BYTES = 64L * 1024 * 1024
 
+/** Largest layer (pixels) an extension may read through the `bitmap` capability. */
+private const val MAX_EXTENSION_BITMAP_PIXELS = 16L * 1024 * 1024
+
 data class AnimationPreviewBufferState(
     val frames: Map<Int, Bitmap> = emptyMap(),
     val range: IntRange = IntRange.EMPTY,
@@ -2327,6 +2330,89 @@ class EditorViewModel @Inject constructor(
         override fun layerCount(): Int = _uiState.value.layers.size
     }
 
+    /**
+     * One run's view of the active layer for the `bitmap` capability. Reads hand the extension a
+     * snapshot of the layer's pixels, scaled down natively because a guest runs in an interpreter;
+     * a write is only staged here, and [commitStagedBitmap] swaps it in after the extension
+     * returns, so a run that fails or times out leaves the layer untouched.
+     */
+    private inner class LayerBitmapHost(
+        private val base: com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost,
+        val layerId: String?,
+    ) : com.hereliesaz.graffitixr.data.azphalt.sandbox.AzphaltSandboxHost by base {
+        @Volatile var staged: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels? = null
+
+        private val source: Bitmap? by lazy {
+            layerId?.let { id -> _uiState.value.layers.find { it.id == id }?.bitmap }?.takeUnless { it.isRecycled }
+        }
+
+        override fun bitmapWidth(): Int = source?.width ?: 0
+        override fun bitmapHeight(): Int = source?.height ?: 0
+
+        override fun bitmapRead(maxDim: Int): com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels? {
+            val src = source ?: return null
+            if (src.width.toLong() * src.height > MAX_EXTENSION_BITMAP_PIXELS) return null
+            val long = maxOf(src.width, src.height)
+            val scaled = if (maxDim > 0 && long > maxDim) {
+                Bitmap.createScaledBitmap(
+                    src,
+                    maxOf(1, (src.width.toLong() * maxDim / long).toInt()),
+                    maxOf(1, (src.height.toLong() * maxDim / long).toInt()),
+                    true,
+                )
+            } else {
+                src
+            }
+            val w = scaled.width
+            val h = scaled.height
+            val argb = IntArray(w * h)
+            scaled.getPixels(argb, 0, w, 0, 0, w, h)
+            if (scaled !== src) scaled.recycle()
+            val rgba = ByteArray(argb.size * 4)
+            for (i in argb.indices) {
+                val c = argb[i]
+                rgba[i * 4] = (c shr 16).toByte()
+                rgba[i * 4 + 1] = (c shr 8).toByte()
+                rgba[i * 4 + 2] = c.toByte()
+                rgba[i * 4 + 3] = (c ushr 24).toByte()
+            }
+            return com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels(w, h, rgba)
+        }
+
+        override fun bitmapWrite(pixels: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels): Boolean {
+            if (source == null) return false
+            staged = pixels
+            return true
+        }
+    }
+
+    /** Swaps [staged] in as [layerId]'s pixels (scaled to the layer's size) as one undoable step. */
+    private suspend fun commitStagedBitmap(
+        layerId: String,
+        staged: com.hereliesaz.graffitixr.data.azphalt.sandbox.BitmapPixels,
+    ) {
+        val target = _uiState.value.layers.find { it.id == layerId }?.bitmap ?: return
+        val argb = IntArray(staged.width * staged.height)
+        for (i in argb.indices) {
+            val r = staged.rgba[i * 4].toInt() and 0xFF
+            val g = staged.rgba[i * 4 + 1].toInt() and 0xFF
+            val b = staged.rgba[i * 4 + 2].toInt() and 0xFF
+            val a = staged.rgba[i * 4 + 3].toInt() and 0xFF
+            argb[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        val small = Bitmap.createBitmap(argb, staged.width, staged.height, Bitmap.Config.ARGB_8888)
+        val result = if (small.width == target.width && small.height == target.height) {
+            small
+        } else {
+            Bitmap.createScaledBitmap(small, target.width, target.height, true).also { small.recycle() }
+        }
+        withContext(dispatchers.main) { pushHistory() }
+        putLayerBase(layerId, result)
+        result.recycle()
+        layerStore.initStrokes(layerId)
+        rebuildLayerBitmap(layerId, emitOp = true)
+    }
+
     // Non-null while ExtensionsPanel is showing one extension's declared filters/tools/commands
     // instead of the top-level extension list — see [onExtensionSelected]'s doc comment for why
     // this second level exists at all.
@@ -2455,7 +2541,11 @@ class EditorViewModel @Inject constructor(
     private fun runCodeExtension(id: String, entryPath: String?) {
         viewModelScope.launch(dispatchers.io) {
             try {
-                extensionRepository.executeCodeExtension(id, sandboxHost, entryPath)
+                val layerId = _uiState.value.activeLayerId
+                layerId?.let(::invalidateResident)
+                val runHost = LayerBitmapHost(sandboxHost, layerId)
+                extensionRepository.executeCodeExtension(id, runHost, entryPath)
+                runHost.staged?.let { commitStagedBitmap(layerId!!, it) }
                 // If it succeeds, maybe dismiss the panel
                 withContext(dispatchers.main) {
                     _extensionContributionsFor.value = null
