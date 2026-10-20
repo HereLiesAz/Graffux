@@ -130,7 +130,14 @@ internal object InkStrokes {
         for (dx in tiles) {
             for (dy in tiles) {
                 matrix.setValues(worldToBitmap.translated(dx * w, dy * h).toMatrixValues())
+                // CanvasStrokeRenderer never applies its matrix argument to the canvas: it is only the
+                // stroke-to-screen hint for anti-aliasing and texture detail. The canvas itself must
+                // carry the transform, or the stroke lands at its raw world coordinates in the
+                // bitmap -- the "Ink mark jumps up and left on lift" bug.
+                val tile = canvas.save()
+                canvas.concat(matrix)
                 renderer.draw(canvas, drawn, matrix)
+                canvas.restoreToCount(tile)
             }
         }
         saved?.let(canvas::restoreToCount)
