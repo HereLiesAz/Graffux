@@ -1921,15 +1921,7 @@ class EditorViewModel @Inject constructor(
         // Impasto (item 12): the height base needs the same fold-old-strokes-in treatment as the
         // bitmap base, on a defensive copy so a failed/discarded bake never corrupts the pristine
         // base other in-flight rebuilds may still be reading.
-        // Only Impasto strokes read the height map, so a layer without one skips the full-size
-        // array (a 24 MB copy per bake, on the main thread, was the allocation that ran out of heap).
-        val heightSize = base.width * base.height
-        val heightWorking = layerStore.heightBaseCopyOrNull(layerId)?.takeIf { it.size == heightSize }
-            ?: if (stale.any { (it.stampBrush?.impastoThicknessRate ?: 0f) > 0f }) {
-                FloatArray(heightSize)
-            } else {
-                null
-            }
+        val heightWorking = bakeHeightWorking(layerId, base, stale)
         val wetnessWorking = if (
             layerStore.hasWetnessBase(layerId) || stale.any(::strokeNeedsPersistentWetness)
         ) {
@@ -1990,6 +1982,17 @@ class EditorViewModel @Inject constructor(
                 bakingLayers.remove(layerId)
             }
         }
+    }
+
+    /**
+     * The height map a bake of [stale] onto [base] works on, or null when none is needed. Only Impasto
+     * strokes read it, so a layer without a height base skips the full-size array (a 24 MB copy per
+     * bake, on the main thread, was the allocation that ran out of heap).
+     */
+    private fun bakeHeightWorking(layerId: String, base: Bitmap, stale: List<StrokeCommand>): FloatArray? {
+        val size = base.width * base.height
+        return layerStore.heightBaseCopyOrNull(layerId)?.takeIf { it.size == size }
+            ?: FloatArray(size).takeIf { stale.any { (it.stampBrush?.impastoThicknessRate ?: 0f) > 0f } }
     }
 
     /** Layers with a bake in flight (see [maybeBakeOldStrokes]). */
