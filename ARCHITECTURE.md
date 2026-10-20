@@ -453,8 +453,9 @@ codebase is deferred scope or a real gap in the install-report flow.
   only if its base is fully transparent and every retained stroke is a plain stamp, Basic Brush or Eraser
   stroke (`HighResOverlayPlan.strokeReplayable`: no selection, warp, fill, Ink, smudge, liquify, clone,
   impasto, grain, dual tip, substrate or wrap-around). That excludes imported rasters and filters, and,
-  because strokes beyond `HISTORY_DEPTH` are baked into the base at base resolution, layers with more than
-  that many strokes (their base is then no longer blank). Everything else silently keeps the bilinear
+  because strokes beyond what undo still covers (`HISTORY_DEPTH` undo steps, a step being a stroke or a
+  chunk of up to 5) are baked into the base at base resolution, layers with more strokes than that (their
+  base is then no longer blank). Everything else silently keeps the bilinear
   path. All overlays together are capped at 4096 x 4096 pixels (split evenly per layer, 4096 on a side).
   Any change to a layer's bitmap (new stroke, undo/redo, edit; keyed by identity and
   `Bitmap.generationId`) drops its overlay; `onTrimMemory` drops them all until the view zooms out. A GPU
