@@ -42,11 +42,15 @@ request came from the app. If abuse shows up, the next step is Play Integrity at
 It ships with the `graffux` Worker, so it deploys when that Worker does (Workers Builds on merge to
 `main`, or `npx wrangler deploy` from the repository root). One-time setup:
 
-1. Create a fine-grained GitHub token for **HereLiesAz/Graffux only** with **Contents: read and write**
-   and nothing else.
-2. Add it to the `graffux` Worker as the secret `GITHUB_TOKEN` (dashboard: Settings → Variables and
-   Secrets → Add → Secret; or `npx wrangler secret put GITHUB_TOKEN`). If that secret already exists,
-   check its token has that access and no more: the Worker can do anything the token can.
+1. Merge the central `workflows` change that adds `RepositoryTokens.graffuxStrokeDataToken()`
+   (HereLiesAz/workflows#153) and let it deploy. The root `wrangler.toml` binds it to this Worker as
+   `GITHUB_TOKENS`; on each upload the relay asks it for a short-lived token for Graffux, Contents
+   write only. **No GitHub secret is stored here, and there is nothing to rotate.** The central GitHub
+   App must be installed on `HereLiesAz/Graffux` with Contents write (it already writes trackers
+   there).
+2. Optional fallback: a `GITHUB_TOKEN` secret (fine-grained, Graffux only, Contents read and write) on
+   the `graffux` Worker is used only if the binding is missing or fails. Leave it unset once the
+   binding works, so there is no long-lived credential. If it exists, the Worker can do anything it can.
 3. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`), or the Worker
    does not deploy at all.
 4. Make sure `/v1/stroke-data/*` is reachable without logging in. If Cloudflare Access protects the

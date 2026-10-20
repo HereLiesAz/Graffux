@@ -124,3 +124,38 @@ test("a rate-limited client is turned away before the body is read or GitHub is 
   assert.deepEqual(keys, ["203.0.113.9"]);
   assert.equal(calls.length, 0);
 });
+
+test("a short-lived token from the central Worker is used in preference to the secret", async () => {
+  const calls = github({ status: 201 });
+  let minted = 0;
+  const bound = { graffuxStrokeDataToken: async () => (minted++, { token: "minted", expiresAt: "2026-10-20T02:00:00Z" }) };
+  const res = await handle(put(OK), { ...env, GITHUB_TOKENS: bound }, noSleep);
+  assert.equal(res.status, 201);
+  assert.equal(minted, 1);
+  assert.equal(calls[0].init.headers.Authorization, "Bearer minted");
+});
+
+test("if the central Worker fails, the fallback secret is used", async () => {
+  const calls = github({ status: 201 });
+  const broken = { graffuxStrokeDataToken: async () => { throw new Error("service unavailable"); } };
+  const res = await handle(put(OK), { ...env, GITHUB_TOKENS: broken }, noSleep);
+  assert.equal(res.status, 201);
+  assert.equal(calls[0].init.headers.Authorization, "Bearer t");
+});
+
+test("with no credential at all the upload is refused without calling GitHub", async () => {
+  const calls = github({ status: 201 });
+  const broken = { graffuxStrokeDataToken: async () => { throw new Error("service unavailable"); } };
+  const res = await handle(put(OK), { GH_REPO: "o/r", GITHUB_TOKENS: broken }, noSleep);
+  assert.equal(res.status, 503);
+  assert.equal(calls.length, 0);
+});
+
+test("a token is only requested for an upload that passed validation", async () => {
+  github({ status: 201 });
+  let minted = 0;
+  const bound = { graffuxStrokeDataToken: async () => (minted++, { token: "minted" }) };
+  await handle(put(OK, Buffer.from("not gzip")), { ...env, GITHUB_TOKENS: bound }, noSleep);
+  await handle(put("/v1/stroke-data/Pixel.5/session-1790680692015.jsonl.gz"), { ...env, GITHUB_TOKENS: bound }, noSleep);
+  assert.equal(minted, 0);
+});

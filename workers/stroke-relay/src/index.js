@@ -15,7 +15,11 @@
  *     502/503                    GitHub refused or the branch is missing; retry later
  *
  * Env:
- *   GITHUB_TOKEN (secret)  fine-grained token, Contents: read & write on GH_REPO only
+ *   GITHUB_TOKENS (service binding, preferred)  the central `workflows` Worker's RepositoryTokens
+ *                         entrypoint; `graffuxStrokeDataToken()` returns a short-lived token for
+ *                         Graffux, Contents: write only, so this Worker stores no GitHub secret
+ *   GITHUB_TOKEN (secret, fallback)  fine-grained token, Contents: read & write on GH_REPO only;
+ *                         used only when the binding is absent or fails
  *   GH_REPO     (var)     "HereLiesAz/Graffux"
  *   DATA_BRANCH (var)     "stroke-data"; must already exist. The Worker never creates it, so a
  *                         deleted branch shows up as 503s instead of being silently re-cut.
@@ -74,7 +78,20 @@ function toBase64(bytes) {
   return btoa(out);
 }
 
-async function commit(env, path, bytes, message, sleep) {
+/** A short-lived token from the central Worker if bound, else the fallback secret, else null. */
+async function githubToken(env) {
+  if (env.GITHUB_TOKENS) {
+    try {
+      const { token } = await env.GITHUB_TOKENS.graffuxStrokeDataToken();
+      if (token) return token;
+    } catch (error) {
+      console.error("stroke relay: could not get a token from the central Worker", error);
+    }
+  }
+  return env.GITHUB_TOKEN || null;
+}
+
+async function commit(env, token, path, bytes, message, sleep) {
   const url = `https://api.github.com/repos/${env.GH_REPO}/contents/${path}`;
   const body = JSON.stringify({ message, content: toBase64(bytes), branch: env.DATA_BRANCH || "stroke-data" });
   let last;
@@ -82,7 +99,7 @@ async function commit(env, path, bytes, message, sleep) {
     last = await fetch(url, {
       method: "PUT",
       headers: {
-        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        Authorization: `Bearer ${token}`,
         Accept: "application/vnd.github+json",
         "User-Agent": "graffux-stroke-relay",
         "Content-Type": "application/json",
@@ -119,7 +136,10 @@ export async function handle(request, env, { sleep = (ms) => new Promise((r) => 
   if (bytes.length === 0 || bytes.length > MAX_BYTES) return json(413, { error: "bad size" });
   if (!(await looksLikeStrokeData(bytes))) return json(415, { error: "not stroke data" });
 
-  const res = await commit(env, `stroke-data/${device}/${file}`, bytes, `stroke data: ${device}/${file}`, sleep);
+  const token = await githubToken(env);
+  if (!token) return json(503, { error: "no github credential" });
+
+  const res = await commit(env, token, `stroke-data/${device}/${file}`, bytes, `stroke data: ${device}/${file}`, sleep);
   if (res.status === 201 || res.status === 200) return json(201, { status: "stored" });
   const detail = await res.text().catch(() => "");
   // PUT without a sha on a path that already exists: the file is already there, which is success.
