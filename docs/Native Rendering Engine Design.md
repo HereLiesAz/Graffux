@@ -328,6 +328,15 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   detaches the snapshot for good and the layer uploads as before. Snapshot ids are unique across
   engines; snapshots are freed with their history entries and dropped with their layer.
   `tests/docstore.rs` covers undo, redo, a refused swap and a shadow retired by a later bind.
+  Undo works in chunks, not single strokes: plain Brush and Eraser strokes on one layer with one
+  tool share a history entry while each follows the last within 1.5 s, up to 5 strokes
+  (`EditHistory.pushDraw`). Undo and redo take the whole chunk. A chunk keeps no GPU snapshot (two
+  snapshots cannot merge), so the snapshot a stroke kept is freed when the next one joins its chunk
+  and undo of a chunk invalidates the layer's GPU copy; its tile deltas merge per tile, before from
+  the earliest stroke and after from the latest (`TileDelta.merge`), and only patch the layer once
+  every stroke's deltas arrived in order, else the chunk undoes by a full rebuild. The stroke baker
+  keeps every stroke the undo entries still cover (`EditHistory.undoableStrokeCount`) and bakes the
+  surplus once it reaches 8 strokes.
 - **Selection at commit on the GPU (`selection.rs`, `GpuStrokeSelection`).** A live stroke under a
   selection uploads the selection's per-pixel coverage to its engine at the stroke's start (the
   antialiased clip, or the feathered mask; rasterized once per selection, size and layer transform,

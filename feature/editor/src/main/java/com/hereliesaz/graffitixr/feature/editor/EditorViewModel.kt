@@ -239,15 +239,16 @@ internal fun EditorUiState.effectiveScreenBrushSize(): Float =
     effectivePaintBrushSize() * viewportZoom.coerceAtLeast(0.01f)
 
 /**
- * How many edits deep undo goes — and therefore how many strokes a layer must keep replayable.
- * Shared by [EditHistory] and the stroke baker so they can't drift apart: if the history were ever
- * deeper than the strokes kept, an undo would silently restore the wrong pixels.
+ * How many undo steps deep undo goes. A step is one stroke or one chunk of strokes (see
+ * [EditHistory.pushDraw]); the stroke baker keeps every stroke the steps still cover replayable
+ * ([EditHistory.undoableStrokeCount]), so the two can't drift apart: if the history were ever deeper
+ * than the strokes kept, an undo would silently restore the wrong pixels.
  */
 internal const val HISTORY_DEPTH = 20
 
 /**
- * Strokes past [HISTORY_DEPTH] a layer collects before they are baked into its base, so the bake runs
- * once per this many strokes (replaying them in one GPU session) instead of after every stroke.
+ * Strokes past those undo still covers that a layer collects before they are baked into its base, so
+ * the bake runs once per this many strokes (replaying them in one GPU session) instead of after every one.
  */
 private const val BAKE_BATCH = 8
 
@@ -551,7 +552,26 @@ sealed class EditCommand {
          * current instead of uploading it again. Attached with [tileDeltas]; null = none.
          */
         val gpuUndo: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref? = null,
-    ) : EditCommand()
+        /**
+         * The strokes of this undo chunk before [command], oldest first: undo and redo act on the
+         * whole chunk ([strokes]). Empty for a stroke undone on its own. [command] is always the
+         * chunk's newest stroke, the one a later [EditHistory.attachTileDeltas] call names.
+         */
+        val earlier: List<StrokeCommand> = emptyList(),
+        /** Whether a following stroke on this layer may join this entry's chunk. */
+        val chunkable: Boolean = false,
+        /** When the newest stroke was pushed (ms, monotonic), for the chunk's pause rule. */
+        val lastPushMs: Long = 0L,
+        /** The strokes (by identity) whose tile deltas are merged into [tileDeltas]. */
+        val attached: List<StrokeCommand> = emptyList(),
+    ) : EditCommand() {
+        /** Every stroke this entry undoes, oldest first. */
+        val strokes: List<StrokeCommand> get() = earlier + command
+
+        /** Whether [tileDeltas] covers every stroke of the chunk, so undo and redo may patch tiles. */
+        val deltasComplete: Boolean
+            get() = tileDeltas != null && strokes.all { stroke -> attached.any { it === stroke } }
+    }
 }
 
 @HiltViewModel
@@ -1771,9 +1791,11 @@ class EditorViewModel @Inject constructor(
                     updateHistoryCounts()
                     return
                 }
-                inkLedger.onUndo(command.layerId, command.command)
-                val deltas = command.tileDeltas
-                val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
+                // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
+                repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
+                command.strokes.asReversed().forEach { inkLedger.onUndo(command.layerId, it) }
+                val deltas = command.tileDeltas?.takeIf { command.deltasComplete }
+                val fastPathHandled = command.strokes.none(::strokeChangesCanonicalMaterial) &&
                     deltas != null && applyTileDeltaFastPath(
                         command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                         useAfter = false, emitOp = true, gpuUndo = command.gpuUndo,
@@ -1846,10 +1868,12 @@ class EditorViewModel @Inject constructor(
 
     /** Re-applies [command] to its layer: the tile-delta fast path when it has one, else a full rebuild. */
     private fun reapplyRedoneStroke(command: EditCommand.Draw) {
-        layerStore.addStroke(command.layerId, command.command)
-        inkLedger.onRedo(command.layerId, command.command, command.command.takeIf { it.inkStroke != null })
-        val deltas = command.tileDeltas
-        val fastPathHandled = !strokeChangesCanonicalMaterial(command.command) &&
+        command.strokes.forEach { stroke ->
+            layerStore.addStroke(command.layerId, stroke)
+            inkLedger.onRedo(command.layerId, stroke, stroke.takeIf { it.inkStroke != null })
+        }
+        val deltas = command.tileDeltas?.takeIf { command.deltasComplete }
+        val fastPathHandled = command.strokes.none(::strokeChangesCanonicalMaterial) &&
             deltas != null && applyTileDeltaFastPath(
                 command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
                 useAfter = true, emitOp = true, gpuUndo = command.gpuUndo,
@@ -1892,8 +1916,8 @@ class EditorViewModel @Inject constructor(
      * made on that layer, and every recorded path — plus any stamp-brush bitmap it references — is
      * retained forever. Both were unbounded.
      *
-     * [EditHistory] keeps at most [HISTORY_DEPTH] entries, so a stroke older than that can never be
-     * undone back to. Baking it produces identical pixels for strictly less work and memory.
+     * [EditHistory] keeps at most [HISTORY_DEPTH] entries (a chunk of strokes is one), so a stroke
+     * older than those can never be undone back to. Baking it produces identical pixels for strictly less work and memory.
      *
      * The composite runs against a *snapshot* and the strokes are only removed afterwards, on the
      * main thread, so a cancelled bake loses nothing: strokes are append-only, which keeps "the
@@ -1910,7 +1934,7 @@ class EditorViewModel @Inject constructor(
             ?: LayerFrame.of(bitmap.width, bitmap.height)
 
     private fun maybeBakeOldStrokes(layerId: String) {
-        val excess = layerStore.strokeCount(layerId) - HISTORY_DEPTH
+        val excess = layerStore.strokeCount(layerId) - history.undoableStrokeCount(layerId)
         if (excess < BAKE_BATCH) return
         val base = layerStore.base(layerId) ?: return
         val stale = layerStore.strokes(layerId).take(excess)
@@ -6548,7 +6572,7 @@ class EditorViewModel @Inject constructor(
 
             // Add stroke to history for undo/redo replay.
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6764,7 +6788,7 @@ class EditorViewModel @Inject constructor(
             substrateId = substrateId,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 

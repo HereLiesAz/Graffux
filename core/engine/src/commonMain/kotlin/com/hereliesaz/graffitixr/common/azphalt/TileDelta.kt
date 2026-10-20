@@ -89,6 +89,31 @@ object TileDelta {
         }
     }
 
+    /**
+     * One delta for two consecutive edits of the same canvas: [first] then [second]. A tile only
+     * [second] touched keeps [second]'s snapshot (it was unchanged before [second], so its before
+     * is the state before both); a tile both touched keeps [first]'s before (the state before both)
+     * and [second]'s after (the state after both). Tiles come out in [first]'s order, then the
+     * tiles only [second] touched. Null when a tile's bounds disagree between the two (they were
+     * not captured on one grid), so the caller falls back to a full rebuild instead of patching.
+     */
+    fun merge(first: List<TileSnapshot>, second: List<TileSnapshot>): List<TileSnapshot>? {
+        val merged = LinkedHashMap<Pair<Int, Int>, TileSnapshot>()
+        for (tile in first) merged[tileKey(tile)] = tile
+        for (tile in second) {
+            val key = tileKey(tile)
+            val earlier = merged[key]
+            merged[key] = when {
+                earlier == null -> tile
+                earlier.bounds != tile.bounds -> return null
+                else -> earlier.copy(after = tile.after)
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private fun tileKey(tile: TileSnapshot): Pair<Int, Int> = tile.tx to tile.ty
+
     /** Writes each snapshot's [TileSnapshot.before] pixels back into [target] (an undo). */
     fun applyBefore(target: IntArray, canvasWidth: Int, snapshots: List<TileSnapshot>) =
         apply(target, canvasWidth, snapshots) { it.before }
