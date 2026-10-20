@@ -47,6 +47,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.aznavrail.AzAppMeta
 import com.hereliesaz.aznavrail.AzHostActivityLayout
+import com.hereliesaz.aznavrail.AzNavRailScope
 import com.hereliesaz.aznavrail.LocalAzAppMeta
 import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
@@ -198,18 +199,7 @@ private fun GraffuxDesktopApp(
         azAbout(dedupeAbout = true)
         // One host per bundled set (Basics, Aerosol, Ink & Line, ...), each unfolding its brushes --
         // the same grouping as Android's Brushes-page set chips.
-        BuiltInBrushes.sets.forEach { set ->
-            azRailHostItem(id = "brushset.${set.name}", text = set.name, content = brushIcon)
-            set.brushes.forEach { preset ->
-                azRailSubItem(
-                    id = "brush.${preset.name}",
-                    hostId = "brushset.${set.name}",
-                    text = preset.name,
-                    classifiers = setOf(preset.name),
-                    onClick = { selectedBrush = preset },
-                )
-            }
-        }
+        builtInBrushSetItems(brushIcon) { selectedBrush = it }
         azRailItem(
             id = "action.undo",
             text = "Undo",
@@ -390,6 +380,22 @@ private fun GraffuxDesktopApp(
                 }
             }
             }
+        }
+    }
+}
+
+/** One rail host per [BuiltInBrushes.sets] entry, its brushes as sub-items; [onPick] selects one. */
+private fun AzNavRailScope.builtInBrushSetItems(icon: Any, onPick: (AzphaltBrush) -> Unit) {
+    BuiltInBrushes.sets.forEach { set ->
+        azRailHostItem(id = "brushset.${set.name}", text = set.name, content = icon)
+        set.brushes.forEach { preset ->
+            azRailSubItem(
+                id = "brush.${preset.name}",
+                hostId = "brushset.${set.name}",
+                text = preset.name,
+                classifiers = setOf(preset.name),
+                onClick = { onPick(preset) },
+            )
         }
     }
 }
