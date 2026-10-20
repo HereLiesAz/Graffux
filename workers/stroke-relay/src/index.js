@@ -139,7 +139,7 @@ export async function handle(request, env, { sleep = (ms) => new Promise((r) => 
   const token = await githubToken(env);
   if (!token) return json(503, { error: "no github credential" });
 
-  const res = await commit(env, token, `stroke-data/${device}/${file}`, bytes, `stroke data: ${device}/${file}`, sleep);
+  const res = await commit(env, token, `stroke-data/${device}/${file}`, bytes, `stroke data: ${device}/${file} [skip ci]`, sleep);
   if (res.status === 201 || res.status === 200) return json(201, { status: "stored" });
   const detail = await res.text().catch(() => "");
   // PUT without a sha on a path that already exists: the file is already there, which is success.
