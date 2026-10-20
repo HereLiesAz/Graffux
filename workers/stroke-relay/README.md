@@ -32,7 +32,7 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 | the branch is missing | 503. The Worker never creates it, so a deleted branch is visible. |
 | stored | 201 `stored` |
 
-Files land at `stroke-data/<device>/<file>` with the commit message `stroke data: <device>/<file>`.
+Files land at `stroke-data/<device>/<file>` with the commit message `stroke data: <device>/<file> [skip ci]`. The `[skip ci]` matters: the `stroke-data` branch was cut from `main` and still carries an old workflow that builds on every push, so without it each upload would start a full app build.
 
 This is spam and abuse *limiting*, not authentication: nothing in an open-source app can prove a
 request came from the app. If abuse shows up, the next step is Play Integrity attestation.

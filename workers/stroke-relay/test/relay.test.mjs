@@ -42,7 +42,7 @@ test("a valid session is committed to the data branch", async () => {
   );
   const sent = JSON.parse(calls[0].init.body);
   assert.equal(sent.branch, "stroke-data");
-  assert.equal(sent.message, "stroke data: Pixel-5/session-1790680692015.jsonl.gz");
+  assert.equal(sent.message, "stroke data: Pixel-5/session-1790680692015.jsonl.gz [skip ci]");
   assert.deepEqual(Buffer.from(sent.content, "base64"), session);
   assert.equal(calls[0].init.headers.Authorization, "Bearer t");
 });
