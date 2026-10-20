@@ -251,6 +251,9 @@ private const val MAX_ALPHA = 255
 /** Display frames between publishing the committed stroke and clearing the live overlay. */
 private const val OVERLAY_HANDOFF_FRAMES = 2
 private const val NANOS_PER_MS = 1_000_000L
+
+/** A stroke commit that waited or ran this long (ms) is written to the GraffuxStroke log. */
+private const val SLOW_COMMIT_LOG_MS = 500L
 private const val ALPHA_MAX_F = 255f
 
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
@@ -789,8 +792,18 @@ class EditorViewModel @Inject constructor(
     ): Job {
         val previous = rebuildJobs[layerId]
         val job = viewModelScope.launch(dispatchers.default) {
+            val queuedAt = System.nanoTime()
             previous?.join()
-            block()
+            val startedAt = System.nanoTime()
+            try {
+                block()
+            } finally {
+                val waitedMs = (startedAt - queuedAt) / NANOS_PER_MS
+                val ranMs = (System.nanoTime() - startedAt) / NANOS_PER_MS
+                if (waitedMs >= SLOW_COMMIT_LOG_MS || ranMs >= SLOW_COMMIT_LOG_MS) {
+                    strokeLog("slow commit on $layerId: waited ${waitedMs}ms behind the previous one, ran ${ranMs}ms")
+                }
+            }
         }
         if (previous != null) {
             job.invokeOnCompletion { cause ->

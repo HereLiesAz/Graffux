@@ -46,6 +46,18 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
         private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
+
+        /**
+         * Most wgpu native handles (document, pooled and checked-out) alive at once. Each holds
+         * full-layer GPU textures and staging; while the document engine's lease was held, every
+         * stroke that gave up waiting created one more, without bound, until the heap ran out.
+         * Past the cap a new engine is refused and the stroke fails cleanly instead.
+         */
+        private const val MAX_LIVE_HANDLES = 5
+
+        /** Who holds the document lease and since when, for the "busy" warning. Diagnostics only. */
+        @Volatile private var documentHolder: String? = null
+        @Volatile private var documentHeldSinceMs = 0L
         private const val TAG = "GpuStampEngine"
         private val documentLock = Any()
         private var documentHandle = 0L
@@ -416,7 +428,12 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             documentLease.tryAcquire(DOCUMENT_LEASE_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
         if (!leased) {
             if (width > 0 && height > 0) {
-                android.util.Log.w(TAG, "document engine busy for ${DOCUMENT_LEASE_WAIT_MS}ms; using a pooled engine")
+                val heldMs = if (documentHeldSinceMs == 0L) -1L else System.currentTimeMillis() - documentHeldSinceMs
+                android.util.Log.w(
+                    TAG,
+                    "document engine busy for ${DOCUMENT_LEASE_WAIT_MS}ms (held ${heldMs}ms by $documentHolder); " +
+                        "using a pooled engine",
+                )
             }
             return width > 0 && height > 0 && init(width, height)
         }
@@ -433,6 +450,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             poolKey = null
             healthy = true
             documentLeased = true
+            documentHolder = Thread.currentThread().name
+            documentHeldSinceMs = System.currentTimeMillis()
             // Multipass settings can change between strokes; a pooled handle re-applies them on reuse.
             onGpu { applyMultipass(handle) }
         }
@@ -486,6 +505,10 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         val (width, height) = key
         nativeCreationCount.incrementAndGet()
         val created = onGpu {
+            if (liveWgpuHandles.size >= MAX_LIVE_HANDLES) {
+                android.util.Log.w(TAG, "refusing a ${width}x$height engine: ${liveWgpuHandles.size} already alive")
+                return@onGpu 0L
+            }
             val handle = nativeInit(width, height)
             if (handle != 0L) {
                 liveWgpuHandles.add(handle)
@@ -1021,6 +1044,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             lastReadbackRect = null
             readbackPixels = 0L
             multipassEnabled = false
+            documentHolder = null
+            documentHeldSinceMs = 0L
             documentLease.release()
             return
         }
