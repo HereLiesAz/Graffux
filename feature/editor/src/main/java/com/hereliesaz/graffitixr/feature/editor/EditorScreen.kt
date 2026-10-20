@@ -440,7 +440,7 @@ fun EditorScreen(
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
         val canPaintActiveLayer = activeLayer != null && !activeLayerLocked
-        if (canPaintActiveLayer && inkUtensil != null && uiState.activeTool == Tool.BRUSH) {
+        if (canPaintActiveLayer && inkUtensil != null && vm.usesJetpackInk(uiState)) {
             com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
                 screenToWorld = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.screenToWorld(
                     uiState.viewportOffset.x, uiState.viewportOffset.y,

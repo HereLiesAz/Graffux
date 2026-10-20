@@ -30,12 +30,21 @@ internal data class StampPaint(
     val seed: Long,
     /** The stroke's snapshotted canvas substrate; null = the exact historical (smooth) path. */
     val substrate: StampSubstrate? = null,
+    /**
+     * An Eraser stroke: the same dabs, coverage and dynamics, composited as erase
+     * ([GpuStampEngine.STAMP_ERASE]) — the brush in reverse.
+     */
+    val erase: Boolean = false,
 ) {
+    /** The engine composite this paint stamps with. */
+    val stampMode: Int get() = if (erase) GpuStampEngine.STAMP_ERASE else GpuStampEngine.STAMP_OVER
+
     companion object {
         fun of(stroke: StrokeCommand, brush: AzphaltBrush) = StampPaint(
             brush, stroke.brushColor, stroke.secondaryBrushColor, stroke.flow,
             stroke.stampShape, stroke.stampGrain, stroke.stampMaskShape, stroke.seed,
             StampSubstrate.of(stroke.substrateId, brush),
+            erase = stroke.tool == com.hereliesaz.graffitixr.common.model.Tool.ERASER,
         )
     }
 }
@@ -143,8 +152,25 @@ internal object GpuStampCommit {
         }
     }
 
-    /** [batches] stamped onto [engine]'s layer in order. Doesn't read back. */
+    /**
+     * [batches] stamped onto [engine]'s layer in order, with [paint]'s composite (erase for the
+     * Eraser); the engine is left painting over (document and replay engines outlive the stroke).
+     * Doesn't read back.
+     */
     fun stampOnto(engine: GpuStampEngine, batches: List<Pair<List<Dab>, List<Dab>>>, paint: StampPaint): Boolean {
+        if (!engine.setStampMode(paint.stampMode) && paint.erase) return false
+        return try {
+            stampBatches(engine, batches, paint)
+        } finally {
+            if (paint.erase) engine.setStampMode(GpuStampEngine.STAMP_OVER)
+        }
+    }
+
+    private fun stampBatches(
+        engine: GpuStampEngine,
+        batches: List<Pair<List<Dab>, List<Dab>>>,
+        paint: StampPaint,
+    ): Boolean {
         val brush = paint.brush
         val baseFlow = paint.flow.coerceIn(0f, 1f)
         val substrate = paint.substrate

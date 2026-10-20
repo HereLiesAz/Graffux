@@ -97,15 +97,31 @@ internal object InkStrokes {
         wrapAround: Boolean,
         frameWidth: Int = canvas.width,
         frameHeight: Int = canvas.height,
+        /**
+         * Non-null: the Eraser. The stroke's shape removes the layer's pixels (DST_OUT) at this
+         * strength instead of painting; its recorded colour (a preview ghost) is ignored.
+         */
+        eraseOpacity: Float? = null,
     ) {
         // A renderer per commit: DrawingEngine can run on several default-dispatcher threads at once
         // (one per layer being rebuilt) and a renderer's paint caches are not documented as
         // thread-safe. Creating one is cheap next to the full-layer copy every commit already makes.
         val renderer = CanvasStrokeRenderer.create()
-        val saved = if (alphaLock) {
-            canvas.saveLayer(null, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) })
+        val saved = when {
+            eraseOpacity != null ->
+                canvas.saveLayer(null, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) })
+            alphaLock ->
+                canvas.saveLayer(null, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) })
+            else -> null
+        }
+        val drawn = if (eraseOpacity == null) {
+            stroke
         } else {
-            null
+            // Same geometry, opaque colour at the erase strength: alpha is all DST_OUT reads.
+            Stroke(
+                stroke.brush.copyWithColorIntArgb(InkColor.withOpacity(ERASE_ARGB, eraseOpacity)),
+                stroke.inputs,
+            )
         }
         val matrix = Matrix()
         val w = frameWidth.toFloat()
@@ -114,7 +130,7 @@ internal object InkStrokes {
         for (dx in tiles) {
             for (dy in tiles) {
                 matrix.setValues(worldToBitmap.translated(dx * w, dy * h).toMatrixValues())
-                renderer.draw(canvas, stroke, matrix)
+                renderer.draw(canvas, drawn, matrix)
             }
         }
         saved?.let(canvas::restoreToCount)
@@ -149,4 +165,7 @@ internal object InkStrokes {
     private const val SYNTHETIC_SAMPLE_MS = 8L
     /** Ink's geometric tolerance in world units; 0.1 is the value Ink's own samples use. */
     private const val EPSILON = 0.1f
+
+    /** Opaque white: the Eraser's stroke colour, whose alpha alone sets how much it removes. */
+    private const val ERASE_ARGB = -1
 }
