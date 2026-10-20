@@ -1794,19 +1794,7 @@ class EditorViewModel @Inject constructor(
                 // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
                 repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
                 command.strokes.asReversed().forEach { inkLedger.onUndo(command.layerId, it) }
-                val deltas = command.tileDeltas?.takeIf { command.deltasComplete }
-                val fastPathHandled = command.strokes.none(::strokeChangesCanonicalMaterial) &&
-                    deltas != null && applyTileDeltaFastPath(
-                        command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
-                        useAfter = false, emitOp = true, gpuUndo = command.gpuUndo,
-                    )
-                if (!fastPathHandled) {
-                    command.gpuUndo?.let {
-                        invalidateResident(command.layerId)
-                        history.forgetGpuUndo(it)
-                    }
-                    rebuildLayerBitmap(command.layerId, emitOp = true)
-                }
+                restoreUndoneStrokePixels(command)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -1825,6 +1813,23 @@ class EditorViewModel @Inject constructor(
             }
         }
         updateHistoryCounts()
+    }
+
+    /** Puts the layer's pixels back as they were before [command]: the tile-delta fast path, else a rebuild. */
+    private fun restoreUndoneStrokePixels(command: EditCommand.Draw) {
+        val deltas = command.tileDeltas?.takeIf { command.deltasComplete }
+        val fastPathHandled = command.strokes.none(::strokeChangesCanonicalMaterial) &&
+            deltas != null && applyTileDeltaFastPath(
+                command.layerId, deltas, command.tileDeltaCanvasWidth, command.tileDeltaCanvasHeight,
+                useAfter = false, emitOp = true, gpuUndo = command.gpuUndo,
+            )
+        if (!fastPathHandled) {
+            command.gpuUndo?.let {
+                invalidateResident(command.layerId)
+                history.forgetGpuUndo(it)
+            }
+            rebuildLayerBitmap(command.layerId, emitOp = true)
+        }
     }
 
     override fun onRedoClicked() {
