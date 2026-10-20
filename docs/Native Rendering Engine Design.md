@@ -331,8 +331,9 @@ Built for the wgpu engine. `StampEngine.h`'s optional methods default to no resi
   Undo works in chunks, not single strokes: plain Brush and Eraser strokes on one layer with one
   tool share a history entry while each follows the last within 1.5 s, up to 5 strokes
   (`EditHistory.pushDraw`). Undo and redo take the whole chunk. A chunk keeps no GPU snapshot (two
-  snapshots cannot merge), so the snapshot a stroke kept is freed when the next one joins its chunk
-  and undo of a chunk invalidates the layer's GPU copy; its tile deltas merge per tile, before from
+  snapshots cannot merge), so a stroke that joins a chunk skips capturing one, the snapshot the
+  chunk's first stroke kept is freed when the second joins, and undo of a chunk invalidates the
+  layer's GPU copy; its tile deltas merge per tile, before from
   the earliest stroke and after from the latest (`TileDelta.merge`), and only patch the layer once
   every stroke's deltas arrived in order, else the chunk undoes by a full rebuild. The stroke baker
   keeps every stroke the undo entries still cover (`EditHistory.undoableStrokeCount`) and bakes the

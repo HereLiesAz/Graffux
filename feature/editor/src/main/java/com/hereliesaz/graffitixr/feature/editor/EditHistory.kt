@@ -53,15 +53,19 @@ internal class EditHistory(
      * [chunkMaxStrokes] strokes, and was pushed no more than [chunkPauseMs] before [nowMs]. Undo and
      * redo then act on the whole chunk. Joining frees the entry's GPU undo snapshot (two cannot be
      * merged); its tile deltas are merged as each stroke's arrive ([attachTileDeltas]).
+     *
+     * Returns whether the stroke joined an existing chunk, so its commit can skip capturing a GPU
+     * undo snapshot the chunk would only free again.
      */
     fun pushDraw(
         layerId: String,
         command: StrokeCommand,
         chunkable: Boolean = false,
         nowMs: Long = System.nanoTime() / NANOS_PER_MS,
-    ) {
+    ): Boolean {
         val top = undoStack.lastOrNull()
-        if (chunkable && top is EditCommand.Draw && joinsChunk(top, layerId, command, nowMs)) {
+        val joined = chunkable && top is EditCommand.Draw && joinsChunk(top, layerId, command, nowMs)
+        if (joined && top is EditCommand.Draw) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
                 earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
@@ -71,6 +75,7 @@ internal class EditHistory(
             trim()
         }
         clearRedo()
+        return joined
     }
 
     private fun joinsChunk(top: EditCommand.Draw, layerId: String, command: StrokeCommand, nowMs: Long) =

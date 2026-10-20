@@ -302,6 +302,16 @@ class EditHistoryTest {
     }
 
     @Test
+    fun `pushDraw reports whether the stroke joined an existing chunk`() {
+        val h = chunking()
+
+        assertFalse(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L))
+        assertTrue(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 10L))
+        assertFalse(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = false, nowMs = 20L))
+        assertFalse(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 500L))
+    }
+
+    @Test
     fun `a pause longer than the limit starts a new chunk`() {
         val h = chunking()
         h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L)

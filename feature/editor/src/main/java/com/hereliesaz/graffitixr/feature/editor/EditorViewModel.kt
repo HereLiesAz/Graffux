@@ -6788,7 +6788,9 @@ class EditorViewModel @Inject constructor(
             substrateId = substrateId,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
+        // A stroke that joined an undo chunk keeps no GPU undo snapshot (the chunk has none), so its
+        // commit does not capture one.
+        val joinedChunk = history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
@@ -6895,7 +6897,7 @@ class EditorViewModel @Inject constructor(
                     ?.also {
                         if (strokeTicket != null) {
                             residentChanged = IntArray(RECT_INTS)
-                            gpuUndo = keepGpuUndo(strokeTicket, livePainted)
+                            gpuUndo = if (joinedChunk) null else keepGpuUndo(strokeTicket, livePainted)
                         }
                     }
             } else runCatching {
