@@ -1,6 +1,7 @@
 package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.InkUtensil
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -77,7 +78,34 @@ internal data class CarouselEntry(
     /** Set on installed-extension effects: what the hero card's details and tip visual read. */
     val extensionEffect: ExtensionEffect? = null,
     val description: String? = null,
+    /**
+     * The Brushes page's set this entry belongs to (a [BuiltInBrushes] set name, [STUDIO_SET] or
+     * [INSTALLED_SET]), or null outside that page. Drives the set chips above the strip.
+     */
+    val set: String? = null,
 )
+
+/** Set label for saved Brush Studio brushes on the Brushes page. */
+internal const val STUDIO_SET = "Studio"
+
+/** Set label for installed extension brushes on the Brushes page. */
+internal const val INSTALLED_SET = "Installed"
+
+/** One set chip: its name and the index of the first entry in it, which tapping the chip selects. */
+internal data class CarouselSetChip(val name: String, val firstIndex: Int)
+
+/**
+ * The Brushes page's set chips, in strip order: one per run of entries sharing a [CarouselEntry.set].
+ * Empty when there is nothing to choose between (fewer than two sets), so no row is drawn.
+ */
+internal fun carouselSetChips(entries: List<CarouselEntry>): List<CarouselSetChip> {
+    val chips = mutableListOf<CarouselSetChip>()
+    entries.forEachIndexed { index, entry ->
+        val set = entry.set ?: return@forEachIndexed
+        if (chips.none { it.name == set }) chips += CarouselSetChip(set, index)
+    }
+    return if (chips.size < 2) emptyList() else chips
+}
 
 /** The editor state the carousel reads — a narrow slice, so the derivation stays unit-testable. */
 internal data class CarouselInputs(
@@ -167,6 +195,7 @@ private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList
                 key = "builtin.${brush.name}", label = brush.name,
                 action = CarouselAction.BuiltInBrush(brush.name),
                 selected = isActive(brush.name), brush = brush,
+                set = BuiltInBrushes.setOf(brush.name)?.name,
             ),
         )
     }
@@ -176,6 +205,7 @@ private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList
                 key = "custom.$id", label = brush.name,
                 action = CarouselAction.CustomBrush(id),
                 selected = isActive(brush.name), brush = brush,
+                set = STUDIO_SET,
             ),
         )
     }
@@ -185,6 +215,7 @@ private fun brushEntries(input: CarouselInputs): List<CarouselEntry> = buildList
                 key = "ext.$id", label = name,
                 action = CarouselAction.ExtensionBrush(id),
                 selected = isActive(name), icon = GraffuxIcons.BrushImport,
+                set = INSTALLED_SET,
             ),
         )
     }

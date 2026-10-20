@@ -116,7 +116,7 @@ class BottomCarouselUiTest {
         // The hero is the active brush, so it wears the accent highlight; nothing else does.
         assertEquals(1, tagged("carousel.hero.active"))
         // Details render only on the hero card, so exactly one card carries a details line.
-        assertEquals(1, rule.onAllNodesWithText("Built-in · round tip").fetchSemanticsNodes().size)
+        assertEquals(1, rule.onAllNodesWithText("Built-in · Basics").fetchSemanticsNodes().size)
         // And it is the selected brush's card: its name is on screen.
         assertTrue(rule.onAllNodesWithText(selectedName).fetchSemanticsNodes().isNotEmpty())
 

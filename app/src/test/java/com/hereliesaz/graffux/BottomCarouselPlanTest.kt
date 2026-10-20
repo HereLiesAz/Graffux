@@ -274,7 +274,7 @@ class BottomCarouselPlanTest {
         assertEquals(brush.label, hero.name)
         assertEquals(
             listOf(
-                "Built-in · round tip",
+                "Built-in · Basics",
                 "Hardness ${(brush.brush!!.hardness * 100).toInt()}% · " +
                     "Spacing ${(brush.brush!!.spacing * 100).toInt()}%",
             ),
@@ -302,5 +302,22 @@ class BottomCarouselPlanTest {
         assertFalse(carouselSheetSettlesOpen(fractionShut = 0.1f, velocityDpPerSec = 1_000f))
         assertTrue(carouselSheetSettlesOpen(fractionShut = 0.3f, velocityDpPerSec = 50f))
         assertFalse(carouselSheetSettlesOpen(fractionShut = 0.7f, velocityDpPerSec = -50f))
+    }
+
+    @Test
+    fun `brushes page groups built-ins into set chips in strip order`() {
+        val entries = carouselEntries(CarouselCategory.BRUSHES, base)
+        val chips = carouselSetChips(entries)
+        assertEquals(
+            com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.sets.map { it.name },
+            chips.map { it.name }.take(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.sets.size),
+        )
+        chips.forEach { assertEquals(it.name, entries[it.firstIndex].set) }
+    }
+
+    @Test
+    fun `a single set draws no chips`() {
+        val one = carouselEntries(CarouselCategory.BRUSHES, base).filter { it.set == "Basics" }
+        assertEquals(emptyList<CarouselSetChip>(), carouselSetChips(one))
     }
 }
