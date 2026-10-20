@@ -245,12 +245,21 @@ internal fun EditorUiState.effectiveScreenBrushSize(): Float =
  */
 internal const val HISTORY_DEPTH = 20
 
+/**
+ * Strokes past [HISTORY_DEPTH] a layer collects before they are baked into its base, so the bake runs
+ * once per this many strokes (replaying them in one GPU session) instead of after every stroke.
+ */
+private const val BAKE_BATCH = 8
+
 /** The top of a colour channel; the Ink SVG export scales alpha against it. */
 private const val MAX_ALPHA = 255
 
 /** Display frames between publishing the committed stroke and clearing the live overlay. */
 private const val OVERLAY_HANDOFF_FRAMES = 2
 private const val NANOS_PER_MS = 1_000_000L
+
+/** A stroke commit that waited or ran this long (ms) is written to the GraffuxStroke log. */
+private const val SLOW_COMMIT_LOG_MS = 500L
 private const val ALPHA_MAX_F = 255f
 
 // Roadmap item 16's undo fast path: the tile size TileGrid partitions a layer into when capturing
@@ -789,8 +798,18 @@ class EditorViewModel @Inject constructor(
     ): Job {
         val previous = rebuildJobs[layerId]
         val job = viewModelScope.launch(dispatchers.default) {
+            val queuedAt = System.nanoTime()
             previous?.join()
-            block()
+            val startedAt = System.nanoTime()
+            try {
+                block()
+            } finally {
+                val waitedMs = (startedAt - queuedAt) / NANOS_PER_MS
+                val ranMs = (System.nanoTime() - startedAt) / NANOS_PER_MS
+                if (waitedMs >= SLOW_COMMIT_LOG_MS || ranMs >= SLOW_COMMIT_LOG_MS) {
+                    strokeLog("slow commit on $layerId: waited ${waitedMs}ms behind the previous one, ran ${ranMs}ms")
+                }
+            }
         }
         if (previous != null) {
             job.invokeOnCompletion { cause ->
@@ -1892,15 +1911,16 @@ class EditorViewModel @Inject constructor(
 
     private fun maybeBakeOldStrokes(layerId: String) {
         val excess = layerStore.strokeCount(layerId) - HISTORY_DEPTH
-        if (excess <= 0) return
+        if (excess < BAKE_BATCH) return
         val base = layerStore.base(layerId) ?: return
         val stale = layerStore.strokes(layerId).take(excess)
-        if (stale.isEmpty()) return
+        // One bake per layer at a time: each copies and replays a whole layer.
+        if (layerId in bakingLayers) return
 
         // Impasto (item 12): the height base needs the same fold-old-strokes-in treatment as the
         // bitmap base, on a defensive copy so a failed/discarded bake never corrupts the pristine
         // base other in-flight rebuilds may still be reading.
-        val heightWorking = layerStore.heightBase(layerId, base.width * base.height).copyOf()
+        val heightWorking = bakeHeightWorking(layerId, base, stale)
         val wetnessWorking = if (
             layerStore.hasWetnessBase(layerId) || stale.any(::strokeNeedsPersistentWetness)
         ) {
@@ -1918,6 +1938,7 @@ class EditorViewModel @Inject constructor(
             null
         }
 
+        bakingLayers.add(layerId)
         viewModelScope.launch(dispatchers.default) {
             try {
                 val baked = drawingEngine.composite(
@@ -1938,7 +1959,7 @@ class EditorViewModel @Inject constructor(
                     }
                     layerStore.takeOldestStrokes(layerId, stale.size)
                     layerStore.putBase(layerId, baked)
-                    layerStore.putHeightBase(layerId, heightWorking)
+                    heightWorking?.let { layerStore.putHeightBase(layerId, it) }
                     wetnessWorking?.let { layerStore.putWetnessBase(layerId, it) }
                     materialWorking?.let { layerStore.putImpastoMaterialBase(layerId, it) }
                     // The superseded base is deliberately NOT recycled: a rebuild launched before
@@ -1956,9 +1977,25 @@ class EditorViewModel @Inject constructor(
             } catch (e: Throwable) {
                 // Losing a bake is harmless — the strokes are still queued and still replay.
                 android.util.Log.w("EditorViewModel", "Failed to bake old strokes for $layerId", e)
+            } finally {
+                bakingLayers.remove(layerId)
             }
         }
     }
+
+    /**
+     * The height map a bake of [stale] onto [base] works on, or null when none is needed. Only Impasto
+     * strokes read it, so a layer without a height base skips the full-size array (a 24 MB copy per
+     * bake, on the main thread, was the allocation that ran out of heap).
+     */
+    private fun bakeHeightWorking(layerId: String, base: Bitmap, stale: List<StrokeCommand>): FloatArray? {
+        val size = base.width * base.height
+        return layerStore.heightBaseCopyOrNull(layerId)?.takeIf { it.size == size }
+            ?: FloatArray(size).takeIf { stale.any { (it.stampBrush?.impastoThicknessRate ?: 0f) > 0f } }
+    }
+
+    /** Layers with a bake in flight (see [maybeBakeOldStrokes]). */
+    private val bakingLayers: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
      * The pixel size a newly created layer should allocate at: the screen, scaled by the user's
