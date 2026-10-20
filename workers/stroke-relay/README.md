@@ -1,11 +1,15 @@
 # Stroke relay
 
-A Cloudflare Worker that takes stroke-model training sessions from the app and commits them to the
-`stroke-data` branch. It exists so the app carries **no GitHub credential**: the token is a secret of
-this Worker.
+The `/v1/*` routes of the `graffux` Cloudflare Worker. It takes stroke-model training sessions from the
+app and commits them to the `stroke-data` branch. It exists so the app carries **no GitHub
+credential**: the token is a secret of this Worker.
+
+The repository's root `wrangler.toml` sets `main` to `src/index.js` here and `run_worker_first =
+["/v1/*"]`, so only those paths run this code; everything else is the static site in `./docs` and never
+invokes the Worker.
 
 ~~~
-app  --PUT /v1/stroke-data/<device>/<file>-->  graffux-stroke-relay  --Contents API-->  stroke-data branch
+app  --PUT /v1/stroke-data/<device>/<file>-->  graffux Worker  --Contents API-->  stroke-data branch
 ~~~
 
 The app only sends after the user switches on Settings → "Contribute strokes to model training"
@@ -35,39 +39,26 @@ request came from the app. If abuse shows up, the next step is Play Integrity at
 
 ## Deploy
 
+It ships with the `graffux` Worker, so it deploys when that Worker does (Workers Builds on merge to
+`main`, or `npx wrangler deploy` from the repository root). One-time setup:
+
 1. Create a fine-grained GitHub token for **HereLiesAz/Graffux only** with **Contents: read and write**
    and nothing else.
-2. From this directory:
+2. Add it to the `graffux` Worker as the secret `GITHUB_TOKEN` (dashboard: Settings → Variables and
+   Secrets → Add → Secret; or `npx wrangler secret put GITHUB_TOKEN`). If that secret already exists,
+   check its token has that access and no more: the Worker can do anything the token can.
+3. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`), or the Worker
+   does not deploy at all.
 
-   ~~~
-   npx wrangler secret put GH_TOKEN      # paste the token
-   npx wrangler deploy
-   ~~~
+`GH_REPO` and `DATA_BRANCH` are plain variables in the root `wrangler.toml`; the Rate Limiting
+binding (`namespace_id` 2001) is there too. The app's `StrokeRelayClient.DEFAULT_URL` is
+`https://graffux.hereliesaz.workers.dev`.
 
-   The app's `StrokeRelayClient.DEFAULT_URL` is `https://graffux-stroke-relay.hereliesaz.workers.dev`;
-   change it there if the Worker is deployed under another name.
-3. Check it: `npx wrangler tail`, then upload from the app (Settings → Upload stroke data now).
-
-`GH_REPO` and `DATA_BRANCH` are plain variables in `wrangler.toml`. Rate limiting uses the Workers
-Rate Limiting binding (`namespace_id` 2001); pick another id if that one is taken in the account.
+Check it with the Worker's Logs tab (or `npx wrangler tail`) while uploading from the app.
 
 The Workers free plan allows 10 ms of CPU per request. Base64-encoding a multi-megabyte session can
 exceed that, in which case Cloudflare answers 1102 and the app keeps the file and retries; the paid
 plan has no such limit.
-
-### Deploy from the Cloudflare dashboard (no CLI)
-
-- **Connect the repository (keeps the rate limit).** After this is merged: Workers & Pages → Create →
-  Import a repository → `HereLiesAz/Graffux`; name `graffux-stroke-relay`, root directory
-  `workers/stroke-relay`, empty build command, deploy command `npx wrangler deploy`. Then, in the
-  Worker's Settings → Variables and Secrets, add the secret `GH_TOKEN`. `wrangler.toml` supplies the
-  variables and the rate-limit binding.
-- **Paste the code.** Create a Worker named `graffux-stroke-relay`, replace its code with
-  `src/index.js`, and add `GH_REPO`, `DATA_BRANCH` (text) and `GH_TOKEN` (secret) under Settings →
-  Variables and Secrets. The dashboard cannot add the Rate Limiting binding, so this route has no
-  rate limit (the Worker skips it when the binding is absent).
-
-Check it with the Worker's Logs tab while uploading from the app.
 
 ### Protect the branch
 

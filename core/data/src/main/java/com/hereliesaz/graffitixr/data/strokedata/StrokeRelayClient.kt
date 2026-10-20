@@ -40,7 +40,7 @@ class StrokeRelayClient(
         }
 
     companion object {
-        const val DEFAULT_URL = "https://graffux-stroke-relay.hereliesaz.workers.dev"
+        const val DEFAULT_URL = "https://graffux.hereliesaz.workers.dev"
         private const val TIMEOUT_MS = 60_000
         private const val HTTP_OK = 200
         private const val HTTP_CREATED = 201

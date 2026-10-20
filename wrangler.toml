@@ -1,11 +1,31 @@
 name = "graffux"
+main = "workers/stroke-relay/src/index.js"
 compatibility_date = "2026-08-26"
 
-# Assets-only Worker: no `main`, no build step. Serves ./docs (index.html, favicon.svg,
-# PRIVACY_POLICY.md); the research notes in the same directory are excluded by docs/.assetsignore.
+# Stroke relay. The secret GITHUB_TOKEN (fine-grained, Contents: read and write on this repository
+# only) is set in the dashboard, not here.
+[vars]
+GH_REPO = "HereLiesAz/Graffux"
+DATA_BRANCH = "stroke-data"
+
+# 30 uploads per client address per minute, per Cloudflare location. The app uploads every pending
+# session file back to back and stops at the first failure, so a normal backlog fits.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "2001"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# Serves ./docs (index.html, favicon.svg, PRIVACY_POLICY.md); the research notes in the same
+# directory are excluded by docs/.assetsignore. Only `/v1/*` runs code: the stroke relay
+# (workers/stroke-relay), which commits training sessions to the stroke-data branch. Everything else
+# is a static asset and never invokes the Worker. No build step.
 # If Workers Builds (dashboard) is connected to this repo, set its Build command to empty/`true`
 # so it does not try to build the Gradle/Cargo/pip projects at the repo root, and Deploy to
 # `npx wrangler deploy`. Non-production branch builds run `wrangler versions upload`, which needs
 # the Worker to have been deployed once from the production branch.
 [assets]
 directory = "./docs"
+run_worker_first = ["/v1/*"]

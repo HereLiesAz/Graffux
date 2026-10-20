@@ -6,7 +6,7 @@ import { handle, MAX_BYTES } from "../src/index.js";
 const session = gzipSync(
   Buffer.from('{"type":"session","schema":4,"model":"Pixel 5"}\n{"type":"stroke"}\n'),
 );
-const env = { GH_TOKEN: "t", GH_REPO: "o/r", DATA_BRANCH: "stroke-data" };
+const env = { GITHUB_TOKEN: "t", GH_REPO: "o/r", DATA_BRANCH: "stroke-data" };
 const noSleep = { sleep: async () => {} };
 
 function put(path, body = session, headers = {}) {

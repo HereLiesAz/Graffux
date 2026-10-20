@@ -1,5 +1,7 @@
 /**
- * Graffux stroke-data relay: a Cloudflare Worker that commits one stroke-model training session
+ * Graffux stroke-data relay: the `/v1/*` routes of the `graffux` Cloudflare Worker (the root
+ * wrangler.toml points `main` here and sends only those paths to this code; the rest of the site is
+ * served from ./docs). It commits one stroke-model training session
  * (a gzip JSON Lines file written by the app's StrokeDataRecorder, see tools/stroke-model/SCHEMA.md)
  * to the `stroke-data` branch of the repository. The GitHub token lives here as a secret, never in
  * the shipped APK. The app only talks to this Worker, and only after the user has switched on
@@ -13,7 +15,7 @@
  *     502/503                    GitHub refused or the branch is missing; retry later
  *
  * Env:
- *   GH_TOKEN    (secret)  fine-grained token, Contents: read & write on GH_REPO only
+ *   GITHUB_TOKEN (secret)  fine-grained token, Contents: read & write on GH_REPO only
  *   GH_REPO     (var)     "HereLiesAz/Graffux"
  *   DATA_BRANCH (var)     "stroke-data"; must already exist. The Worker never creates it, so a
  *                         deleted branch shows up as 503s instead of being silently re-cut.
@@ -80,7 +82,7 @@ async function commit(env, path, bytes, message, sleep) {
     last = await fetch(url, {
       method: "PUT",
       headers: {
-        Authorization: `Bearer ${env.GH_TOKEN}`,
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
         Accept: "application/vnd.github+json",
         "User-Agent": "graffux-stroke-relay",
         "Content-Type": "application/json",
