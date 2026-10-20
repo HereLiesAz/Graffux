@@ -307,6 +307,7 @@ internal class DrawingEngine(
                 SelectionMask.clip(canvas, paintClip)
                 InkStrokes.draw(
                     canvas, ink, worldToBitmap, stroke.alphaLock, stroke.wrapAroundMode, lf.width, lf.height,
+                    eraseOpacity = stroke.opacity.takeIf { stroke.tool == Tool.ERASER },
                 )
                 canvas.restoreToCount(saved)
             } ?: failed(stroke, "Ink render")

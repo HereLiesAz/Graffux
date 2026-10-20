@@ -101,7 +101,9 @@ class CarouselItemSettingsTest {
         assertEquals(smudge, activeCarouselSettingsKey(inputs.copy(activeTool = Tool.SMUDGE)))
         assertEquals(TOOL_CATALOG.getValue(Tool.PEN).id,
             activeCarouselSettingsKey(inputs.copy(activeTool = Tool.PEN)))
-        assertNull(activeCarouselSettingsKey(inputs.copy(activeTool = Tool.ERASER)))
+        // The Eraser erases with the brush in hand, so it adjusts that brush's settings.
+        assertEquals(b, activeCarouselSettingsKey(inputs.copy(activeTool = Tool.ERASER)))
+        assertNull(activeCarouselSettingsKey(inputs.copy(activeTool = Tool.NONE)))
     }
 
     // --- sync: apply on select, save on edit ---------------------------------------------------

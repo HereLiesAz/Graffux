@@ -78,7 +78,9 @@ fun DrawingCanvas(
     var brushCursorPosition by remember { mutableStateOf<Offset?>(null) }
 
     val view = LocalView.current
-    val deviceAttitudeState = rememberDeviceAttitude(view, enabled = activeTool == Tool.BRUSH)
+    // The Eraser is the Brush in reverse: same tip pose, hover cursor and input handling.
+    val brushLike = activeTool == Tool.BRUSH || activeTool == Tool.ERASER
+    val deviceAttitudeState = rememberDeviceAttitude(view, enabled = brushLike)
     val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
     val brushSampleBuilder = remember { BrushSampleBuilder() }
     var latestTiltRadians by remember { mutableFloatStateOf(0f) }
@@ -155,7 +157,7 @@ fun DrawingCanvas(
     LaunchedEffect(activeTool) {
         liquifyPoints = emptyList()
         liquifyPending = emptyList()
-        if (activeTool != Tool.BRUSH) brushCursorPosition = null
+        if (!brushLike) brushCursorPosition = null
     }
 
     DisposableEffect(gate) {
@@ -188,7 +190,7 @@ fun DrawingCanvas(
                     latestTouchMajorPx = event.getTouchMajor(pointerIndex)
                     latestTouchMinorPx = event.getTouchMinor(pointerIndex)
 
-                    if (activeTool == Tool.BRUSH) {
+                    if (brushLike) {
                         when (event.actionMasked) {
                             MotionEvent.ACTION_HOVER_ENTER,
                             MotionEvent.ACTION_HOVER_MOVE,
@@ -406,7 +408,7 @@ fun DrawingCanvas(
         }
 
 
-        if (activeTool == Tool.BRUSH) {
+        if (brushLike) {
             brushCursorPosition?.let { cursor ->
                 val contact = activeBrushPreview?.contact?.sanitized()
                 val pose = BrushDevicePresentationModel.resolve(

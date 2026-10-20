@@ -204,6 +204,12 @@ data class StrokeCommand(
     val substrateId: String? = null,
 )
 
+/** The Ink Eraser's live ghost: neutral mid-grey (its alpha comes from the brush opacity). */
+private const val INK_ERASE_PREVIEW_ARGB = 0x99808080.toInt()
+
+/** ARGB alpha byte set to 0xFF. */
+private const val OPAQUE_ALPHA = 0xFF shl 24
+
 /**
  * [EditorUiState.brushSize] compensated for the "Brush size locked to screen" setting
  * ([EditorUiState.brushSizeFixedOnScreen]) — the single place that setting is applied. Every call
@@ -1121,6 +1127,20 @@ class EditorViewModel @Inject constructor(
     private var stampGpuWetCheckpoint: List<Any?>? = null
     private var stampSeed: Long = 0L
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
+    // The in-flight stamp stroke is the Eraser: the Brush's own stamp brush, composited as erase.
+    private var stampEraseForStroke: Boolean = false
+
+    /** [argb] fully opaque on an Eraser stroke (its alpha would scale the erase); as is otherwise. */
+    private fun eraseOpaque(argb: Int): Int = if (stampEraseForStroke) argb or OPAQUE_ALPHA else argb
+
+    /**
+     * This brush as the Eraser uses it: identical dabs and dynamics, minus what only makes sense
+     * when depositing paint (Impasto height and wet material), which erasing must not build up.
+     */
+    private fun com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush.forErasing() = copy(
+        impastoThicknessRate = 0f,
+        impastoMaterial = com.hereliesaz.graffitixr.common.azphalt.ImpastoMaterialConfig(),
+    )
     private var stampShapeForStroke: Bitmap? = null
     private var stampGrainForStroke: Bitmap? = null
     private var stampMaskShapeForStroke: Bitmap? = null
@@ -1875,7 +1895,7 @@ class EditorViewModel @Inject constructor(
     private fun reapplyRedoneStroke(command: EditCommand.Draw) {
         command.strokes.forEach { stroke ->
             layerStore.addStroke(command.layerId, stroke)
-            inkLedger.onRedo(command.layerId, stroke, stroke.takeIf { it.inkStroke != null })
+            inkLedger.onRedo(command.layerId, stroke, stroke.takeIf { it.inkStroke != null && it.tool == Tool.BRUSH })
         }
         val deltas = command.tileDeltas?.takeIf { command.deltasComplete }
         val fastPathHandled = command.strokes.none(::strokeChangesCanonicalMaterial) &&
@@ -4833,8 +4853,11 @@ class EditorViewModel @Inject constructor(
         // The content generation this stroke's GPU copy must match (see GpuLayerResidency).
         val residentGeneration = layerResidency.generationFor(layerId, originalBitmap)
         val residentKey = GpuLayerResidency.layerKey(layerId)
+        // The Eraser is the Brush in reverse: with a stamp brush in hand it runs the same stamp
+        // pipeline (dabs, dynamics, tip, grain) and only the composite differs.
+        val stampErase = state.activeTool == Tool.ERASER && activeStampBrush != null
         // Built ahead of the touch when nothing changed since; brush strokes only.
-        val warm = if (state.activeTool == Tool.BRUSH) {
+        val warm = if (state.activeTool == Tool.BRUSH || stampErase) {
             takePrewarmed(layerId, originalBitmap, residentGeneration)
         } else {
             discardPrewarm()
@@ -4865,12 +4888,14 @@ class EditorViewModel @Inject constructor(
         strokeWrapAroundMode = state.wrapAroundMode
         strokeAlphaLock = layer.alphaLock
         // Line tools record intensity 0.5 (onStrokeEnd), so the live paint uses the same.
-        strokeLinePaint = if (state.activeTool == Tool.ERASER) {
+        strokeLinePaint = if (stampErase) {
+            null
+        } else if (state.activeTool == Tool.ERASER) {
             BasicPaint.eraser(state.brushFeathering)
         } else {
             GpuRetouchStroke.paint(state.activeTool, state.activeColor.toArgb(), LINE_TOOL_INTENSITY)
         }
-        strokeOpacity = if (state.activeTool == Tool.BRUSH) state.brushOpacity else 1f
+        strokeOpacity = if (state.activeTool == Tool.BRUSH || stampErase) state.brushOpacity else 1f
         strokeSelection = state.selection
         lastSampleMs = 0L
         azphaltRenderCadence.reset()
@@ -4899,7 +4924,9 @@ class EditorViewModel @Inject constructor(
         // Freeze the capability-tier tuft cap into this stroke snapshot before either the live
         // generator or canonical replay sees it. The selected preset itself remains untouched.
         val stampBrush = activeStampBrush?.cappedForPerformanceTier(brushPerformanceTier)
-        if (stampBrush != null && state.activeTool == Tool.BRUSH) {
+            ?.let { if (stampErase) it.forErasing() else it }
+        if (stampBrush != null && (state.activeTool == Tool.BRUSH || stampErase)) {
+            stampEraseForStroke = stampErase
             // Azphalt stamp brush: stamp dabs incrementally onto a working copy for a live preview.
             // Fix the jitter seed now so the preview, the commit, and history replay all match.
             stampBrushForStroke = stampBrush
@@ -5015,6 +5042,10 @@ class EditorViewModel @Inject constructor(
                     null
                 }
                 val gpuReady = gpuEngine != null
+                // Every stroke states its composite: a resident engine may last have erased.
+                gpuEngine?.setStampMode(
+                    if (stampErase) GpuStampEngine.STAMP_ERASE else GpuStampEngine.STAMP_OVER,
+                )
                 // The selection confines the stroke on the GPU at commit: its coverage goes to the
                 // engine and the engine keeps the layer as it is, before any dab lands.
                 val gpuSelection = gpuEngine?.let {
@@ -5454,7 +5485,7 @@ class EditorViewModel @Inject constructor(
         val rateHz = _uiState.value.inputSampleRateHz
         val nowMs = android.os.SystemClock.uptimeMillis()
         val activeToolForCadence = _uiState.value.activeTool
-        if (activeToolForCadence == Tool.BRUSH) {
+        if (activeToolForCadence == Tool.BRUSH || stampEraseForStroke) {
             addStrokePoint(stabilizedPoint, stabilizedPressure)
             if (stampBrushForStroke != null) {
                 val latencyId = azphaltLatencyTracker.beginInput()
@@ -5819,8 +5850,9 @@ class EditorViewModel @Inject constructor(
         if (hasNewMovementDabs || hasNewHeldDabs) {
             val generatedLatencyIds = stampAwaitingGenerationLatencyIds.drain()
             generatedLatencyIds.forEach { azphaltLatencyTracker.markGenerated(it) }
-            val colorArgb = _uiState.value.activeColor.toArgb()
-            val secondaryColorArgb = _uiState.value.secondaryColor.toArgb()
+            // The Eraser erases by coverage alone: the colour's own alpha must not weaken it.
+            val colorArgb = eraseOpaque(_uiState.value.activeColor.toArgb())
+            val secondaryColorArgb = eraseOpaque(_uiState.value.secondaryColor.toArgb())
             val baseFlow = _uiState.value.brushFlow.coerceIn(0f, 1f)
             // The stroke's snapshotted substrate: the commit and replay resolve the same one from
             // StrokeCommand.substrateId (StampPaint.of), so live == committed == replayed.
@@ -6230,7 +6262,7 @@ class EditorViewModel @Inject constructor(
         // Use the brush the stroke was actually drawn with (captured at start), not the current
         // selection, so the commit matches the live preview even if selection somehow changed.
         val stampBrush = stampBrushForStroke
-        if (stampBrush != null && state.activeTool == Tool.BRUSH) {
+        if (stampBrush != null && (state.activeTool == Tool.BRUSH || stampEraseForStroke)) {
             commitStampStroke(
                 state, layer, layerId, points, brushSamples, canvasW, canvasH,
                 capturedScale, capturedOffset, capturedRotationZ, stampBrush, stampShapeForStroke,
@@ -6761,7 +6793,7 @@ class EditorViewModel @Inject constructor(
         // the commit finishes the live stroke on that engine instead of painting it again.
         renderStampLive(brush)
         val handoff = handOffLiveStamp()
-        val color = state.activeColor.toArgb()
+        val color = eraseOpaque(state.activeColor.toArgb())
         val brushSize = state.effectivePaintBrushSize()
         val flow = state.brushFlow
         val substrateId = stampSubstrateIdForStroke
@@ -6769,10 +6801,10 @@ class EditorViewModel @Inject constructor(
             path = points,
             brushSamples = brushSamples,
             canvasSize = IntSize(canvasW, canvasH),
-            tool = Tool.BRUSH,
+            tool = if (stampEraseForStroke) Tool.ERASER else Tool.BRUSH,
             brushSize = brushSize,
             brushColor = color,
-            secondaryBrushColor = state.secondaryColor.toArgb(),
+            secondaryBrushColor = eraseOpaque(state.secondaryColor.toArgb()),
             intensity = 0.5f,
             feathering = state.brushFeathering,
             layerScale = scale,
@@ -7439,7 +7471,7 @@ class EditorViewModel @Inject constructor(
 
     /** Whether the next Brush stroke goes through Jetpack Ink: an Ink utensil in hand, Brush tool. */
     fun usesJetpackInk(state: EditorUiState = _uiState.value): Boolean =
-        _activeInkUtensil.value != null && state.activeTool == Tool.BRUSH
+        _activeInkUtensil.value != null && (state.activeTool == Tool.BRUSH || state.activeTool == Tool.ERASER)
 
     /**
      * Whether a stroke may show through direct display (Settings, [GpuStampEngine.DirectSurface]):
@@ -7460,8 +7492,11 @@ class EditorViewModel @Inject constructor(
     fun inkBrushForCurrentState(): androidx.ink.brush.Brush {
         val s = _uiState.value
         val utensil = inkUtensilForCurrentState()
+        // The Eraser's live stroke can't uncover the layer beneath it (Ink draws above the canvas),
+        // so it previews as a neutral ghost; the commit erases with the stroke's true strength.
+        val argb = if (s.activeTool == Tool.ERASER) INK_ERASE_PREVIEW_ARGB else s.activeColor.toArgb()
         return com.hereliesaz.graffitixr.feature.editor.ink.InkStrokes.brush(
-            utensil, s.effectivePaintBrushSize(), s.activeColor.toArgb(), s.brushOpacity,
+            utensil, s.effectivePaintBrushSize(), argb, s.brushOpacity,
         )
     }
 
@@ -7490,6 +7525,15 @@ class EditorViewModel @Inject constructor(
             pressures += if (scratch.hasPressure) scratch.pressure else 1f
         }
         commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted)
+    }
+
+    /** The Eraser with an Ink utensil in hand erases that utensil's exact stroke shape. */
+    private fun inkStrokeTool(state: EditorUiState): Tool =
+        if (state.activeTool == Tool.ERASER) Tool.ERASER else Tool.BRUSH
+
+    /** The ledger is paint (what Export for Figma draws); an erase stroke isn't part of it. */
+    private fun addToInkLedger(layerId: String, command: StrokeCommand) {
+        if (command.tool == Tool.BRUSH) inkLedger.add(layerId, command, command)
     }
 
     /** Serialises [commitInkStroke]'s bitmap work per layer id. */
@@ -7521,7 +7565,7 @@ class EditorViewModel @Inject constructor(
             path = path,
             pressures = pressures,
             canvasSize = canvasSize,
-            tool = Tool.BRUSH,
+            tool = inkStrokeTool(state),
             brushSize = state.effectivePaintBrushSize(),
             brushColor = state.activeColor.toArgb(),
             intensity = 1f,
@@ -7539,7 +7583,7 @@ class EditorViewModel @Inject constructor(
         )
         layerStore.addStroke(layerId, command)
         history.pushDraw(layerId, command)
-        inkLedger.add(layerId, command, command)
+        addToInkLedger(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         // The caller's Ink overlay stroke is released exactly once: after the publish, or when the
@@ -7613,7 +7657,7 @@ class EditorViewModel @Inject constructor(
             colorArgb = command.brushColor.toLong() and 0xFFFFFFFFL,
             brushSize = command.brushSize,
             brushFeathering = command.feathering,
-            blendModeOrdinal = Tool.BRUSH.ordinal,
+            blendModeOrdinal = command.tool.ordinal,
             opacity = command.opacity,
             pressures = command.pressures,
             inkUtensilId = command.inkUtensil?.id,
@@ -9458,6 +9502,7 @@ class EditorViewModel @Inject constructor(
         stampStampedCount = 0
         stampHeldStampedCount = 0
         stampBrushForStroke = null
+        stampEraseForStroke = false
         stampShapeForStroke = null
         stampGrainForStroke = null
         stampMaskShapeForStroke = null

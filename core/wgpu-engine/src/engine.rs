@@ -277,7 +277,8 @@ struct MaskedUniform {
     substrate_offset_y: f32,
     layer_width: i32,
     layer_height: i32,
-    _pad0: u32,
+    /// [`Engine::set_stamp_mode`]: how this batch composites (erase, alpha lock, ...).
+    mode: u32,
     _pad1: u32,
 }
 
@@ -1448,7 +1449,7 @@ impl Engine {
         if !p.secondary_dabs.is_empty() && p.secondary_dabs.len() != dabs.len() {
             return false;
         }
-        if self.mp_on() {
+        if self.mp_on() && self.stamp_mode == STAMP_OVER {
             return self.mp_submit_masked(dabs, color_argb, hardness, p);
         }
         let r8 = wgpu::TextureFormat::R8Unorm;
@@ -1554,7 +1555,7 @@ impl Engine {
                 substrate_offset_y: s.texture_offset_y,
                 layer_width: self.width,
                 layer_height: self.height,
-                _pad0: 0,
+                mode: self.stamp_mode,
                 _pad1: 0,
             };
             self.queue

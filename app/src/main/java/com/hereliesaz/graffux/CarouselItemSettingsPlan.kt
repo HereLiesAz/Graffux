@@ -37,12 +37,14 @@ internal val SMUDGE_SETTINGS_KEY: String = TOOL_CATALOG.getValue(Tool.SMUDGE).id
 /**
  * The key of the paint item in hand, derived from editor state the same way the carousel lights its
  * entries, so an item picked outside the carousel is recognised too. Null when nothing that owns
- * settings is in hand (Eraser, Select, …): the live values are then nobody's.
+ * settings is in hand (Select, …): the live values are then nobody's. The Eraser answers with the
+ * Brush's key, since it erases with that brush at its settings.
  */
 internal fun activeCarouselSettingsKey(input: CarouselInputs): String? = when {
     input.activeTool in EFFECT_TOOLS || input.activeTool == Tool.PEN ->
         TOOL_CATALOG[input.activeTool]?.id
-    input.activeTool != Tool.BRUSH -> null
+    // The Eraser is the Brush in reverse: it erases with the brush in hand, at that brush's settings.
+    input.activeTool != Tool.BRUSH && input.activeTool != Tool.ERASER -> null
     input.activeInkUtensil != null -> "ink.${input.activeInkUtensil.id}"
     else -> carouselEntries(CarouselCategory.BRUSHES, input.copy(favorites = emptyList()))
         .firstOrNull { it.selected }?.key
@@ -179,7 +181,7 @@ internal class CarouselItemSettingsSync {
 /**
  * Where Tool Options (the rail item, or a tap on the brush-size pad) takes the carousel: the page
  * holding what is in hand and that entry's key, whose card it grows. The paint item in hand first;
- * with none (Select, Eraser, ...), the lit option stop that has settings of its own. Null when
+ * with none (Select, ...), the lit option stop that has settings of its own. Null when
  * nothing in hand has any.
  */
 internal fun toolOptionsTarget(input: CarouselInputs): Pair<CarouselCategory, String>? {

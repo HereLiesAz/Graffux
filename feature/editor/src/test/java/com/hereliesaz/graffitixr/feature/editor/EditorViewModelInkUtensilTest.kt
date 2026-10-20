@@ -205,10 +205,12 @@ class EditorViewModelInkUtensilTest {
     }
 
     @Test
-    fun `an Ink utensil only routes while the Brush tool is in hand`() {
+    fun `an Ink utensil routes while the Brush or its reverse, the Eraser, is in hand`() {
         withLayer()
         viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.MARKER)
         viewModel.setActiveTool(Tool.ERASER)
+        assertTrue(viewModel.usesJetpackInk())
+        viewModel.setActiveTool(Tool.SMUDGE)
         assertFalse(viewModel.usesJetpackInk())
         viewModel.setActiveTool(Tool.BRUSH)
         assertTrue(viewModel.usesJetpackInk())
@@ -227,9 +229,9 @@ class EditorViewModelInkUtensilTest {
             viewModel.selectInkUtensil(com.hereliesaz.graffitixr.common.model.InkUtensil.MARKER)
             assertFalse("Ink and the overlay must never draw one stroke", viewModel.directDisplayAllowed())
 
-            // The utensil stays remembered, but Eraser and Smudge strokes aren't Ink strokes.
+            // The utensil stays remembered: the Eraser erases through Ink too, Smudge doesn't.
             viewModel.setActiveTool(Tool.ERASER)
-            assertTrue(viewModel.directDisplayAllowed())
+            assertFalse(viewModel.directDisplayAllowed())
             viewModel.setActiveTool(Tool.SMUDGE)
             assertTrue(viewModel.directDisplayAllowed())
 
@@ -237,7 +239,7 @@ class EditorViewModelInkUtensilTest {
             assertFalse(viewModel.directDisplayAllowed())
 
             direct.enabled = false
-            viewModel.setActiveTool(Tool.ERASER)
+            viewModel.setActiveTool(Tool.SMUDGE)
             assertFalse("the Settings switch still governs", viewModel.directDisplayAllowed())
         } finally {
             direct.enabled = before

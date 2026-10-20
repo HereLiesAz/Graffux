@@ -1959,7 +1959,7 @@ impl Engine {
             substrate_offset_y: s.texture_offset_y,
             layer_width: self.width,
             layer_height: self.height,
-            _pad0: 0,
+            mode: STAMP_OVER,
             _pad1: 0,
         };
         self.queue

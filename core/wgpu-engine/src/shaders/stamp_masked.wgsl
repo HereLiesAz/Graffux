@@ -39,7 +39,7 @@ struct Params {
     substrate_offset_y: f32,
     layer_width: i32,
     layer_height: i32,
-    _pad0: u32,
+    mode: u32, // Engine::set_stamp_mode: 0 over, 1 erase, 2 alpha lock (SRC_ATOP)
     _pad1: u32,
 };
 
@@ -179,7 +179,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let src_a = base_alpha * dab_alpha * dab_flow * coverage;
         if (src_a <= 0.0) { continue; }
 
-        dst = vec4<f32>(src_rgb * src_a + dst.rgb * (1.0 - src_a), src_a + dst.a * (1.0 - src_a));
+        // Same composites as stamp.wgsl's round dabs, so a tipped brush erases (or paints under
+        // alpha lock) exactly as its round counterpart does.
+        if (pc.mode == 1u) {
+            dst = dst * (1.0 - src_a);
+        } else if (pc.mode == 2u) {
+            dst = vec4<f32>(src_rgb * src_a * dst.a + dst.rgb * (1.0 - src_a), dst.a);
+        } else {
+            dst = vec4<f32>(src_rgb * src_a + dst.rgb * (1.0 - src_a), src_a + dst.a * (1.0 - src_a));
+        }
         dst = round(dst * 255.0) / 255.0;
     }
     layer_store(pixel, dst);

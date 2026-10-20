@@ -11,8 +11,8 @@ import com.hereliesaz.graffitixr.common.model.Tool
 internal object HighResOverlayEligibility {
 
     fun strokeReplayable(stroke: StrokeCommand): Boolean = !stroke.dependsOnPixelGrid() && when (stroke.tool) {
-        Tool.ERASER -> true
-        Tool.BRUSH -> stroke.stampBrush?.let { stroke.stampReplays(it) } ?: true
+        // The Eraser replays exactly as the Brush it mirrors (a stamp brush, or the legacy round).
+        Tool.BRUSH, Tool.ERASER -> stroke.stampBrush?.let { stroke.stampReplays(it) } ?: true
         else -> false
     }
 
