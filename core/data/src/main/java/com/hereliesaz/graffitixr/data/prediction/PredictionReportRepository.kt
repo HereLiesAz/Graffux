@@ -60,58 +60,6 @@ class PredictionReportRepository @Inject constructor(
         }
     }
 
-    /**
-     * Uploads one stroke-data file to [DATA_BRANCH] (created from the default branch on first use)
-     * as `stroke-data/<name>`. Needs the token to have Contents: read and write on this repository.
-     * Succeeds only when GitHub has the file afterwards -- a created file, or one already there from
-     * an earlier upload whose response was lost. Fails when no token is stored, so callers that
-     * delete on success keep the file. See tools/stroke-model/README.md.
-     */
-    suspend fun uploadStrokeData(name: String, bytes: ByteArray): Result<Unit> = withContext(dispatchers.io) {
-        runCatching {
-            val token = tokenStore.load(KEY_TOKEN) ?: error("No GitHub token stored")
-            ensureDataBranch(token)
-            val path = "$REPO_URL/contents/stroke-data/$name"
-            // Ask rather than infer from a 422: GitHub also answers 422 for bad content, an oversized
-            // blob or a bad branch, none of which mean the data is safely stored.
-            val existing = request("GET", "$path?ref=$DATA_BRANCH", token, null)
-            if (existing in HTTP_OK) return@runCatching
-            if (existing == HTTP_UNAUTHORIZED) disconnect()
-            val json = JSONObject()
-                .put("message", "stroke data: $name")
-                .put("branch", DATA_BRANCH)
-                .put("content", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
-                .toString()
-            val code = request("PUT", path, token, json)
-            if (code == HTTP_UNAUTHORIZED) disconnect()
-            check(code in HTTP_OK) { "GitHub refused $name (HTTP $code)" }
-        }
-    }
-
-    private fun ensureDataBranch(token: String) {
-        if (request("GET", "$REPO_URL/branches/$DATA_BRANCH", token, null) in HTTP_OK) return
-        val repo = JSONObject(get("$REPO_URL", token))
-        val base = repo.getString("default_branch")
-        val sha = JSONObject(get("$REPO_URL/git/ref/heads/$base", token)).getJSONObject("object").getString("sha")
-        val body = JSONObject().put("ref", "refs/heads/$DATA_BRANCH").put("sha", sha).toString()
-        val code = request("POST", "$REPO_URL/git/refs", token, body)
-        check(code in HTTP_OK || code == HTTP_UNPROCESSABLE) { "Couldn't create $DATA_BRANCH (HTTP $code)" }
-    }
-
-    private fun get(url: String, token: String): String {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        return try {
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
-            connection.setRequestProperty("Authorization", "Bearer $token")
-            connection.setRequestProperty("Accept", "application/vnd.github+json")
-            check(connection.responseCode in HTTP_OK) { "GET $url -> HTTP ${connection.responseCode}" }
-            connection.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
     private fun request(method: String, url: String, token: String, json: String?): Int {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
@@ -136,8 +84,6 @@ class PredictionReportRepository @Inject constructor(
         const val REPO_URL = "https://api.github.com/repos/HereLiesAz/Graffux"
         const val TIMEOUT_MS = 60_000
         const val HTTP_UNAUTHORIZED = 401
-        const val HTTP_UNPROCESSABLE = 422
-        const val DATA_BRANCH = "stroke-data"
         val HTTP_OK = 200..299
     }
 }

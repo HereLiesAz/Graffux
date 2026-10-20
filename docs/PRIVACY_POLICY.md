@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** July 20, 2026
+**Effective Date:** October 20, 2026
 
 Graffux (the "App") is committed to protecting your privacy. This Privacy Policy describes how we handle information in our mobile application.
 
@@ -24,7 +24,31 @@ on your device.
 - **Where it goes: nowhere, automatically.** The report stays in the App's local cache. The
   App does not transmit it anywhere, to us or anyone else, on its own.
 
-## 4. Permissions
+## 4. Stroke-Model Training Data (Opt-In)
+
+Graffux is building a model that predicts where a stroke is going. Contributing training data is
+**off by default** and only starts when you switch on Settings → "Contribute strokes to model
+training". Nothing is recorded or uploaded before then, and switching it off stops both.
+
+- **What is recorded while it is on:** for each stroke, the touch path (positions, pressure,
+  contact size, tilt, timing), the phone's motion-sensor readings around it (accelerometer,
+  gyroscope, magnetometer, rotation), your device manufacturer and model, screen size and refresh
+  rate, the App's version, the time the session started, the brush settings in use, and the name of
+  the touch controller. The separate "Raw touch heatmap" setting (rooted devices only, also off by
+  default) adds the touch controller's raw sensor image.
+- **What is not recorded:** your name, an account, your location, or any image, layer, photo or
+  project content. A stroke is a path of points, so if you write or sign something while this is
+  on, that path is part of what is recorded. Leave the setting off when you do.
+- **Where it goes:** finished session files are sent over the internet to a small relay run by
+  the developer, which saves them to the **public** `stroke-data` branch of
+  <https://github.com/HereLiesAz/Graffux>. Anyone can read and download that data, and a copy is
+  kept in a private dataset used for training. The App keeps no credential for this; the relay
+  holds the key.
+- **Removal:** files already uploaded are not tied to you, so we cannot tell which are yours.
+  Contact us (section 9) with the device model and approximate date and we will remove matching
+  files from the branch, though copies that others have already downloaded cannot be recalled.
+
+## 5. Permissions
 
 The App may request the following permissions to function correctly:
 
@@ -33,7 +57,7 @@ The App may request the following permissions to function correctly:
 
 We only use these permissions to provide the App's core functionality.
 
-## 5. Third-Party Services
+## 6. Third-Party Services
 
 The App does not contain third-party advertising or analytics tracking. It does connect to a
 small number of third-party services, but only when you explicitly choose to use the feature
@@ -50,14 +74,14 @@ that needs them:
   environment with no capability (canvas access, colour, timing) they weren't granted, and no
   network access of their own. See `spec/package-format.md` for the sandbox's exact guarantees.
 
-## 6. Children's Privacy
+## 7. Children's Privacy
 
 Because we do not collect personal information, our App is safe for users of all ages. We do not knowingly collect any data from children under the age of 13.
 
-## 7. Changes to This Policy
+## 8. Changes to This Policy
 
 We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.
 
-## 8. Contact Us
+## 9. Contact Us
 
 If you have any questions about this Privacy Policy, please contact the developer via the project's repository.
