@@ -15,6 +15,10 @@ import com.hereliesaz.graffitixr.common.model.Layer
  */
 internal class EditHistory(
     private val maxStackSize: Int = 20,
+    /** Most strokes one undo chunk holds (see [pushDraw]). */
+    private val chunkMaxStrokes: Int = DEFAULT_CHUNK_MAX_STROKES,
+    /** Longest pause (ms) between two strokes of one undo chunk. */
+    private val chunkPauseMs: Long = DEFAULT_CHUNK_PAUSE_MS,
     /** Called with every GPU undo snapshot an entry leaving both stacks held, to free it. */
     private val onGpuUndoDiscarded: (com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref) -> Unit = {},
 ) {
@@ -41,12 +45,46 @@ internal class EditHistory(
         return true
     }
 
-    /** Records a completed brush stroke. Pushing clears the redo stack. */
-    fun pushDraw(layerId: String, command: StrokeCommand) {
-        undoStack.addLast(EditCommand.Draw(layerId, command))
-        trim()
+    /**
+     * Records a completed brush stroke. Pushing clears the redo stack.
+     *
+     * A [chunkable] stroke joins the newest entry's undo chunk instead of starting its own when that
+     * entry is a chunkable stroke on the same [layerId] with the same tool, holds fewer than
+     * [chunkMaxStrokes] strokes, and was pushed no more than [chunkPauseMs] before [nowMs]. Undo and
+     * redo then act on the whole chunk. Joining frees the entry's GPU undo snapshot (two cannot be
+     * merged); its tile deltas are merged as each stroke's arrive ([attachTileDeltas]).
+     *
+     * Returns whether the stroke joined an existing chunk, so its commit can skip capturing a GPU
+     * undo snapshot the chunk would only free again.
+     */
+    fun pushDraw(
+        layerId: String,
+        command: StrokeCommand,
+        chunkable: Boolean = false,
+        nowMs: Long = System.nanoTime() / NANOS_PER_MS,
+    ): Boolean {
+        val top = undoStack.lastOrNull()
+        val joined = chunkable && top is EditCommand.Draw && joinsChunk(top, layerId, command, nowMs)
+        if (joined && top is EditCommand.Draw) {
+            top.gpuUndo?.let(onGpuUndoDiscarded)
+            undoStack[undoStack.lastIndex] = top.copy(
+                earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
+            )
+        } else {
+            undoStack.addLast(EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs))
+            trim()
+        }
         clearRedo()
+        return joined
     }
+
+    private fun joinsChunk(top: EditCommand.Draw, layerId: String, command: StrokeCommand, nowMs: Long) =
+        top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
+            top.strokes.size < chunkMaxStrokes && nowMs - top.lastPushMs <= chunkPauseMs
+
+    /** How many strokes on [layerId] undo can still take back: what a bake must leave unbaked. */
+    fun undoableStrokeCount(layerId: String): Int =
+        undoStack.sumOf { if (it is EditCommand.Draw && it.layerId == layerId) it.strokes.size else 0 }
 
     /**
      * Attaches a tile-delta fast path (roadmap item 16) to the [EditCommand.Draw] entry matching
@@ -66,18 +104,25 @@ internal class EditHistory(
         gpuUndo: com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref? = null,
     ) {
         fun attachIn(stack: ArrayDeque<EditCommand>): Boolean {
-            val idx = stack.indexOfLast { it is EditCommand.Draw && it.command === command }
+            val idx = stack.indexOfLast { it is EditCommand.Draw && it.strokes.any { stroke -> stroke === command } }
             if (idx < 0) return false
             val entry = stack[idx] as EditCommand.Draw
-            // The entry owns exactly one snapshot: one it already held is freed when replaced
-            // (a second, slower attach), never just dropped.
-            entry.gpuUndo?.takeIf { it != gpuUndo }?.let(onGpuUndoDiscarded)
-            stack[idx] = entry.copy(
-                tileDeltas = tileDeltas,
-                tileDeltaCanvasWidth = canvasWidth,
-                tileDeltaCanvasHeight = canvasHeight,
-                gpuUndo = gpuUndo,
-            )
+            stack[idx] = if (entry.earlier.isEmpty()) {
+                // The entry owns exactly one snapshot: one it already held is freed when replaced
+                // (a second, slower attach), never just dropped.
+                entry.gpuUndo?.takeIf { it != gpuUndo }?.let(onGpuUndoDiscarded)
+                entry.copy(
+                    tileDeltas = tileDeltas,
+                    tileDeltaCanvasWidth = canvasWidth,
+                    tileDeltaCanvasHeight = canvasHeight,
+                    gpuUndo = gpuUndo,
+                    attached = listOf(command),
+                )
+            } else {
+                // A chunk keeps no GPU snapshot: its strokes' snapshots cannot be merged.
+                gpuUndo?.let(onGpuUndoDiscarded)
+                mergeIntoChunk(entry, command, tileDeltas, canvasWidth, canvasHeight)
+            }
             return true
         }
         if (!attachIn(undoStack) && !attachIn(redoStack)) gpuUndo?.let(onGpuUndoDiscarded)
@@ -108,13 +153,60 @@ internal class EditHistory(
      */
     fun dropDraw(command: StrokeCommand): Boolean {
         for (stack in listOf(undoStack, redoStack)) {
-            val idx = stack.indexOfLast { it is EditCommand.Draw && it.command === command }
-            if (idx >= 0) {
+            val idx = stack.indexOfLast { it is EditCommand.Draw && it.strokes.any { stroke -> stroke === command } }
+            if (idx < 0) continue
+            val entry = stack[idx] as EditCommand.Draw
+            if (entry.earlier.isEmpty()) {
                 stack.removeAt(idx).gpuUndo()?.let(onGpuUndoDiscarded)
-                return true
+            } else {
+                // One stroke of a chunk never landed: the chunk keeps the rest, but its merged tile
+                // deltas still hold that stroke's pixels, so undo falls back to a full rebuild.
+                val rest = entry.strokes.filterNot { it === command }
+                entry.gpuUndo?.let(onGpuUndoDiscarded)
+                stack[idx] = entry.copy(
+                    earlier = rest.dropLast(1), command = rest.last(),
+                    tileDeltas = null, gpuUndo = null, attached = emptyList(),
+                )
             }
+            return true
         }
         return false
+    }
+
+    /**
+     * [entry] (a chunk) with [command]'s [deltas] merged in. Deltas merge only in stroke order (a
+     * tile's before must come from the earliest stroke that touched it); anything else, a size
+     * change or tiles from different grids drops the merged deltas, and the chunk then undoes by
+     * a full rebuild.
+     */
+    private fun mergeIntoChunk(
+        entry: EditCommand.Draw,
+        command: StrokeCommand,
+        deltas: List<com.hereliesaz.graffitixr.common.azphalt.TileDelta.TileSnapshot>,
+        canvasWidth: Int,
+        canvasHeight: Int,
+    ): EditCommand.Draw {
+        val strokes = entry.strokes
+        val position = strokes.indexOfFirst { it === command }
+        val newest = entry.attached.maxOfOrNull { attached -> strokes.indexOfFirst { it === attached } } ?: -1
+        val existing = entry.tileDeltas
+        val sameCanvas = entry.tileDeltaCanvasWidth == canvasWidth && entry.tileDeltaCanvasHeight == canvasHeight
+        val merged = when {
+            position <= newest -> null
+            existing == null -> deltas
+            !sameCanvas -> null
+            else -> com.hereliesaz.graffitixr.common.azphalt.TileDelta.merge(existing, deltas)
+        }
+        return if (merged == null) {
+            entry.copy(tileDeltas = null, attached = emptyList())
+        } else {
+            entry.copy(
+                tileDeltas = merged,
+                tileDeltaCanvasWidth = canvasWidth,
+                tileDeltaCanvasHeight = canvasHeight,
+                attached = entry.attached + command,
+            )
+        }
     }
 
     /**
@@ -196,6 +288,15 @@ internal class EditHistory(
     }
 
     private fun clearRedo() = redoStack.discardAll(onGpuUndoDiscarded)
+
+    companion object {
+        /** Default for [chunkMaxStrokes]. */
+        const val DEFAULT_CHUNK_MAX_STROKES = 5
+
+        /** Default for [chunkPauseMs]. */
+        const val DEFAULT_CHUNK_PAUSE_MS = 1_500L
+        private const val NANOS_PER_MS = 1_000_000L
+    }
 }
 
 private fun EditCommand.gpuUndo(): com.hereliesaz.graffitixr.nativebridge.GpuUndoSnapshots.Ref? =

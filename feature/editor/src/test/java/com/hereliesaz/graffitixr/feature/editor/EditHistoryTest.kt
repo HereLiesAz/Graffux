@@ -267,4 +267,186 @@ class EditHistoryTest {
         assertEquals(0, h.redoCount)
         assertFalse(h.dropDraw(kept))
     }
+
+    // ── Undo chunks ──────────────────────────────────────────────────────────────────────────────
+
+    private fun strokeWith(tool: Tool) = StrokeCommand(
+        path = emptyList(),
+        canvasSize = IntSize(1, 1),
+        tool = tool,
+        brushSize = 1f,
+        brushColor = 0,
+        intensity = 0.5f,
+    )
+
+    private fun tile(tx: Int, before: Int, after: Int) = TileDelta.TileSnapshot(
+        tx = tx, ty = 0, bounds = DirtyRegion(tx, 0, tx + 1, 1),
+        before = intArrayOf(before), after = intArrayOf(after),
+    )
+
+    private fun chunking() = EditHistory(chunkMaxStrokes = 3, chunkPauseMs = 100L)
+
+    @Test
+    fun `chunkable strokes in quick succession share one undo entry`() {
+        val h = chunking()
+        val a = strokeWith(Tool.BRUSH)
+        val b = strokeWith(Tool.BRUSH)
+        h.pushDraw("l", a, chunkable = true, nowMs = 0L)
+        h.pushDraw("l", b, chunkable = true, nowMs = 50L)
+
+        assertEquals(1, h.undoCount)
+        val entry = h.popUndo { it } as EditCommand.Draw
+        assertEquals(2, entry.strokes.size)
+        assertTrue(entry.strokes[0] === a && entry.strokes[1] === b)
+        assertTrue(entry.command === b)
+    }
+
+    @Test
+    fun `pushDraw reports whether the stroke joined an existing chunk`() {
+        val h = chunking()
+
+        assertFalse(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L))
+        assertTrue(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 10L))
+        assertFalse(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = false, nowMs = 20L))
+        assertFalse(h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 500L))
+    }
+
+    @Test
+    fun `a pause longer than the limit starts a new chunk`() {
+        val h = chunking()
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L)
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 101L)
+
+        assertEquals(2, h.undoCount)
+    }
+
+    @Test
+    fun `a chunk closes at the stroke limit`() {
+        val h = chunking()
+        repeat(4) { h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = it * 10L) }
+
+        assertEquals(2, h.undoCount)
+        assertEquals(1, (h.popUndo { it } as EditCommand.Draw).strokes.size)
+        assertEquals(3, (h.popUndo { it } as EditCommand.Draw).strokes.size)
+    }
+
+    @Test
+    fun `a different tool or layer starts a new chunk`() {
+        val h = chunking()
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L)
+        h.pushDraw("l", strokeWith(Tool.ERASER), chunkable = true, nowMs = 10L)
+        h.pushDraw("other", strokeWith(Tool.ERASER), chunkable = true, nowMs = 20L)
+
+        assertEquals(3, h.undoCount)
+    }
+
+    @Test
+    fun `a stroke that is not chunkable never joins or is joined`() {
+        val h = chunking()
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = false, nowMs = 0L)
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 10L)
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = false, nowMs = 20L)
+
+        assertEquals(3, h.undoCount)
+    }
+
+    @Test
+    fun `a property change between strokes closes the chunk`() {
+        val h = chunking()
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L)
+        h.pushProperty(listOf(layer("l")))
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 10L)
+
+        assertEquals(3, h.undoCount)
+    }
+
+    @Test
+    fun `undoableStrokeCount counts every stroke of every chunk on the layer`() {
+        val h = chunking()
+        repeat(2) { h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = it * 10L) }
+        h.pushDraw("l", strokeWith(Tool.ERASER), chunkable = false, nowMs = 30L)
+        h.pushDraw("other", strokeWith(Tool.BRUSH), chunkable = false, nowMs = 40L)
+
+        assertEquals(3, h.undoableStrokeCount("l"))
+        assertEquals(1, h.undoableStrokeCount("other"))
+        h.popUndo { it } // the "other" stroke
+        assertEquals(0, h.undoableStrokeCount("other"))
+    }
+
+    @Test
+    fun `a chunk's tile deltas merge in stroke order and cover the whole chunk`() {
+        val h = chunking()
+        val a = strokeWith(Tool.BRUSH)
+        val b = strokeWith(Tool.BRUSH)
+        h.pushDraw("l", a, chunkable = true, nowMs = 0L)
+        h.pushDraw("l", b, chunkable = true, nowMs = 10L)
+
+        h.attachTileDeltas(a, listOf(tile(0, before = 1, after = 2)), canvasWidth = 4, canvasHeight = 1)
+        val partial = h.undoStackTopForTest() as EditCommand.Draw
+        assertFalse("one stroke of two attached", partial.deltasComplete)
+        h.attachTileDeltas(
+            b, listOf(tile(0, before = 2, after = 3), tile(1, before = 7, after = 8)),
+            canvasWidth = 4, canvasHeight = 1,
+        )
+
+        val entry = h.popUndo { it } as EditCommand.Draw
+        assertTrue(entry.deltasComplete)
+        val deltas = entry.tileDeltas!!
+        assertEquals(1, deltas.first { it.tx == 0 }.before[0])
+        assertEquals(3, deltas.first { it.tx == 0 }.after[0])
+        assertEquals(7, deltas.first { it.tx == 1 }.before[0])
+    }
+
+    @Test
+    fun `a chunk's deltas that arrive out of stroke order are dropped`() {
+        val h = chunking()
+        val a = strokeWith(Tool.BRUSH)
+        val b = strokeWith(Tool.BRUSH)
+        h.pushDraw("l", a, chunkable = true, nowMs = 0L)
+        h.pushDraw("l", b, chunkable = true, nowMs = 10L)
+
+        h.attachTileDeltas(b, listOf(tile(0, before = 2, after = 3)), canvasWidth = 4, canvasHeight = 1)
+        h.attachTileDeltas(a, listOf(tile(0, before = 1, after = 2)), canvasWidth = 4, canvasHeight = 1)
+
+        val entry = h.popUndo { it } as EditCommand.Draw
+        assertFalse(entry.deltasComplete)
+    }
+
+    @Test
+    fun `dropping one stroke of a chunk keeps the rest and falls back to a rebuild`() {
+        val h = chunking()
+        val a = strokeWith(Tool.BRUSH)
+        val b = strokeWith(Tool.BRUSH)
+        val c = strokeWith(Tool.BRUSH)
+        listOf(a, b, c).forEachIndexed { i, s -> h.pushDraw("l", s, chunkable = true, nowMs = i * 10L) }
+        h.attachTileDeltas(a, listOf(tile(0, 1, 2)), canvasWidth = 4, canvasHeight = 1)
+
+        assertTrue(h.dropDraw(b))
+
+        val entry = h.popUndo { it } as EditCommand.Draw
+        assertEquals(2, entry.strokes.size)
+        assertTrue(entry.strokes[0] === a && entry.strokes[1] === c)
+        assertFalse(entry.deltasComplete)
+    }
+
+    @Test
+    fun `dropping the only stroke of an entry removes it`() {
+        val h = chunking()
+        val a = strokeWith(Tool.BRUSH)
+        h.pushDraw("l", a, chunkable = true, nowMs = 0L)
+
+        assertTrue(h.dropDraw(a))
+        assertEquals(0, h.undoCount)
+    }
+
+    @Test
+    fun `a stroke pushed after an undo starts fresh and clears redo`() {
+        val h = chunking()
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 0L)
+        h.popUndo { it }
+        h.pushDraw("l", strokeWith(Tool.BRUSH), chunkable = true, nowMs = 10L)
+
+        assertEquals(1, h.undoCount)
+        assertEquals(0, h.redoCount)
+    }
 }

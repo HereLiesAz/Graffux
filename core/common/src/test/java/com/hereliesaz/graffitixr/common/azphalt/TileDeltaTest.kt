@@ -135,4 +135,49 @@ class TileDeltaTest {
         TileDelta.applyAfter(canvas, width, snapshots)
         assertArrayEquals(after, canvas)
     }
+
+    @Test
+    fun `merge of two consecutive edits undoes to before both and redoes to after both`() {
+        val width = 32
+        val height = 16
+        val grid = TileGrid(canvasWidth = width, canvasHeight = height, tileSize = 16)
+        val start = IntArray(width * height) { it }
+        val mid = start.copyOf().also { for (i in 0 until 16 * width) it[i] = -1 } // both tiles
+        val end = mid.copyOf().also { for (y in 0 until height) for (x in 16 until width) it[y * width + x] = -2 }
+        val first = TileDelta.capture(start, mid, grid, grid.tilesTouching(DirtyRegion(0, 0, width, height)))
+        val second = TileDelta.capture(mid, end, grid, grid.tilesTouching(DirtyRegion(16, 0, width, height)))
+
+        val merged = TileDelta.merge(first, second)!!
+
+        val undone = end.copyOf()
+        TileDelta.applyBefore(undone, width, merged)
+        assertArrayEquals(start, undone)
+        val redone = start.copyOf()
+        TileDelta.applyAfter(redone, width, merged)
+        assertArrayEquals(end, redone)
+    }
+
+    @Test
+    fun `merge keeps a tile only the second edit touched as it was captured`() {
+        val width = 32
+        val height = 16
+        val grid = TileGrid(canvasWidth = width, canvasHeight = height, tileSize = 16)
+        val a = canvas(width, height, 0)
+        val b = canvas(width, height, 1)
+        val first = TileDelta.capture(a, b, grid, grid.tilesTouching(DirtyRegion(0, 0, 16, 16)))
+        val second = TileDelta.capture(b, a, grid, grid.tilesTouching(DirtyRegion(16, 0, 32, 16)))
+
+        val merged = TileDelta.merge(first, second)!!
+
+        assertEquals(listOf(0 to 0, 1 to 0), merged.map { it.tx to it.ty })
+        assertArrayEquals(second[0].before, merged[1].before)
+    }
+
+    @Test
+    fun `merge is null when a tile's bounds disagree`() {
+        val tile = TileDelta.TileSnapshot(0, 0, DirtyRegion(0, 0, 16, 16), IntArray(256), IntArray(256))
+        val other = tile.copy(bounds = DirtyRegion(0, 0, 8, 8))
+
+        assertEquals(null, TileDelta.merge(listOf(tile), listOf(other)))
+    }
 }
