@@ -91,21 +91,6 @@ internal const val STUDIO_SET = "Studio"
 /** Set label for installed extension brushes on the Brushes page. */
 internal const val INSTALLED_SET = "Installed"
 
-/** One set chip: its name and the index of the first entry in it, which tapping the chip selects. */
-internal data class CarouselSetChip(val name: String, val firstIndex: Int)
-
-/**
- * The Brushes page's set chips, in strip order: one per run of entries sharing a [CarouselEntry.set].
- * Empty when there is nothing to choose between (fewer than two sets), so no row is drawn.
- */
-internal fun carouselSetChips(entries: List<CarouselEntry>): List<CarouselSetChip> {
-    val chips = mutableListOf<CarouselSetChip>()
-    entries.forEachIndexed { index, entry ->
-        val set = entry.set ?: return@forEachIndexed
-        if (chips.none { it.name == set }) chips += CarouselSetChip(set, index)
-    }
-    return if (chips.size < 2) emptyList() else chips
-}
 
 /** The editor state the carousel reads — a narrow slice, so the derivation stays unit-testable. */
 internal data class CarouselInputs(
