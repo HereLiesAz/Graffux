@@ -1,10 +1,20 @@
 # centralized-by: HereLiesAz/workflows
 # central-source-path: .github/workflows/android-github-release.yml
-# central-source-sha256: 97e2b8b6472956f02d536fbcc54690e537691dfecf6034cb5ae95c6ea1af9562
+# central-source-sha256: cfe7dd1864cf73f23cbd4f295fc87e0ee8e66e479c0339289834d3743bd3905b
 # This file intentionally contains no repository secrets.
 # central-run-tracker: HereLiesAz/workflows
 name: Graffux Android GitHub Release
 on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "core/**"
+      - "feature/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "version.properties"
   workflow_dispatch:
 permissions: {}
 jobs:
