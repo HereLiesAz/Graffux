@@ -99,6 +99,8 @@
     <ID>MaxLineLength:RailHelp.kt$"stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow. A dial that is missing is "</ID>
     <ID>ReturnCount:MainActivity.kt$private fun azphaltInstallUrl(intent: Intent?): String?</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$t: Throwable</ID>
+    <ID>TooManyFunctions:BottomCarousel.kt$com.hereliesaz.graffux.BottomCarousel.kt</ID>
+    <ID>TooManyFunctions:BottomCarouselPlan.kt$com.hereliesaz.graffux.BottomCarouselPlan.kt</ID>
     <ID>TooManyFunctions:MainActivity.kt$com.hereliesaz.graffux.MainActivity.kt</ID>
     <ID>UnusedParameter:MainActivity.kt$onAddClicked: () -&gt; Unit</ID>
     <ID>UnusedParameter:MainActivity.kt$onModelClicked: () -&gt; Unit</ID>

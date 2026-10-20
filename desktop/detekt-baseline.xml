@@ -4,6 +4,7 @@
   <CurrentIssues>
     <ID>ComplexCondition:DesktopStampCanvas.kt$sizeKnown &amp;&amp; (committed == null || committed.width != canvasSize.width || committed.height != canvasSize.height)</ID>
     <ID>CyclomaticComplexMethod:DesktopStampCanvas.kt$@Composable fun DesktopStampCanvas( state: CanvasState, brush: AzphaltBrush, brushRadiusPx: Float, colorArgb: Int, flow: Float = 1f, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:Main.kt$@Composable private fun GraffuxDesktopApp( canvasState: CanvasState, lastSavedPath: String?, saveError: String?, onSaved: (String?) -&gt; Unit, onSaveError: (String?) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:PixelBlend.kt$fun blitSrcOver(dst: IntArray, dstWidth: Int, dstHeight: Int, tile: CompositedTile)</ID>
     <ID>FunctionNaming:ColorWheel.kt$@Composable fun ColorWheel( currentColor: Color, onColorSelected: (Color) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:DesktopStampCanvas.kt$@Composable fun DesktopStampCanvas( state: CanvasState, brush: AzphaltBrush, brushRadiusPx: Float, colorArgb: Int, flow: Float = 1f, modifier: Modifier = Modifier, )</ID>

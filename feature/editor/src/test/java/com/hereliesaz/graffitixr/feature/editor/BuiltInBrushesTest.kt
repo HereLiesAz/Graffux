@@ -37,7 +37,10 @@ class BuiltInBrushesTest {
     fun `every bundled brush has a unique name and exactly one set`() {
         val names = BuiltInBrushes.presets.map { it.name }
         assertEquals(names.size, names.toSet().size)
-        names.forEach { assertEquals(it, 1, BuiltInBrushes.sets.count { set -> set.brushes.any { b -> b.name == it } }) }
+        names.forEach { name ->
+            val owners = BuiltInBrushes.sets.count { set -> set.brushes.any { it.name == name } }
+            assertEquals(name, 1, owners)
+        }
         assertEquals(BuiltInBrushes.sets.flatMap { it.brushes }, BuiltInBrushes.presets)
         assertEquals("Basics", BuiltInBrushes.setOf(BuiltInBrushes.DEFAULT_NAME)?.name)
     }
