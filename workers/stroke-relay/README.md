@@ -55,6 +55,20 @@ The Workers free plan allows 10 ms of CPU per request. Base64-encoding a multi-m
 exceed that, in which case Cloudflare answers 1102 and the app keeps the file and retries; the paid
 plan has no such limit.
 
+### Deploy from the Cloudflare dashboard (no CLI)
+
+- **Connect the repository (keeps the rate limit).** After this is merged: Workers & Pages → Create →
+  Import a repository → `HereLiesAz/Graffux`; name `graffux-stroke-relay`, root directory
+  `workers/stroke-relay`, empty build command, deploy command `npx wrangler deploy`. Then, in the
+  Worker's Settings → Variables and Secrets, add the secret `GH_TOKEN`. `wrangler.toml` supplies the
+  variables and the rate-limit binding.
+- **Paste the code.** Create a Worker named `graffux-stroke-relay`, replace its code with
+  `src/index.js`, and add `GH_REPO`, `DATA_BRANCH` (text) and `GH_TOKEN` (secret) under Settings →
+  Variables and Secrets. The dashboard cannot add the Rate Limiting binding, so this route has no
+  rate limit (the Worker skips it when the binding is absent).
+
+Check it with the Worker's Logs tab while uploading from the app.
+
 ### Protect the branch
 
 In Graffux: Settings → Rules → Rulesets → new branch ruleset, target `stroke-data`, tick
