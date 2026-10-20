@@ -327,9 +327,11 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
     LaunchedEffect(recording) { vm.pendingStrokeData.refresh(context) }
     ChoiceRow(
         title = "Contribute strokes to model training",
-        subtitle = "Off by default. When enabled, Graffux records raw stroke input and motion " +
-            "sensor context for its stroke model. With a connected GitHub token, pending files may " +
-            "be uploaded for training. Turn this off to stop future collection and uploads. " +
+        subtitle = "Off by default. When enabled, Graffux records raw stroke input (touch path, " +
+            "pressure, contact size) and motion-sensor readings, plus your device model and screen " +
+            "size, but no names, location or image content. Finished sessions are uploaded to a " +
+            "public GitHub branch for training. A stroke is a path of points, so leave this off " +
+            "while writing or signing something. Turn it off to stop collection and uploads. " +
             "$pending file(s) currently waiting on this device. Applies next time the canvas opens.",
         options = listOf(true, false),
         selected = recording,

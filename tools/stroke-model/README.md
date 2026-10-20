@@ -14,10 +14,13 @@ Record format: [SCHEMA.md](SCHEMA.md).
 
 ## Collecting data
 
-On the device, Settings → Stroke data is on by default. Every stroke is recorded to
-`filesDir/stroke-data/`; finished files upload at launch (or via "Upload stroke data now") to the
-`stroke-data` branch of this repository under `stroke-data/<device-model>/`. Upload uses the
-on-device GitHub token, which needs **Contents: read and write** on the repository.
+On the device, Settings → "Contribute strokes to model training" is **off by default**; nothing is
+recorded or uploaded until the user switches it on. Once on, every stroke is recorded to
+`filesDir/stroke-data/`; finished files upload at launch (or via "Upload stroke data now") through the
+stroke relay (`workers/stroke-relay`), which commits them to the `stroke-data` branch of this
+repository under `stroke-data/<device-model>/`. The branch is public, and the app holds no
+credential: the GitHub token is a secret of the relay Worker. See
+[`workers/stroke-relay/README.md`](../../workers/stroke-relay/README.md) to deploy it.
 
 Rooted devices can also record the raw capacitive touch image: Settings → Raw touch heatmap (root),
 off by default. Turning it on runs a small read-only helper through `su` at once (the Magisk prompt

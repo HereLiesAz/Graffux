@@ -92,7 +92,7 @@ class GraffuxApplication : Application() {
                     false,
                 )
             ) {
-                runCatching { StrokeDataUploader(this@GraffuxApplication, predictionReports).uploadPending() }
+                runCatching { StrokeDataUploader(this@GraffuxApplication).uploadPending() }
             }
         }
     }
