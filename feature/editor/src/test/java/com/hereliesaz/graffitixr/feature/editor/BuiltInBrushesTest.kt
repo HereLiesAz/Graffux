@@ -32,4 +32,26 @@ class BuiltInBrushesTest {
         assertEquals(1f, round.tipRatio)
         assertEquals(0f, round.airbrushDabsPerSecond)
     }
+
+    @Test
+    fun `every bundled brush has a unique name and exactly one set`() {
+        val names = BuiltInBrushes.presets.map { it.name }
+        assertEquals(names.size, names.toSet().size)
+        names.forEach { assertEquals(it, 1, BuiltInBrushes.sets.count { set -> set.brushes.any { b -> b.name == it } }) }
+        assertEquals(BuiltInBrushes.sets.flatMap { it.brushes }, BuiltInBrushes.presets)
+        assertEquals("Basics", BuiltInBrushes.setOf(BuiltInBrushes.DEFAULT_NAME)?.name)
+    }
+
+    @Test
+    fun `bundled tuning is already in range, so sanitizing changes nothing`() {
+        BuiltInBrushes.presets.forEach { assertEquals(it.name, it, it.sanitized()) }
+    }
+
+    @Test
+    fun `every pressure route leaves a usable mark at zero pressure`() {
+        BuiltInBrushes.presets.flatMap { b -> b.dynamics.map { b.name to it } }
+            .filter { (_, d) -> d.parameter == com.hereliesaz.graffitixr.common.azphalt.BrushParameter.SIZE ||
+                d.parameter == com.hereliesaz.graffitixr.common.azphalt.BrushParameter.OPACITY }
+            .forEach { (name, d) -> org.junit.Assert.assertTrue(name, minOf(d.map(0f), d.map(1f)) > 0f) }
+    }
 }

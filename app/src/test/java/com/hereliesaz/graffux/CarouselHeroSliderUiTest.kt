@@ -210,7 +210,7 @@ class CarouselHeroSliderUiTest {
         val card = cardBounds(CarouselTier.HERO).single()
         val more = bounds("carousel.hero.more")
         assertTrue("More inside the hero", more.bottom <= card.bottom + 1f && more.top >= card.top - 1f)
-        rule.onAllNodesWithText("Built-in · round tip", useUnmergedTree = true).assertCountEquals(1)
+        rule.onAllNodesWithText("Built-in · Basics", useUnmergedTree = true).assertCountEquals(1)
     }
 
     private fun bounds(tag: String) =
@@ -220,7 +220,7 @@ class CarouselHeroSliderUiTest {
     fun `compact title and details stay readable without adjustment controls`() {
         compose()
         val identity = bounds("carousel.hero.identity")
-        val details = rule.onAllNodesWithText("Built-in · round tip", useUnmergedTree = true)
+        val details = rule.onAllNodesWithText("Built-in · Basics", useUnmergedTree = true)
             .fetchSemanticsNodes().single().boundsInRoot
         assertTrue(details.bottom <= identity.bottom + 1f)
         assertEquals(0, rule.onAllNodesWithTag("carousel.hero.controls", useUnmergedTree = true)

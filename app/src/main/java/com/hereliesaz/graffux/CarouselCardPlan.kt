@@ -126,7 +126,7 @@ private fun percent(value: Float): String = "${(value * PERCENT).toInt()}%"
  * so it shows its family only.
  */
 internal fun carouselHeroDetails(entry: CarouselEntry): List<String> = when (val action = entry.action) {
-    is CarouselAction.BuiltInBrush -> listOf("Built-in · round tip") + brushParams(entry.brush)
+    is CarouselAction.BuiltInBrush -> listOf("Built-in · ${entry.set ?: "Basics"}") + brushParams(entry.brush)
     is CarouselAction.CustomBrush -> listOf("Brush Studio · round tip") + brushParams(entry.brush)
     is CarouselAction.ExtensionBrush -> listOf("Installed · stamp brush")
     is CarouselAction.InkUtensilPick -> listOf("Jetpack Ink", inkTrait(action.utensil))

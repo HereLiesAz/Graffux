@@ -249,6 +249,7 @@ internal fun BottomCarousel(
                 }
                 // While the card is grown (or growing), ExpandedHeroLayer draws this same preview
                 // riding above the card, so this one steps aside.
+                if (ui.category == CarouselCategory.BRUSHES) SetChipRow(position, content.entries, onEntryClick)
                 HeroPreview(position, content) { expansion.progress > 0f }
                 // The column spaces each side of this spacer too; together they make PreviewGap.
                 Spacer(Modifier.height(PreviewGap - ColumnSpacing * 2))
@@ -336,6 +337,51 @@ internal fun HeroPreview(position: State<Float>, content: CarouselContent, hidde
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The Brushes page's set chips (Basics · Aerosol · Ink & Line · … · Studio · Installed; see
+ * [carouselSetChips]). Tapping one selects that set's first brush, and the strip re-centres on it
+ * the way it follows any other selection. The chip lit is the set of whatever is in the hero slot,
+ * read from the strip's live position, so it tracks a swipe across a set boundary. Nothing is drawn
+ * when there is only one set.
+ */
+@Suppress("FunctionNaming")
+@Composable
+private fun SetChipRow(position: State<Float>, entries: List<CarouselEntry>, onEntryClick: (CarouselEntry) -> Unit) {
+    val chips = remember(entries) { carouselSetChips(entries) }
+    if (chips.isEmpty()) return
+    val current by remember(entries) {
+        derivedStateOf {
+            entries.getOrNull(position.value.roundToInt().coerceIn(0, entries.lastIndex))?.set
+        }
+    }
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = HistoryEdgeGap)
+            .testTag("carousel.sets"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+    ) {
+        chips.forEach { chip ->
+            val lit = chip.name == current
+            Text(
+                chip.name,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                color = if (lit) colors.surface else colors.onSurface,
+                modifier = Modifier
+                    .clip(CardShape)
+                    .background(if (lit) colors.onSurface else colors.surface.copy(alpha = 0.72f))
+                    .clickable(role = Role.Tab) { entries.getOrNull(chip.firstIndex)?.let(onEntryClick) }
+                    .semantics { selected = lit }
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag("carousel.set.${chip.name}"),
+            )
         }
     }
 }

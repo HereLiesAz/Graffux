@@ -196,14 +196,19 @@ private fun GraffuxDesktopApp(
         // candidate") -- the version bumped to alongside this change -- so the auto "?" item is
         // safe to re-enable.
         azAbout(dedupeAbout = true)
-        BuiltInBrushes.presets.forEach { preset ->
-            azRailItem(
-                id = "brush.${preset.name}",
-                text = preset.name,
-                content = brushIcon,
-                classifiers = setOf(preset.name),
-                onClick = { selectedBrush = preset },
-            )
+        // One host per bundled set (Basics, Aerosol, Ink & Line, ...), each unfolding its brushes --
+        // the same grouping as Android's Brushes-page set chips.
+        BuiltInBrushes.sets.forEach { set ->
+            azRailHostItem(id = "brushset.${set.name}", text = set.name, content = brushIcon)
+            set.brushes.forEach { preset ->
+                azRailSubItem(
+                    id = "brush.${preset.name}",
+                    hostId = "brushset.${set.name}",
+                    text = preset.name,
+                    classifiers = setOf(preset.name),
+                    onClick = { selectedBrush = preset },
+                )
+            }
         }
         azRailItem(
             id = "action.undo",
