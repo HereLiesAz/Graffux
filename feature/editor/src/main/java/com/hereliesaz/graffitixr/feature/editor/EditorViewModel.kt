@@ -1914,7 +1914,6 @@ class EditorViewModel @Inject constructor(
         if (excess < BAKE_BATCH) return
         val base = layerStore.base(layerId) ?: return
         val stale = layerStore.strokes(layerId).take(excess)
-        if (stale.isEmpty()) return
         // One bake per layer at a time: each copies and replays a whole layer.
         if (layerId in bakingLayers) return
 
