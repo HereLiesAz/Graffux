@@ -305,12 +305,16 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `brushes page groups built-ins into set chips in strip order`() {
-        val entries = carouselEntries(CarouselCategory.BRUSHES, base)
+    fun `brushes page groups built-ins, studio and installed brushes into set chips in strip order`() {
+        val input = base.copy(
+            customBrushes = listOf("c1" to builtIn.first().copy(name = "Mine")),
+            extensionBrushes = listOf("ext#0" to "Store Brush"),
+        )
+        val entries = carouselEntries(CarouselCategory.BRUSHES, input)
         val chips = carouselSetChips(entries)
         assertEquals(
-            com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.sets.map { it.name },
-            chips.map { it.name }.take(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.sets.size),
+            com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.sets.map { it.name } + STUDIO_SET + INSTALLED_SET,
+            chips.map { it.name },
         )
         chips.forEach { assertEquals(it.name, entries[it.firstIndex].set) }
     }
