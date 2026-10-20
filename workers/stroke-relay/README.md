@@ -49,6 +49,12 @@ It ships with the `graffux` Worker, so it deploys when that Worker does (Workers
    check its token has that access and no more: the Worker can do anything the token can.
 3. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`), or the Worker
    does not deploy at all.
+4. Make sure `/v1/stroke-data/*` is reachable without logging in. If Cloudflare Access protects the
+   Worker's `workers.dev` address, every request is redirected to the Access login page and no upload
+   can succeed (the app treats that as a failure and keeps the file). Either turn Access off for the
+   Worker (Settings → Domains & Routes) or add an Access application for the path with a Bypass policy.
+   Check with `curl -i https://graffux.hereliesaz.workers.dev/v1/stroke-data/x/y`: a `404`/`400` JSON
+   body means the Worker answered; a `302` to `cloudflareaccess.com` means Access is in the way.
 
 `GH_REPO` and `DATA_BRANCH` are plain variables in the root `wrangler.toml`; the Rate Limiting
 binding (`namespace_id` 2001) is there too. The app's `StrokeRelayClient.DEFAULT_URL` is
