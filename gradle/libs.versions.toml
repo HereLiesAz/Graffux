@@ -3,6 +3,7 @@
 activityCompose = "1.13.0"
 agp = "9.4.1"
 appcompat = "1.8.0"
+playAppUpdate = "2.1.0"
 azNavRail = "11.57"
 coil = "2.7.0"
 constraintlayout = "2.2.2"
@@ -104,6 +105,7 @@ mlkit-subject-segmentation = { group = "com.google.android.gms", name = "play-se
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
+play-app-update-ktx = { group = "com.google.android.play", name = "app-update-ktx", version.ref = "playAppUpdate" }
 play-services-base = { group = "com.google.android.gms", name = "play-services-base", version.ref = "playServicesBase" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 segmentation-selfie = { module = "com.google.mlkit:segmentation-selfie", version.ref = "segmentationSelfie" }

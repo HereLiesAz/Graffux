@@ -249,6 +249,8 @@ dependencies {
     implementation(libs.navigation.compose)
 
     implementation(libs.timber)
+    implementation(libs.play.app.update.ktx)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.coil.compose)
 
     // Import the Firebase BoM so all Firebase library versions stay compatible; don't pin

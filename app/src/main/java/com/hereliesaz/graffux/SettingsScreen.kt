@@ -248,6 +248,9 @@ fun SettingsScreen(
             GpuTierRow()
             HorizontalDivider()
 
+            CheckForUpdatesRow()
+            HorizontalDivider()
+
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = { showNotices = true }) {
                 Text("Open-source notices")
