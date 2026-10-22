@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
             // against plus the brand palette.
             GraffitiXRTheme {
                 GraffuxApp(sharedImageUri = sharedImage, azphaltInstallUrl = azpInstallUrl)
+                LaunchUpdatePrompt()
             }
         }
         HardwareFloorNotice.showOnce(this)
