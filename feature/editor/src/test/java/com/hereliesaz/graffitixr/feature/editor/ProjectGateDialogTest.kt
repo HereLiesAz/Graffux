@@ -45,6 +45,24 @@ class ProjectGateDialogTest {
     }
 
     @Test
+    fun `over an open project it offers Cancel and Back cancels`() {
+        var cancels = 0
+        rule.setContent {
+            ProjectGateDialog(
+                state = ProjectGateState("Untitled 2", cancellable = true),
+                onLoad = {},
+                onSave = { _, _, _ -> },
+                onCancel = { cancels += 1 },
+            )
+        }
+        rule.onNodeWithTag(TAG_CANCEL).performClick()
+        assertEquals(1, cancels)
+        assertTrue(rule.activity.onBackPressedDispatcher.hasEnabledCallbacks())
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        assertEquals(2, cancels)
+    }
+
+    @Test
     fun `save hands over the typed, sanitised name`() {
         var saved: String? = null
         rule.setContent {

@@ -8,4 +8,6 @@ data class ProjectGateState(
     val defaultHeight: Int = 1920,
     /** "Saving…" / "Loading…" while the chosen action (and calibration, capped) finishes. */
     val busyLabel: String? = null,
+    /** True when a project is already open (File > New): the dialog then offers Cancel. */
+    val cancellable: Boolean = false,
 )

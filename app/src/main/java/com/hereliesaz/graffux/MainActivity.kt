@@ -1733,8 +1733,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
         }
-        // The mandatory project dialog, above the rail and every window: there is nothing to do
-        // without a project. Load goes through the same picker as File > Open; a cancelled picker
+        // The project dialog, above the rail and every window: mandatory with no project open,
+        // cancellable over one (File > New). Load goes through the same picker as File > Open; a cancelled picker
         // returns null and the dialog simply stays.
         projectGate?.let { gate ->
             ProjectGateDialog(
@@ -1749,6 +1749,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     gateImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
                 imperial = uiState.isImperialUnits,
+                onCancel = { vm.dismissProjectGate(); gateImages = emptyList() },
             )
         }
     }

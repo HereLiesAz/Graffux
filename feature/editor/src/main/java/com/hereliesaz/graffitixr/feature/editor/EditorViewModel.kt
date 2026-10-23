@@ -9055,14 +9055,25 @@ class EditorViewModel @Inject constructor(
             val n = projectRepository.getProjects().size + 1
             if (_projectGate.value == null) {
                 val (w, h) = screenSize()
-                _projectGate.value = ProjectGateState(defaultName = "Untitled $n", defaultWidth = w, defaultHeight = h)
+                _projectGate.value = ProjectGateState(
+                    defaultName = "Untitled $n",
+                    defaultWidth = w,
+                    defaultHeight = h,
+                    cancellable = projectRepository.currentProject.value != null,
+                )
             }
             gpuTuning?.coordinator?.onProjectDialogShown()
         }
     }
 
+    /** Project dialog > Cancel, offered only over an open project: back to that project. */
+    fun dismissProjectGate() {
+        val gate = _projectGate.value ?: return
+        if (gate.cancellable && gate.busyLabel == null) _projectGate.value = null
+    }
+
     /**
-     * Project dialog > Save: creates the project named [name] while calibration finishes, waiting
+     * Project dialog > Create: creates the project named [name] while calibration finishes, waiting
      * for it at most its cap from the tap; past that the canvas opens on the conservative tier and
      * the calibrated one is applied when it lands.
      */
