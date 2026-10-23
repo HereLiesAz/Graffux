@@ -31,6 +31,7 @@ class GraffuxApplication : Application() {
 
     @Inject lateinit var securityProviderManager: SecurityProviderManager
     @Inject lateinit var predictionReports: PredictionReportRepository
+    @Inject lateinit var revocationSweep: com.hereliesaz.graffitixr.data.azphalt.RevocationSweep
 
     override fun onCreate() {
         super.onCreate()
@@ -84,6 +85,18 @@ class GraffuxApplication : Application() {
         // token below connected), and only for deaths after that opt-in.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { CrashIssueUploader(this@GraffuxApplication, predictionReports).uploadPending() }
+            // Withdrawn extensions: removed, and said so, rather than left running.
+            val removed = runCatching { revocationSweep.run() }.getOrDefault(emptyList())
+            if (removed.isNotEmpty()) {
+                val names = removed.joinToString { it.id }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        this@GraffuxApplication,
+                        "Removed withdrawn extension(s): $names",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
             // Training data is strictly opt-in. Existing pending files stay local while consent is off.
             val trainingPrefs = getSharedPreferences(
                 com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
