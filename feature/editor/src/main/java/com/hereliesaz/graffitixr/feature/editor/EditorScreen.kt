@@ -488,7 +488,6 @@ fun EditorScreen(
                 layerBitmapKey = activeLayer.bitmap,
                 gate = strokeGate,
                 activeBrushPreview = vm.activeBrushForPreview(),
-                heldTickMs = vm.activeBrushForPreview()?.program?.tickMs?.toLong() ?: 0L,
                 modifier = Modifier.fillMaxSize(),
                 onStrokeStart = { sample, size -> vm.onStrokeStart(toWorldSample(sample), size) },
                 onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },

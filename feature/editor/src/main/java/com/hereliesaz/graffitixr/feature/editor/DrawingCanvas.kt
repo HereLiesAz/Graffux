@@ -60,13 +60,6 @@ fun DrawingCanvas(
      * morphology, bristle population and device-pose model as the mechanics layer.
      */
     activeBrushPreview: AzphaltBrush? = null,
-    /**
-     * Pen-time tick of the active brush's stroke program (0 = none). A brush that sprays where it
-     * is held starts its stroke on touchdown, not after the touch slop, and while the pen is held
-     * with no events the canvas repeats the last position every tick, so the program keeps
-     * running on the clock. Spraying while held replaces the long-press eyedropper for that brush.
-     */
-    heldTickMs: Long = 0L,
     /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */
     onPredictionRanked: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
     /** TEMPORARY: this canvas's prediction tournament is being discarded. */
@@ -87,6 +80,11 @@ fun DrawingCanvas(
     val view = LocalView.current
     // The Eraser is the Brush in reverse: same tip pose, hover cursor and input handling.
     val brushLike = activeTool == Tool.BRUSH || activeTool == Tool.ERASER
+    // Pen-time tick of the active brush's stroke program (0 = none). A brush that sprays where it is
+    // held starts its stroke on touchdown, not after the touch slop, and while the pen is held with
+    // no events the canvas repeats the last position every tick, so the program keeps running on the
+    // clock. Spraying while held replaces the long-press eyedropper for that brush.
+    val heldTickMs = activeBrushPreview?.program?.tickMs?.toLong() ?: 0L
     val deviceAttitudeState = rememberDeviceAttitude(view, enabled = brushLike)
     val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
     val brushSampleBuilder = remember { BrushSampleBuilder() }
@@ -266,7 +264,9 @@ fun DrawingCanvas(
                         began = true
                         gate.strokeActive = true
                         onStrokeStart(
-                            recordRealPoint(down.position, down.uptimeMillis, down.pressure, BrushContactPhase.TOUCHDOWN),
+                            recordRealPoint(
+                                down.position, down.uptimeMillis, down.pressure, BrushContactPhase.TOUCHDOWN,
+                            ),
                             canvasSize,
                         )
                     }

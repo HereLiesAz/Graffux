@@ -11136,9 +11136,10 @@ class EditorViewModel @Inject constructor(
      * truth, so undo and redo need no bookkeeping: whichever stroke is on top decides.
      */
     private fun paintPriorFor(layerId: String, nowMs: Long): com.hereliesaz.graffitixr.common.azphalt.PaintSnapshot? {
-        val top = layerStore.strokes(layerId).lastOrNull { it.paintFilm != null } ?: return null
+        val top = layerStore.strokes(layerId).lastOrNull { it.paintFilm != null }
+        val film = top?.paintFilm ?: return null
         val ledger = (top.paintPrior ?: com.hereliesaz.graffitixr.common.azphalt.PaintLedger().snapshot(0L)).toLedger()
-        ledger.overlay(top.paintFilm ?: return null)
+        ledger.overlay(film)
         return ledger.snapshot(nowMs).takeUnless { it.isEmpty }
     }
 
