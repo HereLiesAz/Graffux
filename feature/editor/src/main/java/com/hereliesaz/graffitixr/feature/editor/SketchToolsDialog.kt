@@ -1,6 +1,7 @@
 // ~~~ FILE: ./feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/SketchToolsDialogs.kt ~~~
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.material3.MaterialTheme
 import android.graphics.Bitmap as AndroidBitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -187,7 +188,7 @@ fun ColorPickerDialog(
                         Text(
                             "Tap a marker on the wheel to take that hue.",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color.Gray,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
@@ -197,7 +198,7 @@ fun ColorPickerDialog(
                     Text(
                         strings.adj.brightness,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Start)
                     )
                     Slider(
@@ -241,7 +242,11 @@ private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .background(
-                if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                if (selected) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                },
                 RoundedCornerShape(12.dp),
             )
             .clickable(onClick = onClick)
@@ -250,7 +255,7 @@ private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
         Text(
             text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (selected) Color.White else Color.Gray,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -277,7 +282,11 @@ private fun PalettesTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Saved", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Text(
+                "Saved",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             AzButton(text = "Save current", onClick = onSave, shape = AzButtonShape.RECTANGLE)
         }
         Spacer(Modifier.height(6.dp))
@@ -285,7 +294,7 @@ private fun PalettesTab(
             Text(
                 "No saved colours yet — Save current adds the one you're mixing.",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
             FlowRow(
@@ -305,12 +314,12 @@ private fun PalettesTab(
             Text(
                 "Long-press a swatch to remove it.",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         Spacer(Modifier.height(14.dp))
-        Text("Recent", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        Text("Recent", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),

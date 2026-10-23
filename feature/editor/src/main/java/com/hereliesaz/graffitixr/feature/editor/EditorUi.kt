@@ -105,7 +105,7 @@ fun EditorUi(
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp)
-                        .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
                         .padding(16.dp)
                 ) {
                     val schema = activeContributionSchema

@@ -59,7 +59,7 @@ fun SaveProjectDialog(
             Text(
                 text = fileName,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -67,7 +67,7 @@ fun SaveProjectDialog(
                 text = "Your work is saved automatically as you go. This saves a copy you can move, " +
                     "share, or open on another device.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             AzButton(
                 text = "Choose location…",

@@ -103,7 +103,7 @@ fun ModelWindow(
                         "${state.mesh.triangleCount} triangles · drag to orbit, pinch to zoom"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 AzButton(
                     text = if (paintEnabled) "Painting — tap to orbit" else "Paint on model",
@@ -129,7 +129,7 @@ fun ModelWindow(
             else -> Text(
                 "Load an .obj model to inspect it.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
         }

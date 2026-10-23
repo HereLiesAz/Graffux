@@ -93,12 +93,17 @@ fun FigmaWindow(
             )
             state.frames.isEmpty() -> Text(
                 text = "Paste a Figma file link to see its frames.",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
             else -> {
                 state.fileName?.let {
-                    Text(it, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Spacer(Modifier.height(6.dp))
                 }
                 // Plain Column, not LazyColumn: this window's content already sits inside
@@ -142,7 +147,7 @@ private fun ConnectSection(isLoading: Boolean, error: String?, onTokenSubmit: (S
         "Connect with a Figma personal access token — create one in Figma under " +
             "Settings → Security → Personal access tokens, with file read access.",
         style = MaterialTheme.typography.bodySmall,
-        color = Color.Gray,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     Spacer(Modifier.height(10.dp))
     OutlinedTextField(
@@ -196,7 +201,7 @@ private fun FrameRow(frame: FigmaFrame, isSelected: Boolean, onToggle: () -> Uni
             Text(
                 "${frame.pageName} · ${frame.width.roundToInt()}×${frame.height.roundToInt()}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

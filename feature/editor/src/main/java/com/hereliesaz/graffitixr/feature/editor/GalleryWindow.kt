@@ -73,7 +73,7 @@ fun GalleryWindow(
         if (projects.isEmpty()) {
             Text(
                 text = "No projects yet.",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
@@ -131,7 +131,7 @@ private fun GalleryCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
                 .clickable { onOpen() },
             contentAlignment = Alignment.Center,
         ) {
@@ -144,7 +144,7 @@ private fun GalleryCard(
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                 )
             } else {
-                Text("—", color = Color.Gray)
+                Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Row(
@@ -160,7 +160,7 @@ private fun GalleryCard(
             )
             Text(
                 text = "✕",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .clickable { onDelete() }
                     .padding(horizontal = 6.dp, vertical = 2.dp),
