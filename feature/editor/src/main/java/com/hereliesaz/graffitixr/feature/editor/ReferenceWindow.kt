@@ -49,11 +49,15 @@ fun ReferenceWindow(
                 modifier = Modifier.fillMaxWidth().height(160.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(painterResource(GraffuxIcons.GalleryImport), contentDescription = null, tint = Color.Gray)
+                Icon(
+                    painterResource(GraffuxIcons.GalleryImport),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Text(
                 "No reference image",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }

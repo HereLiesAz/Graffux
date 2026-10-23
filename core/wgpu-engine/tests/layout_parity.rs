@@ -124,3 +124,47 @@ fn rust_structs_match_packing_table() {
     let d: &ColorSmudgeDab = bytemuck::from_bytes(bytemuck::cast_slice(&packed));
     assert_eq!((d.x, d.distance_delta_px, d.pickup_rate), (1.0, 8.0, 11.0));
 }
+
+/// The masked shaders skip a dab for any pixel outside its `DabXform` box, so the box must hold
+/// every pixel centre the rotated tip test accepts, for any angle, ratio and radius.
+#[test]
+fn dab_xform_boxes_hold_every_pixel_the_tip_covers() {
+    use graffux_wgpu::engine::dab_xforms;
+    let mut seed = 0x2545F4914F6CDD1Du64;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed >> 40) as f32 / (1u64 << 24) as f32
+    };
+    for _ in 0..200 {
+        let mut d = GpuDab::legacy(
+            40.0 + next() * 20.0,
+            40.0 + next() * 20.0,
+            0.2 + next() * 30.0,
+            1.0,
+            next() * 720.0 - 360.0,
+        );
+        d.tip_ratio = next();
+        let x = dab_xforms(&[d], &[])[0];
+        let a = (-d.angle_deg).to_radians();
+        assert!((x.rot[0] - a.cos()).abs() < 1e-5 && (x.rot[1] - a.sin()).abs() < 1e-5);
+        assert_eq!((x.rot[2], x.rot[3]), (1.0, 0.0), "no secondary: identity");
+        let hw = d.radius.max(0.5);
+        let hh = hw * d.tip_ratio.clamp(0.05, 1.0);
+        for py in 0..100 {
+            for px in 0..100 {
+                let (p, q) = (px as f32 + 0.5, py as f32 + 0.5);
+                let (lx, ly) = (p - d.x, q - d.y);
+                let (rx, ry) = (lx * x.rot[0] - ly * x.rot[1], lx * x.rot[1] + ly * x.rot[0]);
+                if rx.abs() <= hw && ry.abs() <= hh {
+                    let b = x.bounds;
+                    assert!(
+                        p >= b[0] && q >= b[1] && p <= b[2] && q <= b[3],
+                        "{d:?}: pixel ({px}, {py}) outside {b:?}"
+                    );
+                }
+            }
+        }
+    }
+}

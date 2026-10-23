@@ -5,7 +5,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -89,12 +88,10 @@ class EditorViewModelInkUtensilTest {
         every { projectRepository.currentProject } returns currentProjectFlow
         every { settingsRepository.backgroundColor } returns kotlinx.coroutines.flow.flowOf(0xFF000000.toInt())
         
-        // Mock static methods for Bitmap, Uri, and Toast
+        // Mock static methods for Bitmap and Uri
         mockkStatic(BitmapFactory::class)
         mockkStatic(android.graphics.Bitmap::class)
         mockkStatic(Uri::class)
-        mockkStatic(Toast::class)
-        every { Toast.makeText(any(), any<String>(), any()) } returns mockk(relaxed = true)
         mockkObject(com.hereliesaz.graffitixr.common.util.ImageUtils)
         mockkObject(TextRasterizer)
         mockkObject(GoogleFontCache)
@@ -158,7 +155,6 @@ class EditorViewModelInkUtensilTest {
         unmockkStatic(BitmapFactory::class)
         unmockkStatic(android.graphics.Bitmap::class)
         unmockkStatic(Uri::class)
-        unmockkStatic(Toast::class)
         unmockkObject(com.hereliesaz.graffitixr.common.util.ImageUtils)
         unmockkObject(TextRasterizer)
         unmockkObject(GoogleFontCache)

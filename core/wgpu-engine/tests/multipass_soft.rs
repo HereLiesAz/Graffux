@@ -3,6 +3,8 @@
 //! pause (held-pointer build-up), and for large soft tips (Soft Round with hardness turned down at
 //! 164 px, the owner's report). The committed layer stays byte-identical to multipass off.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{Engine, GpuDab, MaskedParams, MultipassConfig, SubstrateParams};
 
@@ -12,7 +14,7 @@ fn backends() -> Vec<(&'static str, Backends)> {
         if Engine::with_backends(8, 8, b).is_some() {
             out.push((name, b));
         } else {
-            eprintln!("[{name}] no adapter -- skipped");
+            common::no_adapter(name);
         }
     }
     out

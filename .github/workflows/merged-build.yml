@@ -66,7 +66,9 @@ jobs:
 
   # The Rust stamp engine's own tests (~130 #[test] functions plus tests/layout_parity.rs). Gradle
   # only ever runs `cargo build` for it, so without this job a WGSL or layout regression ships
-  # green. GPU-dependent tests skip themselves when the runner exposes no wgpu adapter.
+  # green. The runner has no GPU, so Mesa's software Vulkan driver (lavapipe) is installed and
+  # GRAFFUX_REQUIRE_GPU=vulkan makes a missing adapter a failure: without it the GPU tests skipped
+  # themselves and this job passed having tested none of the shaders.
   wgpu-engine-tests:
     runs-on: ubuntu-latest
     permissions:
@@ -75,8 +77,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Install a software Vulkan driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
+
       - name: Run cargo test
         working-directory: core/wgpu-engine
+        env:
+          GRAFFUX_REQUIRE_GPU: vulkan
         run: cargo test --locked
 
       - name: Upload test reports

@@ -26,6 +26,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -172,12 +174,23 @@ internal class EffectPreviewEngine(
     fun cached(key: EffectPreviewKey): Bitmap? = cache[key]
 
     /** [entry]'s thumbnail at [params] on the current snapshot: cached, or rendered now. */
-    @Suppress("ReturnCount")
+    // SwallowedException: a cancelled *other* renderer is not this caller's failure (ensureActive
+    // rethrows when this caller is the one cancelled).
+    @Suppress("ReturnCount", "SwallowedException")
     suspend fun thumbnail(entry: CarouselEntry, params: CarouselItemSettings?): Bitmap? {
         val snap = snapshot ?: return null
         val key = EffectPreviewKey(entry.key, params, snap.generation)
-        cache[key]?.let { return it }
-        inFlight[key]?.let { return it.await() }
+        // Join a render of the same key in flight. One cancelled by its own caller (a slider moved
+        // the key on) is not a failure: the waiter takes over and renders it itself.
+        while (true) {
+            cache[key]?.let { return it }
+            val pending = inFlight[key] ?: break
+            try {
+                return pending.await()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }
         val deferred = CompletableDeferred<Bitmap?>()
         inFlight[key] = deferred
         try {
@@ -196,7 +209,8 @@ internal class EffectPreviewEngine(
             deferred.complete(result)
             return result
         } catch (e: kotlinx.coroutines.CancellationException) {
-            deferred.complete(null)
+            // Not complete(null): a waiter would show the failure fallback though nothing failed.
+            deferred.cancel(e)
             throw e
         } finally {
             inFlight.remove(key)

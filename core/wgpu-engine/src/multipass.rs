@@ -50,6 +50,8 @@ const LANDING_SPREAD: f32 = 0.6;
 const DEFAULT_MS_PER_UNIT: f64 = 2e-5;
 /// Smallest refinement chunk, in pixel*dab units (one 16x16 block times 2 dabs).
 const MIN_CHUNK_UNITS: f64 = 256.0 * 2.0;
+/// One displayed frame in this many waits to time its drafts and composite ([`Multipass::time_this_frame`]).
+const TIMED_FRAME_EVERY: u32 = 8;
 
 /// Settings of the experiment. Passed as floats through the C ABI / JNI, in this order.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -203,11 +205,13 @@ impl MultipassStats {
 
 /// Owned copy of an R8 image a queued call referenced.
 #[derive(Clone)]
-struct R8 {
+pub(super) struct R8 {
     data: Arc<Vec<u8>>,
     width: u32,
     height: u32,
     hash: u64,
+    /// The caller's content id ([`Engine::set_masked_content_ids`]), 0 = none.
+    id: u64,
 }
 
 impl R8 {
@@ -219,7 +223,26 @@ impl R8 {
             width,
             height,
             hash,
+            id: 0,
         }
+    }
+
+    /// [`R8::new`] for an image named `id`: a repeat of the id `cache` holds (at this size) shares
+    /// that copy, so it is neither copied nor hashed again; otherwise a new copy, kept in `cache`.
+    fn named(cache: &mut Option<R8>, data: &[u8], width: u32, height: u32, id: u64) -> R8 {
+        if id == 0 {
+            return R8::new(data, width, height);
+        }
+        if let Some(c) = cache
+            .as_ref()
+            .filter(|c| c.id == id && c.width == width && c.height == height)
+        {
+            return c.clone();
+        }
+        let mut r = R8::new(data, width, height);
+        r.id = id;
+        *cache = Some(r.clone());
+        r
     }
 }
 
@@ -519,6 +542,7 @@ pub(super) struct Multipass {
 
     draft_dabs: GrowBuffer,
     draft_secondary: GrowBuffer,
+    draft_xforms: GrowBuffer,
     draft_stamp_uniform: wgpu::Buffer,
     draft_masked_uniform: wgpu::Buffer,
     display_uniform: wgpu::Buffer,
@@ -547,6 +571,9 @@ pub(super) struct Multipass {
     present_ms: Ema,
     compose_ms: Ema,
     frame_ms: Ema,
+    /// Displayed frames since the last one whose drafts and composite were timed with a full
+    /// device wait ([`Multipass::time_this_frame`]).
+    untimed_frames: u32,
     last_frame_start: Option<f64>,
     refine_busy_since_frame: f64,
     drafts_run: u64,
@@ -635,6 +662,7 @@ impl Multipass {
                     sampler_entry(9),
                     sampler_entry(10),
                     sampler_entry(11),
+                    storage_entry(12, true),
                 ],
             });
         let display_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -653,6 +681,7 @@ impl Multipass {
             DRAFT_STAMP_WGSL,
             &draft_stamp_layout,
             &[],
+            e.pipeline_cache(),
         );
         let draft_masked_pipeline = make_pipeline(
             device,
@@ -660,6 +689,7 @@ impl Multipass {
             DRAFT_MASKED_WGSL,
             &draft_masked_layout,
             &[],
+            e.pipeline_cache(),
         );
         let display_pipeline = make_pipeline(
             device,
@@ -667,6 +697,7 @@ impl Multipass {
             DISPLAY_WGSL,
             &display_layout,
             &[],
+            e.pipeline_cache(),
         );
         let r8 = wgpu::TextureFormat::R8Unorm;
         let storage_dst = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
@@ -709,6 +740,7 @@ impl Multipass {
             ballast: None,
             draft_dabs: GrowBuffer::new(device, "draft dabs", storage_dst, 64 * 64),
             draft_secondary: GrowBuffer::new(device, "draft secondary dabs", storage_dst, 32 * 64),
+            draft_xforms: GrowBuffer::new(device, "draft dab xforms", storage_dst, 32 * 64),
             draft_stamp_uniform: uniform(
                 device,
                 "draft stamp params",
@@ -764,11 +796,22 @@ impl Multipass {
             present_ms: Ema::default(),
             compose_ms: Ema::default(),
             frame_ms: Ema::default(),
+            untimed_frames: 0,
             last_frame_start: None,
             refine_busy_since_frame: 0.0,
             drafts_run: 0,
             chunks_run: 0,
         }
+    }
+
+    /// Whether this displayed frame waits for its drafts and composite to time them. Those waits
+    /// only feed the draft-scale adaptation and the stats: the frame's readback (or present)
+    /// waits for the same work anyway. So one frame in [`TIMED_FRAME_EVERY`] (and any frame while
+    /// there is no estimate yet) is timed; the rest make a single CPU/GPU sync, at the readback.
+    fn time_this_frame(&mut self) -> bool {
+        let timed = self.untimed_frames + 1 >= TIMED_FRAME_EVERY || self.draft_ms.get().is_none();
+        self.untimed_frames = if timed { 0 } else { self.untimed_frames + 1 };
+        timed
     }
 
     /// A displayed frame starts (a readback or a direct present of a new batch): feeds the frame
@@ -914,6 +957,7 @@ impl Engine {
             }
             let mp = Multipass::new(self, cfg);
             self.mp = Some(Box::new(mp));
+            self.save_pipeline_cache();
         }
         let was_on = self.mp_on();
         {
@@ -1059,17 +1103,19 @@ impl Engine {
         color_argb: u32,
         hardness: f32,
         p: &MaskedParams,
+        ids: [u64; 3],
     ) -> bool {
-        let r8 = |img: Option<(&[u8], u32, u32)>| {
+        let [mask_cache, grain_cache, secondary_cache] = &mut self.mp_r8_cache;
+        let r8 = |img: Option<(&[u8], u32, u32)>, cache: &mut Option<R8>, id: u64| {
             img.filter(|(d, w, h)| *w > 0 && *h > 0 && d.len() >= (*w * *h) as usize)
-                .map(|(d, w, h)| R8::new(d, w, h))
+                .map(|(d, w, h)| R8::named(cache, d, w, h, id))
         };
-        let mask = R8::new(p.mask, p.mask_width, p.mask_height);
-        let grain = r8(p.grain);
+        let mask = R8::named(mask_cache, p.mask, p.mask_width, p.mask_height, ids[0]);
+        let grain = r8(p.grain, grain_cache, ids[1]);
         let secondary_mask = if p.secondary_dabs.is_empty() {
             None
         } else {
-            r8(p.secondary_mask)
+            r8(p.secondary_mask, secondary_cache, ids[2])
         };
         let s = p.substrate;
         let mut compat = vec![
@@ -1289,7 +1335,9 @@ impl Engine {
             return;
         }
         self.with_mp(|e, mp| {
-            e.mp_run_drafts(mp);
+            // A flush point: nothing is timed (no budget to keep), so nothing waits here; whatever
+            // reads the result next waits for all of it at once.
+            e.mp_run_drafts(mp, false);
             while mp.sched.pending_refinement() > 0 {
                 e.mp_refine(mp, f64::INFINITY);
                 if !e.ok() {
@@ -1298,7 +1346,7 @@ impl Engine {
                     break;
                 }
             }
-            e.mp_compose(mp, true);
+            e.mp_compose(mp, true, false);
         });
     }
 
@@ -1306,7 +1354,10 @@ impl Engine {
 
     /// Every pending draft, merged into as few dispatches as their parameters allow. Never
     /// budgeted and never skipped (the draft guarantee).
-    fn mp_run_drafts(&mut self, mp: &mut Multipass) {
+    ///
+    /// `timed`: wait for the drafts and feed their wall time to the draft-scale adaptation. Untimed
+    /// drafts are only submitted; a later wait (the readback's map) completes them.
+    fn mp_run_drafts(&mut self, mp: &mut Multipass, timed: bool) {
         let batches = mp.sched.take_drafts();
         if batches.is_empty() {
             return;
@@ -1325,9 +1376,11 @@ impl Engine {
             }
             mp.drafts_run += batch.len() as u64;
         }
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        let ms = start.elapsed().as_secs_f64() * 1000.0;
-        mp.draft_ms.add(ms, 0.2);
+        if timed {
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            let ms = start.elapsed().as_secs_f64() * 1000.0;
+            mp.draft_ms.add(ms, 0.2);
+        }
     }
 
     fn mp_draft_batch(&mut self, mp: &mut Multipass, batch: &[Item<Work>]) {
@@ -1452,11 +1505,11 @@ impl Engine {
                 }
                 let r8f = wgpu::TextureFormat::R8Unorm;
                 let white = [255u8];
-                let (gd, gw, gh): (&[u8], u32, u32) = match &c0.grain {
-                    Some(g) => (&g.data, g.width, g.height),
-                    None => (&white, 1, 1),
+                let (gd, gw, gh, gid): (&[u8], u32, u32, u64) = match &c0.grain {
+                    Some(g) => (&g.data, g.width, g.height, g.id),
+                    None => (&white, 1, 1, 0),
                 };
-                Engine::ensure_tex(
+                Engine::ensure_tex_id(
                     &self.device,
                     &self.queue,
                     &mut mp.draft_grain,
@@ -1465,12 +1518,13 @@ impl Engine {
                     gh,
                     r8f,
                     gd,
+                    gid,
                 );
-                let (sd, sw, sh): (&[u8], u32, u32) = match &c0.secondary_mask {
-                    Some(g) => (&g.data, g.width, g.height),
-                    None => (&white, 1, 1),
+                let (sd, sw, sh, sid): (&[u8], u32, u32, u64) = match &c0.secondary_mask {
+                    Some(g) => (&g.data, g.width, g.height, g.id),
+                    None => (&white, 1, 1, 0),
                 };
-                Engine::ensure_tex(
+                Engine::ensure_tex_id(
                     &self.device,
                     &self.queue,
                     &mut mp.draft_secondary_mask,
@@ -1479,6 +1533,7 @@ impl Engine {
                     sh,
                     r8f,
                     sd,
+                    sid,
                 );
                 let bytes: &[u8] = bytemuck::cast_slice(&dabs);
                 mp.draft_dabs.ensure(&self.device, bytes.len() as u64);
@@ -1487,6 +1542,17 @@ impl Engine {
                 mp.draft_secondary.ensure(&self.device, sbytes.len() as u64);
                 self.queue
                     .write_buffer(&mp.draft_secondary.buffer, 0, sbytes);
+                let xforms = dab_xforms(
+                    &dabs,
+                    if c0.secondary_mask.is_some() {
+                        &secondary
+                    } else {
+                        &[]
+                    },
+                );
+                let xbytes: &[u8] = bytemuck::cast_slice(&xforms);
+                mp.draft_xforms.ensure(&self.device, xbytes.len() as u64);
+                self.queue.write_buffer(&mp.draft_xforms.buffer, 0, xbytes);
                 let sp = c0.substrate;
                 let has_grain = c0.grain.is_some();
                 let mask = mp.draft_mask.as_ref().unwrap();
@@ -1570,6 +1636,10 @@ impl Engine {
                             binding: 11,
                             resource: wgpu::BindingResource::Sampler(&self.linear_clamp),
                         },
+                        wgpu::BindGroupEntry {
+                            binding: 12,
+                            resource: mp.draft_xforms.buffer.as_entire_binding(),
+                        },
                     ],
                 });
                 let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -1589,7 +1659,10 @@ impl Engine {
     /// Drafts first, then final work in canonical order for up to `budget_ms` (<= 0: the rest of
     /// the frame). At least one chunk runs when final work is queued, so it always progresses.
     fn mp_refine(&mut self, mp: &mut Multipass, budget_ms: f64) {
-        self.mp_run_drafts(mp);
+        // A budget needs a clock: each chunk waits so its cost can be measured and the next one
+        // sized. An unbounded refine (a drain) has nothing to size, so it only submits.
+        let timed = budget_ms.is_finite();
+        self.mp_run_drafts(mp, timed);
         if mp.sched.pending_refinement() == 0 {
             return;
         }
@@ -1647,9 +1720,11 @@ impl Engine {
             }
             let t0 = Instant::now();
             let units = self.mp_exec_final(mp, pass, chunk);
-            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            if timed {
+                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            }
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
-            if units > 0.0 {
+            if timed && units > 0.0 {
                 let fixed = mp.chunk_overhead_ms.get().unwrap_or(0.0);
                 mp.ms_per_unit[kind].add((ms - fixed).max(ms * 0.1) / units, 0.2);
                 mp.eta.observe_work(units, ms);
@@ -1874,7 +1949,7 @@ impl Engine {
     ) {
         let (r, range) = chunk;
         let r8 = wgpu::TextureFormat::R8Unorm;
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.mask_tex,
@@ -1883,13 +1958,14 @@ impl Engine {
             c.mask.height,
             r8,
             &c.mask.data,
+            c.mask.id,
         );
         let white = [255u8];
-        let (gd, gw, gh): (&[u8], u32, u32) = match &c.grain {
-            Some(g) => (&g.data, g.width, g.height),
-            None => (&white, 1, 1),
+        let (gd, gw, gh, gid): (&[u8], u32, u32, u64) = match &c.grain {
+            Some(g) => (&g.data, g.width, g.height, g.id),
+            None => (&white, 1, 1, 0),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.grain_tex,
@@ -1898,12 +1974,13 @@ impl Engine {
             gh,
             r8,
             gd,
+            gid,
         );
-        let (sd, sw, sh): (&[u8], u32, u32) = match &c.secondary_mask {
-            Some(g) => (&g.data, g.width, g.height),
-            None => (&white, 1, 1),
+        let (sd, sw, sh, sid): (&[u8], u32, u32, u64) = match &c.secondary_mask {
+            Some(g) => (&g.data, g.width, g.height, g.id),
+            None => (&white, 1, 1, 0),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.secondary_mask_tex,
@@ -1912,6 +1989,7 @@ impl Engine {
             sh,
             r8,
             sd,
+            sid,
         );
         if r.is_empty() || range.is_empty() {
             return;
@@ -1933,6 +2011,12 @@ impl Engine {
             .ensure(&self.device, secondary_bytes.len() as u64);
         self.queue
             .write_buffer(&self.secondary_buffer.buffer, 0, secondary_bytes);
+        let xforms = dab_xforms(dabs, if has_secondary { secondary } else { &[] });
+        let xform_bytes: &[u8] = bytemuck::cast_slice(&xforms);
+        self.xform_buffer
+            .ensure(&self.device, xform_bytes.len() as u64);
+        self.queue
+            .write_buffer(&self.xform_buffer.buffer, 0, xform_bytes);
         let [cr, cg, cb, ca] = argb_to_rgba_f(c.color);
         let s = c.substrate;
         let has_grain = c.grain.is_some();
@@ -2012,6 +2096,10 @@ impl Engine {
                     wgpu::BindGroupEntry {
                         binding: 10,
                         resource: wgpu::BindingResource::Sampler(&self.nearest_repeat),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 11,
+                        resource: self.xform_buffer.buffer.as_entire_binding(),
                     },
                 ],
             })
@@ -2110,8 +2198,9 @@ impl Engine {
     pub(super) fn mp_readback_rect(&mut self, out: &mut [u8]) -> Option<(i32, i32, i32, i32)> {
         self.with_mp(|e, mp| {
             mp.begin_frame();
-            e.mp_run_drafts(mp);
-            e.mp_compose(mp, false);
+            let timed = mp.time_this_frame();
+            e.mp_run_drafts(mp, timed);
+            e.mp_compose(mp, false, timed);
             let t0 = Instant::now();
             let r = e.dirty.clamp(e.width, e.height);
             let result = if r.is_empty() {
@@ -2152,8 +2241,9 @@ impl Engine {
             if new_frame {
                 mp.begin_frame();
             }
-            e.mp_run_drafts(mp);
-            e.mp_compose(mp, false);
+            let timed = mp.time_this_frame();
+            e.mp_run_drafts(mp, timed);
+            e.mp_compose(mp, false, timed);
             mp.present_ms.add(t0.elapsed().as_secs_f64() * 1000.0, 0.2);
             mp.display.clone()
         }))
@@ -2161,7 +2251,8 @@ impl Engine {
 
     /// Advances every active tile's animation and composites them into the display (one dispatch
     /// per 128 tiles). `finish`: every ease ends now (flush points).
-    fn mp_compose(&mut self, mp: &mut Multipass, finish: bool) {
+    /// `timed`: wait for the composite and record its wall time (stats only).
+    fn mp_compose(&mut self, mp: &mut Multipass, finish: bool, timed: bool) {
         let now = mp.now();
         let units = mp.backlog_units_per_tile();
         let params = mp.anim;
@@ -2278,9 +2369,11 @@ impl Engine {
             }
             self.queue.submit([encoder.finish()]);
         }
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        mp.compose_ms
-            .add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
+        if timed {
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            mp.compose_ms
+                .add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
+        }
     }
 }
 

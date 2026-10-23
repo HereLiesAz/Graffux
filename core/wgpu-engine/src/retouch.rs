@@ -78,7 +78,7 @@ impl Engine {
                     module: &module,
                     entry_point: Some("main"),
                     compilation_options: Default::default(),
-                    cache: None,
+                    cache: self.pcache.as_ref().map(|c| &c.cache),
                 });
             let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("retouch params"),
@@ -87,6 +87,7 @@ impl Engine {
                 mapped_at_creation: false,
             });
             self.retouch = Some(RetouchGpu { pipeline, uniform });
+            self.save_pipeline_cache();
         }
         self.retouch.as_ref().expect("created")
     }

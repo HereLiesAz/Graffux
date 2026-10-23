@@ -1,6 +1,8 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/StoreWindow.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.design.theme.Amber
+import com.hereliesaz.graffitixr.design.theme.NeonGreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,7 +47,7 @@ import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /** Which half of [StoreWindow] is showing. "Manage Extensions"/the Extensions rail toggle open on
- *  [INSTALLED]; "Get Extensions"/"Store…" open on [BROWSE]. */
+ *  [INSTALLED]; "Azphalt Store…" opens on [BROWSE]. */
 enum class StoreTab { BROWSE, INSTALLED }
 
 /**
@@ -102,7 +104,7 @@ fun StoreWindow(
         )
     }
 
-    FloatingWindow(title = "Extensions", onDismiss = onDismiss) {
+    FloatingWindow(title = if (tab == StoreTab.BROWSE) "Azphalt Store" else "Extensions", onDismiss = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StoreTabChip(text = "Browse", selected = tab == StoreTab.BROWSE) { tab = StoreTab.BROWSE }
@@ -148,7 +150,11 @@ private fun StoreTabChip(text: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
             .background(
-                if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                if (selected) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                },
                 RoundedCornerShape(12.dp),
             )
             .clickable(onClick = onClick)
@@ -157,7 +163,7 @@ private fun StoreTabChip(text: String, selected: Boolean, onClick: () -> Unit) {
         Text(
             text,
             style = MaterialTheme.typography.labelLarge,
-            color = if (selected) Color.White else Color.Gray,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -175,10 +181,10 @@ private fun InstalledTab(
     if (installed.isEmpty()) {
         Text(
             text = "No extensions installed yet. Brushes, colour grades and filters come from the Azphalt Store.",
-            color = Color.Gray,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
-        AzButton(text = "Browse the store", onClick = onBrowse, shape = AzButtonShape.RECTANGLE)
+        AzButton(text = "Browse the Azphalt Store", onClick = onBrowse, shape = AzButtonShape.RECTANGLE)
         return
     }
     // Plain Column, not LazyColumn: this whole window's content already sits inside FloatingWindow's
@@ -252,7 +258,7 @@ private fun BrowseTab(
         if (!loading && error == null && results.isEmpty()) {
             Text(
                 "No packages found.",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -325,7 +331,7 @@ private fun PackageCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(6.dp)),
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f), RoundedCornerShape(6.dp)),
             )
             Spacer(Modifier.height(6.dp))
         }
@@ -346,10 +352,19 @@ private fun PackageCard(
                     }
                 }
                 if (subtitle.isNotBlank()) {
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 pkg.localizedDescription(null)?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 2)
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
                 }
             }
         }
@@ -378,7 +393,7 @@ private fun PackageCard(
                     text = "Installed",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelLarge,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 )
 
@@ -411,6 +426,7 @@ private fun InstalledExtensionCard(
     onUninstall: () -> Unit,
 ) {
     val capabilities = rememberExtensionCapabilities(extension)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     Column(
         modifier = Modifier
@@ -428,17 +444,13 @@ private fun InstalledExtensionCard(
                     SignatureBadge(extension.signature)
                 }
                 extension.manifest.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = muted)
                 }
             }
         }
         if (capabilities.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
-            Text(
-                capabilities.joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(capabilities.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = muted)
         }
         Spacer(Modifier.height(6.dp))
         if (updateVersion != null) {
@@ -475,10 +487,10 @@ private val CardActionPadding = PaddingValues(horizontal = 16.dp, vertical = 6.d
 @Composable
 private fun SignatureBadge(status: SignatureStatus) {
     val (text, color) = when (status) {
-        SignatureStatus.SIGNED_TRUSTED -> "Verified" to Color(0xFF4CAF50)
-        SignatureStatus.SIGNED_UNTRUSTED -> "Signed" to Color(0xFFFFA726)
-        SignatureStatus.UNSIGNED -> "Unsigned" to Color.Gray
-        SignatureStatus.INVALID -> "Invalid" to Color(0xFFE53935)
+        SignatureStatus.SIGNED_TRUSTED -> "Verified" to NeonGreen
+        SignatureStatus.SIGNED_UNTRUSTED -> "Signed" to Amber
+        SignatureStatus.UNSIGNED -> "Unsigned" to MaterialTheme.colorScheme.onSurfaceVariant
+        SignatureStatus.INVALID -> "Invalid" to MaterialTheme.colorScheme.error
     }
     Text(
         text = text,

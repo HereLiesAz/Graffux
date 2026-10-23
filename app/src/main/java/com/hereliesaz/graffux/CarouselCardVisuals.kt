@@ -3,9 +3,6 @@ package com.hereliesaz.graffux
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.runtime.Composable
@@ -41,7 +38,7 @@ internal fun FavoriteToggle(
         modifier = modifier.size(StarTouchSize),
     ) {
         Icon(
-            if (entry.favorite) Icons.Filled.Star else Icons.Outlined.StarOutline,
+            painterResource(if (entry.favorite) GraffuxIcons.StarFilled else GraffuxIcons.Star),
             contentDescription = if (entry.favorite) "Remove from favorites" else "Add to favorites",
             tint = tint,
             modifier = Modifier.size(StarSize),

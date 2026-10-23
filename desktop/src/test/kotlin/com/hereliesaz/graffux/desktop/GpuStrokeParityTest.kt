@@ -17,7 +17,8 @@ import kotlin.random.Random
 /**
  * The desktop canvas's GPU path (wgpu, through JNI) against its CPU path
  * ([RoundStampCompositor.compositeMaxCombined] + [blitSrcOver]) on identical dab lists. Skipped
- * (JUnit assumption) when there is no library or adapter, so it passes on a GPU-less runner; in
+ * (JUnit assumption) when there is no library or adapter, so it passes on a GPU-less runner, unless
+ * the environment sets GRAFFUX_REQUIRE_GPU, where a missing adapter fails instead of skipping; in
  * this repo's container it runs on Mesa (lavapipe Vulkan or llvmpipe GL -- WGPU_BACKEND picks).
  *
  * The two paths are not bit-identical by construction: the CPU quantizes the stroke's alpha to 8
@@ -88,7 +89,7 @@ class GpuStrokeParityTest {
     fun gpuMatchesCpuCompositor() {
         val renderer = GpuStrokeRenderer()
         val probe = gpu(renderer, IntArray(w * h), emptyList(), 0, 1f)
-        assumeTrue("no wgpu adapter: ${renderer.description}", probe != null)
+        assumeAdapter("no wgpu adapter: ${renderer.description}", probe != null)
         println("GpuStrokeParityTest on ${renderer.description}")
         val rng = Random(9)
         val opaque = IntArray(w * h) {
@@ -123,7 +124,7 @@ class GpuStrokeParityTest {
     fun residentCanvasMatchesFullUploadAcrossUndo() {
         val old = GpuStrokeRenderer()
         val new = GpuStrokeRenderer()
-        assumeTrue("no wgpu adapter: ${old.description}", gpu(old, IntArray(w * h), emptyList(), 0, 1f) != null)
+        assumeAdapter("no wgpu adapter: ${old.description}", gpu(old, IntArray(w * h), emptyList(), 0, 1f) != null)
         val rng = Random(21)
         // Semi-transparent base: low-alpha pixels are where straight ARGB and the premultiplied
         // layer can disagree, so this is the base that would expose a stale or unrefreshed copy.
@@ -190,7 +191,7 @@ class GpuStrokeParityTest {
     fun multipassCommitsTheSameFramesAsThePlainPath() {
         val plain = GpuStrokeRenderer()
         val multi = GpuStrokeRenderer().apply { multipass = MultipassSettings(enabled = true, transitionMs = 60f) }
-        assumeTrue("no wgpu adapter: ${plain.description}", gpu(plain, IntArray(w * h), emptyList(), 0, 1f) != null)
+        assumeAdapter("no wgpu adapter: ${plain.description}", gpu(plain, IntArray(w * h), emptyList(), 0, 1f) != null)
         val rng = Random(33)
         var committedPlain = IntArray(w * h) {
             ArgbColor.argb(rng.nextInt(256), rng.nextInt(256), rng.nextInt(256), rng.nextInt(256))
@@ -234,6 +235,13 @@ class GpuStrokeParityTest {
     fun engineCreationFailsGracefullyForBadSizes() {
         assertTrue(WgpuStampEngine.create(0, 10) == null)
         assertTrue(WgpuStampEngine.create(10, -1) == null)
+    }
+
+    // A skip on a GPU CI host would pass vacuously, so GRAFFUX_REQUIRE_GPU turns it into a failure.
+    private fun assumeAdapter(message: String, present: Boolean) {
+        val required = System.getenv("GRAFFUX_REQUIRE_GPU")?.trim()?.lowercase()
+            .let { it != null && it !in setOf("", "0", "false", "no") }
+        if (required) assertTrue("$message (GRAFFUX_REQUIRE_GPU is set)", present) else assumeTrue(message, present)
     }
 
     private companion object {

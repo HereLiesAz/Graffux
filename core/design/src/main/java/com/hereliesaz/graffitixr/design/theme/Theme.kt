@@ -44,7 +44,7 @@ private val DarkColorScheme = darkColorScheme(
     outline = Color(0xFF4A4A54),
     outlineVariant = Color(0xFF3A3A42),
     // No tonal tint: elevated surfaces stay black instead of picking up a HotPink cast.
-    surfaceTint = Color.Transparent,
+    surfaceTint = Color(0x00000000), // transparent
 )
 
 /**

@@ -578,6 +578,15 @@ pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNa
 }
 
 #[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeUndoOpen(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) -> jboolean {
+    guard(|| unsafe { engine(handle) }.is_some_and(|e| e.undo_open()))
+}
+
+#[no_mangle]
 pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeInvalidateLayer(
     _env: EnvUnowned,
     _class: JClass,

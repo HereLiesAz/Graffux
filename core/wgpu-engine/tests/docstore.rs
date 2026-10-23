@@ -1,6 +1,8 @@
 //! The document store (docstore.rs): layers as canonical GPU buffers. Runs once per backend with an
 //! adapter; skipped with a note when there is none.
 
+mod common;
+
 use graffux_wgpu::resident::Rect;
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{Engine, GpuDab, SubstrateParams};
@@ -17,7 +19,7 @@ fn engines() -> Vec<(&'static str, Engine)> {
                 assert!(e.doc_open());
                 out.push((name, e));
             }
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out

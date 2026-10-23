@@ -118,7 +118,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
-            ActionRow(title = "Canvas Size", subtitle = "Set the document width and height.", onClick = onDocumentSize)
+            ActionRow(title = "Canvas size", subtitle = "Set the document width and height.", onClick = onDocumentSize)
             HorizontalDivider()
             ActionRow(title = "Background", subtitle = "Choose the canvas background colour.", onClick = onBackground)
             HorizontalDivider()
@@ -403,7 +403,7 @@ private fun PredictionSoloRow() {
 /**
  * GPU engine settings. There is no engine choice: wgpu is the only GPU backend (the Vulkan and
  * OpenGL ES engines and their selector were retired; RetiredGpuBackendMigration drops the old
- * stored choice), and a device where it can't start draws on the CPU.
+ * stored choice). There is no CPU renderer: a device where it can't start cannot draw.
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable

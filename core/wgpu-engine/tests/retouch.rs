@@ -2,6 +2,8 @@
 //! premultiplied formulas, and Blur/Sharpen/Clone (`Engine::retouch`) against CPU references of
 //! the same arithmetic. Runs once per backend with an adapter.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{
     Engine, GpuDab, Retouch, SubstrateParams, RETOUCH_BLUR, RETOUCH_CLONE, RETOUCH_SHARPEN,
@@ -17,7 +19,7 @@ fn engines() -> Vec<(&'static str, Engine)> {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         match Engine::with_backends(W, H, b) {
             Some(e) => out.push((name, e)),
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out

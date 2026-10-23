@@ -49,7 +49,7 @@ fun ExtensionsPanel(
                 if (activeExtension != null) {
                     Text(
                         "‹",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.clickable { onBack() }.padding(end = 8.dp),
                     )
@@ -57,12 +57,12 @@ fun ExtensionsPanel(
                 Text(
                     activeExtension?.manifest?.name ?: "Extensions",
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
             Text(
                 "Close",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .clickable { onClose() }
                     .padding(8.dp)
@@ -81,8 +81,16 @@ fun ExtensionsPanel(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column {
-                            Text(contribution.name, color = Color.White, style = MaterialTheme.typography.bodyLarge)
-                            Text(kindLabel, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                contribution.name,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                kindLabel,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
@@ -90,7 +98,7 @@ fun ExtensionsPanel(
         } else if (extensions.isEmpty()) {
             Text(
                 "No code extensions installed.",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 16.dp)
             )
         } else {
@@ -106,14 +114,14 @@ fun ExtensionsPanel(
                         Column {
                             Text(
                                 text = extension.manifest.name,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 style = MaterialTheme.typography.bodyLarge
                             )
                             val description = extension.manifest.description
                             if (!description.isNullOrBlank()) {
                                 Text(
                                     text = description,
-                                    color = Color.Gray,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }

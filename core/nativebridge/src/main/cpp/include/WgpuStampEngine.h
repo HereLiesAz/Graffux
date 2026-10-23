@@ -19,7 +19,7 @@ namespace graffux {
  *
  * libgraffux_wgpu.so is dlopen()ed on first use rather than linked, so a build without the Rust
  * library (no cargo / Android targets on the build host) still links and runs: init() just returns
- * false and the caller falls back to the CPU path, exactly as with no usable GPU.
+ * false, exactly as with no usable GPU, and on Android nothing draws (no CPU renderer).
  *
  * Direct display (direct*()): a wgpu surface on the overlay SurfaceView's window; see
  * graffux_wgpu.h and the design doc §3.
@@ -93,6 +93,8 @@ public:
     bool selectionOp(int op) override;
     bool strokeRect(int* out) override;
     bool docOpen() override;
+    bool undoOpen() override;
+    void setMaskedContentIds(uint64_t mask, uint64_t grain, uint64_t secondary) override;
     uint64_t docLayer(int op, uint64_t key, uint64_t other, const int* rect, const uint8_t* rgba,
                       size_t len) override;
     bool docLayerDrop(uint64_t key) override;

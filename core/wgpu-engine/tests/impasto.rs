@@ -2,6 +2,8 @@
 //! `ImpastoEngine.deposit` and `ImpastoRegionShader.shade` (Kotlin, f32 throughout). Runs once per
 //! backend with an adapter; skipped with a note when there is none.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{height_region, Engine, HeightDab};
 
@@ -24,7 +26,7 @@ fn engines() -> Vec<(&'static str, Engine)> {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         match Engine::with_backends(W, H, b) {
             Some(e) => out.push((name, e)),
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out

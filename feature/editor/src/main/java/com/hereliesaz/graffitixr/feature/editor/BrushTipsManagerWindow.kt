@@ -42,7 +42,7 @@ fun BrushTipsManagerWindow(
                 Text(
                     "No brush extensions installed yet.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             allBrushAssets.forEach { (id, name) ->

@@ -58,7 +58,7 @@ pub(super) struct ImpastoGpu {
 const WORKGROUP: u32 = 8;
 
 impl ImpastoGpu {
-    fn new(device: &wgpu::Device, layer_bytes: u64) -> Self {
+    fn new(device: &wgpu::Device, layer_bytes: u64, cache: Option<&wgpu::PipelineCache>) -> Self {
         let storage = |binding: u32, read_only: bool| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -104,7 +104,7 @@ impl ImpastoGpu {
                 module: &module,
                 entry_point: Some(entry),
                 compilation_options: Default::default(),
-                cache: None,
+                cache,
             })
         };
         let deposit = pipeline("deposit");
@@ -156,9 +156,12 @@ impl ImpastoGpu {
 impl Engine {
     pub(super) fn take_impasto(&mut self) -> ImpastoGpu {
         let bytes = self.layer_bytes();
-        self.impasto
-            .take()
-            .unwrap_or_else(|| ImpastoGpu::new(&self.device, bytes))
+        if let Some(gpu) = self.impasto.take() {
+            return gpu;
+        }
+        let gpu = ImpastoGpu::new(&self.device, bytes, self.pipeline_cache());
+        self.save_pipeline_cache();
+        gpu
     }
 
     /// Sets the impasto height, one value per layer pixel, row-major (`ImpastoEngine`'s height map).
