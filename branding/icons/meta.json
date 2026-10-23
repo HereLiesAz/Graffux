@@ -2876,6 +2876,24 @@
     ],
     "source": "graffux"
   },
+  "star": {
+    "category": "ui",
+    "keywords": [
+      "favourite",
+      "favorite",
+      "not starred"
+    ],
+    "source": "graffux"
+  },
+  "star-filled": {
+    "category": "ui",
+    "keywords": [
+      "favourite",
+      "favorite",
+      "starred"
+    ],
+    "source": "graffux"
+  },
   "stencil": {
     "category": "generative",
     "keywords": [

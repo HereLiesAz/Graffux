@@ -18,8 +18,8 @@ data class GxIcon(
 /**
  * The Graffux icon set.
  *
- * 399 glyphs on a 24-unit grid at one 0.5-unit stroke weight, outline first.
- * 100 of them rule a region rather than filling it: rows of parallel lines at a fixed
+ * 401 glyphs on a 24-unit grid at one 0.5-unit stroke weight, outline first.
+ * 101 of them rule a region rather than filling it: rows of parallel lines at a fixed
  * pitch, anchored to the viewport rather than to the region, so that any two ruled icons
  * side by side read as ruled from the same plate.
  *
@@ -813,6 +813,10 @@ object GraffuxIcons {
     val Settings: Int get() = R.drawable.ic_gx_settings
     /** `share` — ui. */
     val Share: Int get() = R.drawable.ic_gx_share
+    /** `star` — ui. */
+    val Star: Int get() = R.drawable.ic_gx_star
+    /** `star-filled` — ui. */
+    val StarFilled: Int get() = R.drawable.ic_gx_star_filled
     /** `subscription` — ui. */
     val Subscription: Int get() = R.drawable.ic_gx_subscription
     /** `success` — ui. */
@@ -1221,6 +1225,8 @@ object GraffuxIcons {
         GxIcon("search", R.drawable.ic_gx_search, GxIconCategory.UI, listOf("find", "magnifier")),
         GxIcon("settings", R.drawable.ic_gx_settings, GxIconCategory.UI, listOf("preferences", "gear")),
         GxIcon("share", R.drawable.ic_gx_share, GxIconCategory.UI, listOf("send", "export to app")),
+        GxIcon("star", R.drawable.ic_gx_star, GxIconCategory.UI, listOf("favourite", "favorite", "not starred")),
+        GxIcon("star-filled", R.drawable.ic_gx_star_filled, GxIconCategory.UI, listOf("favourite", "favorite", "starred")),
         GxIcon("subscription", R.drawable.ic_gx_subscription, GxIconCategory.UI, listOf("upgrade", "pro badge")),
         GxIcon("success", R.drawable.ic_gx_success, GxIconCategory.UI, listOf("done", "confirmed")),
         GxIcon("theme-toggle", R.drawable.ic_gx_theme_toggle, GxIconCategory.UI, listOf("dark mode", "light mode")),
