@@ -1811,6 +1811,8 @@ class EditorViewModel @Inject constructor(
                     // make sure undoCount/redoCount reflect the stacks as they actually are now.
                     history.dropTopRedo()
                     updateHistoryCounts()
+                    // The "Undo" pill went up before this was known; correct it.
+                    showHud("Couldn't undo that")
                     return
                 }
                 // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
@@ -1875,6 +1877,7 @@ class EditorViewModel @Inject constructor(
                     // popRedo already pushed its counterpart onto the undo stack - drop that.
                     history.dropTopUndo()
                     updateHistoryCounts()
+                    showHud("Couldn't redo that")
                     return
                 }
                 reapplyRedoneStroke(command)
@@ -6304,7 +6307,7 @@ class EditorViewModel @Inject constructor(
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6431,7 +6434,7 @@ class EditorViewModel @Inject constructor(
                 cloneOffset = cloneOffsetFor(state, points),
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
             // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
@@ -6491,7 +6494,7 @@ class EditorViewModel @Inject constructor(
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6556,7 +6559,7 @@ class EditorViewModel @Inject constructor(
                 cloneOffset = cloneOffsetFor(state, points),
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
             launchLayerCommit(layerId) {
@@ -6614,7 +6617,7 @@ class EditorViewModel @Inject constructor(
 
             // Add stroke to history for undo/redo replay.
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
+            pushDrawNotingInk(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6832,7 +6835,7 @@ class EditorViewModel @Inject constructor(
         layerStore.addStroke(layerId, command)
         // A stroke that joined an undo chunk keeps no GPU undo snapshot (the chunk has none), so its
         // commit does not capture one.
-        val joinedChunk = history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
+        val joinedChunk = pushDrawNotingInk(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
@@ -7409,7 +7412,7 @@ class EditorViewModel @Inject constructor(
             selection = state.selection,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         launchLayerCommit(layerId) {
@@ -7537,6 +7540,19 @@ class EditorViewModel @Inject constructor(
         if (state.activeTool == Tool.ERASER) Tool.ERASER else Tool.BRUSH
 
     /** The ledger is paint (what Export for Figma draws); an erase stroke isn't part of it. */
+    /**
+     * [EditHistory.pushDraw], plus: an edit that removes or moves pixels (any tool but the Brush —
+     * eraser, clear, smudge, liquify…) taints the layer's Ink for export. Painting over Ink doesn't.
+     */
+    private fun pushDrawNotingInk(
+        layerId: String,
+        command: StrokeCommand,
+        chunkable: Boolean = false,
+    ): Boolean {
+        if (command.tool != Tool.BRUSH) inkLedger.taint(layerId)
+        return history.pushDraw(layerId, command, chunkable)
+    }
+
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
         if (command.tool == Tool.BRUSH) inkLedger.add(layerId, command, command)
     }
@@ -7587,7 +7603,7 @@ class EditorViewModel @Inject constructor(
             inkUtensil = utensil,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         addToInkLedger(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
@@ -7729,7 +7745,7 @@ class EditorViewModel @Inject constructor(
             fillSelection = true,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         showHud(if (state.selection != null) "Filled selection" else "Filled layer")
@@ -7781,7 +7797,7 @@ class EditorViewModel @Inject constructor(
             clearAll = true,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         // Destructive and easy to trigger by accident (a three-finger scrub), so it says how back.
@@ -8327,7 +8343,7 @@ class EditorViewModel @Inject constructor(
             warpHandles = handles,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         scheduleDiskSave(layerId, bitmap, layer.uri)
@@ -8583,7 +8599,7 @@ class EditorViewModel @Inject constructor(
             moveDelta = delta,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
@@ -11648,8 +11664,14 @@ class EditorViewModel @Inject constructor(
                     // A reconstructed Ink stroke joins the ledger (main-thread only) so Export for
                     // Figma's Ink SVG has it too. Peer strokes aren't in local undo history, so
                     // nothing here undoes it — just as the pixels stay; a fallback has no Ink.
-                    if (inkStroke != null) {
-                        withContext(dispatchers.main) { inkLedger.add(layerId, command, command) }
+                    // Only an Ink *brush* stroke is vector ink; a peer's Ink eraser, or any other
+                    // tool, makes this layer's ledger stale instead.
+                    withContext(dispatchers.main) {
+                        if (command.tool != Tool.BRUSH) {
+                            inkLedger.taint(layerId)
+                        } else if (inkStroke != null) {
+                            inkLedger.add(layerId, command, command)
+                        }
                     }
                 }
             }
