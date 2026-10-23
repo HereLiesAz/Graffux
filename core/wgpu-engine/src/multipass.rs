@@ -519,6 +519,7 @@ pub(super) struct Multipass {
 
     draft_dabs: GrowBuffer,
     draft_secondary: GrowBuffer,
+    draft_xforms: GrowBuffer,
     draft_stamp_uniform: wgpu::Buffer,
     draft_masked_uniform: wgpu::Buffer,
     display_uniform: wgpu::Buffer,
@@ -635,6 +636,7 @@ impl Multipass {
                     sampler_entry(9),
                     sampler_entry(10),
                     sampler_entry(11),
+                    storage_entry(12, true),
                 ],
             });
         let display_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -709,6 +711,7 @@ impl Multipass {
             ballast: None,
             draft_dabs: GrowBuffer::new(device, "draft dabs", storage_dst, 64 * 64),
             draft_secondary: GrowBuffer::new(device, "draft secondary dabs", storage_dst, 32 * 64),
+            draft_xforms: GrowBuffer::new(device, "draft dab xforms", storage_dst, 32 * 64),
             draft_stamp_uniform: uniform(
                 device,
                 "draft stamp params",
@@ -1487,6 +1490,17 @@ impl Engine {
                 mp.draft_secondary.ensure(&self.device, sbytes.len() as u64);
                 self.queue
                     .write_buffer(&mp.draft_secondary.buffer, 0, sbytes);
+                let xforms = dab_xforms(
+                    &dabs,
+                    if c0.secondary_mask.is_some() {
+                        &secondary
+                    } else {
+                        &[]
+                    },
+                );
+                let xbytes: &[u8] = bytemuck::cast_slice(&xforms);
+                mp.draft_xforms.ensure(&self.device, xbytes.len() as u64);
+                self.queue.write_buffer(&mp.draft_xforms.buffer, 0, xbytes);
                 let sp = c0.substrate;
                 let has_grain = c0.grain.is_some();
                 let mask = mp.draft_mask.as_ref().unwrap();
@@ -1569,6 +1583,10 @@ impl Engine {
                         wgpu::BindGroupEntry {
                             binding: 11,
                             resource: wgpu::BindingResource::Sampler(&self.linear_clamp),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 12,
+                            resource: mp.draft_xforms.buffer.as_entire_binding(),
                         },
                     ],
                 });
@@ -1933,6 +1951,12 @@ impl Engine {
             .ensure(&self.device, secondary_bytes.len() as u64);
         self.queue
             .write_buffer(&self.secondary_buffer.buffer, 0, secondary_bytes);
+        let xforms = dab_xforms(dabs, if has_secondary { secondary } else { &[] });
+        let xform_bytes: &[u8] = bytemuck::cast_slice(&xforms);
+        self.xform_buffer
+            .ensure(&self.device, xform_bytes.len() as u64);
+        self.queue
+            .write_buffer(&self.xform_buffer.buffer, 0, xform_bytes);
         let [cr, cg, cb, ca] = argb_to_rgba_f(c.color);
         let s = c.substrate;
         let has_grain = c.grain.is_some();
@@ -2012,6 +2036,10 @@ impl Engine {
                     wgpu::BindGroupEntry {
                         binding: 10,
                         resource: wgpu::BindingResource::Sampler(&self.nearest_repeat),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 11,
+                        resource: self.xform_buffer.buffer.as_entire_binding(),
                     },
                 ],
             })

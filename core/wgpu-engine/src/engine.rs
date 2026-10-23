@@ -319,6 +319,49 @@ struct SmudgeUniform {
     _pad1: u32,
 }
 
+/// Per-dab constants of the masked shaders (`DabXform` in stamp_masked.wgsl and
+/// draft_masked.wgsl), computed once per dab here instead of once per dab per pixel there: the
+/// tip's rotation `(cos, sin)` of `-angle`, the secondary tip's in `rot.zw`, and a conservative
+/// layer-space box `(min_x, min_y, max_x, max_y)` around the rotated tip, which the shader tests
+/// before any other per-dab work. A pixel outside the box cannot be inside the tip, so the box
+/// only skips work; it never changes a pixel. Two vec4s: no padding on any backend.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable, PartialEq)]
+pub struct DabXform {
+    pub rot: [f32; 4],
+    pub bounds: [f32; 4],
+}
+
+const _: () = assert!(std::mem::size_of::<DabXform>() == 32);
+
+/// `(cos, sin)` of `radians(-angle_deg)`, as the shaders computed it per pixel.
+fn tip_rotation(angle_deg: f32) -> (f32, f32) {
+    let a = -angle_deg * (std::f32::consts::PI / 180.0);
+    (a.cos(), a.sin())
+}
+
+/// [`DabXform`]s for `dabs`; `secondary` is either empty or one per dab.
+pub fn dab_xforms(dabs: &[GpuDab], secondary: &[GpuSecondaryDab]) -> Vec<DabXform> {
+    dabs.iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let (c, s) = tip_rotation(d.angle_deg);
+            let (sc, ss) = secondary
+                .get(i)
+                .map_or((1.0, 0.0), |sd| tip_rotation(sd.angle_deg));
+            let half_w = d.radius.max(0.5);
+            let half_h = half_w * d.tip_ratio.clamp(0.05, 1.0);
+            // The rotated rectangle's axis-aligned extent, plus a pixel of slack for rounding.
+            let ex = c.abs() * half_w + s.abs() * half_h + 1.0;
+            let ey = s.abs() * half_w + c.abs() * half_h + 1.0;
+            DabXform {
+                rot: [c, s, sc, ss],
+                bounds: [d.x - ex, d.y - ey, d.x + ex, d.y + ey],
+            }
+        })
+        .collect()
+}
+
 const _: () = assert!(std::mem::size_of::<GpuDab>() == 64);
 const _: () = assert!(std::mem::size_of::<GpuSecondaryDab>() == 32);
 const _: () = assert!(std::mem::size_of::<ColorSmudgeDab>() == 44);
@@ -474,6 +517,8 @@ pub struct Engine {
     placeholder_state: wgpu::Buffer,
     dab_buffer: GrowBuffer,
     secondary_buffer: GrowBuffer,
+    /// The masked shader's per-dab [`DabXform`]s.
+    xform_buffer: GrowBuffer,
     carrier: GrowBuffer,
     smudge_uniforms: GrowBuffer,
     stamp_uniform: wgpu::Buffer,
@@ -790,6 +835,7 @@ impl Engine {
         let uniform_dst = wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST;
         let dab_buffer = GrowBuffer::new(&device, "dabs", storage_dst, 64 * 64);
         let secondary_buffer = GrowBuffer::new(&device, "secondary dabs", storage_dst, 32 * 64);
+        let xform_buffer = GrowBuffer::new(&device, "dab xforms", storage_dst, 32 * 64);
         let carrier = GrowBuffer::new(&device, "smudge carrier", storage_dst, 16 * 1024);
         let uniform_align = (limits.min_uniform_buffer_offset_alignment as u64).max(256);
         let smudge_uniforms =
@@ -874,6 +920,7 @@ impl Engine {
                 uniform_entry(8, false),
                 sampler_entry(9),
                 sampler_entry(10),
+                storage_entry(11, true),
             ],
         });
         let smudge_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -939,6 +986,7 @@ impl Engine {
             placeholder_state,
             dab_buffer,
             secondary_buffer,
+            xform_buffer,
             carrier,
             smudge_uniforms,
             stamp_uniform,
@@ -1522,6 +1570,19 @@ impl Engine {
             .ensure(&self.device, secondary_bytes.len() as u64);
         self.queue
             .write_buffer(&self.secondary_buffer.buffer, 0, secondary_bytes);
+        let xforms = dab_xforms(
+            dabs,
+            if secondary.is_some() {
+                p.secondary_dabs
+            } else {
+                &[]
+            },
+        );
+        let xform_bytes: &[u8] = bytemuck::cast_slice(&xforms);
+        self.xform_buffer
+            .ensure(&self.device, xform_bytes.len() as u64);
+        self.queue
+            .write_buffer(&self.xform_buffer.buffer, 0, xform_bytes);
 
         let r = dab_region(dabs, self.width, self.height);
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -1611,6 +1672,10 @@ impl Engine {
                     wgpu::BindGroupEntry {
                         binding: 10,
                         resource: wgpu::BindingResource::Sampler(&self.nearest_repeat),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 11,
+                        resource: self.xform_buffer.buffer.as_entire_binding(),
                     },
                 ],
             });
