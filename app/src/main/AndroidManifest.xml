@@ -26,8 +26,9 @@
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
     <!-- Held by a conforming azphalt store app to read this host's extension states
-         (spec/state-reporting.md § 3.2). Protection level `normal`: the rows carry no identifiers and
-         no user content, only which extensions this app has and what it did with them. -->
+         (spec/state-reporting.md § 3.2). Protection level `normal`: the rows carry no account identifiers and
+         no user content; the list of installed extensions is itself shared with the store the user
+         picks (PRIVACY_POLICY.md § 6). -->
     <permission
         android:name="azphalt.permission.READ_EXTENSION_STATE"
         android:protectionLevel="normal" />

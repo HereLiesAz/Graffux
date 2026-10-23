@@ -452,6 +452,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // fetching, and hands back a package this app still verifies itself — installExtensionFromUri runs
     // the exact same AzpInstaller check it would on a file the user picked by hand. RESULT_CANCELED
     // (the user backed out) is a clean no-op per the spec.
+    var pendingStoreHandoff by remember { mutableStateOf<StoreHandoffInstall?>(null) }
     val storeBrowser = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -464,8 +465,24 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // The id/version extras describe a single delivered package, so they are only attached
             // when one came back; for a multi-selection they would mislabel every item but one.
             val metadata = handoff.takeIf { packages.size == 1 }
-            packages.forEach { vm.installExtensionFromUri(it, metadata) }
+            // A store app's result is confirmed like a link: the app that answered may not be the
+            // store the user meant.
+            if (packages.isNotEmpty()) pendingStoreHandoff = StoreHandoffInstall(packages, metadata)
         }
+    }
+    pendingStoreHandoff?.let { pending ->
+        val what = pending.metadata?.id ?: "${pending.packages.size} extension(s)"
+        ConfirmDialog(
+            title = "Install extension?",
+            message = "The store app returned $what for Graffux to install.\n\nExtensions can add " +
+                "code that runs inside Graffux. Only install it if you chose it in a store you trust.",
+            confirmLabel = "Install",
+            onConfirm = {
+                pending.packages.forEach { vm.installExtensionFromUri(it, pending.metadata) }
+                pendingStoreHandoff = null
+            },
+            onDismiss = { pendingStoreHandoff = null },
+        )
     }
 
     // Save: the system picker chooses the location, seeded with the filename built from the name
@@ -561,8 +578,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         if (AzphaltStoreHandoff.isStoreAvailable(context.packageManager, context.packageName)) {
             // Carry what this host has already done with its extensions (spec/state-reporting.md
             // § 3.1), so the store's cards can read Open rather than Get on things the user has.
+            // Through the chooser, so the user picks which store app receives the inventory; an
+            // implicit launch would hand it to any app that registered the action.
             storeBrowser.launch(
-                AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory())
+                android.content.Intent.createChooser(
+                    AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory()),
+                    "Open a store",
+                )
             )
         } else {
             // Play first; a device without Play falls through to the web storefront, which is where
@@ -2799,3 +2821,9 @@ private fun HiddenMenuScope.renderLayerComponentMenu(
         listItem("Place ${main.name}") { main.componentId?.let { vm.onPlaceInstance(it) } }
     }
 }
+
+/** A store app's answer, held until the user confirms the install. */
+private data class StoreHandoffInstall(
+    val packages: List<Uri>,
+    val metadata: com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.StoreResult?,
+)

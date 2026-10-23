@@ -78,9 +78,10 @@ The App contains no advertising. It connects to third-party services only as fol
 - **Extensions (azphalt store).** Opening the store, searching it, or installing an extension
   sends the store (azphalt.store, or a store app you choose) the list of extensions you have
   installed and their versions, so it can show what you own and which updates exist. Installing
-  fetches the extension's package from where it is hosted; you are asked to confirm before
-  anything is installed. Code extensions run sandboxed, with no network or file access of their
-  own, and only with the capabilities their package declares; the confirmation lists them. See
+  fetches the extension's package from where it is hosted. Installs start only from your tap on
+  Install in the store window, or after you confirm a prompt for a link or a store app's result.
+  Code extensions run sandboxed, with no network or file access of their own, limited to the
+  capabilities their package declares. See
   `spec/package-format.md` for the sandbox's exact guarantees.
 
 ## 7. Children's Privacy
