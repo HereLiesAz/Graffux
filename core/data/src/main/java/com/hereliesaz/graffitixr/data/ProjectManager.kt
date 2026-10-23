@@ -98,9 +98,13 @@ class ProjectManager @Inject constructor(
 
         // Properly append new targets to the existing list
         val savedTargetUris = if (targetImages != null) {
-            val existingCount = incoming.targetImageUris.size
+            // Past the highest index on disk, not the list size: after a target is removed from the
+            // middle, size-based numbering would overwrite a surviving target's file.
+            val taken = root.listFiles().orEmpty()
+                .mapNotNull { Regex("^target_(\\d+)\\.png$").find(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+            val next = maxOf(incoming.targetImageUris.size, (taken.maxOrNull() ?: -1) + 1)
             val newUris = targetImages.mapIndexed { index, bitmap ->
-                val file = File(root, "target_${existingCount + index}.png")
+                val file = File(root, "target_${next + index}.png")
                 FileOutputStream(file).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
