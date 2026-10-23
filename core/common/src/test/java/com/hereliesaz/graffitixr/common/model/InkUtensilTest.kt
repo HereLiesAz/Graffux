@@ -19,6 +19,8 @@ class InkUtensilTest {
             assertEquals(it, InkUtensil.fromId(it.id))
             assertEquals(it, InkUtensil.fromDisplayName(it.displayName))
         }
+        // Projects saved before the rename still resolve.
+        assertEquals(InkUtensil.PEN, InkUtensil.fromDisplayName("Ink Pen"))
         assertNull(InkUtensil.fromId(null))
         assertNull(InkUtensil.fromId("ink.quill"))
     }

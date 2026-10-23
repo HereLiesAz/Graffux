@@ -129,7 +129,7 @@ internal fun carouselHeroDetails(entry: CarouselEntry): List<String> = when (val
     is CarouselAction.BuiltInBrush -> listOf("Built-in · ${entry.set ?: "Basics"}") + brushParams(entry.brush)
     is CarouselAction.CustomBrush -> listOf("Brush Studio · round tip") + brushParams(entry.brush)
     is CarouselAction.ExtensionBrush -> listOf("Installed · stamp brush")
-    is CarouselAction.InkUtensilPick -> listOf("Jetpack Ink", inkTrait(action.utensil))
+    is CarouselAction.InkUtensilPick -> listOf("Vector ink", inkTrait(action.utensil))
     is CarouselAction.PickTool -> listOf("Effect")
     is CarouselAction.StabilizerLevel -> listOf("Option · stabilizer")
     is CarouselAction.Stabilizer -> listOf("Option · stabilizer algorithm")

@@ -26,7 +26,7 @@ package com.hereliesaz.graffitixr.common.model
  */
 enum class InkUtensil(val id: String, val displayName: String) {
     /** `StockBrushes.pressurePen()` — pressure → width, a ballpoint/fineliner. */
-    PEN("ink.pen", "Ink Pen"),
+    PEN("ink.pen", "Pressure Pen"),
 
     /** `StockBrushes.marker()` — constant width, opaque, overlaps flatten. */
     MARKER("ink.marker", "Ink Marker"),
@@ -43,6 +43,11 @@ enum class InkUtensil(val id: String, val displayName: String) {
         fun fromId(id: String?): InkUtensil? = entries.firstOrNull { it.id == id }
 
         /** The utensil whose [displayName] is [name] — what `activeBrushName` holds while one is in hand. */
-        fun fromDisplayName(name: String?): InkUtensil? = entries.firstOrNull { it.displayName == name }
+        fun fromDisplayName(name: String?): InkUtensil? =
+            entries.firstOrNull { it.displayName == name } ?: LEGACY_NAMES[name]
+
+        /** Names older projects stored: the pen was "Ink Pen" until it was renamed away from the
+         *  built-in stamp brush of the same name. */
+        private val LEGACY_NAMES = mapOf("Ink Pen" to PEN)
     }
 }
