@@ -32,7 +32,7 @@ fun PrivacyConsentRows() {
         subtitle = "Off by default. When on, crashes and freezes after this point are posted as " +
             "public GitHub issues on HereLiesAz/Graffux: the error, device model, Android and app " +
             "version, and recent app log lines, with tokens, emails, file paths and coordinates " +
-            "removed. Needs the reports token under Developer.",
+            "removed. Needs the reports token under About → Developer.",
         checked = crashes,
         onCheckedChange = {
             crashes = it

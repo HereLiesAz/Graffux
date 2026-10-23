@@ -21,7 +21,7 @@ If the App crashes or freezes, it writes a technical report to its own private c
   freeze trace), a short list of recent App actions, and up to the last 1000 lines of the App's
   own log output.
 - **Where it goes:** nowhere unless you switch on Settings → Privacy → "Send crash reports" (off by
-  default) **and** connect the reports token under Settings → Developer. Then reports of crashes that
+  default) **and** connect the reports token under Settings → About → Developer. Then reports of crashes that
   happen after you switched it on are posted as **public** issues on
   <https://github.com/HereLiesAz/Graffux>, where anyone can read them. Reports from before you
   switched it on are never sent.
