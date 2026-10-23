@@ -93,11 +93,21 @@ object BrushStamps {
         return out
     }
 
+    /**
+     * The distance between dab centres. Shared by the static and incremental generators so they place
+     * the same dabs; floored so a tiny brush can't produce millions of dabs per stroke.
+     */
+    fun dabStepPx(brush: AzphaltBrush, diameter: Float): Float =
+        (brush.spacing * brush.spacingReferencePx(diameter)).coerceAtLeast(MIN_DAB_STEP_PX)
+
+    /** A tenth of a pixel: below it dabs only overlap themselves, at the cost of time. */
+    const val MIN_DAB_STEP_PX = 0.1f
+
     fun dabs(points: List<Float>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
         val diameter = diameterPx.coerceAtLeast(0f)
         if (diameter <= 0f) return emptyList()
         val baseRadius = diameter / 2f
-        val step = brush.spacing * brush.spacingReferencePx(diameter)
+        val step = dabStepPx(brush, diameter)
         val centres = place(points, step)
         val count = centres.size / 2
         if (count == 0) return emptyList()

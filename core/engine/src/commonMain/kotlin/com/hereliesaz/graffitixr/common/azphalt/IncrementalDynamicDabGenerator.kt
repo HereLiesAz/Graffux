@@ -244,7 +244,7 @@ class IncrementalDynamicDabGenerator(
         } else {
             contactDiameter * (brush.tipRatio * contact.tipRatioMultiplier).coerceIn(0.05f, 1f)
         }
-        val step = (brush.spacing * spacingReference * dynamic.spacingMultiplier).coerceAtLeast(0.01f)
+        val step = (brush.spacing * spacingReference * dynamic.spacingMultiplier).coerceAtLeast(BrushStamps.MIN_DAB_STEP_PX)
         nextAt = at + step
         index++
         return out
