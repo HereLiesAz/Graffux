@@ -118,7 +118,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
-            ActionRow(title = "Canvas Size", subtitle = "Set the document width and height.", onClick = onDocumentSize)
+            ActionRow(title = "Canvas size", subtitle = "Set the document width and height.", onClick = onDocumentSize)
             HorizontalDivider()
             ActionRow(title = "Background", subtitle = "Choose the canvas background colour.", onClick = onBackground)
             HorizontalDivider()
