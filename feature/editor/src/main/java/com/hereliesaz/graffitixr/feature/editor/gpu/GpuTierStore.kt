@@ -24,6 +24,17 @@ class SharedPreferencesKeyValueStore(context: Context, name: String = PREFS) : K
     }
 }
 
+/**
+ * A [KeyValueStore] opened on first use: SharedPreferences reads its file when created, which the
+ * main thread should not wait for at startup when nothing reads it until calibration runs.
+ */
+class LazyKeyValueStore(open: () -> KeyValueStore) : KeyValueStore {
+    private val store by lazy(open)
+    override fun getString(key: String): String? = store.getString(key)
+    override fun putString(key: String, value: String) = store.putString(key, value)
+    override fun remove(key: String) = store.remove(key)
+}
+
 /** A tier the calibration picked, with the numbers behind it. */
 data class StoredTier(
     val tier: GpuTier,
@@ -39,7 +50,12 @@ data class StoredTier(
  *
  * One entry is kept (the device has one GPU); a key for another identity reads as absent.
  */
-class GpuTierStore(private val store: KeyValueStore, private val appVersion: Long) {
+class GpuTierStore(private val store: KeyValueStore, appVersion: () -> Long) {
+    constructor(store: KeyValueStore, appVersion: Long) : this(store, { appVersion })
+
+    // Read on first use (a package-manager call), not at construction: the store is built on the
+    // main thread at startup and only used by calibration, off it.
+    private val appVersion: Long by lazy(appVersion)
 
     /** The stored tier for [identity], or null when absent, for another GPU/driver, or stale. */
     fun load(identity: String): StoredTier? {
