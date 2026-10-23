@@ -21,7 +21,7 @@ name = "RATE_LIMITER"
 namespace_id = "2001"
 
   [ratelimits.simple]
-  limit = 30
+  limit = 6
   period = 60
 
 # Serves ./docs (index.html, favicon.svg, PRIVACY_POLICY.md); the research notes in the same

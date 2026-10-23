@@ -1,6 +1,8 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/ProjectGateDialog.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -40,6 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import com.hereliesaz.aznavrail.AzButton
+import com.hereliesaz.aznavrail.model.AzButtonShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,12 +52,12 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.ProjectFile
 
 /**
- * The mandatory project dialog: shown whenever there is no project to work in (first launch with
- * no projects, and File > New). There is nothing to do without a project, so it has no cancel path:
- * no close button, taps outside are swallowed, and it installs no back handler, so Back does what
- * it does at the app's root today (the system default: leave the app).
+ * The project dialog: shown whenever there is no project to work in (first launch with no
+ * projects) and for File > New. With no project open it is mandatory: taps outside are swallowed and
+ * Back does what it does at the app's root (leave the app). Over an open project
+ * ([ProjectGateState.cancellable]) it offers Cancel, and Back cancels, returning to that project.
  *
- * Load opens the system file picker; backing out of the picker returns here. Save creates the
+ * Open… opens the system file picker; backing out of the picker returns here. Create makes the
  * project under the typed name. GPU calibration runs in the background while this is open
  * (see gpu/CalibrationCoordinator); the busy state covers its capped tail after the tap.
  *
@@ -74,7 +79,9 @@ fun ProjectGateDialog(
     pickedImageCount: Int = 0,
     onPickImages: () -> Unit = {},
     imperial: Boolean = true,
+    onCancel: () -> Unit = {},
 ) {
+    if (state.cancellable) BackHandler(onBack = onCancel)
     var name by remember(state.defaultName) { mutableStateOf(state.defaultName) }
     var category by remember(state.defaultName) { mutableStateOf(CATEGORY_SCREEN) }
     val fields = remember(state.defaultName, state.defaultWidth, state.defaultHeight) {
@@ -98,9 +105,12 @@ fun ProjectGateDialog(
             .testTag(TAG_SCRIM),
         contentAlignment = Alignment.Center,
     ) {
+        // Dressed like GraffuxAlertDialog: square, translucent surface, outline, no tonal tint.
         Surface(
-            shape = RoundedCornerShape(12.dp),
-            tonalElevation = 6.dp,
+            shape = RectangleShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = SURFACE_ALPHA),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            tonalElevation = 0.dp,
             modifier = Modifier.padding(24.dp).widthIn(max = 480.dp).testTag(TAG_DIALOG),
         ) {
             Column(
@@ -146,13 +156,28 @@ fun ProjectGateDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                     ) {
-                        TextButton(onClick = onLoad, modifier = Modifier.testTag(TAG_LOAD)) { Text("Load…") }
-                        Button(
+                        if (state.cancellable) {
+                            AzButton(
+                                text = "Cancel",
+                                onClick = onCancel,
+                                shape = AzButtonShape.RECTANGLE,
+                                modifier = Modifier.testTag(TAG_CANCEL),
+                            )
+                        }
+                        AzButton(
+                            text = "Open…",
+                            onClick = onLoad,
+                            shape = AzButtonShape.RECTANGLE,
+                            modifier = Modifier.testTag(TAG_LOAD),
+                        )
+                        AzButton(
+                            text = "Create",
                             onClick = {
                                 onSave(ProjectFile.sanitizeName(name), fields.size.widthPx, fields.size.heightPx)
                             },
+                            shape = AzButtonShape.RECTANGLE,
                             modifier = Modifier.testTag(TAG_SAVE),
-                        ) { Text("Save") }
+                        )
                     }
                 }
             }
@@ -239,6 +264,15 @@ private fun CanvasSetup(
             }
         }
     }
+    // Width, height, ratio, DPI and units are for people who need them: folded until asked for,
+    // except under Custom, where they are the whole point.
+    var showSize by remember(category) { mutableStateOf(category == CATEGORY_CUSTOM) }
+    if (!showSize) {
+        TextButton(onClick = { showSize = true }, modifier = Modifier.testTag(TAG_SIZE_OPTIONS)) {
+            Text("Size options (${fields.size.widthPx}×${fields.size.heightPx} px)…")
+        }
+        return
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val unit = fields.size.unit.label
         LengthField("Width ($unit)", fields.width, fields::editWidth, TAG_WIDTH, Modifier.weight(1f))
@@ -321,6 +355,8 @@ const val TAG_BODY = "projectGate.body"
 const val TAG_NAME = "projectGate.name"
 const val TAG_LOAD = "projectGate.load"
 const val TAG_SAVE = "projectGate.save"
+const val TAG_CANCEL = "projectGate.cancel"
+const val TAG_SIZE_OPTIONS = "projectGate.sizeOptions"
 const val TAG_BUSY = "projectGate.busy"
 const val TAG_IMAGES = "projectGate.images"
 const val TAG_CATEGORY = "projectGate.category"
@@ -331,3 +367,6 @@ const val TAG_RATIO = "projectGate.ratio"
 const val TAG_DPI = "projectGate.dpi"
 const val TAG_UNIT_PREFIX = "projectGate.unit."
 private const val SCRIM_ALPHA = 0.6f
+
+/** GraffuxAlertDialog's (and FloatingWindow's) surface alpha. */
+private const val SURFACE_ALPHA = 0.85f

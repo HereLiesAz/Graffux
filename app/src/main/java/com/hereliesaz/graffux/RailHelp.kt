@@ -57,8 +57,8 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
 
     // ── Painting ─────────────────────────────────────────────────────────────────────────────────
     "adj.brush" to
-        "The brush pad. Drag up and down for size, left and right for hardness — soft on the left, " +
-        "hard on the right. The circle is the brush at its real size; the number is its diameter. " +
+        "The brush pad. Drag up and down for size, left and right for hardness — hard on the left, " +
+        "soft on the right. The circle is the brush at its real size; the number is its diameter. " +
         "Tap it instead of dragging to set the size from a slider.",
     "tool.colorize" to
         "Paints hue over what is already there, keeping its light and shade — for tinting " +
@@ -108,10 +108,15 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "single path.",
 
     // ── Gestures, which have no button at all ────────────────────────────────────────────────────
+    "history.undo" to
+        "Takes back the last change. By default, a two-finger tap on the canvas does the same.",
+    "history.redo" to "Puts back what Undo took. By default, a three-finger tap does the same.",
     "help" to
         "Two fingers on the canvas pan, pinch and rotate the view at any time, under any tool. " +
         "Two-finger tap undoes; three-finger tap redoes; hold either to repeat. Four-finger tap " +
         "hides the interface for a clean look at the artwork; four-finger hold opens the radial " +
         "menu. Three fingers rubbed back and forth clear the layer. All of them can be reassigned " +
-        "in Settings.",
+        "in Settings. Brushes, ink and effects live in the brush sheet at the bottom: drag or tap " +
+        "its pill to open or shut it. Swipe up from the very bottom edge for Shortcuts — your " +
+        "favourite, recent and most-used tools.",
 )

@@ -1,5 +1,12 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import com.hereliesaz.graffitixr.design.theme.HotPink
+import com.hereliesaz.graffitixr.design.theme.Amber
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -237,7 +244,7 @@ private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
  * `collapsedWidth`, read back into [RailInset] via `AzNavHostScope.railWidth`; see the
  * `measuredRailWidth` comment where azConfig is called).
  */
-private val RAIL_ITEM_WIDTH = 44.dp
+private val RAIL_ITEM_WIDTH = 48.dp // the Material minimum touch target
 
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) {
@@ -430,6 +437,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.onImportDocument(it) } }
 
+    // An extension (.azp) picked by hand: the user chose the file, so it installs straight away,
+    // through the same AzpInstaller verification as every other path.
+    val extensionFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
     val importPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -452,6 +464,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // fetching, and hands back a package this app still verifies itself — installExtensionFromUri runs
     // the exact same AzpInstaller check it would on a file the user picked by hand. RESULT_CANCELED
     // (the user backed out) is a clean no-op per the spec.
+    var pendingStoreHandoff by remember { mutableStateOf<StoreHandoffInstall?>(null) }
     val storeBrowser = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -464,8 +477,24 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // The id/version extras describe a single delivered package, so they are only attached
             // when one came back; for a multi-selection they would mislabel every item but one.
             val metadata = handoff.takeIf { packages.size == 1 }
-            packages.forEach { vm.installExtensionFromUri(it, metadata) }
+            // A store app's result is confirmed like a link: the app that answered may not be the
+            // store the user meant.
+            if (packages.isNotEmpty()) pendingStoreHandoff = StoreHandoffInstall(packages, metadata)
         }
+    }
+    pendingStoreHandoff?.let { pending ->
+        val what = pending.metadata?.id ?: "${pending.packages.size} extension(s)"
+        ConfirmDialog(
+            title = "Install extension?",
+            message = "The store app returned $what for Graffux to install.\n\nExtensions can add " +
+                "code that runs inside Graffux. Only install it if you chose it in a store you trust.",
+            confirmLabel = "Install",
+            onConfirm = {
+                pending.packages.forEach { vm.installExtensionFromUri(it, pending.metadata) }
+                pendingStoreHandoff = null
+            },
+            onDismiss = { pendingStoreHandoff = null },
+        )
     }
 
     // Save: the system picker chooses the location, seeded with the filename built from the name
@@ -561,8 +590,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         if (AzphaltStoreHandoff.isStoreAvailable(context.packageManager, context.packageName)) {
             // Carry what this host has already done with its extensions (spec/state-reporting.md
             // § 3.1), so the store's cards can read Open rather than Get on things the user has.
+            // Through the chooser, so the user picks which store app receives the inventory; an
+            // implicit launch would hand it to any app that registered the action.
             storeBrowser.launch(
-                AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory())
+                android.content.Intent.createChooser(
+                    AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory()),
+                    "Open a store",
+                )
             )
         } else {
             // Play first; a device without Play falls through to the web storefront, which is where
@@ -576,7 +610,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 title = "No way to reach the store",
                                 message = "This device has no store app, no Play, and no browser " +
                                     "to open azphalt.store with. Extensions can still be installed " +
-                                    "by hand from a file: Install brush… in the menu at the top right.",
+                                    "by hand from a file: Install extension from file… in the menu at the top right.",
                             )
                         }
                 }
@@ -653,7 +687,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // "what is true of this". They have to be different colours or the rail says the
                 // same thing about a layer you are editing and a layer that merely comes along when
                 // you drag it. Amber because it reads as a condition rather than a place.
-                secondaryColor = Color(0xFFFFB300),
+                secondaryColor = Amber,
                 // The border is what distinguishes "this opens something" from "this does something".
                 // The rail's default is therefore borderless (NONE_SQUARE keeps the SQUARE footprint,
                 // so a borderless item still lines up with a bordered one) and the only items that
@@ -1152,19 +1186,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
                             showFooter = false,
-                            trigger = AzDropdownTrigger.Hamburger,
+                            // Words, not glyphs: "View" says what this menu holds.
+                            trigger = AzDropdownTrigger.Text("View"),
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
                         )
+                        // Each row says what it shows and whether it's showing, so a hidden panel
+                        // can be traced back here.
                         fun areaToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) =
                             azToggle(
                                 isChecked = checked,
-                                toggleOnText = label,
-                                toggleOffText = label,
+                                toggleOnText = "$label: shown",
+                                toggleOffText = "$label: hidden",
                                 color = menuItemColor,
                                 onToggle = onToggle,
                             )
-                        areaToggle("Layers", showLayersRail) { showLayersRail = it }
-                        areaToggle("Carousel", showCarousel) { showCarousel = it }
+                        areaToggle("Layers panel", showLayersRail) { showLayersRail = it }
+                        areaToggle("Brush sheet", showCarousel) { showCarousel = it }
                         areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
                         areaToggle("3D", showModelRail) { showModelRail = it }
                         areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
@@ -1186,7 +1223,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         azConfig(
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            trigger = AzDropdownTrigger.MoreVert,
+                            trigger = AzDropdownTrigger.Text("File"),
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
                         )
                     // Every entry here is the same colour, and the dropdown's `azConfig` has no hook
@@ -1214,6 +1251,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // it, so there was no way to find the store without already knowing that toggle
                     // existed. This is the direct, always-visible path in.
                     menuItem(text = "Store…", onClick = { openAzphaltStore() })
+                    menuItem(
+                        text = "Install extension from file…",
+                        onClick = { extensionFilePicker.launch(arrayOf("*/*")) },
+                    )
                     // Writes a .graffux-figma.json bundle (see figma-plugin/README.md) that the
                     // companion Figma plugin rebuilds as a frame, one layer per Graffux layer.
                     // Same "collateral damage" shape as the Add Shape entry above: exportForFigma()
@@ -1709,9 +1750,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
         }
-        // The mandatory project dialog, above the rail and every window: there is nothing to do
-        // without a project. Load goes through the same picker as File > Open; a cancelled picker
+        // The project dialog, above the rail and every window: mandatory with no project open,
+        // cancellable over one (File > New). Load goes through the same picker as File > Open; a cancelled picker
         // returns null and the dialog simply stays.
+        FirstRunTour(enabled = projectGate == null && uiState.projectId != null)
         projectGate?.let { gate ->
             ProjectGateDialog(
                 state = gate,
@@ -1725,6 +1767,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     gateImagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
                 imperial = uiState.isImperialUnits,
+                onCancel = { vm.dismissProjectGate(); gateImages = emptyList() },
             )
         }
     }
@@ -1760,6 +1803,19 @@ private fun BrushSizePad(vm: EditorViewModel, onOpenOptions: () -> Unit) {
                 .fillMaxWidth()
                 .onSizeChanged { itemPx = it.width.toFloat() }
                 .clickable(onClickLabel = "Set brush size", onClick = onOpenOptions)
+                // TalkBack: a slider of the size (volume keys / swipe up-down adjust it), with the
+                // hardness read out alongside, so the drag isn't the only way in.
+                .semantics {
+                    contentDescription = "Brush size, hardness $hardnessPercent percent"
+                    progressBarRangeInfo = ProgressBarRangeInfo(
+                        state.brushSize,
+                        MIN_BRUSH_SIZE..MAX_BRUSH_SIZE,
+                    )
+                    setProgress { target ->
+                        vm.setBrushSize(target.coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
+                        true
+                    }
+                }
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()
@@ -1872,8 +1928,8 @@ private fun PaletteSwatch(color: Color) {
 
         val r = minOf(w, h) * 0.085f
         paintWell(Offset(w * 0.31f, h * 0.29f), r, Cyan)
-        paintWell(Offset(w * 0.51f, h * 0.23f), r, Color(0xFFFF2DAA))
-        paintWell(Offset(w * 0.68f, h * 0.34f), r, Color(0xFFFFC107))
+        paintWell(Offset(w * 0.51f, h * 0.23f), r, HotPink)
+        paintWell(Offset(w * 0.68f, h * 0.34f), r, Amber)
         paintWell(Offset(w * 0.34f, h * 0.56f), r * 1.35f, color)
     }
 }
@@ -2316,7 +2372,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it. Opening the window now *is* turning the mode on, and closing it turns it off.
     //
     // 3D was worse off: its only way in was an entry called "3D Model…" filed in the Actions
-    // drop-down between "Export for Figma" and "Install brush…". Everything it opens has always been
+    // drop-down between "Export for Figma" and "Install extension from file…". Everything it opens has always been
     // collected — ModelWindow holds the viewport, the model picker, paint mode, clear, and add-to-
     // canvas — but nothing in the rail admitted the feature existed.
     // GuideIsometric rather than a cube: the Graffux set has no cube, and this is the one glyph in
@@ -2442,8 +2498,7 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     // ── Crop & Transform · Selection · Fit ────────────────────────────────────────────────────────
     // Canvas-level controls, grouped at the foot of the strip directly above Help. Fit is disabled
-    // until the view has moved off the default framing. Undo/Redo are not on the rail: the
-    // carousel's tab row carries them.
+    // until the view has moved off the default framing.
     stateItem(
         TRANSFORM_ID, "Crop & Transform", GraffuxIcons.Crop,
     ) { onToolGroupRequested(CarouselCategory.TRANSFORM) }
@@ -2463,6 +2518,17 @@ private fun AzNavHostScope.ConfigureRailItems(
             info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
         )
     }
+
+    // Undo and Redo, always on the rail: the carousel's History tab also has them, but the sheet
+    // shuts during every stroke and can be dragged away, and undo must never go with it.
+    azRailItem(
+        id = "history.undo", text = "Undo", content = GraffuxIcons.Undo, color = navItemColor,
+        disabled = uiState.undoCount == 0, onClick = { vm.onUndoClicked() },
+    )
+    azRailItem(
+        id = "history.redo", text = "Redo", content = GraffuxIcons.Redo, color = navItemColor,
+        disabled = uiState.redoCount == 0, onClick = { vm.onRedoClicked() },
+    )
 
     // The `?`. It opens the library's help overlay, which draws a card for every item currently in
     // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
@@ -2799,3 +2865,9 @@ private fun HiddenMenuScope.renderLayerComponentMenu(
         listItem("Place ${main.name}") { main.componentId?.let { vm.onPlaceInstance(it) } }
     }
 }
+
+/** A store app's answer, held until the user confirms the install. */
+private data class StoreHandoffInstall(
+    val packages: List<Uri>,
+    val metadata: com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.StoreResult?,
+)

@@ -87,6 +87,7 @@ fun SettingsScreen(
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
     val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
     var showNotices by remember { mutableStateOf(false) }
+    var showDeveloper by remember { mutableStateOf(false) }
     var gpuTestRunning by remember { mutableStateOf(false) }
     var gpuTestResult by remember { mutableStateOf<GpuStampEngineSelfTest.Result?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -129,7 +130,8 @@ fun SettingsScreen(
             )
             SwitchRow(
                 title = "Right-handed",
-                subtitle = "Docks the tool rail on the left; turn off for a left-side rail.",
+                subtitle = "On: the tool rail docks on the left, out of a right hand's way. " +
+                    "Off: it docks on the right.",
                 checked = rightHanded,
                 onCheckedChange = vm::setRightHanded,
             )
@@ -164,6 +166,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
             )
+            PrivacyConsentRows()
             StrokeDataRow(vm)
             HorizontalDivider()
 
@@ -216,44 +219,49 @@ fun SettingsScreen(
             }
 
             Text(
-                "Developer",
+                "About",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
             )
-            ActionRow(
-                title = if (gpuTestRunning) "Testing…" else "Test GPU Engine",
-                subtitle = "Runs the native wgpu dab-stamping engine " +
-                    "(docs/Native Rendering Engine Design.md) end to end on this " +
-                    "device — init, stamp three overlapping dabs, read the result back — and " +
-                    "shows what it produced. This is the same engine every live stroke already " +
-                    "runs on when GPU stamping is active, so a failure here points to a real " +
-                    "GPU/driver problem, not just a diagnostic no-op.",
-                onClick = {
-                    if (!gpuTestRunning) {
-                        gpuTestRunning = true
-                        coroutineScope.launch {
-                            gpuTestResult = withContext(Dispatchers.Default) { GpuStampEngineSelfTest.run() }
-                            gpuTestRunning = false
-                        }
-                    }
-                },
-            )
-            HorizontalDivider()
-            PredictionReportsRow(vm)
-            HorizontalDivider()
-            PredictionSoloRow()
-            HorizontalDivider()
-            GpuEngineRows()
-            GpuTierRow()
-            HorizontalDivider()
-
             CheckForUpdatesRow()
             HorizontalDivider()
+            ActionRow(
+                title = "Open-source notices",
+                subtitle = "The licences of the libraries Graffux is built with.",
+                onClick = { showNotices = true },
+            )
+            HorizontalDivider()
 
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = { showNotices = true }) {
-                Text("Open-source notices")
+            // Diagnostics and experiments: folded away so a painter never has to read them.
+            ActionRow(
+                title = if (showDeveloper) "Developer ▴" else "Developer ▾",
+                subtitle = "Diagnostics and experimental options. You don't need these to paint.",
+                onClick = { showDeveloper = !showDeveloper },
+            )
+            if (showDeveloper) {
+                ActionRow(
+                    title = if (gpuTestRunning) "Testing…" else "Test the drawing engine",
+                    subtitle = "Draws three test dabs with the GPU and shows the result. If this " +
+                        "fails, the problem is this device's graphics driver.",
+                    onClick = {
+                        if (!gpuTestRunning) {
+                            gpuTestRunning = true
+                            coroutineScope.launch {
+                                gpuTestResult = withContext(Dispatchers.Default) { GpuStampEngineSelfTest.run() }
+                                gpuTestRunning = false
+                            }
+                        }
+                    },
+                )
+                HorizontalDivider()
+                PredictionReportsRow(vm)
+                HorizontalDivider()
+                PredictionSoloRow()
+                HorizontalDivider()
+                GpuEngineRows()
+                GpuTierRow()
+                HorizontalDivider()
             }
 
             Spacer(Modifier.height(24.dp))
@@ -527,8 +535,9 @@ internal fun <T> ChoiceRow(
     }
 }
 
+@Suppress("FunctionNaming")
 @Composable
-private fun SwitchRow(
+internal fun SwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,

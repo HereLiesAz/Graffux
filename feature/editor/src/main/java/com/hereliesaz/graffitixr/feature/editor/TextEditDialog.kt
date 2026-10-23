@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/TextEditDialog.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.design.theme.Cyan
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -139,7 +140,7 @@ fun TextEditDialog(
                                 .background(swatch, CircleShape)
                                 .border(
                                     width = if (selected) 3.dp else 1.dp,
-                                    color = if (selected) Color(0xFF00E5FF) else Color.Gray,
+                                    color = if (selected) Cyan else Color.Gray,
                                     shape = CircleShape,
                                 )
                                 .clickable { colorArgb = argb; onColorChange(argb) },

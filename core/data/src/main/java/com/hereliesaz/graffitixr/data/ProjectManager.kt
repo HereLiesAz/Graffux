@@ -98,9 +98,13 @@ class ProjectManager @Inject constructor(
 
         // Properly append new targets to the existing list
         val savedTargetUris = if (targetImages != null) {
-            val existingCount = incoming.targetImageUris.size
+            // Past the highest index on disk, not the list size: after a target is removed from the
+            // middle, size-based numbering would overwrite a surviving target's file.
+            val taken = root.listFiles().orEmpty()
+                .mapNotNull { Regex("^target_(\\d+)\\.png$").find(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+            val next = maxOf(incoming.targetImageUris.size, (taken.maxOrNull() ?: -1) + 1)
             val newUris = targetImages.mapIndexed { index, bitmap ->
-                val file = File(root, "target_${existingCount + index}.png")
+                val file = File(root, "target_${next + index}.png")
                 FileOutputStream(file).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 }
@@ -432,16 +436,22 @@ class ProjectManager @Inject constructor(
     private suspend fun installExtracted(context: Context, extracted: ExtractedArchive): GraffitiProject? {
         val original = parseArchiveProject(extracted) ?: return null
         val projectsDir = File(context.filesDir, "projects")
-        var project = original
-        var projectJsonOverride: String? = null
-        if (File(projectsDir, original.id).exists()) {
-            val newId = java.util.UUID.randomUUID().toString()
-            val rebased = requireNotNull(extracted.projectJson)
-                .replace("/projects/${original.id}/", "/projects/$newId/")
-            project = json.decodeFromString<GraffitiProject>(rebased).copy(id = newId)
-            projectJsonOverride = json.encodeToString(project)
-            Log.i("ProjectManager", "Project id ${original.id} already exists; importing as $newId")
+        val newId = if (File(projectsDir, original.id).exists()) {
+            java.util.UUID.randomUUID().toString().also {
+                Log.i("ProjectManager", "Project id ${original.id} already exists; importing as $it")
+            }
+        } else {
+            original.id
         }
+        // Every URI in an imported project is pinned to the project's own folder on this device;
+        // one pointing anywhere else (another project, a content:// grant, a path from the
+        // exporting device) is dropped, so a crafted .fux can't make a layer read other files.
+        val localized = localizeArchiveUris(
+            requireNotNull(extracted.projectJson).replace("/projects/${original.id}/", "/projects/$newId/"),
+            "file://${projectsDir.absolutePath}/$newId/",
+        )
+        val project = json.decodeFromString<GraffitiProject>(localized).copy(id = newId)
+        val projectJsonOverride: String? = json.encodeToString(project)
         val destDir = File(projectsDir, project.id)
         val staging = File(context.filesDir, "import_staging/${java.util.UUID.randomUUID()}")
         var installed = false
@@ -604,3 +614,19 @@ class ProjectManager @Inject constructor(
         }
     }
 }
+
+/** A URI string value in a project.json: `"file://..."`, `"content://..."` and the like. */
+private val ARCHIVE_URI = Regex(""""([a-zA-Z][a-zA-Z0-9+.-]*://[^"\\]*)"""")
+
+/**
+ * Rewrites every URI in an imported project.json to [localRoot] (`file://…/projects/<id>/`): a
+ * `file://` URI naming a file under some `/projects/<anyId>/` keeps its path inside the project and
+ * gains this device's root; every other URI becomes empty. `..` segments are refused.
+ */
+internal fun localizeArchiveUris(projectJson: String, localRoot: String): String =
+    ARCHIVE_URI.replace(projectJson) { m ->
+        val uri = m.groupValues[1]
+        val inProject = Regex("^file://.*?/projects/[^/]+/(.+)$").find(uri)?.groupValues?.get(1)
+        val safe = inProject?.takeIf { rest -> rest.split('/').none { it == ".." || it.isEmpty() } }
+        "\"" + (if (safe != null) localRoot + safe else "") + "\""
+    }

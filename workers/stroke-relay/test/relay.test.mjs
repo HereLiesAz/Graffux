@@ -159,3 +159,35 @@ test("a token is only requested for an upload that passed validation", async () 
   await handle(put("/v1/stroke-data/Pixel.5/session-1790680692015.jsonl.gz"), { ...env, GITHUB_TOKENS: bound }, noSleep);
   assert.equal(minted, 0);
 });
+
+test("rejects a valid header followed by non-record lines", async () => {
+  github({ status: 201 });
+  const body = gzipSync(Buffer.from('{"type":"session","schema":4}\n<html>not data</html>\n'));
+  const res = await handle(put("/v1/stroke-data/Pixel-5/session-1700000000000.jsonl.gz", body), env, noSleep);
+  assert.equal(res.status, 415);
+});
+
+test("rejects free-form text hidden in a record", async () => {
+  github({ status: 201 });
+  const long = "x".repeat(5000);
+  const body = gzipSync(Buffer.from(`{"type":"session","schema":4}\n{"type":"stroke","note":"${long}"}\n`));
+  const res = await handle(put("/v1/stroke-data/Pixel-5/session-1700000000000.jsonl.gz", body), env, noSleep);
+  assert.equal(res.status, 415);
+});
+
+test("rejects a second gzip member that smuggles a payload", async () => {
+  github({ status: 201 });
+  const body = Buffer.concat([session, gzipSync(Buffer.from("arbitrary file contents\n"))]);
+  const res = await handle(put("/v1/stroke-data/Pixel-5/session-1700000000000.jsonl.gz", body), env, noSleep);
+  assert.equal(res.status, 415);
+});
+
+test("commits the re-encoded, validated text, not the uploaded bytes", async () => {
+  const calls = github({ status: 201 });
+  const res = await handle(put("/v1/stroke-data/Pixel-5/session-1700000000000.jsonl.gz"), env, noSleep);
+  assert.equal(res.status, 201);
+  const { gunzipSync } = await import("node:zlib");
+  const sent = JSON.parse(calls[0].init.body).content;
+  const text = gunzipSync(Buffer.from(sent, "base64")).toString();
+  assert.equal(text, '{"type":"session","schema":4,"model":"Pixel 5"}\n{"type":"stroke"}\n');
+});

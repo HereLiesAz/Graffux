@@ -166,12 +166,21 @@ class CrashReporter internal constructor(
             // Bearer/auth headers and token-/secret-/key-/session-shaped key=value pairs.
             Regex("""(?i)\bBearer\s+[A-Za-z0-9\-_.=]{8,}""") to "Bearer [REDACTED]",
             Regex("""(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth)\s*[=:]\s*[A-Za-z0-9\-_.]{6,}""") to "$1=[REDACTED]",
+            // The same keys as JSON: "token":"value".
+            Regex("""(?i)"(token|secret|api[_-]?key|session[_-]?id|auth|password)"\s*:\s*"[^"]*"""") to
+                "\"$1\":\"[REDACTED]\"",
+            // Bare GitHub, Figma and similar prefixed tokens.
+            Regex("""\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|figd_[\w\-]{20,})""") to
+                "[REDACTED_TOKEN]",
+            // Content and file URIs and app-private paths name the user's own files.
+            Regex("""\b(?:content|file)://\S+""") to "[REDACTED_URI]",
+            Regex("""/(?:data/(?:user/\d+|data)|storage/emulated/\d+|sdcard)/\S+""") to "[REDACTED_PATH]",
             // Email addresses.
             Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[REDACTED_EMAIL]",
         )
 
         /** Scrubs known-sensitive substrings (see [REDACTION_PATTERNS]) from free-form report text. */
-        internal fun redactSensitive(text: String): String =
+        fun redactSensitive(text: String): String =
             REDACTION_PATTERNS.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
 
         // Substrings that uniquely identify ARCore's camera-pipe "the camera device vanished while we

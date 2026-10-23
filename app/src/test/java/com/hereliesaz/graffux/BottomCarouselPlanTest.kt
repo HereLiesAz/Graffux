@@ -84,9 +84,10 @@ class BottomCarouselPlanTest {
     @Test
     fun `an Ink utensil in hand lights only its entry, not the same-named stamp brush`() {
         val pen = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
-        // Selecting a utensil sets activeBrushName to its display name, which the built-in shares.
-        assertTrue(builtIn.any { it.name == pen.displayName })
-        val inputs = base.copy(activeBrushName = pen.displayName, activeInkUtensil = pen)
+        // A project saved before the rename carries the pen's old name, which the built-in stamp
+        // brush still has; the utensil in hand must still win.
+        assertTrue(builtIn.any { it.name == "Ink Pen" })
+        val inputs = base.copy(activeBrushName = "Ink Pen", activeInkUtensil = pen)
         assertNull(selectedCarouselIndex(carouselEntries(CarouselCategory.BRUSHES, inputs)))
         val entries = carouselEntries(CarouselCategory.INK, inputs)
         assertEquals(1, entries.count { it.selected })
@@ -285,7 +286,7 @@ class BottomCarouselPlanTest {
 
         val pen = carouselEntries(CarouselCategory.INK, base).first()
         assertEquals(
-            listOf("Jetpack Ink", "Pressure-sensitive width"),
+            listOf("Vector ink", "Pressure-sensitive width"),
             carouselCardContent(pen, CarouselTier.HERO).details,
         )
         val effect = carouselEntries(CarouselCategory.EFFECTS, base).first()

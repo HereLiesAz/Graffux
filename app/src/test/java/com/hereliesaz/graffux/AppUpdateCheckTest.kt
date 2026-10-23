@@ -11,4 +11,8 @@ class AppUpdateCheckTest {
     @Test fun olderTagIsNotAnUpdate() = assertFalse(AppUpdateCheck.isNewer("1.50.25", "1.50.26.1"))
     @Test fun vPrefixIsAccepted() = assertTrue(AppUpdateCheck.isNewer("v1.50.27", "1.50.26.1"))
     @Test fun unparseableTagIsNotAnUpdate() = assertFalse(AppUpdateCheck.isNewer("", "1.50.26.1"))
+    @Test fun buildTagOutranksItsGroupTag() =
+        assertTrue(AppUpdateCheck.versionOrder.compare("1.50.27.2", "1.50.27") > 0)
+    @Test fun groupTagEqualsItsZeroBuild() =
+        assertTrue(AppUpdateCheck.versionOrder.compare("1.50.27", "1.50.27.0") == 0)
 }

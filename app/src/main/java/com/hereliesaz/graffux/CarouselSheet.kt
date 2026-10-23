@@ -1,5 +1,7 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -173,7 +175,7 @@ internal fun CarouselSheet(
                     .nestedScroll(nested),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                GrabHandle()
+                GrabHandle(open = shownOpen) { onOpenChange(!open) }
                 Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
             }
             Box(Modifier.navigationBarsPadding().height(bottomInset))
@@ -183,19 +185,29 @@ internal fun CarouselSheet(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun GrabHandle() {
-    // Draws nothing and does not toggle: it only keeps a touch strip where the handle was, so the
-    // sheet's vertical drag still has something to grab when the sheet is shut and otherwise
-    // off-screen.
+private fun GrabHandle(open: Boolean, onToggle: () -> Unit) {
+    // A visible pill on a 48dp-tall strip: drag it like the sheet, or tap it to open or shut. Shut,
+    // it is all that remains on screen, so it must be seen to be found.
     Box(
         Modifier
             .size(width = HandleTouchWidth, height = HandleTouchHeight)
-            .semantics { contentDescription = "Brush sheet drag area" },
-    )
+            .clickable(onClickLabel = if (open) "Hide brushes" else "Show brushes", onClick = onToggle)
+            .semantics { contentDescription = if (open) "Brush sheet, open" else "Brush sheet, shut" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(width = PillWidth, height = PillHeight)
+                .background(Color.White.copy(alpha = PILL_ALPHA), RoundedCornerShape(PillHeight / 2)),
+        )
+    }
 }
 
 private val HandleTouchWidth = 96.dp
-private val HandleTouchHeight = 24.dp
+private val HandleTouchHeight = 48.dp
+private val PillWidth = 40.dp
+private val PillHeight = 5.dp
+private const val PILL_ALPHA = 0.7f
 
 /** How fast the sheet slides back once the post-stroke hold is over: quick, for the next pick. */
 internal const val REOPEN_MS = 120

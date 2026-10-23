@@ -20,7 +20,7 @@ class IncrementalStaticDabGenerator(
 ) {
     private val diameter = diameterPx.coerceAtLeast(0f)
     private val baseRadius = diameter / 2f
-    private val step = (brush.spacing * brush.spacingReferencePx(diameter)).coerceAtLeast(0.01f)
+    private val step = BrushStamps.dabStepPx(brush, diameter)
     private val placer = IncrementalDabPlacer(step)
 
     private val rng = Random(seed)

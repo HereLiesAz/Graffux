@@ -45,6 +45,24 @@ class ProjectGateDialogTest {
     }
 
     @Test
+    fun `over an open project it offers Cancel and Back cancels`() {
+        var cancels = 0
+        rule.setContent {
+            ProjectGateDialog(
+                state = ProjectGateState("Untitled 2", cancellable = true),
+                onLoad = {},
+                onSave = { _, _, _ -> },
+                onCancel = { cancels += 1 },
+            )
+        }
+        rule.onNodeWithTag(TAG_CANCEL).performClick()
+        assertEquals(1, cancels)
+        assertTrue(rule.activity.onBackPressedDispatcher.hasEnabledCallbacks())
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        assertEquals(2, cancels)
+    }
+
+    @Test
     fun `save hands over the typed, sanitised name`() {
         var saved: String? = null
         rule.setContent {
@@ -121,6 +139,7 @@ class ProjectGateDialogTest {
                 imperial = true,
             )
         }
+        rule.onNodeWithTag(TAG_SIZE_OPTIONS).performScrollTo().performClick()
         // 960 px at 96 dpi is 10 in. Make the width 20 in (1920 px): the ratio follows.
         rule.onNodeWithTag(TAG_WIDTH).performScrollTo().performTextReplacement("20")
         rule.onNodeWithTag(TAG_RATIO).assertTextContains("2:1")
@@ -142,6 +161,7 @@ class ProjectGateDialogTest {
                 imperial = true,
             )
         }
+        rule.onNodeWithTag(TAG_SIZE_OPTIONS).performScrollTo().performClick()
         rule.onNodeWithTag(TAG_DPI).performScrollTo().performClick()
         rule.onNodeWithTag("$TAG_DPI.300").performClick()
         rule.onNodeWithTag(TAG_WIDTH).assertTextContains("3.2")

@@ -10,7 +10,9 @@
  *   PUT /v1/stroke-data/<device>/<file>      body: the .jsonl.gz bytes
  *     201 {"status":"stored"}    committed
  *     200 {"status":"exists"}    that file is already on the branch (retries are safe)
- *     400/405/411/413/415        rejected before anything is written
+ *     400/405/411/413/415        rejected before anything is written; 415 unless every line is a
+ *                                valid session/stroke/hover record (the whole file is checked and
+ *                                the committed bytes are re-encoded from what was checked)
  *     429                        rate limited (per client address); retry later
  *     502/503                    GitHub refused or the branch is missing; retry later
  *
@@ -27,7 +29,11 @@
  */
 
 export const MAX_BYTES = 8 * 1024 * 1024;
-const HEAD_BYTES = 64 * 1024;
+/** A recorded session inflates roughly 5-10x; anything far past that is not a session. */
+const MAX_INFLATED = 96 * 1024 * 1024;
+const MAX_STRING = 256;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+const RECORD_TYPES = new Set(["stroke", "hover"]);
 const DEVICE = /^[A-Za-z0-9-]{1,48}$/;
 const FILE = /^session-\d{10,16}\.jsonl\.gz$/;
 const CONFLICT_RETRIES = 3;
@@ -35,39 +41,81 @@ const CONFLICT_RETRIES = 3;
 const json = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/** The first line of the (first member of the) gzip stream, or null if it isn't gzip at all. */
-async function firstLine(bytes) {
+/** Decompressed text of the whole gzip stream, or null if it isn't gzip or inflates past the cap. */
+async function inflate(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
   const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  let read = 0;
+  const chunks = [];
+  let size = 0;
   try {
-    while (read < HEAD_BYTES && !text.includes("\n")) {
+    for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      read += value.length;
-      text += decoder.decode(value, { stream: true });
+      size += value.length;
+      if (size > MAX_INFLATED) return null;
+      chunks.push(value);
     }
   } catch {
     return null;
   } finally {
     reader.cancel().catch(() => {});
   }
-  return text.split("\n", 1)[0];
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(out);
 }
 
-/** True when the file opens with a stroke-data `session` line. Nothing else is accepted. */
-export async function looksLikeStrokeData(bytes) {
-  if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return false;
-  const line = await firstLine(bytes);
-  if (!line) return false;
-  try {
-    const head = JSON.parse(line);
-    return head && head.type === "session" && Number.isInteger(head.schema);
-  } catch {
-    return false;
+/** True when every string in [value] is short, except base64 heatmap frames under `data`. */
+function stringsAreData(value, key = "") {
+  if (typeof value === "string") {
+    if (key === "data") return BASE64.test(value);
+    return value.length <= MAX_STRING;
   }
+  if (Array.isArray(value)) return value.every((v) => stringsAreData(v, key));
+  if (value && typeof value === "object") return Object.entries(value).every(([k, v]) => stringsAreData(v, k));
+  return true;
+}
+
+/**
+ * The validated session as JSON Lines, or null. Every line must parse: a `session` header first,
+ * then only `stroke`/`hover` records (tools/stroke-model/SCHEMA.md), with no free-form text beyond
+ * short labels. Checking only the first line let any payload ride along behind a valid header.
+ */
+export async function strokeDataText(bytes) {
+  if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return null;
+  const text = await inflate(bytes);
+  if (text === null) return null;
+  const lines = text.split("\n").filter((l) => l.length > 0);
+  if (lines.length === 0) return null;
+  for (let i = 0; i < lines.length; i++) {
+    let record;
+    try {
+      record = JSON.parse(lines[i]);
+    } catch {
+      return null;
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+    const ok = i === 0
+      ? record.type === "session" && Number.isInteger(record.schema)
+      : RECORD_TYPES.has(record.type);
+    if (!ok || !stringsAreData(record)) return null;
+  }
+  return lines.join("\n") + "\n";
+}
+
+/** True when the file is a well-formed stroke-data session (see [strokeDataText]). */
+export async function looksLikeStrokeData(bytes) {
+  return (await strokeDataText(bytes)) !== null;
+}
+
+/** Re-encodes validated text, so only what was checked is ever committed. */
+async function gzip(text) {
+  const stream = new Blob([new TextEncoder().encode(text)]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 function toBase64(bytes) {
@@ -134,12 +182,14 @@ export async function handle(request, env, { sleep = (ms) => new Promise((r) => 
 
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.length === 0 || bytes.length > MAX_BYTES) return json(413, { error: "bad size" });
-  if (!(await looksLikeStrokeData(bytes))) return json(415, { error: "not stroke data" });
+  const text = await strokeDataText(bytes);
+  if (text === null) return json(415, { error: "not stroke data" });
+  const stored = await gzip(text);
 
   const token = await githubToken(env);
   if (!token) return json(503, { error: "no github credential" });
 
-  const res = await commit(env, token, `stroke-data/${device}/${file}`, bytes, `stroke data: ${device}/${file} [skip ci]`, sleep);
+  const res = await commit(env, token, `stroke-data/${device}/${file}`, stored, `stroke data: ${device}/${file} [skip ci]`, sleep);
   if (res.status === 201 || res.status === 200) return json(201, { status: "stored" });
   const detail = await res.text().catch(() => "");
   // PUT without a sha on a path that already exists: the file is already there, which is success.

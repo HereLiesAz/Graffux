@@ -602,6 +602,8 @@ class EditorViewModel @Inject constructor(
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
 
     companion object {
+        private const val HUD_MS = 700L
+        private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
          * Whether the host shows the mandatory project dialog ([projectGate]) instead of silently
          * creating "Untitled" when there is no project. Graffux sets it at startup; GraffitiXR,
@@ -861,7 +863,7 @@ class EditorViewModel @Inject constructor(
             if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s
         }
         if (strokeLayerId == null) endOverlayStroke(afterFrames = 0)
-        Toast.makeText(context, "Couldn't paint that stroke", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "That stroke didn't paint. Try it again.", Toast.LENGTH_SHORT).show()
     }
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
@@ -1763,11 +1765,11 @@ class EditorViewModel @Inject constructor(
     private var brushHudJob: kotlinx.coroutines.Job? = null
 
     /** Flash a short confirmation pill ("Undo", "Redo") over the canvas. */
-    private fun showHud(message: String) {
+    private fun showHud(message: String, durationMs: Long = HUD_MS) {
         hudJob?.cancel()
         _uiState.update { it.copy(hudMessage = message) }
         hudJob = viewModelScope.launch(dispatchers.main) {
-            kotlinx.coroutines.delay(700)
+            kotlinx.coroutines.delay(durationMs)
             _uiState.update { it.copy(hudMessage = null) }
         }
     }
@@ -1809,6 +1811,8 @@ class EditorViewModel @Inject constructor(
                     // make sure undoCount/redoCount reflect the stacks as they actually are now.
                     history.dropTopRedo()
                     updateHistoryCounts()
+                    // The "Undo" pill went up before this was known; correct it.
+                    showHud("Couldn't undo that")
                     return
                 }
                 // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
@@ -1873,6 +1877,7 @@ class EditorViewModel @Inject constructor(
                     // popRedo already pushed its counterpart onto the undo stack - drop that.
                     history.dropTopUndo()
                     updateHistoryCounts()
+                    showHud("Couldn't redo that")
                     return
                 }
                 reapplyRedoneStroke(command)
@@ -2341,7 +2346,7 @@ class EditorViewModel @Inject constructor(
             throw e // a cancelled scope must not turn into a failure toast (the finally still cleans up)
         } catch (e: Exception) {
             withContext(dispatchers.main) {
-                Toast.makeText(context, "$failurePrefix: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "$failurePrefix: ${plainFailure(e)}.", Toast.LENGTH_LONG).show()
             }
         } finally {
             file.delete()
@@ -2351,10 +2356,9 @@ class EditorViewModel @Inject constructor(
     /** Clears the loading overlay and tells the user why an export died (including out-of-memory). */
     private suspend fun reportExportFailure(prefix: String, t: Throwable) {
         android.util.Log.e("EditorViewModel", prefix, t)
-        val reason = if (t is OutOfMemoryError) "out of memory" else t.message
         withContext(dispatchers.main) {
             dispatch(EditorIntent.SetLoading(false))
-            Toast.makeText(context, "$prefix: $reason", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "$prefix: ${plainFailure(t)}.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -3507,7 +3511,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e("EditorViewModel", "Save As failed", e)
                 withContext(dispatchers.main) {
-                    toast("Couldn't save “$cleanName”: ${e.message ?: "unknown error"}")
+                    toast("Couldn't save “$cleanName”: ${plainFailure(e)}.")
                 }
             }
         }
@@ -3711,7 +3715,11 @@ class EditorViewModel @Inject constructor(
                     if (success) {
                         Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(context, "Failed to save image", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            context,
+                            "Couldn't save the image to your gallery. Check that storage isn't full.",
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -3720,7 +3728,7 @@ class EditorViewModel @Inject constructor(
             } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
                 // Throwable, not Exception: an OutOfMemoryError compositing a large document would
                 // otherwise skip this and leave the loading overlay up for good.
-                reportExportFailure("Export error", t)
+                reportExportFailure("Couldn't export the image", t)
             }
         }
     }
@@ -6299,7 +6307,7 @@ class EditorViewModel @Inject constructor(
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6426,7 +6434,7 @@ class EditorViewModel @Inject constructor(
                 cloneOffset = cloneOffsetFor(state, points),
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
             // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment.
@@ -6486,7 +6494,7 @@ class EditorViewModel @Inject constructor(
                 selection = strokeSelection,
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6551,7 +6559,7 @@ class EditorViewModel @Inject constructor(
                 cloneOffset = cloneOffsetFor(state, points),
             )
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command)
+            pushDrawNotingInk(layerId, command)
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
             launchLayerCommit(layerId) {
@@ -6609,7 +6617,7 @@ class EditorViewModel @Inject constructor(
 
             // Add stroke to history for undo/redo replay.
             layerStore.addStroke(layerId, command)
-            history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
+            pushDrawNotingInk(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
             updateHistoryCounts()
             maybeBakeOldStrokes(layerId)
 
@@ -6827,7 +6835,7 @@ class EditorViewModel @Inject constructor(
         layerStore.addStroke(layerId, command)
         // A stroke that joined an undo chunk keeps no GPU undo snapshot (the chunk has none), so its
         // commit does not capture one.
-        val joinedChunk = history.pushDraw(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
+        val joinedChunk = pushDrawNotingInk(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
@@ -7404,7 +7412,7 @@ class EditorViewModel @Inject constructor(
             selection = state.selection,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         launchLayerCommit(layerId) {
@@ -7532,6 +7540,19 @@ class EditorViewModel @Inject constructor(
         if (state.activeTool == Tool.ERASER) Tool.ERASER else Tool.BRUSH
 
     /** The ledger is paint (what Export for Figma draws); an erase stroke isn't part of it. */
+    /**
+     * [EditHistory.pushDraw], plus: an edit that removes or moves pixels (any tool but the Brush —
+     * eraser, clear, smudge, liquify…) taints the layer's Ink for export. Painting over Ink doesn't.
+     */
+    private fun pushDrawNotingInk(
+        layerId: String,
+        command: StrokeCommand,
+        chunkable: Boolean = false,
+    ): Boolean {
+        if (command.tool != Tool.BRUSH) inkLedger.taint(layerId)
+        return history.pushDraw(layerId, command, chunkable)
+    }
+
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
         if (command.tool == Tool.BRUSH) inkLedger.add(layerId, command, command)
     }
@@ -7582,7 +7603,7 @@ class EditorViewModel @Inject constructor(
             inkUtensil = utensil,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         addToInkLedger(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
@@ -7724,7 +7745,7 @@ class EditorViewModel @Inject constructor(
             fillSelection = true,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         showHud(if (state.selection != null) "Filled selection" else "Filled layer")
@@ -7776,10 +7797,14 @@ class EditorViewModel @Inject constructor(
             clearAll = true,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
-        showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
+        // Destructive and easy to trigger by accident (a three-finger scrub), so it says how back.
+        showHud(
+            (if (state.selection != null) "Cleared selection" else "Cleared layer") + " · Undo on the rail",
+            HUD_DESTRUCTIVE_MS,
+        )
 
         // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment: without
         // this, a fast Undo racing this clear's own in-flight publish could have its rebuild's
@@ -8318,7 +8343,7 @@ class EditorViewModel @Inject constructor(
             warpHandles = handles,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
         scheduleDiskSave(layerId, bitmap, layer.uri)
@@ -8574,7 +8599,7 @@ class EditorViewModel @Inject constructor(
             moveDelta = delta,
         )
         layerStore.addStroke(layerId, command)
-        history.pushDraw(layerId, command)
+        pushDrawNotingInk(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
 
@@ -9055,14 +9080,25 @@ class EditorViewModel @Inject constructor(
             val n = projectRepository.getProjects().size + 1
             if (_projectGate.value == null) {
                 val (w, h) = screenSize()
-                _projectGate.value = ProjectGateState(defaultName = "Untitled $n", defaultWidth = w, defaultHeight = h)
+                _projectGate.value = ProjectGateState(
+                    defaultName = "Untitled $n",
+                    defaultWidth = w,
+                    defaultHeight = h,
+                    cancellable = projectRepository.currentProject.value != null,
+                )
             }
             gpuTuning?.coordinator?.onProjectDialogShown()
         }
     }
 
+    /** Project dialog > Cancel, offered only over an open project: back to that project. */
+    fun dismissProjectGate() {
+        val gate = _projectGate.value ?: return
+        if (gate.cancellable && gate.busyLabel == null) _projectGate.value = null
+    }
+
     /**
-     * Project dialog > Save: creates the project named [name] while calibration finishes, waiting
+     * Project dialog > Create: creates the project named [name] while calibration finishes, waiting
      * for it at most its cap from the tap; past that the canvas opens on the conservative tier and
      * the calibrated one is applied when it lands.
      */
@@ -9106,7 +9142,7 @@ class EditorViewModel @Inject constructor(
     private suspend fun reportSaveFailure(what: String, t: Throwable) {
         runCatching { android.util.Log.e("EditorViewModel", "$what failed", t) }
         Breadcrumbs.record("$what failed: ${t.javaClass.name}: ${t.message}")
-        _saveErrors.tryEmit("Couldn't save the project (${t.javaClass.simpleName})")
+        _saveErrors.tryEmit("Couldn't save the project: ${plainFailure(t)}.")
     }
 
     private val _saveErrors = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -9962,10 +9998,7 @@ class EditorViewModel @Inject constructor(
                 // https + host + no userinfo, enforced here so every caller is checked, not just the
                 // deep-link parser (a thrown IllegalArgumentException lands in the toast below).
                 val target = com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.requireSecureInstallUrl(url)
-                val connection = target.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 30_000
-                connection.connect()
+                val connection = com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.openSameHost(target)
                 if (connection.responseCode !in 200..299) {
                     error("Download failed: HTTP ${connection.responseCode}")
                 }
@@ -10022,7 +10055,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                dispatch(EditorIntent.SetStoreBrowseError(e.message ?: "Couldn't reach the azphalt store"))
+                dispatch(EditorIntent.SetStoreBrowseError(plainFailure(e)))
             } finally {
                 dispatch(EditorIntent.SetStoreBrowseLoading(false))
             }
@@ -11628,8 +11661,14 @@ class EditorViewModel @Inject constructor(
                     // A reconstructed Ink stroke joins the ledger (main-thread only) so Export for
                     // Figma's Ink SVG has it too. Peer strokes aren't in local undo history, so
                     // nothing here undoes it — just as the pixels stay; a fallback has no Ink.
-                    if (inkStroke != null) {
-                        withContext(dispatchers.main) { inkLedger.add(layerId, command, command) }
+                    // Only an Ink *brush* stroke is vector ink; a peer's Ink eraser, or any other
+                    // tool, makes this layer's ledger stale instead.
+                    withContext(dispatchers.main) {
+                        if (command.tool != Tool.BRUSH) {
+                            inkLedger.taint(layerId)
+                        } else if (inkStroke != null) {
+                            inkLedger.add(layerId, command, command)
+                        }
                     }
                 }
             }

@@ -405,25 +405,14 @@ top-toolbar `Row` of sliders) that had never been checked against Android's actu
   Windows installer output itself has never been produced or tested locally, only configured. A CI
   job now exists that should build and verify it for real on every release — see below.
 
-## CI: desktop installers now ship alongside the APK
+## CI: desktop installers are not built yet
 
-`.github/workflows/release-apk.yml` (renamed in spirit to "Compile and Release APK + Desktop", same
-filename) builds the Android APK and all three desktop installers in parallel
-(`build-android`, `build-desktop-linux` for `.deb`/`.rpm`, `build-desktop-windows` for `.msi`), then
-a `publish-release` job downloads everything and attaches all four files to the one GitHub Release
-the APK job has always published to (tag `latest-release-v${MAJOR}.${MINOR}`) — a single manual
-`workflow_dispatch` now produces every platform's build in one place. None of the desktop jobs touch
-the Android signing keystore or any other secret.
-
-What's verified vs. not: the Linux job's two Gradle tasks (`packageDeb`, `packageRpm`) were both run
-to completion in this session (see the Verification section below) — genuinely producing an
-installable `.deb` and `.rpm` with the dynamic version wired up. The Windows job (WiX Toolset via
-Chocolatey, then `packageMsi`) has **never actually run** — there is no Windows runner available
-from this sandboxed authoring environment, so that job is reasoned-through-and-should-work, not
-verified. The workflow YAML itself was validated for syntax (`python3 -c "import yaml; ..."`) and
-its Gradle task names confirmed real (`:desktop:tasks --all`), but the workflow as a whole has never
-been run by GitHub Actions. The first real `workflow_dispatch` of this file is the actual test of
-the Windows leg — check that run's `build-desktop-windows` job log before trusting it.
+No workflow builds the desktop installers. An earlier draft of this document described a
+`release-apk.yml` with `build-desktop-linux` / `build-desktop-windows` jobs; that file no longer
+exists (the repo's workflows are `merged-build.yml`, the two Android release hand-offs,
+`label.yml` and `stroke-data-kaggle.yml`). HereLiesAz/workflows has a `desktop-package.yml` that
+could take this on. Until then `.deb`/`.rpm` are built locally with `:desktop:packageDeb` /
+`:desktop:packageRpm`, and `.msi` needs a Windows host with the WiX Toolset.
 
 ## Caught by adversarial review (glee), fixed before this was pushed
 
@@ -449,11 +438,14 @@ Both fixes were re-verified the same way as the first pass (`:desktop:compileKot
 actual endpoint instead of stopping short). The "verified" claims below reflect the code as it
 stands after these fixes, not the first draft glee reviewed.
 
-## Verification performed this session
+## Verification performed (historical log)
+
+A record of one past session; version numbers and test counts below are from that time, not now.
 
 wgpu engine pass:
 
-- `cargo test` in `core/wgpu-engine`: 8 tests, both wgpu backends (lavapipe Vulkan, llvmpipe GL).
+- `cargo test` in `core/wgpu-engine` (at the time of that pass; the suite now has well over a hundred
+  `#[test]` functions across 15 files), both wgpu backends (lavapipe Vulkan, llvmpipe GL).
 - `tools/stamp-engine-diff/run.sh`: before their retirement, wgpu on GL was byte-identical to
   `GlesStampEngine` in all 26 scenarios and wgpu on Vulkan within 1 level of `VulkanStampEngine`.
   It now checks wgpu alone (Vulkan against GL, multipass, direct display, resident layers).
@@ -480,9 +472,7 @@ Earlier passes:
   major.minor.patch. `:desktop:packageRpm` was also run to completion (after installing the `rpm`
   package, which provides `rpmbuild`) and produced a real `graffux-1.39.74-1.x86_64.rpm`. `Msi`
   still cannot be built from Linux at all — it needs the WiX Toolset, only available on a Windows
-  host/CI runner (see above, and see `.github/workflows/release-apk.yml`'s `build-desktop-windows`
-  job, which installs it via Chocolatey — that job has never run for real, no Windows runner being
-  available from this sandboxed session either).
+  host (see "CI: desktop installers are not built yet" above).
 - The real AzNavRail rail, brush-preset switching, colour palette, and Undo were all re-verified
   after the release-detection fix above: two scripted strokes, click Undo, screenshot confirms only
   the second stroke is removed (reproduced twice). `:core:engine:desktopTest`,

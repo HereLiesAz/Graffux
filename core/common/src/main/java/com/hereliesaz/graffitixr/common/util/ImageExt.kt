@@ -10,7 +10,7 @@ import android.graphics.Bitmap
  * wall — they must be highlighted. Only the ALPHA channel matters to the native fingerprint
  * masker (opaque = detect, transparent = skip), so the RGB highlight is purely visual.
  */
-const val MARK_HIGHLIGHT_COLOR: Int = 0xFF00E5FF.toInt() // bright cyan
+const val MARK_HIGHLIGHT_COLOR: Int = 0xFF00FFFF.toInt() // the theme Cyan (core:design can't be imported here)
 
 // Connected mark components smaller than max(this floor, area / NOISE_AREA_DIVISOR) pixels are
 // treated as sensor/texture noise and dropped, so the user never sees meaningless "dots" — only

@@ -31,6 +31,7 @@ class GraffuxApplication : Application() {
 
     @Inject lateinit var securityProviderManager: SecurityProviderManager
     @Inject lateinit var predictionReports: PredictionReportRepository
+    @Inject lateinit var revocationSweep: com.hereliesaz.graffitixr.data.azphalt.RevocationSweep
 
     override fun onCreate() {
         super.onCreate()
@@ -49,6 +50,7 @@ class GraffuxApplication : Application() {
             Breadcrumbs.persistTo(crumbs)
         }
         Breadcrumbs.record("app start")
+        PrivacyConsent.apply(this)
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
@@ -58,7 +60,7 @@ class GraffuxApplication : Application() {
         // Graffux has no work without a project: when there is none, the editor asks for one with
         // the mandatory project dialog instead of silently creating "Untitled".
         EditorViewModel.projectGateEnabled = true
-        // wgpu is the only GPU engine (the CPU draws where it can't start); the old backend
+        // wgpu is the only GPU engine (there is no CPU renderer); the old backend
         // selector's stored choice is dropped once, before any engine is created.
         val gpuPrefs = getSharedPreferences(GpuStampEngine.PREFS, MODE_PRIVATE)
         RetiredGpuBackendMigration.migrate(gpuPrefs)
@@ -79,9 +81,22 @@ class GraffuxApplication : Application() {
         // Signal-level (SIGSEGV/SIGABRT) backtraces the JVM handler above can't see -- the Vulkan
         // stamp engine and Ink predictor run native code on the drawing path. Needs loadAll() above.
         NativeCrashHandler.install(File(cacheDir, CrashIssueUploader.NATIVE_CRASH_FILE).path)
-        // TEMPORARY: with a GitHub token pasted in Settings, file what the last run left behind.
+        // Crash reports go out only with Settings → Privacy → Send crash reports on (and the reports
+        // token below connected), and only for deaths after that opt-in.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { CrashIssueUploader(this@GraffuxApplication, predictionReports).uploadPending() }
+            // Withdrawn extensions: removed, and said so, rather than left running.
+            val removed = runCatching { revocationSweep.run() }.getOrDefault(emptyList())
+            if (removed.isNotEmpty()) {
+                val names = removed.joinToString { it.id }
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        this@GraffuxApplication,
+                        "Removed withdrawn extension(s): $names",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
             // Training data is strictly opt-in. Existing pending files stay local while consent is off.
             val trainingPrefs = getSharedPreferences(
                 com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,

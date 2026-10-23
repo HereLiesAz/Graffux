@@ -35,6 +35,7 @@ class StrokeRelayClient(
                     connection.setFixedLengthStreamingMode(bytes.size)
                     connection.outputStream.use { it.write(bytes) }
                     val code = connection.responseCode
+                    if (code in PERMANENT) throw RejectedException(fileName, code)
                     check(code == HTTP_OK || code == HTTP_CREATED) { "The stroke relay refused $fileName (HTTP $code)" }
                     val body = connection.inputStream.use { it.readBytes() }.decodeToString()
                     check(ACCEPTED.containsMatchIn(body)) {
@@ -46,7 +47,13 @@ class StrokeRelayClient(
             }
         }
 
+    /** The relay will never accept this file (bad name, too large, not stroke data): don't retry it. */
+    class RejectedException(fileName: String, val code: Int) :
+        IllegalStateException("The stroke relay rejected $fileName for good (HTTP $code)")
+
     companion object {
+        /** 400 bad name, 413 too large, 415 not stroke data: retrying the same bytes cannot succeed. */
+        private val PERMANENT = setOf(400, 413, 415)
         const val DEFAULT_URL = "https://graffux.hereliesaz.workers.dev"
         private const val TIMEOUT_MS = 60_000
         private const val HTTP_OK = 200

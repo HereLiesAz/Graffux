@@ -16,7 +16,7 @@ class InkUtensilCatalogTest {
     @Test
     fun `the brush list names the four stock families`() {
         assertEquals(
-            listOf("Ink Pen", "Ink Marker", "Ink Highlighter", "Ink Dashed Line"),
+            listOf("Pressure Pen", "Ink Marker", "Ink Highlighter", "Ink Dashed Line"),
             INK_UTENSIL_CATALOG.map { it.label },
         )
     }

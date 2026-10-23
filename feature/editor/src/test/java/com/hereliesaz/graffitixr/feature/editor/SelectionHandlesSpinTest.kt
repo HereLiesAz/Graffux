@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import com.hereliesaz.graffitixr.common.model.Layer
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,19 +32,22 @@ class SelectionHandlesSpinTest {
     @get:Rule
     val rule = createComposeRule()
 
-    @Test
+    // The timeout turns the old failure mode (a hung main loop) into a failing test instead of a
+    // stalled build.
+    @Test(timeout = 20_000)
     fun `a stroke over a layer with no corners does not spin the gesture loop`() {
+        var callbacks = 0
         rule.setContent {
             SelectionHandles(
                 activeLayer = Layer(id = "empty", name = "Empty"),
                 viewportOffset = Offset.Zero,
                 viewportZoom = 1f,
                 viewportRotation = 0f,
-                onGestureStart = {},
-                onResize = {},
-                onRotate = {},
-                onMove = {},
-                onGestureEnd = {},
+                onGestureStart = { callbacks++ },
+                onResize = { callbacks++ },
+                onRotate = { callbacks++ },
+                onMove = { callbacks++ },
+                onGestureEnd = { callbacks++ },
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -54,5 +58,7 @@ class SelectionHandlesSpinTest {
         }
         rule.waitForIdle()
         rule.mainClock.advanceTimeBy(500)
+        // A layer with no corners has no handles: the stroke must pass straight through them.
+        assertEquals(0, callbacks)
     }
 }

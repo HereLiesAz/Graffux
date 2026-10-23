@@ -9,7 +9,8 @@ package com.hereliesaz.graffitixr.feature.editor.ink
  * to outlive that. Entries are keyed by the identity of the
  * [com.hereliesaz.graffitixr.feature.editor.StrokeCommand] that carried them (never by equality —
  * two strokes can compare equal), so Undo can take exactly the stroke it undid back out and Redo
- * can put it back, and the export always matches what the layer currently shows.
+ * can put it back. A layer edited by anything but Ink afterwards is tainted ([taint]) and exports
+ * its raster instead, so the export never shows ink that was erased.
  *
  * Generic in the stroke type so it is testable without Ink's native library. Main-thread only,
  * like the undo/redo stacks it mirrors.
@@ -18,6 +19,18 @@ internal class InkStrokeLedger<T : Any> {
     private class Entry<T>(val key: Any, val stroke: T)
 
     private val byLayer = HashMap<String, MutableList<Entry<T>>>()
+
+    /**
+     * Layers a non-Ink edit (eraser, clear, smudge, liquify, a peer's eraser…) has touched since
+     * their Ink went down. Their vector Ink no longer matches the pixels, so [strokes] reports none
+     * and the export falls back to the layer's raster, which does.
+     */
+    private val tainted = HashSet<String>()
+
+    /** A non-Ink edit landed on [layerId]; see [tainted]. */
+    fun taint(layerId: String) {
+        if (byLayer.containsKey(layerId)) tainted += layerId
+    }
 
     /** Records [stroke], committed to [layerId] by the command [key]. */
     fun add(layerId: String, key: Any, stroke: T) {
@@ -52,7 +65,11 @@ internal class InkStrokeLedger<T : Any> {
     fun layerIds(): Set<String> = byLayer.keys.toSet()
 
     /** [layerId]'s strokes, oldest first. */
-    fun strokes(layerId: String): List<T> = byLayer[layerId]?.map { it.stroke }.orEmpty()
+    fun strokes(layerId: String): List<T> =
+        if (layerId in tainted) emptyList() else byLayer[layerId]?.map { it.stroke }.orEmpty()
 
-    fun clear() = byLayer.clear()
+    fun clear() {
+        byLayer.clear()
+        tainted.clear()
+    }
 }

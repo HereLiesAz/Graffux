@@ -52,14 +52,22 @@ class SecureTokenStore(private val context: Context, private val prefsName: Stri
                 )
             }
             String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)))
-        }.getOrElse {
+        }.getOrElse { error ->
             // The Keystore key is invalidated by events outside our control (restore to a new device,
-            // some lock-screen changes). Treat that as "not signed in" and drop the dead ciphertext
-            // rather than throwing on every read forever.
-            clear(key)
+            // some lock-screen changes). Only then is the ciphertext dead: drop it rather than
+            // throwing on every read forever. Anything else (a Keystore that isn't ready yet at
+            // process start, a provider hiccup) is transient: report "not available now" and keep
+            // the token for the next read.
+            if (isPermanent(error)) clear(key)
             null
         }
     }
+
+    private fun isPermanent(error: Throwable): Boolean =
+        error is android.security.keystore.KeyPermanentlyInvalidatedException ||
+            error is javax.crypto.AEADBadTagException ||
+            error is java.security.UnrecoverableKeyException ||
+            error is IllegalArgumentException // the stored Base64 itself is corrupt
 
     fun clear(key: String) {
         prefs.edit().remove(key).remove(ivKey(key)).apply()

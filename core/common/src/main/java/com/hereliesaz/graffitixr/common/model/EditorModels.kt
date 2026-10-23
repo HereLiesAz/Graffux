@@ -219,7 +219,10 @@ data class BrushStroke(
     val colorArgb: Long = 0xFFFFFFFF,
     val brushSize: Float = 50f,
     val brushFeathering: Float = 0f,
-    val blendModeOrdinal: Int = 3, // BlendMode.SrcOver ordinal
+    // Despite the name, a [Tool] ordinal (read back with Tool.entries[...]); the default is the
+    // Brush. It used to be 3 with a "BlendMode.SrcOver" comment, which decodes as Tool.BLUR.
+    // Projects are written with encodeDefaults = true, so no saved stroke relies on the default.
+    val blendModeOrdinal: Int = Tool.BRUSH.ordinal,
     val opacity: Float = 1f,
     // Aligned 1:1 with `points` (one per x,y pair, not per float). Empty reads as full pressure.
     val pressures: List<Float> = emptyList(),

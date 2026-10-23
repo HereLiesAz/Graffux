@@ -1,6 +1,8 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/BackgroundColorDialog.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.design.theme.CheckerDark
+import com.hereliesaz.graffitixr.design.theme.CheckerLight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,14 +64,14 @@ fun BackgroundColorDialog(
                         .then(
                             // Transparent → paint a checkerboard so the swatch reads as "see-through".
                             if (isTransparent) Modifier.drawBehind {
-                                drawRect(Color(0xFFCFCFCF))
+                                drawRect(CheckerLight)
                                 val c = 9f
                                 var yy = 0
                                 while (yy * c < size.height) {
                                     var xx = 0
                                     while (xx * c < size.width) {
                                         if ((xx + yy) % 2 == 0) drawRect(
-                                            Color(0xFF9E9E9E),
+                                            CheckerDark,
                                             topLeft = Offset(xx * c, yy * c),
                                             size = Size(c, c),
                                         )
