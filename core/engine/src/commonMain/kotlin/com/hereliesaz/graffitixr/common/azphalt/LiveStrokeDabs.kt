@@ -16,7 +16,8 @@ object LiveStrokeDabs {
     /** Whether [brush] paints through the dynamic generator (the live path's gate). */
     fun usesDynamicGenerator(brush: AzphaltBrush): Boolean =
         brush.dynamics.isNotEmpty() || brush.maskedBrush?.dynamics?.isNotEmpty() == true ||
-            brush.taper.isActive() || brush.blot.isActive() || brush.contact.isActive()
+            brush.taper.isActive() || brush.blot.isActive() || brush.contact.isActive() ||
+            brush.program != null
 
     /** The stroke's movement dabs, as the live stroke generated them. */
     fun movementDabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
