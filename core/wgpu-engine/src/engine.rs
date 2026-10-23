@@ -410,6 +410,8 @@ struct Tex {
     width: u32,
     height: u32,
     hash: u64,
+    /// The caller's content id for these pixels ([`Engine::ensure_tex_id`]); 0 = none.
+    content_id: u64,
 }
 
 fn tv(t: &Tex) -> wgpu::BindingResource<'_> {
@@ -519,6 +521,12 @@ pub struct Engine {
     secondary_buffer: GrowBuffer,
     /// The masked shader's per-dab [`DabXform`]s.
     xform_buffer: GrowBuffer,
+    /// Content ids for the next masked stamp's (tip mask, grain, secondary mask), 0 = unnamed
+    /// ([`Engine::set_masked_content_ids`]); consumed by that call.
+    masked_ids: [u64; 3],
+    /// Multipass: the last owned copy of each masked image by content id, so a repeated id is
+    /// neither copied nor hashed again (multipass.rs R8).
+    mp_r8_cache: [Option<multipass::R8>; 3],
     carrier: GrowBuffer,
     smudge_uniforms: GrowBuffer,
     stamp_uniform: wgpu::Buffer,
@@ -987,6 +995,8 @@ impl Engine {
             dab_buffer,
             secondary_buffer,
             xform_buffer,
+            masked_ids: [0; 3],
+            mp_r8_cache: Default::default(),
             carrier,
             smudge_uniforms,
             stamp_uniform,
@@ -1058,6 +1068,7 @@ impl Engine {
             width,
             height,
             hash: fnv1a(data),
+            content_id: 0,
         }
     }
 
@@ -1072,12 +1083,37 @@ impl Engine {
         format: wgpu::TextureFormat,
         data: &[u8],
     ) {
+        Self::ensure_tex_id(device, queue, tex, label, width, height, format, data, 0)
+    }
+
+    /// [`Engine::ensure_tex`] for pixels the caller names with `id` (non-zero: the same id always
+    /// means the same bytes; [`Engine::set_masked_content_ids`]). A texture already holding `id` at
+    /// this size is current, so the bytes are neither hashed nor uploaded: a stroke's tip mask and
+    /// grain cost their hash once per stroke instead of once per batch. With `id` 0 the content
+    /// hash decides, as before.
+    #[allow(clippy::too_many_arguments)]
+    fn ensure_tex_id(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        tex: &mut Tex,
+        label: &str,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        data: &[u8],
+        id: u64,
+    ) {
+        if id != 0 && tex.content_id == id && tex.width == width && tex.height == height {
+            return;
+        }
         let hash = fnv1a(data);
         if tex.width == width && tex.height == height && tex.hash == hash {
+            tex.content_id = id;
             return;
         }
         if tex.width != width || tex.height != height {
             *tex = Self::make_tex(device, queue, label, width, height, format, data);
+            tex.content_id = id;
             return;
         }
         let bpp = format.block_copy_size(None).unwrap_or(1);
@@ -1101,6 +1137,7 @@ impl Engine {
             },
         );
         tex.hash = hash;
+        tex.content_id = id;
     }
 
     /// [`Engine::ensure_tex`] for a texture queued multipass work may still bind: written in place
@@ -1491,6 +1528,8 @@ impl Engine {
         hardness: f32,
         p: &MaskedParams,
     ) -> bool {
+        // Ids name this call's images only: taken now, so a failed call cannot leak them to the next.
+        let ids = std::mem::take(&mut self.masked_ids);
         if dabs.is_empty() || p.mask_width == 0 || p.mask_height == 0 {
             return false;
         }
@@ -1502,11 +1541,11 @@ impl Engine {
             return false;
         }
         if self.mp_on() && self.stamp_mode == STAMP_OVER {
-            return self.mp_submit_masked(dabs, color_argb, hardness, p);
+            return self.mp_submit_masked(dabs, color_argb, hardness, p, ids);
         }
         let r8 = wgpu::TextureFormat::R8Unorm;
         let mask = &p.mask[..mask_len as usize];
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.mask_tex,
@@ -1515,6 +1554,7 @@ impl Engine {
             p.mask_height,
             r8,
             mask,
+            ids[0],
         );
         let grain = p
             .grain
@@ -1524,7 +1564,7 @@ impl Engine {
             Some((g, w, h)) => (&g[..(w * h) as usize], w, h),
             None => (&white[..], 1, 1),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.grain_tex,
@@ -1533,6 +1573,7 @@ impl Engine {
             gh,
             r8,
             grain_data,
+            if grain.is_some() { ids[1] } else { 0 },
         );
         let secondary = if p.secondary_dabs.is_empty() {
             None
@@ -1544,7 +1585,7 @@ impl Engine {
             Some((m, w, h)) => (&m[..(w * h) as usize], w, h),
             None => (&white[..], 1, 1),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.secondary_mask_tex,
@@ -1553,6 +1594,7 @@ impl Engine {
             sh,
             r8,
             smask,
+            if secondary.is_some() { ids[2] } else { 0 },
         );
 
         let dab_bytes: &[u8] = bytemuck::cast_slice(dabs);
@@ -1694,6 +1736,14 @@ impl Engine {
         self.queue.submit([encoder.finish()]);
         self.note_write(self.dispatch_footprint(r));
         self.ok()
+    }
+
+    /// Names the images of the next [`Engine::stamp_masked_dabs`] call: `(tip mask, grain,
+    /// secondary mask)` content ids, 0 = unnamed (hashed, as always). A non-zero id is the
+    /// caller's promise that it always names the same bytes, so when the engine already holds that
+    /// id it skips hashing and uploading the image. Applies to the next masked call only.
+    pub fn set_masked_content_ids(&mut self, mask: u64, grain: u64, secondary: u64) {
+        self.masked_ids = [mask, grain, secondary];
     }
 
     /// `StampEngine::colorSmudge`: the ordered Color Smudge plan (Smear / Dulling, optional pigment

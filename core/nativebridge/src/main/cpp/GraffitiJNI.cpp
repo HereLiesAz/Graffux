@@ -587,6 +587,19 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JN
     JNI_CATCH(jboolean())
 }
 
+// Names the next nativeStampMaskedDabs call's images (StampEngine::setMaskedContentIds).
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetMaskedContentIds(
+        JNIEnv*, jobject, jlong handle, jlong mask, jlong grain, jlong secondary) {
+    JNI_TRY
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (engine && engine->isInitialized()) {
+        engine->setMaskedContentIds(static_cast<uint64_t>(mask), static_cast<uint64_t>(grain),
+                                    static_cast<uint64_t>(secondary));
+    }
+    JNI_CATCH()
+}
+
 // Turns on GPU undo shadows for the document engine (StampEngine::undoOpen).
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUndoOpen(JNIEnv*, jobject, jlong handle) {

@@ -430,6 +430,26 @@ pub unsafe extern "C" fn gfx_wgpu_stroke_rect(e: *mut Engine, out: *mut i32) -> 
     })
 }
 
+/// [`Engine::set_masked_content_ids`]: names the next masked call's tip mask, grain and secondary
+/// mask (0 = unnamed), so an image the engine already holds is neither hashed nor uploaded.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_masked_ids(
+    e: *mut Engine,
+    mask: u64,
+    grain: u64,
+    secondary: u64,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| {
+            e.set_masked_content_ids(mask, grain, secondary);
+            true
+        })
+    })
+}
+
 /// [`Engine::undo_open`]: GPU undo shadows on a cache-mode engine.
 ///
 /// # Safety

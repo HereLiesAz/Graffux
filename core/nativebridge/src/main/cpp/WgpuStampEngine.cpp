@@ -80,6 +80,8 @@ struct Api {
     uint64_t (*docSnapshot)(GfxWgpuEngine*, int32_t, uint64_t, uint64_t, uint64_t, int32_t*);
     // Optional: undo shadows without document mode (gfx_wgpu_undo_open).
     bool (*undoOpen)(GfxWgpuEngine*);
+    // Optional: content ids for the next masked call's images (gfx_wgpu_set_masked_ids).
+    bool (*setMaskedIds)(GfxWgpuEngine*, uint64_t, uint64_t, uint64_t);
     // Optional, all or nothing: selection at commit.
     bool (*setSelection)(GfxWgpuEngine*, const uint8_t*, size_t);
     bool (*selectionOp)(GfxWgpuEngine*, int32_t);
@@ -193,6 +195,7 @@ void load() {
         if (!doc) a.docOpen = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_doc_snapshot", a.docSnapshot);
         optional(lib, "gfx_wgpu_undo_open", a.undoOpen);
+        optional(lib, "gfx_wgpu_set_masked_ids", a.setMaskedIds);
         const bool wet = optional(lib, "gfx_wgpu_wet_begin", a.wetBegin) &&
                          optional(lib, "gfx_wgpu_wet_buffer", a.wetBuffer) &&
                          optional(lib, "gfx_wgpu_wet_op", a.wetOp) &&
@@ -400,6 +403,10 @@ bool WgpuStampEngine::shadeImpastoRelief(int x, int y, int w, int h, float azimu
                                          float elevationDeg, float strength) {
     return supportsImpasto() &&
            gApi.shadeRelief(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
+}
+
+void WgpuStampEngine::setMaskedContentIds(uint64_t mask, uint64_t grain, uint64_t secondary) {
+    if (engine_ != nullptr && gApi.setMaskedIds != nullptr) gApi.setMaskedIds(engine_, mask, grain, secondary);
 }
 
 bool WgpuStampEngine::undoOpen() {

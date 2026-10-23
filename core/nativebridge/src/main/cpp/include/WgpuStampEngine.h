@@ -94,6 +94,7 @@ public:
     bool strokeRect(int* out) override;
     bool docOpen() override;
     bool undoOpen() override;
+    void setMaskedContentIds(uint64_t mask, uint64_t grain, uint64_t secondary) override;
     uint64_t docLayer(int op, uint64_t key, uint64_t other, const int* rect, const uint8_t* rgba,
                       size_t len) override;
     bool docLayerDrop(uint64_t key) override;

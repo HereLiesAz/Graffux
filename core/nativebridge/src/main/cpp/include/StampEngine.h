@@ -219,6 +219,10 @@ public:
     virtual bool docLayerDrop(uint64_t /*key*/) { return false; }
     virtual uint64_t docLayerBind(uint64_t /*key*/) { return 0; }
     virtual uint64_t docLayerCommit(uint64_t /*key*/, uint64_t /*session*/, int* /*outRect*/) { return 0; }
+    // Names the next stampMaskedDabs call's tip mask, grain and secondary mask (0 = unnamed): the
+    // same non-zero id always means the same bytes, so an engine already holding it skips the
+    // per-batch hash and upload. Optional; ignored by engines without it.
+    virtual void setMaskedContentIds(uint64_t /*mask*/, uint64_t /*grain*/, uint64_t /*secondary*/) {}
     // GPU undo without document mode: every bind keeps the layer as it was, so docSnapshot op 0
     // can keep a committed stroke's pre-stroke rectangle. False = unsupported.
     virtual bool undoOpen() { return false; }

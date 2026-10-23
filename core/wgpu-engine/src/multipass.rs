@@ -203,11 +203,13 @@ impl MultipassStats {
 
 /// Owned copy of an R8 image a queued call referenced.
 #[derive(Clone)]
-struct R8 {
+pub(super) struct R8 {
     data: Arc<Vec<u8>>,
     width: u32,
     height: u32,
     hash: u64,
+    /// The caller's content id ([`Engine::set_masked_content_ids`]), 0 = none.
+    id: u64,
 }
 
 impl R8 {
@@ -219,7 +221,26 @@ impl R8 {
             width,
             height,
             hash,
+            id: 0,
         }
+    }
+
+    /// [`R8::new`] for an image named `id`: a repeat of the id `cache` holds (at this size) shares
+    /// that copy, so it is neither copied nor hashed again; otherwise a new copy, kept in `cache`.
+    fn named(cache: &mut Option<R8>, data: &[u8], width: u32, height: u32, id: u64) -> R8 {
+        if id == 0 {
+            return R8::new(data, width, height);
+        }
+        if let Some(c) = cache
+            .as_ref()
+            .filter(|c| c.id == id && c.width == width && c.height == height)
+        {
+            return c.clone();
+        }
+        let mut r = R8::new(data, width, height);
+        r.id = id;
+        *cache = Some(r.clone());
+        r
     }
 }
 
@@ -1062,17 +1083,19 @@ impl Engine {
         color_argb: u32,
         hardness: f32,
         p: &MaskedParams,
+        ids: [u64; 3],
     ) -> bool {
-        let r8 = |img: Option<(&[u8], u32, u32)>| {
+        let [mask_cache, grain_cache, secondary_cache] = &mut self.mp_r8_cache;
+        let r8 = |img: Option<(&[u8], u32, u32)>, cache: &mut Option<R8>, id: u64| {
             img.filter(|(d, w, h)| *w > 0 && *h > 0 && d.len() >= (*w * *h) as usize)
-                .map(|(d, w, h)| R8::new(d, w, h))
+                .map(|(d, w, h)| R8::named(cache, d, w, h, id))
         };
-        let mask = R8::new(p.mask, p.mask_width, p.mask_height);
-        let grain = r8(p.grain);
+        let mask = R8::named(mask_cache, p.mask, p.mask_width, p.mask_height, ids[0]);
+        let grain = r8(p.grain, grain_cache, ids[1]);
         let secondary_mask = if p.secondary_dabs.is_empty() {
             None
         } else {
-            r8(p.secondary_mask)
+            r8(p.secondary_mask, secondary_cache, ids[2])
         };
         let s = p.substrate;
         let mut compat = vec![
@@ -1455,11 +1478,11 @@ impl Engine {
                 }
                 let r8f = wgpu::TextureFormat::R8Unorm;
                 let white = [255u8];
-                let (gd, gw, gh): (&[u8], u32, u32) = match &c0.grain {
-                    Some(g) => (&g.data, g.width, g.height),
-                    None => (&white, 1, 1),
+                let (gd, gw, gh, gid): (&[u8], u32, u32, u64) = match &c0.grain {
+                    Some(g) => (&g.data, g.width, g.height, g.id),
+                    None => (&white, 1, 1, 0),
                 };
-                Engine::ensure_tex(
+                Engine::ensure_tex_id(
                     &self.device,
                     &self.queue,
                     &mut mp.draft_grain,
@@ -1468,12 +1491,13 @@ impl Engine {
                     gh,
                     r8f,
                     gd,
+                    gid,
                 );
-                let (sd, sw, sh): (&[u8], u32, u32) = match &c0.secondary_mask {
-                    Some(g) => (&g.data, g.width, g.height),
-                    None => (&white, 1, 1),
+                let (sd, sw, sh, sid): (&[u8], u32, u32, u64) = match &c0.secondary_mask {
+                    Some(g) => (&g.data, g.width, g.height, g.id),
+                    None => (&white, 1, 1, 0),
                 };
-                Engine::ensure_tex(
+                Engine::ensure_tex_id(
                     &self.device,
                     &self.queue,
                     &mut mp.draft_secondary_mask,
@@ -1482,6 +1506,7 @@ impl Engine {
                     sh,
                     r8f,
                     sd,
+                    sid,
                 );
                 let bytes: &[u8] = bytemuck::cast_slice(&dabs);
                 mp.draft_dabs.ensure(&self.device, bytes.len() as u64);
@@ -1892,7 +1917,7 @@ impl Engine {
     ) {
         let (r, range) = chunk;
         let r8 = wgpu::TextureFormat::R8Unorm;
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.mask_tex,
@@ -1901,13 +1926,14 @@ impl Engine {
             c.mask.height,
             r8,
             &c.mask.data,
+            c.mask.id,
         );
         let white = [255u8];
-        let (gd, gw, gh): (&[u8], u32, u32) = match &c.grain {
-            Some(g) => (&g.data, g.width, g.height),
-            None => (&white, 1, 1),
+        let (gd, gw, gh, gid): (&[u8], u32, u32, u64) = match &c.grain {
+            Some(g) => (&g.data, g.width, g.height, g.id),
+            None => (&white, 1, 1, 0),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.grain_tex,
@@ -1916,12 +1942,13 @@ impl Engine {
             gh,
             r8,
             gd,
+            gid,
         );
-        let (sd, sw, sh): (&[u8], u32, u32) = match &c.secondary_mask {
-            Some(g) => (&g.data, g.width, g.height),
-            None => (&white, 1, 1),
+        let (sd, sw, sh, sid): (&[u8], u32, u32, u64) = match &c.secondary_mask {
+            Some(g) => (&g.data, g.width, g.height, g.id),
+            None => (&white, 1, 1, 0),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.secondary_mask_tex,
@@ -1930,6 +1957,7 @@ impl Engine {
             sh,
             r8,
             sd,
+            sid,
         );
         if r.is_empty() || range.is_empty() {
             return;

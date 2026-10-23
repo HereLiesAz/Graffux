@@ -37,6 +37,22 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         const val BACKEND_LABEL = "wgpu"
 
         /**
+         * Content ids for the images [stampMaskedDabs] uploads, by array identity (a WeakHashMap
+         * on ByteArray keys compares identity: arrays do not override equals). The native engine
+         * skips hashing and uploading an image whose id it already holds, so a stroke's tip mask
+         * and grain cost their hash once per stroke instead of once per batch. Ids are never
+         * reused; an entry goes when its array is collected.
+         */
+        private val maskedContentIds = java.util.WeakHashMap<ByteArray, Long>()
+        private val nextMaskedContentId = java.util.concurrent.atomic.AtomicLong(1L)
+
+        internal fun maskedContentId(bytes: ByteArray?): Long = if (bytes == null) {
+            0L
+        } else {
+            synchronized(maskedContentIds) { maskedContentIds.getOrPut(bytes) { nextMaskedContentId.getAndIncrement() } }
+        }
+
+        /**
          * The open document's engine (wgpu): one native handle that lives across strokes, so the
          * layers it holds stay on the GPU instead of travelling with whichever pooled handle a
          * stroke happened to get. One stroke uses it at a time: [initDocument] takes the lease,
@@ -703,6 +719,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * counterpart to the former CPU masked-tip path (docs/Krita Brush Engine Adoption.md
      * item 15). The mask texture is only re-uploaded natively when its dimensions or content differ
      * from the previous call, so repeated calls with the same tip within one stroke are cheap.
+     * Each image array is named by identity ([maskedContentId]), so it must not be modified after it
+     * is first passed here: hand a changed image over as a new array.
      *
      * [grainAlpha8] (item 15's texture/grain follow-up) is an optional second single-channel tile
      * -- pre-baked exactly like [com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache]'s own
@@ -783,7 +801,11 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             }
         } else null
         val cfg = substrate?.sanitized()
+        val maskId = maskedContentId(maskAlpha8)
+        val grainId = maskedContentId(grainAlpha8)
+        val secondaryId = maskedContentId(secondaryMaskAlpha8)
         return timed(PassKind.STAMP) { onGpu {
+            nativeSetMaskedContentIds(nativeHandle, maskId, grainId, secondaryId)
             nativeStampMaskedDabs(
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
@@ -1184,6 +1206,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float,
         substrateOffsetX: Float, substrateOffsetY: Float, strokeMax: Boolean,
     ): Boolean
+    private external fun nativeSetMaskedContentIds(handle: Long, mask: Long, grain: Long, secondary: Long)
     private external fun nativeStampMaskedDabs(
         handle: Long,
         dabData: FloatArray,
