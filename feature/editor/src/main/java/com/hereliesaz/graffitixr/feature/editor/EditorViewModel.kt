@@ -3694,13 +3694,15 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Export the current design as a PNG saved to the gallery. The export is the document's layers
-     * composited over a transparent background (the PNG writer preserves alpha).
+     * Export the current design as a PNG saved to the gallery. The layers are composited over the
+     * canvas background the user picked (the page they see behind their work); only a transparent
+     * background, the checkerboard swatch, exports with alpha. The notice says which.
      */
     fun exportImage() {
         viewModelScope.launch(dispatchers.default) {
             dispatch(EditorIntent.SetLoading(true))
             try {
+                val background = exportBackgroundArgb(_uiState.value.canvasBackground)
                 val metrics = context.resources.displayMetrics
                 val exportBitmap = exportManager.compositeToDocument(
                     _uiState.value.layers,
@@ -3709,7 +3711,7 @@ class EditorViewModel @Inject constructor(
                     _uiState.value.documentWidth,
                     _uiState.value.documentHeight,
                     backgroundBitmap = null,
-                    backgroundColor = android.graphics.Color.TRANSPARENT,
+                    backgroundColor = background,
                 )
 
                 val success = saveBitmapToGallery(context, exportBitmap)
@@ -3718,7 +3720,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
                     if (success) {
-                        notify("Image saved to gallery", NoticeKind.NOTICE)
+                        notify(exportSavedMessage(background), NoticeKind.NOTICE)
                     } else {
                         notify("Couldn't save the image to your gallery. Check that storage isn't full.", NoticeKind.WARNING)
                     }
