@@ -1181,19 +1181,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
                             showFooter = false,
-                            trigger = AzDropdownTrigger.Hamburger,
+                            // Words, not glyphs: "View" says what this menu holds.
+                            trigger = AzDropdownTrigger.Text("View"),
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
                         )
+                        // Each row says what it shows and whether it's showing, so a hidden panel
+                        // can be traced back here.
                         fun areaToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) =
                             azToggle(
                                 isChecked = checked,
-                                toggleOnText = label,
-                                toggleOffText = label,
+                                toggleOnText = "$label: shown",
+                                toggleOffText = "$label: hidden",
                                 color = menuItemColor,
                                 onToggle = onToggle,
                             )
-                        areaToggle("Layers", showLayersRail) { showLayersRail = it }
-                        areaToggle("Carousel", showCarousel) { showCarousel = it }
+                        areaToggle("Layers panel", showLayersRail) { showLayersRail = it }
+                        areaToggle("Brush sheet", showCarousel) { showCarousel = it }
                         areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
                         areaToggle("3D", showModelRail) { showModelRail = it }
                         areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
@@ -1215,7 +1218,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         azConfig(
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            trigger = AzDropdownTrigger.MoreVert,
+                            trigger = AzDropdownTrigger.Text("File"),
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
                         )
                     // Every entry here is the same colour, and the dropdown's `azConfig` has no hook
