@@ -276,6 +276,11 @@ packages (always standalone there).
 `checksum` carry the payload instead — a host fetches it lazily and must verify it against
 `checksum` before use.
 
+A `brush` asset's `params` may carry a `program`: a sandboxed stroke script the engine runs once per
+dab step of a live stroke, so the brush can remember and react (ink that runs dry, paint that pools and
+drips). It is data, not code — the package stays `kind: "asset"` and nothing is sandboxed or granted. See
+[`stroke-program.md`](stroke-program.md).
+
 #### 2.6.1 `AssetType`
 
 `brush`, `lut`, `pattern`, `stamp`, `shader`, `transition`, `mesh`, `material`, `hdri`, `motion`,

@@ -49,6 +49,13 @@ class IncrementalDynamicDabGenerator(
     private var dwellMs = 0f
     private var mechanicalState = BrushMechanicalState()
     private var predictedStrokeTotal = 0f
+    private var lastHeadingDeg = 0f
+    private var lastStepTime = 0L
+
+    /** The brush's stroke program, if it has one that compiles; a broken one leaves a plain brush. */
+    internal val programRunner: StrokeProgramRunner? = brush.program?.let { spec ->
+        (StrokeProgram.compile(spec) as? StrokeProgramCompilation.Ok)?.program?.newRunner(seed, brush)
+    }
 
     fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
@@ -61,6 +68,7 @@ class IncrementalDynamicDabGenerator(
             previous = sample
             firstSample = sample
             startTime = sample.uptimeMillis
+            lastStepTime = sample.uptimeMillis
             return emitAt(sample, 0f)
         }
         if (secondSample == null) secondSample = sample
@@ -245,9 +253,44 @@ class IncrementalDynamicDabGenerator(
             contactDiameter * (brush.tipRatio * contact.tipRatioMultiplier).coerceIn(0.05f, 1f)
         }
         val step = (brush.spacing * spacingReference * dynamic.spacingMultiplier).coerceAtLeast(BrushStamps.MIN_DAB_STEP_PX)
-        nextAt = at + step
+        var gap = 1f
+        val painted = programRunner?.let { runner ->
+            val turn = normalizeDegrees(headingDeg - lastHeadingDeg)
+            val result = runner.apply(
+                StrokeProgramFrame(
+                    x = sample.x,
+                    y = sample.y,
+                    pressure = sample.pressure,
+                    speedPxPerMs = sample.speedPxPerMs,
+                    headingDeg = headingDeg,
+                    turnDeg = if (index == 0) 0f else turn,
+                    distancePx = at,
+                    timeMs = (sample.uptimeMillis - startTime).toFloat(),
+                    dtMs = (sample.uptimeMillis - lastStepTime).coerceAtLeast(0L).toFloat(),
+                    index = index,
+                    diameterPx = resolvedDiameter,
+                    tiltDeg = sample.tiltRadians * RAD_TO_DEG,
+                    azimuthDeg = sample.orientationRadians * RAD_TO_DEG,
+                    dwellMs = dwellMs,
+                    stepPx = step,
+                ),
+                out,
+            )
+            gap = result.gapMultiplier
+            result.dabs
+        } ?: out
+        lastHeadingDeg = headingDeg
+        lastStepTime = sample.uptimeMillis
+        nextAt = at + (step * gap).coerceAtLeast(BrushStamps.MIN_DAB_STEP_PX)
         index++
-        return out
+        return painted
+    }
+
+    private fun normalizeDegrees(deg: Float): Float {
+        var d = deg % 360f
+        if (d > 180f) d -= 360f
+        if (d < -180f) d += 360f
+        return d
     }
 
     private fun resolveDabCount(): Int {

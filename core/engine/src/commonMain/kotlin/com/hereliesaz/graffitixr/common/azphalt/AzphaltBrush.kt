@@ -332,6 +332,13 @@ data class AzphaltBrush(
      * to preserve the positional constructor/serialization contract.
      */
     val substrateResponse: Float = 0f,
+    /**
+     * Optional stroke program (`spec/stroke-program.md`): a sandboxed script that runs once per dab
+     * step of a live stroke and reshapes or adds to what that step paints. Null (the default) leaves
+     * every existing brush dab-for-dab unchanged. Appended to preserve the positional constructor
+     * and serialization contract.
+     */
+    val program: StrokeProgramSpec? = null,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -516,7 +523,26 @@ data class AzphaltBrush(
                 impastoMaterial = impastoMaterial,
                 tipFormat = tipFormat,
                 substrateResponse = (f("substrateResponse") ?: 0f).coerceIn(0f, 1f),
+                program = (params?.get("program") as? JsonObject)?.let(::programSpecOf),
             ).sanitized()
+        }
+
+        /**
+         * A package author writes a program's source either as one string or as an array of lines
+         * (easier to read in JSON); both become one newline-joined string. Anything malformed means
+         * no program, so the brush still paints as its plain self.
+         */
+        private fun programSpecOf(obj: JsonObject): StrokeProgramSpec? {
+            fun source(key: String): String = when (val e = obj[key]) {
+                is JsonPrimitive -> e.contentOrNull.orEmpty()
+                is JsonArray -> e.joinToString("\n") { (it as? JsonPrimitive)?.contentOrNull.orEmpty() }
+                else -> ""
+            }
+            val state = (obj["state"] as? JsonObject)?.mapNotNull { (k, v) ->
+                (v as? JsonPrimitive)?.floatOrNull?.takeIf { it.isFinite() }?.let { k to it }
+            }?.toMap().orEmpty()
+            val spec = StrokeProgramSpec(state = state, init = source("init"), step = source("step"))
+            return spec.takeIf { it.step.isNotBlank() }
         }
     }
 }

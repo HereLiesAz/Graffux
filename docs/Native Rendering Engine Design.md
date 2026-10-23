@@ -1414,6 +1414,15 @@ stroke never matched what was drawn. Commands with no recorded samples (legacy, 
 path-only `BrushStamps.dabs(CatmullRom.densify(..))` list. End taper (`BrushTaper.endLengthPx`,
 `liftOffSynthesizesPressure`) is retired: it needs the final length, which the live stroke never has.
 
+**Stroke programs run inside that generator (`spec/stroke-program.md`).** A brush whose `params` carry a
+`program` always takes the dynamic path: after `IncrementalDynamicDabGenerator` builds a step's own dabs
+(size, taper, blot, contact, tufts, dynamics) it hands them to a `StrokeProgramRunner`, which may reshape
+them, drop them, or add dabs, and may stretch the distance to the next step. The runner owns the stroke's
+persistent state and a random stream seeded from the stroke seed, so replay reproduces every dab it
+produced. What comes out is ordinary `Dab`s: the GPU stamp engine, symmetry, the eraser's mirror and undo
+need to know nothing about it. A program that overruns its per-step operation budget paints the brush
+unchanged and rolls its state back, so no program can stall a stroke.
+
 **The commit is the live GPU layer.** At the stroke's end `EditorViewModel.handOffLiveStamp` takes
 the live stroke's engine (before `clearTransientStrokeState` would destroy it) and the dabs still
 queued for it. The commit waits for the live worker's last batch, stamps the leftovers on that engine
