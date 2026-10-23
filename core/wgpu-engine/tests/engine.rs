@@ -2,6 +2,8 @@
 //! an adapter on this machine (Vulkan, e.g. Mesa lavapipe; GL, e.g. Mesa llvmpipe) and are skipped
 //! with a note when none exists, so `cargo test` passes on a GPU-less CI runner too.
 
+mod common;
+
 use graffux_wgpu::reference::{stamp, StrokeState};
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{ColorSmudgeDab, Engine, GpuDab, MaskedParams, SubstrateParams};
@@ -32,7 +34,7 @@ fn engines() -> Vec<(&'static str, Engine)> {
                 eprintln!("[{name}] {}", e.adapter_description());
                 out.push((name, e));
             }
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out

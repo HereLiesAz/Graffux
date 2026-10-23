@@ -2,6 +2,8 @@
 //! reference: erase is `dst * (1 - a)`, alpha lock is SRC_ATOP (`src * a * dst.a + dst.rgb *
 //! (1 - a)`, alpha kept). Runs once per backend with an adapter.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{Engine, GpuDab, MaskedParams, SubstrateParams, STAMP_ATOP, STAMP_ERASE, STAMP_OVER};
 
@@ -14,7 +16,7 @@ fn engines() -> Vec<(&'static str, Engine)> {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         match Engine::with_backends(W, H, b) {
             Some(e) => out.push((name, e)),
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out

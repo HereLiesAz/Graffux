@@ -1,6 +1,8 @@
 //! Per-device tuning: the stamp workgroup size override and GPU pass timings. Like
 //! tests/engine.rs, the GPU tests run on whichever backends have an adapter here and skip otherwise.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{Engine, EngineOptions, GpuDab, MaskedParams, PassKind, SubstrateParams};
 
@@ -76,7 +78,7 @@ fn with_tile(backends: Backends, tile: u32) -> Option<Engine> {
 fn stamp_tile_8_matches_16() {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         let (Some(mut a), Some(mut c)) = (with_tile(b, 16), with_tile(b, 8)) else {
-            eprintln!("[{name}] no adapter -- skipped");
+            common::no_adapter(name);
             continue;
         };
         assert_eq!(a.stamp_tile(), 16);
@@ -101,7 +103,7 @@ fn odd_tile_request_uses_default() {
 fn pass_timings_follow_timestamp_support() {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         let Some(mut e) = with_tile(b, 16) else {
-            eprintln!("[{name}] no adapter -- skipped");
+            common::no_adapter(name);
             continue;
         };
         let info = e.gpu_info();
@@ -136,7 +138,7 @@ fn pass_timings_follow_timestamp_support() {
 #[test]
 fn many_passes_resolve_without_failing() {
     let Some(mut e) = with_tile(Backends::VULKAN | Backends::GL, 16) else {
-        eprintln!("no adapter -- skipped");
+        common::no_adapter("any");
         return;
     };
     let d = dabs();

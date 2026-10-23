@@ -3,6 +3,8 @@
 //! `PersistentWetnessField`, `ImpastoRegionShader.shadeMaterial`; f32 throughout). Runs once per
 //! backend with an adapter; skipped with a note when there is none.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{Engine, MaterialDab, WET_FLAG_HEIGHT, WET_FLAG_WETNESS, WET_MEDIA_FLOATS};
 
@@ -29,7 +31,7 @@ fn engines() -> Vec<(&'static str, Engine)> {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         match Engine::with_backends(W, H, b) {
             Some(e) => out.push((name, e)),
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out
@@ -603,7 +605,7 @@ fn wetness_deposit_matches_the_cpu_reference() {
         assert!(e.wet_set_dabs(&dabs));
         assert!(e.wet_deposit(0.3, 0.5));
         let flags = dab_flags(&mut e, dabs.len());
-        let ctl = ctl(&mut e, 0);
+        let ctl = ctl(&mut e, dabs.len());
         for (t, a) in want_active(&s, &dabs).iter().enumerate() {
             assert_eq!(ctl[t] != 0, *a, "[{name}] active tile {t} after deposit");
         }

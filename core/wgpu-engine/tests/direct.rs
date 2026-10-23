@@ -8,6 +8,8 @@
 //! * With multipass on, the first present after a stamp call already shows the draft (no
 //!   refinement ran), and after a flush it shows the contribution of the final layer.
 
+mod common;
+
 use graffux_wgpu::engine::direct::{caps, stroke_contribution};
 use graffux_wgpu::wgpu::{Backends, TextureFormat};
 use graffux_wgpu::{Engine, GpuDab, MultipassConfig, SubstrateParams};
@@ -22,7 +24,7 @@ fn backends() -> Vec<(&'static str, Backends)> {
         match Engine::with_backends(8, 8, b) {
             Some(e) if e.direct_capabilities() & caps::ADAPTER != 0 => out.push((name, b)),
             Some(_) => eprintln!("[{name}] no fragment storage -- skipped"),
-            None => eprintln!("[{name}] no adapter -- skipped"),
+            None => common::no_adapter(name),
         }
     }
     out

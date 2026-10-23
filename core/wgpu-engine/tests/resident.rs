@@ -7,6 +7,8 @@
 //! one that keeps the layer resident and re-uploads only when the caller's generation says the CPU
 //! layer changed. Every stroke's result must be byte-identical.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{ColorSmudgeDab, Engine, GpuDab, SubstrateParams};
 
@@ -34,7 +36,7 @@ fn backends() -> Vec<(&'static str, Backends)> {
         if Engine::with_backends(8, 8, b).is_some() {
             out.push((name, b));
         } else {
-            eprintln!("[{name}] no adapter -- skipped");
+            common::no_adapter(name);
         }
     }
     out

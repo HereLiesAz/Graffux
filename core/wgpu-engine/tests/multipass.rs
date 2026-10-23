@@ -12,6 +12,8 @@
 //! Side-by-side PNGs (draft, clarity stages, final) are written to
 //! `target/multipass-png/` for a look; they are not committed.
 
+mod common;
+
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{
     ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
@@ -44,7 +46,7 @@ fn backends() -> Vec<(&'static str, Backends)> {
         if Engine::with_backends(8, 8, b).is_some() {
             out.push((name, b));
         } else {
-            eprintln!("[{name}] no adapter -- skipped");
+            common::no_adapter(name);
         }
     }
     out
