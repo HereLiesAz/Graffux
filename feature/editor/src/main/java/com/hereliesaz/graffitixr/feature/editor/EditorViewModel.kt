@@ -9998,10 +9998,7 @@ class EditorViewModel @Inject constructor(
                 // https + host + no userinfo, enforced here so every caller is checked, not just the
                 // deep-link parser (a thrown IllegalArgumentException lands in the toast below).
                 val target = com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.requireSecureInstallUrl(url)
-                val connection = target.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 15_000
-                connection.readTimeout = 30_000
-                connection.connect()
+                val connection = com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.openSameHost(target)
                 if (connection.responseCode !in 200..299) {
                     error("Download failed: HTTP ${connection.responseCode}")
                 }

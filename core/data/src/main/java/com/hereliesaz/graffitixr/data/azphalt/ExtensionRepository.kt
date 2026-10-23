@@ -606,6 +606,39 @@ class ExtensionRepository @Inject constructor(
             return uri.toURL()
         }
 
+        /**
+         * Opens [target], following redirects only to https on the same host. The install prompt
+         * names the host the user agreed to; HttpURLConnection's own redirect following would
+         * fetch from wherever the server pointed instead.
+         *
+         * @throws IllegalArgumentException when a redirect leaves the host or https.
+         */
+        fun openSameHost(target: java.net.URL): java.net.HttpURLConnection {
+            var url = target
+            repeat(MAX_REDIRECTS + 1) {
+                val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    connectTimeout = CONNECT_TIMEOUT_MS
+                    readTimeout = READ_TIMEOUT_MS
+                }
+                val code = connection.responseCode
+                if (code !in REDIRECT_CODES) return connection
+                val next = connection.getHeaderField("Location")?.let { java.net.URL(url, it) }
+                connection.disconnect()
+                require(next != null) { "The download redirected nowhere" }
+                require(next.protocol.equals("https", true) && next.host.equals(target.host, true)) {
+                    "The download moved to another site (${next.host}); not installing"
+                }
+                url = next
+            }
+            throw IllegalArgumentException("The download redirected too many times")
+        }
+
+        private const val MAX_REDIRECTS = 5
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+        private const val CONNECT_TIMEOUT_MS = 15_000
+        private const val READ_TIMEOUT_MS = 30_000
+
         private const val TRUST_CACHE_FILE = "azphalt-trust-keys.json"
         // The canonical `www.` host, not the bare domain -- see AzphaltStoreHandoff.WEB_STORE_URL:
         // the bare domain 308-redirects here, which this raw HttpURLConnection doesn't follow, so it
