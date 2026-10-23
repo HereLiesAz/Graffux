@@ -23,8 +23,8 @@ object HardwareFloorNotice {
     fun takeOnce(context: Context): String? {
         if (GpuTuningController.meetsHardwareFloor(context)) return null
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_SHOWN, false)) return null
-        prefs.edit().putBoolean(KEY_SHOWN, true).apply()
-        return MESSAGE
+        val firstTime = !prefs.getBoolean(KEY_SHOWN, false)
+        if (firstTime) prefs.edit().putBoolean(KEY_SHOWN, true).apply()
+        return MESSAGE.takeIf { firstTime }
     }
 }

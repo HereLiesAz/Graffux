@@ -13,7 +13,7 @@ internal fun exportBackgroundArgb(canvasBackground: Color): Int =
 
 /** The confirmation for a saved PNG, saying whether the background went with it. */
 internal fun exportSavedMessage(backgroundArgb: Int): String =
-    if (backgroundArgb ushr 24 == 0) {
+    if (backgroundArgb == android.graphics.Color.TRANSPARENT) {
         "Image saved to gallery, with a transparent background"
     } else {
         "Image saved to gallery, with the canvas background"

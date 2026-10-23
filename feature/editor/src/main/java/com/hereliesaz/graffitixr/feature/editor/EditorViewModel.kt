@@ -2980,7 +2980,7 @@ class EditorViewModel @Inject constructor(
                 null
             }
             if (bytes == null) {
-                withContext(dispatchers.main) { notify("Couldn't read that file — it may be too large, or unreadable.", NoticeKind.WARNING) }
+                withContext(dispatchers.main) { warn("Couldn't read that file — it may be too large, or unreadable.") }
                 return@launch
             }
             val format = DocumentImporter.detect(name, bytes)
@@ -3000,7 +3000,7 @@ class EditorViewModel @Inject constructor(
                 if (page != null) {
                     importSingleBitmap(page, name?.substringBeforeLast('.') ?: "Imported")
                 } else {
-                    withContext(dispatchers.main) { notify("Couldn't render that PDF/Illustrator file.", NoticeKind.WARNING) }
+                    withContext(dispatchers.main) { warn("Couldn't render that PDF/Illustrator file.") }
                 }
                 return@launch
             }
@@ -3025,7 +3025,10 @@ class EditorViewModel @Inject constructor(
                     DocumentFormat.PSD ->
                         notify("This PSD uses a mode that isn't supported yet (only 8-bit RGB).", NoticeKind.WARNING)
                     DocumentFormat.CANVA ->
-                        notify("Canva files aren't stored locally — export to PNG or PDF and open that.", NoticeKind.WARNING)
+                        notify(
+                            "Canva files aren't stored locally — export to PNG or PDF and open that.",
+                            NoticeKind.WARNING,
+                        )
                     else -> notify("That file type isn't supported.", NoticeKind.WARNING)
                 }
             }
@@ -3204,6 +3207,11 @@ class EditorViewModel @Inject constructor(
      * (Undo, Redo, Copied) stay on the HUD pill instead.
      */
     val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
+
+    private fun figmaImportNoticeKind(imported: Int) =
+        if (imported == 0) NoticeKind.WARNING else NoticeKind.NOTICE
+
+    private fun warn(message: String) = notify(message, NoticeKind.WARNING)
 
     private fun notify(message: String, kind: NoticeKind = NoticeKind.NOTICE) {
         _notices.tryEmit(EditorNotice(kind, message))
@@ -3722,7 +3730,10 @@ class EditorViewModel @Inject constructor(
                     if (success) {
                         notify(exportSavedMessage(background), NoticeKind.NOTICE)
                     } else {
-                        notify("Couldn't save the image to your gallery. Check that storage isn't full.", NoticeKind.WARNING)
+                        notify(
+                            "Couldn't save the image to your gallery. Check that storage isn't full.",
+                            NoticeKind.WARNING,
+                        )
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -10771,7 +10782,7 @@ class EditorViewModel @Inject constructor(
                             missed > 0 -> "Imported $imported of ${ids.size} frames"
                             else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
                         }
-                        notify(message, if (imported == 0) NoticeKind.WARNING else NoticeKind.NOTICE)
+                        notify(message, figmaImportNoticeKind(imported))
                     }
                 }
                 .onFailure { e ->

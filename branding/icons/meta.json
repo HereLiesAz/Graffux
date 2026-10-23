@@ -2880,7 +2880,6 @@
     "category": "ui",
     "keywords": [
       "favourite",
-      "favorite",
       "not starred"
     ],
     "source": "graffux"
@@ -2889,7 +2888,6 @@
     "category": "ui",
     "keywords": [
       "favourite",
-      "favorite",
       "starred"
     ],
     "source": "graffux"
