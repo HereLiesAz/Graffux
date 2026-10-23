@@ -76,6 +76,7 @@ import com.hereliesaz.aznavrail.*
 import com.hereliesaz.aznavrail.AzPopupKind
 import com.hereliesaz.aznavrail.bottomsheet.rememberAzSheetController
 import com.hereliesaz.aznavrail.rememberAzPopupController
+import com.hereliesaz.graffitixr.feature.editor.NoticeKind
 import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
 import com.hereliesaz.graffitixr.common.model.LayoutAlign
@@ -176,7 +177,6 @@ class MainActivity : ComponentActivity() {
                 LaunchUpdatePrompt()
             }
         }
-        HardwareFloorNotice.showOnce(this)
     }
 
     // GPU calibration pauses while the app is off screen (Home, or the system file picker covering
@@ -273,6 +273,19 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         vm.saveErrors.collect { message ->
             alerts.show(kind = AzPopupKind.WARNING, title = "Save failed", message = message)
         }
+    }
+    // Every other editor notice, confirmation or failure, takes the same road.
+    LaunchedEffect(vm) {
+        vm.notices.collect { notice ->
+            alerts.show(
+                kind = if (notice.kind == NoticeKind.WARNING) AzPopupKind.WARNING else AzPopupKind.NOTICE,
+                message = notice.text,
+            )
+        }
+    }
+    val noticeContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        HardwareFloorNotice.takeOnce(noticeContext)?.let { alerts.show(kind = AzPopupKind.NOTICE, message = it) }
     }
 
     // The shortcuts sheet. HIDDEN parks it as a swipe strip along the bottom edge — a touch target
