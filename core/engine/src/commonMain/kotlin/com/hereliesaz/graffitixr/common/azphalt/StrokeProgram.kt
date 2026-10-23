@@ -102,6 +102,7 @@ class StrokeProgram private constructor(
         const val MAX_STATE_VARS = 32
         const val MAX_LOOP_ITERATIONS = 64
         const val MAX_NESTING = 8
+        const val MAX_EXPRESSION_DEPTH = 32
         const val MAX_LOCALS = 96
         const val MAX_OPS_PER_STEP = 40_000
         const val MAX_EMITS_PER_STEP = 256
@@ -301,6 +302,7 @@ class StrokeProgram private constructor(
     private class Parser(private val tokens: List<Token>, private val layout: Layout) {
         private var pos = 0
         private var depth = 0
+        private var exprDepth = 0
         private var nextLocal = 0
         private val scopes = ArrayList<MutableMap<String, Int>>()
 
@@ -330,6 +332,14 @@ class StrokeProgram private constructor(
 
         private fun leave() {
             depth--
+        }
+
+        private fun enterExpression() {
+            if (++exprDepth > MAX_EXPRESSION_DEPTH) fail("expression nested more than $MAX_EXPRESSION_DEPTH levels deep")
+        }
+
+        private fun leaveExpression() {
+            exprDepth--
         }
 
         private fun lookupLocal(name: String): Int? {
@@ -508,9 +518,9 @@ class StrokeProgram private constructor(
         // ---- expressions, lowest precedence first ----
 
         private fun expression(): Expr {
-            enter()
+            enterExpression()
             val e = ternary()
-            leave()
+            leaveExpression()
             return e
         }
 
@@ -612,16 +622,16 @@ class StrokeProgram private constructor(
         private fun unary(): Expr {
             if (isOp("-")) {
                 next()
-                enter()
+                enterExpression()
                 val e = unary()
-                leave()
+                leaveExpression()
                 return Expr { vm -> vm.tick(); -e.eval(vm) }
             }
             if (isOp("!")) {
                 next()
-                enter()
+                enterExpression()
                 val e = unary()
-                leave()
+                leaveExpression()
                 return Expr { vm -> vm.tick(); if (e.eval(vm) == 0f) 1f else 0f }
             }
             return primary()

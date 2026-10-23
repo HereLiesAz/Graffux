@@ -153,6 +153,7 @@ class StrokeProgramTest {
         assertTrue("shadows a built-in" in error("", state = mapOf("px" to 0f)))
         assertTrue("already defined" in error("let a = 1; let a = 2;"))
         assertTrue("nested" in error("if (1) { ".repeat(20) + "}".repeat(20)))
+        assertTrue("expression nested" in error("sizeMul = " + "(".repeat(40) + "1" + ")".repeat(40) + ";"))
     }
 
     @Test

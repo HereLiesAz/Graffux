@@ -135,7 +135,8 @@ limit behaves identically on replay.
 | Source length (`init` + `step`) | 12,000 chars | refused at compile |
 | State variables | 32 | refused |
 | Locals | 96 | refused |
-| Block nesting | 8 | refused |
+| Block nesting (`if`/`for`) | 8 | refused |
+| Expression nesting (parentheses, calls) | 32 | refused |
 | Loop iterations (one `for`) | 64 | refused |
 | Operations per step | 40,000 | the step paints the brush's own dabs unchanged and the program's state is rolled back |
 | `emit`s per step | 256 | further emits that step are ignored |
