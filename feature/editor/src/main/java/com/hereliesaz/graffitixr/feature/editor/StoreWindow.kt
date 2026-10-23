@@ -132,6 +132,7 @@ fun StoreWindow(
                     installingIds = installingIds,
                     onUpdate = onUpdate,
                     onUninstall = { pendingUninstall = it },
+                    onBrowse = { tab = StoreTab.BROWSE },
                 )
             }
         }
@@ -161,6 +162,7 @@ private fun StoreTabChip(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
+@Suppress("FunctionNaming", "LongParameterList")
 @Composable
 private fun InstalledTab(
     installed: List<InstalledExtension>,
@@ -168,13 +170,15 @@ private fun InstalledTab(
     installingIds: Set<String>,
     onUpdate: (InstalledExtension) -> Unit,
     onUninstall: (InstalledExtension) -> Unit,
+    onBrowse: () -> Unit = {},
 ) {
     if (installed.isEmpty()) {
         Text(
-            text = "No extensions installed yet.",
+            text = "No extensions installed yet. Brushes, colour grades and filters come from the Azphalt Store.",
             color = Color.Gray,
             style = MaterialTheme.typography.bodySmall,
         )
+        AzButton(text = "Browse the store", onClick = onBrowse, shape = AzButtonShape.RECTANGLE)
         return
     }
     // Plain Column, not LazyColumn: this whole window's content already sits inside FloatingWindow's
@@ -238,7 +242,7 @@ private fun BrowseTab(
 
         error?.let {
             Text(
-                "Couldn't reach the store: $it",
+                "Couldn't reach the Azphalt Store: $it.",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )

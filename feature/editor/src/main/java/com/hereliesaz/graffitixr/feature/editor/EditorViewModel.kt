@@ -863,7 +863,7 @@ class EditorViewModel @Inject constructor(
             if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s
         }
         if (strokeLayerId == null) endOverlayStroke(afterFrames = 0)
-        Toast.makeText(context, "Couldn't paint that stroke", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "That stroke didn't paint. Try it again.", Toast.LENGTH_SHORT).show()
     }
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
@@ -2343,7 +2343,7 @@ class EditorViewModel @Inject constructor(
             throw e // a cancelled scope must not turn into a failure toast (the finally still cleans up)
         } catch (e: Exception) {
             withContext(dispatchers.main) {
-                Toast.makeText(context, "$failurePrefix: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "$failurePrefix: ${plainFailure(e)}.", Toast.LENGTH_LONG).show()
             }
         } finally {
             file.delete()
@@ -2353,10 +2353,9 @@ class EditorViewModel @Inject constructor(
     /** Clears the loading overlay and tells the user why an export died (including out-of-memory). */
     private suspend fun reportExportFailure(prefix: String, t: Throwable) {
         android.util.Log.e("EditorViewModel", prefix, t)
-        val reason = if (t is OutOfMemoryError) "out of memory" else t.message
         withContext(dispatchers.main) {
             dispatch(EditorIntent.SetLoading(false))
-            Toast.makeText(context, "$prefix: $reason", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "$prefix: ${plainFailure(t)}.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -3509,7 +3508,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e("EditorViewModel", "Save As failed", e)
                 withContext(dispatchers.main) {
-                    toast("Couldn't save “$cleanName”: ${e.message ?: "unknown error"}")
+                    toast("Couldn't save “$cleanName”: ${plainFailure(e)}.")
                 }
             }
         }
@@ -3713,7 +3712,11 @@ class EditorViewModel @Inject constructor(
                     if (success) {
                         Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(context, "Failed to save image", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            context,
+                            "Couldn't save the image to your gallery. Check that storage isn't full.",
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -3722,7 +3725,7 @@ class EditorViewModel @Inject constructor(
             } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
                 // Throwable, not Exception: an OutOfMemoryError compositing a large document would
                 // otherwise skip this and leave the loading overlay up for good.
-                reportExportFailure("Export error", t)
+                reportExportFailure("Couldn't export the image", t)
             }
         }
     }
@@ -9123,7 +9126,7 @@ class EditorViewModel @Inject constructor(
     private suspend fun reportSaveFailure(what: String, t: Throwable) {
         runCatching { android.util.Log.e("EditorViewModel", "$what failed", t) }
         Breadcrumbs.record("$what failed: ${t.javaClass.name}: ${t.message}")
-        _saveErrors.tryEmit("Couldn't save the project (${t.javaClass.simpleName})")
+        _saveErrors.tryEmit("Couldn't save the project: ${plainFailure(t)}.")
     }
 
     private val _saveErrors = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -10039,7 +10042,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                dispatch(EditorIntent.SetStoreBrowseError(e.message ?: "Couldn't reach the azphalt store"))
+                dispatch(EditorIntent.SetStoreBrowseError(plainFailure(e)))
             } finally {
                 dispatch(EditorIntent.SetStoreBrowseLoading(false))
             }
