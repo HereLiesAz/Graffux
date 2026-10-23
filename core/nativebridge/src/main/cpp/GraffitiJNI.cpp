@@ -21,6 +21,14 @@
 #include "include/StampEngine.h"
 #include "include/JniGuard.h"
 
+// Unlocks a locked bitmap when its scope ends, including when an exception unwinds to JNI_CATCH
+// (an explicit unlock after the work would be skipped then, leaving the bitmap locked).
+struct GfxBitmapUnlock {
+    JNIEnv* env;
+    jobject bitmap;
+    ~GfxBitmapUnlock() { AndroidBitmap_unlockPixels(env, bitmap); }
+};
+
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "GraffitiJNI", __VA_ARGS__)
 
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GraffitiJNI", __VA_ARGS__)
@@ -269,8 +277,8 @@ Java_com_hereliesaz_graffitixr_nativebridge_LiquifyEngine_nativePrepareLiquify(J
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
     if (info.stride != info.width * 4) return;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
+    GfxBitmapUnlock unlockGuard{env, bitmap};
     gImageWarper->setSourceImage(static_cast<uint8_t*>(pixels), info.width, info.height);
-    AndroidBitmap_unlockPixels(env, bitmap);
     JNI_CATCH()
 }
 
@@ -307,10 +315,10 @@ Java_com_hereliesaz_graffitixr_nativebridge_LiquifyEngine_nativeBakeLiquify(JNIE
     if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888) return;
     if (info.stride != info.width * 4) return;
     if (AndroidBitmap_lockPixels(env, outBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) return;
+    GfxBitmapUnlock unlockGuard{env, outBitmap};
     if (!gImageWarper->bakeToBitmap(static_cast<uint8_t*>(pixels), (int)info.width, (int)info.height)) {
         LOGE("nativeBakeLiquify: bakeToBitmap declined (buffer/source size mismatch or no source set)");
     }
-    AndroidBitmap_unlockPixels(env, outBitmap);
     JNI_CATCH()
 }
 
@@ -375,9 +383,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUpload(
     if (AndroidBitmap_lockPixels(env, inBitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS || !pixels) {
         return JNI_FALSE;
     }
+    GfxBitmapUnlock unlockGuard{env, inBitmap};
     size_t capacity = static_cast<size_t>(info.stride) * info.height;
     bool ok = engine->upload(static_cast<const uint8_t*>(pixels), capacity);
-    AndroidBitmap_unlockPixels(env, inBitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
     JNI_CATCH(jboolean())
 }
@@ -469,12 +477,12 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuImpastoDisplay_nativeRead(
     size_t capacity = 0;
     uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
     if (!pixels) return JNI_FALSE;
+    GfxBitmapUnlock unlockGuard{env, bitmap};
     const size_t stride = static_cast<size_t>(engine->width()) * 4;
     for (jint row = 0; row < r[3]; row++) {
         memcpy(pixels + static_cast<size_t>(r[1] + row) * stride + static_cast<size_t>(r[0]) * 4,
                block.data() + static_cast<size_t>(row) * r[2] * 4, static_cast<size_t>(r[2]) * 4);
     }
-    AndroidBitmap_unlockPixels(env, bitmap);
     return JNI_TRUE;
     JNI_CATCH(jboolean())
 }
@@ -509,9 +517,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeReadbackRect(JN
     size_t capacity = 0;
     uint8_t* pixels = gfxLockLayerBitmap(env, engine, outBitmap, &capacity);
     if (!pixels) return JNI_FALSE;
+    GfxBitmapUnlock unlockGuard{env, outBitmap};
     int32_t r[4] = {0, 0, 0, 0};
     const bool ok = engine->readbackRect(pixels, capacity, r);
-    AndroidBitmap_unlockPixels(env, outBitmap);
     if (ok && rect != nullptr && env->GetArrayLength(rect) >= 4) {
         const jint values[4] = {r[0], r[1], r[2], r[3]};
         env->SetIntArrayRegion(rect, 0, 4, values);
@@ -545,9 +553,9 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUploadLayer(JNI
     size_t capacity = 0;
     uint8_t* pixels = gfxLockLayerBitmap(env, engine, inBitmap, &capacity);
     if (!pixels) return 0;
+    GfxBitmapUnlock unlockGuard{env, inBitmap};
     const uint64_t session = engine->uploadLayer(static_cast<uint64_t>(key),
                                                  static_cast<uint64_t>(generation), pixels, capacity);
-    AndroidBitmap_unlockPixels(env, inBitmap);
     return static_cast<jlong>(session);
     JNI_CATCH(jlong())
 }
@@ -579,10 +587,10 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JN
     size_t capacity = 0;
     uint8_t* pixels = gfxLockLayerBitmap(env, engine, bitmap, &capacity);
     if (!pixels) return JNI_FALSE;
+    GfxBitmapUnlock unlockGuard{env, bitmap};
     // ids = {key, session, generation}, rect = {x, y, w, h}.
     const bool ok = engine->refreshLayer(static_cast<uint64_t>(id[0]), static_cast<uint64_t>(id[1]),
                                          static_cast<uint64_t>(id[2]), pixels, capacity, r[0], r[1], r[2], r[3]);
-    AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
     JNI_CATCH(jboolean())
 }

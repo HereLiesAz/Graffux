@@ -114,9 +114,12 @@ impl GpuTimer {
             let _ = tx.send(res.is_ok());
         });
         let kinds = std::mem::take(&mut self.pending);
-        if device.poll(wgpu::PollType::wait_indefinitely()).is_err()
-            || !matches!(rx.recv(), Ok(true))
-        {
+        if device.poll(wgpu::PollType::wait_indefinitely()).is_err() {
+            // Cancel the pending map so the next resolve can map this buffer again.
+            self.read.unmap();
+            return;
+        }
+        if !matches!(rx.recv(), Ok(true)) {
             return;
         }
         if let Ok(mapped) = slice.get_mapped_range() {

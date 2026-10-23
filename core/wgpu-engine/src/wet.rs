@@ -814,8 +814,13 @@ impl Engine {
             .device
             .poll(wgpu::PollType::wait_indefinitely())
             .is_err()
-            || !matches!(rx.recv(), Ok(true))
         {
+            // The map is still pending: cancel it, or the next map_async on this staging buffer
+            // is a validation error.
+            self.staging.unmap();
+            return false;
+        }
+        if !matches!(rx.recv(), Ok(true)) {
             return false;
         }
         let copied = match slice.get_mapped_range() {
