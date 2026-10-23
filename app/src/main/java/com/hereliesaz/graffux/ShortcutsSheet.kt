@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -143,7 +144,7 @@ private fun TabLabel(text: String, selected: Boolean, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             color = if (selected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.clickable(onClick = onClick).padding(vertical = 4.dp),
+            modifier = Modifier.clickable(onClick = onClick).heightIn(min = 48.dp).padding(vertical = 14.dp),
         )
         Box(
             Modifier
@@ -179,12 +180,17 @@ private fun ToolChip(
             .background(
                 if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
             )
-            .combinedClickable(onClick = onPick, onLongClick = onToggleFavorite)
+            .combinedClickable(
+                onClick = onPick,
+                onLongClick = onToggleFavorite,
+                onLongClickLabel = if (isFavorite) "Remove from favourites" else "Add to favourites",
+            )
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         Icon(
             painter = painterResource(entry.icon),
-            contentDescription = entry.label,
+            // The label below already says it; naming the icon too made TalkBack read it twice.
+            contentDescription = null,
             tint = tint,
             modifier = Modifier.size(26.dp),
         )

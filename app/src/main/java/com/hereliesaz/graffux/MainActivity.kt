@@ -1,5 +1,10 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import com.hereliesaz.graffitixr.design.theme.HotPink
 import com.hereliesaz.graffitixr.design.theme.Amber
 import android.content.Intent
@@ -239,7 +244,7 @@ private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
  * `collapsedWidth`, read back into [RailInset] via `AzNavHostScope.railWidth`; see the
  * `measuredRailWidth` comment where azConfig is called).
  */
-private val RAIL_ITEM_WIDTH = 44.dp
+private val RAIL_ITEM_WIDTH = 48.dp // the Material minimum touch target
 
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) {
@@ -1798,6 +1803,19 @@ private fun BrushSizePad(vm: EditorViewModel, onOpenOptions: () -> Unit) {
                 .fillMaxWidth()
                 .onSizeChanged { itemPx = it.width.toFloat() }
                 .clickable(onClickLabel = "Set brush size", onClick = onOpenOptions)
+                // TalkBack: a slider of the size (volume keys / swipe up-down adjust it), with the
+                // hardness read out alongside, so the drag isn't the only way in.
+                .semantics {
+                    contentDescription = "Brush size, hardness $hardnessPercent percent"
+                    progressBarRangeInfo = ProgressBarRangeInfo(
+                        state.brushSize,
+                        MIN_BRUSH_SIZE..MAX_BRUSH_SIZE,
+                    )
+                    setProgress { target ->
+                        vm.setBrushSize(target.coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
+                        true
+                    }
+                }
                 .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
                         change.consume()

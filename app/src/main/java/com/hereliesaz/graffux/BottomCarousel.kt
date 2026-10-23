@@ -128,7 +128,7 @@ internal val HeroExpandedSize = androidx.compose.ui.unit.DpSize(
     HeroItemWidth * EXPANDED_WIDTH_FACTOR,
     HeroCardHeight + PreviewHeight + PreviewGap,
 )
-private val TabRowHeight = 36.dp
+private val TabRowHeight = 48.dp // the Material minimum touch target
 
 /** Clear space between the screen edge and the Undo/Redo icons, and between each icon and the pill. */
 private val HistoryEdgeGap = 16.dp
