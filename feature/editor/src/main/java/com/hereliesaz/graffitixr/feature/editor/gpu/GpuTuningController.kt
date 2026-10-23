@@ -66,7 +66,7 @@ class GpuTuningController private constructor(context: Context) {
         // pipeline-cache setup loads the native libraries and touches the cache directory.
         scope.launch {
             telemetry.onThermal(thermal.sample())
-            GpuStampEngine.setPipelineCacheDir(java.io.File(appContext.cacheDir, PIPELINE_CACHE_DIR))
+            runCatching { GpuStampEngine.setPipelineCacheDir(java.io.File(appContext.cacheDir, PIPELINE_CACHE_DIR)) }
         }
         scope.launch {
             // Collected, not read once: the tier can land or change, and thermal state moves,

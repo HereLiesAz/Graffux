@@ -24,6 +24,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private data class PoolKey(val width: Int, val height: Int)
     private data class CachedHandle(val key: PoolKey, val handle: Long)
 
+    @Suppress("TooManyFunctions") // The process-wide engine registry and tuning entry points.
     companion object {
         private const val MAX_POOLED_HANDLES = 2
         private val poolLock = Any()
@@ -43,14 +44,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          * and grain cost their hash once per stroke instead of once per batch. Ids are never
          * reused; an entry goes when its array is collected.
          */
-        private val maskedContentIds = java.util.WeakHashMap<ByteArray, Long>()
-        private val nextMaskedContentId = java.util.concurrent.atomic.AtomicLong(1L)
-
-        internal fun maskedContentId(bytes: ByteArray?): Long = if (bytes == null) {
-            0L
-        } else {
-            synchronized(maskedContentIds) { maskedContentIds.getOrPut(bytes) { nextMaskedContentId.getAndIncrement() } }
-        }
+        internal fun maskedContentId(bytes: ByteArray?): Long = MaskedContentIds.of(bytes)
 
         /**
          * The open document's engine (wgpu): one native handle that lives across strokes, so the
@@ -1411,3 +1405,12 @@ data class SecondaryBrushDab(
     val flowMultiplier: Float,
     val keepInside: Boolean,
 )
+
+/** [GpuStampEngine.maskedContentId]'s table: ids by array identity, never reused. */
+private object MaskedContentIds {
+    private val ids = java.util.WeakHashMap<ByteArray, Long>()
+    private var next = 1L
+
+    @Synchronized
+    fun of(bytes: ByteArray?): Long = if (bytes == null) 0L else ids.getOrPut(bytes) { next++ }
+}

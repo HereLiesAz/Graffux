@@ -101,8 +101,9 @@ class ThermalMonitor(
  * ADPF performance hints for the GPU render thread ([GpuRenderThread], where every wgpu call runs):
  * a `PerformanceHintManager` session (API 31+) targeting one display frame, fed the CPU time of
  * each unit of render-thread work ([GpuRenderThread.workObserver]: thread CPU time, so the time a
- * unit spends blocked waiting for the GPU is not reported as work the clocks should speed up). Lets the system raise clocks before a stroke misses frames
- * rather than after. Vulkan/GLES strokes run on the editor's coroutine workers, not this thread,
+ * unit spends blocked waiting for the GPU is not reported as work the clocks should speed up).
+ * Lets the system raise clocks before a stroke misses frames rather than after.
+ * Vulkan/GLES strokes run on the editor's coroutine workers, not this thread,
  * so they get no session. No-op below API 31, when the thread has not started yet, or when the
  * platform returns no session.
  */
@@ -119,6 +120,7 @@ class RenderThreadHints(context: Context, private val targetFrameNanos: Long) {
      */
     private var generation = 0L
 
+    @Suppress("ReturnCount") // Each early return is a distinct reason not to start.
     fun start() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         val mine = synchronized(lock) {
