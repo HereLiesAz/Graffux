@@ -5992,6 +5992,9 @@ class EditorViewModel @Inject constructor(
                 // the commit waits for it.
                 var gpuHandled = false
                 var gpuHandledHeld = false
+                // Held dabs stamp right after a handled movement batch and their readback copies
+                // everything dirtied since the last one, so the movement batch skips its own.
+                val readbackAfterHeld = hasNewHeldDabs
                 if (hasNewMovementDabs && gpuActive && engine != null) {
                     // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
                     // stampGpuActive's doc comment for the fallback contract, and
@@ -6047,7 +6050,7 @@ class EditorViewModel @Inject constructor(
                                     secondaryDabs, secondaryMaskAlpha8,
                                     secondaryMaskSize, secondaryMaskSize,
                                     substrateParams,
-                                ) && (usesDirect || engine.readback(work))
+                                ) && (usesDirect || readbackAfterHeld || engine.readback(work))
                         }
                     } else {
                         fun resolve(dab: Dab) = ResolvedBrushDab(
@@ -6068,7 +6071,7 @@ class EditorViewModel @Inject constructor(
                         engine.stampResolvedDabs(
                             gpuDabs, buildUp = brush.buildUp, substrate = substrateParams, strokeMax = true,
                         ) &&
-                            (usesDirect || engine.readback(work))
+                            (usesDirect || readbackAfterHeld || engine.readback(work))
                     }
                 }
                 // No CPU renderer: a failed GPU batch shows nothing more for this stroke, whose

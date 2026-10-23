@@ -50,6 +50,8 @@ const LANDING_SPREAD: f32 = 0.6;
 const DEFAULT_MS_PER_UNIT: f64 = 2e-5;
 /// Smallest refinement chunk, in pixel*dab units (one 16x16 block times 2 dabs).
 const MIN_CHUNK_UNITS: f64 = 256.0 * 2.0;
+/// One displayed frame in this many waits to time its drafts and composite ([`Multipass::time_this_frame`]).
+const TIMED_FRAME_EVERY: u32 = 8;
 
 /// Settings of the experiment. Passed as floats through the C ABI / JNI, in this order.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -569,6 +571,9 @@ pub(super) struct Multipass {
     present_ms: Ema,
     compose_ms: Ema,
     frame_ms: Ema,
+    /// Displayed frames since the last one whose drafts and composite were timed with a full
+    /// device wait ([`Multipass::time_this_frame`]).
+    untimed_frames: u32,
     last_frame_start: Option<f64>,
     refine_busy_since_frame: f64,
     drafts_run: u64,
@@ -788,11 +793,22 @@ impl Multipass {
             present_ms: Ema::default(),
             compose_ms: Ema::default(),
             frame_ms: Ema::default(),
+            untimed_frames: 0,
             last_frame_start: None,
             refine_busy_since_frame: 0.0,
             drafts_run: 0,
             chunks_run: 0,
         }
+    }
+
+    /// Whether this displayed frame waits for its drafts and composite to time them. Those waits
+    /// only feed the draft-scale adaptation and the stats: the frame's readback (or present)
+    /// waits for the same work anyway. So one frame in [`TIMED_FRAME_EVERY`] (and any frame while
+    /// there is no estimate yet) is timed; the rest make a single CPU/GPU sync, at the readback.
+    fn time_this_frame(&mut self) -> bool {
+        let timed = self.untimed_frames + 1 >= TIMED_FRAME_EVERY || self.draft_ms.get().is_none();
+        self.untimed_frames = if timed { 0 } else { self.untimed_frames + 1 };
+        timed
     }
 
     /// A displayed frame starts (a readback or a direct present of a new batch): feeds the frame
@@ -1315,7 +1331,9 @@ impl Engine {
             return;
         }
         self.with_mp(|e, mp| {
-            e.mp_run_drafts(mp);
+            // A flush point: nothing is timed (no budget to keep), so nothing waits here; whatever
+            // reads the result next waits for all of it at once.
+            e.mp_run_drafts(mp, false);
             while mp.sched.pending_refinement() > 0 {
                 e.mp_refine(mp, f64::INFINITY);
                 if !e.ok() {
@@ -1324,7 +1342,7 @@ impl Engine {
                     break;
                 }
             }
-            e.mp_compose(mp, true);
+            e.mp_compose(mp, true, false);
         });
     }
 
@@ -1332,7 +1350,10 @@ impl Engine {
 
     /// Every pending draft, merged into as few dispatches as their parameters allow. Never
     /// budgeted and never skipped (the draft guarantee).
-    fn mp_run_drafts(&mut self, mp: &mut Multipass) {
+    ///
+    /// `timed`: wait for the drafts and feed their wall time to the draft-scale adaptation. Untimed
+    /// drafts are only submitted; a later wait (the readback's map) completes them.
+    fn mp_run_drafts(&mut self, mp: &mut Multipass, timed: bool) {
         let batches = mp.sched.take_drafts();
         if batches.is_empty() {
             return;
@@ -1351,9 +1372,11 @@ impl Engine {
             }
             mp.drafts_run += batch.len() as u64;
         }
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        let ms = start.elapsed().as_secs_f64() * 1000.0;
-        mp.draft_ms.add(ms, 0.2);
+        if timed {
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            let ms = start.elapsed().as_secs_f64() * 1000.0;
+            mp.draft_ms.add(ms, 0.2);
+        }
     }
 
     fn mp_draft_batch(&mut self, mp: &mut Multipass, batch: &[Item<Work>]) {
@@ -1632,7 +1655,10 @@ impl Engine {
     /// Drafts first, then final work in canonical order for up to `budget_ms` (<= 0: the rest of
     /// the frame). At least one chunk runs when final work is queued, so it always progresses.
     fn mp_refine(&mut self, mp: &mut Multipass, budget_ms: f64) {
-        self.mp_run_drafts(mp);
+        // A budget needs a clock: each chunk waits so its cost can be measured and the next one
+        // sized. An unbounded refine (a drain) has nothing to size, so it only submits.
+        let timed = budget_ms.is_finite();
+        self.mp_run_drafts(mp, timed);
         if mp.sched.pending_refinement() == 0 {
             return;
         }
@@ -1690,9 +1716,11 @@ impl Engine {
             }
             let t0 = Instant::now();
             let units = self.mp_exec_final(mp, pass, chunk);
-            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            if timed {
+                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            }
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
-            if units > 0.0 {
+            if timed && units > 0.0 {
                 let fixed = mp.chunk_overhead_ms.get().unwrap_or(0.0);
                 mp.ms_per_unit[kind].add((ms - fixed).max(ms * 0.1) / units, 0.2);
                 mp.eta.observe_work(units, ms);
@@ -2166,8 +2194,9 @@ impl Engine {
     pub(super) fn mp_readback_rect(&mut self, out: &mut [u8]) -> Option<(i32, i32, i32, i32)> {
         self.with_mp(|e, mp| {
             mp.begin_frame();
-            e.mp_run_drafts(mp);
-            e.mp_compose(mp, false);
+            let timed = mp.time_this_frame();
+            e.mp_run_drafts(mp, timed);
+            e.mp_compose(mp, false, timed);
             let t0 = Instant::now();
             let r = e.dirty.clamp(e.width, e.height);
             let result = if r.is_empty() {
@@ -2208,8 +2237,9 @@ impl Engine {
             if new_frame {
                 mp.begin_frame();
             }
-            e.mp_run_drafts(mp);
-            e.mp_compose(mp, false);
+            let timed = mp.time_this_frame();
+            e.mp_run_drafts(mp, timed);
+            e.mp_compose(mp, false, timed);
             mp.present_ms.add(t0.elapsed().as_secs_f64() * 1000.0, 0.2);
             mp.display.clone()
         }))
@@ -2217,7 +2247,8 @@ impl Engine {
 
     /// Advances every active tile's animation and composites them into the display (one dispatch
     /// per 128 tiles). `finish`: every ease ends now (flush points).
-    fn mp_compose(&mut self, mp: &mut Multipass, finish: bool) {
+    /// `timed`: wait for the composite and record its wall time (stats only).
+    fn mp_compose(&mut self, mp: &mut Multipass, finish: bool, timed: bool) {
         let now = mp.now();
         let units = mp.backlog_units_per_tile();
         let params = mp.anim;
@@ -2334,9 +2365,11 @@ impl Engine {
             }
             self.queue.submit([encoder.finish()]);
         }
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
-        mp.compose_ms
-            .add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
+        if timed {
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            mp.compose_ms
+                .add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
+        }
     }
 }
 
