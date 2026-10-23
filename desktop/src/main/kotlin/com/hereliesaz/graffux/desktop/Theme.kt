@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
  * system. Keep it passing — don't edit the values here without also updating `Color.kt`,
  * or vice versa.
  */
+@Suppress("MagicNumber") // a palette is literal colours
 object GraffuxColors {
     val HotPink = Color(0xFFFF00C8)
     val Cyan = Color(0xFF00FFFF)
@@ -38,6 +39,10 @@ object GraffuxColors {
     val OnSurfaceVariant = Color(0xFFC6C6CE)
     val Outline = Color(0xFF4A4A54)
     val OutlineVariant = Color(0xFF3A3A42)
+    val Amber = Color(0xFFFFB300)
+    val Workspace = Color(0xFF2B2B2B)
+    val CheckerLight = Color(0xFFCFCFCF)
+    val CheckerDark = Color(0xFF9E9E9E)
 }
 
 // Mirrors core:design's DarkColorScheme (Theme.kt) entry for entry; ThemeColorSyncTest compares the
@@ -57,6 +62,7 @@ private val GraffuxDarkColorScheme = darkColorScheme(
     onSurfaceVariant = GraffuxColors.OnSurfaceVariant,
     outline = GraffuxColors.Outline,
     outlineVariant = GraffuxColors.OutlineVariant,
+    surfaceTint = Color(0x00000000), // transparent
 )
 
 /**
