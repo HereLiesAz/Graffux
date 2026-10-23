@@ -56,7 +56,7 @@ unsafe fn engine<'a>(e: *mut Engine) -> Option<&'a mut Engine> {
     e.as_mut()
 }
 
-/// Null when no adapter with compute support is found (the caller falls back to the CPU path).
+/// Null when no adapter with compute support is found (desktop then uses its CPU path; Android has none and cannot draw).
 #[no_mangle]
 pub extern "C" fn gfx_wgpu_create(width: i32, height: i32, backend: i32) -> *mut Engine {
     guard(std::ptr::null_mut(), || {

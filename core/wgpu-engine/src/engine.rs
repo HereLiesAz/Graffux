@@ -597,8 +597,8 @@ pub const COLOR_SMUDGE_WGSL: &str = include_str!("shaders/color_smudge.wgsl");
 
 impl Engine {
     /// `StampEngine::init`. `None` when there is no usable adapter (no GPU, no compute support,
-    /// the layer does not fit the device's limits, or device creation failed): the caller falls
-    /// back to its CPU path.
+    /// the layer does not fit the device's limits, or device creation failed): the desktop
+    /// canvas then uses its CPU path; Android has no CPU renderer and cannot draw.
     pub fn new(width: i32, height: i32, backend: BackendChoice) -> Option<Engine> {
         Self::new_with_options(width, height, backend, EngineOptions::default())
     }

@@ -335,7 +335,7 @@ Java_com_hereliesaz_graffitixr_nativebridge_LiquifyEngine_nativeBakeLiquify(JNIE
 // here either — that contract, not a lock, is what makes per-instance handles safe.
 extern "C" {
 
-// 0 = the engine could not start (no wgpu library, no adapter): Kotlin falls back to the CPU.
+// 0 = the engine could not start (no wgpu library, no adapter): nothing draws (no CPU renderer).
 JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInit(
     JNIEnv*, jobject, jint width, jint height) {

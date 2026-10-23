@@ -399,7 +399,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     /**
      * Creates (or reuses a pooled) wgpu engine for a [width]x[height] layer. False = no usable GPU
-     * here (no wgpu library, no adapter, no Vulkan) or a failed setup; the caller draws on the CPU.
+     * here (no wgpu library, no adapter, no Vulkan) or a failed setup. There is no CPU renderer to fall
+     * back to: the caller's stroke fails (StrokeRenderException).
      */
     @Synchronized
     fun init(width: Int, height: Int): Boolean {
@@ -581,8 +582,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     /**
      * Impasto v1 on the GPU: sets the engine's height to [heights] (one value per layer pixel,
-     * ImpastoEngine's height map). False when the library has no impasto support (the caller then
-     * takes the CPU path) or on failure.
+     * ImpastoEngine's height map). False when the library has no impasto support or on failure
+     * (there is no CPU path: the impasto stage then fails).
      */
     @Synchronized
     fun uploadImpastoHeight(heights: FloatArray): Boolean {
@@ -710,7 +711,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * call. [grainCanvasLocked]/[grainScale]/[grainPhaseX]/[grainPhaseY] mirror
      * `GrainBehavior.CANVAS_LOCKED` vs `MOVING`, `AzphaltBrush.grainScale`, and the caller's
      * already-resolved per-stroke phase (`grainOffsetX`/`Y` plus any `grainRandomOffsetPerStroke`
-     * draw), same as the CPU path resolves them once per stroke.
+     * draw), same as the former CPU path resolved them once per stroke.
      *
      * [secondaryDabs] (item 15's masked/dual-brush follow-up) is an optional second tip composited
      * onto each primary dab -- the dual-brush secondary tip, applied

@@ -750,7 +750,7 @@ class EditorViewModel @Inject constructor(
     /**
      * The current stroke's GPU-resident binding (wgpu only): which layer and pre-stroke bitmap it
      * started from and the engine session its commit refreshes. Null = the stroke uploaded the
-     * layer the old way (other backends, CPU path, or no resident support).
+     * layer the old way (no resident support).
      */
     private class ResidentTicket(
         val strokeGeneration: Long,
@@ -1318,8 +1318,8 @@ class EditorViewModel @Inject constructor(
     /**
      * Creates and initializes a [GpuStampEngine] at [width]x[height], seeded with [seed]'s
      * current pixels (the wgpu engine, the only GPU backend). Returns null (nothing to clean up)
-     * if any step fails -- no wgpu library, no adapter, no Vulkan -- and the caller stays on the
-     * CPU path for this stroke, same as always.
+     * if any step fails -- no wgpu library, no adapter, no Vulkan -- and the stroke has no live
+     * preview (there is no CPU renderer).
      */
     private fun createSeededGpuEngine(
         width: Int,
@@ -1332,7 +1332,7 @@ class EditorViewModel @Inject constructor(
         // (Robolectric has no native code), and in principle any device/build variant that
         // shipped without it. Every other failure mode here (no compute-capable GPU, a rejected
         // format) already returns false cleanly; only the "library isn't there" case needs a
-        // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
+        // catch, so this degrades to no live preview (there is no CPU path) instead of crashing the
         // coroutine that would otherwise have gone on to draw the stroke.
         // Calibration's own wgpu engines must be gone before the canvas creates one.
         com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
@@ -4992,8 +4992,8 @@ class EditorViewModel @Inject constructor(
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
                 // it with the document's current pixels before any dab is stamped. Both native calls
                 // block on GPU work, hence doing this here on Dispatchers.Default alongside the
-                // bitmap copy, not on the main thread. A null/failed engine just means every dab
-                // this stroke draws through the existing CPU path — see stampGpuActive's doc comment.
+                // bitmap copy, not on the main thread. A null/failed engine just means this stroke
+                // has no live preview (no CPU renderer) — see stampGpuActive's doc comment.
                 val gpuCompatibleBrush = gpuCompatibleStampBrush(
                     stampBrush, stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke,
                 )

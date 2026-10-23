@@ -396,7 +396,7 @@ private fun PredictionSoloRow() {
 /**
  * GPU engine settings. There is no engine choice: wgpu is the only GPU backend (the Vulkan and
  * OpenGL ES engines and their selector were retired; RetiredGpuBackendMigration drops the old
- * stored choice), and a device where it can't start draws on the CPU.
+ * stored choice). There is no CPU renderer: a device where it can't start cannot draw.
  */
 @Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
 @Composable
