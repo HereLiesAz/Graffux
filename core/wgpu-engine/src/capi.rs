@@ -450,6 +450,27 @@ pub unsafe extern "C" fn gfx_wgpu_set_masked_ids(
     })
 }
 
+/// [`crate::engine::pcache::set_dir`]: the directory compiled pipelines are cached in, for engines
+/// created after the call (null or empty clears it). Process-wide.
+///
+/// # Safety
+/// `path` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_pipeline_cache_dir(path: *const std::os::raw::c_char) {
+    let _ = std::panic::catch_unwind(|| {
+        let dir = if path.is_null() {
+            None
+        } else {
+            // SAFETY: the caller passes a NUL-terminated string.
+            let s = unsafe { std::ffi::CStr::from_ptr(path) }
+                .to_string_lossy()
+                .into_owned();
+            (!s.is_empty()).then(|| std::path::PathBuf::from(s))
+        };
+        crate::engine::pcache::set_dir(dir);
+    });
+}
+
 /// [`Engine::undo_open`]: GPU undo shadows on a cache-mode engine.
 ///
 /// # Safety

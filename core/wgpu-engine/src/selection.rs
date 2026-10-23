@@ -37,7 +37,12 @@ pub(super) struct SelectionGpu {
 }
 
 impl SelectionGpu {
-    fn new(device: &wgpu::Device, layer_bytes: u64, pixels: u64) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        layer_bytes: u64,
+        pixels: u64,
+        cache: Option<&wgpu::PipelineCache>,
+    ) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("selection"),
             source: wgpu::ShaderSource::Wgsl(SELECTION_WGSL.into()),
@@ -48,7 +53,7 @@ impl SelectionGpu {
             module: &module,
             entry_point: Some("confine"),
             compilation_options: Default::default(),
-            cache: None,
+            cache,
         });
         let buffer = |label: &str, size: u64, usage: wgpu::BufferUsages| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -81,7 +86,14 @@ impl Engine {
     fn selection_gpu(&mut self) -> &mut SelectionGpu {
         if self.selection.is_none() {
             let pixels = (self.width * self.height) as u64;
-            self.selection = Some(SelectionGpu::new(&self.device, self.layer_bytes(), pixels));
+            let gpu = SelectionGpu::new(
+                &self.device,
+                self.layer_bytes(),
+                pixels,
+                self.pipeline_cache(),
+            );
+            self.selection = Some(gpu);
+            self.save_pipeline_cache();
         }
         self.selection.as_mut().expect("created")
     }

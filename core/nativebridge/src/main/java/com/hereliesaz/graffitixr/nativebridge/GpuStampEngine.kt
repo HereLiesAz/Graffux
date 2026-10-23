@@ -311,6 +311,16 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         @Volatile private var documentLost = false
 
 
+        /**
+         * Where compiled GPU pipelines persist across engines and runs (core/wgpu-engine pcache.rs;
+         * Vulkan only), for engines created after the call; null turns it off. Loads the native
+         * libraries, so call it off the main thread.
+         */
+        @JvmStatic
+        fun setPipelineCacheDir(dir: java.io.File?) {
+            runCatching { helper().nativeSetPipelineCacheDir(dir?.absolutePath) }
+        }
+
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
@@ -1267,6 +1277,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeSetResidentBudget(handle: Long, bytes: Long)
     private external fun nativeDeviceLost(handle: Long): Boolean
     private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
+    private external fun nativeSetPipelineCacheDir(dir: String?)
     private external fun nativeGpuInfo(handle: Long): String?
     private external fun nativeTakePassTimings(handle: Long): LongArray?
     private external fun nativeDirectCapabilities(handle: Long): Int

@@ -82,6 +82,8 @@ struct Api {
     bool (*undoOpen)(GfxWgpuEngine*);
     // Optional: content ids for the next masked call's images (gfx_wgpu_set_masked_ids).
     bool (*setMaskedIds)(GfxWgpuEngine*, uint64_t, uint64_t, uint64_t);
+    // Optional: process-wide directory for the persisted pipeline cache.
+    void (*setPipelineCacheDir)(const char*);
     // Optional, all or nothing: selection at commit.
     bool (*setSelection)(GfxWgpuEngine*, const uint8_t*, size_t);
     bool (*selectionOp)(GfxWgpuEngine*, int32_t);
@@ -196,6 +198,7 @@ void load() {
         optional(lib, "gfx_wgpu_doc_snapshot", a.docSnapshot);
         optional(lib, "gfx_wgpu_undo_open", a.undoOpen);
         optional(lib, "gfx_wgpu_set_masked_ids", a.setMaskedIds);
+        optional(lib, "gfx_wgpu_set_pipeline_cache_dir", a.setPipelineCacheDir);
         const bool wet = optional(lib, "gfx_wgpu_wet_begin", a.wetBegin) &&
                          optional(lib, "gfx_wgpu_wet_buffer", a.wetBuffer) &&
                          optional(lib, "gfx_wgpu_wet_op", a.wetOp) &&
@@ -226,6 +229,10 @@ GfxWgpuSubstrate toC(const SubstrateStampParams& s) {
 bool WgpuStampEngine::libraryAvailable() {
     std::call_once(gLoadOnce, load);
     return gLoaded;
+}
+
+void setPipelineCacheDir(const char* dir) {
+    if (WgpuStampEngine::libraryAvailable() && gApi.setPipelineCacheDir != nullptr) gApi.setPipelineCacheDir(dir);
 }
 
 WgpuStampEngine::~WgpuStampEngine() { destroy(); }

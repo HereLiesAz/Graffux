@@ -144,7 +144,13 @@ pub(super) struct SmudgeWetBinding {
 }
 
 impl WetGpu {
-    fn new(device: &wgpu::Device, width: i32, height: i32, tile: i32) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        width: i32,
+        height: i32,
+        tile: i32,
+        cache: Option<&wgpu::PipelineCache>,
+    ) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("wet"),
             source: wgpu::ShaderSource::Wgsl(WET_WGSL.into()),
@@ -158,7 +164,7 @@ impl WetGpu {
                     module: &module,
                     entry_point: Some(name),
                     compilation_options: Default::default(),
-                    cache: None,
+                    cache,
                 });
                 (entry, pipeline, bindings)
             })
@@ -271,7 +277,9 @@ impl Engine {
                 self.width,
                 self.height,
                 tile_size,
+                self.pipeline_cache(),
             ));
+            self.save_pipeline_cache();
         }
         let Some(gpu) = self.wet.as_mut() else {
             return false;

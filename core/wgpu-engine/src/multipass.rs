@@ -681,6 +681,7 @@ impl Multipass {
             DRAFT_STAMP_WGSL,
             &draft_stamp_layout,
             &[],
+            e.pipeline_cache(),
         );
         let draft_masked_pipeline = make_pipeline(
             device,
@@ -688,6 +689,7 @@ impl Multipass {
             DRAFT_MASKED_WGSL,
             &draft_masked_layout,
             &[],
+            e.pipeline_cache(),
         );
         let display_pipeline = make_pipeline(
             device,
@@ -695,6 +697,7 @@ impl Multipass {
             DISPLAY_WGSL,
             &display_layout,
             &[],
+            e.pipeline_cache(),
         );
         let r8 = wgpu::TextureFormat::R8Unorm;
         let storage_dst = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
@@ -954,6 +957,7 @@ impl Engine {
             }
             let mp = Multipass::new(self, cfg);
             self.mp = Some(Box::new(mp));
+            self.save_pipeline_cache();
         }
         let was_on = self.mp_on();
         {

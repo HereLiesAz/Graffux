@@ -293,6 +293,10 @@ struct StampTuning {
 };
 StampTuning& stampTuning();
 
+// Process-wide: the directory compiled GPU pipelines are cached in (null clears it), for engines
+// created after the call. Loads the wgpu library; a no-op when it or the symbol is missing.
+void setPipelineCacheDir(const char* dir);
+
 // Allocates an uninitialized engine (the wgpu adapter).
 StampEngine* createStampEngine();
 

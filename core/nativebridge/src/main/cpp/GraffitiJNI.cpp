@@ -788,6 +788,21 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetStampTuning(
     JNI_CATCH()
 }
 
+// Process-wide: where compiled pipelines persist (graffux::setPipelineCacheDir); null clears it.
+JNIEXPORT void JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetPipelineCacheDir(JNIEnv* env, jobject, jstring dir) {
+    JNI_TRY
+    if (dir == nullptr) {
+        graffux::setPipelineCacheDir(nullptr);
+        return;
+    }
+    const char* path = env->GetStringUTFChars(dir, nullptr);
+    if (path == nullptr) return;
+    graffux::setPipelineCacheDir(path);
+    env->ReleaseStringUTFChars(dir, path);
+    JNI_CATCH()
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeGpuInfo(JNIEnv* env, jobject, jlong handle) {
     JNI_TRY

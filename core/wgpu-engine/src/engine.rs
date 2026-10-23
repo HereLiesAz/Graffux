@@ -36,6 +36,8 @@ pub use retouch::{Retouch, RETOUCH_BLUR, RETOUCH_CLONE, RETOUCH_SHARPEN, RETOUCH
 #[path = "undo.rs"]
 mod undo;
 pub use selection::SELECTION_WGSL;
+#[path = "pcache.rs"]
+pub mod pcache;
 #[path = "wet.rs"]
 mod wet;
 pub use wet::{MaterialDab, WET_FLAG_HEIGHT, WET_FLAG_WETNESS, WET_MEDIA_FLOATS, WET_WGSL};
@@ -559,6 +561,8 @@ pub struct Engine {
     /// `None` or disabled, every call takes exactly the pre-multipass path.
     mp: Option<Box<multipass::Multipass>>,
     /// The instance and adapter the device came from: direct display makes its surface on them.
+    /// The persisted pipeline cache (pcache.rs), when the backend supports one.
+    pcache: Option<pcache::DiskCache>,
     instance: Option<wgpu::Instance>,
     adapter: Option<wgpu::Adapter>,
     /// Direct display (direct.rs); `None` = not attached, the readback display only.
@@ -621,6 +625,7 @@ fn make_pipeline(
     source: &str,
     layout: &wgpu::BindGroupLayout,
     constants: &[(&str, f64)],
+    cache: Option<&wgpu::PipelineCache>,
 ) -> wgpu::ComputePipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
@@ -640,7 +645,7 @@ fn make_pipeline(
             constants,
             ..Default::default()
         },
-        cache: None,
+        cache,
     })
 }
 
@@ -758,14 +763,16 @@ impl Engine {
             wgpu::Features::empty()
         };
         let shader_f16 = adapter.features().contains(wgpu::Features::SHADER_F16);
+        let cache_feature = pcache::feature(&adapter);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("graffux-wgpu"),
-            required_features: timing_features,
+            required_features: timing_features | cache_feature,
             required_limits: limits.clone(),
             ..Default::default()
         }))
         .ok()?;
         let error = Arc::new(AtomicBool::new(false));
+        let disk_cache = pcache::DiskCache::open(&adapter, &device);
         {
             let error = error.clone();
             device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
@@ -783,8 +790,11 @@ impl Engine {
             height,
             &limits,
             stamp_tile,
+            disk_cache.as_ref().map(|c| &c.cache),
         );
         engine.shader_f16 = shader_f16;
+        engine.pcache = disk_cache;
+        engine.save_pipeline_cache();
         engine.instance = Some(instance);
         engine.adapter = Some(adapter);
         Some(engine)
@@ -799,6 +809,7 @@ impl Engine {
         height: i32,
         limits: &wgpu::Limits,
         stamp_tile: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Engine {
         let lost = Arc::new(AtomicBool::new(false));
         {
@@ -944,14 +955,21 @@ impl Engine {
             ],
         });
         let tile_constant = [("STAMP_TILE", stamp_tile as f64)];
-        let stamp_pipeline =
-            make_pipeline(&device, "stamp", STAMP_WGSL, &stamp_layout, &tile_constant);
+        let stamp_pipeline = make_pipeline(
+            &device,
+            "stamp",
+            STAMP_WGSL,
+            &stamp_layout,
+            &tile_constant,
+            cache,
+        );
         let masked_pipeline = make_pipeline(
             &device,
             "stamp masked",
             STAMP_MASKED_WGSL,
             &masked_layout,
             &tile_constant,
+            cache,
         );
         let smudge_pipeline = make_pipeline(
             &device,
@@ -959,6 +977,7 @@ impl Engine {
             COLOR_SMUDGE_WGSL,
             &smudge_layout,
             &[],
+            cache,
         );
         let timer = GpuTimer::new(&device, &queue);
 
@@ -1026,6 +1045,7 @@ impl Engine {
                 h: height,
             },
             mp: None,
+            pcache: None,
             instance: None,
             adapter: None,
             direct: None,
@@ -1736,6 +1756,18 @@ impl Engine {
         self.queue.submit([encoder.finish()]);
         self.note_write(self.dispatch_footprint(r));
         self.ok()
+    }
+
+    /// The persisted pipeline cache to compile into (pcache.rs), if any.
+    pub(super) fn pipeline_cache(&self) -> Option<&wgpu::PipelineCache> {
+        self.pcache.as_ref().map(|c| &c.cache)
+    }
+
+    /// Writes newly compiled pipelines to the disk cache (after creating pipelines).
+    pub(super) fn save_pipeline_cache(&mut self) {
+        if let Some(c) = self.pcache.as_mut() {
+            c.save();
+        }
     }
 
     /// Names the images of the next [`Engine::stamp_masked_dabs`] call: `(tip mask, grain,
