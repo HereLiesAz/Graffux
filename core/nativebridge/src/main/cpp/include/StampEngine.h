@@ -219,6 +219,9 @@ public:
     virtual bool docLayerDrop(uint64_t /*key*/) { return false; }
     virtual uint64_t docLayerBind(uint64_t /*key*/) { return 0; }
     virtual uint64_t docLayerCommit(uint64_t /*key*/, uint64_t /*session*/, int* /*outRect*/) { return 0; }
+    // GPU undo without document mode: every bind keeps the layer as it was, so docSnapshot op 0
+    // can keep a committed stroke's pre-stroke rectangle. False = unsupported.
+    virtual bool undoOpen() { return false; }
     // Undo snapshots: op 0 keeps `rect` of layer `a` from before the stroke bound in session `b`
     // (returns the snapshot id); 1 swaps snapshot `a` with its layer if the layer is at generation
     // `b`, tagging it `c` (writes the rect, returns the generation); 2 drops snapshot `a`.

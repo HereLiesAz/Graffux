@@ -430,6 +430,15 @@ pub unsafe extern "C" fn gfx_wgpu_stroke_rect(e: *mut Engine, out: *mut i32) -> 
     })
 }
 
+/// [`Engine::undo_open`]: GPU undo shadows on a cache-mode engine.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_undo_open(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.undo_open()))
+}
+
 // ---- Document store (docstore.rs): canonical GPU layers ------------------------------------
 
 /// [`Engine::doc_open`].

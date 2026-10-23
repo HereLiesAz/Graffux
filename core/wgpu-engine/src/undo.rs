@@ -77,9 +77,9 @@ impl Engine {
     }
 
     /// Keeps the layer as it is now as the stroke shadow of bind `session` on layer `key`, for
-    /// [`Engine::confine_stroke`] and [`Engine::doc_snapshot_stroke`]. Document mode only.
+    /// [`Engine::confine_stroke`] and [`Engine::doc_snapshot_stroke`]. Only with undo shadows on ([`Engine::undo_open`], or document mode).
     pub(super) fn doc_take_shadow(&mut self, key: u64, session: u64) -> bool {
-        if !self.doc_mode || session == 0 {
+        if !self.undo_shadows || session == 0 {
             return true;
         }
         let ok = self.take_stroke_shadow();

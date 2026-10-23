@@ -448,6 +448,9 @@ pub struct Engine {
     selection: Option<selection::SelectionGpu>,
     /// Document mode (docstore.rs): resident layers are canonical, never evicted.
     doc_mode: bool,
+    /// Undo shadows (undo.rs): every bind keeps the layer as it was, for [`Engine::doc_snapshot_stroke`].
+    /// On in document mode, and on its own via [`Engine::undo_open`] for a cache-mode engine.
+    undo_shadows: bool,
     /// The document store's generation counter.
     doc_gen: u64,
     /// Undo snapshots (undo.rs): pre-stroke rectangles of document layers.
@@ -921,6 +924,7 @@ impl Engine {
             stroke_written: Rect::default(),
             selection: None,
             doc_mode: false,
+            undo_shadows: false,
             doc_gen: 0,
             snapshots: Default::default(),
             stamp_mode: STAMP_OVER,

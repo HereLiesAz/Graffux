@@ -81,6 +81,7 @@ internal object WgpuNative {
         w: Int,
         h: Int,
     ): Boolean
+    @JvmStatic external fun nativeUndoOpen(handle: Long): Boolean
     @JvmStatic external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
     @JvmStatic external fun nativeInvalidateAllLayers(handle: Long)
     @JvmStatic external fun nativeSetResidentBudget(handle: Long, bytes: Long)

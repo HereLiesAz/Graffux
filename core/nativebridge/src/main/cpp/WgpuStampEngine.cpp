@@ -78,6 +78,8 @@ struct Api {
     bool (*docLayerRead)(GfxWgpuEngine*, uint64_t, int32_t, int32_t, int32_t, int32_t, uint8_t*, size_t);
     // Optional: undo snapshots of document layers.
     uint64_t (*docSnapshot)(GfxWgpuEngine*, int32_t, uint64_t, uint64_t, uint64_t, int32_t*);
+    // Optional: undo shadows without document mode (gfx_wgpu_undo_open).
+    bool (*undoOpen)(GfxWgpuEngine*);
     // Optional, all or nothing: selection at commit.
     bool (*setSelection)(GfxWgpuEngine*, const uint8_t*, size_t);
     bool (*selectionOp)(GfxWgpuEngine*, int32_t);
@@ -190,6 +192,7 @@ void load() {
                          optional(lib, "gfx_wgpu_doc_layer_read", a.docLayerRead);
         if (!doc) a.docOpen = nullptr;  // all or nothing
         optional(lib, "gfx_wgpu_doc_snapshot", a.docSnapshot);
+        optional(lib, "gfx_wgpu_undo_open", a.undoOpen);
         const bool wet = optional(lib, "gfx_wgpu_wet_begin", a.wetBegin) &&
                          optional(lib, "gfx_wgpu_wet_buffer", a.wetBuffer) &&
                          optional(lib, "gfx_wgpu_wet_op", a.wetOp) &&
@@ -397,6 +400,10 @@ bool WgpuStampEngine::shadeImpastoRelief(int x, int y, int w, int h, float azimu
                                          float elevationDeg, float strength) {
     return supportsImpasto() &&
            gApi.shadeRelief(engine_, x, y, w, h, azimuthDeg, elevationDeg, strength);
+}
+
+bool WgpuStampEngine::undoOpen() {
+    return engine_ != nullptr && gApi.undoOpen != nullptr && gApi.docSnapshot != nullptr && gApi.undoOpen(engine_);
 }
 
 bool WgpuStampEngine::docOpen() {

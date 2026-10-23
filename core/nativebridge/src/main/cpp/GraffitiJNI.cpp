@@ -587,6 +587,16 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeRefreshLayer(JN
     JNI_CATCH(jboolean())
 }
 
+// Turns on GPU undo shadows for the document engine (StampEngine::undoOpen).
+JNIEXPORT jboolean JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeUndoOpen(JNIEnv*, jobject, jlong handle) {
+    JNI_TRY
+    auto* engine = reinterpret_cast<graffux::StampEngine*>(handle);
+    if (!engine || !engine->isInitialized()) return JNI_FALSE;
+    return engine->undoOpen() ? JNI_TRUE : JNI_FALSE;
+    JNI_CATCH(jboolean())
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeInvalidateLayer(JNIEnv*, jobject, jlong handle, jlong key) {
     JNI_TRY

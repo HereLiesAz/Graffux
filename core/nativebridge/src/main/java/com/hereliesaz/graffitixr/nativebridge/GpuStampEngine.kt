@@ -473,6 +473,10 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
                 if (handle != 0L) {
                     liveWgpuHandles.add(handle)
                     applyMultipass(handle)
+                    // GPU undo (GpuUndoSnapshots.keep) needs every bind on the document engine to keep
+                    // its pre-stroke shadow; pooled stroke handles never snapshot, so only this one.
+                    // False (an older library) leaves keep() returning null: undo re-uploads instead.
+                    nativeUndoOpen(handle)
                 }
                 handle
             }
@@ -1228,6 +1232,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     /** [ids] = {key, session, generation}; [rect] = {x, y, w, h}. */
     private external fun nativeRefreshLayer(handle: Long, ids: LongArray, bitmap: Bitmap, rect: IntArray): Boolean
     private external fun nativeCommitLayer(handle: Long, key: Long, session: Long, generation: Long): Boolean
+    private external fun nativeUndoOpen(handle: Long): Boolean
     private external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
     private external fun nativeInvalidateAllLayers(handle: Long)
     private external fun nativeDestroy(handle: Long)
