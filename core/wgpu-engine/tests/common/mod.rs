@@ -9,7 +9,9 @@
 
 /// Whether `backend` must have an adapter on this host. `"any"` asks whether any backend is required.
 pub fn required(backend: &str) -> bool {
-    let Ok(v) = std::env::var("GRAFFUX_REQUIRE_GPU") else { return false };
+    let Ok(v) = std::env::var("GRAFFUX_REQUIRE_GPU") else {
+        return false;
+    };
     let v = v.trim().to_ascii_lowercase();
     match v.as_str() {
         "" | "0" | "false" | "no" => false,
