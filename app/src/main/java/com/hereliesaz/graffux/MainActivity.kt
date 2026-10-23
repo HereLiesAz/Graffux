@@ -432,6 +432,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.onImportDocument(it) } }
 
+    // An extension (.azp) picked by hand: the user chose the file, so it installs straight away,
+    // through the same AzpInstaller verification as every other path.
+    val extensionFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.installExtensionFromUri(it) } }
     val importPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -600,7 +605,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 title = "No way to reach the store",
                                 message = "This device has no store app, no Play, and no browser " +
                                     "to open azphalt.store with. Extensions can still be installed " +
-                                    "by hand from a file: Install brush… in the menu at the top right.",
+                                    "by hand from a file: Install extension from file… in the menu at the top right.",
                             )
                         }
                 }
@@ -1238,6 +1243,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // it, so there was no way to find the store without already knowing that toggle
                     // existed. This is the direct, always-visible path in.
                     menuItem(text = "Store…", onClick = { openAzphaltStore() })
+                    menuItem(
+                        text = "Install extension from file…",
+                        onClick = { extensionFilePicker.launch(arrayOf("*/*")) },
+                    )
                     // Writes a .graffux-figma.json bundle (see figma-plugin/README.md) that the
                     // companion Figma plugin rebuilds as a frame, one layer per Graffux layer.
                     // Same "collateral damage" shape as the Add Shape entry above: exportForFigma()
@@ -2341,7 +2350,7 @@ private fun AzNavHostScope.ConfigureRailItems(
     // it. Opening the window now *is* turning the mode on, and closing it turns it off.
     //
     // 3D was worse off: its only way in was an entry called "3D Model…" filed in the Actions
-    // drop-down between "Export for Figma" and "Install brush…". Everything it opens has always been
+    // drop-down between "Export for Figma" and "Install extension from file…". Everything it opens has always been
     // collected — ModelWindow holds the viewport, the model picker, paint mode, clear, and add-to-
     // canvas — but nothing in the rail admitted the feature existed.
     // GuideIsometric rather than a cube: the Graffux set has no cube, and this is the one glyph in

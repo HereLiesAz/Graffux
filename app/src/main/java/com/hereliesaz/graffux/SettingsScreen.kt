@@ -129,7 +129,8 @@ fun SettingsScreen(
             )
             SwitchRow(
                 title = "Right-handed",
-                subtitle = "Docks the tool rail on the left; turn off for a left-side rail.",
+                subtitle = "On: the tool rail docks on the left, out of a right hand's way. " +
+                    "Off: it docks on the right.",
                 checked = rightHanded,
                 onCheckedChange = vm::setRightHanded,
             )

@@ -57,8 +57,8 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
 
     // ── Painting ─────────────────────────────────────────────────────────────────────────────────
     "adj.brush" to
-        "The brush pad. Drag up and down for size, left and right for hardness — soft on the left, " +
-        "hard on the right. The circle is the brush at its real size; the number is its diameter. " +
+        "The brush pad. Drag up and down for size, left and right for hardness — hard on the left, " +
+        "soft on the right. The circle is the brush at its real size; the number is its diameter. " +
         "Tap it instead of dragging to set the size from a slider.",
     "tool.colorize" to
         "Paints hue over what is already there, keeping its light and shade — for tinting " +
