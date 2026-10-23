@@ -823,7 +823,7 @@ class EditorViewModel @Inject constructor(
         block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
     ): Job {
         val previous = rebuildJobs[layerId]
-        val job = viewModelScope.launch(dispatchers.default) {
+        val job = viewModelScope.launch(dispatchers.gpuWait) {
             val queuedAt = System.nanoTime()
             previous?.join()
             val startedAt = System.nanoTime()
@@ -1430,7 +1430,7 @@ class EditorViewModel @Inject constructor(
 
     private fun launchPrewarm(layerId: String, source: Bitmap) {
         prewarmJob?.cancel()
-        prewarmJob = viewModelScope.launch(dispatchers.default) {
+        prewarmJob = viewModelScope.launch(dispatchers.gpuWait) {
             val residentGeneration = layerResidency.generationFor(layerId, source)
             val work = SafeBitmap.copy(source) ?: return@launch
             if (!isActive) return@launch
@@ -1449,7 +1449,9 @@ class EditorViewModel @Inject constructor(
                 }
             }
             stale?.release()
-            warmGpuDocument(source.width, source.height)
+            // Cancelled meanwhile (a stroke started, the layer changed): a warm-up now would only
+            // compete with the stroke for the document lease.
+            if (isActive) warmGpuDocument(source.width, source.height)
         }
     }
 
@@ -5913,7 +5915,7 @@ class EditorViewModel @Inject constructor(
             val seed = stampSeed
             synchronized(stampLiveLock) {
                 if (stampGpuJob?.isActive != true) {
-                    stampGpuJob = viewModelScope.launch(dispatchers.default) {
+                    stampGpuJob = viewModelScope.launch(dispatchers.gpuWait) {
                         while (true) {
                             // A fast lift/redown can leave the previous stroke's native call
                             // finishing after the new stroke exists. Never let that stale worker
