@@ -34,6 +34,11 @@ data class StrokeProgramSpec(
     val state: Map<String, Float> = emptyMap(),
     val init: String = "",
     val step: String = "",
+    /**
+     * When positive, the program also runs every [tickMs] milliseconds of pen time that pass without
+     * a distance step (a held pen, or a very slow one), so a brush can keep spraying where it is.
+     */
+    val tickMs: Float = 0f,
 )
 
 /** The result of compiling a [StrokeProgramSpec]: a runnable [StrokeProgram] or the reason it can't run. */
@@ -59,6 +64,12 @@ class StrokeProgramFrame(
     val azimuthDeg: Float,
     val dwellMs: Float,
     val stepPx: Float,
+    /** Layer px per millisecond over the last ~50 ms (not screen px: it follows the drawn line). */
+    val layerSpeedPxPerMs: Float = 0f,
+    /** 0 touchdown, 1 moving, 2 held (a time tick), 3 lift-off. */
+    val phase: Int = 1,
+    /** Pen clock in ms, the sample's uptime; ledger films dry against it. */
+    val nowMs: Long = 0L,
 )
 
 /** A program's decision for one dab step: the dabs to paint, and how far to move before the next one. */
@@ -74,9 +85,13 @@ class StrokeProgram private constructor(
     private val initCode: Array<Stmt>,
     private val stepCode: Array<Stmt>,
 ) {
-    /** A fresh runner for one stroke. [seed] is the stroke's seed, so a replay reproduces it exactly. */
-    fun newRunner(seed: Long, brush: AzphaltBrush): StrokeProgramRunner =
-        StrokeProgramRunner(this, seed, brush)
+    /**
+     * A fresh runner for one stroke. [seed] is the stroke's seed, so a replay reproduces it exactly.
+     * [ledger] is the stroke's view of the wet paint already on the layer; without one the stroke
+     * starts on a dry wall.
+     */
+    fun newRunner(seed: Long, brush: AzphaltBrush, ledger: StrokeLedger? = null): StrokeProgramRunner =
+        StrokeProgramRunner(this, seed, brush, ledger ?: PaintLedger().beginStroke())
 
     internal fun newMemory(): FloatArray {
         val mem = FloatArray(layout.memorySize)
@@ -108,6 +123,8 @@ class StrokeProgram private constructor(
         const val MAX_EMITS_PER_STEP = 256
         const val MAX_EMITS_PER_STROKE = 40_000
         const val MIN_GAP = 0.05f
+        const val MIN_TICK_MS = 8f
+        const val MAX_TICKS_PER_SAMPLE = 512
         const val MAX_GAP = 20f
 
         /** Names a program may read. */
@@ -115,6 +132,7 @@ class StrokeProgram private constructor(
             "px", "py", "pressure", "speed", "heading", "turn", "dist", "time", "dt", "index",
             "diameter", "tilt", "azimuth", "dwell", "stepPx",
             "baseAlpha", "baseAngle", "baseTip", "baseHard",
+            "layerSpeed", "phase",
         )
 
         /** Names a program may assign to, with the value each starts every step at. */
@@ -194,7 +212,8 @@ class StrokeProgram private constructor(
 
     internal class Emit(val values: FloatArray, val present: Int)
 
-    internal class Vm(val mem: FloatArray, val rng: Random, val seed: Int) {
+    internal class Vm(val mem: FloatArray, val rng: Random, val seed: Int, val ledger: StrokeLedger) {
+        var nowMs = 0L
         var ops = 0
         var emitsThisStep = 0
         var emitsThisStroke = 0
@@ -370,8 +389,17 @@ class StrokeProgram private constructor(
                     "emit" -> return emitStatement()
                 }
             }
+            if (t.type == T.ID && tokens[pos + 1].let { it.type == T.OP && it.text == "(" }) return callStatement()
             if (t.type == T.ID) return assignment()
             fail("a statement can't start with '${t.text}'")
+        }
+
+        /** A call used for what it does (`spray(...)`), its value discarded. */
+        private fun callStatement(): Stmt {
+            val nameToken = next()
+            val expr = call(nameToken)
+            expectOp(";")
+            return Stmt { vm -> vm.tick(); expr.eval(vm) }
         }
 
         private fun block(): Array<Stmt> {
@@ -668,7 +696,7 @@ class StrokeProgram private constructor(
         }
 
         private fun call(t: Token): Expr {
-            val fn = FUNCTIONS[t.text] ?: fail("'${t.text}' is not a function", t)
+            val fn = FUNCTIONS[t.text] ?: HOST_FUNCTIONS[t.text] ?: fail("'${t.text}' is not a function", t)
             expectOp("(")
             val args = ArrayList<Expr>()
             if (!isOp(")")) {
@@ -681,10 +709,14 @@ class StrokeProgram private constructor(
             if (args.size != fn.arity) fail("${t.text}() takes ${fn.arity} argument(s), not ${args.size}", t)
             val a = args.toTypedArray()
             return when (fn.arity) {
-                0 -> Expr { vm -> vm.tick(2); fn.impl(vm, 0f, 0f, 0f) }
-                1 -> Expr { vm -> vm.tick(2); fn.impl(vm, a[0].eval(vm), 0f, 0f) }
-                2 -> Expr { vm -> vm.tick(2); fn.impl(vm, a[0].eval(vm), a[1].eval(vm), 0f) }
-                else -> Expr { vm -> vm.tick(2); fn.impl(vm, a[0].eval(vm), a[1].eval(vm), a[2].eval(vm)) }
+                0 -> Expr { vm -> vm.tick(2); fn.impl(vm, 0f, 0f, 0f, 0f) }
+                1 -> Expr { vm -> vm.tick(2); fn.impl(vm, a[0].eval(vm), 0f, 0f, 0f) }
+                2 -> Expr { vm -> vm.tick(2); fn.impl(vm, a[0].eval(vm), a[1].eval(vm), 0f, 0f) }
+                3 -> Expr { vm -> vm.tick(2); fn.impl(vm, a[0].eval(vm), a[1].eval(vm), a[2].eval(vm), 0f) }
+                else -> Expr { vm ->
+                    vm.tick(2)
+                    fn.impl(vm, a[0].eval(vm), a[1].eval(vm), a[2].eval(vm), a[3].eval(vm))
+                }
             }
         }
 
@@ -698,7 +730,7 @@ class StrokeProgram private constructor(
 
 private typealias ProgramVm = StrokeProgram.Vm
 
-private class Fn(val arity: Int, val impl: (ProgramVm, Float, Float, Float) -> Float)
+private class Fn(val arity: Int, val impl: (ProgramVm, Float, Float, Float, Float) -> Float)
 
 private const val DEG = 57.29578f
 private const val RAD = 0.017453292f
@@ -748,12 +780,12 @@ private fun noise2(seed: Int, x: Float, y: Float): Float {
 private fun finite(v: Float): Float = if (v.isFinite()) v else 0f
 
 private val FUNCTIONS: Map<String, Fn> = mapOf(
-    "abs" to Fn(1) { _, a, _, _ -> abs(a) },
-    "min" to Fn(2) { _, a, b, _ -> min(a, b) },
-    "max" to Fn(2) { _, a, b, _ -> max(a, b) },
-    "clamp" to Fn(3) { _, v, lo, hi -> if (hi < lo) lo else v.coerceIn(lo, hi) },
-    "lerp" to Fn(3) { _, a, b, t -> a + (b - a) * t },
-    "smoothstep" to Fn(3) { _, e0, e1, x ->
+    "abs" to Fn(1) { _, a, _, _, _ -> abs(a) },
+    "min" to Fn(2) { _, a, b, _, _ -> min(a, b) },
+    "max" to Fn(2) { _, a, b, _, _ -> max(a, b) },
+    "clamp" to Fn(3) { _, v, lo, hi, _ -> if (hi < lo) lo else v.coerceIn(lo, hi) },
+    "lerp" to Fn(3) { _, a, b, t, _ -> a + (b - a) * t },
+    "smoothstep" to Fn(3) { _, e0, e1, x, _ ->
         if (e1 == e0) {
             if (x < e0) 0f else 1f
         } else {
@@ -761,33 +793,62 @@ private val FUNCTIONS: Map<String, Fn> = mapOf(
         }
     },
     // gate(edge, x): 1 once x reaches edge, else 0.
-    "gate" to Fn(2) { _, edge, x, _ -> if (x >= edge) 1f else 0f },
+    "gate" to Fn(2) { _, edge, x, _, _ -> if (x >= edge) 1f else 0f },
     // Angles are in degrees throughout.
-    "sin" to Fn(1) { _, a, _, _ -> sin(a * RAD) },
-    "cos" to Fn(1) { _, a, _, _ -> cos(a * RAD) },
-    "tan" to Fn(1) { _, a, _, _ -> finite(tan(a * RAD)) },
-    "atan2" to Fn(2) { _, y, x, _ -> atan2(y, x) * DEG },
-    "sqrt" to Fn(1) { _, a, _, _ -> if (a <= 0f) 0f else sqrt(a) },
-    "pow" to Fn(2) { _, a, b, _ -> finite(a.pow(b)) },
-    "exp" to Fn(1) { _, a, _, _ -> finite(exp(a.coerceIn(-60f, 60f))) },
-    "log" to Fn(1) { _, a, _, _ -> if (a <= 0f) 0f else ln(a) },
-    "floor" to Fn(1) { _, a, _, _ -> floor(a) },
-    "ceil" to Fn(1) { _, a, _, _ -> ceil(a) },
-    "round" to Fn(1) { _, a, _, _ -> if (a.isFinite()) a.roundToInt().toFloat() else 0f },
-    "fract" to Fn(1) { _, a, _, _ -> a - floor(a) },
-    "mod" to Fn(2) { _, a, b, _ -> floorMod(a, b) },
-    "sign" to Fn(1) { _, a, _, _ -> if (a > 0f) 1f else if (a < 0f) -1f else 0f },
-    "hypot" to Fn(2) { _, a, b, _ -> hypot(a, b) },
+    "sin" to Fn(1) { _, a, _, _, _ -> sin(a * RAD) },
+    "cos" to Fn(1) { _, a, _, _, _ -> cos(a * RAD) },
+    "tan" to Fn(1) { _, a, _, _, _ -> finite(tan(a * RAD)) },
+    "atan2" to Fn(2) { _, y, x, _, _ -> atan2(y, x) * DEG },
+    "sqrt" to Fn(1) { _, a, _, _, _ -> if (a <= 0f) 0f else sqrt(a) },
+    "pow" to Fn(2) { _, a, b, _, _ -> finite(a.pow(b)) },
+    "exp" to Fn(1) { _, a, _, _, _ -> finite(exp(a.coerceIn(-60f, 60f))) },
+    "log" to Fn(1) { _, a, _, _, _ -> if (a <= 0f) 0f else ln(a) },
+    "floor" to Fn(1) { _, a, _, _, _ -> floor(a) },
+    "ceil" to Fn(1) { _, a, _, _, _ -> ceil(a) },
+    "round" to Fn(1) { _, a, _, _, _ -> if (a.isFinite()) a.roundToInt().toFloat() else 0f },
+    "fract" to Fn(1) { _, a, _, _, _ -> a - floor(a) },
+    "mod" to Fn(2) { _, a, b, _, _ -> floorMod(a, b) },
+    "sign" to Fn(1) { _, a, _, _, _ -> if (a > 0f) 1f else if (a < 0f) -1f else 0f },
+    "hypot" to Fn(2) { _, a, b, _, _ -> hypot(a, b) },
     // Stateless and seeded by the stroke: the same input gives the same value everywhere in a stroke.
-    "hash" to Fn(1) { vm, a, _, _ -> hashUnit(vm.seed, a.toBits()) },
-    "hash2" to Fn(2) { vm, a, b, _ -> hashUnit(vm.seed, a.toBits(), b.toBits()) },
+    "hash" to Fn(1) { vm, a, _, _, _ -> hashUnit(vm.seed, a.toBits()) },
+    "hash2" to Fn(2) { vm, a, b, _, _ -> hashUnit(vm.seed, a.toBits(), b.toBits()) },
     // Smooth value noise in [0, 1].
-    "noise" to Fn(1) { vm, t, _, _ -> noise1(vm.seed, t) },
-    "noise2" to Fn(2) { vm, x, y, _ -> noise2(vm.seed, x, y) },
+    "noise" to Fn(1) { vm, t, _, _, _ -> noise1(vm.seed, t) },
+    "noise2" to Fn(2) { vm, x, y, _, _ -> noise2(vm.seed, x, y) },
     // Sequential random streams: each call advances the stroke's stream.
-    "rand" to Fn(0) { vm, _, _, _ -> vm.rng.nextFloat() },
-    "rands" to Fn(0) { vm, _, _, _ -> vm.rng.nextFloat() * 2f - 1f },
+    "rand" to Fn(0) { vm, _, _, _, _ -> vm.rng.nextFloat() },
+    "rands" to Fn(0) { vm, _, _, _, _ -> vm.rng.nextFloat() * 2f - 1f },
 )
+
+/** Calls that reach the stroke's wet-paint ledger; the stroke program's only window on the layer. */
+private val HOST_FUNCTIONS: Map<String, Fn> = mapOf(
+    // spray(x, y, r, dh): lay up to dh micrometres of wet film at the centre, falling to nothing at r.
+    "spray" to Fn(4) { vm, x, y, r, dh ->
+        vm.tick(footprintCost(r))
+        vm.ledger.spray(x, y, r, dh, vm.nowMs)
+        0f
+    },
+    // drain(x, y, r, dh): take up to dh micrometres off (a drip leaving), never below dry.
+    "drain" to Fn(4) { vm, x, y, r, dh ->
+        vm.tick(footprintCost(r))
+        vm.ledger.drain(x, y, r, dh, vm.nowMs)
+        0f
+    },
+    // wetAt(x, y, r): mean film under a footprint, in micrometres, dried to now.
+    "wetAt" to Fn(3) { vm, x, y, r, _ ->
+        vm.tick(footprintCost(r))
+        finite(vm.ledger.wetAt(x, y, r, vm.nowMs))
+    },
+)
+
+private fun footprintCost(r: Float): Int {
+    val reach = if (r.isFinite()) r.coerceIn(0f, FOOTPRINT_COST_REACH_PX) else 0f
+    return (reach * reach / FOOTPRINT_COST_DIVISOR).toInt()
+}
+
+private const val FOOTPRINT_COST_REACH_PX = 320f
+private const val FOOTPRINT_COST_DIVISOR = 512f
 
 private const val PROGRAM_SEED_SALT = 0x5052_4F47_5F53_4544L
 
@@ -800,12 +861,17 @@ class StrokeProgramRunner internal constructor(
     private val program: StrokeProgram,
     seed: Long,
     private val brush: AzphaltBrush,
+    private val ledger: StrokeLedger,
 ) {
     private val vm = ProgramVm(
         program.newMemory(),
         Random(seed xor PROGRAM_SEED_SALT),
         (seed xor (seed ushr 32)).toInt() xor 0x5EED,
+        ledger,
     )
+
+    /** The film this stroke touched, as it stands at [nowMs], for the host to hand to the next stroke. */
+    fun film(nowMs: Long): PaintSnapshot = ledger.film(nowMs)
     private val snapshot = FloatArray(program.stateSize)
     private var started = false
 
@@ -829,6 +895,7 @@ class StrokeProgramRunner internal constructor(
         mem.copyInto(snapshot, 0, program.stateBase, program.stateBase + program.stateSize)
         load(frame, template)
         vm.ops = 0
+        vm.nowMs = frame.nowMs
         vm.emitsThisStep = 0
         vm.emitted.clear()
         try {
@@ -855,6 +922,7 @@ class StrokeProgramRunner internal constructor(
             frame.distancePx, frame.timeMs, frame.dtMs, frame.index.toFloat(), frame.diameterPx,
             frame.tiltDeg, frame.azimuthDeg, frame.dwellMs, frame.stepPx,
             template.alpha, template.angleDeg, template.tipRatio, template.hardness,
+            frame.layerSpeedPxPerMs, frame.phase.toFloat(),
         )
         for (i in inputs.indices) m[i] = finite(inputs[i])
         for ((i, out) in StrokeProgram.OUTPUTS.withIndex()) m[program.outputBase + i] = out.second

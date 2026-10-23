@@ -20,21 +20,40 @@ object LiveStrokeDabs {
             brush.program != null
 
     /** The stroke's movement dabs, as the live stroke generated them. */
-    fun movementDabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> {
+    fun movementDabs(samples: List<BrushSample>, diameterPx: Float, brush: AzphaltBrush, seed: Long): List<Dab> =
+        movementStroke(samples, diameterPx, brush, seed, null).dabs
+
+    /** A stroke's movement dabs and the wet film it touched. */
+    class Stroke(val dabs: List<Dab>, val film: PaintSnapshot?)
+
+    /**
+     * [movementDabs] for a brush whose program reads the wet paint already on the layer
+     * ([paintPrior], as the stroke began), returning the film this stroke touched so the host can
+     * hand it to the stroke that follows.
+     */
+    fun movementStroke(
+        samples: List<BrushSample>,
+        diameterPx: Float,
+        brush: AzphaltBrush,
+        seed: Long,
+        paintPrior: PaintSnapshot?,
+    ): Stroke {
         val out = ArrayList<Dab>()
+        var film: PaintSnapshot? = null
         if (usesDynamicGenerator(brush)) {
-            val generator = IncrementalDynamicDabGenerator(diameterPx, brush, seed)
+            val generator = IncrementalDynamicDabGenerator(diameterPx, brush, seed, paintPrior)
             val predictor = StrokeLengthPredictor()
             for (sample in samples) {
                 predictor.record(sample)
                 out.addAll(generator.append(sample, predictor.predictedTotal))
             }
+            film = generator.paintFilm()
         } else {
             val generator = IncrementalStaticDabGenerator(diameterPx, brush, seed)
             // Predicted (not-yet-real) samples never place dabs, as on the dynamic path.
             for (sample in samples) if (!sample.predicted) out.addAll(generator.appendPoint(sample.x, sample.y))
         }
-        return out
+        return Stroke(out, film)
     }
 
     /** The stroke's held (airbrush build-up) dabs, as the live stroke generated them. */

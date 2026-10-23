@@ -60,6 +60,13 @@ fun DrawingCanvas(
      * morphology, bristle population and device-pose model as the mechanics layer.
      */
     activeBrushPreview: AzphaltBrush? = null,
+    /**
+     * Pen-time tick of the active brush's stroke program (0 = none). A brush that sprays where it
+     * is held starts its stroke on touchdown, not after the touch slop, and while the pen is held
+     * with no events the canvas repeats the last position every tick, so the program keeps
+     * running on the clock. Spraying while held replaces the long-press eyedropper for that brush.
+     */
+    heldTickMs: Long = 0L,
     /** TEMPORARY: a Brush stroke ended; gets the prediction ranking report and display Hz. */
     onPredictionRanked: (report: String, refreshRateHz: Float) -> Unit = { _, _ -> },
     /** TEMPORARY: this canvas's prediction tournament is being discarded. */
@@ -240,7 +247,7 @@ fun DrawingCanvas(
             // whenever Settings changes the solo model or Ink profile, and without restarting here
             // the gesture loop kept feeding the discarded one while every report read the new,
             // empty one -- "f1: no data" on every horizon (#470-#476).
-            .pointerInput(activeTool, nextFrameMs, pickingCloneSource, predictionTournament) {
+            .pointerInput(activeTool, nextFrameMs, pickingCloneSource, predictionTournament, heldTickMs) {
                 gate.strokeActive = false
                 if (activeTool == Tool.NONE) return@pointerInput
                 val slop = viewConfiguration.touchSlop
@@ -252,16 +259,33 @@ fun DrawingCanvas(
                     var eyedrop = false
                     var cancelled = false
                     var last = down.position
+                    var lastPressure = down.pressure
                     val eyedropDeadlineMs = android.os.SystemClock.uptimeMillis() + EYEDROP_HOLD_MS
+                    val sprays = heldTickMs > 0L && brushLike && !pickingCloneSource
+                    if (sprays) {
+                        began = true
+                        gate.strokeActive = true
+                        onStrokeStart(
+                            recordRealPoint(down.position, down.uptimeMillis, down.pressure, BrushContactPhase.TOUCHDOWN),
+                            canvasSize,
+                        )
+                    }
 
                     while (true) {
-                        val event = if (!began && !eyedrop && !pickingCloneSource && activeTool != Tool.FILL) {
+                        val event = if (sprays) {
+                            withTimeoutOrNull(heldTickMs) { awaitPointerEvent() }
+                        } else if (!began && !eyedrop && !pickingCloneSource && activeTool != Tool.FILL) {
                             val remainingMs = eyedropDeadlineMs - android.os.SystemClock.uptimeMillis()
                             if (remainingMs <= 0L) null else withTimeoutOrNull(remainingMs) { awaitPointerEvent() }
                         } else {
                             awaitPointerEvent()
                         }
 
+                        if (event == null && sprays) {
+                            // Held still: repeat the last position on the pen clock.
+                            onStrokePoint(recordRealPoint(last, android.os.SystemClock.uptimeMillis(), lastPressure))
+                            continue
+                        }
                         if (event == null) {
                             eyedrop = true
                             onEyedropStart(canvasSize)
@@ -284,6 +308,7 @@ fun DrawingCanvas(
 
                         val change = event.changes.firstOrNull { it.id == down.id } ?: continue
                         last = change.position
+                        lastPressure = change.pressure
 
                         if (eyedrop) {
                             if (!change.pressed) {

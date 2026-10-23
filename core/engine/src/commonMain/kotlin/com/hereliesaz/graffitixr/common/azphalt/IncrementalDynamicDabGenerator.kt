@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.common.azphalt
 
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -21,6 +22,8 @@ class IncrementalDynamicDabGenerator(
     diameterPx: Float,
     private val brush: AzphaltBrush,
     private val seed: Long,
+    /** The wet paint already on the layer, for a brush whose stroke program reads it. */
+    paintPrior: PaintSnapshot? = null,
 ) {
     private val diameter = diameterPx.coerceAtLeast(0f)
     private val baseRadius = diameter / 2f
@@ -54,10 +57,88 @@ class IncrementalDynamicDabGenerator(
 
     /** The brush's stroke program, if it has one that compiles; a broken one leaves a plain brush. */
     internal val programRunner: StrokeProgramRunner? = brush.program?.let { spec ->
-        (StrokeProgram.compile(spec) as? StrokeProgramCompilation.Ok)?.program?.newRunner(seed, brush)
+        (StrokeProgram.compile(spec) as? StrokeProgramCompilation.Ok)?.program
+            ?.newRunner(seed, brush, paintPrior?.toLedger()?.beginStroke())
     }
+    private val programTickMs = brush.program?.tickMs ?: 0f
+
+    /** The film this stroke touched as of its last sample, for the stroke that follows. */
+    fun paintFilm(): PaintSnapshot? = programRunner?.film(lastStepTime.coerceAtLeast(lastSampleTime))
+
+    private var layerSpeed = 0f
+    private var lastSampleTime = 0L
+    private var lastResolvedDiameter = diameter
+    private var lastStepPx = 0f
+    private var liftHandled = false
 
     fun append(sampleIn: BrushSample, predictedTotal: Float = 0f): List<Dab> {
+        val moved = appendMovement(sampleIn, predictedTotal)
+        val runner = programRunner ?: return moved
+        if (sampleIn.predicted || diameter <= 0f || !sampleIn.x.isFinite() || !sampleIn.y.isFinite()) return moved
+        val timed = timeSteps(runner, sampleIn)
+        return if (timed.isEmpty()) moved else moved + timed
+    }
+
+    /**
+     * The steps a program takes that no distance step covers: a tick every `tickMs` of pen time a held
+     * or very slow pen leaves unstepped, and one at lift-off. Both are driven only by the recorded
+     * sample times, so replay takes the same ticks. The brush's own dab is not painted for them; the
+     * program decides what, if anything, they lay down.
+     */
+    private fun timeSteps(runner: StrokeProgramRunner, sample: BrushSample): List<Dab> {
+        val out = ArrayList<Dab>()
+        val tickMs = programTickMs
+        if (tickMs > 0f) {
+            val period = tickMs.toLong().coerceAtLeast(1L)
+            var ticks = 0
+            while (sample.uptimeMillis - lastStepTime >= period && ticks < StrokeProgram.MAX_TICKS_PER_SAMPLE) {
+                lastStepTime += period
+                out.addAll(programOnlyStep(runner, sample, lastStepTime, period.toFloat(), PHASE_HELD))
+                ticks++
+            }
+            // A gap longer than the cap (a pen held with no samples) is not replayed tick by tick.
+            if (sample.uptimeMillis - lastStepTime >= period) lastStepTime = sample.uptimeMillis
+        }
+        if (!liftHandled && sample.telemetry.contactPhase == BrushContactPhase.LIFT_OFF) {
+            liftHandled = true
+            val dt = (sample.uptimeMillis - lastStepTime).coerceAtLeast(0L).toFloat()
+            out.addAll(programOnlyStep(runner, sample, sample.uptimeMillis, dt, PHASE_LIFT))
+            lastStepTime = sample.uptimeMillis
+        }
+        return out
+    }
+
+    private fun programOnlyStep(
+        runner: StrokeProgramRunner,
+        sample: BrushSample,
+        nowMs: Long,
+        dtMs: Float,
+        phase: Int,
+    ): List<Dab> = runner.apply(
+        StrokeProgramFrame(
+            x = sample.x,
+            y = sample.y,
+            pressure = sample.pressure,
+            speedPxPerMs = sample.speedPxPerMs,
+            headingDeg = lastHeadingDeg,
+            turnDeg = 0f,
+            distancePx = travelled,
+            timeMs = (nowMs - startTime).toFloat(),
+            dtMs = dtMs,
+            index = index,
+            diameterPx = lastResolvedDiameter,
+            tiltDeg = sample.tiltRadians * RAD_TO_DEG,
+            azimuthDeg = sample.orientationRadians * RAD_TO_DEG,
+            dwellMs = dwellMs,
+            stepPx = lastStepPx,
+            layerSpeedPxPerMs = layerSpeed,
+            phase = phase,
+            nowMs = nowMs,
+        ),
+        emptyList(),
+    ).dabs
+
+    private fun appendMovement(sampleIn: BrushSample, predictedTotal: Float): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
         if (sampleIn.predicted || diameter <= 0f) return emptyList()
         // A non-finite position would poison the arc length for the rest of the stroke.
@@ -69,11 +150,17 @@ class IncrementalDynamicDabGenerator(
             firstSample = sample
             startTime = sample.uptimeMillis
             lastStepTime = sample.uptimeMillis
+            lastSampleTime = sample.uptimeMillis
             return emitAt(sample, 0f)
         }
         if (secondSample == null) secondSample = sample
 
         val segmentLength = hypot(sample.x - prev.x, sample.y - prev.y)
+        // Layer px per ms, smoothed over about 50 ms so a jittery sample interval doesn't read as a
+        // sprint. It follows the drawn line (layer space), not the finger on the glass.
+        val sampleDt = (sample.uptimeMillis - lastSampleTime).coerceAtLeast(1L).toFloat()
+        layerSpeed += (segmentLength / sampleDt - layerSpeed) * (1f - exp(-sampleDt / SPEED_SMOOTHING_MS))
+        lastSampleTime = sample.uptimeMillis
         if (!firstMovementSeen) {
             val anchor = firstSample!!
             if (hypot(sample.x - anchor.x, sample.y - anchor.y) <= brush.airbrushStillnessRadiusPx) {
@@ -273,6 +360,9 @@ class IncrementalDynamicDabGenerator(
                     azimuthDeg = sample.orientationRadians * RAD_TO_DEG,
                     dwellMs = dwellMs,
                     stepPx = step,
+                    layerSpeedPxPerMs = layerSpeed,
+                    phase = if (index == 0) PHASE_TOUCHDOWN else PHASE_MOVING,
+                    nowMs = sample.uptimeMillis,
                 ),
                 out,
             )
@@ -281,6 +371,8 @@ class IncrementalDynamicDabGenerator(
         } ?: out
         lastHeadingDeg = headingDeg
         lastStepTime = sample.uptimeMillis
+        lastResolvedDiameter = resolvedDiameter
+        lastStepPx = step
         nextAt = at + (step * gap).coerceAtLeast(BrushStamps.MIN_DAB_STEP_PX)
         index++
         return painted
@@ -375,6 +467,11 @@ class IncrementalDynamicDabGenerator(
         const val RAD_TO_DEG = 57.29578f
         const val DEG_TO_RAD = 0.017453292f
         const val EPSILON = 1e-4f
+        const val SPEED_SMOOTHING_MS = 50f
+        const val PHASE_TOUCHDOWN = 0
+        const val PHASE_MOVING = 1
+        const val PHASE_HELD = 2
+        const val PHASE_LIFT = 3
         const val MASK_SEED_SALT = 0x4D41534B5F544950L
         const val COLOR_SEED_SALT = 0x434F4C4F525F4D58L
         const val LONGITUDINAL_SEED_SALT = 0x4C4F4E475F534341L

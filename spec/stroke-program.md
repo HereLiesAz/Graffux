@@ -40,7 +40,9 @@ In the brush asset's `params`:
 ~~~
 
 `state` names the persistent variables and their starting values (at most 32). `init` runs once, before the
-first step. `step` runs every dab step and is required — without it there is no program. Source may be one
+first step. `step` runs every dab step and is required — without it there is no program. `tickMs` (optional,
+at least 8) also runs `step` every that many milliseconds of pen time that pass with no distance step, so a
+brush can keep working where the pen is held or crawling (see *Time ticks*). Source may be one
 string or an array of lines (joined with newlines). A program that fails to compile is ignored and the brush
 paints as its plain self; tooling should surface the error (`StrokeProgram.compile` returns the message and
 line).
@@ -79,6 +81,8 @@ Division by zero is `0`; any non-finite result is `0`. `PI` is a constant.
 | `dwell` | ms the pen stayed put at touchdown before moving |
 | `stepPx` | the distance the brush will move to the next step, px |
 | `baseAlpha`, `baseAngle`, `baseTip`, `baseHard` | the brush's own dab's alpha, angle, tip ratio, hardness |
+| `layerSpeed` | layer px per millisecond over the last ~50 ms. Unlike `speed` (finger px on the glass) it follows the drawn line, so it does not depend on zoom |
+| `phase` | 0 touchdown, 1 moving, 2 held (a time tick), 3 lift-off |
 
 ### Outputs (assignable; reset every step)
 
@@ -124,6 +128,40 @@ Emitted dabs are painted after the brush's own dabs, in emit order, so emit orde
 
 Use `hash`/`noise` for things that must stay put as the stroke advances (a bristle's identity), `rand` for
 fresh draws (when a drip lets go).
+
+## Time ticks and lift-off
+
+A brush's dab steps are spaced by distance, so a held pen takes none. With `tickMs` set, the program also
+runs on pen time: whenever at least `tickMs` ms have passed since the last step, it steps again at the pen's
+position with `phase` 2, `dt` = the tick, and the brush's own dab **not** painted (`emit` is the only way to
+paint). While the pen creeps, ticks interleave with distance steps; every step carries its own `dt`, so a
+program that integrates over `dt` gets the same answer however the time was cut up.
+
+The editor repeats the pen's position every `tickMs` while a held pen sends no events, and a brush with
+`tickMs` starts its stroke at touchdown rather than after the touch slop; holding still sprays instead of
+opening the eyedropper. The lift-off sample runs the program once more with `phase` 3 (and `dt` = time since
+the last step), the one place a program can finish what it started: a drip that is still running when you let
+go can be completed there.
+
+Ticks and the lift step depend only on the recorded sample times, so replay takes the same ones.
+
+## Wet paint
+
+Programs cannot read the canvas, but they can read and write a coarse record of wet film: thickness in
+micrometres on an 8-layer-px grid, drying with a time constant of 45 s. It is *history*, not pixels: a stroke
+starts from the film its layer's previous spray stroke left (dried to now) and hands its own on, so a second
+burst over the same spot a few seconds later lands on the first one's still-wet paint. After a project is
+reopened the film is gone, which is also what is true.
+
+| Call | Does |
+|---|---|
+| `spray(x, y, r, dh);` | lay up to `dh` µm at the centre, falling to nothing at radius `r` (px) |
+| `drain(x, y, r, dh);` | take up to `dh` µm off, never below dry (a drip leaving) |
+| `wetAt(x, y, r)` | centre-weighted mean film under a footprint of radius `r`, in µm, dried to now |
+
+Film is stored as thickness, never as volume, so it does not depend on the brush size that laid it.
+A footprint wider than 320 px is clamped. Cost is counted against the step's operation budget in proportion to
+the area touched. A step that overruns its budget rolls back its state variables but not the film already laid.
 
 ## Limits
 
