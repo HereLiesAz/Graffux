@@ -2050,9 +2050,12 @@ class EditorViewModel @Inject constructor(
      * The pixel size a newly created layer should allocate at: the screen, scaled by the user's
      * canvas render scale.
      *
-     * A layer costs width*height*4 bytes twice over (the displayed bitmap and [LayerStore]'s
-     * pristine base), so on a 1440x3120 panel each layer is ~36 MB at full scale and a handful of
-     * them exhausts the heap. Scale is quadratic here: 0.5 leaves a quarter of the bytes.
+     * One copy of a layer is width*height*4 bytes (~18 MB on a 1440x3120 panel at full scale).
+     * Every layer holds two (the displayed bitmap and [LayerStore]'s pristine base, ~36 MB); the
+     * active layer adds a third, the pre-warmed work copy ([launchPrewarm]), and during a stroke
+     * the live work bitmap and then the commit result add more, so the active layer alone reaches
+     * ~54-72 MB and a handful of layers exhausts the heap. Scale is quadratic here: 0.5 leaves a
+     * quarter of the bytes.
      *
      * Stroke coordinates are unaffected — [ImageProcessor.mapScreenToBitmap] derives its fit scale
      * from the bitmap's own dimensions, so a smaller layer takes the same strokes in the same
