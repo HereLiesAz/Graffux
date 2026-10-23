@@ -1,6 +1,11 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.design.theme.CheckerDark
+import com.hereliesaz.graffitixr.design.theme.CheckerLight
+import com.hereliesaz.graffitixr.design.theme.Workspace
+import com.hereliesaz.graffitixr.design.theme.HotPink
+import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.feature.editor.strokedata.rememberStrokeDataRecorder
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -1028,7 +1033,7 @@ private fun SelectionOverlay(
             activeLayer, size.width, size.height, viewportOffset, viewportZoom, viewportRotation,
         ) ?: return@Canvas
         val stroke = 2.dp.toPx()
-        val color = Color(0xFF00E5FF) // cyan, matches the rail accent
+        val color = Cyan // the selection accent (the theme's secondary)
         for (i in corners.indices) {
             drawLine(color, corners[i], corners[(i + 1) % corners.size], strokeWidth = stroke)
         }
@@ -1142,7 +1147,7 @@ internal fun SelectionHandles(
         val corners = CanvasHitTest.layerScreenCorners(
             activeLayer, size.width, size.height, viewportOffset, viewportZoom, viewportRotation,
         ) ?: return@Canvas
-        val accent = Color(0xFF00E5FF)
+        val accent = Cyan
         val r = 7.dp.toPx()
         // Resize handle (bottom-right): a filled square.
         val br = corners[2]
@@ -1274,7 +1279,7 @@ private fun EyedropLoupe(color: Color?, position: Offset, modifier: Modifier = M
 @Composable
 private fun SnapGuides(guidesX: List<Float>, guidesY: List<Float>, modifier: Modifier = Modifier) {
     Canvas(modifier) {
-        val color = Color(0xFFFF3D7F) // magenta, distinct from the cyan selection accent
+        val color = HotPink // the theme's primary, distinct from the cyan selection accent
         val stroke = 1.dp.toPx()
         guidesX.forEach { x -> drawLine(color, Offset(x, 0f), Offset(x, size.height), strokeWidth = stroke) }
         guidesY.forEach { y -> drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = stroke) }
@@ -1420,7 +1425,7 @@ private fun BoxScope.Rulers(
 }
 
 /** The fixed dark workspace behind the artboard, so the document reads as a distinct page. */
-private val WorkspaceColor = Color(0xFF2B2B2B)
+private val WorkspaceColor = Workspace
 
 /** The centered, aspect-fit artboard rectangle for a [docW]×[docH] document within a [w]×[h] canvas,
  *  as `[left, top, width, height]`. Shared by the page fill and the frame outline. */
@@ -1447,7 +1452,7 @@ private fun ArtboardPage(documentWidth: Int, documentHeight: Int, color: Color, 
         if (color.alpha == 0f) {
             // Transparent document: paint the standard checkerboard so the empty page reads as
             // "see-through" instead of blending into the workspace. Cells clipped to the artboard rect.
-            drawRect(Color(0xFFCFCFCF), topLeft = topLeft, size = rectSize)
+            drawRect(CheckerLight, topLeft = topLeft, size = rectSize)
             val cell = 16f
             val cols = ceil(r[2] / cell).toInt()
             val rows = ceil(r[3] / cell).toInt()
@@ -1456,7 +1461,7 @@ private fun ArtboardPage(documentWidth: Int, documentHeight: Int, color: Color, 
                     val x = r[0] + cx * cell
                     val y = r[1] + cy * cell
                     drawRect(
-                        Color(0xFF9E9E9E),
+                        CheckerDark,
                         topLeft = Offset(x, y),
                         size = Size(minOf(cell, r[0] + r[2] - x), minOf(cell, r[1] + r[3] - y)),
                     )
@@ -1629,7 +1634,7 @@ private fun polygonPath(cx: Float, cy: Float, w: Float, h: Float, sides: Int): P
 private val NON_RASTER_TOOLS = setOf(Tool.NONE, Tool.PEN, Tool.SELECT)
 
 /** Accent ring colour for the brush-size HUD. */
-private val BrushHudAccent = Color(0xFFFF4FA3)
+private val BrushHudAccent = HotPink
 
 /** [image] drawn at its [frame] origin inside the frame's uniform, centred fit of this draw area. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLayerBitmap(

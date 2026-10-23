@@ -1,5 +1,7 @@
 package com.hereliesaz.graffux
 
+import com.hereliesaz.graffitixr.design.theme.HotPink
+import com.hereliesaz.graffitixr.design.theme.Amber
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -675,7 +677,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // "what is true of this". They have to be different colours or the rail says the
                 // same thing about a layer you are editing and a layer that merely comes along when
                 // you drag it. Amber because it reads as a condition rather than a place.
-                secondaryColor = Color(0xFFFFB300),
+                secondaryColor = Amber,
                 // The border is what distinguishes "this opens something" from "this does something".
                 // The rail's default is therefore borderless (NONE_SQUARE keeps the SQUARE footprint,
                 // so a borderless item still lines up with a bordered one) and the only items that
@@ -1894,8 +1896,8 @@ private fun PaletteSwatch(color: Color) {
 
         val r = minOf(w, h) * 0.085f
         paintWell(Offset(w * 0.31f, h * 0.29f), r, Cyan)
-        paintWell(Offset(w * 0.51f, h * 0.23f), r, Color(0xFFFF2DAA))
-        paintWell(Offset(w * 0.68f, h * 0.34f), r, Color(0xFFFFC107))
+        paintWell(Offset(w * 0.51f, h * 0.23f), r, HotPink)
+        paintWell(Offset(w * 0.68f, h * 0.34f), r, Amber)
         paintWell(Offset(w * 0.34f, h * 0.56f), r * 1.35f, color)
     }
 }

@@ -2,14 +2,11 @@ package com.hereliesaz.graffitixr.design.theme
 
 import android.app.Activity
 import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
@@ -46,29 +43,23 @@ private val DarkColorScheme = darkColorScheme(
     onSurfaceVariant = Color(0xFFC6C6CE),
     outline = Color(0xFF4A4A54),
     outlineVariant = Color(0xFF3A3A42),
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = HotPink,
-    secondary = Cyan,
-    tertiary = NeonGreen,
-    // The M3 default on-colors are white, which is unreadable on these neon accents (see above).
-    onPrimary = Black,
-    onSecondary = Black,
-    onTertiary = Black,
+    // No tonal tint: elevated surfaces stay black instead of picking up a HotPink cast.
+    surfaceTint = Color.Transparent,
 )
 
 /**
  * The main theme composable for GraffitiXR.
  * Applies the Material 3 color scheme and typography.
  *
- * @param darkTheme Whether to use the dark theme (defaults to system setting).
+ * Graffux is a dark app on every device: the light scheme it used to fall back to (on any phone
+ * set to light mode) left theme-coloured text near-black on the app's black panels.
+
  * @param dynamicColor Whether to use Android 12+ dynamic colors (wallpaper-based).
  * @param content The content to be styled.
  */
+@Suppress("FunctionNaming")
 @Composable
 fun GraffitiXRTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
@@ -76,17 +67,16 @@ fun GraffitiXRTheme(
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            dynamicDarkColorScheme(context)
         }
 
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        else -> DarkColorScheme
     }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
 
