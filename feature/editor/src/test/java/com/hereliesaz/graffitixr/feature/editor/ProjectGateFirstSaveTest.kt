@@ -158,7 +158,7 @@ class ProjectGateFirstSaveTest {
         assertNotNull("the dialog stays: there is still no project", gate)
         assertNull("and can be used again", gate?.busyLabel)
         assertEquals(1, errors.size)
-        // Said in words the user can act on, not as an exception class name.
+        // Plain words on screen (PlainFailure); the class name goes to the breadcrumbs below.
         assertTrue(errors.single().contains("memory"))
         assertTrue(!errors.single().contains("OutOfMemoryError"))
         val crumbs = com.hereliesaz.graffitixr.common.crash.Breadcrumbs.snapshot()

@@ -96,7 +96,7 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "the canvas as a layer.",
     "adj.extensions" to
         "Runs an installed filter or colour LUT over the artwork. Installing and removing them is " +
-        "'Extensions' in the menu at the top right.",
+        "'Azphalt Store…' in the menu at the top right, or Extensions > Installed here.",
     "tool.color" to
         "The current colour — the button *is* the colour. Tap it to change it.",
     "grp.vector" to

@@ -78,7 +78,7 @@ fun CustomBrushesWindow(
                 Text(
                     "Nothing saved yet. Brush Studio's Save Brush button adds one here.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 

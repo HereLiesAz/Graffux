@@ -124,7 +124,7 @@ fun OpenProjectWindow(
                         text = "Nothing in the places this app can see. If your project is on a " +
                             "cloud drive or an SD card, point at it directly.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 AzButton(
@@ -253,7 +253,7 @@ private fun OpenCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
                 .clickable { onOpen() },
             contentAlignment = Alignment.Center,
         ) {
@@ -268,7 +268,7 @@ private fun OpenCard(
             } else {
                 // A project saved before it had anything on it has no preview, and so does one
                 // whose preview didn't decode. Neither is worth an error — the name still opens it.
-                Text("—", color = Color.Gray)
+                Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Text(
@@ -282,14 +282,14 @@ private fun OpenCard(
             Text(
                 text = location,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (onDelete != null) {
                 Text(
                     text = "✕",
-                    color = Color.Gray,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .clickable { onDelete() }

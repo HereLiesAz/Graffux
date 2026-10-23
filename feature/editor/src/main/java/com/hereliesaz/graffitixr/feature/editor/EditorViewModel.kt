@@ -16,7 +16,6 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import android.widget.Toast
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -863,7 +862,7 @@ class EditorViewModel @Inject constructor(
             if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s
         }
         if (strokeLayerId == null) endOverlayStroke(afterFrames = 0)
-        Toast.makeText(context, "That stroke didn't paint. Try it again.", Toast.LENGTH_SHORT).show()
+        notify("That stroke didn't paint. Try it again.", NoticeKind.WARNING)
     }
 
     // Stroke-compositing pipeline (base + strokes -> rendered bitmap; see DrawingEngine).
@@ -2280,7 +2279,7 @@ class EditorViewModel @Inject constructor(
                     saveTimeLapseToDownloads(file)
                 } else {
                     withContext(dispatchers.main) {
-                        Toast.makeText(context, "No time-lapse frames captured", Toast.LENGTH_SHORT).show()
+                        notify("No time-lapse frames captured", NoticeKind.WARNING)
                     }
                 }
             }
@@ -2294,11 +2293,11 @@ class EditorViewModel @Inject constructor(
                 captureTimeLapseFrame()
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.ToggleTimeLapseRecording)
-                    Toast.makeText(context, "Time-lapse recording started", Toast.LENGTH_SHORT).show()
+                    notify("Time-lapse recording started", NoticeKind.NOTICE)
                 }
             } else {
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't start time-lapse recording", Toast.LENGTH_SHORT).show()
+                    notify("Couldn't start time-lapse recording", NoticeKind.WARNING)
                 }
             }
         }
@@ -2332,21 +2331,21 @@ class EditorViewModel @Inject constructor(
                     ?: throw java.io.IOException("Failed to create MediaStore entry")
                 context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, successMessage, Toast.LENGTH_LONG).show()
+                    notify(successMessage, NoticeKind.NOTICE)
                 }
             } else {
                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                 val dest = File(downloadsDir, filename)
                 file.copyTo(dest, overwrite = true)
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "$successMessage (${dest.absolutePath})", Toast.LENGTH_LONG).show()
+                    notify("$successMessage (${dest.absolutePath})", NoticeKind.NOTICE)
                 }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e // a cancelled scope must not turn into a failure toast (the finally still cleans up)
         } catch (e: Exception) {
             withContext(dispatchers.main) {
-                Toast.makeText(context, "$failurePrefix: ${plainFailure(e)}.", Toast.LENGTH_LONG).show()
+                notify("$failurePrefix: ${plainFailure(e)}.", NoticeKind.WARNING)
             }
         } finally {
             file.delete()
@@ -2358,7 +2357,7 @@ class EditorViewModel @Inject constructor(
         android.util.Log.e("EditorViewModel", prefix, t)
         withContext(dispatchers.main) {
             dispatch(EditorIntent.SetLoading(false))
-            Toast.makeText(context, "$prefix: ${plainFailure(t)}.", Toast.LENGTH_LONG).show()
+            notify("$prefix: ${plainFailure(t)}.", NoticeKind.WARNING)
         }
     }
 
@@ -2661,7 +2660,7 @@ class EditorViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Extension execution failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    notify("Extension execution failed: ${e.message}", NoticeKind.WARNING)
                 }
             }
         }
@@ -2769,11 +2768,7 @@ class EditorViewModel @Inject constructor(
         } catch (error: Exception) {
             android.util.Log.e("EditorViewModel", "Failed to save material state for $layerId", error)
             withContext(dispatchers.main) {
-                Toast.makeText(
-                    context,
-                    "Couldn't save material state — storage may be full",
-                    Toast.LENGTH_LONG,
-                ).show()
+                notify("Couldn't save material state — storage may be full", NoticeKind.WARNING)
             }
             false
         }
@@ -2876,7 +2871,7 @@ class EditorViewModel @Inject constructor(
             // A swallowed failure here means the user's edits are silently lost.
             android.util.Log.e("EditorViewModel", "Failed to save layer bitmap to $path", e)
             withContext(dispatchers.main) {
-                Toast.makeText(context, "Couldn't save your changes — storage may be full", Toast.LENGTH_LONG).show()
+                notify("Couldn't save your changes — storage may be full", NoticeKind.WARNING)
             }
             return false
         }
@@ -2965,7 +2960,7 @@ class EditorViewModel @Inject constructor(
                 }
             } else {
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't read that image", Toast.LENGTH_SHORT).show()
+                    notify("Couldn't read that image", NoticeKind.WARNING)
                 }
             }
         }
@@ -2988,7 +2983,7 @@ class EditorViewModel @Inject constructor(
                 null
             }
             if (bytes == null) {
-                withContext(dispatchers.main) { toast("Couldn't read that file — it may be too large, or unreadable.") }
+                withContext(dispatchers.main) { warn("Couldn't read that file — it may be too large, or unreadable.") }
                 return@launch
             }
             val format = DocumentImporter.detect(name, bytes)
@@ -3008,7 +3003,7 @@ class EditorViewModel @Inject constructor(
                 if (page != null) {
                     importSingleBitmap(page, name?.substringBeforeLast('.') ?: "Imported")
                 } else {
-                    withContext(dispatchers.main) { toast("Couldn't render that PDF/Illustrator file.") }
+                    withContext(dispatchers.main) { warn("Couldn't render that PDF/Illustrator file.") }
                 }
                 return@launch
             }
@@ -3021,7 +3016,7 @@ class EditorViewModel @Inject constructor(
                     importSingleBitmap(composite, name?.substringBeforeLast('.') ?: "Procreate")
                 } else {
                     withContext(dispatchers.main) {
-                        toast("Couldn't read that Procreate file (no embedded preview).")
+                        notify("Couldn't read that Procreate file (no embedded preview).", NoticeKind.WARNING)
                     }
                 }
                 return@launch
@@ -3031,10 +3026,13 @@ class EditorViewModel @Inject constructor(
                 when (format) {
                     DocumentFormat.IMAGE -> onAddLayer(uri)
                     DocumentFormat.PSD ->
-                        toast("This PSD uses a mode that isn't supported yet (only 8-bit RGB).")
+                        notify("This PSD uses a mode that isn't supported yet (only 8-bit RGB).", NoticeKind.WARNING)
                     DocumentFormat.CANVA ->
-                        toast("Canva files aren't stored locally — export to PNG or PDF and open that.")
-                    else -> toast("That file type isn't supported.")
+                        notify(
+                            "Canva files aren't stored locally — export to PNG or PDF and open that.",
+                            NoticeKind.WARNING,
+                        )
+                    else -> notify("That file type isn't supported.", NoticeKind.WARNING)
                 }
             }
         }
@@ -3203,7 +3201,24 @@ class EditorViewModel @Inject constructor(
         uri.lastPathSegment
     }
 
-    private fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<EditorNotice>(extraBufferCapacity = 16)
+
+    /**
+     * Everything the editor has to tell the user — confirmations and failures alike. The host shows
+     * these through the rail's AzPopup (NOTICE / WARNING), so there is one feedback style instead of
+     * a system Toast that ignores the theme. Transient confirmations of an action the user can see
+     * (Undo, Redo, Copied) stay on the HUD pill instead.
+     */
+    val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
+
+    private fun figmaImportNoticeKind(imported: Int) =
+        if (imported == 0) NoticeKind.WARNING else NoticeKind.NOTICE
+
+    private fun warn(message: String) = notify(message, NoticeKind.WARNING)
+
+    private fun notify(message: String, kind: NoticeKind = NoticeKind.NOTICE) {
+        _notices.tryEmit(EditorNotice(kind, message))
+    }
 
     /**
      * The current project's id, creating a project first if there isn't one yet. Callers used to read
@@ -3264,7 +3279,7 @@ class EditorViewModel @Inject constructor(
             } catch (e: Exception) {
                 android.util.Log.e("EditorViewModel", "Failed to persist new layer artifact", e)
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't save the new layer — storage may be full", Toast.LENGTH_LONG).show()
+                    notify("Couldn't save the new layer — storage may be full", NoticeKind.WARNING)
                 }
                 null
             }
@@ -3501,17 +3516,17 @@ class EditorViewModel @Inject constructor(
                 val saved = persistProject(cleanName)
                 val projectId = saved?.id ?: projectRepository.currentProject.value?.id
                 if (projectId == null) {
-                    withContext(dispatchers.main) { toast("There's no project open to save.") }
+                    withContext(dispatchers.main) { notify("There's no project open to save.", NoticeKind.WARNING) }
                     return@launch
                 }
                 projectManager.writeProjectArchive(context, projectId, uri)
-                withContext(dispatchers.main) { toast("Saved “$cleanName”") }
+                withContext(dispatchers.main) { notify("Saved “$cleanName”", NoticeKind.NOTICE) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e("EditorViewModel", "Save As failed", e)
                 withContext(dispatchers.main) {
-                    toast("Couldn't save “$cleanName”: ${plainFailure(e)}.")
+                    notify("Couldn't save “$cleanName”: ${plainFailure(e)}.", NoticeKind.WARNING)
                 }
             }
         }
@@ -3541,26 +3556,27 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 // Named files are the common miss: someone picks a PNG, or a .fux that got
                 // truncated in transit. Say which, rather than "import failed".
-                toast(
+                notify(
                     if (displayName != null && !ProjectFile.isProjectFile(displayName)) {
                         "“$displayName” isn't a Graffux project file."
                     } else {
                         "Couldn't open that project — the file may be damaged."
-                    }
+                    },
+                    NoticeKind.WARNING,
                 )
             }
         } else {
             // importProject sets currentProject directly; load it so the editor rebuilds its
             // layers from the freshly extracted files rather than keeping the old ones.
             projectRepository.loadProject(project.id)
-            withContext(dispatchers.main) { toast("Opened “${project.name}”") }
+            withContext(dispatchers.main) { notify("Opened “${project.name}”", NoticeKind.NOTICE) }
         }
         project != null
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (e: Exception) {
         android.util.Log.e("EditorViewModel", "Open project failed", e)
-        withContext(dispatchers.main) { toast("Couldn't open that project.") }
+        withContext(dispatchers.main) { notify("Couldn't open that project.", NoticeKind.WARNING) }
         false
     }
 
@@ -3689,13 +3705,15 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Export the current design as a PNG saved to the gallery. The export is the document's layers
-     * composited over a transparent background (the PNG writer preserves alpha).
+     * Export the current design as a PNG saved to the gallery. The layers are composited over the
+     * canvas background the user picked (the page they see behind their work); only a transparent
+     * background, the checkerboard swatch, exports with alpha. The notice says which.
      */
     fun exportImage() {
         viewModelScope.launch(dispatchers.default) {
             dispatch(EditorIntent.SetLoading(true))
             try {
+                val background = exportBackgroundArgb(_uiState.value.canvasBackground)
                 val metrics = context.resources.displayMetrics
                 val exportBitmap = exportManager.compositeToDocument(
                     _uiState.value.layers,
@@ -3704,7 +3722,7 @@ class EditorViewModel @Inject constructor(
                     _uiState.value.documentWidth,
                     _uiState.value.documentHeight,
                     backgroundBitmap = null,
-                    backgroundColor = android.graphics.Color.TRANSPARENT,
+                    backgroundColor = background,
                 )
 
                 val success = saveBitmapToGallery(context, exportBitmap)
@@ -3713,13 +3731,12 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
                     if (success) {
-                        Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_LONG).show()
+                        notify(exportSavedMessage(background), NoticeKind.NOTICE)
                     } else {
-                        Toast.makeText(
-                            context,
+                        notify(
                             "Couldn't save the image to your gallery. Check that storage isn't full.",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                            NoticeKind.WARNING,
+                        )
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -4237,7 +4254,7 @@ class EditorViewModel @Inject constructor(
         val bitmap = layer?.bitmap
         if (layerId == null || bitmap == null) {
             // The Marketplace closes on Apply, so a silent return read as "the button does nothing".
-            Toast.makeText(context, "Select a layer with an image before applying a filter", Toast.LENGTH_SHORT).show()
+            notify("Select a layer with an image before applying a filter", NoticeKind.NOTICE)
             return
         }
         pushHistory()
@@ -4247,7 +4264,7 @@ class EditorViewModel @Inject constructor(
             if (graded == null) {
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
-                    Toast.makeText(context, "Couldn't load that filter — it may be missing or corrupt", Toast.LENGTH_SHORT).show()
+                    notify("Couldn't load that filter — it may be missing or corrupt", NoticeKind.WARNING)
                 }
                 return@launch
             }
@@ -4284,7 +4301,7 @@ class EditorViewModel @Inject constructor(
         val layer = layerId?.let { id -> _uiState.value.layers.find { it.id == id } }
         val bitmap = layer?.bitmap
         if (layerId == null || bitmap == null) {
-            Toast.makeText(context, "Select a layer with an image before applying curves", Toast.LENGTH_SHORT).show()
+            notify("Select a layer with an image before applying curves", NoticeKind.NOTICE)
             return
         }
         pushHistory()
@@ -7396,7 +7413,7 @@ class EditorViewModel @Inject constructor(
         invalidateResident(layerId)
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
-            Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()
+            notify("Fill needs a paint layer — vector shapes recolour via Edit", NoticeKind.NOTICE)
             return
         }
         val command = StrokeCommand(
@@ -7727,7 +7744,7 @@ class EditorViewModel @Inject constructor(
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
-            Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()
+            notify("Fill needs a paint layer — vector shapes recolour via Edit", NoticeKind.NOTICE)
             return
         }
         val argb = state.activeColor.toArgb()
@@ -7868,7 +7885,7 @@ class EditorViewModel @Inject constructor(
         val siblingIndex = siblings.indexOfFirst { it.id == upper.id }
         val lower = siblings.getOrNull(siblingIndex - 1)
         if (lower == null || lower.type == LayerType.GROUP) {
-            Toast.makeText(context, "Nothing below this layer to merge into", Toast.LENGTH_SHORT).show()
+            notify("Nothing below this layer to merge into", NoticeKind.NOTICE)
             return
         }
         pushHistory()
@@ -7895,7 +7912,7 @@ class EditorViewModel @Inject constructor(
                 android.util.Log.e("EditorViewModel", "Merge down failed", e)
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
-                    Toast.makeText(context, "Couldn't merge the layers", Toast.LENGTH_SHORT).show()
+                    notify("Couldn't merge the layers", NoticeKind.WARNING)
                 }
                 return@launch
             }
@@ -7953,7 +7970,7 @@ class EditorViewModel @Inject constructor(
         val siblingIndex = siblings.indexOfFirst { it.id == current.id }
         val above = siblings.getOrNull(siblingIndex + 1)
         if (above == null) {
-            Toast.makeText(context, "Nothing above this layer to group with", Toast.LENGTH_SHORT).show()
+            notify("Nothing above this layer to group with", NoticeKind.NOTICE)
             return
         }
         val newGroupId = UUID.randomUUID().toString()
@@ -8047,7 +8064,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val layer = state.layers.find { it.id == state.activeLayerId } ?: return
         val bitmap = layer.bitmap ?: run {
-            Toast.makeText(context, "Automatic needs a paint layer", Toast.LENGTH_SHORT).show()
+            notify("Automatic needs a paint layer", NoticeKind.NOTICE)
             return
         }
         val tolerance = state.magicWandTolerance
@@ -8203,19 +8220,19 @@ class EditorViewModel @Inject constructor(
         // it. The rail then shows a stranded Apply/Cancel pair: Apply reads activeLayerId first
         // and returns before ever resetting the mode, so only Cancel could dismiss it.
         val layer = state.layers.find { it.id == state.activeLayerId } ?: run {
-            Toast.makeText(context, "${mode.label} needs a layer to work on", Toast.LENGTH_SHORT).show()
+            notify("${mode.label} needs a layer to work on", NoticeKind.NOTICE)
             dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
             return
         }
         val bitmap = layer.bitmap ?: run {
-            Toast.makeText(context, "${mode.label} needs a paint layer", Toast.LENGTH_SHORT).show()
+            notify("${mode.label} needs a paint layer", NoticeKind.NOTICE)
             dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
             return
         }
         // Through SafeBitmap like every other allocation of this size in the editor: this runs on
         // the main thread, and an OOM here would take the app down mid-edit rather than degrade.
         warpOriginalBitmap = SafeBitmap.copy(bitmap) ?: run {
-            Toast.makeText(context, "Not enough memory to start ${mode.label}", Toast.LENGTH_SHORT).show()
+            notify("Not enough memory to start ${mode.label}", NoticeKind.WARNING)
             dispatch(EditorIntent.SetTransformMode(TransformMode.FREEFORM))
             return
         }
@@ -8396,7 +8413,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val layer = state.layers.find { it.id == state.activeLayerId } ?: return false
         val base = layer.bitmap ?: run {
-            Toast.makeText(context, "Copy needs a paint layer", Toast.LENGTH_SHORT).show()
+            notify("Copy needs a paint layer", NoticeKind.NOTICE)
             return false
         }
         val clip = SelectionMask.bitmapPath(
@@ -8421,7 +8438,7 @@ class EditorViewModel @Inject constructor(
      */
     fun onCutSelection() {
         if (!onCopySelection(showToast = false)) {
-            Toast.makeText(context, "Couldn't cut — the copy didn't succeed", Toast.LENGTH_LONG).show()
+            notify("Couldn't cut — the copy didn't succeed", NoticeKind.WARNING)
             return
         }
         onClearLayer()
@@ -8579,7 +8596,7 @@ class EditorViewModel @Inject constructor(
         val layerId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
-            Toast.makeText(context, "Move needs a paint layer — vector shapes move via Transform", Toast.LENGTH_SHORT).show()
+            notify("Move needs a paint layer — vector shapes move via Transform", NoticeKind.NOTICE)
             return
         }
         val command = StrokeCommand(
@@ -8930,7 +8947,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val frames = AnimationFrames.topLevelFrames(state.layers)
         if (frames.isEmpty()) {
-            Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
+            notify("Nothing to export", NoticeKind.NOTICE)
             return
         }
         val range = resolvedPlaybackRange(state)
@@ -8965,7 +8982,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     file.delete()
                     withContext(dispatchers.main) {
-                        Toast.makeText(context, "Animation export produced no frames", Toast.LENGTH_LONG).show()
+                        notify("Animation export produced no frames", NoticeKind.WARNING)
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -9972,7 +9989,7 @@ class EditorViewModel @Inject constructor(
                     )
                 }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
+                    notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e   // never swallow cancellation — let the coroutine unwind cooperatively
@@ -9985,7 +10002,7 @@ class EditorViewModel @Inject constructor(
                     extensionRepository.recordFailed(storeId, fromStore?.version, now, e.message)
                 }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
+                    notify("Couldn't install: ${e.message}", NoticeKind.WARNING)
                 }
             }
         }
@@ -10006,13 +10023,13 @@ class EditorViewModel @Inject constructor(
                     extensionRepository.installFromStream(it, now)
                 }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
+                    notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, "Couldn't install: ${e.message}", Toast.LENGTH_LONG).show()
+                    notify("Couldn't install: ${e.message}", NoticeKind.WARNING)
                 }
             }
         }
@@ -10105,7 +10122,7 @@ class EditorViewModel @Inject constructor(
                     extensionRepository.installFromStream(it, now, knownId = id, knownVersion = version)
                 }
                 withContext(dispatchers.main) {
-                    Toast.makeText(context, installedMessage(installed), Toast.LENGTH_LONG).show()
+                    notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
                 refreshStoreUpdates()
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -10119,7 +10136,7 @@ class EditorViewModel @Inject constructor(
                         -> "This extension needs a purchase or license — use Buy on its card."
                         else -> "Couldn't install: ${e.message}"
                     }
-                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    notify(message, NoticeKind.WARNING)
                 }
             } finally {
                 dispatch(EditorIntent.SetStoreInstalling(id, false))
@@ -10222,7 +10239,7 @@ class EditorViewModel @Inject constructor(
             ensureProjectId()
             val name = _modelState.value.name?.substringBeforeLast('.') ?: "Model"
             importSingleBitmap(bitmap, name)
-            withContext(dispatchers.main) { toast("Added “$name” to the canvas") }
+            withContext(dispatchers.main) { notify("Added “$name” to the canvas", NoticeKind.NOTICE) }
         }
     }
 
@@ -10340,7 +10357,7 @@ class EditorViewModel @Inject constructor(
     fun onSetAutoLayout(layout: com.hereliesaz.graffitixr.common.model.AutoLayout) {
         val frameId = _uiState.value.activeLayerId ?: return
         if (_uiState.value.layers.none { it.parentId == frameId }) {
-            Toast.makeText(context, "That layer has no children to lay out", Toast.LENGTH_SHORT).show()
+            notify("That layer has no children to lay out", NoticeKind.NOTICE)
             return
         }
         // Bracketed: the rail's "Gap" slider drives this once per emitted sample, and the direction
@@ -10354,7 +10371,7 @@ class EditorViewModel @Inject constructor(
         val size = com.hereliesaz.graffitixr.common.model.LayoutOps
             .hugContentsSize(_uiState.value.layers, frameId)
         if (size == null) {
-            Toast.makeText(context, "Turn on auto-layout first", Toast.LENGTH_SHORT).show()
+            notify("Turn on auto-layout first", NoticeKind.NOTICE)
             return
         }
         resizeFrame(frameId, size.first, size.second)
@@ -10411,7 +10428,7 @@ class EditorViewModel @Inject constructor(
         val layerId = _uiState.value.activeLayerId ?: return
         val shape = _uiState.value.layers.firstOrNull { it.id == layerId }?.shapes?.firstOrNull()
         if (shape == null) {
-            Toast.makeText(context, "Select a shape layer first", Toast.LENGTH_SHORT).show()
+            notify("Select a shape layer first", NoticeKind.NOTICE)
             return
         }
         val style = com.hereliesaz.graffitixr.common.model.StyleOps.colorStyleFromShape(shape, name)
@@ -10426,7 +10443,7 @@ class EditorViewModel @Inject constructor(
         val layerId = _uiState.value.activeLayerId ?: return
         val params = _uiState.value.layers.firstOrNull { it.id == layerId }?.textParams
         if (params == null) {
-            Toast.makeText(context, "Select a text layer first", Toast.LENGTH_SHORT).show()
+            notify("Select a text layer first", NoticeKind.NOTICE)
             return
         }
         val style = com.hereliesaz.graffitixr.common.model.StyleOps.textStyleFromParams(params, name)
@@ -10478,7 +10495,7 @@ class EditorViewModel @Inject constructor(
         val layerId = _uiState.value.activeLayerId ?: return
         val params = _uiState.value.layers.firstOrNull { it.id == layerId }?.textParams
         if (params == null) {
-            Toast.makeText(context, "Select a text layer first", Toast.LENGTH_SHORT).show()
+            notify("Select a text layer first", NoticeKind.NOTICE)
             return
         }
         val next = com.hereliesaz.graffitixr.common.model.StyleOps
@@ -10520,14 +10537,14 @@ class EditorViewModel @Inject constructor(
         val layerId = _uiState.value.activeLayerId ?: return
         val layer = _uiState.value.layers.firstOrNull { it.id == layerId } ?: return
         if (layer.instanceOf != null) {
-            Toast.makeText(context, "An instance can't become a component", Toast.LENGTH_SHORT).show()
+            notify("An instance can't become a component", NoticeKind.NOTICE)
             return
         }
         if (layer.componentId != null) return
         pushHistory()
         dispatch(EditorIntent.MakeComponent(layerId, UUID.randomUUID().toString()))
         saveProject()
-        Toast.makeText(context, "\"${layer.name}\" is now a component", Toast.LENGTH_SHORT).show()
+        notify("\"${layer.name}\" is now a component", NoticeKind.NOTICE)
     }
 
     /** Places a new instance of [componentId] on top of the stack, ready to be dragged into place. */
@@ -10581,7 +10598,7 @@ class EditorViewModel @Inject constructor(
         }
         val shape = pathShapeOf(layerId)
         if (shape == null) {
-            Toast.makeText(context, "That layer has no editable path", Toast.LENGTH_SHORT).show()
+            notify("That layer has no editable path", NoticeKind.NOTICE)
             return
         }
         dispatch(EditorIntent.SetPathEditLayer(layerId))
@@ -10706,7 +10723,7 @@ class EditorViewModel @Inject constructor(
             figmaRepository.connect(token)
                 .onSuccess { user ->
                     _figmaState.update { it.copy(isLoading = false, error = null) }
-                    Toast.makeText(context, "Connected to Figma as ${user.handle}", Toast.LENGTH_SHORT).show()
+                    notify("Connected to Figma as ${user.handle}", NoticeKind.NOTICE)
                 }
                 .onFailure { e ->
                     _figmaState.update { it.copy(isLoading = false, error = e.message ?: "Couldn't verify that token") }
@@ -10778,7 +10795,7 @@ class EditorViewModel @Inject constructor(
                             missed > 0 -> "Imported $imported of ${ids.size} frames"
                             else -> "Imported $imported frame${if (imported == 1) "" else "s"}"
                         }
-                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        notify(message, figmaImportNoticeKind(imported))
                     }
                 }
                 .onFailure { e ->
@@ -10803,7 +10820,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val layers = state.layers
         if (layers.isEmpty()) {
-            Toast.makeText(context, "Nothing to export", Toast.LENGTH_SHORT).show()
+            notify("Nothing to export", NoticeKind.NOTICE)
             return
         }
         // Snapshotted here, on the main thread the ledger lives on. Visible layers only, bottom first,
@@ -11178,7 +11195,7 @@ class EditorViewModel @Inject constructor(
     fun selectCustomBrush(id: String) {
         val brush = customBrushRepository.load(id)
         if (brush == null) {
-            Toast.makeText(context, "That brush is no longer available", Toast.LENGTH_SHORT).show()
+            notify("That brush is no longer available", NoticeKind.WARNING)
             return
         }
         _activeInkUtensil.value = null
@@ -11249,9 +11266,9 @@ class EditorViewModel @Inject constructor(
                     // Keep the studio open but bound to the saved id, so further tweaks update this
                     // brush rather than silently creating a second copy on the next Save.
                     dispatch(EditorIntent.SetBrushStudioDraft(draft, editingId = id))
-                    Toast.makeText(context, "Saved \"${draft.name}\"", Toast.LENGTH_SHORT).show()
+                    notify("Saved \"${draft.name}\"", NoticeKind.NOTICE)
                 } else {
-                    Toast.makeText(context, "Couldn't save that brush", Toast.LENGTH_SHORT).show()
+                    notify("Couldn't save that brush", NoticeKind.WARNING)
                 }
             }
         }
@@ -11301,11 +11318,7 @@ class EditorViewModel @Inject constructor(
             val runtime = loadInstalledBrushRuntime(id, assetIndex)
             withContext(dispatchers.main) {
                 if (runtime == null) {
-                    Toast.makeText(
-                        context,
-                        "Couldn't load that brush — its tip or texture is missing/corrupt",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    notify("Couldn't load that brush — its tip or texture is missing/corrupt", NoticeKind.WARNING)
                 } else {
                     _activeInkUtensil.value = null
                     activeStampBrush = runtime.brush
@@ -11395,7 +11408,7 @@ class EditorViewModel @Inject constructor(
         // because linkedGroupIds() therefore always reported a lone group of size 1 for it, this
         // handler always re-set it to true on every tap — it could never be toggled back off.
         if (_uiState.value.layers.indexOfFirst { it.id == layerId } <= 0) {
-            Toast.makeText(context, "Nothing below this layer to link to", Toast.LENGTH_SHORT).show()
+            notify("Nothing below this layer to link to", NoticeKind.NOTICE)
             return
         }
         pushHistory()

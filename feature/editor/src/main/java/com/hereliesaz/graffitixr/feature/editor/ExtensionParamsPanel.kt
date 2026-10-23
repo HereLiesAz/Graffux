@@ -60,15 +60,19 @@ fun ExtensionParamsPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "‹",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.clickable { onBack() }.padding(end = 8.dp),
                 )
-                Text(contributionName, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Text(
+                    contributionName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
             Text(
                 "Close",
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clickable { onClose() }.padding(8.dp),
             )
         }
@@ -129,7 +133,7 @@ private fun ControlRow(
                 Text(
                     "${control.label}  ${formatParam(current)}",
                     style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Slider(
                     value = current.toFloat().coerceIn(min, max),
@@ -166,10 +170,18 @@ private fun ControlRow(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(control.label, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    control.label,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
                 Text(
                     if (current) "On" else "Off",
-                    color = if (current) MaterialTheme.colorScheme.primary else Color.Gray,
+                    color = if (current) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
@@ -178,7 +190,11 @@ private fun ControlRow(
         "select" -> {
             val current = (params[control.key] as? ParamValue.Str)?.value
             Column(Modifier.padding(vertical = 4.dp)) {
-                Text(control.label, style = MaterialTheme.typography.labelMedium, color = Color.White)
+                Text(
+                    control.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     control.options.forEach { option ->
@@ -186,7 +202,11 @@ private fun ControlRow(
                         Box(
                             Modifier
                                 .background(
-                                    if (selected) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                                    if (selected) {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                                    },
                                     RoundedCornerShape(12.dp),
                                 )
                                 .clickable { onParamChanged(control.key, ParamValue.Str(option.value)) }
@@ -195,7 +215,11 @@ private fun ControlRow(
                             Text(
                                 option.label,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (selected) Color.White else Color.Gray,
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
                     }
@@ -246,7 +270,7 @@ private fun ControlRow(
                         control.label,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(4.dp))
                 }

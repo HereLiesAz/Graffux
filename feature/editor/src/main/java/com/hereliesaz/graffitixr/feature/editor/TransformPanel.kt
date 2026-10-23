@@ -45,7 +45,7 @@ fun TransformPanel(
 
     Column(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -53,9 +53,9 @@ fun TransformPanel(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Transform", style = MaterialTheme.typography.titleSmall, color = Color.White)
+            Text("Transform", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
             Row {
-                Text("3D", style = MaterialTheme.typography.labelMedium, color = Color.White)
+                Text("3D", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
                 Switch(
                     checked = activeLayer.is3D,
                     onCheckedChange = { actions.onToggleLayer3D(id) },
