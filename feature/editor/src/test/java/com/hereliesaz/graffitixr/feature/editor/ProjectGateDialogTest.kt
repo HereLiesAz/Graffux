@@ -139,6 +139,7 @@ class ProjectGateDialogTest {
                 imperial = true,
             )
         }
+        rule.onNodeWithTag(TAG_SIZE_OPTIONS).performScrollTo().performClick()
         // 960 px at 96 dpi is 10 in. Make the width 20 in (1920 px): the ratio follows.
         rule.onNodeWithTag(TAG_WIDTH).performScrollTo().performTextReplacement("20")
         rule.onNodeWithTag(TAG_RATIO).assertTextContains("2:1")
@@ -160,6 +161,7 @@ class ProjectGateDialogTest {
                 imperial = true,
             )
         }
+        rule.onNodeWithTag(TAG_SIZE_OPTIONS).performScrollTo().performClick()
         rule.onNodeWithTag(TAG_DPI).performScrollTo().performClick()
         rule.onNodeWithTag("$TAG_DPI.300").performClick()
         rule.onNodeWithTag(TAG_WIDTH).assertTextContains("3.2")

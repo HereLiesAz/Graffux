@@ -264,6 +264,15 @@ private fun CanvasSetup(
             }
         }
     }
+    // Width, height, ratio, DPI and units are for people who need them: folded until asked for,
+    // except under Custom, where they are the whole point.
+    var showSize by remember(category) { mutableStateOf(category == CATEGORY_CUSTOM) }
+    if (!showSize) {
+        TextButton(onClick = { showSize = true }, modifier = Modifier.testTag(TAG_SIZE_OPTIONS)) {
+            Text("Size options (${fields.size.widthPx}×${fields.size.heightPx} px)…")
+        }
+        return
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val unit = fields.size.unit.label
         LengthField("Width ($unit)", fields.width, fields::editWidth, TAG_WIDTH, Modifier.weight(1f))
@@ -347,6 +356,7 @@ const val TAG_NAME = "projectGate.name"
 const val TAG_LOAD = "projectGate.load"
 const val TAG_SAVE = "projectGate.save"
 const val TAG_CANCEL = "projectGate.cancel"
+const val TAG_SIZE_OPTIONS = "projectGate.sizeOptions"
 const val TAG_BUSY = "projectGate.busy"
 const val TAG_IMAGES = "projectGate.images"
 const val TAG_CATEGORY = "projectGate.category"

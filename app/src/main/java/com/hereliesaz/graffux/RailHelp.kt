@@ -116,5 +116,7 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "Two-finger tap undoes; three-finger tap redoes; hold either to repeat. Four-finger tap " +
         "hides the interface for a clean look at the artwork; four-finger hold opens the radial " +
         "menu. Three fingers rubbed back and forth clear the layer. All of them can be reassigned " +
-        "in Settings.",
+        "in Settings. Brushes, ink and effects live in the brush sheet at the bottom: drag or tap " +
+        "its pill to open or shut it. Swipe up from the very bottom edge for Shortcuts — your " +
+        "favourite, recent and most-used tools.",
 )

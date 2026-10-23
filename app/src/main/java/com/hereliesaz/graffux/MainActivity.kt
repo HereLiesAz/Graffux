@@ -1745,6 +1745,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         // The project dialog, above the rail and every window: mandatory with no project open,
         // cancellable over one (File > New). Load goes through the same picker as File > Open; a cancelled picker
         // returns null and the dialog simply stays.
+        FirstRunTour(enabled = projectGate == null && uiState.projectId != null)
         projectGate?.let { gate ->
             ProjectGateDialog(
                 state = gate,
