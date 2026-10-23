@@ -108,6 +108,9 @@ internal val RAIL_HELP: Map<String, Any> = mapOf(
         "single path.",
 
     // ── Gestures, which have no button at all ────────────────────────────────────────────────────
+    "history.undo" to
+        "Takes back the last change. By default, a two-finger tap on the canvas does the same.",
+    "history.redo" to "Puts back what Undo took. By default, a three-finger tap does the same.",
     "help" to
         "Two fingers on the canvas pan, pinch and rotate the view at any time, under any tool. " +
         "Two-finger tap undoes; three-finger tap redoes; hold either to repeat. Four-finger tap " +

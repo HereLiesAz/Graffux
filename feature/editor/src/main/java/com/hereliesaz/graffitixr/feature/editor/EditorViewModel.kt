@@ -602,6 +602,8 @@ class EditorViewModel @Inject constructor(
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
 
     companion object {
+        private const val HUD_MS = 700L
+        private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
          * Whether the host shows the mandatory project dialog ([projectGate]) instead of silently
          * creating "Untitled" when there is no project. Graffux sets it at startup; GraffitiXR,
@@ -1763,11 +1765,11 @@ class EditorViewModel @Inject constructor(
     private var brushHudJob: kotlinx.coroutines.Job? = null
 
     /** Flash a short confirmation pill ("Undo", "Redo") over the canvas. */
-    private fun showHud(message: String) {
+    private fun showHud(message: String, durationMs: Long = HUD_MS) {
         hudJob?.cancel()
         _uiState.update { it.copy(hudMessage = message) }
         hudJob = viewModelScope.launch(dispatchers.main) {
-            kotlinx.coroutines.delay(700)
+            kotlinx.coroutines.delay(durationMs)
             _uiState.update { it.copy(hudMessage = null) }
         }
     }
@@ -7779,7 +7781,11 @@ class EditorViewModel @Inject constructor(
         history.pushDraw(layerId, command)
         updateHistoryCounts()
         maybeBakeOldStrokes(layerId)
-        showHud(if (state.selection != null) "Cleared selection" else "Cleared layer")
+        // Destructive and easy to trigger by accident (a three-finger scrub), so it says how back.
+        showHud(
+            (if (state.selection != null) "Cleared selection" else "Cleared layer") + " · Undo on the rail",
+            HUD_DESTRUCTIVE_MS,
+        )
 
         // Tracked in rebuildJobs -- see the BLUR/SHARPEN/SMUDGE branch's identical comment: without
         // this, a fast Undo racing this clear's own in-flight publish could have its rebuild's

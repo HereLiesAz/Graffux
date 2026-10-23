@@ -2476,8 +2476,7 @@ private fun AzNavHostScope.ConfigureRailItems(
 
     // ── Crop & Transform · Selection · Fit ────────────────────────────────────────────────────────
     // Canvas-level controls, grouped at the foot of the strip directly above Help. Fit is disabled
-    // until the view has moved off the default framing. Undo/Redo are not on the rail: the
-    // carousel's tab row carries them.
+    // until the view has moved off the default framing.
     stateItem(
         TRANSFORM_ID, "Crop & Transform", GraffuxIcons.Crop,
     ) { onToolGroupRequested(CarouselCategory.TRANSFORM) }
@@ -2497,6 +2496,17 @@ private fun AzNavHostScope.ConfigureRailItems(
             info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
         )
     }
+
+    // Undo and Redo, always on the rail: the carousel's History tab also has them, but the sheet
+    // shuts during every stroke and can be dragged away, and undo must never go with it.
+    azRailItem(
+        id = "history.undo", text = "Undo", content = GraffuxIcons.Undo, color = navItemColor,
+        disabled = uiState.undoCount == 0, onClick = { vm.onUndoClicked() },
+    )
+    azRailItem(
+        id = "history.redo", text = "Redo", content = GraffuxIcons.Redo, color = navItemColor,
+        disabled = uiState.redoCount == 0, onClick = { vm.onRedoClicked() },
+    )
 
     // The `?`. It opens the library's help overlay, which draws a card for every item currently in
     // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
