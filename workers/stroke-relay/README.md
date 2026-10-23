@@ -35,7 +35,12 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 Files land at `stroke-data/<device>/<file>` with the commit message `stroke data: <device>/<file> [skip ci]`. The `[skip ci]` matters: the `stroke-data` branch was cut from `main` and still carries an old workflow that builds on every push, so without it each upload would start a full app build.
 
 This is spam and abuse *limiting*, not authentication: nothing in an open-source app can prove a
-request came from the app. If abuse shows up, the next step is Play Integrity attestation.
+request came from the app. What keeps the branch clean is content, not identity: the whole file is
+inflated (capped at 96 MB), every line must be a `session`, `stroke` or `hover` record with no
+free-form strings over 256 characters (base64 heatmap `data` aside), and the committed bytes are
+re-encoded from the checked text, so nothing rides along in a second gzip member or after a valid
+header. Uploads are limited to 6 a minute per client address. If abuse still shows up, the next
+step is Play Integrity attestation.
 
 ## Deploy
 
