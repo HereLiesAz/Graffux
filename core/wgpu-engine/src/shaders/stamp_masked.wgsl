@@ -11,6 +11,12 @@ struct Dab {
     material: vec4<f32>, // contactDepth, reservoirLoad, depositionRate, substrateResponse
 };
 
+// Per-dab constants computed once on the CPU (engine.rs DabXform), not per dab per pixel here.
+struct DabXform {
+    rot: vec4<f32>,    // cos, sin of -angle (tip), then the same for the secondary tip
+    bounds: vec4<f32>, // minX, minY, maxX, maxY: a box around the rotated tip, slack included
+};
+
 struct SecondaryDab {
     geometry: vec4<f32>, // x, y, radius, tipRatio
     paint: vec4<f32>,    // alpha, angleDeg, flowMultiplier, keepInside (>0.5 = DST_IN, else DST_OUT)
@@ -54,6 +60,7 @@ struct Params {
 @group(0) @binding(8) var<uniform> pc: Params;
 @group(0) @binding(9) var linear_clamp: sampler;
 @group(0) @binding(10) var nearest_repeat: sampler;
+@group(0) @binding(11) var<storage, read> xforms: array<DabXform>;
 
 fn layer_load(p: vec2<i32>) -> vec4<f32> {
     return unpack4x8unorm(layer_px[p.y * pc.layer_width + p.x]);
@@ -113,6 +120,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let p = vec2<f32>(pixel) + vec2<f32>(0.5);
 
     for (var i = 0u; i < pc.dab_count; i++) {
+        // Cheapest test first: a pixel outside the dab's box cannot be inside its tip.
+        let xf = xforms[i];
+        if (p.x < xf.bounds.x || p.y < xf.bounds.y || p.x > xf.bounds.z || p.y > xf.bounds.w) { continue; }
         let d = dabs[i];
         let center = d.geometry.xy;
         let radius = max(d.geometry.z, 0.5);
@@ -122,9 +132,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let half_h = radius * tip_ratio;
 
         let local = p - center;
-        let angle_rad = radians(-d.paint0.x);
-        let ca = cos(angle_rad);
-        let sa = sin(angle_rad);
+        let ca = xf.rot.x;
+        let sa = xf.rot.y;
         let rotated = vec2<f32>(local.x * ca - local.y * sa, local.x * sa + local.y * ca);
         if (abs(rotated.x) > half_w || abs(rotated.y) > half_h) { continue; }
 
@@ -148,13 +157,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             let s_radius = max(sd.geometry.z, 0.5);
             let s_tip_ratio = clamp(sd.geometry.w, 0.05, 1.0);
             let s_alpha = sd.paint.x;
-            let s_angle_rad = radians(-sd.paint.y);
             let s_flow = max(sd.paint.z, 0.0);
             let s_keep_inside = sd.paint.w;
 
             let s_local = p - s_center;
-            let sca = cos(s_angle_rad);
-            let ssa = sin(s_angle_rad);
+            let sca = xf.rot.z;
+            let ssa = xf.rot.w;
             let s_rotated = vec2<f32>(s_local.x * sca - s_local.y * ssa, s_local.x * ssa + s_local.y * sca);
             let s_half_w = s_radius;
             let s_half_h = s_radius * s_tip_ratio;

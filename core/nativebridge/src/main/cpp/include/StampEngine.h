@@ -107,7 +107,7 @@ class StampEngine {
 public:
     virtual ~StampEngine() = default;
 
-    // false = no usable GPU/API on this device; the caller falls back to the CPU path.
+    // false = no usable GPU/API on this device; the stroke fails (there is no CPU renderer).
     virtual bool init(int width, int height) = 0;
     // Transparent layer, new stroke; used when a pooled engine is reused.
     virtual bool clear() = 0;
@@ -183,7 +183,7 @@ public:
     // Diagnostics doubles written (0 = unsupported).
     virtual size_t multipassStats(double* /*out*/, size_t /*count*/) { return 0; }
 
-    // Impasto v1 (optional; false = unsupported, and the caller takes the CPU path). The height is
+    // Impasto v1 (optional; false = unsupported, and the stage fails: no CPU path). The height is
     // one float per layer pixel, row-major; dabs are (x, y, radius, strength) quadruples.
     virtual bool supportsImpasto() const { return false; }
     virtual bool uploadImpastoHeight(const float* /*heights*/, size_t /*count*/) { return false; }
@@ -198,8 +198,8 @@ public:
                                              float /*elevationDeg*/, float /*strength*/) { return false; }
     virtual bool readImpastoDisplay(int /*x*/, int /*y*/, int /*w*/, int /*h*/, uint8_t* /*out*/,
                                     size_t /*len*/) { return false; }
-    // Impasto v2, the wet material simulation (optional; false = unsupported, and the caller takes
-    // the CPU path). graffux_wgpu's gfx_wgpu_wet_* documents the arguments: the state is straight
+    // Impasto v2, the wet material simulation (optional; false = unsupported, and the stage fails:
+    // there is no CPU path). graffux_wgpu's gfx_wgpu_wet_* documents the arguments: the state is straight
     // ARGB raw pigment, height and wetness per pixel, an active flag per tile and a media table;
     // wetBuffer replaces the media (0), selection coverage (1, null = none) or dabs (2); wetOp runs
     // one numbered step.
@@ -219,6 +219,13 @@ public:
     virtual bool docLayerDrop(uint64_t /*key*/) { return false; }
     virtual uint64_t docLayerBind(uint64_t /*key*/) { return 0; }
     virtual uint64_t docLayerCommit(uint64_t /*key*/, uint64_t /*session*/, int* /*outRect*/) { return 0; }
+    // Names the next stampMaskedDabs call's tip mask, grain and secondary mask (0 = unnamed): the
+    // same non-zero id always means the same bytes, so an engine already holding it skips the
+    // per-batch hash and upload. Optional; ignored by engines without it.
+    virtual void setMaskedContentIds(uint64_t /*mask*/, uint64_t /*grain*/, uint64_t /*secondary*/) {}
+    // GPU undo without document mode: every bind keeps the layer as it was, so docSnapshot op 0
+    // can keep a committed stroke's pre-stroke rectangle. False = unsupported.
+    virtual bool undoOpen() { return false; }
     // Undo snapshots: op 0 keeps `rect` of layer `a` from before the stroke bound in session `b`
     // (returns the snapshot id); 1 swaps snapshot `a` with its layer if the layer is at generation
     // `b`, tagging it `c` (writes the rect, returns the generation); 2 drops snapshot `a`.
@@ -285,6 +292,10 @@ struct StampTuning {
     std::atomic<bool> timestamps{true};
 };
 StampTuning& stampTuning();
+
+// Process-wide: the directory compiled GPU pipelines are cached in (null clears it), for engines
+// created after the call. Loads the wgpu library; a no-op when it or the symbol is missing.
+void setPipelineCacheDir(const char* dir);
 
 // Allocates an uninitialized engine (the wgpu adapter).
 StampEngine* createStampEngine();

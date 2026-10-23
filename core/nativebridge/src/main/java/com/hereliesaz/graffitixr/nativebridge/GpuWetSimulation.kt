@@ -3,7 +3,8 @@ package com.hereliesaz.graffitixr.nativebridge
 /**
  * Impasto v2's wet material simulation on a wgpu [engine] (core/wgpu-engine wet.rs,
  * graffux_wgpu `gfx_wgpu_wet_*`). Every call runs on [GpuRenderThread] and returns false when the
- * engine is not initialized or the library lacks the simulation (the caller then takes the CPU path).
+ * engine is not initialized or the library lacks the simulation (there is no CPU path:
+ * the wet stage then fails).
  */
 class GpuWetSimulation(private val engine: GpuStampEngine) {
 

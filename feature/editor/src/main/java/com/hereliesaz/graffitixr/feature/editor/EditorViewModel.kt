@@ -751,7 +751,7 @@ class EditorViewModel @Inject constructor(
     /**
      * The current stroke's GPU-resident binding (wgpu only): which layer and pre-stroke bitmap it
      * started from and the engine session its commit refreshes. Null = the stroke uploaded the
-     * layer the old way (other backends, CPU path, or no resident support).
+     * layer the old way (no resident support).
      */
     private class ResidentTicket(
         val strokeGeneration: Long,
@@ -824,7 +824,7 @@ class EditorViewModel @Inject constructor(
         block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
     ): Job {
         val previous = rebuildJobs[layerId]
-        val job = viewModelScope.launch(dispatchers.default) {
+        val job = viewModelScope.launch(dispatchers.gpuWait) {
             val queuedAt = System.nanoTime()
             previous?.join()
             val startedAt = System.nanoTime()
@@ -1319,8 +1319,8 @@ class EditorViewModel @Inject constructor(
     /**
      * Creates and initializes a [GpuStampEngine] at [width]x[height], seeded with [seed]'s
      * current pixels (the wgpu engine, the only GPU backend). Returns null (nothing to clean up)
-     * if any step fails -- no wgpu library, no adapter, no Vulkan -- and the caller stays on the
-     * CPU path for this stroke, same as always.
+     * if any step fails -- no wgpu library, no adapter, no Vulkan -- and the stroke has no live
+     * preview (there is no CPU renderer).
      */
     private fun createSeededGpuEngine(
         width: Int,
@@ -1333,7 +1333,7 @@ class EditorViewModel @Inject constructor(
         // (Robolectric has no native code), and in principle any device/build variant that
         // shipped without it. Every other failure mode here (no compute-capable GPU, a rejected
         // format) already returns false cleanly; only the "library isn't there" case needs a
-        // catch, so this stays a live-preview fallback to the CPU path instead of crashing the
+        // catch, so this degrades to no live preview (there is no CPU path) instead of crashing the
         // coroutine that would otherwise have gone on to draw the stroke.
         // Calibration's own wgpu engines must be gone before the canvas creates one.
         com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.stopCalibrationForCanvas()
@@ -1431,7 +1431,7 @@ class EditorViewModel @Inject constructor(
 
     private fun launchPrewarm(layerId: String, source: Bitmap) {
         prewarmJob?.cancel()
-        prewarmJob = viewModelScope.launch(dispatchers.default) {
+        prewarmJob = viewModelScope.launch(dispatchers.gpuWait) {
             val residentGeneration = layerResidency.generationFor(layerId, source)
             val work = SafeBitmap.copy(source) ?: return@launch
             if (!isActive) return@launch
@@ -1450,7 +1450,9 @@ class EditorViewModel @Inject constructor(
                 }
             }
             stale?.release()
-            warmGpuDocument(source.width, source.height)
+            // Cancelled meanwhile (a stroke started, the layer changed): a warm-up now would only
+            // compete with the stroke for the document lease.
+            if (isActive) warmGpuDocument(source.width, source.height)
         }
     }
 
@@ -2054,9 +2056,12 @@ class EditorViewModel @Inject constructor(
      * The pixel size a newly created layer should allocate at: the screen, scaled by the user's
      * canvas render scale.
      *
-     * A layer costs width*height*4 bytes twice over (the displayed bitmap and [LayerStore]'s
-     * pristine base), so on a 1440x3120 panel each layer is ~36 MB at full scale and a handful of
-     * them exhausts the heap. Scale is quadratic here: 0.5 leaves a quarter of the bytes.
+     * One copy of a layer is width*height*4 bytes (~18 MB on a 1440x3120 panel at full scale).
+     * Every layer holds two (the displayed bitmap and [LayerStore]'s pristine base, ~36 MB); the
+     * active layer adds a third, the pre-warmed work copy ([launchPrewarm]), and during a stroke
+     * the live work bitmap and then the commit result add more, so the active layer alone reaches
+     * ~54-72 MB and a handful of layers exhausts the heap. Scale is quadratic here: 0.5 leaves a
+     * quarter of the bytes.
      *
      * Stroke coordinates are unaffected — [ImageProcessor.mapScreenToBitmap] derives its fit scale
      * from the bitmap's own dimensions, so a smaller layer takes the same strokes in the same
@@ -5017,8 +5022,8 @@ class EditorViewModel @Inject constructor(
                 // GPU live-preview compositor: init the layer at this stroke's bitmap size and seed
                 // it with the document's current pixels before any dab is stamped. Both native calls
                 // block on GPU work, hence doing this here on Dispatchers.Default alongside the
-                // bitmap copy, not on the main thread. A null/failed engine just means every dab
-                // this stroke draws through the existing CPU path — see stampGpuActive's doc comment.
+                // bitmap copy, not on the main thread. A null/failed engine just means this stroke
+                // has no live preview (no CPU renderer) — see stampGpuActive's doc comment.
                 val gpuCompatibleBrush = gpuCompatibleStampBrush(
                     stampBrush, stampShapeForStroke, stampGrainForStroke, stampMaskShapeForStroke,
                 )
@@ -5935,7 +5940,7 @@ class EditorViewModel @Inject constructor(
             val seed = stampSeed
             synchronized(stampLiveLock) {
                 if (stampGpuJob?.isActive != true) {
-                    stampGpuJob = viewModelScope.launch(dispatchers.default) {
+                    stampGpuJob = viewModelScope.launch(dispatchers.gpuWait) {
                         while (true) {
                             // A fast lift/redown can leave the previous stroke's native call
                             // finishing after the new stroke exists. Never let that stale worker
@@ -6014,6 +6019,9 @@ class EditorViewModel @Inject constructor(
                 // the commit waits for it.
                 var gpuHandled = false
                 var gpuHandledHeld = false
+                // Held dabs stamp right after a handled movement batch and their readback copies
+                // everything dirtied since the last one, so the movement batch skips its own.
+                val readbackAfterHeld = hasNewHeldDabs
                 if (hasNewMovementDabs && gpuActive && engine != null) {
                     // GPU path first (docs/Native Rendering Engine Design.md §9 Phase 3) — see
                     // stampGpuActive's doc comment for the fallback contract, and
@@ -6069,7 +6077,7 @@ class EditorViewModel @Inject constructor(
                                     secondaryDabs, secondaryMaskAlpha8,
                                     secondaryMaskSize, secondaryMaskSize,
                                     substrateParams,
-                                ) && (usesDirect || engine.readback(work))
+                                ) && (usesDirect || readbackAfterHeld || engine.readback(work))
                         }
                     } else {
                         fun resolve(dab: Dab) = ResolvedBrushDab(
@@ -6090,7 +6098,7 @@ class EditorViewModel @Inject constructor(
                         engine.stampResolvedDabs(
                             gpuDabs, buildUp = brush.buildUp, substrate = substrateParams, strokeMax = true,
                         ) &&
-                            (usesDirect || engine.readback(work))
+                            (usesDirect || readbackAfterHeld || engine.readback(work))
                     }
                 }
                 // No CPU renderer: a failed GPU batch shows nothing more for this stroke, whose

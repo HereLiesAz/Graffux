@@ -10,8 +10,9 @@ import android.content.SharedPreferences
  * `backend` held Settings > GPU engine's choice of Vulkan, OpenGL ES or wgpu. The Vulkan and GLES
  * stamp engines were retired and wgpu is the only GPU backend, so the selector is gone. The stored
  * value is deliberately **not** read: there is nothing left to choose, and a device where wgpu
- * cannot start already draws on the CPU. Removing the key is idempotent (a second run finds nothing
- * and does not write) and leaves every other key -- multipass, direct display -- untouched.
+ * cannot start has no other renderer to pick (it cannot draw at all). Removing the key is
+ * idempotent (a second run finds nothing and does not write) and leaves every other key --
+ * multipass, direct display -- untouched.
  */
 internal object RetiredGpuBackendMigration {
 

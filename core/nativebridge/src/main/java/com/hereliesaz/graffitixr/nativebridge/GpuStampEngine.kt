@@ -24,6 +24,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private data class PoolKey(val width: Int, val height: Int)
     private data class CachedHandle(val key: PoolKey, val handle: Long)
 
+    @Suppress("TooManyFunctions") // The process-wide engine registry and tuning entry points.
     companion object {
         private const val MAX_POOLED_HANDLES = 2
         private val poolLock = Any()
@@ -35,6 +36,15 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
         /** The GPU engine's name in feel reports and stroke data (the only backend: wgpu). */
         const val BACKEND_LABEL = "wgpu"
+
+        /**
+         * Content ids for the images [stampMaskedDabs] uploads, by array identity (a WeakHashMap
+         * on ByteArray keys compares identity: arrays do not override equals). The native engine
+         * skips hashing and uploading an image whose id it already holds, so a stroke's tip mask
+         * and grain cost their hash once per stroke instead of once per batch. Ids are never
+         * reused; an entry goes when its array is collected.
+         */
+        internal fun maskedContentId(bytes: ByteArray?): Long = MaskedContentIds.of(bytes)
 
         /**
          * The open document's engine (wgpu): one native handle that lives across strokes, so the
@@ -295,6 +305,16 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         @Volatile private var documentLost = false
 
 
+        /**
+         * Where compiled GPU pipelines persist across engines and runs (core/wgpu-engine pcache.rs;
+         * Vulkan only), for engines created after the call; null turns it off. Loads the native
+         * libraries, so call it off the main thread.
+         */
+        @JvmStatic
+        fun setPipelineCacheDir(dir: java.io.File?) {
+            runCatching { helper().nativeSetPipelineCacheDir(dir?.absolutePath) }
+        }
+
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
@@ -399,7 +419,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     /**
      * Creates (or reuses a pooled) wgpu engine for a [width]x[height] layer. False = no usable GPU
-     * here (no wgpu library, no adapter, no Vulkan) or a failed setup; the caller draws on the CPU.
+     * here (no wgpu library, no adapter, no Vulkan) or a failed setup. There is no CPU renderer to fall
+     * back to: the caller's stroke fails (StrokeRenderException).
      */
     @Synchronized
     fun init(width: Int, height: Int): Boolean {
@@ -473,6 +494,10 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
                 if (handle != 0L) {
                     liveWgpuHandles.add(handle)
                     applyMultipass(handle)
+                    // GPU undo (GpuUndoSnapshots.keep) needs every bind on the document engine to keep
+                    // its pre-stroke shadow; pooled stroke handles never snapshot, so only this one.
+                    // False (an older library) leaves keep() returning null: undo re-uploads instead.
+                    nativeUndoOpen(handle)
                 }
                 handle
             }
@@ -577,8 +602,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
     /**
      * Impasto v1 on the GPU: sets the engine's height to [heights] (one value per layer pixel,
-     * ImpastoEngine's height map). False when the library has no impasto support (the caller then
-     * takes the CPU path) or on failure.
+     * ImpastoEngine's height map). False when the library has no impasto support or on failure
+     * (there is no CPU path: the impasto stage then fails).
      */
     @Synchronized
     fun uploadImpastoHeight(heights: FloatArray): Boolean {
@@ -698,6 +723,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * counterpart to the former CPU masked-tip path (docs/Krita Brush Engine Adoption.md
      * item 15). The mask texture is only re-uploaded natively when its dimensions or content differ
      * from the previous call, so repeated calls with the same tip within one stroke are cheap.
+     * Each image array is named by identity ([maskedContentId]), so it must not be modified after it
+     * is first passed here: hand a changed image over as a new array.
      *
      * [grainAlpha8] (item 15's texture/grain follow-up) is an optional second single-channel tile
      * -- pre-baked exactly like [com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache]'s own
@@ -706,7 +733,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * call. [grainCanvasLocked]/[grainScale]/[grainPhaseX]/[grainPhaseY] mirror
      * `GrainBehavior.CANVAS_LOCKED` vs `MOVING`, `AzphaltBrush.grainScale`, and the caller's
      * already-resolved per-stroke phase (`grainOffsetX`/`Y` plus any `grainRandomOffsetPerStroke`
-     * draw), same as the CPU path resolves them once per stroke.
+     * draw), same as the former CPU path resolved them once per stroke.
      *
      * [secondaryDabs] (item 15's masked/dual-brush follow-up) is an optional second tip composited
      * onto each primary dab -- the dual-brush secondary tip, applied
@@ -778,7 +805,11 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             }
         } else null
         val cfg = substrate?.sanitized()
+        val maskId = maskedContentId(maskAlpha8)
+        val grainId = maskedContentId(grainAlpha8)
+        val secondaryId = maskedContentId(secondaryMaskAlpha8)
         return timed(PassKind.STAMP) { onGpu {
+            nativeSetMaskedContentIds(nativeHandle, maskId, grainId, secondaryId)
             nativeStampMaskedDabs(
             nativeHandle, flat, hardness, maskAlpha8, maskWidth, maskHeight,
             grainAlpha8, grainWidth, grainHeight, grainCanvasLocked, grainScale, grainPhaseX, grainPhaseY,
@@ -1179,6 +1210,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         substrateBaseHeight: Float, substrateHeightScale: Float, substrateTextureScale: Float,
         substrateOffsetX: Float, substrateOffsetY: Float, strokeMax: Boolean,
     ): Boolean
+    private external fun nativeSetMaskedContentIds(handle: Long, mask: Long, grain: Long, secondary: Long)
     private external fun nativeStampMaskedDabs(
         handle: Long,
         dabData: FloatArray,
@@ -1228,6 +1260,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     /** [ids] = {key, session, generation}; [rect] = {x, y, w, h}. */
     private external fun nativeRefreshLayer(handle: Long, ids: LongArray, bitmap: Bitmap, rect: IntArray): Boolean
     private external fun nativeCommitLayer(handle: Long, key: Long, session: Long, generation: Long): Boolean
+    private external fun nativeUndoOpen(handle: Long): Boolean
     private external fun nativeInvalidateLayer(handle: Long, key: Long): Boolean
     private external fun nativeInvalidateAllLayers(handle: Long)
     private external fun nativeDestroy(handle: Long)
@@ -1238,6 +1271,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeSetResidentBudget(handle: Long, bytes: Long)
     private external fun nativeDeviceLost(handle: Long): Boolean
     private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
+    private external fun nativeSetPipelineCacheDir(dir: String?)
     private external fun nativeGpuInfo(handle: Long): String?
     private external fun nativeTakePassTimings(handle: Long): LongArray?
     private external fun nativeDirectCapabilities(handle: Long): Int
@@ -1371,3 +1405,12 @@ data class SecondaryBrushDab(
     val flowMultiplier: Float,
     val keepInside: Boolean,
 )
+
+/** [GpuStampEngine.maskedContentId]'s table: ids by array identity, never reused. */
+private object MaskedContentIds {
+    private val ids = java.util.WeakHashMap<ByteArray, Long>()
+    private var next = 1L
+
+    @Synchronized
+    fun of(bytes: ByteArray?): Long = if (bytes == null) 0L else ids.getOrPut(bytes) { next++ }
+}

@@ -36,6 +36,8 @@ pub use retouch::{Retouch, RETOUCH_BLUR, RETOUCH_CLONE, RETOUCH_SHARPEN, RETOUCH
 #[path = "undo.rs"]
 mod undo;
 pub use selection::SELECTION_WGSL;
+#[path = "pcache.rs"]
+pub mod pcache;
 #[path = "wet.rs"]
 mod wet;
 pub use wet::{MaterialDab, WET_FLAG_HEIGHT, WET_FLAG_WETNESS, WET_MEDIA_FLOATS, WET_WGSL};
@@ -319,6 +321,49 @@ struct SmudgeUniform {
     _pad1: u32,
 }
 
+/// Per-dab constants of the masked shaders (`DabXform` in stamp_masked.wgsl and
+/// draft_masked.wgsl), computed once per dab here instead of once per dab per pixel there: the
+/// tip's rotation `(cos, sin)` of `-angle`, the secondary tip's in `rot.zw`, and a conservative
+/// layer-space box `(min_x, min_y, max_x, max_y)` around the rotated tip, which the shader tests
+/// before any other per-dab work. A pixel outside the box cannot be inside the tip, so the box
+/// only skips work; it never changes a pixel. Two vec4s: no padding on any backend.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable, PartialEq)]
+pub struct DabXform {
+    pub rot: [f32; 4],
+    pub bounds: [f32; 4],
+}
+
+const _: () = assert!(std::mem::size_of::<DabXform>() == 32);
+
+/// `(cos, sin)` of `radians(-angle_deg)`, as the shaders computed it per pixel.
+fn tip_rotation(angle_deg: f32) -> (f32, f32) {
+    let a = -angle_deg * (std::f32::consts::PI / 180.0);
+    (a.cos(), a.sin())
+}
+
+/// [`DabXform`]s for `dabs`; `secondary` is either empty or one per dab.
+pub fn dab_xforms(dabs: &[GpuDab], secondary: &[GpuSecondaryDab]) -> Vec<DabXform> {
+    dabs.iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let (c, s) = tip_rotation(d.angle_deg);
+            let (sc, ss) = secondary
+                .get(i)
+                .map_or((1.0, 0.0), |sd| tip_rotation(sd.angle_deg));
+            let half_w = d.radius.max(0.5);
+            let half_h = half_w * d.tip_ratio.clamp(0.05, 1.0);
+            // The rotated rectangle's axis-aligned extent, plus a pixel of slack for rounding.
+            let ex = c.abs() * half_w + s.abs() * half_h + 1.0;
+            let ey = s.abs() * half_w + c.abs() * half_h + 1.0;
+            DabXform {
+                rot: [c, s, sc, ss],
+                bounds: [d.x - ex, d.y - ey, d.x + ex, d.y + ey],
+            }
+        })
+        .collect()
+}
+
 const _: () = assert!(std::mem::size_of::<GpuDab>() == 64);
 const _: () = assert!(std::mem::size_of::<GpuSecondaryDab>() == 32);
 const _: () = assert!(std::mem::size_of::<ColorSmudgeDab>() == 44);
@@ -367,6 +412,8 @@ struct Tex {
     width: u32,
     height: u32,
     hash: u64,
+    /// The caller's content id for these pixels ([`Engine::ensure_tex_id`]); 0 = none.
+    content_id: u64,
 }
 
 fn tv(t: &Tex) -> wgpu::BindingResource<'_> {
@@ -448,6 +495,9 @@ pub struct Engine {
     selection: Option<selection::SelectionGpu>,
     /// Document mode (docstore.rs): resident layers are canonical, never evicted.
     doc_mode: bool,
+    /// Undo shadows (undo.rs): every bind keeps the layer as it was, for [`Engine::doc_snapshot_stroke`].
+    /// On in document mode, and on its own via [`Engine::undo_open`] for a cache-mode engine.
+    undo_shadows: bool,
     /// The document store's generation counter.
     doc_gen: u64,
     /// Undo snapshots (undo.rs): pre-stroke rectangles of document layers.
@@ -471,6 +521,14 @@ pub struct Engine {
     placeholder_state: wgpu::Buffer,
     dab_buffer: GrowBuffer,
     secondary_buffer: GrowBuffer,
+    /// The masked shader's per-dab [`DabXform`]s.
+    xform_buffer: GrowBuffer,
+    /// Content ids for the next masked stamp's (tip mask, grain, secondary mask), 0 = unnamed
+    /// ([`Engine::set_masked_content_ids`]); consumed by that call.
+    masked_ids: [u64; 3],
+    /// Multipass: the last owned copy of each masked image by content id, so a repeated id is
+    /// neither copied nor hashed again (multipass.rs R8).
+    mp_r8_cache: [Option<multipass::R8>; 3],
     carrier: GrowBuffer,
     smudge_uniforms: GrowBuffer,
     stamp_uniform: wgpu::Buffer,
@@ -503,6 +561,8 @@ pub struct Engine {
     /// `None` or disabled, every call takes exactly the pre-multipass path.
     mp: Option<Box<multipass::Multipass>>,
     /// The instance and adapter the device came from: direct display makes its surface on them.
+    /// The persisted pipeline cache (pcache.rs), when the backend supports one.
+    pcache: Option<pcache::DiskCache>,
     instance: Option<wgpu::Instance>,
     adapter: Option<wgpu::Adapter>,
     /// Direct display (direct.rs); `None` = not attached, the readback display only.
@@ -565,6 +625,7 @@ fn make_pipeline(
     source: &str,
     layout: &wgpu::BindGroupLayout,
     constants: &[(&str, f64)],
+    cache: Option<&wgpu::PipelineCache>,
 ) -> wgpu::ComputePipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
@@ -584,7 +645,7 @@ fn make_pipeline(
             constants,
             ..Default::default()
         },
-        cache: None,
+        cache,
     })
 }
 
@@ -594,8 +655,8 @@ pub const COLOR_SMUDGE_WGSL: &str = include_str!("shaders/color_smudge.wgsl");
 
 impl Engine {
     /// `StampEngine::init`. `None` when there is no usable adapter (no GPU, no compute support,
-    /// the layer does not fit the device's limits, or device creation failed): the caller falls
-    /// back to its CPU path.
+    /// the layer does not fit the device's limits, or device creation failed): the desktop
+    /// canvas then uses its CPU path; Android has no CPU renderer and cannot draw.
     pub fn new(width: i32, height: i32, backend: BackendChoice) -> Option<Engine> {
         Self::new_with_options(width, height, backend, EngineOptions::default())
     }
@@ -702,14 +763,16 @@ impl Engine {
             wgpu::Features::empty()
         };
         let shader_f16 = adapter.features().contains(wgpu::Features::SHADER_F16);
+        let cache_feature = pcache::feature(&adapter);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("graffux-wgpu"),
-            required_features: timing_features,
+            required_features: timing_features | cache_feature,
             required_limits: limits.clone(),
             ..Default::default()
         }))
         .ok()?;
         let error = Arc::new(AtomicBool::new(false));
+        let disk_cache = pcache::DiskCache::open(&adapter, &device);
         {
             let error = error.clone();
             device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
@@ -727,8 +790,11 @@ impl Engine {
             height,
             &limits,
             stamp_tile,
+            disk_cache.as_ref().map(|c| &c.cache),
         );
         engine.shader_f16 = shader_f16;
+        engine.pcache = disk_cache;
+        engine.save_pipeline_cache();
         engine.instance = Some(instance);
         engine.adapter = Some(adapter);
         Some(engine)
@@ -743,6 +809,7 @@ impl Engine {
         height: i32,
         limits: &wgpu::Limits,
         stamp_tile: u32,
+        cache: Option<&wgpu::PipelineCache>,
     ) -> Engine {
         let lost = Arc::new(AtomicBool::new(false));
         {
@@ -787,6 +854,7 @@ impl Engine {
         let uniform_dst = wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST;
         let dab_buffer = GrowBuffer::new(&device, "dabs", storage_dst, 64 * 64);
         let secondary_buffer = GrowBuffer::new(&device, "secondary dabs", storage_dst, 32 * 64);
+        let xform_buffer = GrowBuffer::new(&device, "dab xforms", storage_dst, 32 * 64);
         let carrier = GrowBuffer::new(&device, "smudge carrier", storage_dst, 16 * 1024);
         let uniform_align = (limits.min_uniform_buffer_offset_alignment as u64).max(256);
         let smudge_uniforms =
@@ -871,6 +939,7 @@ impl Engine {
                 uniform_entry(8, false),
                 sampler_entry(9),
                 sampler_entry(10),
+                storage_entry(11, true),
             ],
         });
         let smudge_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -886,14 +955,21 @@ impl Engine {
             ],
         });
         let tile_constant = [("STAMP_TILE", stamp_tile as f64)];
-        let stamp_pipeline =
-            make_pipeline(&device, "stamp", STAMP_WGSL, &stamp_layout, &tile_constant);
+        let stamp_pipeline = make_pipeline(
+            &device,
+            "stamp",
+            STAMP_WGSL,
+            &stamp_layout,
+            &tile_constant,
+            cache,
+        );
         let masked_pipeline = make_pipeline(
             &device,
             "stamp masked",
             STAMP_MASKED_WGSL,
             &masked_layout,
             &tile_constant,
+            cache,
         );
         let smudge_pipeline = make_pipeline(
             &device,
@@ -901,6 +977,7 @@ impl Engine {
             COLOR_SMUDGE_WGSL,
             &smudge_layout,
             &[],
+            cache,
         );
         let timer = GpuTimer::new(&device, &queue);
 
@@ -921,6 +998,7 @@ impl Engine {
             stroke_written: Rect::default(),
             selection: None,
             doc_mode: false,
+            undo_shadows: false,
             doc_gen: 0,
             snapshots: Default::default(),
             stamp_mode: STAMP_OVER,
@@ -935,6 +1013,9 @@ impl Engine {
             placeholder_state,
             dab_buffer,
             secondary_buffer,
+            xform_buffer,
+            masked_ids: [0; 3],
+            mp_r8_cache: Default::default(),
             carrier,
             smudge_uniforms,
             stamp_uniform,
@@ -964,6 +1045,7 @@ impl Engine {
                 h: height,
             },
             mp: None,
+            pcache: None,
             instance: None,
             adapter: None,
             direct: None,
@@ -1006,6 +1088,7 @@ impl Engine {
             width,
             height,
             hash: fnv1a(data),
+            content_id: 0,
         }
     }
 
@@ -1020,12 +1103,37 @@ impl Engine {
         format: wgpu::TextureFormat,
         data: &[u8],
     ) {
+        Self::ensure_tex_id(device, queue, tex, label, width, height, format, data, 0)
+    }
+
+    /// [`Engine::ensure_tex`] for pixels the caller names with `id` (non-zero: the same id always
+    /// means the same bytes; [`Engine::set_masked_content_ids`]). A texture already holding `id` at
+    /// this size is current, so the bytes are neither hashed nor uploaded: a stroke's tip mask and
+    /// grain cost their hash once per stroke instead of once per batch. With `id` 0 the content
+    /// hash decides, as before.
+    #[allow(clippy::too_many_arguments)]
+    fn ensure_tex_id(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        tex: &mut Tex,
+        label: &str,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+        data: &[u8],
+        id: u64,
+    ) {
+        if id != 0 && tex.content_id == id && tex.width == width && tex.height == height {
+            return;
+        }
         let hash = fnv1a(data);
         if tex.width == width && tex.height == height && tex.hash == hash {
+            tex.content_id = id;
             return;
         }
         if tex.width != width || tex.height != height {
             *tex = Self::make_tex(device, queue, label, width, height, format, data);
+            tex.content_id = id;
             return;
         }
         let bpp = format.block_copy_size(None).unwrap_or(1);
@@ -1049,6 +1157,7 @@ impl Engine {
             },
         );
         tex.hash = hash;
+        tex.content_id = id;
     }
 
     /// [`Engine::ensure_tex`] for a texture queued multipass work may still bind: written in place
@@ -1439,6 +1548,8 @@ impl Engine {
         hardness: f32,
         p: &MaskedParams,
     ) -> bool {
+        // Ids name this call's images only: taken now, so a failed call cannot leak them to the next.
+        let ids = std::mem::take(&mut self.masked_ids);
         if dabs.is_empty() || p.mask_width == 0 || p.mask_height == 0 {
             return false;
         }
@@ -1450,11 +1561,11 @@ impl Engine {
             return false;
         }
         if self.mp_on() && self.stamp_mode == STAMP_OVER {
-            return self.mp_submit_masked(dabs, color_argb, hardness, p);
+            return self.mp_submit_masked(dabs, color_argb, hardness, p, ids);
         }
         let r8 = wgpu::TextureFormat::R8Unorm;
         let mask = &p.mask[..mask_len as usize];
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.mask_tex,
@@ -1463,6 +1574,7 @@ impl Engine {
             p.mask_height,
             r8,
             mask,
+            ids[0],
         );
         let grain = p
             .grain
@@ -1472,7 +1584,7 @@ impl Engine {
             Some((g, w, h)) => (&g[..(w * h) as usize], w, h),
             None => (&white[..], 1, 1),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.grain_tex,
@@ -1481,6 +1593,7 @@ impl Engine {
             gh,
             r8,
             grain_data,
+            if grain.is_some() { ids[1] } else { 0 },
         );
         let secondary = if p.secondary_dabs.is_empty() {
             None
@@ -1492,7 +1605,7 @@ impl Engine {
             Some((m, w, h)) => (&m[..(w * h) as usize], w, h),
             None => (&white[..], 1, 1),
         };
-        Self::ensure_tex(
+        Self::ensure_tex_id(
             &self.device,
             &self.queue,
             &mut self.secondary_mask_tex,
@@ -1501,6 +1614,7 @@ impl Engine {
             sh,
             r8,
             smask,
+            if secondary.is_some() { ids[2] } else { 0 },
         );
 
         let dab_bytes: &[u8] = bytemuck::cast_slice(dabs);
@@ -1518,6 +1632,19 @@ impl Engine {
             .ensure(&self.device, secondary_bytes.len() as u64);
         self.queue
             .write_buffer(&self.secondary_buffer.buffer, 0, secondary_bytes);
+        let xforms = dab_xforms(
+            dabs,
+            if secondary.is_some() {
+                p.secondary_dabs
+            } else {
+                &[]
+            },
+        );
+        let xform_bytes: &[u8] = bytemuck::cast_slice(&xforms);
+        self.xform_buffer
+            .ensure(&self.device, xform_bytes.len() as u64);
+        self.queue
+            .write_buffer(&self.xform_buffer.buffer, 0, xform_bytes);
 
         let r = dab_region(dabs, self.width, self.height);
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -1608,6 +1735,10 @@ impl Engine {
                         binding: 10,
                         resource: wgpu::BindingResource::Sampler(&self.nearest_repeat),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 11,
+                        resource: self.xform_buffer.buffer.as_entire_binding(),
+                    },
                 ],
             });
             let timed = self.reserve_timing(PassKind::Stamp);
@@ -1625,6 +1756,26 @@ impl Engine {
         self.queue.submit([encoder.finish()]);
         self.note_write(self.dispatch_footprint(r));
         self.ok()
+    }
+
+    /// The persisted pipeline cache to compile into (pcache.rs), if any.
+    pub(super) fn pipeline_cache(&self) -> Option<&wgpu::PipelineCache> {
+        self.pcache.as_ref().map(|c| &c.cache)
+    }
+
+    /// Writes newly compiled pipelines to the disk cache (after creating pipelines).
+    pub(super) fn save_pipeline_cache(&mut self) {
+        if let Some(c) = self.pcache.as_mut() {
+            c.save();
+        }
+    }
+
+    /// Names the images of the next [`Engine::stamp_masked_dabs`] call: `(tip mask, grain,
+    /// secondary mask)` content ids, 0 = unnamed (hashed, as always). A non-zero id is the
+    /// caller's promise that it always names the same bytes, so when the engine already holds that
+    /// id it skips hashing and uploading the image. Applies to the next masked call only.
+    pub fn set_masked_content_ids(&mut self, mask: u64, grain: u64, secondary: u64) {
+        self.masked_ids = [mask, grain, secondary];
     }
 
     /// `StampEngine::colorSmudge`: the ordered Color Smudge plan (Smear / Dulling, optional pigment
@@ -1983,6 +2134,9 @@ impl Engine {
             .poll(wgpu::PollType::wait_indefinitely())
             .is_err()
         {
+            // The map is still pending: cancel it, or the next map_async on this staging buffer
+            // is a validation error.
+            self.staging.unmap();
             return false;
         }
         if !matches!(rx.recv(), Ok(true)) {

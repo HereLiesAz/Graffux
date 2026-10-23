@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.view.WindowManager
 import androidx.core.content.pm.PackageInfoCompat
+import com.hereliesaz.graffitixr.feature.editor.BrushTipMaskCache
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +34,11 @@ class GpuTuningController private constructor(context: Context) {
         telemetry.onThermal(snapshot)
     }
     private val hints = RenderThreadHints(appContext, framePeriodNanos)
-    private val store = GpuTierStore(SharedPreferencesKeyValueStore(appContext), appVersion(appContext))
+    // Built on the main thread (MainActivity.onStart): the prefs file and the package lookup open on
+    // first use, which is calibration's, off the main thread.
+    private val store = GpuTierStore(LazyKeyValueStore { SharedPreferencesKeyValueStore(appContext) }) {
+        appVersion(appContext)
+    }
 
     private val _tuning = MutableStateFlow(GpuTuning.INITIAL)
 
@@ -57,7 +62,12 @@ class GpuTuningController private constructor(context: Context) {
 
     init {
         GpuStampEngine.passTimingSink = telemetry
-        telemetry.onThermal(thermal.sample())
+        // Off the main thread: the first thermal reading is two PowerManager binder calls, and the
+        // pipeline-cache setup loads the native libraries and touches the cache directory.
+        scope.launch {
+            telemetry.onThermal(thermal.sample())
+            runCatching { GpuStampEngine.setPipelineCacheDir(java.io.File(appContext.cacheDir, PIPELINE_CACHE_DIR)) }
+        }
         scope.launch {
             // Collected, not read once: the tier can land or change, and thermal state moves,
             // mid-session. The multipass scheduler follows every change.
@@ -77,6 +87,8 @@ class GpuTuningController private constructor(context: Context) {
      */
     fun onTrimMemory(level: Int) {
         budgetProvider.onTrimMemory(level)
+        // Brush tips and grain tiles are rebuilt on demand; under pressure they go first.
+        if (level >= MemoryPressureScaler.TRIM_UI_HIDDEN) BrushTipMaskCache.clear()
         when {
             level >= MemoryPressureScaler.TRIM_MODERATE ->
                 scope.launch { GpuStampEngine.trimPool(closeDocument = true) }
@@ -106,10 +118,13 @@ class GpuTuningController private constructor(context: Context) {
         return "  build: $buildLabel\n" + telemetry.report(info, _tuning.value, thermal.sample())
     }
 
-    private val buildLabel: String = runCatching {
-        val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
-        "${info.versionName} (${PackageInfoCompat.getLongVersionCode(info)})"
-    }.getOrDefault("?")
+    // Lazy: a package-manager call, needed only when a report is written.
+    private val buildLabel: String by lazy {
+        runCatching {
+            val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+            "${info.versionName} (${PackageInfoCompat.getLongVersionCode(info)})"
+        }.getOrDefault("?")
+    }
 
     private fun applyTuning(next: GpuTuning, info: GpuInfo) {
         gpuInfo = info
@@ -156,6 +171,7 @@ class GpuTuningController private constructor(context: Context) {
 
         private const val NANOS_PER_SECOND = 1_000_000_000L
         private const val DEFAULT_HZ = 60f
+        private const val PIPELINE_CACHE_DIR = "wgpu-pipelines"
 
         @Suppress("DEPRECATION")
         private fun framePeriodNanos(context: Context): Long {
@@ -173,7 +189,7 @@ class GpuTuningController private constructor(context: Context) {
 
         /**
          * Whether the device advertises the hardware floor the manifest requires (Vulkan 1.1).
-         * A sideloaded install can land below it; the app then runs on the existing fallbacks.
+         * A sideloaded install can land below it; it then cannot draw (there is no CPU renderer).
          */
         fun meetsHardwareFloor(context: Context): Boolean {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false

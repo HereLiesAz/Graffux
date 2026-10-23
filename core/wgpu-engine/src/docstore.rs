@@ -30,8 +30,24 @@ impl Engine {
             let evicted = self.residents.set_budget(u64::MAX, self.active_key);
             drop(evicted);
             self.doc_mode = true;
+            self.undo_shadows = true;
         }
         self.ok()
+    }
+
+    /// Turns on GPU undo for this engine without entering document mode: every bind (resident or
+    /// uploaded) keeps the layer as it was, so [`Engine::doc_snapshot_stroke`] can keep a stroke's
+    /// pre-stroke rectangle. The resident set stays a cache (budget, eviction and invalidation
+    /// unchanged), which is what the Android document engine needs: its layers stay canonical on the
+    /// CPU. Costs one full-layer GPU copy per bind and one layer-sized shadow buffer. Idempotent.
+    pub fn undo_open(&mut self) -> bool {
+        self.undo_shadows = true;
+        self.ok()
+    }
+
+    /// Whether GPU undo shadows are on ([`Engine::undo_open`] or [`Engine::doc_open`]).
+    pub fn undo_is_open(&self) -> bool {
+        self.undo_shadows
     }
 
     /// Whether [`Engine::doc_open`] has been called.

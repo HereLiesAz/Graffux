@@ -38,18 +38,25 @@ object GpuRenderThread {
         private set
 
     /**
-     * Told how long each unit of render-thread work took (nanoseconds). Set by the ADPF
-     * `PerformanceHintManager` session (feature/editor `RenderThreadHints`); null = nobody listens.
+     * Told how much CPU time each unit of render-thread work took (nanoseconds of this thread's
+     * CPU time, not wall time). Set by the ADPF `PerformanceHintManager` session (feature/editor
+     * `RenderThreadHints`); null = nobody listens. A unit is mostly a wait for the GPU (an upload,
+     * a readback, a multipass drain); reporting that wall time against a one-frame target would
+     * push the governor to raise CPU clocks, costing battery without shortening a GPU-bound wait.
      */
     @Volatile var workObserver: ((Long) -> Unit)? = null
 
+    /** This thread's CPU time in nanoseconds, or a negative value where it is unavailable. */
+    private fun threadCpuNanos(): Long = runCatching { android.os.Debug.threadCpuTimeNanos() }.getOrDefault(-1L)
+
     private inline fun <T> observed(block: () -> T): T {
         val observer = workObserver ?: return block()
-        val start = System.nanoTime()
+        val start = threadCpuNanos()
         try {
             return block()
         } finally {
-            runCatching { observer(System.nanoTime() - start) }
+            val end = threadCpuNanos()
+            if (start >= 0 && end >= start) runCatching { observer(end - start) }
         }
     }
 

@@ -26,17 +26,35 @@ internal object BrushTipMaskCache {
     private const val MAX_CACHE_BYTES = 16 * 1024 * 1024
 
     private data class TipKey(
-        val sourceIdentity: Int,
+        val source: SourceKey,
         val width: Int,
         val height: Int,
         val hardness1000: Int,
     )
 
     private data class GrainKey(
-        val sourceIdentity: Int,
+        val source: SourceKey,
         val mode: GrainBlendMode,
         val strength1000: Int,
     )
+
+    /**
+     * A source bitmap as a cache key: an id of its own, never reused (not identityHashCode, which
+     * two live bitmaps can share, returning one's mask for the other), and its generation id,
+     * which Android bumps whenever the pixels change, so a bitmap edited in place misses instead
+     * of returning the stale mask.
+     */
+    private data class SourceKey(val id: Long, val generation: Int)
+
+    /** Ids by bitmap identity (Bitmap keeps Object equality); an entry goes with its bitmap. */
+    private val sourceIds = java.util.WeakHashMap<Bitmap, Long>()
+    private var nextSourceId = 1L
+
+    private fun sourceKey(source: Bitmap?): SourceKey {
+        if (source == null) return SourceKey(0L, 0)
+        val id = sourceIds.getOrPut(source) { nextSourceId++ }
+        return SourceKey(id, source.generationId)
+    }
 
     private val tips = object : LruCache<TipKey, Bitmap>(MAX_CACHE_BYTES) {
         override fun sizeOf(key: TipKey, value: Bitmap): Int = value.allocationByteCount
@@ -51,7 +69,7 @@ internal object BrushTipMaskCache {
         val width = widthPx.coerceAtLeast(1)
         val height = heightPx.coerceAtLeast(1)
         val key = TipKey(
-            sourceIdentity = source?.let(System::identityHashCode) ?: 0,
+            source = sourceKey(source),
             width = width,
             height = height,
             hardness1000 = (hardness.coerceIn(0f, 1f) * 1000f).roundToInt(),
@@ -70,7 +88,7 @@ internal object BrushTipMaskCache {
     @Synchronized
     fun grainMask(source: Bitmap, mode: GrainBlendMode, strength: Float): Bitmap {
         val s = strength.coerceIn(0f, 1f)
-        val key = GrainKey(System.identityHashCode(source), mode, (s * 1000f).roundToInt())
+        val key = GrainKey(sourceKey(source), mode, (s * 1000f).roundToInt())
         grains.get(key)?.takeIf { !it.isRecycled }?.let { return it }
 
         val width = source.width.coerceAtLeast(1)
@@ -105,6 +123,7 @@ internal object BrushTipMaskCache {
         return bitmap
     }
 
+    /** Drops every cached mask and tile (memory pressure: GpuTuningController.onTrimMemory). */
     @Synchronized
     fun clear() {
         tips.evictAll()

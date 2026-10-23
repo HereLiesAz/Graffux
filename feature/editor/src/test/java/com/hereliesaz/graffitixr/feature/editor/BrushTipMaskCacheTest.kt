@@ -89,4 +89,29 @@ class BrushTipMaskCacheTest {
         assertTrue(normalized === source)
         assertEquals(77, Color.alpha(normalized.getPixel(0, 0)))
     }
+
+    @Test
+    fun `a source edited in place misses the cache instead of returning its stale mask`() {
+        val source = RenderTestBase.filled(16, 16, Color.WHITE)
+        val before = BrushTipMaskCache.tipMask(source, 16, 16, hardness = 1f)
+        assertTrue(before === BrushTipMaskCache.tipMask(source, 16, 16, hardness = 1f))
+
+        source.eraseColor(Color.TRANSPARENT)
+        val after = BrushTipMaskCache.tipMask(source, 16, 16, hardness = 1f)
+
+        assertTrue("an edited source must not hit the old entry", after !== before)
+        assertEquals(0, Color.alpha(after.getPixel(8, 8)))
+    }
+
+    @Test
+    fun `two distinct sources never share an entry`() {
+        val white = RenderTestBase.filled(16, 16, Color.WHITE)
+        val clear = RenderTestBase.filled(16, 16, Color.TRANSPARENT)
+
+        val a = BrushTipMaskCache.tipMask(white, 16, 16, hardness = 1f)
+        val b = BrushTipMaskCache.tipMask(clear, 16, 16, hardness = 1f)
+
+        assertEquals(255, Color.alpha(a.getPixel(8, 8)))
+        assertEquals(0, Color.alpha(b.getPixel(8, 8)))
+    }
 }

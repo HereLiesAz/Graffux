@@ -10,7 +10,7 @@ StampTuning& stampTuning() {
 }
 
 // wgpu is the only GPU backend; the Vulkan and GLES engines were retired. When it cannot start,
-// init() returns false and the Kotlin side draws on the CPU.
+// init() returns false and the stroke fails (there is no CPU renderer).
 StampEngine* createStampEngine() { return new WgpuStampEngine(); }
 
 }  // namespace graffux

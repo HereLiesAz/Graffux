@@ -190,6 +190,13 @@ class WgpuStampEngine private constructor(
             changed.x, changed.y, changed.width, changed.height,
         )
 
+    /**
+     * Turns on GPU undo shadows: every later bind keeps the layer as it was, so a committed stroke's
+     * pre-stroke rectangle can be kept on the GPU. The resident set stays a cache. False when the
+     * library predates it or the device is lost.
+     */
+    @Synchronized fun undoOpen(): Boolean = handle != 0L && WgpuNative.nativeUndoOpen(handle)
+
     @Synchronized fun invalidateLayer(layerKey: Long): Boolean =
         handle != 0L && WgpuNative.nativeInvalidateLayer(handle, layerKey)
 

@@ -56,7 +56,7 @@ unsafe fn engine<'a>(e: *mut Engine) -> Option<&'a mut Engine> {
     e.as_mut()
 }
 
-/// Null when no adapter with compute support is found (the caller falls back to the CPU path).
+/// Null when no adapter with compute support is found (desktop then uses its CPU path; Android has none and cannot draw).
 #[no_mangle]
 pub extern "C" fn gfx_wgpu_create(width: i32, height: i32, backend: i32) -> *mut Engine {
     guard(std::ptr::null_mut(), || {
@@ -428,6 +428,56 @@ pub unsafe extern "C" fn gfx_wgpu_stroke_rect(e: *mut Engine, out: *mut i32) -> 
         unsafe { std::slice::from_raw_parts_mut(out, 4) }.copy_from_slice(&[r.x, r.y, r.w, r.h]);
         true
     })
+}
+
+/// [`Engine::set_masked_content_ids`]: names the next masked call's tip mask, grain and secondary
+/// mask (0 = unnamed), so an image the engine already holds is neither hashed nor uploaded.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_masked_ids(
+    e: *mut Engine,
+    mask: u64,
+    grain: u64,
+    secondary: u64,
+) -> bool {
+    guard(false, || {
+        engine(e).is_some_and(|e| {
+            e.set_masked_content_ids(mask, grain, secondary);
+            true
+        })
+    })
+}
+
+/// [`crate::engine::pcache::set_dir`]: the directory compiled pipelines are cached in, for engines
+/// created after the call (null or empty clears it). Process-wide.
+///
+/// # Safety
+/// `path` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_set_pipeline_cache_dir(path: *const std::os::raw::c_char) {
+    let _ = std::panic::catch_unwind(|| {
+        let dir = if path.is_null() {
+            None
+        } else {
+            // SAFETY: the caller passes a NUL-terminated string.
+            let s = unsafe { std::ffi::CStr::from_ptr(path) }
+                .to_string_lossy()
+                .into_owned();
+            (!s.is_empty()).then(|| std::path::PathBuf::from(s))
+        };
+        crate::engine::pcache::set_dir(dir);
+    });
+}
+
+/// [`Engine::undo_open`]: GPU undo shadows on a cache-mode engine.
+///
+/// # Safety
+/// `e` must be a live engine or null.
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_undo_open(e: *mut Engine) -> bool {
+    guard(false, || engine(e).is_some_and(|e| e.undo_open()))
 }
 
 // ---- Document store (docstore.rs): canonical GPU layers ------------------------------------

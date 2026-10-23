@@ -24,6 +24,7 @@ class ThermalMonitor(
     private val onChange: (ThermalSnapshot) -> Unit,
 ) {
     private val power = context.applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    // Guarded by this monitor's lock: start and stop come from the main thread and the controller.
     private var listener: Any? = null
     private var poller: Job? = null
 
@@ -46,6 +47,7 @@ class ThermalMonitor(
         return ThermalSnapshot(status, headroom).also { publish(it) }
     }
 
+    @Synchronized
     fun start(scope: CoroutineScope) {
         val pm = power
         if (poller != null || pm == null) return
@@ -58,6 +60,7 @@ class ThermalMonitor(
         }
     }
 
+    @Synchronized
     fun stop() {
         poller?.cancel()
         poller = null
@@ -96,29 +99,54 @@ class ThermalMonitor(
 
 /**
  * ADPF performance hints for the GPU render thread ([GpuRenderThread], where every wgpu call runs):
- * a `PerformanceHintManager` session (API 31+) targeting one display frame, fed the duration of
- * each unit of render-thread work. Lets the system raise clocks before a stroke misses frames
- * rather than after. Vulkan/GLES strokes run on the editor's coroutine workers, not this thread,
+ * a `PerformanceHintManager` session (API 31+) targeting one display frame, fed the CPU time of
+ * each unit of render-thread work ([GpuRenderThread.workObserver]: thread CPU time, so the time a
+ * unit spends blocked waiting for the GPU is not reported as work the clocks should speed up).
+ * Lets the system raise clocks before a stroke misses frames rather than after.
+ * Vulkan/GLES strokes run on the editor's coroutine workers, not this thread,
  * so they get no session. No-op below API 31, when the thread has not started yet, or when the
  * platform returns no session.
  */
 class RenderThreadHints(context: Context, private val targetFrameNanos: Long) {
     private val appContext = context.applicationContext
-    private var session: Any? = null
+    private val lock = Any()
+    @Volatile private var session: Any? = null
 
+    /**
+     * Bumped by every [start] and [stop] (under [lock]). [start] runs off the main thread and
+     * blocks in [GpuRenderThread.flush] before it creates the session; a [stop] that lands
+     * meanwhile (a quick Home press) bumps this, and the late start then closes what it made
+     * instead of installing a live session while the app is hidden.
+     */
+    private var generation = 0L
+
+    @Suppress("ReturnCount") // Each early return is a distinct reason not to start.
     fun start() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || session != null) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val mine = synchronized(lock) {
+            if (session != null) return
+            ++generation
+        }
         // The render thread records its tid when it starts; make sure it has.
         runCatching { GpuRenderThread.flush() }
         val created = GpuRenderThread.tid.takeIf { it > 0 }?.let { createSession(it) } ?: return
-        session = created
-        GpuRenderThread.workObserver = { nanos -> report(created, nanos) }
+        synchronized(lock) {
+            if (generation != mine || session != null) {
+                closeSession(created)
+                return
+            }
+            session = created
+            GpuRenderThread.workObserver = { nanos -> report(created, nanos) }
+        }
     }
 
     fun stop() {
-        GpuRenderThread.workObserver = null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) closeSession()
-        session = null
+        synchronized(lock) {
+            generation++
+            GpuRenderThread.workObserver = null
+            session?.let { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) closeSession(it) }
+            session = null
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
@@ -136,7 +164,7 @@ class RenderThreadHints(context: Context, private val targetFrameNanos: Long) {
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private fun closeSession() {
+    private fun closeSession(session: Any) {
         (session as? PerformanceHintManager.Session)?.let { runCatching { it.close() } }
     }
 }
