@@ -45,7 +45,7 @@ import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /** Which half of [StoreWindow] is showing. "Manage Extensions"/the Extensions rail toggle open on
- *  [INSTALLED]; "Get Extensions"/"Store…" open on [BROWSE]. */
+ *  [INSTALLED]; "Azphalt Store…" opens on [BROWSE]. */
 enum class StoreTab { BROWSE, INSTALLED }
 
 /**
@@ -102,7 +102,7 @@ fun StoreWindow(
         )
     }
 
-    FloatingWindow(title = "Extensions", onDismiss = onDismiss) {
+    FloatingWindow(title = if (tab == StoreTab.BROWSE) "Azphalt Store" else "Extensions", onDismiss = onDismiss) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StoreTabChip(text = "Browse", selected = tab == StoreTab.BROWSE) { tab = StoreTab.BROWSE }
@@ -178,7 +178,7 @@ private fun InstalledTab(
             color = Color.Gray,
             style = MaterialTheme.typography.bodySmall,
         )
-        AzButton(text = "Browse the store", onClick = onBrowse, shape = AzButtonShape.RECTANGLE)
+        AzButton(text = "Browse the Azphalt Store", onClick = onBrowse, shape = AzButtonShape.RECTANGLE)
         return
     }
     // Plain Column, not LazyColumn: this whole window's content already sits inside FloatingWindow's

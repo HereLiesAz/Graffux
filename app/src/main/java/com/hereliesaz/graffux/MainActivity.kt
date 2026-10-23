@@ -313,7 +313,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     // One window, two tabs (StoreWindow's own doc comment) — showStore alone gates it; storeTab
     // says which tab it opens on, set by whichever entry point (Manage/Get Extensions, the
-    // Extensions toggle, "Store…") raised showStore, and freely switchable once open.
+    // Extensions toggle, "Azphalt Store…") raised showStore, and freely switchable once open.
     var showStore by remember { mutableStateOf(false) }
     var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by remember { mutableStateOf(false) }
@@ -588,7 +588,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         }
     }
 
-    // The rail's "Get Extensions"/"Store…" entry point. In-app browse (StoreWindow's Browse tab) is
+    // The rail's "Azphalt Store…" entry point. In-app browse (StoreWindow's Browse tab) is
     // the primary way in now, not the delegated store chooser below — that used to be the only
     // door, and this button still opened it directly, so the button a user would actually tap to
     // get a brush routed them straight out to a browser/store app instead of the searchable in-app
@@ -608,7 +608,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             storeBrowser.launch(
                 android.content.Intent.createChooser(
                     AzphaltStoreHandoff.browseIntent(context.packageName, vm.extensionStateInventory()),
-                    "Open a store",
+                    "Open the Azphalt Store with",
                 )
             )
         } else {
@@ -620,7 +620,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         .onFailure {
                             alerts.show(
                                 kind = AzPopupKind.WARNING,
-                                title = "No way to reach the store",
+                                title = "No way to reach the Azphalt Store",
                                 message = "This device has no store app, no Play, and no browser " +
                                     "to open azphalt.store with. Extensions can still be installed " +
                                     "by hand from a file: Install extension from file… in the menu at the top right.",
@@ -917,7 +917,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // right there once the window's open (one tap on its own tab switcher), so a
                 // second rail entry just to land on it first bought nothing.
                 azRailSubItem(
-                    id = "extensions.manage", hostId = "area.extensions", text = "Extensions",
+                    id = "extensions.manage", hostId = "area.extensions", text = "Installed",
                     content = GraffuxIcons.FilterGallery, color = navItemColor,
                     onClick = { storeTab = StoreTab.INSTALLED; showStore = true },
                 )
@@ -1263,7 +1263,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // in the second (title) dropdown below, off by default — nothing here pointed at
                     // it, so there was no way to find the store without already knowing that toggle
                     // existed. This is the direct, always-visible path in.
-                    menuItem(text = "Store…", onClick = { openAzphaltStore() })
+                    menuItem(text = "Azphalt Store…", onClick = { openAzphaltStore() })
                     menuItem(
                         text = "Install extension from file…",
                         onClick = { extensionFilePicker.launch(arrayOf("*/*")) },
