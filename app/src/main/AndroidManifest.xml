@@ -72,6 +72,9 @@
         android:theme="@style/Theme.Graffux"
         android:hardwareAccelerated="true"
         android:largeHeap="true">
+        <!-- Analytics is opt-in (Settings → Privacy, PrivacyConsent): nothing is collected until then. -->
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+
 
         <!-- azphalt state reporting (spec/state-reporting.md § 3.2). When the user opens a store app
              directly rather than through Graffux there is no browse request, so no inventory extra

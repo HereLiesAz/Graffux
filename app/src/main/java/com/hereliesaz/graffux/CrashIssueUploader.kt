@@ -14,9 +14,10 @@ import java.io.File
 
 /**
  * TEMPORARY, alongside PredictionReportRepository. On launch, files what the last run left behind
- * as GitHub issues on HereLiesAz/Graffux, through the same transport, token and opt-in as
- * [PredictionRankingReporter]: the token pasted in Settings. Nothing is sent without it (the files
- * simply wait), and a file is deleted only once GitHub accepted it.
+ * as **public** GitHub issues on HereLiesAz/Graffux, through the same transport and token as
+ * [PredictionRankingReporter]. Crash reports need their own opt-in (Settings → Privacy, [PrivacyConsent])
+ * and only cover deaths after it; every title and body is redacted ([CrashReporter.redactSensitive])
+ * before it leaves the device. A file is deleted only once GitHub accepted it.
  *
  * Three sources, because a crash can die in ways one of them misses:
  * - `last_crash.txt` -- CrashReporter's JVM stack trace, thread, breadcrumbs and logcat
@@ -35,31 +36,37 @@ class CrashIssueUploader(
 ) {
     suspend fun uploadPending() {
         if (!reports.isConnected.value) return
-        uploadCrashes()
+        if (PrivacyConsent.crashReportsEnabled(context)) uploadCrashes()
         uploadPendingRanking(File(context.cacheDir, PredictionRankingReporter.PENDING_FILE))
     }
 
     private suspend fun uploadCrashes() {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val since = prefs.getLong(KEY_LAST_EXIT, 0L)
+        val consentAt = PrivacyConsent.crashReportsSince(context)
+        val since = maxOf(prefs.getLong(KEY_LAST_EXIT, 0L), consentAt)
         val filed = prefs.getString(KEY_FILED, null).orEmpty().split('\n').filter { it.isNotBlank() }
         val jvmFile = File(context.cacheDir, JVM_CRASH_FILE)
         val nativeFile = File(context.cacheDir, NATIVE_CRASH_FILE)
         val crumbsFile = File(context.cacheDir, PREVIOUS_BREADCRUMBS_FILE)
+        // A crash file written before the opt-in is never sent.
+        val fresh = { f: File -> readOrNull(f)?.takeIf { f.lastModified() >= consentAt } }
         val plan = CrashReportPlanner.plan(
-            jvmText = readOrNull(jvmFile),
-            nativeText = readOrNull(nativeFile),
+            jvmText = fresh(jvmFile),
+            nativeText = fresh(nativeFile),
             exits = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) exitRecords() else emptyList(),
             sinceTimestamp = since,
             filedKeys = filed.toSet(),
-            previousBreadcrumbs = readOrNull(crumbsFile),
+            previousBreadcrumbs = fresh(crumbsFile),
             device = CrashReporter.deviceLabel(),
             build = buildLabel(),
         )
         val remembered = ArrayDeque(filed)
         for (issue in plan) {
             if (!issue.alreadyFiled) {
-                val result = reports.fileIssue(issue.title, issue.body)
+                val result = reports.fileIssue(
+                    CrashReporter.redactSensitive(issue.title),
+                    CrashReporter.redactSensitive(issue.body),
+                )
                 if (result.isFailure) {
                     Log.w(TAG, "crash report not filed", result.exceptionOrNull())
                     return // Keep everything for the next launch.

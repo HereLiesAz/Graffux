@@ -164,6 +164,7 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
             )
+            PrivacyConsentRows()
             StrokeDataRow(vm)
             HorizontalDivider()
 
@@ -527,8 +528,9 @@ internal fun <T> ChoiceRow(
     }
 }
 
+@Suppress("FunctionNaming")
 @Composable
-private fun SwitchRow(
+internal fun SwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
