@@ -775,7 +775,8 @@ they draw on the CPU, which every GPU path already fell back to.
 on the GPU after the retirement, `libgraffux_wgpu.so` is cross-compiled for `armv7-linux-androideabi`
 as well as `aarch64-linux-android` and packaged under both `lib/armeabi-v7a/` and `lib/arm64-v8a/`.
 32-bit devices therefore keep GPU painting; only devices where wgpu finds no adapter draw on the
-CPU. `-Pgraffux.wgpu.require=true` (CI) fails the build if either ABI's library is missing.
+CPU. On Android the build requires both ABIs' libraries by default (`core/nativebridge`), and
+`-Pgraffux.wgpu.skip=true` is the only opt-out; `-Pgraffux.wgpu.require` is read only by `:desktop`.
 
 **What the retired engines taught, kept for next time:** the Vulkan engine crashed on lavapipe in
 `uploadPaintHeight` (`vkUpdateDescriptorSets`); GLSL leaves `round()` on exact halves and `%` on

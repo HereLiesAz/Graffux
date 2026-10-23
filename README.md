@@ -50,6 +50,8 @@ orchestrates side effects (history, persistence) around each dispatch.
 |---|---|
 | `:app` | The Graffux application shell — `MainActivity` hosts the AzNavRail + the shared editor. |
 | `:feature:editor` | The editor: reducer, view-model, canvas, panels, brush/stroke engine, export. |
+| `:core:engine` | Kotlin Multiplatform engine shared with desktop: azphalt brush/manifest models, dab generation. |
+| `:desktop` | The desktop (Linux/Windows) Compose app; see `DESKTOP.md`. |
 | `:core:common` | Models (`Layer`, `EditorUiState`, `GraffitiProject`), serialization, shared utilities. |
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence. |

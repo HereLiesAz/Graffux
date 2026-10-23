@@ -183,7 +183,7 @@ jobs:
         # on a PR, whatever build.gradle.kts the pushed code contains). assembleDebug signs with
         # the default debug keystore (app/build.gradle.kts), so the release keystore is neither
         # needed nor decoded in this workflow; release signing happens in HereLiesAz/workflows'
-        # android-release.yml.
+        # android-play-release.yml / android-github-release.yml.
         run: |
           set +e
 
@@ -269,7 +269,7 @@ jobs:
         id: release_vars
         run: |
           # Nothing in this workflow or the Gradle build increments anything. version.properties holds
-          # the pair last recorded by HereLiesAz/workflows' android-release.yml after a Play
+          # the fields last recorded by HereLiesAz/workflows' Android release workflows after a
           # publish (versionMajor/Minor/Patch/Build); this rolling debug release only reuses it to
           # NAME the artifact. The real release versionCode/versionName are decided by that
           # workflow (highest code Play has accepted + 1) and passed to Gradle as -P properties.

@@ -57,9 +57,9 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    work in `EditorIntent.SetLoading(true/false)` — the loading state blocks input for the
    duration, closing the window where an Undo tap could race the in-flight composite.
 3. **`version.properties` is never reverted, restored, or `git checkout`-ed.** The Gradle
-   build never increments it; `HereLiesAz/workflows` `android-release.yml` computes `versionCode`
-   (highest of the file and every code Play has accepted, + 1) and records the published pair back
-   to it with a `[skip ci]` commit. See `CLAUDE.md`.
+   build never increments it; `HereLiesAz/workflows`' Android release workflows compute
+   `versionCode` (highest of the file and every code Play has accepted, + 1) and record it back on
+   the default branch with a `[skip ci]` commit. See `CLAUDE.md`.
 4. **`ConfigureRailItems` is not `@Composable`.** It's a plain extension function on
    `AzNavHostScope`, so any Compose state it needs (`remember { mutableStateOf(...) }`) has
    to live in the calling `@Composable` (`GraffuxApp`) and thread down as a parameter or

@@ -1,7 +1,7 @@
 # azphalt package format — `spec/package-format.md`
 
 Spec version implemented by this host: **`0.1`** (`AZPHALT_SPEC_VERSION` in
-`core/common/src/main/java/com/hereliesaz/graffitixr/common/azphalt/AzphaltManifest.kt`). Graffux
+`core/engine/src/commonMain/kotlin/com/hereliesaz/graffitixr/common/azphalt/AzphaltManifest.kt`). Graffux
 is described in this codebase as "the standard's first conforming host."
 
 This document reverse-engineers the `.azp` package format, its manifest schema, its signing/trust
@@ -13,7 +13,7 @@ Related normative documents this codebase references but which are out of scope 
 (the manifest schema in full detail), `spec/pack.md` (`kind: "pack"`), `spec/companion-app.md`
 (`kind: "app"`), `spec/mcp-server.md` (`kind: "mcp"`), `spec/ui-schema.md` (native UI panel
 schemas), and `spec/repository-api.md` (the `.well-known/azphalt-repository.json` registry format)
-— all still missing from the repo and not reconstructed by this pass. `spec/state-reporting.md`
+— these live in the azphalt repository's `spec/` (HereLiesAz/azphalt), not here. `spec/state-reporting.md`
 (the install/uninstall state-reporting channel, summarized here only where `store-app.md` needs it)
 now exists as its own document.
 
@@ -354,7 +354,7 @@ A `code`-kind filter package:
 
 ## 3. Signing and trust
 
-Source: `AzpSignature.kt`, `TrustStore.kt` — both under `core/common/.../azphalt`.
+Source: `AzpSignature.kt`, `TrustStore.kt` — both under `core/engine/.../azphalt`.
 
 ### 3.1 What is signed
 
@@ -459,7 +459,7 @@ nothing else about the package changing.
 
 ## 4. The `.cube` LUT format
 
-Source: `core/common/.../azphalt/CubeLut.kt`. This is the **normalized form azphalt asset extensions
+Source: `core/engine/.../azphalt/CubeLut.kt`. This is the **normalized form azphalt asset extensions
 ship 3D color grades as** — the Adobe/IRIDAS `.cube` text format, 3D LUTs only (a `LUT_1D_SIZE` header
 throws `IllegalArgumentException("1D .cube LUTs are not supported")`). Pure Kotlin, Android-free, so
 parse/apply are unit-testable independent of any Bitmap bridge.

@@ -7,7 +7,7 @@ Spec version implemented by this host: **`0.1`** (`AZPHALT_SPEC_VERSION`, shared
 This document reverse-engineers the install/uninstall state-reporting channel — the five-state
 vocabulary, the state document's wire shape, the read-only `ContentProvider` a store app queries,
 and the size-bounded inventory a host attaches to a browse request — strictly from what
-`core/common/.../azphalt/ExtensionState.kt`, `core/data/.../azphalt/ExtensionStateProvider.kt`,
+`core/engine/.../azphalt/ExtensionState.kt`, `core/data/.../azphalt/ExtensionStateProvider.kt`,
 `core/data/.../azphalt/ExtensionStateStore.kt`, and the relevant parts of
 `core/data/.../azphalt/AzphaltStoreHandoff.kt` actually implement and enforce. It does not invent
 fields, constraints, or defaults beyond what the code demonstrates.
@@ -35,7 +35,7 @@ inline on a browse request (§ 4).
 
 ## 2. The five-state vocabulary
 
-`ExtensionState` (`core/common/.../azphalt/ExtensionState.kt`), an enum with a `wire: String` value
+`ExtensionState` (`core/engine/.../azphalt/ExtensionState.kt`), an enum with a `wire: String` value
 distinct from its Kotlin name — the wire value is the normative one, the Kotlin name is not:
 
 | State | Wire value | Meaning |
