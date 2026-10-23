@@ -541,7 +541,13 @@ data class AzphaltBrush(
             val state = (obj["state"] as? JsonObject)?.mapNotNull { (k, v) ->
                 (v as? JsonPrimitive)?.floatOrNull?.takeIf { it.isFinite() }?.let { k to it }
             }?.toMap().orEmpty()
-            val spec = StrokeProgramSpec(state = state, init = source("init"), step = source("step"))
+            val tick = (obj["tickMs"] as? JsonPrimitive)?.floatOrNull?.takeIf { it.isFinite() } ?: 0f
+            val spec = StrokeProgramSpec(
+                state = state,
+                init = source("init"),
+                step = source("step"),
+                tickMs = if (tick >= StrokeProgram.MIN_TICK_MS) tick else 0f,
+            )
             return spec.takeIf { it.step.isNotBlank() }
         }
     }

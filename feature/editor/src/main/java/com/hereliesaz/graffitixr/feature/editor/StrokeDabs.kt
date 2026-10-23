@@ -35,7 +35,7 @@ internal object StrokeDabs {
         }
         val diameterPx = stroke.brushSize * brushScale
         val tile = tiler(stroke, width, height)
-        return tile(LiveStrokeDabs.movementDabs(samples, diameterPx, brush, stroke.seed)) to
+        return tile(LiveStrokeDabs.movementStroke(samples, diameterPx, brush, stroke.seed, stroke.paintPrior).dabs) to
             tile(LiveStrokeDabs.heldDabs(samples, diameterPx, brush, stroke.seed))
     }
 

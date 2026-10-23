@@ -137,7 +137,7 @@ class PackRenderHarness {
 
     // ---- rendering ---------------------------------------------------------------------------
 
-    private class Rendered(val tiles: List<BufferedImage>)
+    private class Rendered(val tiles: List<BufferedImage>, val names: List<String> = emptyList(), val tileH: Int = Const.TILE_H)
 
     private fun renderBrush(dir: File, brush: AzphaltBrush, problems: MutableList<String>): Rendered {
         val tip = brush.shapePath?.let { loadTip(File(dir, it)) }
@@ -146,6 +146,7 @@ class PackRenderHarness {
             val compiled = StrokeProgram.compile(program)
             if (compiled is StrokeProgramCompilation.Error) problems.add("${dir.name} / ${brush.name}: ${compiled.message}")
         }
+        if ((brush.program?.tickMs ?: 0f) > 0f) return renderSpray(dir, brush, tip, problems)
         val tiles = strokes(Const.TILE_W.toFloat(), Const.TILE_H.toFloat()).map { path ->
             val diameter = System.getProperty("graffux.packs.diameter")?.toFloatOrNull() ?: Const.DIAMETER
             val generator = IncrementalDynamicDabGenerator(diameter, brush, Const.SEED)
@@ -165,6 +166,95 @@ class PackRenderHarness {
             stamp(dabs, tip, brush, Const.TILE_W, Const.TILE_H)
         }
         return Rendered(tiles)
+    }
+
+    // ---- spray scenarios: held pens, speed ladders, bursts over the same spot ------------------
+
+    private class Scenario(val name: String, val strokes: List<List<BrushSample>>)
+
+    /**
+     * A stroke whose pen position is [at] (x, y from ms since touchdown), sampled every 16 ms the way
+     * the canvas ticks a held pen, starting at [startMs]. Touchdown and lift-off are marked.
+     */
+    private fun timedStroke(
+        startMs: Long,
+        durationMs: Long,
+        pressure: (Long) -> Float = { 0.5f },
+        at: (Long) -> Pair<Float, Float>,
+    ): List<BrushSample> {
+        val builder = BrushSampleBuilder()
+        val out = ArrayList<BrushSample>()
+        var t = 0L
+        while (true) {
+            val last = t >= durationMs
+            val (x, y) = at(t)
+            val raw = builder.add(x, y, startMs + t, pressure(t), pressureAvailable = true)
+            val phase = when {
+                t == 0L -> BrushContactPhase.TOUCHDOWN
+                last -> BrushContactPhase.LIFT_OFF
+                else -> BrushContactPhase.CONTACT
+            }
+            out.add(raw.copy(telemetry = raw.telemetry.copy(contactPhase = phase)))
+            if (last) return out
+            t = minOf(t + 16L, durationMs)
+        }
+    }
+
+    private fun sprayScenarios(w: Float, h: Float, d: Float): List<Scenario> {
+        val m = 36f
+        val len = w - 2 * m
+        // A hand's speed in brush widths per second: a cap's own width is the ruler.
+        fun pass(row: Float, widthsPerSecond: Float, startMs: Long): List<BrushSample> {
+            val v = widthsPerSecond * d / 1000f
+            return timedStroke(startMs, (len / v).toLong()) { t -> Pair(m + v * t, row) }
+        }
+        val speeds = listOf(30f, 14f, 6f, 2f).mapIndexed { i, k -> pass(h * (0.14f + 0.22f * i), k, i * 20_000L) }
+        val cx = w / 2
+        return listOf(
+            Scenario("speed 30/14/6/2 w/s", speeds),
+            Scenario("hold 1 s", listOf(timedStroke(0, 1_000) { Pair(cx, h * 0.25f) })),
+            Scenario("hold 3 s", listOf(timedStroke(0, 3_000) { Pair(cx, h * 0.25f) })),
+            Scenario("4 bursts 0.3 s", (0 until 4).map { i -> timedStroke(i * 1_500L, 300) { Pair(cx, h * 0.25f) } }),
+            Scenario("crawl then flick", listOf(
+                timedStroke(0, 4_000) { t -> val x = if (t < 2_500) m + 0.4f * d / 1000f * t else m + 0.4f * d / 1000f * 2_500 + (t - 2_500) * 0.04f * d; Pair(x, h * 0.3f) },
+            )),
+            Scenario("overlapping passes", listOf(
+                timedStroke(0, 3_200, pressure = { 0.35f + 0.4f * ((it / 400) % 2) }) { t ->
+                    val k = (t / 800f)
+                    Pair(m + len * 0.5f + kotlin.math.sin(k * 6.2832f) * len * 0.22f, h * 0.3f + kotlin.math.sin(k * 3.1416f) * d * 0.5f)
+                },
+            )),
+        )
+    }
+
+    private fun renderSpray(dir: File, brush: AzphaltBrush, tip: BufferedImage?, problems: MutableList<String>): Rendered {
+        val diameter = System.getProperty("graffux.packs.diameter")?.toFloatOrNull() ?: Const.DIAMETER
+        val tileH = Const.SPRAY_TILE_H
+        val tiles = ArrayList<BufferedImage>()
+        val scenarios = sprayScenarios(Const.TILE_W.toFloat(), tileH.toFloat(), diameter)
+        for (scenario in scenarios) {
+            val ledger = PaintLedger()
+            val dabs = ArrayList<Dab>()
+            var peak = 0
+            var overruns = 0
+            val started = System.nanoTime()
+            for (samples in scenario.strokes) {
+                val generator = IncrementalDynamicDabGenerator(diameter, brush, Const.SEED, ledger.snapshot(samples.first().uptimeMillis))
+                val predictor = StrokeLengthPredictor()
+                for (s in samples) {
+                    predictor.record(s)
+                    dabs.addAll(generator.append(s, predictor.predictedTotal))
+                }
+                generator.paintFilm()?.let(ledger::overlay)
+                generator.programRunner?.let { peak = max(peak, it.peakOps); overruns += it.overruns }
+            }
+            val ms = (System.nanoTime() - started) / 1e6
+            println("  %-26s %-22s dabs=%-6d %.1fms peakOps=%d/%d overruns=%d".format(brush.name, scenario.name, dabs.size, ms, peak, StrokeProgram.MAX_OPS_PER_STEP, overruns))
+            if (overruns > 0) problems.add("${dir.name} / ${brush.name} (${scenario.name}): $overruns step(s) over budget")
+            if (dabs.size > Const.MAX_SANE_DABS) problems.add("${dir.name} / ${brush.name} (${scenario.name}): ${dabs.size} dabs")
+            tiles.add(stamp(dabs, tip, brush, Const.TILE_W, tileH))
+        }
+        return Rendered(tiles, scenarios.map { it.name }, tileH)
     }
 
     private fun loadTip(file: File): BufferedImage? = runCatching { ImageIO.read(file) }.getOrNull()
@@ -264,8 +354,9 @@ class PackRenderHarness {
     private fun sheet(pack: String, brushes: List<AzphaltBrush>, rendered: List<Rendered>): BufferedImage {
         val labelW = 190
         val head = 28
-        val cols = rendered.firstOrNull()?.tiles?.size ?: 0
-        val img = BufferedImage(labelW + cols * Const.TILE_W, head + brushes.size * Const.TILE_H, BufferedImage.TYPE_INT_RGB)
+        val cols = rendered.maxOfOrNull { it.tiles.size } ?: 0
+        val rowH = rendered.maxOfOrNull { it.tileH } ?: Const.TILE_H
+        val img = BufferedImage(labelW + cols * Const.TILE_W, head + brushes.size * rowH, BufferedImage.TYPE_INT_RGB)
         val g = img.createGraphics()
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
         g.color = Color(10, 10, 10)
@@ -274,10 +365,12 @@ class PackRenderHarness {
         runCatching {
             g.font = Font(Font.SANS_SERIF, Font.PLAIN, 13)
             g.drawString(pack, 8, 18)
-            strokes(Const.TILE_W.toFloat(), Const.TILE_H.toFloat()).forEachIndexed { c, p -> g.drawString(p.name, labelW + c * Const.TILE_W + 8, 18) }
-            brushes.forEachIndexed { r, b -> g.drawString(b.name, 8, head + r * Const.TILE_H + 22) }
+            val names = rendered.firstOrNull { it.names.isNotEmpty() }?.names
+                ?: strokes(Const.TILE_W.toFloat(), Const.TILE_H.toFloat()).map { it.name }
+            names.forEachIndexed { c, n -> g.drawString(n, labelW + c * Const.TILE_W + 8, 18) }
+            brushes.forEachIndexed { r, b -> g.drawString(b.name, 8, head + r * rowH + 22) }
         }
-        rendered.forEachIndexed { r, row -> row.tiles.forEachIndexed { c, tile -> g.drawImage(tile, labelW + c * Const.TILE_W, head + r * Const.TILE_H, null) } }
+        rendered.forEachIndexed { r, row -> row.tiles.forEachIndexed { c, tile -> g.drawImage(tile, labelW + c * Const.TILE_W, head + r * rowH, null) } }
         g.dispose()
         return img
     }
@@ -314,6 +407,7 @@ class PackRenderHarness {
     private object Const {
         const val TILE_W = 420
         const val TILE_H = 150
+        const val SPRAY_TILE_H = 280
         const val DIAMETER = 26f
         const val SAMPLE_MS = 8L
         const val SEED = 20_260_101L

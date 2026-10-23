@@ -136,6 +136,12 @@ data class StrokeCommand(
     val stampBrush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null,
     val flow: Float = 1f,
     val seed: Long = 0L,
+    // Wet paint on the layer as this stroke began, and the film the stroke touched: what lets a
+    // spray brush's program feel earlier strokes' still-wet paint, and lets replay reproduce it.
+    // Both null unless the brush's program uses the wet-paint ledger. Memory only, never saved.
+    val paintPrior: com.hereliesaz.graffitixr.common.azphalt.PaintSnapshot? = null,
+    val paintFilm: com.hereliesaz.graffitixr.common.azphalt.PaintSnapshot? = null,
+    
     val stampShape: Bitmap? = null,
     // Orthogonal Krita-style brush assets. Grain is tiled independently of the primary shape; the
     // masked shape is the optional secondary tip. Both are snapshotted with the stroke just like
@@ -1127,6 +1133,7 @@ class EditorViewModel @Inject constructor(
      */
     private var stampGpuWetCheckpoint: List<Any?>? = null
     private var stampSeed: Long = 0L
+    private var stampPaintPrior: com.hereliesaz.graffitixr.common.azphalt.PaintSnapshot? = null
     private var stampBrushForStroke: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = null
     // The in-flight stamp stroke is the Eraser: the Brush's own stamp brush, composited as erase.
     private var stampEraseForStroke: Boolean = false
@@ -4967,6 +4974,11 @@ class EditorViewModel @Inject constructor(
             stampSubstrateForStroke = StampSubstrate.of(state.canvasSubstrateId, stampBrush)
             val currentSeed = System.nanoTime()
             stampSeed = currentSeed
+            stampPaintPrior = if (stampBrush.program != null) {
+                paintPriorFor(layerId, pendingStrokeStartSample?.uptimeMillis ?: android.os.SystemClock.uptimeMillis())
+            } else {
+                null
+            }
             stampStampedCount = 0
             stampHeldStampedCount = 0
             stampLiveBitmap = null
@@ -5813,7 +5825,7 @@ class EditorViewModel @Inject constructor(
             if (needsDynamicDabs) {
                 var generator = stampDynamicDabGenerator
                 if (generator == null) {
-                    generator = IncrementalDynamicDabGenerator(diameterPx, stampBrush, stampSeed)
+                    generator = IncrementalDynamicDabGenerator(diameterPx, stampBrush, stampSeed, stampPaintPrior)
                     stampDynamicDabGenerator = generator
                 }
                 while (stampMovementConsumedSampleCount < mappedSamples.size) {
@@ -6825,6 +6837,7 @@ class EditorViewModel @Inject constructor(
         // The final samples' dabs, then the live GPU engine and whatever is still queued for it:
         // the commit finishes the live stroke on that engine instead of painting it again.
         renderStampLive(brush)
+        val paintFilm = stampDynamicDabGenerator?.paintFilm()
         val handoff = handOffLiveStamp()
         val color = eraseOpaque(state.activeColor.toArgb())
         val brushSize = state.effectivePaintBrushSize()
@@ -6856,6 +6869,8 @@ class EditorViewModel @Inject constructor(
             wrapFrameHeight = strokeLayerFrame.height,
             stampBatches = handoff.batches,
             substrateId = substrateId,
+            paintPrior = stampPaintPrior,
+            paintFilm = paintFilm,
         )
         layerStore.addStroke(layerId, command)
         // A stroke that joined an undo chunk keeps no GPU undo snapshot (the chunk has none), so its
@@ -11114,6 +11129,19 @@ class EditorViewModel @Inject constructor(
 
     /** Current resolved Azphalt brush for topology-aware hover/tool previews; null = basic round brush. */
     fun activeBrushForPreview(): com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush? = activeStampBrush
+
+    /**
+     * The wet paint on [layerId] at [nowMs]: what the layer's latest spray stroke left (the film it
+     * touched, on top of the film it started from), dried to now. The history is the source of
+     * truth, so undo and redo need no bookkeeping: whichever stroke is on top decides.
+     */
+    private fun paintPriorFor(layerId: String, nowMs: Long): com.hereliesaz.graffitixr.common.azphalt.PaintSnapshot? {
+        val top = layerStore.strokes(layerId).lastOrNull { it.paintFilm != null }
+        val film = top?.paintFilm ?: return null
+        val ledger = (top.paintPrior ?: com.hereliesaz.graffitixr.common.azphalt.PaintLedger().snapshot(0L)).toLedger()
+        ledger.overlay(film)
+        return ledger.snapshot(nowMs).takeUnless { it.isEmpty }
+    }
 
     private data class InstalledBrushRuntime(
         val brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush,
