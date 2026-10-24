@@ -73,14 +73,13 @@ object AzphaltStoreHandoff {
      * is "a host with no *browse* affordance, not a broken one" (spec § Discovery), and a browser is
      * the affordance every device already has.
      *
-     * The canonical `www.` host, not the bare domain: the bare domain 308-redirects here, and while a
-     * browser (this constant's own [webStoreIntent] use, and the checkout links built from it) follows
-     * that transparently, [com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient]'s raw
-     * `HttpURLConnection` calls do not — `HttpURLConnection` only auto-follows 301/302/303, never
-     * 307/308 — so every direct API call (search, discover, updates, download) hit the bare domain and
-     * failed on the raw redirect status instead of ever reaching the API.
+     * The bare domain, which is where the store answers. `www.` 301-redirects every path to the
+     * bare domain's home page, so an API call sent there comes back as HTML, not JSON, and the in-app
+     * store reports it can't be reached. (The direction has flipped before; if it flips again, change
+     * this one constant: [RepositoryApiClient]'s `HttpURLConnection` calls never follow 307/308, and a
+     * redirect that drops the path can't be followed at all.)
      */
-    const val WEB_STORE_URL: String = "https://www.azphalt.store"
+    const val WEB_STORE_URL: String = "https://azphalt.store"
 
     /** Application id of the reference Android storefront, for offering to install it when absent. */
     const val STORE_APP_ID: String = "store.azphalt.storefront"

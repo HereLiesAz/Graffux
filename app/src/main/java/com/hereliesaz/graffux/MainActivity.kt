@@ -296,6 +296,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val favoriteTools by vm.favoriteTools.collectAsState()
 
     var showSettings by remember { mutableStateOf(false) }
+    // The three-dot menu: open state, which page it shows, and a reopen request (see the menu).
+    var menuOpen by remember { mutableStateOf(false) }
+    var showViewMenu by remember { mutableStateOf(false) }
+    var reopenMenu by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val navController = rememberNavController()
 
@@ -313,7 +317,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showLayerOptionsDialog by remember { mutableStateOf(false) }
     // One window, two tabs (StoreWindow's own doc comment) — showStore alone gates it; storeTab
     // says which tab it opens on, set by whichever entry point (Manage/Get Extensions, the
-    // Extensions toggle, "Azphalt Store…") raised showStore, and freely switchable once open.
+    // Extensions toggle, "Add-ons…") raised showStore, and freely switchable once open.
     var showStore by remember { mutableStateOf(false) }
     var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by remember { mutableStateOf(false) }
@@ -588,7 +592,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         }
     }
 
-    // The rail's "Azphalt Store…" entry point. In-app browse (StoreWindow's Browse tab) is
+    // The menu's "Add-ons…" entry point. In-app browse (StoreWindow's Browse tab) is
     // the primary way in now, not the delegated store chooser below — that used to be the only
     // door, and this button still opened it directly, so the button a user would actually tap to
     // get a brush routed them straight out to a browser/store app instead of the searchable in-app
@@ -1194,14 +1198,33 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)
             onscreen(alignment = Alignment.TopEnd) {
                 if (!uiState.hideUiForCapture) {
-                    AzDropdownMenu(navController = navController) {
+                    // One menu behind the three dots. "View…" swaps it to the panel toggles and
+                    // drops it open again, so the second menu is an item in the first, not a second
+                    // thing to find on screen. Closing it (or picking anything) goes back to the top.
+                    AzDropdownMenu(
+                        navController = navController,
+                        expanded = menuOpen,
+                        onExpandedChange = { open ->
+                            if (!open && reopenMenu) {
+                                reopenMenu = false
+                                menuOpen = true
+                            } else {
+                                menuOpen = open
+                                if (!open) showViewMenu = false
+                            }
+                        },
+                    ) {
                         azConfig(
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            showFooter = false,
-                            // Words, not glyphs: "View" says what this menu holds.
-                            trigger = AzDropdownTrigger.Text("View"),
+                            trigger = AzDropdownTrigger.MoreVert,
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
+                        )
+                    if (showViewMenu) {
+                        azItem(
+                            color = menuItemColor,
+                            text = "‹ Back",
+                            onClick = { showViewMenu = false; reopenMenu = true },
                         )
                         // Each row says what it shows and whether it's showing, so a hidden panel
                         // can be traced back here.
@@ -1230,21 +1253,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             showExtensionsRail = checked
                             if (checked) { storeTab = StoreTab.INSTALLED; showStore = true }
                         }
-                    }
-
-                    AzDropdownMenu(navController = navController) {
-                        azConfig(
-                            design = AzDropdownDesign.MENU,
-                            dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            trigger = AzDropdownTrigger.Text("File"),
-                            triggerPlacement = AzDropdownTriggerPlacement.TITLE,
-                        )
+                    } else {
                     // Every entry here is the same colour, and the dropdown's `azConfig` has no hook
                     // to say so once — so it was said twenty-one times over. An entry added without
                     // it falls back to Color.Unspecified rather than to the other twenty, which is a
                     // silent way to end up with one unreadable line. Said once here instead.
                     fun menuItem(text: String, onClick: () -> Unit) =
                         azItem(color = menuItemColor, text = text, onClick = onClick)
+                    menuItem(text = "View…", onClick = { showViewMenu = true; reopenMenu = true })
                     menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
                     menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
                     menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
@@ -1263,7 +1279,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // in the second (title) dropdown below, off by default — nothing here pointed at
                     // it, so there was no way to find the store without already knowing that toggle
                     // existed. This is the direct, always-visible path in.
-                    menuItem(text = "Azphalt Store…", onClick = { openAzphaltStore() })
+                    menuItem(text = "Add-ons…", onClick = { openAzphaltStore() })
                     menuItem(
                         text = "Install extension from file…",
                         onClick = { extensionFilePicker.launch(arrayOf("*/*")) },
@@ -1306,6 +1322,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     })
                     azDivider()
                         menuItem(text = "Settings", onClick = { showSettings = true })
+                    }
                     }
                 }
             }
