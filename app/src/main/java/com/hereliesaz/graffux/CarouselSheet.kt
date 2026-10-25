@@ -77,6 +77,10 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
  * pill stays, to pull it back up), drag or fling it up to open it, or tap the pill. It settles open
  * or shut by [carouselSheetSettlesOpen]; [onOpenChange] reports where.
  *
+ * The sheet has stages above shut (tab list, then carousel). While it is open, an upward swipe past
+ * fully open calls [SheetStages.onStepUp]; a downward swipe that would shut it first asks
+ * [SheetStages.onStepDown], which returns true when it stepped down a stage instead.
+ *
  * [hiddenForDrawing] (see [rememberDrawingUiHidden]) is read, not observed by the caller's
  * composition: while it is true the sheet snaps shut at once (no animation — the stroke must not wait
  * on it), and when it goes false (the hold after the stroke has run out) it slides back to [open] in
@@ -102,6 +106,7 @@ internal fun CarouselSheet(
     modifier: Modifier = Modifier,
     hiddenForDrawing: () -> Boolean = { false },
     bottomInset: Dp = 0.dp,
+    stages: SheetStages? = null,
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -124,14 +129,25 @@ internal fun CarouselSheet(
         }
         settledOnce = true
     }
+    // How far a drag has pulled up past fully open: the swipe that steps the sheet up a stage.
+    var pulledUp by remember { mutableStateOf(0f) }
+    val stepUpPx = with(density) { STEP_UP_DP.dp.toPx() }
     fun settle(velocityPxPerSec: Float) {
         val max = contentHeight.toFloat().coerceAtLeast(1f)
         val velocityDp = with(density) { velocityPxPerSec.toDp().value }
-        val nowOpen = carouselSheetSettlesOpen(offset.value / max, velocityDp)
-        scope.launch { offset.animateTo(if (nowOpen) 0f else max) }
-        if (nowOpen != open) onOpenChange(nowOpen)
+        val release = carouselSheetRelease(
+            canStepUp = sheetCanStepUp(stages, shownOpen, offset.value),
+            pulledUp = pulledUp >= stepUpPx,
+            fractionShut = offset.value / max,
+            velocityDpPerSec = velocityDp,
+        )
+        pulledUp = 0f
+        applySheetRelease(release, open, stages, onOpenChange) { target ->
+            scope.launch { offset.animateTo(if (target) 0f else max) }
+        }
     }
     val dragState = rememberDraggableState { delta ->
+        pulledUp = pulledUpAfter(pulledUp, delta, offset.value)
         scope.launch { offset.snapTo((offset.value + delta).coerceIn(0f, contentHeight.toFloat())) }
     }
     // A card's vertical scroll (BottomCarousel) consumes first; what it leaves over drags the sheet,
@@ -208,6 +224,86 @@ private val HandleTouchHeight = 48.dp
 private val PillWidth = 40.dp
 private val PillHeight = 5.dp
 private const val PILL_ALPHA = 0.7f
+
+/** An upward pull this far past fully open steps the sheet up a stage (tab list to carousel). */
+private const val STEP_UP_DP = 32f
+
+/** A vertical fling faster than this (dp/s) decides the sheet's side on its own. */
+private const val SHEET_FLING_DP_PER_SEC = 400f
+
+/** Past this fraction of the way shut, a slow release settles the sheet shut. */
+private const val SHEET_HALFWAY = 0.5f
+
+/**
+ * The sheet's stages above shut. [onStepUp]: an upward swipe past fully open. [onStepDown]: a swipe
+ * that would shut the sheet; returns true when it stepped down a stage instead.
+ */
+internal class SheetStages(val onStepUp: () -> Unit, val onStepDown: () -> Boolean)
+
+/** Whether a release can step the sheet up: it has stages, is showing open, and sits fully open. */
+private fun sheetCanStepUp(stages: SheetStages?, shownOpen: Boolean, offset: Float): Boolean =
+    stages != null && shownOpen && offset <= 1f
+
+/** How far past fully open a drag has pulled, after one more [delta] at sheet offset [offset]. */
+private fun pulledUpAfter(pulled: Float, delta: Float, offset: Float): Float = when {
+    delta < 0f && offset <= 1f -> pulled - delta
+    delta > 0f -> 0f
+    else -> pulled
+}
+
+/**
+ * Carries out [release]: steps up, steps down a stage (staying open) when [SheetStages.onStepDown] takes a
+ * would-be shut, or settles via [animateOpen] and reports a changed side through [onOpenChange].
+ */
+private fun applySheetRelease(
+    release: SheetRelease,
+    open: Boolean,
+    stages: SheetStages?,
+    onOpenChange: (Boolean) -> Unit,
+    animateOpen: (Boolean) -> Unit,
+) {
+    if (release == SheetRelease.STEP_UP) {
+        stages?.onStepUp?.invoke()
+        return
+    }
+    val nowOpen = release == SheetRelease.OPEN
+    // A downward swipe from a stage above the first steps down one stage and stays open.
+    if (!nowOpen && open && stages?.onStepDown?.invoke() == true) {
+        animateOpen(true)
+        return
+    }
+    animateOpen(nowOpen)
+    if (nowOpen != open) onOpenChange(nowOpen)
+}
+
+/** What a released drag does to the sheet: step up a stage, or settle open or shut. */
+internal enum class SheetRelease { STEP_UP, OPEN, SHUT }
+
+/**
+ * A released drag: a pull past fully open (or a fast upward fling from there) steps the sheet up
+ * when it can; otherwise it settles by [carouselSheetSettlesOpen].
+ */
+internal fun carouselSheetRelease(
+    canStepUp: Boolean,
+    pulledUp: Boolean,
+    fractionShut: Float,
+    velocityDpPerSec: Float,
+): SheetRelease = when {
+    canStepUp && (pulledUp || velocityDpPerSec <= -SHEET_FLING_DP_PER_SEC) -> SheetRelease.STEP_UP
+    carouselSheetSettlesOpen(fractionShut, velocityDpPerSec) -> SheetRelease.OPEN
+    else -> SheetRelease.SHUT
+}
+
+/**
+ * Where the carousel sheet settles when a drag ends: [fractionShut] is how far down it is (0 = open,
+ * 1 = shut), [velocityDpPerSec] the release velocity (positive = downward). A decisive fling wins;
+ * otherwise it goes to whichever side it is nearer.
+ */
+internal fun carouselSheetSettlesOpen(fractionShut: Float, velocityDpPerSec: Float): Boolean = when {
+    velocityDpPerSec <= -SHEET_FLING_DP_PER_SEC -> true
+    velocityDpPerSec >= SHEET_FLING_DP_PER_SEC -> false
+    else -> fractionShut < SHEET_HALFWAY
+}
 
 /** How fast the sheet slides back once the post-stroke hold is over: quick, for the next pick. */
 internal const val REOPEN_MS = 120

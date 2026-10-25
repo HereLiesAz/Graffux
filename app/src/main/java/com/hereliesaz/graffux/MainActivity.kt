@@ -296,7 +296,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val favoriteTools by vm.favoriteTools.collectAsState()
 
     var showSettings by remember { mutableStateOf(false) }
-    // The three-dot menu: open state, which page it shows, and a reopen request (see the menu).
+    // The logo menu: open state, which page it shows, and a reopen request (see the menu).
     var menuOpen by remember { mutableStateOf(false) }
     var showViewMenu by remember { mutableStateOf(false) }
     var reopenMenu by remember { mutableStateOf(false) }
@@ -347,7 +347,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
     // outright, and its own chevron collapses it to a single button when the canvas needs the room.
     var showCarousel by remember { mutableStateOf(true) }
-    var carouselUi by remember { mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)) }
+    // Starts shut: only the grab pill, until a swipe up brings the tab list.
+    var carouselUi by remember {
+        mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = false, showingCarousel = false))
+    }
+    // Arming the brush or eraser puts the sheet on brushes; nothing else is listed with one in hand.
+    LaunchedEffect(uiState.activeTool) {
+        if (uiState.activeTool in BRUSH_CONTEXT_TOOLS &&
+            carouselContextOf(carouselUi.category) != CarouselContext.BRUSHES
+        ) {
+            carouselUi = carouselUi.copy(category = CarouselCategory.BRUSHES, tab = null)
+        }
+    }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
     // Selecting a main-rail tool group must reveal its carousel, even if an editor panel is open.
     // The ordinary carousel pages retain the original hide-while-panel-open behavior.
@@ -572,7 +583,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             heroExpansion.collapse()
         } else if (target != null) {
             showCarousel = true
-            carouselUi = carouselUi.copy(category = target.first, sheetOpen = true)
+            carouselUi = carouselUi.copy(category = target.first, sheetOpen = true, tab = null, showingCarousel = true)
             heroExpansion.request(target.second)
         }
     }
@@ -774,7 +785,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onToolGroupRequested = { category ->
                     showCarousel = true
                     heroExpansion.collapse()
-                    carouselUi = carouselUi.copy(category = category, sheetOpen = true)
+                    carouselUi = carouselUi.copy(
+                        category = category, sheetOpen = true, tab = null, showingCarousel = true,
+                    )
                 },
                 showLayersRail = showLayersRail,
                 onOpenBrushGallery = { showBrushGallery = true },
@@ -981,7 +994,23 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ) {
                         CarouselSheet(
                             open = carouselUi.sheetOpen,
-                            onOpenChange = { carouselUi = carouselUi.copy(sheetOpen = it) },
+                            // Swiped up from shut, the sheet shows its tab list only; a tab, or a
+                            // second swipe up, brings the carousel back where it was.
+                            onOpenChange = { open ->
+                                carouselUi = carouselUi.copy(sheetOpen = open, showingCarousel = false)
+                            },
+                            stages = SheetStages(
+                                onStepUp = {
+                                    if (!carouselUi.showingCarousel) {
+                                        carouselUi = carouselUi.copy(showingCarousel = true)
+                                    }
+                                },
+                                onStepDown = {
+                                    carouselUi.showingCarousel.also { up ->
+                                        if (up) carouselUi = carouselUi.copy(showingCarousel = false)
+                                    }
+                                },
+                            ),
                             // Shut at once while a stroke is down, back DRAWING_UI_RETURN_DELAY_MS
                             // after it lifts (read in the sheet, so this page does not recompose).
                             hiddenForDrawing = { drawingUiHidden },
@@ -993,34 +1022,38 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             // both to the screen's edge.
                             bottomInset = AzSheetConfig().hiddenStripDp + 4.dp,
                         ) {
-                            val carouselEntries = carouselEntries(
-                                carouselUi.category,
-                                CarouselInputs(
-                                    groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
-                                        CarouselCategory.entries.filter { it.isToolGroup }.flatMap { group ->
-                                            toolGroupCarouselEntries(
-                                                group, uiState, strings.nav.dodge, strings.nav.burn,
-                                            )
-                                        }
-                                    } else {
+                            val carouselInputs = CarouselInputs(
+                                groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
+                                    CarouselCategory.entries.filter { it.isToolGroup }.flatMap { group ->
                                         toolGroupCarouselEntries(
-                                            carouselUi.category, uiState, strings.nav.dodge, strings.nav.burn,
+                                            group, uiState, strings.nav.dodge, strings.nav.burn,
                                         )
-                                    },
-                                    activeTool = uiState.activeTool,
-                                    activeBrushName = uiState.activeBrushName,
-                                    activeInkUtensil = activeInkUtensil,
-                                    builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
-                                    customBrushes = customBrushes.map { it.id to it.brush },
-                                    extensionBrushes = brushes,
-                                    stabilizerLevel = uiState.stabilizerLevel,
-                                    stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-                                    smudgeMode = colorSmudgeSettings.mode,
-                                    selectionShape = uiState.selectionShape,
-                                    extensionEffects = extensionEffects,
-                                    favorites = carouselFavorites,
-                                ),
+                                    }
+                                } else {
+                                    toolGroupCarouselEntries(
+                                        carouselUi.category, uiState, strings.nav.dodge, strings.nav.burn,
+                                    )
+                                },
+                                activeTool = uiState.activeTool,
+                                activeBrushName = uiState.activeBrushName,
+                                activeInkUtensil = activeInkUtensil,
+                                builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+                                customBrushes = customBrushes.map { it.id to it.brush },
+                                extensionBrushes = brushes,
+                                stabilizerLevel = uiState.stabilizerLevel,
+                                stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                                smudgeMode = colorSmudgeSettings.mode,
+                                selectionShape = uiState.selectionShape,
+                                extensionEffects = extensionEffects,
+                                favorites = carouselFavorites,
                             )
+                            val carouselTabs = carouselTabSections(
+                                carouselContextOf(carouselUi.category), carouselUi.category, carouselInputs,
+                                packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
+                            )
+                            val carouselTab = selectedTabGroup(carouselTabs, carouselUi.tab)
+                            val carouselEntries = carouselTab?.entries
+                                ?: carouselEntries(carouselUi.category, carouselInputs)
                             val runCarouselEntry: (CarouselEntry) -> Unit = { entry ->
                                     when (val action = entry.action) {
                                         is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
@@ -1172,12 +1205,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                         }
                                     },
                                 ),
-                                history = CarouselHistory(
-                                    undoCount = uiState.undoCount,
-                                    redoCount = uiState.redoCount,
-                                    onUndo = { vm.onUndoClicked() },
-                                    onRedo = { vm.onRedoClicked() },
-                                ),
+                                tabs = carouselTabs,
+                                selectedTab = carouselTab?.key,
                                 onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
                                 onEntryClick = runCarouselEntry,
                                 expansion = heroExpansion,
@@ -1198,7 +1227,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)
             onscreen(alignment = Alignment.TopEnd) {
                 if (!uiState.hideUiForCapture) {
-                    // One menu behind the three dots. "View…" swaps it to the panel toggles and
+                    // One menu behind the app logo. "View…" swaps it to the panel toggles and
                     // drops it open again, so the second menu is an item in the first, not a second
                     // thing to find on screen. Closing it (or picking anything) goes back to the top.
                     AzDropdownMenu(
@@ -1217,7 +1246,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         azConfig(
                             design = AzDropdownDesign.MENU,
                             dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            trigger = AzDropdownTrigger.MoreVert,
+                            // The app's own logo is the menu: the launcher icon, as the rail header draws it.
+                            trigger = AzDropdownTrigger.AppIcon,
                             triggerPlacement = AzDropdownTriggerPlacement.TITLE,
                         )
                     if (showViewMenu) {
@@ -2475,9 +2505,9 @@ private fun AzNavHostScope.ConfigureRailItems(
             content = GraffuxIcons.Layers,
             color = navItemColor,
             shape = AzButtonShape.NONE_SQUARE,
-            initiallyExpanded = railExpansion["grp.layers"] ?: false,
+            initiallyExpanded = railExpansion["grp.layers"] ?: true,
             // Collapses while drawing, re-expands after the hold, only if the user had it open.
-            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.layers"] ?: false, drawingUiHidden()) },
+            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.layers"] ?: true, drawingUiHidden()) },
             onExpandedChange = {
                 if (DrawingRailFold.persistExpansionChange(it, drawingUiHidden())) {
                     vm.onRailHostExpansionChanged("grp.layers", it)

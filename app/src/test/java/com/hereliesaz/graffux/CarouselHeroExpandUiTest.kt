@@ -107,7 +107,6 @@ class CarouselHeroExpandUiTest {
                                 },
                                 onMore = {},
                             ),
-                            history = CarouselHistory(undoCount = 1, redoCount = 1, onUndo = {}, onRedo = {}),
                             onEntryClick = { clicks += it.key },
                             onToggleFavorite = {},
                             expansion = expansion,
