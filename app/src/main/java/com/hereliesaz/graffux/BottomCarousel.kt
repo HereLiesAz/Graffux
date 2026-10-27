@@ -8,9 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -18,8 +15,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
@@ -32,12 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -53,8 +43,8 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.snapshots.SnapshotStateMap
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -68,7 +58,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -82,7 +71,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 import com.hereliesaz.graffitixr.common.model.CarouselItemSettings
-import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.feature.editor.BrushPreview
 
 /**
@@ -128,15 +116,22 @@ internal val HeroExpandedSize = androidx.compose.ui.unit.DpSize(
     HeroItemWidth * EXPANDED_WIDTH_FACTOR,
     HeroCardHeight + PreviewHeight + PreviewGap,
 )
-private val TabRowHeight = 48.dp // the Material minimum touch target
 
-/** Clear space between the screen edge and the Undo/Redo icons, and between each icon and the pill. */
-private val HistoryEdgeGap = 16.dp
-private val HistoryPillGap = 8.dp
 internal val CardShape = RoundedCornerShape(20.dp)
 
-/** Which page is showing and whether the sheet is open — host-owned, so it survives recomposition. */
-internal data class CarouselUi(val category: CarouselCategory, val sheetOpen: Boolean)
+/**
+ * Which page is showing and how much of the sheet is up — host-owned, so it survives recomposition.
+ *
+ * [sheetOpen] false: only the grab pill. Open with [showingCarousel] false: only the tab list.
+ * Open with it true: the carousel for [tab] (a [CarouselTabGroup.key]; null = the whole [category])
+ * above the tab list. Swiping the sheet up from the tab list brings back that same carousel.
+ */
+internal data class CarouselUi(
+    val category: CarouselCategory,
+    val sheetOpen: Boolean,
+    val tab: String? = null,
+    val showingCarousel: Boolean = true,
+)
 
 /** What the strip draws: its items plus what the brush previews need to render them. */
 internal data class CarouselContent(
@@ -176,14 +171,6 @@ internal data class CarouselContent(
     val effectPreviews: EffectPreviewEngine? = null,
 )
 
-/** The history state the Undo/Redo tabs read, and the calls they make. */
-internal data class CarouselHistory(
-    val undoCount: Int,
-    val redoCount: Int,
-    val onUndo: () -> Unit,
-    val onRedo: () -> Unit,
-)
-
 /**
  * M3 Expressive hero carousel of brushes, Ink utensils, effect tools and tool options.
  *
@@ -191,7 +178,8 @@ internal data class CarouselHistory(
  * crossfading as the row scrolls), M3's [HorizontalCenteredHeroCarousel] — one large item in the
  * centre between two small ones, snapping one item per fling (`singleAdvanceFlingBehavior`),
  * the selection snapped into the centre and whatever settles there selected (see
- * [carouselSettleSelects]) — and the tab row (see [CAROUSEL_TABS]).
+ * [carouselSettleSelects]) — and the tab list (see [CarouselTabList]). With the sheet showing only
+ * its tab list ([CarouselUi.showingCarousel] false) the carousel is not composed at all.
  * The host places this across the full window width (an AzNavRail `background` page), so "centre"
  * means the centre of the screen, not of the strip beside the rail.
  *
@@ -206,11 +194,12 @@ internal fun BottomCarousel(
     ui: CarouselUi,
     onUiChange: (CarouselUi) -> Unit,
     content: CarouselContent,
-    history: CarouselHistory,
     onEntryClick: (CarouselEntry) -> Unit,
     onToggleFavorite: (CarouselEntry) -> Unit,
     modifier: Modifier = Modifier,
     expansion: HeroExpansion = remember { HeroExpansion() },
+    tabs: List<CarouselTabSection> = emptyList(),
+    selectedTab: String? = null,
 ) {
     // Crash breadcrumb: when the carousel first composed, relative to a save or engine start.
     LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
@@ -219,8 +208,10 @@ internal fun BottomCarousel(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
-        if (content.entries.isNotEmpty()) {
-            key(ui.category) {
+        if (!ui.showingCarousel) {
+            Unit
+        } else if (content.entries.isNotEmpty()) {
+            key(ui.tab ?: ui.category.name) {
                 val count = content.entries.size
                 val state = rememberCarouselState(initialItem = selectedCarouselIndex(content.entries) ?: 0) {
                     count
@@ -249,7 +240,6 @@ internal fun BottomCarousel(
                 }
                 // While the card is grown (or growing), ExpandedHeroLayer draws this same preview
                 // riding above the card, so this one steps aside.
-                if (ui.category == CarouselCategory.BRUSHES) SetChipRow(position, content.entries, onEntryClick)
                 HeroPreview(position, content) { expansion.progress > 0f }
                 // The column spaces each side of this spacer too; together they make PreviewGap.
                 Spacer(Modifier.height(PreviewGap - ColumnSpacing * 2))
@@ -273,7 +263,9 @@ internal fun BottomCarousel(
                 EmptyHint("No options for this tool. A card's More shows all of its settings.")
             }
         }
-        CarouselTabRow(ui, onUiChange, history)
+        CarouselTabList(tabs, selectedTab, onSelect = { group ->
+            onUiChange(ui.copy(category = group.category, tab = group.key, showingCarousel = true))
+        })
     }
 }
 
@@ -379,93 +371,6 @@ private fun EmptyHint(text: String) {
     }
 }
 
-/**
- * Undo · Favorites · Brushes · Ink · Effects · Options · Redo. Undo and Redo are actions, not pages:
- * they never change [CarouselUi.category]. Hiding is the sheet's job ([CarouselSheet]), not a
- * chevron's; while the sheet is shut, the rail carries Undo and Redo instead.
- */
-@Suppress("FunctionNaming")
-@Composable
-private fun CarouselTabRow(ui: CarouselUi, onUiChange: (CarouselUi) -> Unit, history: CarouselHistory) {
-    val colors = MaterialTheme.colorScheme
-    // Tool groups appear as a contextual tab only when their parent rail item was selected.
-    val pages = CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>() +
-        listOfNotNull(ui.category.takeIf { it.isToolGroup }?.let(CarouselTab::Page))
-    val pageScroll = rememberScrollState()
-    val density = LocalDensity.current
-    LaunchedEffect(ui.category, pageScroll.maxValue) {
-        val index = pages.indexOfFirst { it.category == ui.category }
-        if (index >= 0) {
-            val target = with(density) { (78.dp * index).roundToPx() }
-            pageScroll.animateScrollTo(target.coerceAtMost(pageScroll.maxValue))
-        }
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = HistoryEdgeGap),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(HistoryPillGap),
-    ) {
-        CAROUSEL_TABS.forEach { tab ->
-            when (tab) {
-                CarouselTab.Undo, CarouselTab.Redo -> HistoryTab(tab, history)
-                is CarouselTab.Page -> Unit
-            }
-            if (tab == CarouselTab.Undo) {
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier.weight(1f).height(TabRowHeight).horizontalScroll(pageScroll),
-                ) {
-                    pages.forEachIndexed { index, page ->
-                        SegmentedButton(
-                            selected = page.category == ui.category,
-                            onClick = { onUiChange(ui.copy(category = page.category)) },
-                            shape = SegmentedButtonDefaults.itemShape(index, pages.size),
-                            modifier = Modifier.widthIn(min = 78.dp),
-                            // Scrollable pages keep the new tool groups legible on a phone.
-                            contentPadding = PaddingValues(horizontal = 2.dp),
-                            icon = {},
-                            colors = SegmentedButtonDefaults.colors(
-                                activeContainerColor = colors.onSurface,
-                                activeContentColor = colors.surface,
-                                inactiveContainerColor = colors.surface.copy(alpha = 0.72f),
-                                inactiveContentColor = colors.onSurface,
-                                activeBorderColor = colors.outline,
-                                inactiveBorderColor = colors.outline,
-                            ),
-                        ) {
-                            Text(
-                                page.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Suppress("FunctionNaming")
-@Composable
-private fun HistoryTab(tab: CarouselTab, history: CarouselHistory) {
-    val enabled = carouselTabEnabled(tab, history.undoCount, history.redoCount)
-    val isUndo = tab == CarouselTab.Undo
-    IconButton(
-        onClick = if (isUndo) history.onUndo else history.onRedo,
-        enabled = enabled,
-        modifier = Modifier.size(TabRowHeight + 8.dp),
-    ) {
-        Icon(
-            painterResource(if (isUndo) GraffuxIcons.Undo else GraffuxIcons.Redo),
-            contentDescription = tab.label,
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else DISABLED_ALPHA),
-        )
-    }
-}
-
-private const val DISABLED_ALPHA = 0.38f
 
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @OptIn(ExperimentalMaterial3Api::class)

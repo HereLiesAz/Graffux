@@ -83,6 +83,7 @@ Division by zero is `0`; any non-finite result is `0`. `PI` is a constant.
 | `baseAlpha`, `baseAngle`, `baseTip`, `baseHard` | the brush's own dab's alpha, angle, tip ratio, hardness |
 | `layerSpeed` | layer px per millisecond over the last ~50 ms. Unlike `speed` (finger px on the glass) it follows the drawn line, so it does not depend on zoom |
 | `phase` | 0 touchdown, 1 moving, 2 held (a time tick), 3 lift-off |
+| `penAngle` | the nib's edge direction, degrees like `heading` (0 = +x, 90 = down). Set by the editor's nib-angle dial and kept true to the world as the device turns; −40 when nothing sets it (an italic hand: the edge rising to the right at 40°). Recorded with each sample, so replay draws the same angle |
 
 ### Outputs (assignable; reset every step)
 

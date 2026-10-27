@@ -91,7 +91,6 @@ class BottomCarouselUiTest {
                                 secondaryColor = Color.Red,
                                 extensionPreviews = emptyMap(),
                             ),
-                            history = CarouselHistory(undoCount = 1, redoCount = 0, onUndo = {}, onRedo = {}),
                             onEntryClick = { clicks += it.key },
                             onToggleFavorite = { favorites = toggleCarouselFavorite(favorites, it.key) },
                         )
@@ -149,7 +148,6 @@ class BottomCarouselUiTest {
                                 secondaryColor = Color.Red,
                                 extensionPreviews = emptyMap(),
                             ),
-                            history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),
                             onEntryClick = { entry ->
                                 clicks += entry.key
                                 when (val a = entry.action) {
