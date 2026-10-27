@@ -120,6 +120,27 @@ class StrokeProgramLedgerTest {
         assertEquals(0f, sizes.first(), 1e-4f)
     }
 
+    @Test
+    fun thePenAngleTravelsWithTheSample() {
+        val b = brush("hide = 1; emit { x: px, y: py, size: 2, angle: penAngle };")
+        val samples = (0..3).map {
+            sample(it * 16L, x = it * 10f).let { s -> s.copy(telemetry = s.telemetry.copy(penAngleDegrees = 70f)) }
+        }
+        val angles = LiveStrokeDabs.movementDabs(samples, 20f, b, 1L).map { it.angleDeg }
+        assertTrue(angles.isNotEmpty() && angles.all { it == 70f }, "angles=$angles")
+        // Nothing set: the default hand.
+        val plain = LiveStrokeDabs.movementDabs(listOf(sample(0)), 20f, b, 1L).single().angleDeg
+        assertEquals(DEFAULT_PEN_ANGLE_DEG, plain)
+    }
+
+    @Test
+    fun penAnglesWrap() {
+        assertEquals(-170f, wrapPenAngle(190f))
+        assertEquals(40f, wrapPenAngle(400f))
+        assertEquals(DEFAULT_PEN_ANGLE_DEG, wrapPenAngle(DEFAULT_PEN_ANGLE_DEG))
+        assertEquals(DEFAULT_PEN_ANGLE_DEG, wrapPenAngle(Float.NaN))
+    }
+
     private val sprayAndDrip = """
         spray(px, py, diameter * 0.5, 40);
         let film = wetAt(px, py, diameter * 0.5);
