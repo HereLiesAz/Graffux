@@ -113,7 +113,6 @@ class CarouselSheetStrokeUiTest {
                                     }
                                 },
                             ),
-                            history = CarouselHistory(undoCount = 1, redoCount = 1, onUndo = {}, onRedo = {}),
                             onEntryClick = {},
                             onToggleFavorite = {},
                             expansion = expansion,

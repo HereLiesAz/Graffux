@@ -5,6 +5,19 @@ import kotlinx.serialization.Serializable
 
 internal const val FINGER_CONTACT_FULL_PRESSURE_PX = 60f
 
+/**
+ * The nib angle a stroke gets when nothing sets one: an italic hand, the edge rising to the right at
+ * 40° (negative because, like `heading`, angles grow clockwise down the screen).
+ */
+const val DEFAULT_PEN_ANGLE_DEG = -40f
+
+/** [degrees] wrapped to [-180, 180). */
+fun wrapPenAngle(degrees: Float): Float {
+    if (!degrees.isFinite()) return DEFAULT_PEN_ANGLE_DEG
+    val d = (degrees + 180f) % 360f
+    return (if (d < 0f) d + 360f else d) - 180f
+}
+
 /** Physical input family before any interpretation of artist intent. */
 @Serializable
 enum class BrushInputTool {
@@ -66,6 +79,11 @@ data class BrushTelemetryMetadata(
     val contactPhase: BrushContactPhase = BrushContactPhase.CONTACT,
     /** Screen-remapped phone/tablet attitude captured independently from pointer/stylus telemetry. */
     val deviceAttitude: BrushDeviceAttitude = BrushDeviceAttitude(),
+    /**
+     * The nib's edge direction in layer degrees (as `heading`: 0 = +x, 90 = +y), captured with the
+     * sample so replay draws the same angle. Stroke programs read it as `penAngle`.
+     */
+    val penAngleDegrees: Float = DEFAULT_PEN_ANGLE_DEG,
 ) {
     fun sanitized(): BrushTelemetryMetadata = copy(
         pressureConfidence = pressureConfidence.coerceIn(0f, 1f),
@@ -73,6 +91,7 @@ data class BrushTelemetryMetadata(
         orientationConfidence = orientationConfidence.coerceIn(0f, 1f),
         contactSizeConfidence = contactSizeConfidence.coerceIn(0f, 1f),
         deviceAttitude = deviceAttitude.sanitized(),
+        penAngleDegrees = wrapPenAngle(penAngleDegrees),
     )
 
     /** Preserve confidence through arc-length interpolation without inventing a new tool class. */
@@ -91,6 +110,7 @@ data class BrushTelemetryMetadata(
             contactSource = discrete.contactSource,
             contactPhase = discrete.contactPhase,
             deviceAttitude = deviceAttitude.blendTo(other.deviceAttitude, clamped),
+            penAngleDegrees = penAngleDegrees + wrapPenAngle(other.penAngleDegrees - penAngleDegrees) * clamped,
         ).sanitized()
     }
 

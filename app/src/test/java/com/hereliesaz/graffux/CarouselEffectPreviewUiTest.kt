@@ -116,7 +116,6 @@ class CarouselEffectPreviewUiTest {
                                 itemSettings = { if (it.key == lutEntry.key) settings else null },
                                 effectPreviews = engine,
                             ),
-                            history = CarouselHistory(0, 0, {}, {}),
                             onEntryClick = {},
                             onToggleFavorite = {},
                         )
