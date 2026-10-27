@@ -15,7 +15,8 @@ class ToolGroupCarouselPlanTest {
         assertEquals("grp.select", carouselGroupRailId(CarouselCategory.SELECTION))
         assertEquals("grp.vector", carouselGroupRailId(CarouselCategory.VECTOR))
         assertEquals(null, carouselGroupRailId(CarouselCategory.BRUSHES))
-        assertTrue(CAROUSEL_TABS.none { it is CarouselTab.Page && it.category.isToolGroup })
+        // Tool groups are a context of their own, never a tab among the brushes.
+        assertEquals(CarouselContext.TOOL_GROUP, carouselContextOf(CarouselCategory.VECTOR))
     }
 
     @Test
