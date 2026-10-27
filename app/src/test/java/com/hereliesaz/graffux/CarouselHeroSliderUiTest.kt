@@ -26,7 +26,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.performClick
@@ -96,10 +95,10 @@ class CarouselHeroSliderUiTest {
                                 onAdjust = { _, setter, v -> if (setter == HeroSetter.BRUSH_SIZE) brushSize = v },
                                 onMore = { mores += it.key },
                             ),
-                            history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),
                             onEntryClick = { clicks += it.key },
                             onToggleFavorite = {},
                             expansion = expansion,
+                            tabs = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, inputs),
                         )
                     }
                     ExpandedHeroLayer(expansion)
@@ -185,8 +184,8 @@ class CarouselHeroSliderUiTest {
             .fetchSemanticsNode().boundsInRoot
         assertTrue("preview ${preview.bottom} above row ${row.top}", preview.bottom <= row.top + 1f)
         assertEquals("the row is as tall as the hero", row.height, hero.height, 1f)
-        val undo = rule.onNodeWithContentDescription("Undo", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue("tabs ${undo.top} below row ${row.bottom}", undo.top >= row.bottom - 1f)
+        val tabs = rule.onNodeWithTag("carousel.tabs", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("tabs ${tabs.top} below row ${row.bottom}", tabs.top >= row.bottom - 1f)
     }
 
     @Test

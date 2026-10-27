@@ -24,6 +24,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
@@ -152,6 +156,11 @@ fun EditorScreen(
         Modifier
     }
 
+    val nib = rememberSaveable(saver = NibAngleSaver) { NibAngleState() }
+    val penAngleBrush = uiState.activeTool in BRUSH_TOOLS && vm.activeBrushForPreview()?.usesPenAngle() == true
+    TrackNibTwist(nib, LocalView.current, enabled = penAngleBrush)
+    SideEffect { nib.viewRotationDeg = uiState.viewportRotation }
+    CompositionLocalProvider(LocalNibAngle provides nib) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -479,7 +488,12 @@ fun EditorScreen(
             )
             fun toWorldSample(sample: BrushSample): BrushSample {
                 val world = toWorld(Offset(sample.x, sample.y))
-                return sample.copy(x = world.x, y = world.y)
+                // The nib was recorded as seen on screen; the layer sees it through the view's rotation.
+                val penAngle = nibLayerAngle(sample.telemetry.penAngleDegrees, uiState.viewportRotation)
+                return sample.copy(
+                    x = world.x, y = world.y,
+                    telemetry = sample.telemetry.copy(penAngleDegrees = penAngle),
+                )
             }
             DrawingCanvas(
                 activeTool = uiState.activeTool,
@@ -804,6 +818,16 @@ fun EditorScreen(
                 CircularProgressIndicator()
             }
         }
+        // The nib-angle dial, while a brush that reads the angle is in hand (see NibAngle.kt).
+        if (penAngleBrush && !uiState.hideUiForCapture) {
+            NibAngleDial(
+                nib,
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = NibDialTopInset),
+            )
+        }
+    }
     }
 }
 
