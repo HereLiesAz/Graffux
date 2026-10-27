@@ -134,6 +134,7 @@ class IncrementalDynamicDabGenerator(
             layerSpeedPxPerMs = layerSpeed,
             phase = phase,
             nowMs = nowMs,
+            penAngleDeg = sample.telemetry.penAngleDegrees,
         ),
         emptyList(),
     ).dabs
@@ -363,6 +364,7 @@ class IncrementalDynamicDabGenerator(
                     layerSpeedPxPerMs = layerSpeed,
                     phase = if (index == 0) PHASE_TOUCHDOWN else PHASE_MOVING,
                     nowMs = sample.uptimeMillis,
+                    penAngleDeg = sample.telemetry.penAngleDegrees,
                 ),
                 out,
             )

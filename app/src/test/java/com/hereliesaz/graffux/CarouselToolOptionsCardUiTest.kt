@@ -97,7 +97,6 @@ class CarouselToolOptionsCardUiTest {
                                 onToggle = { _, setter, on -> toggled += setter to on },
                                 onMore = {},
                             ),
-                            history = CarouselHistory(undoCount = 0, redoCount = 0, onUndo = {}, onRedo = {}),
                             onEntryClick = {},
                             onToggleFavorite = {},
                             expansion = expansion,
