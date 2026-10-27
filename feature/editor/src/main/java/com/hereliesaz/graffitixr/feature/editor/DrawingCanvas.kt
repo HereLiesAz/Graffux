@@ -19,6 +19,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
+import com.hereliesaz.graffitixr.common.azphalt.DEFAULT_PEN_ANGLE_DEG
 import com.hereliesaz.graffitixr.common.azphalt.BrushContactPhase
 import com.hereliesaz.graffitixr.common.azphalt.BrushDevicePresentationConfig
 import com.hereliesaz.graffitixr.common.azphalt.BrushDevicePresentationModel
@@ -87,6 +88,8 @@ fun DrawingCanvas(
     val heldTickMs = activeBrushPreview?.program?.tickMs?.toLong() ?: 0L
     val deviceAttitudeState = rememberDeviceAttitude(view, enabled = brushLike)
     val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
+    // The nib-angle dial's angle as seen on screen; EditorScreen turns it into the layer's.
+    val nib = LocalNibAngle.current
     val brushSampleBuilder = remember { BrushSampleBuilder() }
     var latestTiltRadians by remember { mutableFloatStateOf(0f) }
     var latestOrientationRadians by remember { mutableFloatStateOf(0f) }
@@ -151,6 +154,7 @@ fun DrawingCanvas(
             telemetry = sample.telemetry.copy(
                 contactPhase = contactPhase,
                 deviceAttitude = latestDeviceAttitudeState.value,
+                penAngleDegrees = nib?.screenAngleDeg ?: DEFAULT_PEN_ANGLE_DEG,
             ),
         )
     }
