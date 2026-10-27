@@ -46,9 +46,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import androidx.compose.runtime.currentComposer
 import com.hereliesaz.aznavrail.AzAppMeta
-import com.hereliesaz.aznavrail.AzNavRailScopeImpl
+import com.hereliesaz.aznavrail.AzAboutPage
 import com.hereliesaz.aznavrail.LocalAzAppMeta
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
@@ -352,14 +351,8 @@ private fun GraffuxDesktopApp(
     }
 }
 
-/** AzNavRail's own About reader for this repository (see AzAboutBridge). */
+/** AzNavRail's own About reader for this repository. */
 @Composable
 private fun AboutReader(onDismiss: () -> Unit) {
-    val scope = remember { AzNavRailScopeImpl() }
-    var moreFromAz by remember { mutableStateOf(false) }
-    if (moreFromAz) {
-        AzAboutBridge.moreFromAz(scope, { moreFromAz = false }, currentComposer)
-    } else {
-        AzAboutBridge.about("https://github.com/HereLiesAz/Graffux", scope, { moreFromAz = true }, onDismiss, currentComposer)
-    }
+    AzAboutPage(onDismiss = onDismiss, repoUrl = "https://github.com/HereLiesAz/Graffux")
 }
