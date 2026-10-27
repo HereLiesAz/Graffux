@@ -40,7 +40,7 @@ zxingCore = "3.5.4"
 zxingAndroidEmbedded = "4.3.0"
 chicory = "1.7.5"
 navigationCommonKtx = "2.10.2"
-composeMultiplatform = "1.12.1"
+composeMultiplatform = "1.12.2"
 composeHotReload = "1.2.0"
 
 [libraries]
