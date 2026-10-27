@@ -99,9 +99,8 @@ import kotlin.math.sin
  *  3. the [DrawingCanvas] brush touch layer when a tool is active, and
  *  4. the [EditorUi] bottom panels (layers / adjustments / color picker).
  *
- * The tool rail is NOT drawn here: GraffiXR wraps this screen in the app's [AzNavRail] host
- * (`AzHostActivityLayout`, in MainActivity), which renders this canvas as its full-screen `background`
- * and puts the design tools on the rail — the same arrangement GraffitiXR uses. Everything
+ * The tool rail is NOT drawn here: the app's host (MainActivity) draws this canvas full-screen and
+ * puts its rails, menus and sheet over it. Everything
  * AR/SLAM/co-op/camera in GraffitiXR's MainScreen is intentionally left out; Graffux is a pure 2D
  * design editor, so the layer render is always the plain 2D path.
  */
@@ -819,13 +818,16 @@ fun EditorScreen(
             }
         }
         // The nib-angle dial, while a brush that reads the angle is in hand (see NibAngle.kt).
+        // Hidden with the rest of the chrome while a finger is on the canvas.
         if (penAngleBrush && !uiState.hideUiForCapture) {
-            NibAngleDial(
-                nib,
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = NibDialTopInset),
-            )
+            HiddenWhileDrawing {
+                NibAngleDial(
+                    nib,
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = NibDialTopInset),
+                )
+            }
         }
     }
     }

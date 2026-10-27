@@ -10,9 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
-import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
@@ -56,11 +56,11 @@ fun AddContentDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     row.forEach { (label, onSelect) ->
-                        AzButton(
+                        GraffuxButton(
                             text = label,
                             onClick = { onSelect(); onDismiss() },
-                            shape = AzButtonShape.RECTANGLE,
-                            modifier = Modifier.weight(1f).height(AzFullWidthButtonHeight),
+                            shape = GraffuxButtonShape.RECTANGLE,
+                            modifier = Modifier.weight(1f).height(FullWidthButtonHeight),
                         )
                     }
                     repeat(3 - row.size) { Box(modifier = Modifier.weight(1f)) }

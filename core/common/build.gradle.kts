@@ -55,8 +55,6 @@ dependencies {
     // Provider Installer (Fixes SSLHandshakeException)
     implementation(libs.play.services.base)
 
-    // AzNavRail (Fixes NoClassDefFoundError for AzOrientation)
-    api(libs.az.nav.rail)
 
     // Serialization (Fixes Unresolved reference 'serializer')
     // `api` for json: UiSchema/UiControl (azphalt/UiSchema.kt) expose JsonElement in their own

@@ -17,8 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -62,16 +62,16 @@ fun DocumentSizeDialog(
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             DOCUMENT_PRESETS.forEach { preset ->
                 if (preset.isCustom) {
-                    AzButton(
+                    GraffuxButton(
                         text = "Custom…",
                         onClick = { showCustom = true },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 } else {
-                    AzButton(
+                    GraffuxButton(
                         text = "${preset.label}  (${preset.width}×${preset.height})",
                         onClick = { onConfirm(preset.width, preset.height); onDismiss() },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
             }
@@ -103,10 +103,10 @@ fun DocumentSizeDialog(
             Text("Surface", modifier = Modifier.padding(top = 12.dp))
             val currentSubstrate = SubstratePreset.fromId(currentSubstrateId)
             SubstratePreset.entries.forEach { preset ->
-                AzButton(
+                GraffuxButton(
                     text = if (preset == currentSubstrate) "${preset.displayName} ✓" else preset.displayName,
                     onClick = { onSubstrate(preset.id) },
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
             }
         }

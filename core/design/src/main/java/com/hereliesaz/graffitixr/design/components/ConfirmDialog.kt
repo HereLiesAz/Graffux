@@ -3,8 +3,6 @@ package com.hereliesaz.graffitixr.design.components
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.design.R
 
 /**
@@ -29,10 +27,10 @@ fun ConfirmDialog(
         title = { Text(text = title) },
         text = { Text(text = message) },
         confirmButton = {
-            AzButton(text = confirmLabel, onClick = onConfirm, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = confirmLabel, onClick = onConfirm, shape = GraffuxButtonShape.RECTANGLE)
         },
         dismissButton = {
-            AzButton(text = stringResource(R.string.cancel_button), onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = stringResource(R.string.cancel_button), onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE)
         },
     )
 }
