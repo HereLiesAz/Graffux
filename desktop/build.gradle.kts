@@ -26,8 +26,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(libs.kotlinx.coroutines.core)
-    // The real AzNavRail UI (Compose Multiplatform port), so this app uses the same rail/tool
-    // navigation as the Android app instead of a placeholder scaffold — see DESKTOP.md.
+    // AzNavRail (Compose Multiplatform port), for its About reader only; the rail is this app's own.
     implementation(libs.az.nav.rail.cmp)
 
     // For ThemeColorSyncTest, which guards GraffuxColors' hand-copied literals (see Theme.kt's doc

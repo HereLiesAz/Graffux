@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber", "MaxLineLength", "LongParameterList", "CyclomaticComplexMethod", "MatchingDeclarationName", "FunctionNaming", "LongMethod", "TooManyFunctions")
+
 package com.hereliesaz.graffux.desktop
 
 import androidx.compose.foundation.background
@@ -44,12 +46,10 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.currentComposer
 import com.hereliesaz.aznavrail.AzAppMeta
-import com.hereliesaz.aznavrail.AzHostActivityLayout
-import com.hereliesaz.aznavrail.AzNavRailScope
+import com.hereliesaz.aznavrail.AzNavRailScopeImpl
 import com.hereliesaz.aznavrail.LocalAzAppMeta
-import com.hereliesaz.aznavrail.model.AzButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.azphalt.wgpu.MultipassSettings
@@ -68,9 +68,8 @@ private val PALETTE = listOf(
 /**
  * Entry point for the real Graffux desktop app (Linux + Windows) — see [DesktopStampCanvas] for
  * the shared-engine drawing surface and DESKTOP.md at the repo root for what's verified vs.
- * explicitly deferred. The tool navigation is the real AzNavRail (`aznavrail-cmp`, the Compose
- * Multiplatform port of the same DSL the Android app's `AzHostActivityLayout`/`azConfig`/
- * `azRailItem` use — this is not a substitute UI, it is the same library), not a placeholder. The
+ * explicitly deferred. The rail is drawn with the same pill, button and menu shapes as the Android
+ * app's (DesktopRail.kt); AzNavRail (`aznavrail-cmp`) supplies only the About reader. The
  * brush presets on the rail are [BuiltInBrushes.presets] — the same shared, pure-Kotlin brush
  * definitions the Android app ships with, not desktop-only stand-ins.
  */
@@ -80,7 +79,7 @@ fun main() = application {
     // the window with no scroll/overflow indicator -- not a rail capacity bug, just too small a
     // window for how many tools this app now has). 1000x1100 leaves real headroom to keep adding
     // rail items without repeating this (bumped from an earlier 900 while testing a 9th item,
-    // azAbout()'s auto "?" button -- see DESKTOP.md).
+    // the About "?" button -- see DESKTOP.md).
     val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
     // Hoisted here (rather than inside GraffuxDesktopApp, where every other piece of UI state
     // lives) purely so Window's own onKeyEvent below -- Ctrl+Z / Ctrl+Y, a desktop convention
@@ -126,8 +125,8 @@ fun main() = application {
     ) {
         GraffuxDesktopTheme {
             CompositionLocalProvider(
-                // Desktop has no OS-level app name/icon the way an Android manifest does, so this
-                // is provided by hand (matches the pattern aznavrail's own CMP demo app uses).
+                // Desktop has no OS-level app name/icon the way an Android manifest does, so the
+                // About reader is given them by hand.
                 LocalAzAppMeta provides AzAppMeta(name = "Graffux", packageId = "com.hereliesaz.graffux"),
             ) {
                 GraffuxDesktopApp(
@@ -150,7 +149,6 @@ private fun GraffuxDesktopApp(
     onSaved: (String?) -> Unit,
     onSaveError: (String?) -> Unit,
 ) {
-    val navController = rememberNavController()
     var brushRadius by remember { mutableFloatStateOf(24f) }
     var brushFlow by remember { mutableFloatStateOf(1f) }
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
@@ -159,243 +157,209 @@ private fun GraffuxDesktopApp(
     var showToolOptions by remember { mutableStateOf(true) }
     // Multipass drying (experimental, GPU canvas only): off by default.
     var multipass by remember { mutableStateOf(MultipassSettings()) }
-    // Real icons (the same master SVGs Android's `GraffuxIcons` generates from), not text-only
-    // rail labels -- see Icons.kt. Resolved here, in this composable's own scope, since the
-    // `AzHostActivityLayout` DSL block below is not itself `@Composable`.
+    // Real icons (the same master SVGs Android's `GraffuxIcons` generates from) -- see Icons.kt.
     val brushIcon = GraffuxDesktopIcons.brush()
     val undoIcon = GraffuxDesktopIcons.undo()
     val redoIcon = GraffuxDesktopIcons.redo()
     val clearIcon = GraffuxDesktopIcons.clear()
     val saveIcon = GraffuxDesktopIcons.save()
 
-    AzHostActivityLayout(navController = navController, initiallyExpanded = true) {
-        // Android's real rail accent (`core:design`'s `DarkColorScheme`), not an invented purple.
-        azTheme(
-            activeColor = GraffuxColors.HotPink,
-            focusColor = GraffuxColors.HotPink,
-            defaultShape = AzButtonShape.NONE_SQUARE,
-            translucentBackground = GraffuxColors.Black.copy(alpha = 0.85f),
-        )
-        azConfig(
-            noMenu = true,
-            packButtons = true,
-            activeClassifiers = setOf(selectedBrush.name),
-            // This app doesn't populate its own footer content, so there is nothing the library's
-            // own "About" footer would show beyond the auto "?" item azAbout() below already
-            // covers. (The rail item cut off below the window's visible area, further down in
-            // this file's history, turned out to be the *window* running out of vertical room,
-            // not this footer -- see the Window() call's own comment.)
-            showFooter = false,
-        )
-        // Android's own MainActivity.kt calls azAbout(dedupeAbout = true) with every other
-        // argument left at its default -- no appRepositoryUrl is set there either -- so this
-        // mirrors that exactly. Previously shipped as `azAbout(aboutRailItem = false)`: the
-        // library's default "?" rail item crashed on close (a Skia text-layout assertion inside
-        // AutoSizeText, `TextStyle.setHeight` on a degenerate zero font-size candidate mid the
-        // overlay's close transition -- see DESKTOP.md's writeup). Fixed upstream in
-        // aznavrail-cmp 11.47 (commit 50c56cd, "Fix AutoSizeText crash on zero font-size
-        // candidate") -- the version bumped to alongside this change -- so the auto "?" item is
-        // safe to re-enable.
-        azAbout(dedupeAbout = true)
-        // One host per bundled set (Basics, Aerosol, Ink & Line, ...), each unfolding its brushes --
-        // the same grouping as Android's Brushes-page set chips.
-        builtInBrushSetItems(brushIcon) { selectedBrush = it }
-        azRailItem(
-            id = "action.undo",
-            text = "Undo",
-            content = undoIcon,
-            disabled = !canvasState.canUndo,
-            onClick = { canvasState.undo() },
-        )
-        azRailItem(
-            id = "action.redo",
-            text = "Redo",
-            content = redoIcon,
-            disabled = !canvasState.canRedo,
-            onClick = { canvasState.redo() },
-        )
-        azRailItem(
-            id = "action.clear",
-            text = "Clear",
-            content = clearIcon,
-            disabled = canvasState.committed == null,
-            onClick = { canvasState.clear() },
-        )
-        azRailItem(
-            id = "action.save",
-            text = "Save",
-            content = saveIcon,
-            disabled = canvasState.committed == null,
-            onClick = {
-                try {
-                    onSaved(canvasState.exportPng()?.absolutePath)
-                } catch (e: Exception) {
-                    onSaveError(e.message ?: "Failed to save image")
-                }
-            },
-        )
-        // A rail item to reopen the tool-options panel once its own close button has been used --
-        // otherwise, once dismissed, brush size/flow/colour would have no way back onscreen.
-        azRailItem(
-            id = "action.toolOptions",
-            text = "Tool Options",
-            content = brushIcon,
-            onClick = { showToolOptions = true },
-        )
-
-        background(weight = 0) {
-            // Android's own screens sit on `MaterialTheme.colorScheme.background` (black, per
-            // `GraffuxDarkColorScheme`) -- without an explicit Surface here the window's content
-            // pane defaults to plain white, the one background-color mismatch icons/accent/rail
-            // theming alone didn't fix.
-            androidx.compose.material3.Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background,
-            ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Procreate-style floating, draggable panel in place of the old fixed top toolbar
-                // Row -- matches Android's own `FloatingWindow`-based tool-option panels (both wrap
-                // the same `AzWindow`/`AzWindowState` primitive; see FloatingWindow.kt).
-                if (showToolOptions) {
-                    FloatingWindow(
-                        title = "Tool Options",
-                        onDismiss = { showToolOptions = false },
-                        initialOffset = Offset(120f, 80f),
-                    ) {
-                        Text("Brush: ${selectedBrush.name} — ${brushRadius.toInt()}px")
-                        Slider(
-                            value = brushRadius,
-                            onValueChange = { brushRadius = it },
-                            valueRange = 4f..96f,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        // Android's brushFlow (feature:editor's EditorViewModel) -- per-dab colour
-                        // build-up along a stroke, same shared engine param compositeTileParallel
-                        // already accepted here but had hardcoded to 1f until now.
-                        Text("Flow: ${(brushFlow * 100).toInt()}%")
-                        Slider(
-                            value = brushFlow,
-                            onValueChange = { brushFlow = it },
-                            valueRange = 0.05f..1f,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Color")
-                        Row {
-                            PALETTE.forEach { color ->
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .background(color)
-                                        .border(
-                                            width = if (color == selectedColor) 3.dp else 1.dp,
-                                            color = if (color == selectedColor) GraffuxColors.HotPink else GraffuxColors.Gray,
-                                            shape = CircleShape,
-                                        )
-                                        .clickable {
-                                            selectedColor = color
-                                            showColorWheel = false
-                                        },
-                                )
-                            }
+    // Which brush set's list is open beside the rail, and whether About is showing.
+    var openSet by remember { mutableStateOf<String?>(null) }
+    var showAbout by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        // Android's own screens sit on `MaterialTheme.colorScheme.background` (black, per
+        // `GraffuxDarkColorScheme`) -- without an explicit Surface here the window's content
+        // pane defaults to plain white, the one background-color mismatch icons/accent/rail
+        // theming alone didn't fix.
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Procreate-style floating, draggable panel in place of the old fixed top toolbar
+            // Row -- matches Android's own `FloatingWindow`-based tool-option panels (both wrap
+            // the same `AzWindow`/`AzWindowState` primitive; see FloatingWindow.kt).
+            if (showToolOptions) {
+                FloatingWindow(
+                    title = "Tool Options",
+                    onDismiss = { showToolOptions = false },
+                    initialOffset = Offset(120f, 80f),
+                ) {
+                    Text("Brush: ${selectedBrush.name} — ${brushRadius.toInt()}px")
+                    Slider(
+                        value = brushRadius,
+                        onValueChange = { brushRadius = it },
+                        valueRange = 4f..96f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Android's brushFlow (feature:editor's EditorViewModel) -- per-dab colour
+                    // build-up along a stroke, same shared engine param compositeTileParallel
+                    // already accepted here but had hardcoded to 1f until now.
+                    Text("Flow: ${(brushFlow * 100).toInt()}%")
+                    Slider(
+                        value = brushFlow,
+                        onValueChange = { brushFlow = it },
+                        valueRange = 0.05f..1f,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Color")
+                    Row {
+                        PALETTE.forEach { color ->
                             Spacer(modifier = Modifier.width(6.dp))
-                            // The swatch row above is a fixed 8-colour palette, not the full HSV
-                            // wheel Android's ColorPickerDialog offers -- this toggle opens a real
-                            // one (see ColorWheel.kt), in its own floating panel, rather than
-                            // leaving custom colour choice unreachable.
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(selectedColor)
+                                    .background(color)
                                     .border(
-                                        width = if (showColorWheel) 3.dp else 1.dp,
-                                        color = if (showColorWheel) GraffuxColors.HotPink else GraffuxColors.Gray,
+                                        width = if (color == selectedColor) 3.dp else 1.dp,
+                                        color = if (color == selectedColor) GraffuxColors.HotPink else GraffuxColors.Gray,
                                         shape = CircleShape,
                                     )
-                                    .clickable { showColorWheel = !showColorWheel },
+                                    .clickable {
+                                        selectedColor = color
+                                        showColorWheel = false
+                                    },
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        // Experimental: each dab shows at once as a draft of the same brush and
-                        // settles to full quality as the GPU catches up. The committed result is
-                        // identical either way. Takes effect on the next stroke.
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = multipass.enabled,
-                                onCheckedChange = { multipass = multipass.copy(enabled = it) },
-                            )
-                            Text("Multipass drying (experimental)")
-                        }
-                        if (multipass.enabled) {
-                            Text("Drying transition: ${multipass.transitionMs.toInt()} ms")
-                            Slider(
-                                value = multipass.transitionMs,
-                                onValueChange = { multipass = multipass.copy(transitionMs = it) },
-                                valueRange = 0f..MAX_TRANSITION_MS,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        // The swatch row above is a fixed 8-colour palette, not the full HSV
+                        // wheel Android's ColorPickerDialog offers -- this toggle opens a real
+                        // one (see ColorWheel.kt), in its own floating panel, rather than
+                        // leaving custom colour choice unreachable.
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(selectedColor)
+                                .border(
+                                    width = if (showColorWheel) 3.dp else 1.dp,
+                                    color = if (showColorWheel) GraffuxColors.HotPink else GraffuxColors.Gray,
+                                    shape = CircleShape,
+                                )
+                                .clickable { showColorWheel = !showColorWheel },
+                        )
                     }
-                }
-                if (showColorWheel) {
-                    FloatingWindow(
-                        title = "Color",
-                        onDismiss = { showColorWheel = false },
-                        initialOffset = Offset(120f, 340f),
-                    ) {
-                        ColorWheel(
-                            currentColor = selectedColor,
-                            onColorSelected = { selectedColor = it },
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Experimental: each dab shows at once as a draft of the same brush and
+                    // settles to full quality as the GPU catches up. The committed result is
+                    // identical either way. Takes effect on the next stroke.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = multipass.enabled,
+                            onCheckedChange = { multipass = multipass.copy(enabled = it) },
+                        )
+                        Text("Multipass drying (experimental)")
+                    }
+                    if (multipass.enabled) {
+                        Text("Drying transition: ${multipass.transitionMs.toInt()} ms")
+                        Slider(
+                            value = multipass.transitionMs,
+                            onValueChange = { multipass = multipass.copy(transitionMs = it) },
+                            valueRange = 0f..MAX_TRANSITION_MS,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
-                lastSavedPath?.let { path ->
-                    Text(
-                        text = "Saved to $path",
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = Color(0xFF43A047),
-                    )
-                }
-                saveError?.let { message ->
-                    Text(
-                        text = "Save failed: $message",
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = Color(0xFFE53935),
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                CompositionLocalProvider(LocalMultipassSettings provides multipass) {
-                    DesktopStampCanvas(
-                        state = canvasState,
-                        brush = selectedBrush,
-                        brushRadiusPx = brushRadius,
-                        colorArgb = selectedColor.toArgb(),
-                        flow = brushFlow,
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            }
+            if (showColorWheel) {
+                FloatingWindow(
+                    title = "Color",
+                    onDismiss = { showColorWheel = false },
+                    initialOffset = Offset(120f, 340f),
+                ) {
+                    ColorWheel(
+                        currentColor = selectedColor,
+                        onColorSelected = { selectedColor = it },
                     )
                 }
             }
+            lastSavedPath?.let { path ->
+                Text(
+                    text = "Saved to $path",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    color = Color(0xFF43A047),
+                )
+            }
+            saveError?.let { message ->
+                Text(
+                    text = "Save failed: $message",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    color = Color(0xFFE53935),
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            CompositionLocalProvider(LocalMultipassSettings provides multipass) {
+                DesktopStampCanvas(
+                    state = canvasState,
+                    brush = selectedBrush,
+                    brushRadiusPx = brushRadius,
+                    colorArgb = selectedColor.toArgb(),
+                    flow = brushFlow,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                )
             }
         }
+        }
+        // The rail: one button per bundled brush set (its list opens beside it), then the canvas
+        // actions, each with the key that does the same thing in its corner.
+        Row(Modifier.align(Alignment.CenterStart).padding(RailGap), verticalAlignment = Alignment.CenterVertically) {
+            RailPill {
+                BuiltInBrushes.sets.forEach { set ->
+                    RailButton(
+                        label = set.name,
+                        onClick = { openSet = if (openSet == set.name) null else set.name },
+                        text = set.name.take(2),
+                        active = set.brushes.any { it.name == selectedBrush.name },
+                    )
+                }
+                RailDivider()
+                RailButton("Undo", { canvasState.undo() }, icon = undoIcon, enabled = canvasState.canUndo, shortcut = "Z")
+                RailButton("Redo", { canvasState.redo() }, icon = redoIcon, enabled = canvasState.canRedo, shortcut = "Y")
+                RailButton("Clear", { canvasState.clear() }, icon = clearIcon, enabled = canvasState.committed != null)
+                RailButton(
+                    "Save",
+                    {
+                        try {
+                            onSaved(canvasState.exportPng()?.absolutePath)
+                        } catch (e: Exception) {
+                            onSaveError(e.message ?: "Failed to save image")
+                        }
+                    },
+                    icon = saveIcon,
+                    enabled = canvasState.committed != null,
+                    shortcut = "S",
+                )
+                // Reopens the tool-options panel once its own close button has been used.
+                RailButton("Tool Options", { showToolOptions = true }, icon = brushIcon, active = showToolOptions)
+                RailDivider()
+                RailButton("About", { showAbout = true }, text = "?")
+            }
+            BuiltInBrushes.sets.firstOrNull { it.name == openSet }?.let { set ->
+                RailMenu(
+                    title = set.name,
+                    rows = set.brushes.map { it.name },
+                    lit = selectedBrush.name,
+                    onPick = { index -> selectedBrush = set.brushes[index]; openSet = null },
+                    modifier = Modifier.padding(start = RailGap),
+                )
+            }
+        }
+        if (showAbout) AboutReader(onDismiss = { showAbout = false })
     }
 }
 
-/** One rail host per [BuiltInBrushes.sets] entry, its brushes as sub-items; [onPick] selects one. */
-private fun AzNavRailScope.builtInBrushSetItems(icon: Any, onPick: (AzphaltBrush) -> Unit) {
-    BuiltInBrushes.sets.forEach { set ->
-        azRailHostItem(id = "brushset.${set.name}", text = set.name, content = icon)
-        set.brushes.forEach { preset ->
-            azRailSubItem(
-                id = "brush.${preset.name}",
-                hostId = "brushset.${set.name}",
-                text = preset.name,
-                classifiers = setOf(preset.name),
-                onClick = { onPick(preset) },
-            )
-        }
+/** AzNavRail's own About reader for this repository (see AzAboutBridge). */
+@Composable
+private fun AboutReader(onDismiss: () -> Unit) {
+    val scope = remember { AzNavRailScopeImpl() }
+    var moreFromAz by remember { mutableStateOf(false) }
+    if (moreFromAz) {
+        AzAboutBridge.moreFromAz(scope, { moreFromAz = false }, currentComposer)
+    } else {
+        AzAboutBridge.about("https://github.com/HereLiesAz/Graffux", scope, { moreFromAz = true }, onDismiss, currentComposer)
     }
 }

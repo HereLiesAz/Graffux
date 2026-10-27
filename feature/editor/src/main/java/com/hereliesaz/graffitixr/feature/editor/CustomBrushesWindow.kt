@@ -23,10 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
-import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -67,11 +67,11 @@ fun CustomBrushesWindow(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            AzButton(
+            GraffuxButton(
                 text = "New Brush",
                 onClick = onNew,
-                shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                shape = GraffuxButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
             )
 
             if (brushes.isEmpty()) {
@@ -132,19 +132,19 @@ private fun BrushCard(
         BrushPreview(custom.brush, brushColor, secondaryColor, height = 40.dp)
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            AzButton(
+            GraffuxButton(
                 text = "Edit",
                 onClick = onEdit,
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f).height(AzFullWidthButtonHeight),
+                modifier = Modifier.weight(1f).height(FullWidthButtonHeight),
             )
-            AzButton(
+            GraffuxButton(
                 text = "Delete",
                 onClick = onDeleteRequest,
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f).height(AzFullWidthButtonHeight),
+                modifier = Modifier.weight(1f).height(FullWidthButtonHeight),
             )
         }
     }

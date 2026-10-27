@@ -16,8 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -69,10 +69,10 @@ fun SaveProjectDialog(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            AzButton(
+            GraffuxButton(
                 text = "Choose location…",
                 onClick = { onConfirm(ProjectFile.sanitizeName(name)) },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
         }
     }

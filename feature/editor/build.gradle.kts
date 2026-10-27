@@ -80,7 +80,6 @@ dependencies {
     implementation(libs.androidx.ink.strokes)
     ksp(libs.hilt.compiler)
 
-    implementation(libs.az.nav.rail)
     implementation(libs.compose.ui.text.google.fonts)
 
     testImplementation(libs.junit)

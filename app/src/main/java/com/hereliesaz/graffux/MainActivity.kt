@@ -28,7 +28,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.unit.IntOffset
+import com.hereliesaz.graffitixr.feature.editor.LocalChromeHidden
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -71,13 +78,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.compose.rememberNavController
-import com.hereliesaz.aznavrail.*
-import com.hereliesaz.aznavrail.AzPopupKind
-import com.hereliesaz.aznavrail.bottomsheet.rememberAzSheetController
-import com.hereliesaz.aznavrail.rememberAzPopupController
 import com.hereliesaz.graffitixr.feature.editor.NoticeKind
-import com.hereliesaz.aznavrail.model.*
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
 import com.hereliesaz.graffitixr.common.model.LayoutAlign
 import com.hereliesaz.graffitixr.common.model.LayoutDirection
@@ -239,13 +240,6 @@ private const val MIN_BRUSH_ALPHA = 0.05f
  */
 private enum class ShapeEditDialog { STROKE, CORNER, SHAPE_SIZE, SIDES }
 
-/**
- * Width of each individual rail button — NOT the rail strip's own on-screen width (that's
- * `collapsedWidth`, read back into [RailInset] via `AzNavHostScope.railWidth`; see the
- * `measuredRailWidth` comment where azConfig is called).
- */
-private val RAIL_ITEM_WIDTH = 48.dp // the Material minimum touch target
-
 @Composable
 private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) {
     val vm: EditorViewModel = hiltViewModel()
@@ -262,36 +256,31 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val strings = rememberAppStrings()
     val scope = rememberCoroutineScope()
 
-    // Failures that used to be a Toast, or — worse — a logcat line. An AzPopup binds itself to a
-    // rail item and can write back to it (a badge, a warning flag), and `show()` with no item id
-    // lands on whichever item the user last touched, which is exactly right for something that
-    // failed a moment after they pressed it. A Toast is gone in two seconds and says nothing about
-    // which control it belonged to.
-    val alerts = rememberAzPopupController()
+    // Failures that used to be a Toast, or — worse — a logcat line: a message at the top of the
+    // screen (MessageHost), which a WARNING keeps there until it is read.
+    val alerts = rememberMessageController()
     // A save or project creation that failed (OOM included) is reported, never fatal.
     LaunchedEffect(vm) {
         vm.saveErrors.collect { message ->
-            alerts.show(kind = AzPopupKind.WARNING, title = "Save failed", message = message)
+            alerts.show(kind = MessageKind.WARNING, title = "Save failed", message = message)
         }
     }
     // Every other editor notice, confirmation or failure, takes the same road.
     LaunchedEffect(vm) {
         vm.notices.collect { notice ->
             alerts.show(
-                kind = if (notice.kind == NoticeKind.WARNING) AzPopupKind.WARNING else AzPopupKind.NOTICE,
+                kind = if (notice.kind == NoticeKind.WARNING) MessageKind.WARNING else MessageKind.NOTICE,
                 message = notice.text,
             )
         }
     }
     val noticeContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
-        HardwareFloorNotice.takeOnce(noticeContext)?.let { alerts.show(kind = AzPopupKind.NOTICE, message = it) }
+        HardwareFloorNotice.takeOnce(noticeContext)?.let { alerts.show(kind = MessageKind.NOTICE, message = it) }
     }
 
-    // The shortcuts sheet. HIDDEN parks it as a swipe strip along the bottom edge — a touch target
-    // and nothing else, so the canvas keeps the screen — and a swipe or a tap brings it to PEEK,
-    // which is the whole strip of tools. See ShortcutsSheet for why there are three of them.
-    val shortcutsSheet = rememberAzSheetController(initial = AzSheetDetent.HIDDEN)
+    // The shortcuts sheet: shut, a swipe strip along the bottom edge (see EdgeSheet).
+    var shortcutsOpen by remember { mutableStateOf(false) }
     val toolUsage by vm.toolUsage.collectAsState()
     val favoriteTools by vm.favoriteTools.collectAsState()
 
@@ -299,9 +288,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The logo menu: open state, which page it shows, and a reopen request (see the menu).
     var menuOpen by remember { mutableStateOf(false) }
     var showViewMenu by remember { mutableStateOf(false) }
-    var reopenMenu by remember { mutableStateOf(false) }
+    // The brush's long-press menu, a layer's menu (by layer id), and AzNavRail's About reader.
+    var brushMenuOpen by remember { mutableStateOf(false) }
+    var layerMenuFor by remember { mutableStateOf<String?>(null) }
+    var showAbout by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val navController = rememberNavController()
 
     var showDocDialog by remember { mutableStateOf(false) }
     var showBlendDialog by remember { mutableStateOf(false) }
@@ -329,19 +320,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // in the ViewModel, for the same reason.
     var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
     var showFigmaWindow by remember { mutableStateOf(false) }
-    // Non-base workspaces get their own independent FLOATING AzNavRail hosts. The second title
-    // dropdown below merely decides which of these toolboxes are present; AzNavRail 11.26 owns
-    // their drag, screen-edge snap, rail-to-rail docking and group-drag behaviour.
+    // Non-base workspaces get their own floating toolboxes (FloatingToolbox); View… in the logo
+    // menu decides which are present.
     var showAnimationRail by remember { mutableStateOf(false) }
     var showModelRail by remember { mutableStateOf(false) }
     var showReferenceRail by remember { mutableStateOf(false) }
     var showFigmaRail by remember { mutableStateOf(false) }
     var showExtensionsRail by remember { mutableStateOf(false) }
-    // Unlike the toolboxes above, on by default: the layers panel is core, not opt-in. The toggle
-    // exists as a recovery switch, not a way to hide it — declaring it (below) drops and recreates
-    // its AzNavRail-internal position state, so toggling it off and on is how to un-stick a panel
-    // that ends up rendered somewhere unreachable (a real failure mode of the FLOATING anchor's
-    // screen-edge-docking/persistence machinery, not merely a hypothetical one this app has hit).
+    // Unlike the toolboxes above, on by default: the layers panel is core, not opt-in.
     var showLayersRail by remember { mutableStateOf(true) }
     // The bottom carousel (BottomCarousel.kt): additive to the Tool Options window, not a
     // replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
@@ -372,29 +358,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var pendingSaveName by remember { mutableStateOf<String?>(null) }
     // "Forget a Selection" is the one delete in the app with no undo (savedSelections isn't part
     // of the layers-only history) and, before this, no confirmation either — every other delete
-    // in the app is one or the other. Held here rather than dispatched straight from the rail
-    // item's onClick because ConfigureRailItems isn't @Composable and can't own a ConfirmDialog.
+    // in the app is one or the other. Held here so the dialog composes with the others.
     var pendingForgetSelectionName by remember { mutableStateOf<String?>(null) }
 
-    // Pre-calculate `@Composable` colors outside the non-composable DSL block
-    // The rail's active/selected colour, and it has to differ from the colour items already are.
-    // It was `onSurface` — white under this theme — while every rail item's base colour is
-    // `navItemColor`, which is also white on any dark canvas. Selecting an item therefore repainted
-    // it the shade it already was, which is why nothing in the rail ever appeared to respond. The
-    // brand accent reads against both of navItemColor's two values (white on a dark canvas, black on
-    // a light one), so the highlight survives whatever the artwork is.
-    val activeRailColor = MaterialTheme.colorScheme.primary
-    // The file-operations dropdown sets this on every row rather than leaving it unspecified.
-    //
-    // Under 11.7 it had to: an unspecified row colour resolved through AzNavRail's own rail palette,
-    // seeded here from `azTheme(activeColor = …)`, so a menu row inherited an accent chosen for the
-    // rail and came out unreadable on the menu's dark panel. 11.8 fixes that end — it picks ink by
-    // the panel's luminance (`azInkOn` / `azReadableOn`) and no longer consults the rail accent.
-    //
-    // Still set, now for a different reason: it makes the menu take its ink from *this app's* theme
-    // rather than from the library's built-in near-white, so the menu matches the rest of the chrome
-    // instead of merely being legible against it. The two currently agree, which is the point.
-    val menuItemColor = MaterialTheme.colorScheme.onSurface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
     // at the middle of the screen — the canvas is full-bleed, so that is the middle of the artwork.
@@ -634,7 +600,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     runCatching { context.startActivity(AzphaltStoreHandoff.webStoreIntent()) }
                         .onFailure {
                             alerts.show(
-                                kind = AzPopupKind.WARNING,
+                                kind = MessageKind.WARNING,
                                 title = "No way to reach the Azphalt Store",
                                 message = "This device has no store app, no Play, and no browser " +
                                     "to open azphalt.store with. Extensions can still be installed " +
@@ -651,15 +617,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         runCatching { context.startActivity(AzphaltStoreHandoff.webStoreIntent()) }
             .onFailure {
                 alerts.show(
-                    kind = AzPopupKind.WARNING,
+                    kind = MessageKind.WARNING,
                     title = "No browser",
                     message = "Nothing on this device can open azphalt.store.",
                 )
             }
     }
 
-    // The same set the rail items tag themselves with; azConfig is what actually makes the library
-    // render them active, and it is declared here rather than in the item builder.
+    // What the rails light: where you are, and (secondary) what is true of it. One set, read by the
+    // rails and by the tests (RailClassifiersTest), so the two cannot disagree.
     val activeClassifiers = activeRailClassifiers(
         RailClassifierInputs(
             uiState, brushes, customBrushes,
@@ -676,27 +642,34 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         if (showFigmaWindow) add("area.figma")
         if (uiState.activePanel == EditorPanel.EXTENSIONS || showStore) add("area.extensions")
     }.toSet()
+    val secondaryClassifiers = secondaryRailClassifiers(uiState)
 
-    val navItemColor = Color.White
-
-    // Procreate's history gestures are installed HERE, above the whole app, not inside EditorScreen.
-    // The nav rail, the onscreen chrome (dropdown, FAB row) and the floating windows are siblings of
-    // the canvas, not children of it, so an observer living on the canvas never saw a two- or
-    // three-finger tap that happened to land on any of them. At this level the gestures work
-    // wherever the fingers land, whatever tool is active and whatever is selected. It consumes
-    // nothing, so every control underneath still behaves exactly as before.
+    // Procreate's history gestures are installed HERE, above the whole app, not inside EditorScreen,
+    // so a two- or three-finger tap works wherever the fingers land — on the rails and windows too.
+    // It consumes nothing, so every control underneath still behaves exactly as before.
     val strokeGate = remember { StrokeGate() }
-    // True during a stroke and for DRAWING_UI_RETURN_DELAY_MS after it (a new stroke cancels the
-    // return). The rails and the carousel sheet hide on this, not on the raw stroke flag.
-    val drawingUiHidden by rememberDrawingUiHidden { strokeGate.strokeActive }
-    // The rail's actual on-screen width is `collapsedWidth` (a separate knob from `railItemWidth`
-    // below, which only sizes each button, not the strip itself) — read back from AzNavHostScope
-    // (11.19) right after azConfig, rather than duplicating a guessed constant here, so
-    // FloatingWindow's rail-avoidance (see LocalRailInset) can never drift out of sync with what the
-    // rail actually renders. Seeded at the library's own 100.dp default until that first read lands.
-    var measuredRailWidth by remember { mutableStateOf(100.dp) }
-    val railInset = RailInset(dockedOnLeft = uiState.isRightHanded, width = measuredRailWidth)
-    CompositionLocalProvider(LocalRailInset provides railInset) {
+    // A finger on the canvas hides every piece of chrome at once and closes whatever was open; the
+    // rails and the sheet's pill come back DRAWING_UI_RETURN_DELAY_MS after it lifts. See CanvasTouch.
+    val canvasTouch = remember { CanvasTouch() }
+    val chrome = rememberChromeVisibility(canvasTouch, strokeGate) {
+        menuOpen = false
+        showViewMenu = false
+        brushMenuOpen = false
+        layerMenuFor = null
+        shortcutsOpen = false
+        if (carouselUi.sheetOpen) carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
+        heroExpansion.collapse()
+        TOOLBOX_IDS.filter { railExpansion[it] == true }.forEach { vm.onRailHostExpansionChanged(it, false) }
+    }
+    // The rail is docked on the brush hand's side; floating windows keep clear of it.
+    val railInset = RailInset(dockedOnLeft = uiState.isRightHanded, width = RailWidth + RailEdgeGap * 2)
+    val toolRailActions = remember(vm) { vm.toolRailActions() }
+    val toolSide = if (uiState.isRightHanded) Alignment.CenterStart else Alignment.CenterEnd
+    val layerSide = if (uiState.isRightHanded) Alignment.CenterEnd else Alignment.CenterStart
+    // The rails sit between the logo row and the bottom swipe strip, and scroll when taller.
+    val railPadding = Modifier.padding(horizontal = RailEdgeGap, vertical = RailWidth + RailEdgeGap * 2)
+    val besideRail = RailWidth + RailEdgeGap * 2
+    CompositionLocalProvider(LocalRailInset provides railInset, LocalChromeHidden provides { chrome.hidden }) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -704,1116 +677,935 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
     ) {
-        AzHostActivityLayout(
-            navController = navController,
-            initiallyExpanded = false,
-        ) {
-            azTheme(
-                activeColor = activeRailColor, // Passed dynamically to avoid `@Composable` invocation errors
-                focusColor = activeRailColor,
-                // The third highlight (11.9). `active` answers "where am I", `secondary` answers
-                // "what is true of this". They have to be different colours or the rail says the
-                // same thing about a layer you are editing and a layer that merely comes along when
-                // you drag it. Amber because it reads as a condition rather than a place.
-                secondaryColor = Amber,
-                // The border is what distinguishes "this opens something" from "this does something".
-                // The rail's default is therefore borderless (NONE_SQUARE keeps the SQUARE footprint,
-                // so a borderless item still lines up with a bordered one) and the only items that
-                // opt back into SQUARE are hosts and the items that open a tool window. Every leaf
-                // tool, toggle and picker inherits this.
-                defaultShape = AzButtonShape.NONE_SQUARE,
-                headerIconShape = AzHeaderIconShape.SQUARE,
-                translucentBackground = Color.Black.copy(alpha = 0.85f)
-            )
-            azAbout(dedupeAbout = true)
-            // The help overlay: a card per rail item, its label plus whatever RAIL_HELP says about
-            // it. This is the app explaining itself without a scripted tutorial — every conditional
-            // item, every piece of Procreate vocabulary, and the multi-finger gestures that have no
-            // button at all are written down in one place the user can reach from the rail.
-            //
-            // `helpEnabled` is deliberately not passed: `azHelpRailItem` owns the overlay's
-            // visibility, and setting the flag as well would mean two things deciding one boolean.
-            // Pass it if help ever needs opening from somewhere other than its own item.
-            azAdvanced(
-                helpList = RAIL_HELP,
-                onDismissHelp = { },
-            )
-            azConfig(
-                // What the rail should render as active. Without this only a transient last-tap
-                // highlights, which is not a state — it is a memory of a gesture.
-                activeClassifiers = activeClassifiers,
-                // State the rail could not show at all before 11.9 gave it a second colour: which
-                // layers travel with the one you are moving, and whether a selection is quietly
-                // confining every raster tool. See secondaryRailClassifiers.
-                secondaryClassifiers = secondaryRailClassifiers(uiState),
-                noMenu = true,
-                packButtons = true,
-                dockingSide = if (uiState.isRightHanded) AzDockingSide.LEFT else AzDockingSide.RIGHT,
-                railItemWidth = RAIL_ITEM_WIDTH
-            )
-            // See the `measuredRailWidth` comment above — read back once config is settled for this
-            // pass, straight from the scope rather than a locally-guessed duplicate.
-            measuredRailWidth = railWidth
-            // Four-finger tap (see the multiFingerTaps observer above): full-screen art. Folding the
-            // rail is the AzNavRail half of "hide the UI"; the onscreen chrome below gates on the
-            // same flag.
-            // A live stroke folds it too, and unfolds it again on stroke end or cancel — see
-            // DrawingRailFold. drawingUiHidden holds the fold for DRAWING_UI_RETURN_DELAY_MS after.
-            isFoldedUp = DrawingRailFold.mainRailFolded(uiState.hideUiForCapture, drawingUiHidden)
-
-            ConfigureRailItems(
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            EditorScreen(
                 vm = vm,
-                uiState = uiState,
-                activeInkUtensil = activeInkUtensil,
-                railExpansion = railExpansion,
-                brushes = brushes,
-                customBrushes = customBrushes,
-                installedExtensionCount = allInstalledExtensions.size,
-                strings = strings,
-                navItemColor = navItemColor,
-                activeColor = activeRailColor, // Pass down to DSL builder
-                selectedToolGroup = carouselUi.category.takeIf {
-                    carouselOnScreen && carouselUi.sheetOpen && it.isToolGroup
-                },
-                onBlendMode = { showBlendDialog = true },
-                onCurves = { showCurvesDialog = true },
-                onAddClicked = { showAddDialog = true },
-                onEditClicked = { showLayerOptionsDialog = true },
-                onModelClicked = { showModelDialog = true },
-                modelWindowOpen = showModelDialog,
-                onToolOptionsClicked = openToolOptionsCard,
-                onToolGroupRequested = { category ->
-                    showCarousel = true
-                    heroExpansion.collapse()
-                    carouselUi = carouselUi.copy(
-                        category = category, sheetOpen = true, tab = null, showingCarousel = true,
-                    )
-                },
-                showLayersRail = showLayersRail,
-                onOpenBrushGallery = { showBrushGallery = true },
-                onOpenBrushTipsManager = { showBrushTipsManager = true },
-                drawingUiHidden = { drawingUiHidden },
+                // Outermost, so it sees what every surface inside the canvas left unclaimed.
+                modifier = Modifier.observeCanvasTouch(canvasTouch).fillMaxSize(),
+                // The host owns the multi-finger history gestures (installed above the whole
+                // app, see above); the screen just feeds this gate from its drawing surfaces.
+                hostStrokeGate = strokeGate,
             )
+        }
 
-            if (showAnimationRail) {
-                azUnattachedHostItem(
-                    id = "area.animation", text = "Animation",
-                    anchor = AzUnattachedAnchor.FLOATING,
-                    content = GraffuxIcons.MotionTween, color = navItemColor,
-                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.animation"),
-                    initiallyExpanded = railExpansion["area.animation"] ?: false,
-                    onExpandedChange = { vm.onRailHostExpansionChanged("area.animation", it) },
-                )
-                azRailSubItem(
-                    id = "tool.animation", hostId = "area.animation",
-                    text = if (uiState.isAnimationMode) "Close Animation Assist" else "Animation Assist",
-                    content = GraffuxIcons.MotionTween, color = navItemColor,
-                    classifiers = setOf("tool.animation"),
-                    onClick = { vm.onToggleAnimationMode() },
-                )
-                if (uiState.isAnimationMode) {
-                    azRailSubItem(
-                        id = "animation.play", hostId = "area.animation",
-                        text = if (uiState.isAnimationPlaying) "Pause" else "Play",
-                        content = GraffuxIcons.MotionTween, color = navItemColor,
-                        onClick = { vm.onToggleAnimationPlayback() },
+        // The bottom carousel, centred on the whole screen and over the canvas.
+        if (carouselOnScreen) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                CarouselSheet(
+                    open = carouselUi.sheetOpen,
+                    // Swiped up from shut, the sheet shows its tab list only; a tab, or a
+                    // second swipe up, brings the carousel back where it was.
+                    onOpenChange = { open ->
+                        carouselUi = carouselUi.copy(sheetOpen = open, showingCarousel = false)
+                    },
+                    stages = SheetStages(
+                        onStepUp = {
+                            if (!carouselUi.showingCarousel) {
+                                carouselUi = carouselUi.copy(showingCarousel = true)
+                            }
+                        },
+                        onStepDown = {
+                            carouselUi.showingCarousel.also { up ->
+                                if (up) carouselUi = carouselUi.copy(showingCarousel = false)
+                            }
+                        },
+                    ),
+                    // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
+                    // it lifts (read in the sheet, so this screen does not recompose).
+                    hiddenForDrawing = { chrome.hidden },
+                    // Clears the nav bar itself, plus the shortcuts sheet's swipe strip,
+                    // which sits along the bottom edge and would otherwise take the grab
+                    // pill's touches.
+                    bottomInset = EdgeStripHeight + 4.dp,
+                ) {
+                    val carouselInputs = CarouselInputs(
+                        groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
+                            CarouselCategory.entries.filter { it.isToolGroup }.flatMap { group ->
+                                toolGroupCarouselEntries(
+                                    group, uiState, strings.nav.dodge, strings.nav.burn,
+                                )
+                            }
+                        } else {
+                            toolGroupCarouselEntries(
+                                carouselUi.category, uiState, strings.nav.dodge, strings.nav.burn,
+                            )
+                        },
+                        activeTool = uiState.activeTool,
+                        activeBrushName = uiState.activeBrushName,
+                        activeInkUtensil = activeInkUtensil,
+                        builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+                        customBrushes = customBrushes.map { it.id to it.brush },
+                        extensionBrushes = brushes,
+                        stabilizerLevel = uiState.stabilizerLevel,
+                        stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                        smudgeMode = colorSmudgeSettings.mode,
+                        selectionShape = uiState.selectionShape,
+                        extensionEffects = extensionEffects,
+                        favorites = carouselFavorites,
                     )
-                    azRailSubItem(
-                        id = "animation.previous", hostId = "area.animation", text = "Previous Frame",
-                        content = GraffuxIcons.Undo, color = navItemColor,
-                        onClick = { vm.onPreviousFrame() },
+                    val carouselTabs = carouselTabSections(
+                        carouselContextOf(carouselUi.category), carouselUi.category, carouselInputs,
+                        packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
                     )
-                    azRailSubItem(
-                        id = "animation.next", hostId = "area.animation", text = "Next Frame",
-                        content = GraffuxIcons.Redo, color = navItemColor,
-                        onClick = { vm.onNextFrame() },
-                    )
-                    azRailSubItem(
-                        id = "animation.add", hostId = "area.animation", text = "Add Frame",
-                        content = GraffuxIcons.LayerAdd, color = navItemColor,
-                        onClick = { vm.onAddFrame() },
-                    )
-                    azRailSubItem(
-                        id = "animation.onion", hostId = "area.animation",
-                        text = if (uiState.onionSkinEnabled) "Onion Skin Off" else "Onion Skin On",
-                        content = GraffuxIcons.LayerOpacity, color = navItemColor,
-                        onClick = { vm.onToggleOnionSkin() },
-                    )
-                    azRailSubItem(
-                        id = "animation.export", hostId = "area.animation", text = "Export Animation",
-                        content = GraffuxIcons.MotionTween, color = navItemColor,
-                        onClick = { vm.exportAnimation() },
-                    )
-                    azRailSubItem(
-                        id = "animation.timelapse", hostId = "area.animation",
-                        text = if (uiState.isTimeLapseRecording) "Stop Time-lapse" else "Start Time-lapse",
-                        content = GraffuxIcons.MotionTween, color = navItemColor,
-                        onClick = { vm.onToggleTimeLapseRecording() },
+                    val carouselTab = selectedTabGroup(carouselTabs, carouselUi.tab)
+                    val carouselEntries = carouselTab?.entries
+                        ?: carouselEntries(carouselUi.category, carouselInputs)
+                    val runCarouselEntry: (CarouselEntry) -> Unit = { entry ->
+                            when (val action = entry.action) {
+                                is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
+                                is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
+                                is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
+                                is CarouselAction.InkUtensilPick -> vm.selectInkUtensil(action.utensil)
+                                is CarouselAction.PickTool -> vm.setActiveTool(
+                                    if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
+                                )
+                                is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
+                                is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
+                                is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
+                                is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
+                                is CarouselAction.GroupCommand -> executeToolGroupCommand(
+                                    vm, uiState, action.id, screenCenter,
+                                ) { pendingForgetSelectionName = it }
+                                // The Extensions panel's LUT branch (onExtensionSelected), minus its
+                                // DismissPanel: the carousel opened no panel to dismiss.
+                                is CarouselAction.ExtensionLut -> vm.applyInstalledLut(action.extensionId)
+                                is CarouselAction.ExtensionContribution -> {
+                                    val contribution = runnableExtensions
+                                        .find { it.id == action.extensionId }
+                                        ?.let(vm::contributionsOf)
+                                        ?.map { it.second }
+                                        ?.find { it.id == action.contributionId }
+                                    if (contribution != null) {
+                                        // A contribution with its own params panel shows it inside the
+                                        // Extensions panel, so that has to be open for it to appear.
+                                        if (contribution.ui != null &&
+                                            uiState.activePanel != EditorPanel.EXTENSIONS
+                                        ) {
+                                            vm.onExtensionsClicked()
+                                        }
+                                        vm.onExtensionContributionSelected(action.extensionId, contribution)
+                                    }
+                                }
+                            }
+                    }
+                    // Effect cards' layer thumbnails (CarouselEffectPreviews.kt): LUTs render
+                    // through applyInstalledLut's own grade, without committing.
+                    val effectPreviews = remember {
+                        EffectPreviewEngine({ entry, source, _ ->
+                            when (val action = entry.action) {
+                                is CarouselAction.ExtensionLut ->
+                                    vm.previewInstalledLut(action.extensionId, source)
+                                else -> null
+                            }
+                        })
+                    }
+                    val previewLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                    // Re-snapshot (debounced) when the active layer, its bitmap, or its history moves.
+                    LaunchedEffect(
+                        previewLayer?.id, previewLayer?.bitmap, uiState.undoCount, uiState.redoCount,
+                        uiState.isLoading,
+                    ) {
+                        kotlinx.coroutines.delay(EFFECT_SNAPSHOT_DEBOUNCE_MS)
+                        effectPreviews.updateSource(previewLayer?.bitmap)
+                    }
+                    DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
+                    BottomCarousel(
+                        ui = carouselUi,
+                        onUiChange = { carouselUi = it },
+                        content = CarouselContent(
+                            entries = carouselEntries,
+                            brushColor = uiState.activeColor,
+                            secondaryColor = uiState.secondaryColor,
+                            extensionPreviews = brushPreviews,
+                            extensionTips = brushTips,
+                            extensionIcons = extensionIcons,
+                            // The same fields Tool Options, the size picker and the brush HUD
+                            // read and set; the hero sliders hold no state of their own.
+                            heroState = HeroAdjustmentState(
+                                brushSize = uiState.brushSize,
+                                brushFlow = uiState.brushFlow,
+                                brushOpacity = uiState.brushOpacity,
+                                brushFeathering = uiState.brushFeathering,
+                                smudgeRate = colorSmudgeSettings.smudgeRate,
+                                stabilizerLevel = uiState.stabilizerLevel,
+                                magicWandTolerance = uiState.magicWandTolerance,
+                                smudgeColorRate = colorSmudgeSettings.colorRate,
+                                smudgeOpacity = colorSmudgeSettings.opacity,
+                                more = HeroMoreState(
+                                    smudgeMode = colorSmudgeSettings.mode,
+                                    smudgeChargeDecay = colorSmudgeSettings.chargeDecayRate,
+                                    smudgeDilution = colorSmudgeSettings.dilution,
+                                    smudgePickup = colorSmudgeSettings.pickupRate,
+                                    smudgeRadius = colorSmudgeSettings.smudgeRadius,
+                                    smudgePigmentMixing =
+                                        colorSmudgeSettings.mixingModel == heroMixingModel(pigment = true),
+                                    smudgeCarryAlpha = colorSmudgeSettings.smearAlpha,
+                                    smudgeSampleMerged = colorSmudgeSettings.sampleMerged,
+                                    stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                                    selectionFeatherPx = uiState.selection?.featherPx,
+                                ),
+                            ),
+                            itemSettings = { entry ->
+                                carouselSettingsKey(entry)?.let {
+                                    carouselItemSettingsFor(it, carouselItemSettings)
+                                }
+                            },
+                            onAdjust = { entry, setter, value ->
+                                val key = carouselSettingsKey(entry)
+                                val own = key?.let {
+                                    carouselItemSettingsFor(it, carouselItemSettings).adjusted(setter, value)
+                                }
+                                // An item not in hand: only its own stored settings change.
+                                // The item in hand: the live setter, which the sync above
+                                // then saves as that item's.
+                                if (key != null && own != null && key != activeSettingsKey) {
+                                    vm.setCarouselItemSettings(key, own)
+                                } else when (setter) {
+                                    HeroSetter.BRUSH_SIZE -> vm.setBrushSize(value)
+                                    HeroSetter.BRUSH_FLOW -> vm.setBrushFlow(value)
+                                    HeroSetter.BRUSH_OPACITY -> vm.setBrushOpacity(value)
+                                    HeroSetter.BRUSH_SOFTNESS -> vm.setBrushFeathering(value)
+                                    HeroSetter.SMUDGE_STRENGTH -> vm.setColorSmudgeRate(value)
+                                    HeroSetter.SMUDGE_LOAD -> vm.setColorSmudgeColorRate(value)
+                                    HeroSetter.SMUDGE_OPACITY -> vm.setColorSmudgeOpacity(value)
+                                    HeroSetter.SMUDGE_CHARGE_DECAY -> vm.setColorSmudgeChargeDecayRate(value)
+                                    HeroSetter.SMUDGE_DILUTION -> vm.setColorSmudgeDilution(value)
+                                    HeroSetter.SMUDGE_PICKUP -> vm.setColorSmudgePickupRate(value)
+                                    HeroSetter.SMUDGE_RADIUS -> vm.setColorSmudgeRadius(value)
+                                    HeroSetter.SELECTION_FEATHER -> vm.onSetSelectionFeather(value)
+                                    HeroSetter.STABILIZER -> vm.setStabilizerLevel(value.roundToInt())
+                                    HeroSetter.WAND_TOLERANCE -> vm.onSetMagicWandTolerance(value.roundToInt())
+                                }
+                            },
+                            // "More" grows the hero card in place to that item's full
+                            // settings (ExpandedHeroLayer, on the page in front of this
+                            // one); it no longer opens Tool Options, and needs no selection
+                            // first, since the card edits the item's own settings.
+                            onMore = {},
+                            strokeActive = { strokeGate.strokeActive },
+                            effectPreviews = effectPreviews,
+                            onChoose = { _, setter, index ->
+                                when (setter) {
+                                    HeroChoiceSetter.SMUDGE_MODE ->
+                                        vm.setColorSmudgeMode(ColorSmudgeEngine.Mode.entries[index])
+                                    HeroChoiceSetter.STABILIZER_ALGORITHM ->
+                                        vm.setStabilizerAlgorithm(StabilizerAlgorithm.entries[index])
+                                }
+                            },
+                            onToggle = { _, setter, on ->
+                                when (setter) {
+                                    HeroToggleSetter.SMUDGE_PIGMENT_MIXING ->
+                                        vm.setColorSmudgeMixingModel(heroMixingModel(on))
+                                    HeroToggleSetter.SMUDGE_CARRY_ALPHA -> vm.setColorSmudgeAlphaCarry(on)
+                                    HeroToggleSetter.SMUDGE_SAMPLE_MERGED -> vm.setColorSmudgeSampleMerged(on)
+                                }
+                            },
+                        ),
+                        tabs = carouselTabs,
+                        selectedTab = carouselTab?.key,
+                        onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
+                        onEntryClick = runCarouselEntry,
+                        expansion = heroExpansion,
                     )
                 }
             }
+            // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the
+            // neighbouring cards without the carousel's own layout moving at all.
+            ExpandedHeroLayer(heroExpansion)
+        }
 
-            if (showModelRail) {
-                azUnattachedHostItem(
-                    id = "area.model", text = "3D", anchor = AzUnattachedAnchor.FLOATING,
-                    content = GraffuxIcons.GuideIsometric, color = navItemColor,
-                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.model"),
-                    initiallyExpanded = railExpansion["area.model"] ?: false,
-                    onExpandedChange = { vm.onRailHostExpansionChanged("area.model", it) },
+        // The onscreen chrome, inside the system bars and the display cutout.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.statusBars.union(WindowInsets.navigationBars).union(WindowInsets.displayCutout),
+                ),
+        ) {
+            if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome) {
+                ToolRail(
+                    vm = toolRailActions,
+                    uiState = uiState,
+                    lit = activeClassifiers,
+                    secondary = secondaryClassifiers,
+                    callbacks = ToolRailCallbacks(
+                        onToolOptions = openToolOptionsCard,
+                        onToolGroup = { category ->
+                            showCarousel = true
+                            heroExpansion.collapse()
+                            carouselUi = carouselUi.copy(
+                                category = category, sheetOpen = true, tab = null, showingCarousel = true,
+                            )
+                        },
+                        onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
+                    ),
+                    modifier = Modifier.align(toolSide).then(railPadding),
                 )
-                azRailSubItem(
-                    id = "tool.model", hostId = "area.model", text = "3D Model",
-                    content = GraffuxIcons.GuideIsometric, color = navItemColor,
-                    classifiers = setOf("tool.model"), onClick = { showModelDialog = true },
-                )
-                azRailSubItem(
-                    id = "model.choose", hostId = "area.model", text = "Choose Model",
-                    content = GraffuxIcons.GuideIsometric, color = navItemColor,
-                    onClick = { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
-                )
-            }
+                if (brushMenuOpen) {
+                    MenuPanel(
+                        rows = buildMenu {
+                            brushMenu(
+                                vm, uiState, customBrushes,
+                                onOpenBrushGallery = { showBrushGallery = true },
+                                onOpenBrushTipsManager = { showBrushTipsManager = true },
+                            )
+                        },
+                        onDismiss = { brushMenuOpen = false },
+                        title = uiState.activeBrushName ?: strings.nav.brush,
+                        modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
+                    )
+                }
 
-            if (showReferenceRail) {
-                azUnattachedHostItem(
-                    id = "area.reference", text = "Reference", anchor = AzUnattachedAnchor.FLOATING,
-                    content = GraffuxIcons.LayerReference, color = navItemColor,
-                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.reference"),
-                    initiallyExpanded = railExpansion["area.reference"] ?: false,
-                    onExpandedChange = { vm.onRailHostExpansionChanged("area.reference", it) },
+                if (showLayersRail) {
+                    LayersRail(
+                        layers = uiState.layers,
+                        activeLayerId = uiState.activeLayerId,
+                        secondary = secondaryClassifiers,
+                        expansion = railExpansion,
+                        callbacks = LayersRailCallbacks(
+                            onActivate = { vm.onLayerActivated(it) },
+                            onOpenMenu = { id ->
+                                vm.onLayerActivated(id)
+                                layerMenuFor = id
+                                brushMenuOpen = false
+                                menuOpen = false
+                            },
+                            onExpand = { id, open -> vm.onRailHostExpansionChanged(id, open) },
+                            onRelocate = { order, parentId -> vm.onLayerRailRelocated(order, parentId) },
+                            onAdd = { vm.onAddBlankLayer() },
+                            onDeleteActive = {
+                                uiState.activeLayerId?.let { activeId ->
+                                    val active = uiState.layers.firstOrNull { it.id == activeId }
+                                    if (active?.type == LayerType.GROUP) vm.onDeleteGroup(activeId)
+                                    else vm.onLayerRemoved(activeId)
+                                }
+                            },
+                        ),
+                        modifier = Modifier.align(layerSide).then(railPadding),
+                    )
+                }
+                layerMenuFor?.let { id -> uiState.layers.firstOrNull { it.id == id } }?.let { layer ->
+                    val env = LayerMenuEnv(
+                        vm, strings,
+                        onBlendMode = { showBlendDialog = true },
+                        onEditClicked = { showLayerOptionsDialog = true },
+                        onCurves = { showCurvesDialog = true },
+                    )
+                    MenuPanel(
+                        rows = buildMenu { layerMenu(layer, uiState, env) },
+                        onDismiss = { layerMenuFor = null },
+                        title = layer.name,
+                        modifier = Modifier.align(layerSide).padding(horizontal = besideRail),
+                    )
+                }
+
+                // The workspace toolboxes switched on from View….
+                val toolboxes = listOfNotNull(
+                    animationToolbox(vm, uiState, activeClassifiers).takeIf { showAnimationRail },
+                    ToolboxSpec(
+                        "area.model", "3D", GraffuxIcons.GuideIsometric, "area.model" in activeClassifiers,
+                        listOf(
+                            ToolboxAction("3D Model", lit = showModelDialog) { showModelDialog = true },
+                            ToolboxAction("Choose Model") { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
+                        ),
+                    ).takeIf { showModelRail },
+                    ToolboxSpec(
+                        "area.reference", "Reference", GraffuxIcons.LayerReference,
+                        "area.reference" in activeClassifiers,
+                        listOf(
+                            ToolboxAction("Reference Image") { showReferenceWindow = true },
+                            ToolboxAction("Choose Reference") {
+                                showReferenceWindow = true
+                                referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                        ),
+                    ).takeIf { showReferenceRail },
+                    ToolboxSpec(
+                        "area.figma", "Figma", GraffuxIcons.Artboard, "area.figma" in activeClassifiers,
+                        listOf(
+                            ToolboxAction("Import from Figma") { showFigmaWindow = true },
+                            ToolboxAction("Export for Figma") { vm.exportForFigma() },
+                        ),
+                    ).takeIf { showFigmaRail },
+                    ToolboxSpec(
+                        "area.extensions", "Extensions", GraffuxIcons.FilterGallery,
+                        "area.extensions" in activeClassifiers,
+                        listOf(
+                            ToolboxAction(
+                                "Run Extension" + allInstalledExtensions.size.takeIf { it > 0 }?.let { " ($it)" }.orEmpty(),
+                                lit = "adj.extensions" in activeClassifiers,
+                            ) { vm.onExtensionsClicked() },
+                            ToolboxAction("Installed") { storeTab = StoreTab.INSTALLED; showStore = true },
+                        ),
+                    ).takeIf { showExtensionsRail },
                 )
-                azRailSubItem(
-                    id = "reference.open", hostId = "area.reference", text = "Reference Image",
-                    content = GraffuxIcons.LayerReference, color = navItemColor,
-                    onClick = { showReferenceWindow = true },
-                )
-                azRailSubItem(
-                    id = "reference.choose", hostId = "area.reference", text = "Choose Reference",
-                    content = GraffuxIcons.LayerReference, color = navItemColor,
-                    onClick = {
-                        showReferenceWindow = true
-                        referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                val toolboxStart = with(LocalDensity.current) { (RailWidth + RailEdgeGap * 3).roundToPx() }
+                val toolboxStep = with(LocalDensity.current) { (RailWidth + RailEdgeGap).roundToPx() }
+                toolboxes.forEachIndexed { index, spec ->
+                    FloatingToolbox(
+                        spec = spec,
+                        expanded = railExpansion[spec.id] ?: false,
+                        onExpandedChange = { vm.onRailHostExpansionChanged(spec.id, it) },
+                        initialOffset = IntOffset(toolboxStart + index * toolboxStep, toolboxStart / 2),
+                    )
+                }
+
+                // One menu behind the app logo. "View…" swaps it to the panel toggles without
+                // closing it; closing it (or picking anything) goes back to the top.
+                LogoMenu(
+                    open = menuOpen,
+                    onOpenChange = { open ->
+                        menuOpen = open
+                        if (!open) showViewMenu = false
+                        if (open) { brushMenuOpen = false; layerMenuFor = null }
                     },
+                    rows = buildMenu {
+                        if (showViewMenu) {
+                            page("‹ Back") { showViewMenu = false }
+                            // Each row says what it shows and whether it's showing, so a hidden panel
+                            // can be traced back here.
+                            toggle("Layers panel", showLayersRail) { showLayersRail = it }
+                            toggle("Brush sheet", showCarousel) { showCarousel = it }
+                            toggle("Animation", showAnimationRail) { showAnimationRail = it }
+                            toggle("3D", showModelRail) { showModelRail = it }
+                            toggle("Reference", showReferenceRail) { showReferenceRail = it }
+                            toggle("Figma", showFigmaRail) { showFigmaRail = it }
+                            // Turning this on also opens the Extensions window straight to Installed:
+                            // "yes, show me what I have". Turning it off only hides the toolbox.
+                            toggle("Extensions", showExtensionsRail) { checked ->
+                                showExtensionsRail = checked
+                                if (checked) { storeTab = StoreTab.INSTALLED; showStore = true }
+                            }
+                        } else {
+                            page("View…") { showViewMenu = true }
+                            listItem(strings.nav.new) { vm.createNewProject() }
+                            listItem(strings.nav.open) { vm.refreshOpenScreen(); showOpenDialog = true }
+                            listItem("Import") { importPicker.launch(arrayOf("*/*")) }
+                            // Opens AddContentDialog (shapes + text as a new layer).
+                            listItem("Add Shape…") { showAddDialog = true }
+                            listItem(strings.nav.save) { showSaveDialog = true }
+                            listItem(strings.nav.export) { vm.exportImage() }
+                            // The always-visible way into the azphalt store.
+                            listItem("Add-ons…") { openAzphaltStore() }
+                            listItem("Install extension from file…") { extensionFilePicker.launch(arrayOf("*/*")) }
+                            listItem(strings.nav.share) {
+                    scope.launch {
+                        try {
+                            val uri = vm.exportForShare() ?: return@launch
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/png"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                clipData = android.content.ClipData.newRawUri(null, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            val chooser = Intent.createChooser(send, null).apply {
+                                clipData = send.clipData
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(chooser)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            // The scope going away (rotation, leaving composition) isn't a failed
+                            // share, and must not raise a "Couldn't share" popup.
+                            throw e
+                        } catch (t: Throwable) {
+                            // Was a logcat line and nothing else: Share appeared to do nothing
+                            // at all, with no way for the user to tell a failure from a slow
+                            // export.
+                            android.util.Log.w("Graffux", "Share failed", t)
+                            alerts.show(
+                                kind = MessageKind.WARNING,
+                                title = "Couldn't share",
+                                message = t.message ?: "No app accepted the image.",
+                            )
+                        }
+                    }
+                            }
+                            divider()
+                            listItem("Settings") { showSettings = true }
+                            listItem("About") { showAbout = true }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(RailEdgeGap),
                 )
-            }
 
-            if (showFigmaRail) {
-                azUnattachedHostItem(
-                    id = "area.figma", text = "Figma", anchor = AzUnattachedAnchor.FLOATING,
-                    content = GraffuxIcons.Artboard, color = navItemColor,
-                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.figma"),
-                    initiallyExpanded = railExpansion["area.figma"] ?: false,
-                    onExpandedChange = { vm.onRailHostExpansionChanged("area.figma", it) },
-                )
-                azRailSubItem(
-                    id = "figma.open", hostId = "area.figma", text = "Import from Figma",
-                    content = GraffuxIcons.Artboard, color = navItemColor,
-                    onClick = { showFigmaWindow = true },
-                )
-                azRailSubItem(
-                    id = "figma.export", hostId = "area.figma", text = "Export for Figma",
-                    content = GraffuxIcons.Artboard, color = navItemColor,
-                    onClick = { vm.exportForFigma() },
-                )
-            }
-
-            if (showExtensionsRail) {
-                azUnattachedHostItem(
-                    id = "area.extensions", text = "Extensions", anchor = AzUnattachedAnchor.FLOATING,
-                    content = GraffuxIcons.FilterGallery, color = navItemColor,
-                    shape = AzButtonShape.NONE_SQUARE, classifiers = setOf("area.extensions"),
-                    initiallyExpanded = railExpansion["area.extensions"] ?: false,
-                    onExpandedChange = { vm.onRailHostExpansionChanged("area.extensions", it) },
-                )
-                azRailSubItem(
-                    id = "adj.extensions", hostId = "area.extensions", text = "Run Extension",
-                    content = GraffuxIcons.FilterGallery, color = navItemColor,
-                    classifiers = setOf("adj.extensions"), onClick = { vm.onExtensionsClicked() },
-                )
-                // One door, not two: "Manage Extensions" and "Get Extensions" used to be separate
-                // rail entries opening the same Store window on different tabs — Browse is still
-                // right there once the window's open (one tap on its own tab switcher), so a
-                // second rail entry just to land on it first bought nothing.
-                azRailSubItem(
-                    id = "extensions.manage", hostId = "area.extensions", text = "Installed",
-                    content = GraffuxIcons.FilterGallery, color = navItemColor,
-                    onClick = { storeTab = StoreTab.INSTALLED; showStore = true },
-                )
-            }
-
-            // The tools you actually reach for, one swipe from the bottom edge. The rail holds every
-            // tool this app has, which is what makes it complete and also what makes it somewhere
-            // you have to navigate; this is the flat row of the ones that matter to you.
-            //
-            // Hidden while the UI is hidden for a clean look at the artwork, like every other piece
-            // of chrome — a four-finger tap should leave nothing on screen but the painting.
-            if (!uiState.hideUiForCapture) {
-                azBottomSheet(controller = shortcutsSheet) {
+                // The tools you actually reach for, one swipe from the bottom edge: the flat row of
+                // the ones that matter to you, where the rail holds every tool the app has.
+                EdgeSheet(
+                    open = shortcutsOpen,
+                    onOpenChange = { shortcutsOpen = it },
+                    label = "Shortcuts",
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
                     ShortcutsSheet(
                         activeTool = uiState.activeTool,
                         usage = toolUsage,
                         favorites = favoriteTools,
                         onPickTool = { tool ->
                             // Same rule as the rail's own tool items: tapping the tool already in
-                            // hand puts it down. Two surfaces disagreeing about what a second tap
-                            // means would be worse than either behaviour on its own.
+                            // hand puts it down.
                             vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
                         },
                         onToggleFavorite = { tool -> vm.onToggleFavoriteTool(tool) },
-                        modifier = Modifier.navigationBarsPadding().padding(vertical = 8.dp),
+                        modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
             }
 
-            // Registered on the host so a popup raised from anywhere — a menu action, a coroutine,
-            // a callback off the main flow — can bind itself to the rail item that caused it. No
-            // body: the built-in title/message/OK panel is what these are.
-            azPopup(alerts)
-
-            background(weight = 0) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    EditorScreen(
-                        vm = vm,
-                        modifier = Modifier.fillMaxSize(),
-                        // The host owns the multi-finger history gestures (installed above the whole
-                        // app, see above); the screen just feeds this gate from its drawing surfaces.
-                        hostStrokeGate = strokeGate,
-                    )
-                }
-            }
-        
-            // The bottom carousel, as its own AzNavRail page. AzNavRail 11.52's pages are Z-layers:
-            // every onscreen() page is inset by the rail's width, and background() pages are the
-            // only ones laid out across the whole window. This one sits on the editor's page (0f),
-            // one weight in front of the canvas, so the carousel is centred on the screen rather
-            // than on the strip beside the rail, and the rail and onscreen chrome still draw over it.
-            background(weight = 1, page = 0f) {
-                if (carouselOnScreen) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.BottomCenter,
-                    ) {
-                        CarouselSheet(
-                            open = carouselUi.sheetOpen,
-                            // Swiped up from shut, the sheet shows its tab list only; a tab, or a
-                            // second swipe up, brings the carousel back where it was.
-                            onOpenChange = { open ->
-                                carouselUi = carouselUi.copy(sheetOpen = open, showingCarousel = false)
-                            },
-                            stages = SheetStages(
-                                onStepUp = {
-                                    if (!carouselUi.showingCarousel) {
-                                        carouselUi = carouselUi.copy(showingCarousel = true)
-                                    }
-                                },
-                                onStepDown = {
-                                    carouselUi.showingCarousel.also { up ->
-                                        if (up) carouselUi = carouselUi.copy(showingCarousel = false)
-                                    }
-                                },
-                            ),
-                            // Shut at once while a stroke is down, back DRAWING_UI_RETURN_DELAY_MS
-                            // after it lifts (read in the sheet, so this page does not recompose).
-                            hiddenForDrawing = { drawingUiHidden },
-                            // background() pages are deliberately not inset (guide §1.1), and
-                            // LocalAzSafeZones is not provided to them in 11.52, so the sheet
-                            // clears the nav bar itself — plus the shortcuts sheet's HIDDEN swipe
-                            // strip, which sits over the bottom edge above everything and would
-                            // otherwise take the grab pill's touches. Its scrim runs down behind
-                            // both to the screen's edge.
-                            bottomInset = AzSheetConfig().hiddenStripDp + 4.dp,
-                        ) {
-                            val carouselInputs = CarouselInputs(
-                                groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
-                                    CarouselCategory.entries.filter { it.isToolGroup }.flatMap { group ->
-                                        toolGroupCarouselEntries(
-                                            group, uiState, strings.nav.dodge, strings.nav.burn,
-                                        )
-                                    }
-                                } else {
-                                    toolGroupCarouselEntries(
-                                        carouselUi.category, uiState, strings.nav.dodge, strings.nav.burn,
-                                    )
-                                },
-                                activeTool = uiState.activeTool,
-                                activeBrushName = uiState.activeBrushName,
-                                activeInkUtensil = activeInkUtensil,
-                                builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
-                                customBrushes = customBrushes.map { it.id to it.brush },
-                                extensionBrushes = brushes,
-                                stabilizerLevel = uiState.stabilizerLevel,
-                                stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-                                smudgeMode = colorSmudgeSettings.mode,
-                                selectionShape = uiState.selectionShape,
-                                extensionEffects = extensionEffects,
-                                favorites = carouselFavorites,
-                            )
-                            val carouselTabs = carouselTabSections(
-                                carouselContextOf(carouselUi.category), carouselUi.category, carouselInputs,
-                                packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
-                            )
-                            val carouselTab = selectedTabGroup(carouselTabs, carouselUi.tab)
-                            val carouselEntries = carouselTab?.entries
-                                ?: carouselEntries(carouselUi.category, carouselInputs)
-                            val runCarouselEntry: (CarouselEntry) -> Unit = { entry ->
-                                    when (val action = entry.action) {
-                                        is CarouselAction.BuiltInBrush -> vm.selectBuiltInBrush(action.name)
-                                        is CarouselAction.CustomBrush -> vm.selectCustomBrush(action.id)
-                                        is CarouselAction.ExtensionBrush -> vm.selectBrushExtension(action.id)
-                                        is CarouselAction.InkUtensilPick -> vm.selectInkUtensil(action.utensil)
-                                        is CarouselAction.PickTool -> vm.setActiveTool(
-                                            if (uiState.activeTool == action.tool) Tool.NONE else action.tool,
-                                        )
-                                        is CarouselAction.StabilizerLevel -> vm.setStabilizerLevel(action.level)
-                                        is CarouselAction.Stabilizer -> vm.setStabilizerAlgorithm(action.algorithm)
-                                        is CarouselAction.SmudgeMode -> vm.setColorSmudgeMode(action.mode)
-                                        is CarouselAction.SelectShape -> vm.onSetSelectionShape(action.shape)
-                                        is CarouselAction.GroupCommand -> executeToolGroupCommand(
-                                            vm, uiState, action.id, screenCenter,
-                                        ) { pendingForgetSelectionName = it }
-                                        // The Extensions panel's LUT branch (onExtensionSelected), minus its
-                                        // DismissPanel: the carousel opened no panel to dismiss.
-                                        is CarouselAction.ExtensionLut -> vm.applyInstalledLut(action.extensionId)
-                                        is CarouselAction.ExtensionContribution -> {
-                                            val contribution = runnableExtensions
-                                                .find { it.id == action.extensionId }
-                                                ?.let(vm::contributionsOf)
-                                                ?.map { it.second }
-                                                ?.find { it.id == action.contributionId }
-                                            if (contribution != null) {
-                                                // A contribution with its own params panel shows it inside the
-                                                // Extensions panel, so that has to be open for it to appear.
-                                                if (contribution.ui != null &&
-                                                    uiState.activePanel != EditorPanel.EXTENSIONS
-                                                ) {
-                                                    vm.onExtensionsClicked()
-                                                }
-                                                vm.onExtensionContributionSelected(action.extensionId, contribution)
-                                            }
-                                        }
-                                    }
-                            }
-                            // Effect cards' layer thumbnails (CarouselEffectPreviews.kt): LUTs render
-                            // through applyInstalledLut's own grade, without committing.
-                            val effectPreviews = remember {
-                                EffectPreviewEngine({ entry, source, _ ->
-                                    when (val action = entry.action) {
-                                        is CarouselAction.ExtensionLut ->
-                                            vm.previewInstalledLut(action.extensionId, source)
-                                        else -> null
-                                    }
-                                })
-                            }
-                            val previewLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                            // Re-snapshot (debounced) when the active layer, its bitmap, or its history moves.
-                            LaunchedEffect(
-                                previewLayer?.id, previewLayer?.bitmap, uiState.undoCount, uiState.redoCount,
-                                uiState.isLoading,
-                            ) {
-                                kotlinx.coroutines.delay(EFFECT_SNAPSHOT_DEBOUNCE_MS)
-                                effectPreviews.updateSource(previewLayer?.bitmap)
-                            }
-                            DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
-                            BottomCarousel(
-                                ui = carouselUi,
-                                onUiChange = { carouselUi = it },
-                                content = CarouselContent(
-                                    entries = carouselEntries,
-                                    brushColor = uiState.activeColor,
-                                    secondaryColor = uiState.secondaryColor,
-                                    extensionPreviews = brushPreviews,
-                                    extensionTips = brushTips,
-                                    extensionIcons = extensionIcons,
-                                    // The same fields Tool Options, the size picker and the brush HUD
-                                    // read and set; the hero sliders hold no state of their own.
-                                    heroState = HeroAdjustmentState(
-                                        brushSize = uiState.brushSize,
-                                        brushFlow = uiState.brushFlow,
-                                        brushOpacity = uiState.brushOpacity,
-                                        brushFeathering = uiState.brushFeathering,
-                                        smudgeRate = colorSmudgeSettings.smudgeRate,
-                                        stabilizerLevel = uiState.stabilizerLevel,
-                                        magicWandTolerance = uiState.magicWandTolerance,
-                                        smudgeColorRate = colorSmudgeSettings.colorRate,
-                                        smudgeOpacity = colorSmudgeSettings.opacity,
-                                        more = HeroMoreState(
-                                            smudgeMode = colorSmudgeSettings.mode,
-                                            smudgeChargeDecay = colorSmudgeSettings.chargeDecayRate,
-                                            smudgeDilution = colorSmudgeSettings.dilution,
-                                            smudgePickup = colorSmudgeSettings.pickupRate,
-                                            smudgeRadius = colorSmudgeSettings.smudgeRadius,
-                                            smudgePigmentMixing =
-                                                colorSmudgeSettings.mixingModel == heroMixingModel(pigment = true),
-                                            smudgeCarryAlpha = colorSmudgeSettings.smearAlpha,
-                                            smudgeSampleMerged = colorSmudgeSettings.sampleMerged,
-                                            stabilizerAlgorithm = uiState.stabilizerAlgorithm,
-                                            selectionFeatherPx = uiState.selection?.featherPx,
-                                        ),
-                                    ),
-                                    itemSettings = { entry ->
-                                        carouselSettingsKey(entry)?.let {
-                                            carouselItemSettingsFor(it, carouselItemSettings)
-                                        }
-                                    },
-                                    onAdjust = { entry, setter, value ->
-                                        val key = carouselSettingsKey(entry)
-                                        val own = key?.let {
-                                            carouselItemSettingsFor(it, carouselItemSettings).adjusted(setter, value)
-                                        }
-                                        // An item not in hand: only its own stored settings change.
-                                        // The item in hand: the live setter, which the sync above
-                                        // then saves as that item's.
-                                        if (key != null && own != null && key != activeSettingsKey) {
-                                            vm.setCarouselItemSettings(key, own)
-                                        } else when (setter) {
-                                            HeroSetter.BRUSH_SIZE -> vm.setBrushSize(value)
-                                            HeroSetter.BRUSH_FLOW -> vm.setBrushFlow(value)
-                                            HeroSetter.BRUSH_OPACITY -> vm.setBrushOpacity(value)
-                                            HeroSetter.BRUSH_SOFTNESS -> vm.setBrushFeathering(value)
-                                            HeroSetter.SMUDGE_STRENGTH -> vm.setColorSmudgeRate(value)
-                                            HeroSetter.SMUDGE_LOAD -> vm.setColorSmudgeColorRate(value)
-                                            HeroSetter.SMUDGE_OPACITY -> vm.setColorSmudgeOpacity(value)
-                                            HeroSetter.SMUDGE_CHARGE_DECAY -> vm.setColorSmudgeChargeDecayRate(value)
-                                            HeroSetter.SMUDGE_DILUTION -> vm.setColorSmudgeDilution(value)
-                                            HeroSetter.SMUDGE_PICKUP -> vm.setColorSmudgePickupRate(value)
-                                            HeroSetter.SMUDGE_RADIUS -> vm.setColorSmudgeRadius(value)
-                                            HeroSetter.SELECTION_FEATHER -> vm.onSetSelectionFeather(value)
-                                            HeroSetter.STABILIZER -> vm.setStabilizerLevel(value.roundToInt())
-                                            HeroSetter.WAND_TOLERANCE -> vm.onSetMagicWandTolerance(value.roundToInt())
-                                        }
-                                    },
-                                    // "More" grows the hero card in place to that item's full
-                                    // settings (ExpandedHeroLayer, on the page in front of this
-                                    // one); it no longer opens Tool Options, and needs no selection
-                                    // first, since the card edits the item's own settings.
-                                    onMore = {},
-                                    strokeActive = { strokeGate.strokeActive },
-                                    effectPreviews = effectPreviews,
-                                    onChoose = { _, setter, index ->
-                                        when (setter) {
-                                            HeroChoiceSetter.SMUDGE_MODE ->
-                                                vm.setColorSmudgeMode(ColorSmudgeEngine.Mode.entries[index])
-                                            HeroChoiceSetter.STABILIZER_ALGORITHM ->
-                                                vm.setStabilizerAlgorithm(StabilizerAlgorithm.entries[index])
-                                        }
-                                    },
-                                    onToggle = { _, setter, on ->
-                                        when (setter) {
-                                            HeroToggleSetter.SMUDGE_PIGMENT_MIXING ->
-                                                vm.setColorSmudgeMixingModel(heroMixingModel(on))
-                                            HeroToggleSetter.SMUDGE_CARRY_ALPHA -> vm.setColorSmudgeAlphaCarry(on)
-                                            HeroToggleSetter.SMUDGE_SAMPLE_MERGED -> vm.setColorSmudgeSampleMerged(on)
-                                        }
-                                    },
-                                ),
-                                tabs = carouselTabs,
-                                selectedTab = carouselTab?.key,
-                                onToggleFavorite = { entry -> vm.onToggleCarouselFavorite(entry.key) },
-                                onEntryClick = runCarouselEntry,
-                                expansion = heroExpansion,
-                            )
-                        }
-                    }
+            // The way back out of full-screen art mode (four-finger tap): the gesture is documented
+            // nowhere on screen, so a user who triggers it by accident needs one small, low-opacity
+            // tap target to make this a mode rather than a dead end.
+            if (uiState.hideUiForCapture) {
+                FloatingActionButton(
+                    onClick = { vm.toggleHideUi() },
+                    containerColor = surfaceVariantColor.copy(alpha = 0.35f),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).size(40.dp),
+                ) {
+                    Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
                 }
             }
 
-            // The carousel's expanded ("More") hero card, as its own page in front of the carousel's
-            // (guide §10 Pages: a lower page draws in front, and items on different pages may
-            // overlap). It grows over the neighbouring cards and the stroke preview without the
-            // carousel's own layout moving at all.
-            background(weight = 1, page = -0.5f) {
-                if (carouselOnScreen) ExpandedHeroLayer(heroExpansion)
+            // Failures and confirmations, over the artwork, never blocking it.
+            MessageHost(alerts, Modifier.align(Alignment.TopCenter).padding(top = RailEdgeGap, start = besideRail, end = besideRail))
+        }
+
+        // Windows and dialogs, over the rails.
+        Box(Modifier.fillMaxSize()) {
+            if (showDocDialog) {
+                DocumentSizeDialog(
+                    currentWidth = uiState.documentWidth,
+                    currentHeight = uiState.documentHeight,
+                    // No Apply button: a preset applies and closes in one tap; a custom size
+                    // applies once, when the dialog closes.
+                    onConfirm = { w, h -> vm.setDocumentSize(w, h) },
+                    onDismiss = { showDocDialog = false },
+                    currentSubstrateId = uiState.canvasSubstrateId,
+                    onSubstrate = { vm.setCanvasSubstrate(it) },
+                )
             }
 
-            // Standalone Top-Right File Operations Dropdown (hidden in full-screen art mode)
-            onscreen(alignment = Alignment.TopEnd) {
-                if (!uiState.hideUiForCapture) {
-                    // One menu behind the app logo. "View…" swaps it to the panel toggles and
-                    // drops it open again, so the second menu is an item in the first, not a second
-                    // thing to find on screen. Closing it (or picking anything) goes back to the top.
-                    AzDropdownMenu(
-                        navController = navController,
-                        expanded = menuOpen,
-                        onExpandedChange = { open ->
-                            if (!open && reopenMenu) {
-                                reopenMenu = false
-                                menuOpen = true
-                            } else {
-                                menuOpen = open
-                                if (!open) showViewMenu = false
-                            }
-                        },
-                    ) {
-                        azConfig(
-                            design = AzDropdownDesign.MENU,
-                            dockingSide = if (uiState.isRightHanded) AzDockingSide.RIGHT else AzDockingSide.LEFT,
-                            // The app's own logo is the menu: the launcher icon, as the rail header draws it.
-                            trigger = AzDropdownTrigger.AppIcon,
-                            triggerPlacement = AzDropdownTriggerPlacement.TITLE,
-                        )
-                    if (showViewMenu) {
-                        azItem(
-                            color = menuItemColor,
-                            text = "‹ Back",
-                            onClick = { showViewMenu = false; reopenMenu = true },
-                        )
-                        // Each row says what it shows and whether it's showing, so a hidden panel
-                        // can be traced back here.
-                        fun areaToggle(label: String, checked: Boolean, onToggle: (Boolean) -> Unit) =
-                            azToggle(
-                                isChecked = checked,
-                                toggleOnText = "$label: shown",
-                                toggleOffText = "$label: hidden",
-                                color = menuItemColor,
-                                onToggle = onToggle,
-                            )
-                        areaToggle("Layers panel", showLayersRail) { showLayersRail = it }
-                        areaToggle("Brush sheet", showCarousel) { showCarousel = it }
-                        areaToggle("Animation", showAnimationRail) { showAnimationRail = it }
-                        areaToggle("3D", showModelRail) { showModelRail = it }
-                        areaToggle("Reference", showReferenceRail) { showReferenceRail = it }
-                        areaToggle("Figma", showFigmaRail) { showFigmaRail = it }
-                        // Unlike the other toggles here, turning this ON also opens the Extensions
-                        // window straight to Installed — azToggle's whole row is one tap target
-                        // (the sanctioned DSL has no way to give the label and the switch separate
-                        // ones), so "tap the label to open Installed, tap the switch to just show/
-                        // hide the rail" isn't directly buildable; treating a check as "yes, show me
-                        // what I have" is the closest match. Turning it back off only hides the
-                        // rail, same as ever — no navigation on the way out.
-                        areaToggle("Extensions", showExtensionsRail) { checked ->
-                            showExtensionsRail = checked
-                            if (checked) { storeTab = StoreTab.INSTALLED; showStore = true }
-                        }
-                    } else {
-                    // Every entry here is the same colour, and the dropdown's `azConfig` has no hook
-                    // to say so once — so it was said twenty-one times over. An entry added without
-                    // it falls back to Color.Unspecified rather than to the other twenty, which is a
-                    // silent way to end up with one unreadable line. Said once here instead.
-                    fun menuItem(text: String, onClick: () -> Unit) =
-                        azItem(color = menuItemColor, text = text, onClick = onClick)
-                    menuItem(text = "View…", onClick = { showViewMenu = true; reopenMenu = true })
-                    menuItem(text = strings.nav.new, onClick = { vm.createNewProject() })
-                    menuItem(text = strings.nav.open, onClick = { vm.refreshOpenScreen(); showOpenDialog = true })
-                    menuItem(text = "Import", onClick = { importPicker.launch(arrayOf("*/*")) })
-                    // Opens AddContentDialog (shapes + text as a new layer). Had a menu entry here
-                    // until a dropdown cleanup consolidated three adjacent "Add.../Import.../Import
-                    // File..." entries into the single Import item above and dropped this one with
-                    // them — collateral damage, not an intentional cut: onAddClicked kept being
-                    // threaded all the way down into ConfigureRailItems with no caller left to
-                    // invoke it, so a rectangle/ellipse/line/polygon layer became uncreatable from
-                    // the UI at all. AddContentDialog, ShapeKind and onAddShapeLayer/
-                    // onAddPolygonLayer never stopped working — nothing pointed at them any more.
-                    menuItem(text = "Add Shape…", onClick = { showAddDialog = true })
-                    menuItem(text = strings.nav.save, onClick = { showSaveDialog = true })
-                    menuItem(text = strings.nav.export, onClick = { vm.exportImage() })
-                    // The azphalt store's only other door in was the "Extensions rail" toggle buried
-                    // in the second (title) dropdown below, off by default — nothing here pointed at
-                    // it, so there was no way to find the store without already knowing that toggle
-                    // existed. This is the direct, always-visible path in.
-                    menuItem(text = "Add-ons…", onClick = { openAzphaltStore() })
-                    menuItem(
-                        text = "Install extension from file…",
-                        onClick = { extensionFilePicker.launch(arrayOf("*/*")) },
+            pendingForgetSelectionName?.let { name ->
+                ConfirmDialog(
+                    title = "Forget \"$name\"?",
+                    message = "This selection can't be recovered afterward — forgetting it isn't undoable.",
+                    confirmLabel = "Forget",
+                    onConfirm = { vm.onDeleteSavedSelection(name); pendingForgetSelectionName = null },
+                    onDismiss = { pendingForgetSelectionName = null },
+                )
+            }
+
+            if (showBlendDialog) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                BlendModePicker(
+                    current = activeLayer?.blendMode?.toModelBlendMode() ?: BlendMode.SrcOver,
+                    onSelect = { mode ->
+                        vm.setBlendMode(mode)
+                        showBlendDialog = false
+                    },
+                    onDismiss = { showBlendDialog = false },
+                )
+            }
+
+            if (showCurvesDialog) {
+                CurvesDialog(
+                    onDismissRequest = { showCurvesDialog = false },
+                    onCurvesApplied = { points -> vm.onCurvesApplied(points) },
+                )
+            }
+
+            // key(uiState.activeLayerId) on all four of these: the same staleness hazard
+            // TextEditDialog's own key() below is documented against — these dialogs seed their
+            // fields from `remember { mutableStateOf(current...) }` with no key, so if the active
+            // layer changes while one stays open (FloatingWindow-style dialogs never block the
+            // canvas/rail), the dialog keeps showing and applying the OLD layer's stale value,
+            // silently overwriting the NEW active layer's real property on Apply.
+            if (activeShapeDialog == ShapeEditDialog.STROKE) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                key(uiState.activeLayerId) {
+                    VectorStrokeDialog(
+                        currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
+                        // No Apply button: the dialog itself fires this once, with the final
+                        // value, when it closes — see VectorStrokeDialog's own doc comment.
+                        onApply = { w -> vm.setVectorStrokeWidth(w) },
+                        onDismiss = { activeShapeDialog = null },
                     )
-                    // Writes a .graffux-figma.json bundle (see figma-plugin/README.md) that the
-                    // companion Figma plugin rebuilds as a frame, one layer per Graffux layer.
-                    // Same "collateral damage" shape as the Add Shape entry above: exportForFigma()
-                    // never stopped working, it just had no menu item pointing at it any more.
-                    menuItem(text = strings.nav.share, onClick = {
-                        scope.launch {
-                            try {
-                                val uri = vm.exportForShare() ?: return@launch
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "image/png"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    clipData = android.content.ClipData.newRawUri(null, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                val chooser = Intent.createChooser(send, null).apply {
-                                    clipData = send.clipData
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(chooser)
-                            } catch (e: kotlinx.coroutines.CancellationException) {
-                                // The scope going away (rotation, leaving composition) isn't a failed
-                                // share, and must not raise a "Couldn't share" popup.
-                                throw e
-                            } catch (t: Throwable) {
-                                // Was a logcat line and nothing else: Share appeared to do nothing
-                                // at all, with no way for the user to tell a failure from a slow
-                                // export.
-                                android.util.Log.w("Graffux", "Share failed", t)
-                                alerts.show(
-                                    kind = AzPopupKind.WARNING,
-                                    title = "Couldn't share",
-                                    message = t.message ?: "No app accepted the image.",
-                                )
-                            }
-                        }
-                    })
-                    azDivider()
-                        menuItem(text = "Settings", onClick = { showSettings = true })
-                    }
-                    }
                 }
             }
 
-            // The way back out of full-screen art mode (four-finger tap).
-            onscreen(alignment = Alignment.BottomCenter) {
-                if (uiState.hideUiForCapture) {
-                    // The only way into this mode is a four-finger tap, and the only place that
-                    // gesture is documented — the rail's Help item — is itself hidden by this same
-                    // flag. A user who triggers it by accident (resting a hand during a multi-touch
-                    // smudge, say) would otherwise have no on-screen way back short of re-guessing
-                    // the gesture that got them here. One small, low-opacity tap target is enough to
-                    // make this a mode rather than a dead end, without undoing the clean look the
-                    // gesture exists for.
-                    FloatingActionButton(
-                        onClick = { vm.toggleHideUi() },
-                        containerColor = surfaceVariantColor.copy(alpha = 0.35f),
-                        modifier = Modifier.navigationBarsPadding().padding(bottom = 24.dp).size(40.dp),
-                    ) {
-                        Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
-                    }
+            if (activeShapeDialog == ShapeEditDialog.CORNER) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                val rect = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.RECTANGLE }
+                key(uiState.activeLayerId) {
+                    CornerRadiusDialog(
+                        currentRadius = rect?.cornerRadius ?: 0f,
+                        // No Apply button: fires once, on close — see CornerRadiusDialog's own
+                        // doc comment.
+                        onApply = { r -> vm.setVectorCornerRadius(r) },
+                        onDismiss = { activeShapeDialog = null },
+                    )
                 }
-                // The old Undo · Fit · Redo row is gone: Fit, Undo and Redo are rail items now (see
-                // after ConfigureRailItems), and the open carousel sheet's tab row carries Undo/Redo.
             }
 
-            onscreen(alignment = Alignment.Center) {
-                if (showDocDialog) {
-                    DocumentSizeDialog(
-                        currentWidth = uiState.documentWidth,
-                        currentHeight = uiState.documentHeight,
-                        // No Apply button: a preset applies and closes in one tap; a custom size
-                        // applies once, when the dialog closes.
-                        onConfirm = { w, h -> vm.setDocumentSize(w, h) },
-                        onDismiss = { showDocDialog = false },
-                        currentSubstrateId = uiState.canvasSubstrateId,
-                        onSubstrate = { vm.setCanvasSubstrate(it) },
-                    )
-                }
-
-                pendingForgetSelectionName?.let { name ->
-                    ConfirmDialog(
-                        title = "Forget \"$name\"?",
-                        message = "This selection can't be recovered afterward — forgetting it isn't undoable.",
-                        confirmLabel = "Forget",
-                        onConfirm = { vm.onDeleteSavedSelection(name); pendingForgetSelectionName = null },
-                        onDismiss = { pendingForgetSelectionName = null },
-                    )
-                }
-
-                if (showBlendDialog) {
-                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                    BlendModePicker(
-                        current = activeLayer?.blendMode?.toModelBlendMode() ?: BlendMode.SrcOver,
-                        onSelect = { mode ->
-                            vm.setBlendMode(mode)
-                            showBlendDialog = false
-                        },
-                        onDismiss = { showBlendDialog = false },
-                    )
-                }
-
-                if (showCurvesDialog) {
-                    CurvesDialog(
-                        onDismissRequest = { showCurvesDialog = false },
-                        onCurvesApplied = { points -> vm.onCurvesApplied(points) },
-                    )
-                }
-
-                // key(uiState.activeLayerId) on all four of these: the same staleness hazard
-                // TextEditDialog's own key() below is documented against — these dialogs seed their
-                // fields from `remember { mutableStateOf(current...) }` with no key, so if the active
-                // layer changes while one stays open (FloatingWindow-style dialogs never block the
-                // canvas/rail), the dialog keeps showing and applying the OLD layer's stale value,
-                // silently overwriting the NEW active layer's real property on Apply.
-                if (activeShapeDialog == ShapeEditDialog.STROKE) {
-                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+            if (activeShapeDialog == ShapeEditDialog.SHAPE_SIZE) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                val shape = activeLayer?.shapes?.firstOrNull()
+                if (shape != null) {
                     key(uiState.activeLayerId) {
-                        VectorStrokeDialog(
-                            currentWidth = activeLayer?.shapes?.firstOrNull()?.strokeWidth ?: 0f,
-                            // No Apply button: the dialog itself fires this once, with the final
-                            // value, when it closes — see VectorStrokeDialog's own doc comment.
-                            onApply = { w -> vm.setVectorStrokeWidth(w) },
-                            onDismiss = { activeShapeDialog = null },
-                        )
-                    }
-                }
-
-                if (activeShapeDialog == ShapeEditDialog.CORNER) {
-                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                    val rect = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.RECTANGLE }
-                    key(uiState.activeLayerId) {
-                        CornerRadiusDialog(
-                            currentRadius = rect?.cornerRadius ?: 0f,
-                            // No Apply button: fires once, on close — see CornerRadiusDialog's own
+                        ShapeSizeDialog(
+                            currentWidth = shape.width,
+                            currentHeight = shape.height,
+                            isLine = shape.kind == ShapeKind.LINE,
+                            // No Apply button: fires once, on close — see ShapeSizeDialog's own
                             // doc comment.
-                            onApply = { r -> vm.setVectorCornerRadius(r) },
+                            onConfirm = { w, h -> vm.setVectorSize(w, h) },
                             onDismiss = { activeShapeDialog = null },
                         )
                     }
                 }
+            }
 
-                if (activeShapeDialog == ShapeEditDialog.SHAPE_SIZE) {
-                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                    val shape = activeLayer?.shapes?.firstOrNull()
-                    if (shape != null) {
-                        key(uiState.activeLayerId) {
-                            ShapeSizeDialog(
-                                currentWidth = shape.width,
-                                currentHeight = shape.height,
-                                isLine = shape.kind == ShapeKind.LINE,
-                                // No Apply button: fires once, on close — see ShapeSizeDialog's own
-                                // doc comment.
-                                onConfirm = { w, h -> vm.setVectorSize(w, h) },
-                                onDismiss = { activeShapeDialog = null },
-                            )
-                        }
-                    }
-                }
-
-                if (activeShapeDialog == ShapeEditDialog.SIDES) {
-                    val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
-                    val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
-                    if (polygon != null) {
-                        key(uiState.activeLayerId) {
-                            PolygonSidesDialog(
-                                currentSides = polygon.sides,
-                                // No Apply button: fires once, on close — see PolygonSidesDialog's
-                                // own doc comment.
-                                onApply = { n -> vm.setPolygonSides(n) },
-                                onDismiss = { activeShapeDialog = null },
-                            )
-                        }
-                    }
-                }
-
-                val editTextId = uiState.autoEditTextLayerId ?: manualEditTextId
-                if (editTextId != null) {
-                    val params = uiState.layers.find { it.id == editTextId }?.textParams
-                    if (params != null) {
-                        // key() on the layer id: without it, if editTextId flips to a different layer
-                        // while this composable stays mounted (e.g. autoEditTextLayerId fires for a new
-                        // layer while the dialog is already open for a previous one), TextEditDialog's
-                        // internal `remember`s keep the OLD layer's text/size/color/style — so the dialog
-                        // shows stale values and further edits get sent out tagged with the new id but
-                        // carrying the old id's field values. key() forces a fresh composable instance
-                        // (and fresh `remember`s) whenever the id changes, while recomposition for the
-                        // SAME id (e.g. every keystroke) still preserves in-progress local state.
-                        key(editTextId) {
-                            TextEditDialog(
-                                initialText = params.text,
-                                initialFontName = params.fontName,
-                                initialSizeDp = params.fontSizeDp,
-                                initialKerningEm = params.letterSpacingEm,
-                                initialColorArgb = params.colorArgb,
-                                initialBold = params.isBold,
-                                initialItalic = params.isItalic,
-                                initialHasOutline = params.hasOutline,
-                                initialHasDropShadow = params.hasDropShadow,
-                                onTextChange = { vm.onTextContentChanged(editTextId, it) },
-                                onFontChange = { vm.onTextFontChanged(editTextId, it) },
-                                onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
-                                onSizeStart = { vm.onLayerEditStart() },
-                                onSizeCommit = { vm.onLayerEditEnd() },
-                                onKerningChange = { vm.onTextKerningChanged(editTextId, it) },
-                                onKerningStart = { vm.onLayerEditStart() },
-                                onKerningCommit = { vm.onLayerEditEnd() },
-                                onColorChange = { vm.onTextColorChanged(editTextId, it) },
-                                onStyleChange = { b, i, o, s ->
-                                    vm.onTextStyleChanged(editTextId, b, i, o, s)
-                                },
-                                onAlign = { mode -> vm.alignActiveLayer(mode) },
-                                onDismiss = {
-                                    vm.consumeAutoEditTextLayer()
-                                    manualEditTextId = null
-                                },
-                            )
-                        }
-                    }
-                }
-
-                if (showBgDialog) {
-                    BackgroundColorDialog(
-                        current = uiState.canvasBackground,
-                        onSelect = { vm.setCanvasBackground(it) },
-                        onDismiss = { showBgDialog = false },
-                    )
-                }
-
-                if (showAddDialog) {
-                    AddContentDialog(
-                        onAddText = { vm.onAddTextLayer() },
-                        onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
-                        onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
-                        onAddLine = { vm.onAddShapeLayer(ShapeKind.LINE) },
-                        onAddTriangle = { vm.onAddPolygonLayer(3) },
-                        onAddPentagon = { vm.onAddPolygonLayer(5) },
-                        onAddHexagon = { vm.onAddPolygonLayer(6) },
-                        onDismiss = { showAddDialog = false },
-                    )
-                }
-
-                if (showLayerOptionsDialog) {
-                    val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
-                    if (overlay != null) {
-                        LayerOptionsDialog(
-                            overlay = overlay,
-                            navStrings = strings.nav,
-                            onEditText = { manualEditTextId = overlay.id },
-                            onInvert = { vm.onToggleInvert() },
-                            onShapeSize = { activeShapeDialog = ShapeEditDialog.SHAPE_SIZE },
-                            onStrokeWidth = { activeShapeDialog = ShapeEditDialog.STROKE },
-                            onCornerRadius = { activeShapeDialog = ShapeEditDialog.CORNER },
-                            onPolygonSides = { activeShapeDialog = ShapeEditDialog.SIDES },
-                            onToggleFill = { vm.toggleVectorFill() },
-                            onEditStart = { vm.onLayerEditStart() },
-                            onEditCommit = { vm.onLayerEditEnd() },
-                            // Only for a layer that actually has children to arrange.
-                            autoLayoutGap = uiState.layers
-                                .firstOrNull { l -> l.id == overlay.id && uiState.layers.any { it.parentId == l.id } }
-                                ?.autoLayout?.gap,
-                            onGapChange = { gap ->
-                                val current = uiState.layers.first { it.id == overlay.id }.autoLayout
-                                vm.onSetAutoLayout(current.copy(gap = gap))
-                            },
-                            onDismiss = { showLayerOptionsDialog = false },
+            if (activeShapeDialog == ShapeEditDialog.SIDES) {
+                val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
+                val polygon = activeLayer?.shapes?.firstOrNull { it.kind == ShapeKind.POLYGON }
+                if (polygon != null) {
+                    key(uiState.activeLayerId) {
+                        PolygonSidesDialog(
+                            currentSides = polygon.sides,
+                            // No Apply button: fires once, on close — see PolygonSidesDialog's
+                            // own doc comment.
+                            onApply = { n -> vm.setPolygonSides(n) },
+                            onDismiss = { activeShapeDialog = null },
                         )
                     }
                 }
+            }
 
-                if (showOpenDialog) {
-                    OpenProjectWindow(
-                        state = openScreenState,
-                        currentProjectId = uiState.projectId,
-                        onOpenProject = { vm.openProject(it) },
-                        onOpenFile = { vm.openProjectFile(it) },
-                        onNew = { showOpenDialog = false; vm.createNewProject() },
-                        // Stays open behind the system picker: cancelling it should put the user back
-                        // where they were rather than making them find Open again.
-                        onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
-                        onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
-                        onDismiss = { showOpenDialog = false },
-                    )
+            val editTextId = uiState.autoEditTextLayerId ?: manualEditTextId
+            if (editTextId != null) {
+                val params = uiState.layers.find { it.id == editTextId }?.textParams
+                if (params != null) {
+                    // key() on the layer id: without it, if editTextId flips to a different layer
+                    // while this composable stays mounted (e.g. autoEditTextLayerId fires for a new
+                    // layer while the dialog is already open for a previous one), TextEditDialog's
+                    // internal `remember`s keep the OLD layer's text/size/color/style — so the dialog
+                    // shows stale values and further edits get sent out tagged with the new id but
+                    // carrying the old id's field values. key() forces a fresh composable instance
+                    // (and fresh `remember`s) whenever the id changes, while recomposition for the
+                    // SAME id (e.g. every keystroke) still preserves in-progress local state.
+                    key(editTextId) {
+                        TextEditDialog(
+                            initialText = params.text,
+                            initialFontName = params.fontName,
+                            initialSizeDp = params.fontSizeDp,
+                            initialKerningEm = params.letterSpacingEm,
+                            initialColorArgb = params.colorArgb,
+                            initialBold = params.isBold,
+                            initialItalic = params.isItalic,
+                            initialHasOutline = params.hasOutline,
+                            initialHasDropShadow = params.hasDropShadow,
+                            onTextChange = { vm.onTextContentChanged(editTextId, it) },
+                            onFontChange = { vm.onTextFontChanged(editTextId, it) },
+                            onSizeChange = { vm.onTextSizeChanged(editTextId, it) },
+                            onSizeStart = { vm.onLayerEditStart() },
+                            onSizeCommit = { vm.onLayerEditEnd() },
+                            onKerningChange = { vm.onTextKerningChanged(editTextId, it) },
+                            onKerningStart = { vm.onLayerEditStart() },
+                            onKerningCommit = { vm.onLayerEditEnd() },
+                            onColorChange = { vm.onTextColorChanged(editTextId, it) },
+                            onStyleChange = { b, i, o, s ->
+                                vm.onTextStyleChanged(editTextId, b, i, o, s)
+                            },
+                            onAlign = { mode -> vm.alignActiveLayer(mode) },
+                            onDismiss = {
+                                vm.consumeAutoEditTextLayer()
+                                manualEditTextId = null
+                            },
+                        )
+                    }
                 }
+            }
 
-                if (showReferenceWindow) {
-                    ReferenceWindow(
-                        imageUri = referenceImageUri,
-                        onPickImage = {
-                            referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            if (showBgDialog) {
+                BackgroundColorDialog(
+                    current = uiState.canvasBackground,
+                    onSelect = { vm.setCanvasBackground(it) },
+                    onDismiss = { showBgDialog = false },
+                )
+            }
+
+            if (showAddDialog) {
+                AddContentDialog(
+                    onAddText = { vm.onAddTextLayer() },
+                    onAddRectangle = { vm.onAddShapeLayer(ShapeKind.RECTANGLE) },
+                    onAddEllipse = { vm.onAddShapeLayer(ShapeKind.ELLIPSE) },
+                    onAddLine = { vm.onAddShapeLayer(ShapeKind.LINE) },
+                    onAddTriangle = { vm.onAddPolygonLayer(3) },
+                    onAddPentagon = { vm.onAddPolygonLayer(5) },
+                    onAddHexagon = { vm.onAddPolygonLayer(6) },
+                    onDismiss = { showAddDialog = false },
+                )
+            }
+
+            if (showLayerOptionsDialog) {
+                val overlay = uiState.layers.find { it.id == uiState.activeLayerId }
+                if (overlay != null) {
+                    LayerOptionsDialog(
+                        overlay = overlay,
+                        navStrings = strings.nav,
+                        onEditText = { manualEditTextId = overlay.id },
+                        onInvert = { vm.onToggleInvert() },
+                        onShapeSize = { activeShapeDialog = ShapeEditDialog.SHAPE_SIZE },
+                        onStrokeWidth = { activeShapeDialog = ShapeEditDialog.STROKE },
+                        onCornerRadius = { activeShapeDialog = ShapeEditDialog.CORNER },
+                        onPolygonSides = { activeShapeDialog = ShapeEditDialog.SIDES },
+                        onToggleFill = { vm.toggleVectorFill() },
+                        onEditStart = { vm.onLayerEditStart() },
+                        onEditCommit = { vm.onLayerEditEnd() },
+                        // Only for a layer that actually has children to arrange.
+                        autoLayoutGap = uiState.layers
+                            .firstOrNull { l -> l.id == overlay.id && uiState.layers.any { it.parentId == l.id } }
+                            ?.autoLayout?.gap,
+                        onGapChange = { gap ->
+                            val current = uiState.layers.first { it.id == overlay.id }.autoLayout
+                            vm.onSetAutoLayout(current.copy(gap = gap))
                         },
-                        onDismiss = { showReferenceWindow = false },
+                        onDismiss = { showLayerOptionsDialog = false },
                     )
                 }
+            }
 
-                if (showFigmaWindow) {
-                    val figmaState by vm.figmaState.collectAsState()
-                    FigmaWindow(
-                        state = figmaState,
-                        onTokenSubmit = { vm.connectFigma(it) },
-                        onDisconnect = { vm.disconnectFigma() },
-                        onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
-                        onLoadFile = { vm.loadFigmaFile() },
-                        onToggleFrame = { vm.toggleFigmaFrame(it) },
-                        // Left open rather than dismissed here: importFigmaFrames() runs
-                        // asynchronously and FigmaWindow is what shows its loading state and any
-                        // per-import error — closing on click would hide both.
-                        onImport = { vm.importFigmaFrames() },
-                        onDismiss = { showFigmaWindow = false },
-                    )
-                }
+            if (showOpenDialog) {
+                OpenProjectWindow(
+                    state = openScreenState,
+                    currentProjectId = uiState.projectId,
+                    onOpenProject = { vm.openProject(it) },
+                    onOpenFile = { vm.openProjectFile(it) },
+                    onNew = { showOpenDialog = false; vm.createNewProject() },
+                    // Stays open behind the system picker: cancelling it should put the user back
+                    // where they were rather than making them find Open again.
+                    onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
+                    onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
+                    onDismiss = { showOpenDialog = false },
+                )
+            }
 
-                if (showSaveDialog) {
-                    SaveProjectDialog(
-                        currentName = projects.find { it.id == uiState.projectId }?.name.orEmpty(),
-                        onConfirm = { name ->
-                            showSaveDialog = false
-                            pendingSaveName = name
-                            projectSaver.launch(ProjectFile.suggestedFileName(name))
-                        },
-                        onDismiss = { showSaveDialog = false },
-                    )
-                }
+            if (showReferenceWindow) {
+                ReferenceWindow(
+                    imageUri = referenceImageUri,
+                    onPickImage = {
+                        referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    onDismiss = { showReferenceWindow = false },
+                )
+            }
 
-                if (showStoreChooser) {
-                    StoreChooserDialog(
-                        storeAppInstalled = AzphaltStoreHandoff.isStoreAvailable(
-                            context.packageManager, context.packageName,
-                        ),
-                        onWeb = browseAzphaltWeb,
-                        onAndroid = browseAzphaltAndroid,
-                        onCancel = { showStoreChooser = false },
-                    )
-                }
+            if (showFigmaWindow) {
+                val figmaState by vm.figmaState.collectAsState()
+                FigmaWindow(
+                    state = figmaState,
+                    onTokenSubmit = { vm.connectFigma(it) },
+                    onDisconnect = { vm.disconnectFigma() },
+                    onFileInputChanged = { vm.onFigmaFileInputChanged(it) },
+                    onLoadFile = { vm.loadFigmaFile() },
+                    onToggleFrame = { vm.toggleFigmaFrame(it) },
+                    // Left open rather than dismissed here: importFigmaFrames() runs
+                    // asynchronously and FigmaWindow is what shows its loading state and any
+                    // per-import error — closing on click would hide both.
+                    onImport = { vm.importFigmaFrames() },
+                    onDismiss = { showFigmaWindow = false },
+                )
+            }
 
-                // The azphalt extensions window: one FloatingWindow, two tabs (Installed/Browse) —
-                // see StoreWindow's own doc comment for why this replaced two separate windows.
-                // "Other sources…" still reaches the delegated handoff (StoreChooserDialog) below,
-                // for what only a real store app can do (Play Billing).
-                if (showStore) {
-                    LaunchedEffect(Unit) { vm.refreshStoreUpdates() }
-                    StoreWindow(
-                        initialTab = storeTab,
-                        installed = allInstalledExtensions,
-                        updatesAvailable = uiState.storeUpdatesAvailable,
-                        installingIds = uiState.storeInstallingIds,
-                        onUpdate = { ext ->
-                            uiState.storeUpdatesAvailable[ext.id]?.let { latest ->
-                                vm.installFromRepository(ext.id, latest)
-                            }
-                        },
-                        onUninstall = { vm.uninstallExtension(it) },
-                        query = uiState.storeBrowseQuery,
-                        results = uiState.storeBrowseResults,
-                        loading = uiState.storeBrowseLoading,
-                        error = uiState.storeBrowseError,
-                        onQueryChanged = { vm.onStoreBrowseQueryChanged(it) },
-                        onSearch = { vm.onStoreSearch() },
-                        onInstall = { pkg -> vm.installFromRepository(pkg.id, pkg.latest ?: pkg.version) },
-                        onBuy = { pkg ->
-                            val url = "${AzphaltStoreHandoff.WEB_STORE_URL}/packages/" +
-                                com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient.encodePathSegment(pkg.id)
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            }.onFailure {
-                                alerts.show(
-                                    kind = AzPopupKind.WARNING,
-                                    title = "No browser",
-                                    message = "Nothing on this device can open $url.",
-                                )
-                            }
-                        },
-                        onOtherSources = { showStore = false; showStoreChooser = true },
-                        onDismiss = { showStore = false },
-                    )
-                }
+            if (showSaveDialog) {
+                SaveProjectDialog(
+                    currentName = projects.find { it.id == uiState.projectId }?.name.orEmpty(),
+                    onConfirm = { name ->
+                        showSaveDialog = false
+                        pendingSaveName = name
+                        projectSaver.launch(ProjectFile.suggestedFileName(name))
+                    },
+                    onDismiss = { showSaveDialog = false },
+                )
+            }
 
-                if (showModelDialog) {
-                    ModelWindow(
-                        state = modelState,
-                        onPickModel = { modelPicker.launch(arrayOf("*/*")) },
-                        onDismiss = { showModelDialog = false },
-                        onPaintChanged = { vm.onModelPaintChanged() },
-                        onAddToCanvas = { bitmap ->
-                            vm.addModelViewToCanvas(bitmap)
-                            showModelDialog = false
-                        },
-                        // The same colour and size the 2D canvas is set to: switching to a model is a
-                        // change of surface, not of brush.
-                        paintColor = uiState.activeColor,
-                        brushRadiusPx = uiState.brushSize / 2f,
-                    )
-                }
+            if (showStoreChooser) {
+                StoreChooserDialog(
+                    storeAppInstalled = AzphaltStoreHandoff.isStoreAvailable(
+                        context.packageManager, context.packageName,
+                    ),
+                    onWeb = browseAzphaltWeb,
+                    onAndroid = browseAzphaltAndroid,
+                    onCancel = { showStoreChooser = false },
+                )
+            }
 
-                // Animation Assist. Opening the window is what turns animation mode on, and closing
-                // it turns it off — the mode and the panel were two separate rail buttons before,
-                // which meant the panel could be shut with the mode still running (onion skins still
-                // drawn, playback still going) and nothing on screen saying so.
-                if (uiState.isAnimationMode) {
-                    val playbackRange = vm.resolvedPlaybackRange()
-                    val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
-                    AnimationWindow(
-                        // vm.animationFrameCount(), not `layers.count { it.parentId == null }`.
-                        // Every other part of Animation Assist counts frames through
-                        // AnimationFrames.topLevelFrames, which is the layer TREE's roots — and the
-                        // tree also promotes layers whose parent id names nothing (and, now, members
-                        // of a parent cycle) to roots. Counting the flat list instead undercounted
-                        // exactly those, so the window's frame total, its step-through range and the
-                        // onion-skin neighbours disagreed with each other on any document with a
-                        // dangling parent id.
-                        frameCount = vm.animationFrameCount(),
-                        activeFrameIndex = uiState.activeFrameIndex,
-                        isPlaying = uiState.isAnimationPlaying,
-                        onionSkinEnabled = uiState.onionSkinEnabled,
-                        onionSkinPastCount = uiState.onionSkinPastCount,
-                        onionSkinFutureCount = uiState.onionSkinFutureCount,
-                        loopMode = uiState.animationLoopMode,
-                        frameDurationMs = uiState.animationFrameDurationMs,
-                        rangeStart = playbackRange.first,
-                        rangeEnd = playbackRange.last,
-                        rawRangeEnd = uiState.animationRangeEnd,
-                        currentFrameHoldCount = vm.currentFrameHoldCount(),
-                        isTimeLapseRecording = uiState.isTimeLapseRecording,
-                        previewIsRendering = animationPreviewBuffer.isRendering,
-                        previewIsReady = vm.isAnimationPreviewReady(uiState),
-                        previewRenderedFrames = animationPreviewBuffer.renderedFrames,
-                        previewTotalFrames = animationPreviewBuffer.totalFrames,
-                        previewError = animationPreviewBuffer.error,
-                        onTogglePlayback = { vm.onToggleAnimationPlayback() },
-                        onPreviousFrame = { vm.onPreviousFrame() },
-                        onNextFrame = { vm.onNextFrame() },
-                        onSeekFrame = { vm.onSelectFrame(it) },
-                        onAddFrame = { vm.onAddFrame() },
-                        onToggleOnionSkin = { vm.onToggleOnionSkin() },
-                        onSetOnionSkinPastCount = { vm.onSetOnionSkinPastCount(it) },
-                        onSetOnionSkinFutureCount = { vm.onSetOnionSkinFutureCount(it) },
-                        onSetLoopMode = { vm.onSetAnimationLoopMode(it) },
-                        onSetFrameDurationMs = { vm.onSetAnimationFrameDurationMs(it) },
-                        onSetRange = { start, end -> vm.onSetAnimationRange(start, end) },
-                        onRenderPreview = { vm.renderAnimationPreview() },
-                        onSetFrameHoldCount = { vm.onSetFrameHoldCount(it) },
-                        onExport = { vm.exportAnimation() },
-                        onToggleTimeLapse = { vm.onToggleTimeLapseRecording() },
-                        onDismiss = { vm.onToggleAnimationMode() },
-                    )
-                }
+            // The azphalt extensions window: one FloatingWindow, two tabs (Installed/Browse) —
+            // see StoreWindow's own doc comment for why this replaced two separate windows.
+            // "Other sources…" still reaches the delegated handoff (StoreChooserDialog) below,
+            // for what only a real store app can do (Play Billing).
+            if (showStore) {
+                LaunchedEffect(Unit) { vm.refreshStoreUpdates() }
+                StoreWindow(
+                    initialTab = storeTab,
+                    installed = allInstalledExtensions,
+                    updatesAvailable = uiState.storeUpdatesAvailable,
+                    installingIds = uiState.storeInstallingIds,
+                    onUpdate = { ext ->
+                        uiState.storeUpdatesAvailable[ext.id]?.let { latest ->
+                            vm.installFromRepository(ext.id, latest)
+                        }
+                    },
+                    onUninstall = { vm.uninstallExtension(it) },
+                    query = uiState.storeBrowseQuery,
+                    results = uiState.storeBrowseResults,
+                    loading = uiState.storeBrowseLoading,
+                    error = uiState.storeBrowseError,
+                    onQueryChanged = { vm.onStoreBrowseQueryChanged(it) },
+                    onSearch = { vm.onStoreSearch() },
+                    onInstall = { pkg -> vm.installFromRepository(pkg.id, pkg.latest ?: pkg.version) },
+                    onBuy = { pkg ->
+                        val url = "${AzphaltStoreHandoff.WEB_STORE_URL}/packages/" +
+                            com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient.encodePathSegment(pkg.id)
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }.onFailure {
+                            alerts.show(
+                                kind = MessageKind.WARNING,
+                                title = "No browser",
+                                message = "Nothing on this device can open $url.",
+                            )
+                        }
+                    },
+                    onOtherSources = { showStore = false; showStoreChooser = true },
+                    onDismiss = { showStore = false },
+                )
+            }
 
-                if (showSettings) {
-                    SettingsScreen(
-                        vm = settingsVm,
-                        appVersion = BuildConfig.VERSION_NAME,
-                        onClose = { showSettings = false },
-                        onDocumentSize = { showSettings = false; showDocDialog = true },
-                        onBackground = { showSettings = false; showBgDialog = true },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+            if (showModelDialog) {
+                ModelWindow(
+                    state = modelState,
+                    onPickModel = { modelPicker.launch(arrayOf("*/*")) },
+                    onDismiss = { showModelDialog = false },
+                    onPaintChanged = { vm.onModelPaintChanged() },
+                    onAddToCanvas = { bitmap ->
+                        vm.addModelViewToCanvas(bitmap)
+                        showModelDialog = false
+                    },
+                    // The same colour and size the 2D canvas is set to: switching to a model is a
+                    // change of surface, not of brush.
+                    paintColor = uiState.activeColor,
+                    brushRadiusPx = uiState.brushSize / 2f,
+                )
+            }
 
-                uiState.brushStudioDraft?.let { draft ->
-                    BrushStudioWindow(
-                        draft = draft,
-                        brushColor = uiState.activeColor,
-                        secondaryColor = uiState.secondaryColor,
-                        isSaved = uiState.brushStudioEditingId != null,
-                        onEdit = { edit -> vm.onEditBrushDraft(edit) },
-                        onSave = { vm.onSaveBrushDraft() },
-                        onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
-                        onDismiss = { vm.onCloseBrushStudio() },
-                    )
-                }
+            // Animation Assist. Opening the window is what turns animation mode on, and closing
+            // it turns it off — the mode and the panel were two separate rail buttons before,
+            // which meant the panel could be shut with the mode still running (onion skins still
+            // drawn, playback still going) and nothing on screen saying so.
+            if (uiState.isAnimationMode) {
+                val playbackRange = vm.resolvedPlaybackRange()
+                val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
+                AnimationWindow(
+                    // vm.animationFrameCount(), not `layers.count { it.parentId == null }`.
+                    // Every other part of Animation Assist counts frames through
+                    // AnimationFrames.topLevelFrames, which is the layer TREE's roots — and the
+                    // tree also promotes layers whose parent id names nothing (and, now, members
+                    // of a parent cycle) to roots. Counting the flat list instead undercounted
+                    // exactly those, so the window's frame total, its step-through range and the
+                    // onion-skin neighbours disagreed with each other on any document with a
+                    // dangling parent id.
+                    frameCount = vm.animationFrameCount(),
+                    activeFrameIndex = uiState.activeFrameIndex,
+                    isPlaying = uiState.isAnimationPlaying,
+                    onionSkinEnabled = uiState.onionSkinEnabled,
+                    onionSkinPastCount = uiState.onionSkinPastCount,
+                    onionSkinFutureCount = uiState.onionSkinFutureCount,
+                    loopMode = uiState.animationLoopMode,
+                    frameDurationMs = uiState.animationFrameDurationMs,
+                    rangeStart = playbackRange.first,
+                    rangeEnd = playbackRange.last,
+                    rawRangeEnd = uiState.animationRangeEnd,
+                    currentFrameHoldCount = vm.currentFrameHoldCount(),
+                    isTimeLapseRecording = uiState.isTimeLapseRecording,
+                    previewIsRendering = animationPreviewBuffer.isRendering,
+                    previewIsReady = vm.isAnimationPreviewReady(uiState),
+                    previewRenderedFrames = animationPreviewBuffer.renderedFrames,
+                    previewTotalFrames = animationPreviewBuffer.totalFrames,
+                    previewError = animationPreviewBuffer.error,
+                    onTogglePlayback = { vm.onToggleAnimationPlayback() },
+                    onPreviousFrame = { vm.onPreviousFrame() },
+                    onNextFrame = { vm.onNextFrame() },
+                    onSeekFrame = { vm.onSelectFrame(it) },
+                    onAddFrame = { vm.onAddFrame() },
+                    onToggleOnionSkin = { vm.onToggleOnionSkin() },
+                    onSetOnionSkinPastCount = { vm.onSetOnionSkinPastCount(it) },
+                    onSetOnionSkinFutureCount = { vm.onSetOnionSkinFutureCount(it) },
+                    onSetLoopMode = { vm.onSetAnimationLoopMode(it) },
+                    onSetFrameDurationMs = { vm.onSetAnimationFrameDurationMs(it) },
+                    onSetRange = { start, end -> vm.onSetAnimationRange(start, end) },
+                    onRenderPreview = { vm.renderAnimationPreview() },
+                    onSetFrameHoldCount = { vm.onSetFrameHoldCount(it) },
+                    onExport = { vm.exportAnimation() },
+                    onToggleTimeLapse = { vm.onToggleTimeLapseRecording() },
+                    onDismiss = { vm.onToggleAnimationMode() },
+                )
+            }
 
-                if (showBrushGallery) {
-                    CustomBrushesWindow(
-                        brushes = customBrushes,
-                        activeBrushName = uiState.activeBrushName,
-                        brushColor = uiState.activeColor,
-                        secondaryColor = uiState.secondaryColor,
-                        onSelect = { id -> vm.selectCustomBrush(id); showBrushGallery = false },
-                        onEdit = { id -> showBrushGallery = false; vm.onOpenBrushStudio(id) },
-                        onDelete = { id -> vm.onDeleteCustomBrush(id) },
-                        onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
-                        onDismiss = { showBrushGallery = false },
-                    )
-                }
+            if (showSettings) {
+                SettingsScreen(
+                    vm = settingsVm,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    onClose = { showSettings = false },
+                    onDocumentSize = { showSettings = false; showDocDialog = true },
+                    onBackground = { showSettings = false; showBgDialog = true },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
-                if (showBrushTipsManager) {
-                    val allBrushAssets by vm.allInstalledBrushAssets.collectAsState()
-                    val hiddenBrushTipIds by vm.hiddenBrushTipIds.collectAsState()
-                    BrushTipsManagerWindow(
-                        allBrushAssets = allBrushAssets,
-                        hiddenIds = hiddenBrushTipIds,
-                        onSetHidden = { id, hidden -> vm.setBrushTipHidden(id, hidden) },
-                        onDismiss = { showBrushTipsManager = false },
-                    )
-                }
+            uiState.brushStudioDraft?.let { draft ->
+                BrushStudioWindow(
+                    draft = draft,
+                    brushColor = uiState.activeColor,
+                    secondaryColor = uiState.secondaryColor,
+                    isSaved = uiState.brushStudioEditingId != null,
+                    onEdit = { edit -> vm.onEditBrushDraft(edit) },
+                    onSave = { vm.onSaveBrushDraft() },
+                    onDelete = { uiState.brushStudioEditingId?.let { vm.onDeleteCustomBrush(it) } },
+                    onDismiss = { vm.onCloseBrushStudio() },
+                )
+            }
+
+            if (showBrushGallery) {
+                CustomBrushesWindow(
+                    brushes = customBrushes,
+                    activeBrushName = uiState.activeBrushName,
+                    brushColor = uiState.activeColor,
+                    secondaryColor = uiState.secondaryColor,
+                    onSelect = { id -> vm.selectCustomBrush(id); showBrushGallery = false },
+                    onEdit = { id -> showBrushGallery = false; vm.onOpenBrushStudio(id) },
+                    onDelete = { id -> vm.onDeleteCustomBrush(id) },
+                    onNew = { showBrushGallery = false; vm.onOpenBrushStudio(null) },
+                    onDismiss = { showBrushGallery = false },
+                )
+            }
+
+            if (showBrushTipsManager) {
+                val allBrushAssets by vm.allInstalledBrushAssets.collectAsState()
+                val hiddenBrushTipIds by vm.hiddenBrushTipIds.collectAsState()
+                BrushTipsManagerWindow(
+                    allBrushAssets = allBrushAssets,
+                    hiddenIds = hiddenBrushTipIds,
+                    onSetHidden = { id, hidden -> vm.setBrushTipHidden(id, hidden) },
+                    onDismiss = { showBrushTipsManager = false },
+                )
             }
         }
+        if (showAbout) AboutReader(onDismiss = { showAbout = false })
         // The project dialog, above the rail and every window: mandatory with no project open,
         // cancellable over one (File > New). Load goes through the same picker as File > Open; a cancelled picker
         // returns null and the dialog simply stays.
-        FirstRunTour(enabled = projectGate == null && uiState.projectId != null)
         projectGate?.let { gate ->
             ProjectGateDialog(
                 state = gate,
@@ -1833,180 +1625,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     }
     }
 }
-
-@Suppress("FunctionNaming", "LongMethod")
-@Composable
-private fun BrushSizePad(vm: EditorViewModel, onOpenOptions: () -> Unit) {
-    val state by vm.uiState.collectAsState()
-    val density = LocalDensity.current
-    var itemPx by remember { mutableFloatStateOf(120f) }
-    // The pad is otherwise drag-only — a two-axis pointer gesture with no click, no keyboard
-    // path, and nothing for TalkBack to announce beyond "brush size pad". A tap grows the item's
-    // carousel card (Tool Options), whose Size slider is the accessible path to the same value.
-    val feather = state.brushFeathering.coerceIn(0f, 1f)
-    val hardnessPercent = ((1f - feather) * 100f).roundToInt()
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        // Size, above the preview: the number the drag's vertical axis is currently set to, read
-        // at a glance without waiting for the drag to settle or opening the item's card.
-        Text(
-            text = "${state.brushSize.roundToInt()}px",
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-        )
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .onSizeChanged { itemPx = it.width.toFloat() }
-                .clickable(onClickLabel = "Set brush size", onClick = onOpenOptions)
-                // TalkBack: a slider of the size (volume keys / swipe up-down adjust it), with the
-                // hardness read out alongside, so the drag isn't the only way in.
-                .semantics {
-                    contentDescription = "Brush size, hardness $hardnessPercent percent"
-                    progressBarRangeInfo = ProgressBarRangeInfo(
-                        state.brushSize,
-                        MIN_BRUSH_SIZE..MAX_BRUSH_SIZE,
-                    )
-                    setProgress { target ->
-                        vm.setBrushSize(target.coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
-                        true
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        if (drag.y != 0f) {
-                            val cur = vm.uiState.value.brushSize
-                            // Clamped to the brush's real range, NOT to this pad's rendered width. The
-                            // pad used to cap the value at its own measured size, which was harmless
-                            // only while a rail slider could still reach 200 px; it is the sole size
-                            // control now, so that ceiling would silently become the maximum brush in
-                            // the app — and a pad narrower than the current size would snap it down on
-                            // the first touch. The width still bounds the *preview* below, which is all
-                            // it was ever entitled to bound.
-                            vm.setBrushSize((cur - drag.y * 0.5f).coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
-                        }
-                        if (drag.x != 0f) {
-                            // Hardness, always — never flow. The axis used to mean feathering for the
-                            // round brush and stamp-brush flow for anything else, so the same gesture
-                            // did two unrelated things depending on state you could not see from the
-                            // pad, and the preview had to show opacity to reflect it. Flow is a stamp
-                            // brush's own parameter and lives in Tool Options with the other dials.
-                            val cur = vm.uiState.value.brushFeathering
-                            vm.setBrushFeathering((cur + drag.x * 0.005f).coerceIn(0f, 1f))
-                        }
-                    }
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // The preview is the brush's actual footprint at its actual size, so what you see while
-            // dragging is what the next stroke puts down.
-            //
-            // **Softness, drawn as softness.** A hard brush is a disc with a hard edge; a soft one
-            // fades out over its radius; and the horizontal drag moves continuously between the two,
-            // which is exactly what a radial gradient expresses. This used to be a flat 30%-alpha ring
-            // around a shrunken solid core — two hard edges standing in for one soft one, which reads
-            // as a translucent brush rather than a soft one. The pad ended up demonstrating
-            // *opacity*, the one property it does not control.
-            //
-            // Nothing here is ever drawn translucent. Alpha is opacity, the pad does not set opacity,
-            // and a preview that dims is a preview that lies about which dial you are on.
-            //
-            // The swatch behind the dab now matches the document's own canvas background rather than
-            // this composable's own (transparent/rail) background, so the preview's contrast reads
-            // the same as painting onto the actual document would.
-            Box(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Canvas(Modifier.fillMaxSize()) {
-                    drawRect(color = state.canvasBackground)
-                    val maxR = maxOf(minOf(size.width, size.height) / 2f, 1f)
-                    val radius = (state.brushSize / 2f).coerceIn(1.5f, maxR)
-                    // Where the solid core ends and the falloff begins: the whole radius when hard,
-                    // the centre point when fully soft.
-                    val core = (1f - feather).coerceIn(0f, 1f)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            // Two stops at the same offset give the hard-edged case a genuine hard
-                            // edge rather than a one-pixel ramp.
-                            0f to Cyan,
-                            core to Cyan,
-                            1f to Cyan.copy(alpha = 0f),
-                            center = center,
-                            radius = radius,
-                        ),
-                        radius = radius,
-                        center = center,
-                    )
-                }
-            }
-            // Hardness, to the right of the preview -- the number the drag's horizontal axis is
-            // currently set to.
-            Text(
-                text = "$hardnessPercent%",
-                color = Color.White,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-/** A real painter's-palette glyph: silhouette + thumb hole + separate paint wells. */
-@Composable
-private fun PaletteSwatch(color: Color) {
-    Canvas(Modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-        val body = Path().apply {
-            moveTo(w * 0.88f, h * 0.42f)
-            cubicTo(w * 0.88f, h * 0.16f, w * 0.67f, h * 0.05f, w * 0.43f, h * 0.07f)
-            cubicTo(w * 0.18f, h * 0.09f, w * 0.06f, h * 0.28f, w * 0.08f, h * 0.52f)
-            cubicTo(w * 0.10f, h * 0.78f, w * 0.30f, h * 0.94f, w * 0.52f, h * 0.84f)
-            cubicTo(w * 0.64f, h * 0.78f, w * 0.59f, h * 0.66f, w * 0.72f, h * 0.63f)
-            cubicTo(w * 0.82f, h * 0.61f, w * 0.88f, h * 0.54f, w * 0.88f, h * 0.42f)
-            close()
-        }
-        val thumb = Path().apply { addOval(Rect(w * 0.55f, h * 0.62f, w * 0.72f, h * 0.80f)) }
-        val silhouette = Path().apply { op(body, thumb, PathOperation.Difference) }
-        drawPath(silhouette, color = Color.White.copy(alpha = 0.10f))
-        drawPath(silhouette, color = Color.White.copy(alpha = 0.88f), style = Stroke(width = 1.5.dp.toPx()))
-
-        fun paintWell(center: Offset, radius: Float, paint: Color) {
-            drawCircle(Color.Black.copy(alpha = 0.72f), radius = radius + 1.dp.toPx(), center = center)
-            drawCircle(paint, radius = radius, center = center)
-            drawCircle(
-                Color.White.copy(alpha = 0.55f), radius = radius, center = center,
-                style = Stroke(width = 0.7.dp.toPx()),
-            )
-        }
-
-        val r = minOf(w, h) * 0.085f
-        paintWell(Offset(w * 0.31f, h * 0.29f), r, Cyan)
-        paintWell(Offset(w * 0.51f, h * 0.23f), r, HotPink)
-        paintWell(Offset(w * 0.68f, h * 0.34f), r, Amber)
-        paintWell(Offset(w * 0.34f, h * 0.56f), r * 1.35f, color)
-    }
-}
-
-/**
- * ConfigureRailItems builder block.
- *
- * Procreate-shaped: the rail is only the tools you reach for mid-stroke — brush, smudge, eraser,
- * pen, colour, layers — each with its own glyph. Brush size and opacity live on the edge sliders
- * beside the rail; Adjust/Transform/Blend float as a draggable palette; and everything
- * document-level (open/new/add/align/save/export/share/background/store/settings) is in the
- * drop-down, Procreate's Actions menu — see the `AzDropdownMenu` block in [GraffuxApp].
- */
-
-// The Tool -> (id, label, glyph) catalogue moved to ToolCatalog.kt, where the shortcuts sheet can
-// read the same one the rail does. TOOL_IDS is derived from it there.
-
 
 /**
  * The tool groups that live inside a nested rail of their own rather than the top-level strip.
@@ -2183,747 +1801,31 @@ internal fun secondaryRailClassifiers(uiState: EditorUiState): Set<String> = bui
     if (uiState.selection != null) add(SELECT_ID)
 }
 
-@Suppress(
-    "FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod",
-) // The AzNavRail DSL is necessarily one declarative host tree.
-private fun AzNavHostScope.ConfigureRailItems(
-    vm: EditorViewModel,
-    uiState: EditorUiState,
-    activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?,
-    brushes: List<Pair<String, String>>,
-    customBrushes: List<CustomBrush>,
-    // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't
-    // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and
-    // the colours below are passed in rather than read here).
-    railExpansion: Map<String, Boolean>,
-    /** How many azphalt extensions are installed — badged on the Run Extension item. */
-    installedExtensionCount: Int,
-    strings: AppStrings,
-    navItemColor: Color,
-    activeColor: Color,
-    selectedToolGroup: CarouselCategory?,
-    onBlendMode: () -> Unit,
-    onCurves: () -> Unit,
-    onAddClicked: () -> Unit,
-    onEditClicked: () -> Unit,
-    onModelClicked: () -> Unit,
-    modelWindowOpen: Boolean,
-    onToolOptionsClicked: () -> Unit,
-    onToolGroupRequested: (CarouselCategory) -> Unit,
-    showLayersRail: Boolean,
-    onOpenBrushGallery: () -> Unit,
-    onOpenBrushTipsManager: () -> Unit,
-    /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */
-    drawingUiHidden: () -> Boolean,
-) {
-    // Computed once, read by every stateful item below for both its classifier and its colour.
-    // activeInkUtensil is collected by GraffuxApp and passed in (this builder isn't composable), so
-    // a utensil change recomposes the rail on its own rather than relying on uiState changing too.
-    val activeIds = activeRailClassifiers(
-        RailClassifierInputs(
-            uiState, brushes, customBrushes,
-            modelWindowOpen = modelWindowOpen,
-            activeInkUtensil = activeInkUtensil,
-        ),
-    ) + setOfNotNull(selectedToolGroup?.let(::carouselGroupRailId))
-    val navStrings = strings.nav
+/** Every floating toolbox, by id; a canvas touch folds the open ones. */
+private val TOOLBOX_IDS = listOf("area.animation", "area.model", "area.reference", "area.figma", "area.extensions")
 
-    /** An item's colour: the accent while it is active, the rail's base colour otherwise. */
-    fun railColor(id: String): Color = if (id in activeIds) activeColor else navItemColor
-
-    // ── Item builders ─────────────────────────────────────────────────────────────────────────────
-    // Every item below was six near-identical lines, and an item that can be "on" restated one string
-    // three times over — `id = "x"`, `classifiers = setOf("x")`, `color = railColor("x")`. Three
-    // chances to mistype one of them, and a mistyped classifier is invisible: the item just never
-    // lights up. Declared once here, the id *is* the classifier and the colour key.
-
-    /** A rail item that can be active. [hiddenMenu], when given, opens on a long-press (AzNavRail
-     *  11.42's own long-press mechanic for a plain rail item -- a small popup of `listItem`s, not
-     *  a direct action, since that's the only long-press hook a non-relocatable item has). */
-    fun stateItem(
-        id: String,
-        text: String,
-        content: Any?,
-        shape: AzButtonShape? = null,
-        hiddenMenu: (com.hereliesaz.aznavrail.HiddenMenuScope.() -> Unit)? = null,
-        onClick: () -> Unit,
-    ) =
-        azRailItem(
-            id = id, classifiers = setOf(id), text = text, content = content,
-            color = railColor(id), shape = shape, onClick = onClick, hiddenMenu = hiddenMenu ?: {},
-        )
-
-    /** [stateItem], under a host. */
-    fun stateSubItem(id: String, hostId: String, text: String, content: Any?, shape: AzButtonShape? = null, onClick: () -> Unit) =
-        azRailSubItem(
-            id = id, hostId = hostId, classifiers = setOf(id), text = text, content = content,
-            color = railColor(id), shape = shape, onClick = onClick,
-        )
-
-    /** A sub-item with no state to show — a one-shot action, so it never carries a classifier. */
-    fun subItem(id: String, hostId: String, text: String, content: Any?, shape: AzButtonShape? = null, onClick: () -> Unit) =
-        azRailSubItem(
-            id = id, hostId = hostId, text = text, content = content,
-            color = navItemColor, shape = shape, onClick = onClick,
-        )
-
-    /**
-     * A group header: the bordered circle every host in this rail shares.
-     *
-     * The id is the classifier, as it is for every other builder here. It used to default to
-     * `emptySet()`, and five of the six hosts took that default — so `railColor(id)` inside this
-     * function was computing an accent that the library could never apply, because AzNavRail marks
-     * an item active by matching its *classifiers* against the active set, and an empty set matches
-     * nothing. An armed Select tool showed nothing at all once its group was closed.
-     */
-    fun hostItem(id: String, text: String, content: Any?, classifiers: Set<String> = setOf(id)) =
-        azRailHostItem(
-            id = id, text = text, content = content, classifiers = classifiers,
-            color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
-            // Restores exactly as the user left it on reopen -- see EditorViewModel.railExpansion's
-            // doc comment. AzNavRail 11.44 (this app's pin) has carried per-host onExpandedChange
-            // since 10.11; nothing here ever actually read or wrote it before.
-            initiallyExpanded = railExpansion[id] ?: false,
-            onExpandedChange = { vm.onRailHostExpansionChanged(id, it) },
-        )
-
-    /**
-     * A tool. Tapping selects it; tapping the tool already in hand clears back to [Tool.NONE], which
-     * is Procreate's behaviour and the reason all eleven of these were the same six lines. The id
-     * comes from [TOOL_IDS], not the call site, so the rail and [activeRailClassifiers] read one
-     * mapping and cannot disagree about which item is lit.
-     */
-    fun toolItem(
-        tool: Tool,
-        text: String,
-        content: Any?,
-        hiddenMenu: (com.hereliesaz.aznavrail.HiddenMenuScope.() -> Unit)? = null,
-    ) {
-        val id = TOOL_IDS.getValue(tool)
-        stateItem(id, text, content, hiddenMenu = hiddenMenu) {
-            vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
-        }
-    }
-
-    /** [toolItem], under a host. */
-    fun toolSubItem(tool: Tool, hostId: String, text: String, content: Any?) {
-        val id = TOOL_IDS.getValue(tool)
-        stateSubItem(id, hostId, text, content) { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) }
-    }
-
-    /**
-     * A mode that stays on until turned off.
-     *
-     * These were `azRailToggle`s, which take no `content` at all: the rail drew them as the words
-     * "Sym On"/"Sym Off", so five items in a strip of glyphs were text. As classified items they
-     * carry a glyph and take the filled container while the mode is on — the same "this is active"
-     * every other item gets. The words stay in the drawer, which is a list and can afford them.
-     */
-    fun modeItem(id: String, text: String, content: Any?, onClick: () -> Unit) =
-        azRailItem(
-            id = id, classifiers = setOf(id), text = text,
-            content = content, color = railColor(id), onClick = onClick,
-        )
-    // No `menuText` here any more. It rendered a "$text ✓" variant for the side drawer, and this app
-    // sets `azConfig(noMenu = true)` — the drawer does not exist. The library reads menuText only
-    // from its drawer surfaces, so every one of these strings was built and discarded, while the
-    // comment beside them described a list the user cannot open. The tick is carried by the item's
-    // own active state, which is the thing that is actually on screen.
-
-    /** One tool item, built against whichever rail scope is the current receiver. */
-    fun AzNavRailScope.nestedTool(tool: Tool, label: String, icon: Int) {
-        val id = TOOL_IDS.getValue(tool)
-        azRailItem(
-            id = id, classifiers = setOf(id), text = label, content = icon,
-            color = railColor(id), shape = AzButtonShape.NONE_SQUARE,
-            fillColor = railColor(id),
-            onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
-        )
-    }
-
-    // ── Brush · Eraser ─────────────────────────────────────────────────────────────────────────────
-    // First in the rail: the two tools a stroke starts and ends with, reached for more than anything
-    // below them, drawn from the Graffux set (`GraffuxIcons`, generated by branding/icons/build.py)
-    // rather than a general-purpose library — a broom stood in for the eraser and a squiggle for
-    // smudge, because a library built for dashboards has no drawing for either.
-    // Long-press opens a small menu: Brush Studio on the brush currently in hand ("edit this brush"
-    // when a custom one is selected, "make a new one" otherwise), the My Brushes gallery, and the
-    // Brush Tips manager. This is the one long-press mechanic AzNavRail 11.42 gives a plain rail
-    // item (a small popup, not a direct jump -- see stateItem's own doc comment for why).
-    toolItem(
-        Tool.BRUSH, uiState.activeBrushName ?: navStrings.brush, GraffuxIcons.Brush,
-        hiddenMenu = {
-            listItem("Brush Studio") {
-                val editing = customBrushes.firstOrNull { it.brush.name == uiState.activeBrushName }?.id
-                vm.onOpenBrushStudio(editing)
-            }
-            listItem("My Brushes") { onOpenBrushGallery() }
-            listItem("Brush Tips") { onOpenBrushTipsManager() }
-        },
+/** The Animation toolbox: Animation Assist, and its transport while it is on. */
+private fun animationToolbox(vm: EditorViewModel, uiState: EditorUiState, lit: Set<String>): ToolboxSpec {
+    val actions = mutableListOf(
+        ToolboxAction(
+            if (uiState.isAnimationMode) "Close Animation Assist" else "Animation Assist",
+            lit = "tool.animation" in lit,
+        ) { vm.onToggleAnimationMode() },
     )
-    toolItem(Tool.ERASER, "Eraser", GraffuxIcons.Eraser)
-    // The brush size / hardness pad, in the strip beside the brush it sizes.
-    //
-    // Drag up/down for size, across for hardness — one gesture for both, which is why this is a pad
-    // and not two sliders. It used to hang off an unattached host of its own, so the control reached
-    // for most often sat in a different part of the screen from the brush it belongs to.
-    //
-    // NONE, not NONE_CIRCLE: the content is a drag pad rather than a glyph, and a circular footprint
-    // gives the across-axis nothing to travel along. It is the one item in the strip that is wider
-    // than it is tall, and the shape is carrying layout rather than affordance.
-    azRailItem(
-        id = "adj.brush", text = navStrings.brush, shape = AzButtonShape.NONE,
-        color = navItemColor, content = AzComposableContent { BrushSizePad(vm, onToolOptionsClicked) },
-    )
-
-    // The colour item shows the current colour itself, the way Procreate's swatch does, rather than
-    // a generic palette glyph that says nothing about what you're about to paint with — filling a
-    // painter's-palette silhouette ([PaletteSwatch]) rather than a plain square chip, so the shape
-    // reads as "the paint you have loaded" on its own, not just by association with the picker it
-    // opens. Layers is the other constant and has left this strip entirely — it is an unattached
-    // floating host, the rail's nearest equivalent to Procreate's Layers panel.
-    stateItem(
-        id = "tool.color", text = navStrings.color,
-        content = AzComposableContent { PaletteSwatch(uiState.activeColor) },
-        // The active ring now supplies the state; no permanent border pretending to be selection.
-        shape = AzButtonShape.NONE_SQUARE,
-    ) { vm.onColorClicked() }
-
-    // Procreate's ColorDrop: tap the canvas to flood-fill with the active colour. The icon must
-    // match TOOL_CATALOG's (GraffuxIcons.Fill) -- the shortcuts sheet reads that catalogue, so a
-    // different glyph here would show the tool differently depending on where you find it.
-    toolItem(Tool.FILL, "Fill", GraffuxIcons.Fill)
-
-    toolItem(Tool.TEXT, "Text", GraffuxIcons.Type)
-
-    // ── The Vector group ──────────────────────────────────────────────────────────────────────────
-    // Everything below the four constants above is Photoshop's inheritance rather than Procreate's.
-    // It used to be grouped the way Photoshop groups it — vector, retouching, focus and tone, three
-    // separate nested rails — but that meant three accordions to open for tools reached for in the
-    // same breath, so they're one Vector group now.
-    //
-    // The flat top-level strip copied Procreate's *shape* — a row you don't have to open — while
-    // carrying Photoshop's whole tool count, so it ran to thirteen items when the thing it was
-    // imitating shows five, and none of the relationships between them were visible: Dodge and Burn
-    // are one idea in two directions, Blur and Sharpen another, Heal and Clone both sample from
-    // elsewhere on the layer. Flat, they read as thirteen unrelated buttons. Grouped, the strip is
-    // short and each group is a sentence.
-    //
-    // Every tool keeps its id, its classifier and its behaviour — only where you reach it moves, so
-    // nothing about a recorded stroke, a co-op peer or a saved project changes.
-    //
-    // Pen draws a real PATH shape rather than pixels, and node editing operates on the shape it
-    // drew — the tool and the way you correct its output, which is why they sit together rather
-    // than the editing controls living twenty items further down the rail as they used to.
-    stateItem(
-        VECTOR_ID, "Vector", GraffuxIcons.PenInk,
-    ) { onToolGroupRequested(CarouselCategory.VECTOR) }
-
-    // ── The two workspaces ────────────────────────────────────────────────────────────────────────
-    // Animation and 3D are not tools you reach for mid-stroke; they are surfaces you set up and then
-    // work inside, and both have far more state than a rail item can show. Each is one item here
-    // that opens one floating window — the same window every other panel in the app uses, so it
-    // drags where you want it, collapses, and never dims the artwork underneath.
-    //
-    // Animation used to be four separate places in this rail: a mode toggle, a host carrying the
-    // transport and the loop modes, two sliders further down among the brush sliders, and the
-    // time-lapse recorder several items above. Nothing said they were related, and the mode could be
-    // left running with its panel shut — onion skins still drawn, playback still going, no sign of
-    // it. Opening the window now *is* turning the mode on, and closing it turns it off.
-    //
-    // 3D was worse off: its only way in was an entry called "3D Model…" filed in the Actions
-    // drop-down between "Export for Figma" and "Install extension from file…". Everything it opens has always been
-    // collected — ModelWindow holds the viewport, the model picker, paint mode, clear, and add-to-
-    // canvas — but nothing in the rail admitted the feature existed.
-    // GuideIsometric rather than a cube: the Graffux set has no cube, and this is the one glyph in
-    // it that draws a solid in three dimensions. Better a near-miss from the app's own set than a
-    // stray icon from a library, which is how the rail ended up with a broom for the eraser.
-    // (No sliders on the rail. Still none, and this is the standing rule rather than an omission: a
-    // rail of round buttons is the wrong place for a control that needs a length to be usable and a
-    // read-out to be meaningful, and `azRailSlider` has no "you let go" event — which is why the two
-    // that wrote to history wrote once per emitted frame. Brush size and hardness are the drag pad
-    // up in the tool strip, which shows the real footprint at the real size and carries the number
-    // on its badge; stabilize and the selection dials are the Tool Options window; auto-layout's gap
-    // is in that layer's own hidden menu with the rest of its properties. Brush *opacity* is gone
-    // outright: layer opacity is already an Adjust knob, and the rail slider claimed to move "the
-    // value buildStrokePaint actually samples" when only one of fourteen tools ever read it.)
-    // No brush group in the main rail strip: brushes are picked from the bottom carousel, and the
-    // Brush tool's long-press menu opens Brush Studio, My Brushes and the Brush Tips manager.
-    //
-    // `"grp.brushes"` survives as a bare classifier string (see ConfigureRailItems' own use of it
-    // for "no extension selected") even with no rail item of that id anymore -- classifiers are
-    // just semantic keys railColor()/activeRailClassifiers() look up, independent of whether a
-    // host item shares the string.
-
-    // Layers, shown directly in the rail as relocatable (drag-to-reorder) sub-items — the
-    // Procreate layers-panel equivalent — instead of a separate floating LayersPanel. Each
-    // item's own content IS the layer's thumbnail. uiState.layers is bottom-to-top (index 0
-    // paints first, underneath everything); declared here top-first (reversed) so the item at
-    // the top of the expanded group is the frontmost layer, matching the old LayersPanel's
-    // convention and Photoshop/Procreate's own. A group layer is a rail host of its own
-    // (azRailRelocSubHostItem under its parent's host, draggable with its children) and its
-    // children are ordinary rail sub-items whose hostId is that group — never a nested rail — so
-    // reordering stays scoped to siblings at each level. See layerRailRows for the declaration
-    // order and why it matters.
-    //
-    // Unattached and pinned to the opposite side of the screen from the main rail, not a group
-    // in the rail strip. Layers is the one host you keep reaching for *while* painting —
-    // Procreate gives it a panel of its own for that reason — and as a rail group it sat behind
-    // the same expand-collapse as every tool, so getting to a layer meant opening the rail and
-    // pushing everything else aside. OPPOSITE locks it to the far edge of the screen, level with
-    // the rail's own items, so it stays put and never drifts under a stray drag.
-    //
-    // Was FLOATING (draggable, screen-edge-docking, position persisted per launch). Switched to
-    // OPPOSITE: FLOATING's docking/persistence machinery (AzNavRail 11.37/11.38's rewrite of it)
-    // is where this host went missing entirely on a real device — a floating host is free to end
-    // up rendered somewhere unreachable (off-screen, behind chrome, wherever a stale or malformed
-    // persisted position points), which is exactly the failure mode this doc comment already
-    // argued against ("stays put... never drifts") when FLOATING was chosen over it. OPPOSITE has
-    // a fixed screen position by construction — there is no persisted coordinate for a bug in
-    // that upstream machinery to corrupt — so it cannot go missing the same way. The cost is losing
-    // drag-to-reposition and rail-to-rail docking, which this host never really wanted per the
-    // comment above anyway.
-    //
-    // Square, not the circle every rail group wears: a panel on the opposite edge is not a rail
-    // group, and the shape is what says so before the user reads a label. It also matches what
-    // the host contains — layer thumbnails are rectangular images, and a circular clip crops the
-    // corners off every one of them.
-    //
-    // Gated on `showLayersRail` (default true — this is core, not opt-in, unlike the toolbox
-    // rails elsewhere in this file): the hamburger menu's "Layers rail" toggle exists purely as a
-    // recovery switch. Toggling it off then on drops and recreates this host's AzNavRail-internal
-    // state, which is the only way to un-stick a panel that manages to end up unreachable again —
-    // the toggle is always reachable even when the panel it controls is not, unlike the old
-    // `if (uiState.layers.isNotEmpty())` gate this replaced: hiding the whole host — button and
-    // all — the moment the document had zero layers (a fresh project, or the last layer just
-    // deleted) left no way back to it short of guessing to pick a drawing tool.
-    if (showLayersRail) {
-        azUnattachedHostItem(
-            id = "grp.layers",
-            text = strings.editor.layers,
-            anchor = AzUnattachedAnchor.OPPOSITE,
-            content = GraffuxIcons.Layers,
-            color = navItemColor,
-            shape = AzButtonShape.NONE_SQUARE,
-            initiallyExpanded = railExpansion["grp.layers"] ?: true,
-            // Collapses while drawing, re-expands after the hold, only if the user had it open.
-            expandWhen = { DrawingRailFold.hostExpandWhen(railExpansion["grp.layers"] ?: true, drawingUiHidden()) },
-            onExpandedChange = {
-                if (DrawingRailFold.persistExpansionChange(it, drawingUiHidden())) {
-                    vm.onRailHostExpansionChanged("grp.layers", it)
-                }
-            },
-        )
-        val layerRailEnv = LayerRailEnv(
-            vm, navItemColor, strings, railExpansion,
-            onBlendMode = onBlendMode, onEditClicked = onEditClicked, onCurves = onCurves,
-        )
-        layerRailRows(uiState.layers).forEach { row ->
-            renderLayerRailItem(row, uiState, layerRailEnv)
-        }
-        // Always present, not just when the document has zero layers: with one layer already in
-        // place, the only other way to add a blank one was a four-finger-hold radial menu whose
-        // "Layer" entry says nothing about layers, and nothing in the layers host itself, the rail
-        // strip, or the dropdown ever added a plain paint layer. A fixed position at the bottom of
-        // the stack (declared after every layer, since the host renders topmost-first), rather than
-        // sorted in with the layers, so it's always where the last visit left it — and at the
-        // bottom rather than the top so it doesn't shove every layer down a slot each time the list
-        // is scanned top-to-bottom.
-        azRailSubItem(
-            id = "layer.add", hostId = "grp.layers", text = "Add Layer",
-            content = GraffuxIcons.LayerAdd,
-            color = navItemColor,
-            onClick = { vm.onAddBlankLayer() },
-        )
-        uiState.activeLayerId?.let { activeId ->
-            azRailSubItem(
-                id = "layer.deleteActive", hostId = "grp.layers", text = "Delete Active Layer",
-                content = GraffuxIcons.LayerDelete, color = navItemColor,
-                onClick = {
-                    val active = uiState.layers.firstOrNull { it.id == activeId }
-                    if (active?.type == LayerType.GROUP) vm.onDeleteGroup(activeId)
-                    else vm.onLayerRemoved(activeId)
-                },
-            )
-        }
-    }
-
-    // Add and Align are document actions, not painting tools — they live in the drop-down (Procreate's
-    // Actions menu), keeping the rail to the tools you reach for mid-stroke.
-
-    // Extensions: runs an installed code extension's filter/tool, or applies an installed LUT.
-    // "Run Extension", not "Extensions": the drop-down already has an "Extensions" entry, and it
-    // opens the *manager*. This one runs an installed filter or LUT against the artwork. Two
-    // windows under one name is how a user ends up in the wrong one.
-
-    // ── Crop & Transform · Selection · Fit ────────────────────────────────────────────────────────
-    // Canvas-level controls, grouped at the foot of the strip directly above Help. Fit is disabled
-    // until the view has moved off the default framing.
-    stateItem(
-        TRANSFORM_ID, "Crop & Transform", GraffuxIcons.Crop,
-    ) { onToolGroupRequested(CarouselCategory.TRANSFORM) }
-
-    stateItem(
-        SELECT_ID, "Selection", GraffuxIcons.SelectAll,
-    ) { onToolGroupRequested(CarouselCategory.SELECTION) }
-
-    val viewMoved = uiState.viewportZoom != 1f ||
-        uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
-        uiState.viewportRotation != 0f
-    // Only there while there is something to reset: a view already at its default framing has
-    // nothing for Fit to do, so the button isn't shown at all.
-    if (viewMoved) {
-        azRailItem(
-            id = "view.fit", text = "Fit", content = GraffuxIcons.ZoomFit, color = navItemColor,
-            info = "Fit the canvas to the screen", onClick = { vm.resetViewport() },
+    if (uiState.isAnimationMode) {
+        actions += listOf(
+            ToolboxAction(if (uiState.isAnimationPlaying) "Pause" else "Play") { vm.onToggleAnimationPlayback() },
+            ToolboxAction("Previous Frame") { vm.onPreviousFrame() },
+            ToolboxAction("Next Frame") { vm.onNextFrame() },
+            ToolboxAction("Add Frame (${vm.animationFrameCount()})") { vm.onAddFrame() },
+            ToolboxAction(if (uiState.onionSkinEnabled) "Onion Skin Off" else "Onion Skin On") { vm.onToggleOnionSkin() },
+            ToolboxAction("Export Animation") { vm.exportAnimation() },
+            ToolboxAction(
+                if (uiState.isTimeLapseRecording) "Stop Time-lapse" else "Start Time-lapse",
+            ) { vm.onToggleTimeLapseRecording() },
         )
     }
-
-    // Undo and Redo, always on the rail: the carousel's History tab also has them, but the sheet
-    // shuts during every stroke and can be dragged away, and undo must never go with it.
-    azRailItem(
-        id = "history.undo", text = "Undo", content = GraffuxIcons.Undo, color = navItemColor,
-        disabled = uiState.undoCount == 0, onClick = { vm.onUndoClicked() },
-    )
-    azRailItem(
-        id = "history.redo", text = "Redo", content = GraffuxIcons.Redo, color = navItemColor,
-        disabled = uiState.redoCount == 0, onClick = { vm.onRedoClicked() },
-    )
-
-    // The `?`. It opens the library's help overlay, which draws a card for every item currently in
-    // the rail — its label, plus whatever RAIL_HELP has to say about it. The rail is this app's
-    // entire interface and a good deal of it is conditional, which means the ordinary way to
-    // discover a control is to already have caused it to appear. This is the way that isn't.
-    //
-    // Bordered, like everything else that opens something rather than doing something. Last in the
-    // strip: it is the item you reach for when the others have not explained themselves.
-    azHelpRailItem(
-        id = "help", text = "Help", content = GraffuxIcons.Help,
-        color = navItemColor, shape = AzButtonShape.SQUARE,
-    )
-
-    // ── Badges ───────────────────────────────────────────────────────────────────────────────────
-    //
-    // Declared here rather than on each item, for the same reason activeRailClassifiers is one
-    // function: `azItemState` is applied after every item is declared, so order does not matter and
-    // an unknown id is ignored — which makes this the one place to read what the rail is counting.
-    //
-    // A badge earns its place when the item's own picture cannot say the number: how big the brush
-    // is, how many layers deep the document is, how many brushes or extensions are installed, how
-    // many frames the animation has. Items whose content already IS their state get none — the
-    // colour swatch, every tool glyph, the mode pickers. A badge repeating what the button already
-    // draws is noise in a strip this dense.
-    azItemState(id = "adj.brush", badge = uiState.brushSize.roundToInt().toString(), persistentBadge = true)
-    // The Brush tool's own glyph doesn't say a size at all -- unlike the drag pad above, whose
-    // preview already is the size. Same number, so the two never disagree.
-    azItemState(id = "tool.brush", badge = uiState.brushSize.roundToInt().toString(), persistentBadge = true)
-    // Top-level count, matching what the host actually renders (the `parentId == null` filter
-    // above) — not uiState.layers.size, which is the flat list and includes every group's
-    // children. With one group of two children plus a loose layer, the flat count is 3 but the
-    // host shows 2 rows; a badge that disagrees with what tapping it reveals is worse than none.
-    azItemState(
-        id = "grp.layers",
-        badge = uiState.layers.count { it.parentId == null }.takeIf { it > 0 }?.toString(),
-    )
-    azItemState(id = "adj.extensions", badge = installedExtensionCount.takeIf { it > 0 }?.toString())
-    // Frames, but only while Animation Assist is on: outside it the layer count is what `grp.layers`
-    // already says, and the same number badged twice under two names is worse than one.
-    azItemState(
-        id = "tool.animation",
-        badge = vm.animationFrameCount().takeIf { uiState.isAnimationMode }?.toString(),
-    )
-    azItemState(id = SELECT_ID, badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
-    azItemState(id = "sel.manage", badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString())
-}
-
-/**
- * Declares one [LayerRailRow]. A leaf layer is an `azRailRelocItem` under the row's host. A
- * [LayerType.GROUP] is an `azRailRelocSubHostItem` under the row's host with id `layer.<groupId>`,
- * and its children (declared by [layerRailRows] directly after it) are reloc sub-items with that id
- * as their `hostId` — sub-items of a host, not a nested rail. Leaves and groups share one reloc
- * cluster per host, so a group drags among its siblings like any layer, carrying its children.
- *
- * onRelocate's newOrder is the host's direct reloc members (leaf and group ids), top-first;
- * [EditorViewModel.onLayerRailRelocated] narrows it to the host's own layers and applies it via
- * [LayerListOps.reorderSubset] as one undoable reorder. A group's children keep their `parentId`,
- * so they follow the group without being touched.
- */
-private fun AzNavHostScope.renderLayerRailItem(row: LayerRailRow, uiState: EditorUiState, env: LayerRailEnv) {
-    val vm = env.vm
-    val navItemColor = env.navItemColor
-    val layer = row.layer
-    val id = layerRailId(layer.id)
-    val menu: HiddenMenuScope.() -> Unit = {
-        renderLayerMenu(layer, uiState, env)
-    }
-    if (row.isGroup) {
-        azRailRelocSubHostItem(
-            id = id, hostId = row.hostId, classifiers = setOf(id),
-            text = layer.name,
-            content = GraffuxIcons.LayerGroup,
-            // A group keeps a border at rest so it reads as a host, not a layer thumbnail.
-            shape = AzButtonShape.SQUARE,
-            color = navItemColor,
-            initiallyExpanded = env.railExpansion[id] ?: false,
-            onExpandedChange = { vm.onRailHostExpansionChanged(id, it) },
-            onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
-            hiddenMenu = menu,
-        )
-        return
-    }
-    azRailRelocItem(
-        id = id, classifiers = setOf(id),
-        hostId = row.hostId,
-        text = layer.name,
-        // A raw android.graphics.Bitmap doesn't match any of AzNavRailButton's explicit content
-        // branches (Color/Int-resource/String/ImageVector/Painter), so it fell through to Coil's
-        // rememberAsyncImagePainter -- the wrong tool for pixels that are already decoded and, worse,
-        // mutated/recycled in place by this app's own paint pipeline out from under whatever Coil
-        // cached. Wrapping it as a BitmapPainter hits AzNavRailButton's direct Painter branch instead
-        // -- a synchronous Image(painter) draw, no async load or cache to go stale.
-        content = layer.bitmap?.let { BitmapPainter(it.asImageBitmap()) } ?: GraffuxIcons.LayerThumbnail,
-        // Square, like the floating host these live in — and unlike a circular clip, it shows the
-        // layer's thumbnail whole instead of cropping its corners. Borderless at rest; it grows
-        // AzNavRailButton's active-state ring (11.19+) only while it's the active layer.
-        shape = AzButtonShape.NONE_SQUARE,
-        color = navItemColor,
-        onClick = { vm.onLayerActivated(layer.id) },
-        // newOrder is this host's reloc members (leaves and groups), top-first; the ViewModel narrows
-        // it to the host's own layers (the group's children when parentId is a group's id).
-        onRelocate = { _, _, newOrder -> vm.onLayerRailRelocated(newOrder, layer.parentId) },
-        hiddenMenu = menu,
-    )
-    if (layer.alphaLock) {
-        azItemState(id = id, badge = "🔒", persistentBadge = true)
-    }
-}
-
-/** What every layer row in the layers rail needs from the screen around it. */
-private data class LayerRailEnv(
-    val vm: EditorViewModel,
-    val navItemColor: Color,
-    val strings: AppStrings,
-    val railExpansion: Map<String, Boolean>,
-    val onBlendMode: () -> Unit,
-    val onEditClicked: () -> Unit,
-    val onCurves: () -> Unit,
-)
-
-/** A layer's hidden menu: the same rows on a leaf layer's reloc item and on a group's host item. */
-private fun HiddenMenuScope.renderLayerMenu(layer: Layer, uiState: EditorUiState, env: LayerRailEnv) {
-    val vm = env.vm
-    val strings = env.strings
-    val onBlendMode = env.onBlendMode
-    val onEditClicked = env.onEditClicked
-    val onCurves = env.onCurves
-    val isGroup = layer.type == LayerType.GROUP
-    // The layer's own tools, on the layer whose menu you opened. Each one selects that layer
-    // first, so a tool never lands on whichever layer happened to be active a moment ago — which
-    // is what made these worth moving here rather than leaving them as rail buttons that act on
-    // "the active layer, wherever it is". Panels are opened, not drawn: a hidden menu is a list
-    // of rows (listItem / inputItem — see the AzNavRail guide), so the knobs stay in the panels
-    // they already live in and these are the way in to them.
-    fun on(action: () -> Unit): () -> Unit = { vm.onLayerActivated(layer.id); action() }
-
-    listItem(strings.nav.adjust, on { vm.onAdjustClicked() })
-    listItem("Balance", on { vm.onBalanceClicked() })
-    listItem("Blend Mode", on(onBlendMode))
-    listItem("Transform", on { vm.onTransformClicked() })
-    listItem("Layer Options", on(onEditClicked))
-
-    inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
-    listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
-    if (isGroup) {
-        listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
-        listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
-    } else {
-        // The one rule, shared with the quick menu. This used to allow anything that was not a
-        // group, so a vector layer offered a lock no stroke would ever consult.
-        if (layer.supportsAlphaLock) {
-            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
-        }
-        listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
-        listItem("Curves", on(onCurves))
-        listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
-        listItem("Merge Down") { vm.onMergeDown(layer.id) }
-        listItem("Flatten All") { vm.onFlattenAllLayers() }
-        listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
-        listItem("Clear", on { vm.onClearLayer() })
-        listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
-    }
-
-    // Only a top-level layer can be a frame in the first place (see AnimationFrames' doc
-    // comment) -- offered regardless of isGroup, since a GROUP frame is exactly as valid a
-    // frame as a plain one, and this only makes sense for a layer that would otherwise BE one.
-    if (layer.parentId == null) {
-        listItem(if (layer.isPinnedAcrossFrames) "Pinned Across Frames ✓" else "Pin Across Frames") {
-            vm.onTogglePinnedAcrossFrames(layer.id)
-        }
-    }
-
-    // Link to the layer below. The machinery behind this was complete — getLinkedGroupIds walks
-    // the contiguous run, and onTransformGesture already moves the whole linked group as one —
-    // but onToggleLinkLayer had no caller anywhere, so no layer could ever be linked and the
-    // group-move path was unreachable. The README advertised the feature all the same.
-    listItem(if (layer.isLinked) "Linked ✓" else "Link to Below") { vm.onToggleLinkLayer(layer.id) }
-
-    // Copy/paste the layer's *look* — opacity, the tone knobs, blend mode and the warp mesh —
-    // without touching its pixels. Both halves were implemented and neither had a caller.
-    listItem("Copy Adjustments") { vm.copyLayerModifications(layer.id) }
-    if (vm.hasCopiedLayerModifications) {
-        listItem("Paste Adjustments") { vm.pasteLayerModifications(layer.id) }
-    }
-
-    renderLayerStyleMenu(layer, uiState, vm, ::on)
-    renderLayerLayoutMenu(layer, uiState, vm, ::on)
-    renderLayerComponentMenu(layer, uiState, vm, ::on)
-}
-
-/**
- * Shared styles (Figma tokens) for one layer, as hidden-menu rows.
- *
- * Every row is gated on the layer actually having something for it to act on, so a raster layer's
- * menu carries none of this. Creating a token also links the layer to it, which is why "New …" only
- * shows where there is a look to lift.
- */
-private fun HiddenMenuScope.renderLayerStyleMenu(
-    layer: Layer,
-    uiState: EditorUiState,
-    vm: EditorViewModel,
-    on: (() -> Unit) -> () -> Unit,
-) {
-    val shape = layer.shapes.firstOrNull()
-    val params = layer.textParams
-    if (shape != null) {
-        listItem("New Colour Style", on {
-            vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}")
-        })
-    }
-    if (params != null) {
-        listItem("New Text Style", on {
-            vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}")
-        })
-    }
-    uiState.colorStyles.forEach { style ->
-        val fillLinked = layer.shapes.any { it.fillStyleId == style.id }
-        val strokeLinked = layer.shapes.any { it.strokeStyleId == style.id }
-        // Update/Delete moved inside this gate with the rows above: they used to sit outside it
-        // and ran for every layer regardless of shape != null, so a plain raster layer's menu
-        // listed "Update"/"Delete" for every colour style anyone had ever made in the document —
-        // exactly what this function's own doc comment says a raster layer's menu carries none of.
-        if (shape != null) {
-            listItem(if (fillLinked) "Fill: ${style.name} ✓" else "Fill: ${style.name}", on {
-                vm.onApplyColorStyle(if (fillLinked) null else style.id)
-            })
-            // The stroke half of the pair. It had an intent and a StyleOps function and no way in.
-            listItem(if (strokeLinked) "Stroke: ${style.name} ✓" else "Stroke: ${style.name}", on {
-                vm.onApplyStrokeStyle(if (strokeLinked) null else style.id)
-            })
-            listItem("Update ${style.name} to Colour", on { vm.onUpdateColorStyleToActiveColor(style.id) })
-            listItem("Delete ${style.name}") { vm.onDeleteColorStyle(style.id) }
-        }
-    }
-    uiState.textStyles.forEach { style ->
-        // Same fix as the colour loop above: Delete used to run unconditionally.
-        if (params != null) {
-            val linked = params.styleId == style.id
-            listItem(if (linked) "Text: ${style.name} ✓" else "Text: ${style.name}", on {
-                vm.onApplyTextStyle(if (linked) null else style.id)
-            })
-            // The text equivalent of "Update … to Colour", which until now did not exist: a text
-            // token could be made and deleted but never edited.
-            listItem("Update ${style.name} from Layer", on { vm.onUpdateTextStyleToActive(style.id) })
-            listItem("Delete ${style.name}") { vm.onDeleteTextStyle(style.id) }
-        }
-    }
-}
-
-/**
- * Auto-layout and constraints (Figma) for one layer.
- *
- * Auto-layout only where the layer has children to arrange; constraints only where it has a parent
- * to be constrained within — and not even then if that parent runs auto-layout, since the parent
- * owns placement in that case and a constraint would be a control that does nothing.
- */
-private fun HiddenMenuScope.renderLayerLayoutMenu(
-    layer: Layer,
-    uiState: EditorUiState,
-    vm: EditorViewModel,
-    on: (() -> Unit) -> () -> Unit,
-) {
-    val hasChildren = uiState.layers.any { it.parentId == layer.id }
-    if (hasChildren && layer.type == LayerType.GROUP) {
-        // The frame's box, typed as "W x H". Setting it resizes the frame and runs its children's
-        // constraints (or its auto-layout) — the numeric twin of the frame's resize handle. Same
-        // inputItem row the Rename field above uses; an entry that doesn't parse is ignored.
-        val w = if (layer.layoutWidth > 0f) layer.layoutWidth else uiState.documentWidth.toFloat()
-        val h = if (layer.layoutHeight > 0f) layer.layoutHeight else uiState.documentHeight.toFloat()
-        inputItem(hint = "Frame Size (W x H)", initialValue = "${w.roundToInt()} x ${h.roundToInt()}") { text ->
-            val parts = text.split('x', 'X', '×', ',', ' ').mapNotNull { it.trim().toFloatOrNull() }
-            if (parts.size == 2) {
-                vm.onLayerActivated(layer.id)
-                vm.onSetFrameSize(parts[0], parts[1])
-            }
-        }
-    }
-    if (hasChildren) {
-        val current = layer.autoLayout
-        LayoutDirection.entries.forEach { dir ->
-            val label = when (dir) {
-                LayoutDirection.NONE -> "Free"
-                LayoutDirection.HORIZONTAL -> "Row"
-                LayoutDirection.VERTICAL -> "Column"
-            }
-            listItem(if (current.direction == dir) "Layout: $label ✓" else "Layout: $label", on {
-                vm.onSetAutoLayout(current.copy(direction = dir))
-            })
-        }
-        if (current.direction != LayoutDirection.NONE) {
-            listItem("Hug Contents", on { vm.onHugContents() })
-            LayoutAlign.entries.forEach { align ->
-                val name = align.name.lowercase().replaceFirstChar { c -> c.uppercase() }
-                listItem(if (current.align == align) "Align $name ✓" else "Align $name", on {
-                    vm.onSetAutoLayout(current.copy(align = align))
-                })
-            }
-        }
-    }
-    val parent = layer.parentId?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
-    if (parent != null && parent.autoLayout.direction == LayoutDirection.NONE) {
-        ConstraintAnchor.entries.forEach { anchor ->
-            val name = anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }
-            listItem(if (layer.constraints.horizontal == anchor) "H: $name ✓" else "H: $name", on {
-                vm.onSetConstraints(layer.constraints.copy(horizontal = anchor))
-            })
-        }
-        ConstraintAnchor.entries.forEach { anchor ->
-            val name = anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }
-            listItem(if (layer.constraints.vertical == anchor) "V: $name ✓" else "V: $name", on {
-                vm.onSetConstraints(layer.constraints.copy(vertical = anchor))
-            })
-        }
-    }
-}
-
-/**
- * Components and instances (Figma) for one layer. What is offered follows what the layer already
- * is, so the menu never shows a control that would no-op — Detach only on an instance, Release only
- * on a main, Make Component only on a plain layer.
- */
-private fun HiddenMenuScope.renderLayerComponentMenu(
-    layer: Layer,
-    uiState: EditorUiState,
-    vm: EditorViewModel,
-    on: (() -> Unit) -> () -> Unit,
-) {
-    if (layer.componentId == null && layer.instanceOf == null) {
-        listItem("Make Component", on { vm.onMakeComponent() })
-    }
-    if (layer.instanceOf != null) listItem("Detach Instance", on { vm.onDetachInstance() })
-    if (layer.componentId != null) listItem("Release Component", on { vm.onReleaseComponent() })
-    uiState.layers.filter { it.componentId != null }.forEach { main ->
-        listItem("Place ${main.name}") { main.componentId?.let { vm.onPlaceInstance(it) } }
-    }
+    return ToolboxSpec("area.animation", "Animation", GraffuxIcons.MotionTween, "area.animation" in lit, actions)
 }
 
 /** A store app's answer, held until the user confirms the install. */

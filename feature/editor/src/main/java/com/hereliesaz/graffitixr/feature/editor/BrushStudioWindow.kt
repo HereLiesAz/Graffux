@@ -32,8 +32,8 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.azphalt.BrushColorSource
 import com.hereliesaz.graffitixr.common.azphalt.BrushParameter
@@ -127,10 +127,10 @@ fun BrushStudioWindow(
 
             ParamSlider("Spacing", draft.spacing, 0.01f..4f, asFraction = true) { v -> onEdit { it.copy(spacing = v) } }
             ParamSlider("Tip ratio", draft.tipRatio, 0.05f..1f, asFraction = true) { v -> onEdit { it.copy(tipRatio = v) } }
-            AzButton(
+            GraffuxButton(
                 text = if (draft.isotropicSpacing) "Spacing: diameter" else "Spacing: ratio-aware",
                 onClick = { onEdit { it.copy(isotropicSpacing = !it.isotropicSpacing) } },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             ParamSlider("Opacity", draft.opacity, 0f..1f) { v -> onEdit { it.copy(opacity = v) } }
             ParamSlider("Hardness", draft.hardness, 0f..1f) { v -> onEdit { it.copy(hardness = v) } }
@@ -142,10 +142,10 @@ fun BrushStudioWindow(
             }
             ParamSlider("Spin per px", draft.rotationPerPx, -10f..10f, unit = "°") { v -> onEdit { it.copy(rotationPerPx = v) } }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showDynamics) "Dynamics ▴" else "Dynamics ▾",
                 onClick = { showDynamics = !showDynamics },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showDynamics) {
                 Text("Input mappings (${draft.dynamics.size})", style = MaterialTheme.typography.bodySmall)
@@ -197,10 +197,10 @@ fun BrushStudioWindow(
                 Text("Each mapping can be enabled independently, then tuned by input window and output range. Response curves remain stored on the binding and are preserved while these values change.", style = MaterialTheme.typography.labelSmall)
             }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showColorSource) "Color Source ▴" else "Color Source ▾",
                 onClick = { showColorSource = !showColorSource },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showColorSource) {
                 EnumButtons("Source", BrushColorSource.entries, draft.colorSource) { value ->
@@ -222,10 +222,10 @@ fun BrushStudioWindow(
                 }
             }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showTexture) "Texture ▴" else "Texture ▾",
                 onClick = { showTexture = !showTexture },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showTexture) {
                 // The canvas surface is per project (Document size → Surface); this is how much this
@@ -240,27 +240,27 @@ fun BrushStudioWindow(
                     ParamSlider("Scale", draft.grainScale, 0.1f..16f, asFraction = true) { v -> onEdit { it.copy(grainScale = v) } }
                     EnumButtons("Movement", GrainBehavior.entries, draft.grainBehavior) { value -> onEdit { it.copy(grainBehavior = value) } }
                     EnumButtons("Mode", GrainBlendMode.entries, draft.grainBlendMode) { value -> onEdit { it.copy(grainBlendMode = value) } }
-                    AzButton(
+                    GraffuxButton(
                         text = if (draft.grainRandomOffsetPerStroke) "Random phase per stroke ✓" else "Random phase per stroke",
                         onClick = { onEdit { it.copy(grainRandomOffsetPerStroke = !it.grainRandomOffsetPerStroke) } },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
             }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showMaskedTip) "Masked Tip ▴" else "Masked Tip ▾",
                 onClick = { showMaskedTip = !showMaskedTip },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showMaskedTip) {
                 val mask = draft.maskedBrush
                 if (mask == null) {
                     Text("A second generated tip can mask the primary tip. Brush packages may replace it with an image tip.", style = MaterialTheme.typography.labelSmall)
-                    AzButton(
+                    GraffuxButton(
                         text = "Enable Masked Tip",
                         onClick = { onEdit { it.copy(maskedBrush = MaskedBrushConfig()) } },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 } else {
                     ParamSlider("Mask size", mask.sizeRatio, 0.1f..8f, asFraction = true) { v -> onEdit { it.copy(maskedBrush = mask.copy(sizeRatio = v)) } }
@@ -276,23 +276,23 @@ fun BrushStudioWindow(
                         onEdit { it.copy(maskedBrush = mask.copy(rotationPerPx = v)) }
                     }
                     EnumButtons("Combine", MaskedBrushBlendMode.entries, mask.blendMode) { value -> onEdit { it.copy(maskedBrush = mask.copy(blendMode = value)) } }
-                    AzButton(
+                    GraffuxButton(
                         text = if (mask.invert) "Invert mask ✓" else "Invert mask",
                         onClick = { onEdit { it.copy(maskedBrush = mask.copy(invert = !mask.invert)) } },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
-                    AzButton(
+                    GraffuxButton(
                         text = "Remove Masked Tip",
                         onClick = { onEdit { it.copy(maskedBrush = null) } },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
             }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showTaper) "Taper ▴" else "Taper ▾",
                 onClick = { showTaper = !showTaper },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showTaper) {
                 val taper = draft.taper
@@ -307,10 +307,10 @@ fun BrushStudioWindow(
                 )
             }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showBlot) "Blot ▴" else "Blot ▾",
                 onClick = { showBlot = !showBlot },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showBlot) {
                 val blot = draft.blot
@@ -358,10 +358,10 @@ fun BrushStudioWindow(
             // ink or watercolour pooling under a stationary tip. Naming this section after one
             // preset buried the setting from every other brush that could use it; Blot's own Dwell
             // growth above reuses this same "Held-still radius" for exactly that reason.
-            AzButton(
+            GraffuxButton(
                 text = if (showAirbrush) "Hold to Build Up ▴" else "Hold to Build Up ▾",
                 onClick = { showAirbrush = !showAirbrush },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showAirbrush) {
                 ParamSlider("Rate", draft.airbrushDabsPerSecond, 0f..60f, unit = "/s") { v ->
@@ -379,10 +379,10 @@ fun BrushStudioWindow(
                 )
             }
 
-            AzButton(
+            GraffuxButton(
                 text = if (showImpasto) "Impasto ▴" else "Impasto ▾",
                 onClick = { showImpasto = !showImpasto },
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (showImpasto) {
                 ParamSlider("Thickness", draft.impastoThicknessRate, 0f..1f, asFraction = true) { v ->
@@ -396,9 +396,9 @@ fun BrushStudioWindow(
                 )
             }
 
-            AzButton(text = "Save Brush", onClick = onSave, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = "Save Brush", onClick = onSave, shape = GraffuxButtonShape.RECTANGLE)
             if (isSaved) {
-                AzButton(text = "Delete Brush", onClick = { confirmingDelete = true }, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Delete Brush", onClick = { confirmingDelete = true }, shape = GraffuxButtonShape.RECTANGLE)
             }
         }
     }
@@ -408,10 +408,10 @@ fun BrushStudioWindow(
 private fun <T> EnumButtons(label: String, values: List<T>, selected: T, onSelected: (T) -> Unit) {
     Text(label, style = MaterialTheme.typography.bodySmall)
     values.forEach { value ->
-        AzButton(
+        GraffuxButton(
             text = if (value == selected) "${prettyEnum(value.toString())} ✓" else prettyEnum(value.toString()),
             onClick = { onSelected(value) },
-            shape = AzButtonShape.RECTANGLE,
+            shape = GraffuxButtonShape.RECTANGLE,
         )
     }
 }
@@ -430,7 +430,7 @@ private fun DynamicsMappingControl(
     onEdit: ((AzphaltBrush) -> AzphaltBrush) -> Unit,
 ) {
     val binding = brush.route(defaultBinding.sensor, defaultBinding.parameter)
-    AzButton(
+    GraffuxButton(
         text = if (binding != null) "✓ $label" else label,
         onClick = {
             onEdit { current ->
@@ -438,7 +438,7 @@ private fun DynamicsMappingControl(
                 else current.removeRoute(defaultBinding.sensor, defaultBinding.parameter)
             }
         },
-        shape = AzButtonShape.RECTANGLE,
+        shape = GraffuxButtonShape.RECTANGLE,
     )
     if (binding != null) {
         // Keep the slider envelope stable for the lifetime of this control. Imported bindings may
@@ -475,10 +475,10 @@ private fun DynamicsMappingControl(
         ParamSlider("Output max", binding.outputMax, initialOutputRange, unit = outputUnit) { value ->
             onEdit { it.upsertRoute(binding.copy(outputMax = value)) }
         }
-        AzButton(
+        GraffuxButton(
             text = if (binding.invert) "Invert response ✓" else "Invert response",
             onClick = { onEdit { it.upsertRoute(binding.copy(invert = !binding.invert)) } },
-            shape = AzButtonShape.RECTANGLE,
+            shape = GraffuxButtonShape.RECTANGLE,
         )
     }
 }

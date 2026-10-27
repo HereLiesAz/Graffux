@@ -18,8 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.mesh.Mesh
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -105,24 +105,24 @@ fun ModelWindow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                AzButton(
+                GraffuxButton(
                     text = if (paintEnabled) "Painting — tap to orbit" else "Paint on model",
                     onClick = { paintEnabled = !paintEnabled },
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
                 // The way a model becomes artwork: whatever angle it's turned to, as a layer.
                 // A snapshot rather than a live 3D layer, because the document is a flat image —
                 // turn the model again and take another if the first angle was wrong.
-                AzButton(
+                GraffuxButton(
                     text = "Add view to canvas",
                     onClick = { captureRequest++ },
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
                 if (hasPaint && texture != null) {
-                    AzButton(
+                    GraffuxButton(
                         text = "Clear paint",
                         onClick = { texture.clear(); hasPaint = false; onPaintChanged() },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
             }
@@ -133,10 +133,10 @@ fun ModelWindow(
                 modifier = Modifier.padding(vertical = 12.dp),
             )
         }
-        AzButton(
+        GraffuxButton(
             text = if (state.mesh != null) "Load Another" else "Load Model",
             onClick = onPickModel,
-            shape = AzButtonShape.RECTANGLE,
+            shape = GraffuxButtonShape.RECTANGLE,
         )
     }
 }

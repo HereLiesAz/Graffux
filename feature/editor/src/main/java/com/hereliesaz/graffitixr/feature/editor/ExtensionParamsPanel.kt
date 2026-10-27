@@ -19,12 +19,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.ParamValue
 import com.hereliesaz.graffitixr.common.azphalt.UiControl
 import com.hereliesaz.graffitixr.common.azphalt.UiSchema
-import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 
 /**
  * Renders one code contribution's own control panel (spec `docs/specs/ui-schema.md`) natively —
@@ -90,11 +90,11 @@ fun ExtensionParamsPanel(
         // contribution — this is that fallback, not a duplicate of one already declared.
         if (schema.controls.none { it.hasButton() }) {
             Spacer(Modifier.height(8.dp))
-            AzButton(
+            GraffuxButton(
                 text = "Run",
                 onClick = onRun,
-                shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                shape = GraffuxButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
             )
         }
     }
@@ -255,11 +255,11 @@ private fun ControlRow(
         }
 
         "button" -> {
-            AzButton(
+            GraffuxButton(
                 text = control.label.ifBlank { "Run" },
                 onClick = onRun,
-                shape = AzButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight).padding(vertical = 4.dp),
+                shape = GraffuxButtonShape.RECTANGLE,
+                modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight).padding(vertical = 4.dp),
             )
         }
 

@@ -11,8 +11,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,14 +139,14 @@ fun ColorPickerDialog(
                             }
                     )
                 }
-                AzButton(
+                GraffuxButton(
                     text = "Swap",
                     onClick = {
                         val next = if (target == BrushColorTarget.FOREGROUND) secondaryColor else currentColor
                         onSwapColors()
                         loadWorking(next)
                     },
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
             }
 
@@ -287,7 +287,7 @@ private fun PalettesTab(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            AzButton(text = "Save current", onClick = onSave, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = "Save current", onClick = onSave, shape = GraffuxButtonShape.RECTANGLE)
         }
         Spacer(Modifier.height(6.dp))
         if (savedPalette.isEmpty()) {
