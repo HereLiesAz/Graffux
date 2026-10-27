@@ -61,4 +61,32 @@ class NibAngleTest {
         assertFalse(not.usesPenAngle())
         assertFalse(AzphaltBrush(name = "c").usesPenAngle())
     }
+
+    @Test
+    fun `locked, the nib keeps its angle to the canvas through device turns and view rotation`() {
+        val nib = NibAngleState(-40f)
+        nib.viewRotationDeg = 10f
+        nib.twistDeg = 20f
+        val onScreen = nib.screenAngleDeg
+        nib.toggleLock()
+        assertTrue(nib.locked)
+        assertEquals(nibLayerAngle(onScreen, 10f), nib.lockedLayerDeg!!, 1e-3f)
+        // The device turns: nothing changes. The canvas view turns: the nib turns with it on screen.
+        nib.twistDeg = 80f
+        nib.viewRotationDeg = 40f
+        assertEquals(nibLayerAngle(onScreen, 10f), nibLayerAngle(nib.screenAngleDeg, 40f), 1e-3f)
+        // Released, it stays where it points and follows the world again.
+        val before = nib.screenAngleDeg
+        nib.toggleLock()
+        assertFalse(nib.locked)
+        assertEquals(before, nib.screenAngleDeg, 1e-3f)
+    }
+
+    @Test
+    fun `dragging a locked dial sets the canvas angle`() {
+        val nib = NibAngleState(-40f, initialLockDeg = -40f)
+        nib.viewRotationDeg = 30f
+        nib.setScreenAngle(0f)
+        assertEquals(-30f, nib.lockedLayerDeg!!, 1e-3f)
+    }
 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
@@ -158,6 +159,7 @@ fun EditorScreen(
     val nib = rememberSaveable(saver = NibAngleSaver) { NibAngleState() }
     val penAngleBrush = uiState.activeTool in BRUSH_TOOLS && vm.activeBrushForPreview()?.usesPenAngle() == true
     TrackNibTwist(nib, LocalView.current, enabled = penAngleBrush)
+    SideEffect { nib.viewRotationDeg = uiState.viewportRotation }
     CompositionLocalProvider(LocalNibAngle provides nib) {
     Box(
         modifier = modifier

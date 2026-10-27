@@ -19,6 +19,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -49,26 +50,55 @@ import kotlin.math.sin
  * how far the device has since turned about its screen normal (counter-clockwise positive, net of
  * the UI's own rotation). Turning the device turns the paper under the pen, so the nib's angle on
  * screen — and on the layer — changes by the twist.
+ *
+ * Locked ([lockedLayerDeg] set), the nib keeps its angle to the canvas instead: neither turning the
+ * device nor rotating the canvas view changes what it draws, and on screen it turns with the canvas.
  */
 @Stable
-class NibAngleState(initialDeg: Float = DEFAULT_PEN_ANGLE_DEG) {
+class NibAngleState(initialDeg: Float = DEFAULT_PEN_ANGLE_DEG, initialLockDeg: Float? = null) {
     var userAngleDeg by mutableFloatStateOf(initialDeg)
     var twistDeg by mutableFloatStateOf(0f)
         internal set
+
+    /** The nib's angle on the layer while locked to the canvas; null while it follows the world. */
+    var lockedLayerDeg by mutableStateOf(initialLockDeg)
+        private set
+
+    /** The canvas view's rotation on screen (clockwise degrees), kept current by the editor. */
+    var viewRotationDeg by mutableFloatStateOf(0f)
+
+    val locked: Boolean get() = lockedLayerDeg != null
 
     /** Set by [relevel]: the tracker takes its next reading as the new zero twist. */
     internal var relevelRequested = true
 
     /** The nib's edge direction on screen, degrees like a stroke heading (90 = down). */
-    val screenAngleDeg: Float get() = nibScreenAngle(userAngleDeg, twistDeg)
+    val screenAngleDeg: Float get() = lockedLayerDeg?.let { wrapPenAngle(it + viewRotationDeg) }
+        ?: nibScreenAngle(userAngleDeg, twistDeg)
 
-    /** Points the nib at [deg] on screen as the device is held now. */
+    /** Points the nib at [deg] on screen as the device is held now (and the canvas sits now, if locked). */
     fun setScreenAngle(deg: Float) {
-        userAngleDeg = wrapPenAngle(deg - twistDeg)
+        if (lockedLayerDeg != null) {
+            lockedLayerDeg = nibLayerAngle(deg, viewRotationDeg)
+        } else {
+            userAngleDeg = wrapPenAngle(deg - twistDeg)
+        }
+    }
+
+    /** Locks the nib to the canvas at its current angle, or releases it to the world where it points. */
+    fun toggleLock() {
+        val onScreen = screenAngleDeg
+        if (lockedLayerDeg == null) {
+            lockedLayerDeg = nibLayerAngle(onScreen, viewRotationDeg)
+        } else {
+            lockedLayerDeg = null
+            userAngleDeg = wrapPenAngle(onScreen - twistDeg)
+        }
     }
 
     /** Takes the device's current attitude as level, keeping the nib where it points on screen. */
     fun relevel() {
+        if (locked) return
         userAngleDeg = screenAngleDeg
         twistDeg = 0f
         relevelRequested = true
@@ -106,10 +136,10 @@ private const val AXES = 3
 /** Index of row [row], column [col] in a row-major 3×3 matrix. */
 private fun at(row: Int, col: Int): Int = row * AXES + col
 
-/** Keeps the angle the user set across configuration changes; the twist is re-measured. */
-val NibAngleSaver: Saver<NibAngleState, Float> = Saver(
-    save = { it.userAngleDeg },
-    restore = { NibAngleState(it) },
+/** Keeps the angle the user set, and any lock, across configuration changes; the twist is re-measured. */
+val NibAngleSaver: Saver<NibAngleState, List<Float>> = Saver(
+    save = { listOfNotNull(it.userAngleDeg, it.lockedLayerDeg) },
+    restore = { NibAngleState(it[0], it.getOrNull(1)) },
 )
 
 /** Tools that paint with the brush, so a nib-angle brush in hand offers the dial. */
@@ -175,8 +205,8 @@ private const val MATRIX_SIZE = 9
 
 /**
  * The nib-angle dial: the nib drawn at its angle on screen, so it holds still in the world while the
- * device turns under it. Drag around it to set the angle; long-press to take the device as it is
- * held now as level.
+ * device turns under it (or turns with the canvas, locked). Drag around it to set the angle; tap to
+ * lock the nib to the canvas or release it; long-press to take the device as it is held now as level.
  */
 @Suppress("FunctionNaming")
 @Composable
@@ -188,7 +218,10 @@ fun NibAngleDial(state: NibAngleState, modifier: Modifier = Modifier) {
         modifier = modifier
             .size(DialSize)
             .testTag("nib.dial")
-            .semantics { contentDescription = "Nib angle ${state.userAngleDeg.roundToInt()} degrees" }
+            .semantics {
+                contentDescription = "Nib angle ${shownAngle(state)} degrees" +
+                    if (state.locked) ", locked to the canvas" else ""
+            }
             .pointerInput(state) {
                 detectDragGestures { change, _ ->
                     val c = Offset(size.width / 2f, size.height / 2f)
@@ -198,7 +231,9 @@ fun NibAngleDial(state: NibAngleState, modifier: Modifier = Modifier) {
                     }
                 }
             }
-            .pointerInput(state) { detectTapGestures(onLongPress = { state.relevel() }) },
+            .pointerInput(state) {
+                detectTapGestures(onTap = { state.toggleLock() }, onLongPress = { state.relevel() })
+            },
     ) {
         Canvas(Modifier.size(DialSize)) {
             val c = center
@@ -210,15 +245,24 @@ fun NibAngleDial(state: NibAngleState, modifier: Modifier = Modifier) {
             // The nib's edge: a broad stroke drawn edge-on, the way it would mark the paper.
             drawLine(ink, c - half, c + half, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Butt)
             drawCircle(ink, 2.dp.toPx(), c)
+            // Locked to the canvas: a closed ring where the open one was.
+            if (state.locked) drawCircle(ink, r - 3.dp.toPx(), style = Stroke(2.dp.toPx()))
         }
         Text(
-            "${state.userAngleDeg.roundToInt()}°",
+            "${shownAngle(state)}°",
             style = MaterialTheme.typography.labelSmall,
             color = ink.copy(alpha = 0.8f),
         )
     }
 }
 
+/** The angle as a calligrapher reads it: the edge's rise from horizontal, 0..180. */
+private fun shownAngle(state: NibAngleState): Int {
+    val rise = -(state.lockedLayerDeg ?: state.userAngleDeg)
+    return Math.floorMod(rise.roundToInt(), HALF_TURN)
+}
+
+private const val HALF_TURN = 180
 private val DialSize = 64.dp
 private const val NIB_REACH = 0.72f
 private const val MIN_DRAG_FRACTION = 0.08f
