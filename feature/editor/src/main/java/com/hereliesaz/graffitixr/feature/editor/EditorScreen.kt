@@ -218,7 +218,10 @@ fun EditorScreen(
                             documentWidth = uiState.documentWidth,
                             documentHeight = uiState.documentHeight,
                             color = uiState.canvasBackground,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().documentCrop(
+                                uiState.documentCrop, uiState.cropEditing,
+                                uiState.documentWidth, uiState.documentHeight,
+                            ),
                         )
                         // 0b. Infinite reference grid
                         if (dx == 0 && dy == 0) {
@@ -270,28 +273,36 @@ fun EditorScreen(
                                 // handle X/Y-tilted groups/layers so perspective never disappears.
                                 null
                             }
-                        if (bufferedAnimationFrame != null) {
-                            // The cached bitmap is already a flattened artboard. ContentScale.Fit
-                            // maps it onto the same centered document rectangle as ArtboardPage.
-                            Image(
-                                bitmap = bufferedAnimationFrame.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Fit,
-                            )
-                        } else {
-                            androidx.compose.runtime.CompositionLocalProvider(
-                                LocalHighResOverlays provides highResOverlays,
-                            ) { layerTree.forEach { node ->
-                                LayerStackNode(
-                                    node,
-                                    liveStrokeState,
-                                    frameAlpha = frameAlphas[node.layer.id] ?: 1f,
-                                    // Only the centre tile: wrap-around draws the same layer
-                                    // nine times, and the overlay maps to the real document.
-                                    overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
+                        // The Crop tab's crop and geometry, around the whole layer stack (DocumentCropRender).
+                        Box(
+                            Modifier.fillMaxSize().documentCrop(
+                                uiState.documentCrop, uiState.cropEditing,
+                                uiState.documentWidth, uiState.documentHeight,
+                            ),
+                        ) {
+                            if (bufferedAnimationFrame != null) {
+                                // The cached bitmap is already a flattened artboard. ContentScale.Fit
+                                // maps it onto the same centered document rectangle as ArtboardPage.
+                                Image(
+                                    bitmap = bufferedAnimationFrame.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Fit,
                                 )
-                            } }
+                            } else {
+                                androidx.compose.runtime.CompositionLocalProvider(
+                                    LocalHighResOverlays provides highResOverlays,
+                                ) { layerTree.forEach { node ->
+                                    LayerStackNode(
+                                        node,
+                                        liveStrokeState,
+                                        frameAlpha = frameAlphas[node.layer.id] ?: 1f,
+                                        // Only the centre tile: wrap-around draws the same layer
+                                        // nine times, and the overlay maps to the real document.
+                                        overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
+                                    )
+                                } }
+                            }
                         }
                     }
                 }

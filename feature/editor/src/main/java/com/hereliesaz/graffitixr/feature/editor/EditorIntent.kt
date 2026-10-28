@@ -69,6 +69,10 @@ internal sealed interface EditorIntent {
     ) : EditorIntent
     /** A fresh render of adjustment layer [id] (the layers below it, adjusted). */
     data class SetAdjustmentRender(val id: String, val bitmap: Bitmap) : EditorIntent
+    /** The document's crop and geometry (the Crop tab). */
+    data class SetDocumentCrop(val crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop) : EditorIntent
+    /** The Crop tab opened or closed: the canvas shows the whole photo under the crop frame while open. */
+    data class SetCropEditing(val editing: Boolean) : EditorIntent
     /** Hold-to-compare: hide every adjustment layer while true. */
     data class SetPhotoCompare(val comparing: Boolean) : EditorIntent
     /** Replaces the whole layer set (e.g. flatten) with [layers], activating [activeId]. */

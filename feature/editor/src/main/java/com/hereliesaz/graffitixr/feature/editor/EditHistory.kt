@@ -36,11 +36,15 @@ internal class EditHistory(
      * cleared it — undo, edit something whose "before" snapshot happens to match, then Redo re-
      * applies the stale entry on top of the newer edit instead of doing nothing.
      */
-    fun pushProperty(layersWithoutBitmaps: List<Layer>): Boolean {
+    fun pushProperty(
+        layersWithoutBitmaps: List<Layer>,
+        crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop? = null,
+    ): Boolean {
         clearRedo()
         val last = undoStack.lastOrNull()
-        if (last is EditCommand.PropertyChange && last.oldLayers == layersWithoutBitmaps) return false
-        undoStack.addLast(EditCommand.PropertyChange(layersWithoutBitmaps))
+        val same = last is EditCommand.PropertyChange && last.oldLayers == layersWithoutBitmaps && last.crop == crop
+        if (same) return false
+        undoStack.addLast(EditCommand.PropertyChange(layersWithoutBitmaps, crop))
         trim()
         return true
     }

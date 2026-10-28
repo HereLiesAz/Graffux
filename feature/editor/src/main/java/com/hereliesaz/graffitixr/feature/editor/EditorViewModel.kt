@@ -540,7 +540,14 @@ private const val LINE_TOOL_INTENSITY = 0.5f
 internal const val ROUND_BRUSH_DAB_SPACING_FRACTION = 0.15f
 
 sealed class EditCommand {
-    data class PropertyChange(val oldLayers: List<Layer>) : EditCommand()
+    /**
+     * A layer-list snapshot, and the document crop as it was ([crop]; null in entries made before
+     * crops existed, which then leave the crop alone on undo).
+     */
+    data class PropertyChange(
+        val oldLayers: List<Layer>,
+        val crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop? = null,
+    ) : EditCommand()
 
     /**
      * [tileDeltas] (roadmap item 16's undo fast path) is attached *after* this command is pushed
@@ -615,6 +622,11 @@ class EditorViewModel @Inject constructor(
         /** Below this saturation the HSL eyedropper reads a pixel as grey and picks nothing. */
         private const val MIN_PICK_SATURATION = 0.08f
         private const val CHANNEL_MAX = 255f
+        /** Auto level reads a copy this many pixels on its long side. */
+        private const val AUTO_LEVEL_SIZE = 480f
+        private const val LUMA_R = 0.2126f
+        private const val LUMA_G = 0.7152f
+        private const val LUMA_B = 0.0722f
         private const val HUD_MS = 700L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
@@ -974,6 +986,59 @@ class EditorViewModel @Inject constructor(
             val bins = lumaHistogram(composite)
             composite.recycle()
             _photoHistogram.value = bins
+        }
+    }
+
+    // ── Crop: a whole-document setting, not a layer ─────────────────────────────────────────
+
+    /** The Crop tab opened ([editing]) or closed: the canvas shows the whole photo under the frame while open. */
+    fun setCropEditing(editing: Boolean) {
+        if (_uiState.value.cropEditing != editing) dispatch(EditorIntent.SetCropEditing(editing))
+    }
+
+    /** A crop gesture (a handle drag, a slider) begins: one undo step for all of it. */
+    fun onCropGestureStart() = pushHistory()
+
+    /** The crop as the gesture has it now. */
+    fun setDocumentCrop(crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop) {
+        if (_uiState.value.documentCrop != crop) dispatch(EditorIntent.SetDocumentCrop(crop))
+    }
+
+    fun onCropGestureEnd() = saveProject()
+
+    /** One-tap crop changes (an aspect chip, Rotate 90, a flip, Auto level, Reset): each one undo step. */
+    fun applyCrop(change: (com.hereliesaz.graffitixr.common.photo.DocumentCrop) -> com.hereliesaz.graffitixr.common.photo.DocumentCrop) {
+        val next = change(_uiState.value.documentCrop)
+        if (next == _uiState.value.documentCrop) return
+        pushHistory()
+        dispatch(EditorIntent.SetDocumentCrop(next))
+        saveProject()
+    }
+
+    /**
+     * Auto level: estimates the tilt of the photo's dominant edges (CropGeometry.autoLevel) from a
+     * small grey copy of what the layers show, off the main thread, and sets Straighten to undo it.
+     */
+    fun onCropAutoLevel() {
+        val layers = _uiState.value.layers
+        val (w, h) = adjustmentWorldSize()
+        viewModelScope.launch(dispatchers.default) {
+            val composite = exportManager.compositeLayers(layers, w, h)
+            val scale = AUTO_LEVEL_SIZE / maxOf(w, h).toFloat()
+            val small = Bitmap.createScaledBitmap(
+                composite, (w * scale).toInt().coerceAtLeast(2), (h * scale).toInt().coerceAtLeast(2), true,
+            )
+            composite.recycle()
+            val px = IntArray(small.width * small.height)
+            small.getPixels(px, 0, small.width, 0, 0, small.width, small.height)
+            val luma = FloatArray(px.size) { i ->
+                val c = px[i]
+                (android.graphics.Color.red(c) * LUMA_R + android.graphics.Color.green(c) * LUMA_G +
+                    android.graphics.Color.blue(c) * LUMA_B) / CHANNEL_MAX
+            }
+            val angle = com.hereliesaz.graffitixr.common.photo.CropGeometry.autoLevel(luma, small.width, small.height)
+            small.recycle()
+            withContext(dispatchers.main) { applyCrop { it.copy(straighten = angle) } }
         }
     }
 
@@ -1873,6 +1938,7 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentSize(project.documentWidth, project.documentHeight))
                         dispatch(EditorIntent.SetCanvasSubstrate(project.canvasSubstrateId))
                         dispatch(EditorIntent.SetSavedSelections(project.savedSelections))
+                        dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         restoreModel(project)
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
@@ -1982,7 +2048,10 @@ class EditorViewModel @Inject constructor(
     private fun pushHistory() {
         // heightMap stripped alongside bitmap for the same reason: a large runtime-only array with
         // no business sitting in every property-change undo entry (Impasto, item 12).
-        history.pushProperty(_uiState.value.layers.map { it.copy(bitmap = null, heightMap = null) })
+        history.pushProperty(
+            _uiState.value.layers.map { it.copy(bitmap = null, heightMap = null) },
+            _uiState.value.documentCrop,
+        )
         updateHistoryCounts()
         val liveIds = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
         layerStore.retainOnly(liveIds)
@@ -2030,7 +2099,8 @@ class EditorViewModel @Inject constructor(
         val command = history.popUndo { undone ->
             when (undone) {
                 is EditCommand.Draw -> undone
-                is EditCommand.PropertyChange -> EditCommand.PropertyChange(currentLayerSnapshot())
+                is EditCommand.PropertyChange ->
+                    EditCommand.PropertyChange(currentLayerSnapshot(), _uiState.value.documentCrop)
             }
         } ?: return
 
@@ -2067,6 +2137,7 @@ class EditorViewModel @Inject constructor(
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
                 val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
                 dispatch(EditorIntent.SetLayers(restoredLayers))
+                command.crop?.let { dispatch(EditorIntent.SetDocumentCrop(it)) }
                 saveProject()
                 emitLayerStateResync(restoredLayers)
                 rebuildMissingBitmaps(restoredLayers)
@@ -2097,7 +2168,8 @@ class EditorViewModel @Inject constructor(
         val command = history.popRedo { redone ->
             when (redone) {
                 is EditCommand.Draw -> redone
-                is EditCommand.PropertyChange -> EditCommand.PropertyChange(currentLayerSnapshot())
+                is EditCommand.PropertyChange ->
+                    EditCommand.PropertyChange(currentLayerSnapshot(), _uiState.value.documentCrop)
             }
         } ?: return
 
@@ -2124,6 +2196,7 @@ class EditorViewModel @Inject constructor(
                 val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
                 val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
                 dispatch(EditorIntent.SetLayers(restoredLayers))
+                command.crop?.let { dispatch(EditorIntent.SetDocumentCrop(it)) }
                 saveProject()
                 emitLayerStateResync(restoredLayers)
                 rebuildMissingBitmaps(restoredLayers)
@@ -3862,6 +3935,7 @@ class EditorViewModel @Inject constructor(
                 documentHeight = _uiState.value.documentHeight,
                 canvasSubstrateId = _uiState.value.canvasSubstrateId,
                 savedSelections = _uiState.value.savedSelections,
+                documentCrop = _uiState.value.documentCrop,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -3878,6 +3952,10 @@ class EditorViewModel @Inject constructor(
                     documentHeight = _uiState.value.documentHeight,
                     canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
+                    documentCrop = _uiState.value.documentCrop,
+                    formatVersion = maxOf(
+                        current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
+                    ),
                 )
             }
             // The merged result the repository just persisted.
@@ -3915,6 +3993,7 @@ class EditorViewModel @Inject constructor(
                     val composite = exportManager.compositeToDocument(
                         _uiState.value.layers, w, h,
                         _uiState.value.documentWidth, _uiState.value.documentHeight,
+                        crop = _uiState.value.documentCrop,
                     )
                     // Downscale to a small preview so the file stays tiny and decodes fast.
                     val maxDim = 512
@@ -3965,6 +4044,7 @@ class EditorViewModel @Inject constructor(
                     _uiState.value.documentHeight,
                     backgroundBitmap = null,
                     backgroundColor = background,
+                    crop = _uiState.value.documentCrop,
                 )
 
                 val success = saveBitmapToGallery(context, exportBitmap)
@@ -4010,6 +4090,7 @@ class EditorViewModel @Inject constructor(
             _uiState.value.documentWidth,
             _uiState.value.documentHeight,
             backgroundColor = android.graphics.Color.TRANSPARENT,
+            crop = _uiState.value.documentCrop,
         )
         val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
         val file = java.io.File(dir, "graffixr_share.png")
@@ -9232,6 +9313,7 @@ class EditorViewModel @Inject constructor(
                         state.documentWidth,
                         state.documentHeight,
                         backgroundColor = android.graphics.Color.WHITE,
+                        crop = state.documentCrop,
                     )
                 }
                 withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
