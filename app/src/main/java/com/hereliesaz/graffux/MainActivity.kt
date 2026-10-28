@@ -13,6 +13,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onKeyEvent
 import com.hereliesaz.graffitixr.feature.editor.ProjectGateDialog
 import com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController
 import androidx.activity.result.PickVisualMediaRequest
@@ -693,6 +696,24 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // A finger on the canvas hides every piece of chrome at once and closes whatever was open; the
     // rails and the sheet's pill come back DRAWING_UI_RETURN_DELAY_MS after it lifts. See CanvasTouch.
     val canvasTouch = remember { CanvasTouch() }
+    // The rail's Adjust button, and "A" on a keyboard.
+    val openAdjust: () -> Unit = {
+        heroExpansion.collapse()
+        if (carouselUi.photo && carouselUi.sheetOpen) {
+            // Lit already: a second tap leaves, back to brushes.
+            carouselUi = carouselUi.copy(photo = false, tab = null, showingCarousel = false)
+        } else {
+            showCarousel = true
+            if (uiState.activeTool != Tool.NONE) vm.setActiveTool(Tool.NONE)
+            // Straight to the last tab used; the first time, the tab list.
+            carouselUi = carouselUi.copy(
+                photo = true, sheetOpen = true,
+                tab = lastPhotoTab?.key, showingCarousel = lastPhotoTab != null,
+            )
+        }
+    }
+    val keysFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { keysFocus.requestFocus() } }
     val chrome = rememberChromeVisibility(canvasTouch, strokeGate, forceHidden = { photoDrag.active }) {
         menuOpen = false
         showViewMenu = false
@@ -728,7 +749,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Surface(
+            // Focusable so a hardware keyboard's keys reach it when nothing inside has focus.
+            modifier = Modifier.fillMaxSize().focusRequester(keysFocus).focusable().onKeyEvent { e ->
+                photoShortcut(e, photoOpen = carouselUi.photo, openAdjust = openAdjust, compare = photoActions::compare)
+            },
+            color = MaterialTheme.colorScheme.background,
+        ) {
             EditorScreen(
                 vm = vm,
                 // Outermost, so it sees what every surface inside the canvas left unclaimed.
@@ -1061,21 +1088,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             )
                         },
                         onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
-                        onAdjust = {
-                            heroExpansion.collapse()
-                            if (carouselUi.photo && carouselUi.sheetOpen) {
-                                // Lit already: a second tap leaves, back to brushes.
-                                carouselUi = carouselUi.copy(photo = false, tab = null, showingCarousel = false)
-                            } else {
-                                showCarousel = true
-                                if (uiState.activeTool != Tool.NONE) vm.setActiveTool(Tool.NONE)
-                                // Straight to the last tab used; the first time, the tab list.
-                                carouselUi = carouselUi.copy(
-                                    photo = true, sheetOpen = true,
-                                    tab = lastPhotoTab?.key, showingCarousel = lastPhotoTab != null,
-                                )
-                            }
-                        },
+                        onAdjust = openAdjust,
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
