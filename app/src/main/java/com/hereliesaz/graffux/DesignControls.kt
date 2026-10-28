@@ -5,7 +5,9 @@ package com.hereliesaz.graffux
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,7 +80,7 @@ internal enum class DesignDensity(val rowLabelWidth: Dp, val fontSize: Int, val 
 
 /** A pill chip (the mockup's 32dp buttons): ink-filled when [on], outlined otherwise. */
 @Composable
-internal fun DesignChip(label: String, on: Boolean, tag: String, onClick: () -> Unit, height: Dp = 32.dp) {
+internal fun DesignChip(label: String, on: Boolean, tag: String, height: Dp = 32.dp, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -111,7 +113,12 @@ internal fun <T> DesignChoice(
     tagPrefix: String,
     onPick: (T) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Scrolls sideways when the chips are wider than the row (Pin X / Pin Y on a phone).
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
         options.forEach { (value, label) ->
             DesignChip(label, on = value == selected, tag = "$tagPrefix.${label.lowercase()}", onClick = { onPick(value) })
         }

@@ -76,9 +76,32 @@ class DesignMockupShotTest {
     private val pay = FrameOps.create("pay", "Pay", Rect(390f, 70f, 190f, 340f), fillArgb = 0xFF1A1A1DL)
     private val card = Layer(
         id = "card", name = "Card", parentId = "pay",
-        shapes = listOf(VectorShape(ShapeKind.RECTANGLE, width = 218f, height = 70f, cornerRadius = 12f, fillArgb = 0xFF26262AL)),
+        constraints = com.hereliesaz.graffitixr.common.model.Constraints(
+            com.hereliesaz.graffitixr.common.model.ConstraintAnchor.STRETCH, com.hereliesaz.graffitixr.common.model.ConstraintAnchor.END,
+        ),
+        shapes = listOf(VectorShape(ShapeKind.RECTANGLE, width = 218f, height = 70f, cornerRadius = 12f, fillArgb = 0xFF26262AL, fillStyleId = "surface")),
     )
     private val layers = listOf(Layer(id = "button", name = "Button", componentId = "c"), pay, card)
+
+    private val surface = com.hereliesaz.graffitixr.common.model.ColorStyle(id = "surface", name = "Surface / raised", argb = 0xFF26262AL)
+    private val library get() = DesignLibrary(colorStyles = listOf(surface), components = listOf(ComponentEntry("button", "c", "Button", 1)))
+    private val libraryActions = object : DesignLibraryActions {
+        override fun setConstraints(constraints: com.hereliesaz.graffitixr.common.model.Constraints) = Unit
+        override fun newColorStyle(name: String) = Unit
+        override fun applyFillStyle(styleId: String?) = Unit
+        override fun applyStrokeStyle(styleId: String?) = Unit
+        override fun updateColorStyle(styleId: String) = Unit
+        override fun deleteColorStyle(styleId: String) = Unit
+        override fun newTextStyle(name: String) = Unit
+        override fun applyTextStyle(styleId: String?) = Unit
+        override fun updateTextStyle(styleId: String) = Unit
+        override fun deleteTextStyle(styleId: String) = Unit
+        override fun makeComponent() = Unit
+        override fun placeInstance(componentId: String) = Unit
+        override fun detachInstance() = Unit
+        override fun releaseComponent() = Unit
+        override fun selectLayer(layerId: String) = Unit
+    }
 
     private fun save(name: String) {
         val dir = System.getenv("DESIGN_SCREENSHOTS") ?: return
@@ -90,13 +113,16 @@ class DesignMockupShotTest {
     @Config(sdk = [34], qualifiers = "w390dp-h844dp-xhdpi", application = Application::class)
     fun `phone properties in the sheet`() {
         val state = EditorUiState(undoCount = 1, layers = layers, activeLayerId = "card", brushSize = 24f, activeColor = Color(0xFFFF3EA5), activeTool = Tool.FRAME)
-        val target = designTargetOf(card, Rect(16f, 300f, 218f, 70f))
+        val target = designTargetOf(card, Rect(16f, 300f, 218f, 70f)).copy(links = designLinksOf(card, layers))
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F))) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                         CarouselSheet(open = true, onOpenChange = {}, bottomInset = EdgeStripHeight + 4.dp) {
-                            DesignSheetBody(DesignTab.FRAME, showingControls = true, target = target, actions = design, onSelectTab = {})
+                            DesignSheetBody(
+                                DesignTab.FRAME, showingControls = true, target = target, actions = design, onSelectTab = {},
+                                library = library, libraryActions = libraryActions,
+                            )
                         }
                     }
                     ToolRail(
@@ -131,7 +157,7 @@ class DesignMockupShotTest {
     @Config(sdk = [34], qualifiers = "w1180dp-h820dp-mdpi", application = Application::class)
     fun `tablet properties side panel`() {
         val state = EditorUiState(undoCount = 1, layers = layers, activeLayerId = "pay", brushSize = 24f, activeColor = Color(0xFFFF3EA5), activeTool = Tool.FRAME)
-        val target = designTargetOf(pay, Rect(390f, 70f, 190f, 340f))
+        val target = designTargetOf(pay, Rect(390f, 70f, 190f, 340f)).copy(links = designLinksOf(pay, layers))
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F))) {
@@ -147,6 +173,7 @@ class DesignMockupShotTest {
                     )
                     PropertiesPanel(
                         target = target, actions = design, placement = PropertiesPlacement.SIDE_PANEL, onPlacement = {},
+                        library = library, libraryActions = libraryActions,
                         modifier = Modifier.align(Alignment.TopEnd).fillMaxHeight(),
                     )
                     LogoMenu(open = false, onOpenChange = {}, rows = emptyList(), modifier = Modifier.align(Alignment.TopEnd))

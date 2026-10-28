@@ -1,7 +1,7 @@
 # Design tools (Phase 1: design essentials)
 
-Status: frames, the Frame tab and the properties side panel are implemented. Constraints, the
-components and styles panels, and SVG / PDF export are the next steps of this phase.
+Status: frames, the properties (sheet and side panel), constraints, and the styles and components
+panels are implemented. SVG / PDF export is the last step of this phase.
 Source of truth for the UI: the approved "Graffux UI Rework" canvas, the "Design tools" row (boards
 DesignFrames, DesignComponent, DesignInspector, DesignInspect, DesignTablet, "Tablet · properties
 side panel", DesignDesktop). Live presence on those boards is out of scope: collaboration is
@@ -77,6 +77,25 @@ also in Settings on a tablet. A phone always uses the sheet.
 X / Y / W / H are the layer's world box (`DesignGeometry`). Setting them sets a frame's box exactly;
 a vector stretches; a raster or text layer scales uniformly. Each edit is one undo step; a drag is
 one undo step for the whole gesture.
+
+## Constraints, styles and components
+
+On the models that already existed (`LayoutOps` / `Constraints`, `StyleOps`, `ComponentOps`);
+`DesignPanels.kt` (`app`). Each is a tab in the sheet (LAYOUT: Constraints; STYLE: Fill, Stroke,
+Text; COMPONENT: Components) and a section in the side panel. The sheet's Frame tab also shows the
+pins and the shape's fill and stroke after its fields, as the mockup's Properties board does.
+
+- **Constraints**: Pin X (Left, Right, L+R, Center, Scale) and Pin Y (Top, Bottom, T+B, Center,
+  Scale) set `Layer.constraints` (START, END, STRETCH, CENTER, SCALE). Offered only for a layer
+  inside a frame whose parent does not run auto layout. A frame's resize handles and its W / H
+  then move and resize its children by them. T+B (vertical stretch) is the app's; the mockup's Pin Y
+  leaves it out.
+- **Fill / Stroke**: the shape's colour, or the colour style it is bound to ("style"), the document's
+  colour styles (Apply / Linked to detach, Update to the colour in hand, delete), and + / "New style
+  from fill". A frame's own fill stays in the Frame section.
+- **Text**: the document's text styles for a text layer: apply, update from the layer, delete, new.
+- **Components**: Make component, or for an instance Go to main and Detach, or for a main Release;
+  then every main component with its instance count, to select or Place a new instance of.
 
 ## Not in this phase
 

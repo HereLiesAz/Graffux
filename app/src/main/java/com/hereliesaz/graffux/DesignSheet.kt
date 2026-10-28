@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "FunctionNaming", "LongParameterList", "LongMethod", "MatchingDeclarationName", "MaxLineLength", "TooManyFunctions")
+@file:Suppress("MagicNumber", "FunctionNaming", "LongParameterList", "LongMethod", "MatchingDeclarationName", "MaxLineLength", "TooManyFunctions", "CyclomaticComplexMethod")
 
 package com.hereliesaz.graffux
 
@@ -50,6 +50,11 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 /** The design sheet's tabs, in the mockup's order, under the type heading each sits under. */
 internal enum class DesignTab(val label: String, val section: String) {
     FRAME("Frame", "LAYOUT"),
+    CONSTRAINTS("Constraints", "LAYOUT"),
+    FILL("Fill", "STYLE"),
+    STROKE("Stroke", "STYLE"),
+    TEXT("Text", "STYLE"),
+    COMPONENTS("Components", "COMPONENT"),
     ;
 
     val key: String get() = "design.${name.lowercase()}"
@@ -82,6 +87,8 @@ internal data class DesignTarget(
     val isFrame: Boolean,
     val clipsContent: Boolean,
     val fillArgb: Long?,
+    /** Constraints, style links and component links (the constraints, styles and components panels). */
+    val links: DesignLinks? = null,
 )
 
 /** [layer] as the properties panel shows it, its box measured by [box]. */
@@ -113,7 +120,8 @@ internal fun designTargetOf(layer: Layer, box: Rect?): DesignTarget {
 
 /** The selected layer of [state] as a [DesignTarget], or null with nothing selected. */
 internal fun designTargetIn(state: EditorUiState, box: (String) -> Rect?): DesignTarget? =
-    state.layers.firstOrNull { it.id == state.activeLayerId }?.let { designTargetOf(it, box(it.id)) }
+    state.layers.firstOrNull { it.id == state.activeLayerId }
+        ?.let { designTargetOf(it, box(it.id)).copy(links = designLinksOf(it, state.layers)) }
 
 /** The editor calls the design properties make, as an interface tests can fake. */
 internal interface DesignActions {
@@ -156,6 +164,8 @@ internal fun DesignSheetBody(
     actions: DesignActions,
     onSelectTab: (DesignTab) -> Unit,
     modifier: Modifier = Modifier,
+    library: DesignLibrary = DesignLibrary(),
+    libraryActions: DesignLibraryActions? = null,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (showingControls && tab != null) {
@@ -181,8 +191,24 @@ internal fun DesignSheetBody(
                         if (target == null) {
                             DesignEmpty()
                         } else {
-                            when (tab) {
-                                DesignTab.FRAME -> FrameSection(target, actions, DesignDensity.SHEET)
+                            val links = target.links
+                            when {
+                                tab == DesignTab.FRAME -> {
+                                    FrameSection(target, actions, DesignDensity.SHEET)
+                                    // The mockup's Properties board: the pins and the shape's
+                                    // fill and stroke follow the fields in the Frame tab.
+                                    if (links != null && libraryActions != null) {
+                                        if (links.constraints != null) ConstraintsSection(links, libraryActions, DesignDensity.SHEET)
+                                        if (links.hasShape) PaintSummary(links, library)
+                                    }
+                                }
+                                links == null || libraryActions == null -> Unit
+                                tab == DesignTab.CONSTRAINTS -> ConstraintsSection(links, libraryActions, DesignDensity.SHEET)
+                                tab == DesignTab.FILL && target.isFrame -> FrameFillRow(target, actions)
+                                tab == DesignTab.FILL -> ColorStylesSection(false, links, library, libraryActions, DesignDensity.SHEET)
+                                tab == DesignTab.STROKE -> ColorStylesSection(true, links, library, libraryActions, DesignDensity.SHEET)
+                                tab == DesignTab.TEXT -> TextStylesSection(links, library, libraryActions, DesignDensity.SHEET)
+                                tab == DesignTab.COMPONENTS -> ComponentsSection(links, library, libraryActions, DesignDensity.SHEET)
                             }
                         }
                     }
@@ -280,6 +306,12 @@ internal fun FrameSection(target: DesignTarget, actions: DesignActions, density:
     }
 }
 
+/** A frame's fill in the sheet's Fill tab. */
+@Composable
+private fun FrameFillRow(target: DesignTarget, actions: DesignActions) {
+    DesignRow("Fill", DesignDensity.SHEET) { FillControls(target, actions, DesignDensity.SHEET) }
+}
+
 @Composable
 private fun FieldRow(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
     Row(
@@ -362,6 +394,8 @@ internal fun PropertiesPanel(
     onPlacement: (PropertiesPlacement) -> Unit,
     modifier: Modifier = Modifier,
     logoClearance: androidx.compose.ui.unit.Dp = 64.dp,
+    library: DesignLibrary = DesignLibrary(),
+    libraryActions: DesignLibraryActions? = null,
 ) {
     Column(
         modifier
@@ -407,6 +441,16 @@ internal fun PropertiesPanel(
                 }
             } else {
                 FrameSection(target, actions, DesignDensity.PANEL)
+                val links = target.links
+                if (links != null && libraryActions != null) {
+                    ConstraintsSection(links, libraryActions, DesignDensity.PANEL)
+                    if (links.hasShape) {
+                        ColorStylesSection(false, links, library, libraryActions, DesignDensity.PANEL)
+                        ColorStylesSection(true, links, library, libraryActions, DesignDensity.PANEL)
+                    }
+                    if (links.isText) TextStylesSection(links, library, libraryActions, DesignDensity.PANEL)
+                    ComponentsSection(links, library, libraryActions, DesignDensity.PANEL)
+                }
             }
         }
         PlacementSetting(placement, onPlacement)
