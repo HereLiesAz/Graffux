@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -397,5 +399,55 @@ internal fun PaintSummary(links: DesignLinks, library: DesignLibrary) {
             modifier = Modifier.weight(1f).testTag("design.summary.stroke"),
         )
         if (none) Text("None", color = DesignInk.Faint, fontSize = 13.sp, fontFamily = RobotoCondensedFamily)
+    }
+}
+
+/** What the Export panel exports and how. */
+internal interface DesignExportActions {
+    fun export(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean)
+}
+
+internal fun EditorViewModel.designExportActions(): DesignExportActions = object : DesignExportActions {
+    override fun export(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean) =
+        exportDesign(format, allFrames)
+}
+
+/**
+ * Export (the mockup's Inspect board and the side panel's Export section): PNG, SVG or PDF of the
+ * selected frame (or the frame the selection is in), else of the document's page; a PDF can take
+ * every frame, a page each.
+ */
+@Composable
+internal fun ExportSection(targetName: String, hasFrames: Boolean, actions: DesignExportActions, density: DesignDensity) {
+    var format by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(com.hereliesaz.graffitixr.common.model.DesignExportFormat.SVG) }
+    var allFrames by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val formats = com.hereliesaz.graffitixr.common.model.DesignExportFormat.entries.map { it to it.name }
+    val body: @Composable () -> Unit = {
+        DesignRow("Format", density) { DesignChoice(formats, format, "design.export.format") { format = it } }
+        if (format == com.hereliesaz.graffitixr.common.model.DesignExportFormat.PDF && hasFrames) {
+            DesignRow("Pages", density) {
+                DesignChoice(listOf(false to "This frame", true to "All frames"), allFrames, "design.export.pages") { allFrames = it }
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = if (density == DesignDensity.SHEET) 20.dp else 0.dp, vertical = 6.dp),
+        ) {
+            Text(
+                if (allFrames && format == com.hereliesaz.graffitixr.common.model.DesignExportFormat.PDF) "Every frame" else targetName,
+                color = DesignInk.Muted, fontSize = density.fontSize.sp, fontFamily = RobotoCondensedFamily, maxLines = 1,
+                modifier = Modifier.weight(1f).testTag("design.export.target"),
+            )
+            DesignChip("Export ${format.name}", on = true, tag = "design.export.go") { actions.export(format, allFrames) }
+        }
+    }
+    if (density == DesignDensity.SHEET) {
+        Column { body() }
+    } else {
+        DesignPanelSection("design.section.export") {
+            DesignSectionHeader("Export")
+            body()
+        }
     }
 }

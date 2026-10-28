@@ -311,3 +311,6 @@ object FrameOps {
         return if (oldLocal == newLocal) resized else LayoutOps.applyResize(resized, frameId, oldLocal, newLocal)
     }
 }
+
+/** The design tools' export formats (the Export tab and the side panel's Export section). */
+enum class DesignExportFormat { PNG, SVG, PDF }

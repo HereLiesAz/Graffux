@@ -71,6 +71,7 @@ import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.export.artboardRect
+import com.hereliesaz.graffitixr.feature.editor.export.compositeFrame
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -533,6 +534,12 @@ private const val DEFAULT_FRAME_HEIGHT = 844f
 /** A frame's name label, as a touch target on screen (dp-ish px at zoom 1). */
 private const val FRAME_LABEL_HIT_HEIGHT = 40f
 private const val FRAME_LABEL_HIT_WIDTH = 160f
+
+/** How deep an export walks up from the selection looking for its frame. */
+private const val MAX_EXPORT_DEPTH = 32
+
+/** PNG ignores quality; the parameter is required. */
+private const val PNG_QUALITY = 100
 
 /** Below this zoom the design maths clamps, so nothing divides by zero. */
 private const val MIN_DESIGN_ZOOM = 0.01f
@@ -11628,6 +11635,112 @@ class EditorViewModel @Inject constructor(
         applyDesign(next)
         saveProject()
         emitActiveLayerProps()
+    }
+
+    // ── Design export: PNG, SVG and PDF of a frame or the document ───────────────────────────
+
+    /**
+     * The frame an export of the selection means: the selected frame, else the frame the selected
+     * layer sits in (nearest first), else none (the document's artboard).
+     */
+    fun designExportFrameId(): String? {
+        val layers = _uiState.value.layers
+        var cursor = layers.firstOrNull { it.id == _uiState.value.activeLayerId }
+        var depth = 0
+        while (cursor != null && depth++ < MAX_EXPORT_DEPTH) {
+            if (cursor.isFrame) return cursor.id
+            cursor = cursor.parentId?.let { id -> layers.firstOrNull { it.id == id } }
+        }
+        return null
+    }
+
+    /**
+     * Exports the selected frame (or, with none, the document's artboard) as [format], into
+     * Downloads. A PDF with [allFrames] has one page per top-level frame. Shapes stay vectors in SVG
+     * and PDF; raster, text and photo adjustment layers go in as images of their pixels.
+     */
+    fun exportDesign(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean = false) {
+        val frameId = designExportFrameId()
+        if (format == com.hereliesaz.graffitixr.common.model.DesignExportFormat.PNG && frameId == null) {
+            exportImage()
+            return
+        }
+        viewModelScope.launch(dispatchers.default) {
+            dispatch(EditorIntent.SetLoading(true))
+            try {
+                val name = _uiState.value.layers.firstOrNull { it.id == frameId }?.name ?: "Graffux"
+                when (format) {
+                    com.hereliesaz.graffitixr.common.model.DesignExportFormat.SVG -> exportSvg(frameId, name)
+                    com.hereliesaz.graffitixr.common.model.DesignExportFormat.PDF -> exportPdf(frameId, name, allFrames)
+                    com.hereliesaz.graffitixr.common.model.DesignExportFormat.PNG -> exportFramePng(frameId!!, name)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dispatch(EditorIntent.SetLoading(false))
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+                reportExportFailure("Couldn't export ${format.name}", t)
+            }
+        }
+    }
+
+    /** The page an export writes: the frame's box, or the document's artboard. */
+    private fun designExportPage(frameId: String?, name: String): com.hereliesaz.graffitixr.feature.editor.export.VectorPage {
+        val st = _uiState.value
+        val (cw, ch) = designCanvasSize()
+        val scene = com.hereliesaz.graffitixr.feature.editor.export.VectorScene
+        frameId?.let { scene.framePage(st.layers, it, cw, ch) }?.let { return it }
+        val metrics = context.resources.displayMetrics
+        return scene.documentPage(
+            name, st.layers, metrics.widthPixels.toFloat(), metrics.heightPixels.toFloat(),
+            st.documentWidth, st.documentHeight,
+        )
+    }
+
+    private fun designExportFile(name: String, extension: String): File {
+        val dir = File(context.cacheDir, "design-export").apply { mkdirs() }
+        val base = name.replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifEmpty { "Graffux" }
+        return File(dir, "$base-${System.currentTimeMillis()}.$extension")
+    }
+
+    private suspend fun exportSvg(frameId: String?, name: String) {
+        val file = designExportFile(name, "svg")
+        val page = designExportPage(frameId, name)
+        val svg = com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) }
+        file.writeText(svg)
+        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+        copyToDownloads(file, "image/svg+xml", "Saved ${file.name} to Downloads", "SVG export failed")
+    }
+
+    private suspend fun exportPdf(frameId: String?, name: String, allFrames: Boolean) {
+        val (cw, ch) = designCanvasSize()
+        val scene = com.hereliesaz.graffitixr.feature.editor.export.VectorScene
+        val pages = scene.allFramePages(_uiState.value.layers, cw, ch).takeIf { allFrames }.orEmpty()
+            .ifEmpty { listOf(designExportPage(frameId, name)) }
+        val file = designExportFile(name, "pdf")
+        file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
+        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+        copyToDownloads(file, "application/pdf", "Saved ${file.name} to Downloads", "PDF export failed")
+    }
+
+    private suspend fun exportFramePng(frameId: String, name: String) {
+        val (cw, ch) = designCanvasSize()
+        val bitmap = exportManager.compositeFrame(_uiState.value.layers, frameId, cw.toInt(), ch.toInt())
+        val saved = bitmap != null && saveBitmapToGallery(context, bitmap)
+        bitmap?.recycle()
+        withContext(dispatchers.main) {
+            dispatch(EditorIntent.SetLoading(false))
+            if (saved) {
+                notify("Saved $name to your gallery", NoticeKind.NOTICE)
+            } else {
+                notify("Couldn't save $name", NoticeKind.WARNING)
+            }
+        }
+    }
+
+    private fun pngBytes(bitmap: Bitmap?): ByteArray? {
+        if (bitmap == null || bitmap.isRecycled) return null
+        val out = java.io.ByteArrayOutputStream()
+        return if (bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)) out.toByteArray() else null
     }
 
     // ── Vector node editing ──────────────────────────────────────────────────────────────────

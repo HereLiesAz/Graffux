@@ -154,6 +154,35 @@ class DesignMockupShotTest {
     }
 
     @Test
+    @Config(sdk = [34], qualifiers = "w390dp-h844dp-xhdpi", application = Application::class)
+    fun `phone export tab`() {
+        val state = EditorUiState(undoCount = 1, layers = layers, activeLayerId = "pay", brushSize = 24f, activeColor = Color(0xFFFF3EA5), activeTool = Tool.FRAME)
+        val export = DesignExportContext("Pay", hasFrames = true, actions = object : DesignExportActions {
+            override fun export(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean) = Unit
+        })
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F))) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = EdgeStripHeight + 4.dp) {
+                            DesignSheetBody(DesignTab.EXPORT, showingControls = true, target = null, actions = design, onSelectTab = {}, export = export)
+                        }
+                    }
+                    ToolRail(
+                        vm = actions, uiState = state, lit = emptySet(), secondary = emptySet(),
+                        callbacks = ToolRailCallbacks({}, {}, {}),
+                        modifier = Modifier.align(Alignment.TopStart).padding(start = RailSideInset, top = RailTopInset),
+                    )
+                    LogoMenu(open = false, onOpenChange = {}, rows = emptyList(), modifier = Modifier.align(Alignment.TopEnd))
+                }
+            }
+        }
+        rule.waitForIdle()
+        save("app-DesignInspect")
+        rule.onNodeWithTag("design.export.go").fetchSemanticsNode()
+    }
+
+    @Test
     @Config(sdk = [34], qualifiers = "w1180dp-h820dp-mdpi", application = Application::class)
     fun `tablet properties side panel`() {
         val state = EditorUiState(undoCount = 1, layers = layers, activeLayerId = "pay", brushSize = 24f, activeColor = Color(0xFFFF3EA5), activeTool = Tool.FRAME)

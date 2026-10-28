@@ -198,4 +198,34 @@ class DesignPanelsUiTest {
         assertNull(designLinksOf(card, listOf(row, card)).constraints)
         assertEquals(listOf(ComponentEntry("button", "btn", "Button", 1)), designLibraryOf(state).components)
     }
+
+    @Test
+    fun `the export tab exports the frame as the format picked, or every frame as a PDF`() {
+        val exports = mutableListOf<String>()
+        val actions = object : DesignExportActions {
+            override fun export(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean) {
+                exports += "$format $allFrames"
+            }
+        }
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F))) {
+                    DesignSheetBody(
+                        DesignTab.EXPORT, showingControls = true, target = null, actions = noDesign, onSelectTab = {},
+                        export = DesignExportContext("Pay", hasFrames = true, actions = actions),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
+            }
+        }
+        rule.onNodeWithTag("design.export.target").assertTextEquals("Pay")
+        rule.onNodeWithTag("design.export.go").performClick()
+        rule.onNodeWithTag("design.export.format.pdf").performClick()
+        rule.onNodeWithTag("design.export.pages.all frames").performClick()
+        rule.onNodeWithTag("design.export.target").assertTextEquals("Every frame")
+        rule.onNodeWithTag("design.export.go").performClick()
+        rule.onNodeWithTag("design.export.format.png").performClick()
+        rule.onNodeWithTag("design.export.go").performClick()
+        assertEquals(listOf("SVG false", "PDF true", "PNG true"), exports)
+    }
 }
