@@ -43,8 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -157,25 +157,25 @@ fun ProjectGateDialog(
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                     ) {
                         if (state.cancellable) {
-                            AzButton(
+                            GraffuxButton(
                                 text = "Cancel",
                                 onClick = onCancel,
-                                shape = AzButtonShape.RECTANGLE,
+                                shape = GraffuxButtonShape.RECTANGLE,
                                 modifier = Modifier.testTag(TAG_CANCEL),
                             )
                         }
-                        AzButton(
+                        GraffuxButton(
                             text = "Open…",
                             onClick = onLoad,
-                            shape = AzButtonShape.RECTANGLE,
+                            shape = GraffuxButtonShape.RECTANGLE,
                             modifier = Modifier.testTag(TAG_LOAD),
                         )
-                        AzButton(
+                        GraffuxButton(
                             text = "Create",
                             onClick = {
                                 onSave(ProjectFile.sanitizeName(name), fields.size.widthPx, fields.size.heightPx)
                             },
-                            shape = AzButtonShape.RECTANGLE,
+                            shape = GraffuxButtonShape.RECTANGLE,
                             modifier = Modifier.testTag(TAG_SAVE),
                         )
                     }

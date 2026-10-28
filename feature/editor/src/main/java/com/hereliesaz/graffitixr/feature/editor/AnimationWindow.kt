@@ -21,8 +21,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.abs
@@ -136,15 +136,15 @@ fun AnimationWindow(
 
             // Transport.
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AzButton(text = "Prev", onClick = onPreviousFrame, shape = AzButtonShape.RECTANGLE)
-                AzButton(
+                GraffuxButton(text = "Prev", onClick = onPreviousFrame, shape = GraffuxButtonShape.RECTANGLE)
+                GraffuxButton(
                     text = if (isPlaying) "Pause" else "Play",
                     onClick = onTogglePlayback,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
-                AzButton(text = "Next", onClick = onNextFrame, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Next", onClick = onNextFrame, shape = GraffuxButtonShape.RECTANGLE)
             }
-            AzButton(text = "Add Frame", onClick = onAddFrame, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = "Add Frame", onClick = onAddFrame, shape = GraffuxButtonShape.RECTANGLE)
 
             // Krita's hold frame: this frame plays for a multiple of the base frame duration
             // instead of one tick, without needing a duplicate layer to eat the extra ticks.
@@ -162,10 +162,10 @@ fun AnimationWindow(
             Text("Playback", style = MaterialTheme.typography.labelMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AnimationLoopMode.entries.forEach { mode ->
-                    AzButton(
+                    GraffuxButton(
                         text = if (mode == loopMode) "● ${mode.label}" else mode.label,
                         onClick = { onSetLoopMode(mode) },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
             }
@@ -208,14 +208,14 @@ fun AnimationWindow(
             }
 
             if (frameCount > 1) {
-                AzButton(
+                GraffuxButton(
                     text = when {
                         previewIsRendering -> "Rendering preview  $previewRenderedFrames/$previewTotalFrames"
                         previewIsReady -> "Re-render Low-quality Preview"
                         else -> "Render Low-quality Preview"
                     },
                     onClick = onRenderPreview,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
                 Text(
                     when {
@@ -232,10 +232,10 @@ fun AnimationWindow(
             // independently, so e.g. history can show behind a clean line with nothing ahead of it.
             // The depth sliders are only shown while it's on — a ghost-frame count means nothing
             // when no ghosts are being drawn.
-            AzButton(
+            GraffuxButton(
                 text = if (onionSkinEnabled) "● Onion Skin" else "Onion Skin",
                 onClick = onToggleOnionSkin,
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
             if (onionSkinEnabled) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -260,17 +260,17 @@ fun AnimationWindow(
                 }
             }
 
-            AzButton(text = "Export GIF", onClick = onExport, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = "Export GIF", onClick = onExport, shape = GraffuxButtonShape.RECTANGLE)
 
             Text("Time-lapse", style = MaterialTheme.typography.labelMedium)
             Text(
                 "Records every committed stroke and saves the clip to Downloads when you stop.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            AzButton(
+            GraffuxButton(
                 text = if (isTimeLapseRecording) "● Recording — Stop" else "Record",
                 onClick = onToggleTimeLapse,
-                shape = AzButtonShape.RECTANGLE,
+                shape = GraffuxButtonShape.RECTANGLE,
             )
         }
     }

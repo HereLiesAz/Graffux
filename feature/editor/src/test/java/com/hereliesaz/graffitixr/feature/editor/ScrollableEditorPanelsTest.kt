@@ -87,8 +87,7 @@ class ScrollableEditorPanelsTest {
             }
         }
         rule.onNodeWithText("Control 1").assertIsDisplayed()
-        // AzButton exposes its label as the content description, not as a Text node.
-        rule.onNodeWithContentDescription("Run").assertIsDisplayed()
+        rule.onNodeWithText("Run").assertIsDisplayed()
     }
 
     @Test

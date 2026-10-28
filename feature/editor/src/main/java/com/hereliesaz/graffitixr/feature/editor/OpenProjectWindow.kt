@@ -33,11 +33,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.data.DiscoveredProjectFile
-import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlinx.coroutines.Dispatchers
@@ -127,17 +127,17 @@ fun OpenProjectWindow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                AzButton(
+                GraffuxButton(
                     text = "+ New project",
                     onClick = { onNew(); onDismiss() },
-                    shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
-                AzButton(
+                GraffuxButton(
                     text = "Choose location…",
                     onClick = onChooseLocation,
-                    shape = AzButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
             }
             return@FloatingWindow
@@ -205,17 +205,17 @@ fun OpenProjectWindow(
             }
         }
 
-        AzButton(
+        GraffuxButton(
             text = "+ New project",
             onClick = { onNew(); onDismiss() },
-            shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+            shape = GraffuxButtonShape.RECTANGLE,
+            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
         )
-        AzButton(
+        GraffuxButton(
             text = "Choose location…",
             onClick = onChooseLocation,
-            shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+            shape = GraffuxButtonShape.RECTANGLE,
+            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
         )
     }
 }

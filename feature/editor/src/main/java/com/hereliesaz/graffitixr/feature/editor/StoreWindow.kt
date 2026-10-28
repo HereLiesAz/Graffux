@@ -35,14 +35,14 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.common.azphalt.PackageSummary
 import com.hereliesaz.graffitixr.common.azphalt.SignatureStatus
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
-import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
@@ -184,7 +184,7 @@ private fun InstalledTab(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
-        AzButton(text = "Browse the Azphalt Store", onClick = onBrowse, shape = AzButtonShape.RECTANGLE)
+        GraffuxButton(text = "Browse the Azphalt Store", onClick = onBrowse, shape = GraffuxButtonShape.RECTANGLE)
         return
     }
     // Plain Column, not LazyColumn: this whole window's content already sits inside FloatingWindow's
@@ -252,7 +252,7 @@ private fun BrowseTab(
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
-            AzButton(text = "Retry", onClick = onSearch, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = "Retry", onClick = onSearch, shape = GraffuxButtonShape.RECTANGLE)
         }
 
         if (!loading && error == null && results.isEmpty()) {
@@ -283,13 +283,13 @@ private fun BrowseTab(
         // A real store app or the web storefront can still do things this in-app browse can't
         // (Play Billing for a paid package, chief among them) — offered, not hidden, just no
         // longer the only door in.
-        AzButton(
+        GraffuxButton(
             text = "Other sources (store app / browser)…",
             onClick = onOtherSources,
-            shape = AzButtonShape.RECTANGLE,
+            shape = GraffuxButtonShape.RECTANGLE,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(AzFullWidthButtonHeight)
+                .height(FullWidthButtonHeight)
                 .padding(top = 4.dp),
         )
     }
@@ -378,12 +378,12 @@ private fun PackageCard(
                     horizontalArrangement = Arrangement.Center,
                 ) { CircularProgressIndicator(modifier = Modifier.height(20.dp)) }
 
-                updateVersion != null -> AzButton(
+                updateVersion != null -> GraffuxButton(
                     text = "Update to $updateVersion",
                     onClick = onInstall,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
 
                 // A plain label, not a button: AzButton has no confirmed "disabled" styling in this
@@ -397,20 +397,20 @@ private fun PackageCard(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 )
 
-                pkg.priceStatus.isPaid -> AzButton(
+                pkg.priceStatus.isPaid -> GraffuxButton(
                     text = "Buy",
                     onClick = onBuy,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
 
-                else -> AzButton(
+                else -> GraffuxButton(
                     text = "Get",
                     onClick = onInstall,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
             }
         }
@@ -459,22 +459,22 @@ private fun InstalledExtensionCard(
                     CircularProgressIndicator(modifier = Modifier.height(20.dp))
                 }
             } else {
-                AzButton(
+                GraffuxButton(
                     text = "Update to $updateVersion",
                     onClick = onUpdate,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
             }
             Spacer(Modifier.height(6.dp))
         }
-        AzButton(
+        GraffuxButton(
             text = "Uninstall",
             onClick = onUninstall,
-            shape = AzButtonShape.RECTANGLE,
+            shape = GraffuxButtonShape.RECTANGLE,
             contentPadding = CardActionPadding,
-            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
         )
     }
 }

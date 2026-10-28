@@ -8,29 +8,15 @@
     <ID>FunctionNaming:AdjustmentsControls.kt$@Composable fun ColorBalanceKnobsRow( colorBalanceR: Float, colorBalanceG: Float, colorBalanceB: Float, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
     <ID>FunctionNaming:AdjustmentsPanel.kt$@Composable fun AdjustmentsPanel( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
     <ID>FunctionNaming:ConfirmDialog.kt$@Composable fun ConfirmDialog( title: String, message: String, confirmLabel: String, onConfirm: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:DoubleTapHintDialog.kt$@Composable fun DoubleTapHintDialog( onDismissRequest: () -&gt; Unit )</ID>
-    <ID>FunctionNaming:FloatingWindow.kt$@Composable fun FloatingWindow( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(60f, 160f), state: AzWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
-    <ID>FunctionNaming:InfoDialog.kt$@Composable fun InfoDialog( title: String, content: String, onDismiss: () -&gt; Unit )</ID>
     <ID>FunctionNaming:Knob.kt$@Composable fun Knob( text: String, value: Float, onValueChange: (Float) -&gt; Unit, onValueChangeStart: (() -&gt; Unit)? = null, onValueChangeFinished: (() -&gt; Unit)? = null, valueRange: ClosedFloatingPointRange&lt;Float&gt; = 0f..1f, modifier: Modifier = Modifier, color: Color = Color.White, defaultValue: Float = valueRange.start, valueFormatter: (Float) -&gt; String = { String.format(java.util.Locale.ROOT, "%.2f", it) } )</ID>
-    <ID>FunctionNaming:PageIndicator.kt$@Composable fun PageIndicator( pageCount: Int, currentPage: Int, onPageSelected: (Int) -&gt; Unit, modifier: Modifier = Modifier, activeColor: Color = MaterialTheme.colorScheme.primary, inactiveColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) )</ID>
-    <ID>FunctionNaming:ProgressIndicator.kt$@Composable fun ProgressIndicator(progress: () -&gt; Float, modifier: Modifier = Modifier)</ID>
-    <ID>FunctionNaming:Theme.kt$@Composable fun GraffitiXRTheme( darkTheme: Boolean = isSystemInDarkTheme(), // Dynamic color is available on Android 12+ dynamicColor: Boolean = false, content: @Composable () -&gt; Unit )</ID>
     <ID>LargeClass:GraffuxIcons.kt$GraffuxIcons</ID>
     <ID>LongMethod:AdjustmentsPanel.kt$@Composable fun AdjustmentsPanel( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
-    <ID>LongMethod:AppStrings.kt$@Composable fun rememberAppStrings(): AppStrings</ID>
     <ID>LongMethod:Knob.kt$@Composable fun Knob( text: String, value: Float, onValueChange: (Float) -&gt; Unit, onValueChangeStart: (() -&gt; Unit)? = null, onValueChangeFinished: (() -&gt; Unit)? = null, valueRange: ClosedFloatingPointRange&lt;Float&gt; = 0f..1f, modifier: Modifier = Modifier, color: Color = Color.White, defaultValue: Float = valueRange.start, valueFormatter: (Float) -&gt; String = { String.format(java.util.Locale.ROOT, "%.2f", it) } )</ID>
-    <ID>LongMethod:NavStrings.kt$@Composable fun rememberNavStrings(): NavStrings</ID>
     <ID>LongParameterList:AdjustmentsControls.kt$( colorBalanceR: Float, colorBalanceG: Float, colorBalanceB: Float, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
     <ID>LongParameterList:AdjustmentsControls.kt$( opacity: Float, brightness: Float, contrast: Float, saturation: Float, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, strings: AppStrings, modifier: Modifier = Modifier )</ID>
     <ID>LongParameterList:AdjustmentsPanel.kt$( state: AdjustmentsState, showKnobs: Boolean, showColorBalance: Boolean, isLandscape: Boolean, screenHeight: Dp, onOpacityChange: (Float) -&gt; Unit, onBrightnessChange: (Float) -&gt; Unit, onContrastChange: (Float) -&gt; Unit, onSaturationChange: (Float) -&gt; Unit, onColorBalanceRChange: (Float) -&gt; Unit, onColorBalanceGChange: (Float) -&gt; Unit, onColorBalanceBChange: (Float) -&gt; Unit, onAdjustmentStart: () -&gt; Unit, onAdjustmentEnd: () -&gt; Unit, onDismiss: () -&gt; Unit, strings: AppStrings, // When non-null (i.e. in a Mode), the knobs reflect the whole-design mode adjustment instead of // the active layer's values. modeOpacity: Float? = null, modeBrightness: Float? = null, modeContrast: Float? = null, modeSaturation: Float? = null, modifier: Modifier = Modifier )</ID>
-    <ID>LongParameterList:FloatingWindow.kt$( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(60f, 160f), state: AzWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
+    <ID>LongParameterList:FloatingWindow.kt$( title: String, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, initialOffset: Offset = Offset(60f, 160f), state: FloatingWindowState? = null, content: @Composable ColumnScope.() -&gt; Unit, )</ID>
     <ID>LongParameterList:Knob.kt$( text: String, value: Float, onValueChange: (Float) -&gt; Unit, onValueChangeStart: (() -&gt; Unit)? = null, onValueChangeFinished: (() -&gt; Unit)? = null, valueRange: ClosedFloatingPointRange&lt;Float&gt; = 0f..1f, modifier: Modifier = Modifier, color: Color = Color.White, defaultValue: Float = valueRange.start, valueFormatter: (Float) -&gt; String = { String.format(java.util.Locale.ROOT, "%.2f", it) } )</ID>
-    <ID>LongParameterList:PageIndicator.kt$( pageCount: Int, currentPage: Int, onPageSelected: (Int) -&gt; Unit, modifier: Modifier = Modifier, activeColor: Color = MaterialTheme.colorScheme.primary, inactiveColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) )</ID>
-    <ID>MagicNumber:Color.kt$0xFF000000</ID>
-    <ID>MagicNumber:Color.kt$0xFF00FFFF</ID>
-    <ID>MagicNumber:Color.kt$0xFF39FF14</ID>
-    <ID>MagicNumber:Color.kt$0xFFFF00C8</ID>
-    <ID>MagicNumber:Color.kt$0xFFFFFFFF</ID>
     <ID>MagicNumber:FloatingWindow.kt$160f</ID>
     <ID>MagicNumber:FloatingWindow.kt$60f</ID>
     <ID>MagicNumber:Knob.kt$135f</ID>
@@ -40,9 +26,10 @@
     <ID>MagicNumber:Theme.kt$0xFF4A4A54</ID>
     <ID>MagicNumber:Theme.kt$0xFFC6C6CE</ID>
     <ID>MatchingDeclarationName:AdjustmentsPanel.kt$AdjustmentsState</ID>
-    <ID>MatchingDeclarationName:FloatingWindow.kt$RailInset</ID>
-    <ID>MaxLineLength:ConfirmDialog.kt$AzButton(text = stringResource(R.string.cancel_button), onClick = onDismiss, shape = AzButtonShape.RECTANGLE)</ID>
-    <ID>MaxLineLength:DoubleTapHintDialog.kt$AzButton(text = stringResource(R.string.ok_button), onClick = onDismissRequest, shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MatchingDeclarationName:GraffuxButton.kt$GraffuxButtonShape</ID>
+    <ID>MaxLineLength:ConfirmDialog.kt$GraffuxButton(text = stringResource(R.string.cancel_button), onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:FloatingWindow.kt$*</ID>
+    <ID>MaxLineLength:FloatingWindow.kt$// file's own mount-time correction pinning `maxY` exactly to `containerSize.height`) can end up with its bottom edge sitting right under the gesture nav bar,</ID>
     <ID>MaxLineLength:FloatingWindow.kt$private</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("action-record", R.drawable.ic_gx_action_record, GxIconCategory.HISTORY, listOf("record macro", "start recording"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("actions-panel", R.drawable.ic_gx_actions_panel, GxIconCategory.HISTORY, listOf("macro", "recorded steps"))</ID>
@@ -283,9 +270,5 @@
     <ID>MaxLineLength:GraffuxIcons.kt$GraffuxIcons$GxIcon("view-cmyk-preview", R.drawable.ic_gx_view_cmyk_preview, GxIconCategory.DOCUMENT, listOf("gamut warning", "print preview"))</ID>
     <ID>MaxLineLength:GraffuxIcons.kt$GxIconCategory$enum</ID>
     <ID>MaxLineLength:Knob.kt$val newValue = (updatedValue - dragAmount.y * sensitivity).coerceIn(updatedRange.start, updatedRange.endInclusive)</ID>
-    <ID>NewLineAtEndOfFile:Color.kt$com.hereliesaz.graffitixr.design.theme.Color.kt</ID>
-    <ID>NewLineAtEndOfFile:ProgressIndicator.kt$com.hereliesaz.graffitixr.design.components.ProgressIndicator.kt</ID>
-    <ID>TooGenericExceptionThrown:ShaderUtil.kt$ShaderUtil$throw RuntimeException("Error creating shader.")</ID>
-    <ID>UnusedParameter:ShaderUtil.kt$ShaderUtil$context: Context</ID>
   </CurrentIssues>
 </SmellBaseline>

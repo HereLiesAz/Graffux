@@ -14,8 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
@@ -92,24 +92,24 @@ fun LayerOptionsDialog(
                 )
             }
             if (overlay.textParams != null) {
-                AzButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)
             }
-            AzButton(text = navStrings.invert, onClick = { onInvert(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = navStrings.invert, onClick = { onInvert(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)
             if (overlay.shapes.isNotEmpty()) {
-                AzButton(text = "Size", onClick = { onShapeSize(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
-                AzButton(text = "Stroke", onClick = { onStrokeWidth(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Size", onClick = { onShapeSize(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)
+                GraffuxButton(text = "Stroke", onClick = { onStrokeWidth(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)
             }
             if (overlay.shapes.any { it.kind == ShapeKind.RECTANGLE }) {
-                AzButton(text = "Corners", onClick = { onCornerRadius(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Corners", onClick = { onCornerRadius(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)
             }
             if (overlay.shapes.any { it.kind == ShapeKind.POLYGON }) {
-                AzButton(text = "Sides", onClick = { onPolygonSides(); onDismiss() }, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Sides", onClick = { onPolygonSides(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)
             }
             if (overlay.shapes.any { it.kind != ShapeKind.LINE }) {
-                AzButton(
+                GraffuxButton(
                     text = if (hasFill) "Fill: On" else "Fill: Off",
                     onClick = { onToggleFill() },
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
             }
         }

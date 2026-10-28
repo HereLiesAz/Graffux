@@ -118,7 +118,6 @@
     <ID>FunctionNaming:StoreWindow.kt$@Composable fun StoreWindow( initialTab: StoreTab, // Installed tab. installed: List&lt;InstalledExtension&gt;, /** Installed extension id -&gt; a newer version the azphalt Repository API reports, if any * (spec/repository-api.md § 6 `POST /updates`). Absent = no known update. Shared with the * Browse tab's own per-card "Update" affordance — the same map either side reads by id. */ updatesAvailable: Map&lt;String, String&gt; = emptyMap(), /** Extension ids currently mid-update/install, for a busy indicator on that card's button — * shared between both tabs, since installing from Browse and updating from Installed are the * same underlying call. */ installingIds: Set&lt;String&gt; = emptySet(), onUpdate: (InstalledExtension) -&gt; Unit = {}, onUninstall: (String) -&gt; Unit, // Browse tab. query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:StoreWindow.kt$@Composable private fun BrowseTab( query: String, results: List&lt;PackageSummary&gt;, loading: Boolean, error: String?, installedIds: Set&lt;String&gt;, updatesAvailable: Map&lt;String, String&gt;, installingIds: Set&lt;String&gt;, onQueryChanged: (String) -&gt; Unit, onSearch: () -&gt; Unit, onInstall: (PackageSummary) -&gt; Unit, onBuy: (PackageSummary) -&gt; Unit, onOtherSources: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:StoreWindow.kt$@Composable private fun InstalledExtensionCard( extension: InstalledExtension, updateVersion: String? = null, updating: Boolean = false, onUpdate: () -&gt; Unit = {}, onUninstall: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:StoreWindow.kt$@Composable private fun InstalledTab( installed: List&lt;InstalledExtension&gt;, updatesAvailable: Map&lt;String, String&gt;, installingIds: Set&lt;String&gt;, onUpdate: (InstalledExtension) -&gt; Unit, onUninstall: (InstalledExtension) -&gt; Unit, )</ID>
     <ID>FunctionNaming:StoreWindow.kt$@Composable private fun PackageCard( pkg: PackageSummary, installed: Boolean, updateVersion: String?, installing: Boolean, onInstall: () -&gt; Unit, onBuy: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:StoreWindow.kt$@Composable private fun SignatureBadge(status: SignatureStatus)</ID>
     <ID>FunctionNaming:StoreWindow.kt$@Composable private fun StoreTabChip(text: String, selected: Boolean, onClick: () -&gt; Unit)</ID>
@@ -197,9 +196,9 @@
     <ID>LongParameterList:EditorScreen.kt$( color: Color, strokeWidthPx: Float, gate: StrokeGate, onCommit: (points: List&lt;Offset&gt;, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, onCommitEllipse: (center: Offset, radiusX: Float, radiusY: Float, canvasWidth: Float, canvasHeight: Float) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:EditorScreen.kt$( zoom: Float, offset: Offset, rotationDeg: Float, modifier: Modifier = Modifier, spacing: Float = 48f, color: Color = Color(0x33808080), )</ID>
     <ID>LongParameterList:EditorUi.kt$( actions: EditorViewModel, uiState: EditorUiState, isTouchLocked: Boolean, showUnlockInstructions: Boolean, strings: AppStrings, isCapturingTarget: Boolean = false )</ID>
-    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( private val projectRepository: ProjectRepository, private val settingsRepository: SettingsRepository, private val projectManager: ProjectManager, private val exportManager: ExportManager, @ApplicationContext private val context: Context, internal val liquifyEngine: LiquifyEngine, private val dispatchers: DispatcherProvider, private val opEmitter: OpEmitter, private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository, private val repositoryApiClient: com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient, private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository, private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository, private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner, // TEMPORARY stroke-prediction ranking issues; nullable so tests needn't supply it. private val predictionReports: com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository? = null, )</ID>
     <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( paint: Paint, bitmapWidth: Int, bitmapHeight: Int, wrapAroundMode: Boolean, point: Offset, width: Float, targetBitmap: Bitmap, generation: Long? = null, )</ID>
     <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( paint: Paint, run: FloatArray, bitmapWidth: Int, bitmapHeight: Int, wrapAroundMode: Boolean, targetBitmap: Bitmap, )</ID>
+    <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( private val projectRepository: ProjectRepository, private val settingsRepository: SettingsRepository, private val projectManager: ProjectManager, private val exportManager: ExportManager, @ApplicationContext private val context: Context, internal val liquifyEngine: LiquifyEngine, private val dispatchers: DispatcherProvider, private val opEmitter: OpEmitter, private val extensionRepository: com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository, private val repositoryApiClient: com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient, private val customBrushRepository: com.hereliesaz.graffitixr.data.brush.CustomBrushRepository, private val figmaRepository: com.hereliesaz.graffitixr.data.figma.FigmaRepository, private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner, // TEMPORARY stroke-prediction ranking issues; nullable so tests needn't supply it. private val predictionReports: com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository? = null, )</ID>
     <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$( state: EditorUiState, layer: Layer, layerId: String, points: List&lt;Offset&gt;, brushSamples: List&lt;BrushSample&gt;, canvasW: Int, canvasH: Int, scale: Float, offset: Offset, rotationZ: Float, brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush, stampShape: Bitmap?, stampGrain: Bitmap?, stampMaskShape: Bitmap?, // Passed in rather than read off `strokeSelection`: the caller clears the transient stroke // state the moment this returns, while the rasterization below runs later on a background // dispatcher and would otherwise find it already null. selection: com.hereliesaz.graffitixr.common.model.Selection?, /** The layer bitmap the stroke started on (and its live GPU layer was seeded from). */ startBitmap: Bitmap?, )</ID>
     <ID>LongParameterList:EditorViewModel.kt$EditorViewModel$(tool: Tool, argbColor: Int, brushSize: Float, feathering: Float, alphaLock: Boolean = false, opacity: Float = 1f)</ID>
     <ID>LongParameterList:ExportManager.kt$ExportManager$( anchorBitmap: Bitmap, anchorScale: Float, anchorOffset: Offset, anchorRotationZ: Float, otherLayers: List&lt;Layer&gt;, screenWidth: Int, screenHeight: Int, )</ID>
@@ -270,8 +269,6 @@
     <ID>MagicNumber:BackgroundColorDialog.kt$0xFF1E1E1E</ID>
     <ID>MagicNumber:BackgroundColorDialog.kt$0xFF2A1A2E</ID>
     <ID>MagicNumber:BackgroundColorDialog.kt$0xFF808080</ID>
-    <ID>MagicNumber:BackgroundColorDialog.kt$0xFF9E9E9E</ID>
-    <ID>MagicNumber:BackgroundColorDialog.kt$0xFFCFCFCF</ID>
     <ID>MagicNumber:BackgroundColorDialog.kt$0xFFD0D0D0</ID>
     <ID>MagicNumber:BackgroundColorDialog.kt$0xFFFDF6E3</ID>
     <ID>MagicNumber:BackgroundColorDialog.kt$9f</ID>
@@ -360,13 +357,7 @@
     <ID>MagicNumber:EditorScreen.kt$0x33808080</ID>
     <ID>MagicNumber:EditorScreen.kt$0xB0</ID>
     <ID>MagicNumber:EditorScreen.kt$0xCC1A1A1A</ID>
-    <ID>MagicNumber:EditorScreen.kt$0xFF00E5FF</ID>
-    <ID>MagicNumber:EditorScreen.kt$0xFF2B2B2B</ID>
-    <ID>MagicNumber:EditorScreen.kt$0xFF9E9E9E</ID>
     <ID>MagicNumber:EditorScreen.kt$0xFFB0B0B0</ID>
-    <ID>MagicNumber:EditorScreen.kt$0xFFCFCFCF</ID>
-    <ID>MagicNumber:EditorScreen.kt$0xFFFF3D7F</ID>
-    <ID>MagicNumber:EditorScreen.kt$0xFFFF4FA3</ID>
     <ID>MagicNumber:EditorScreen.kt$1.5f</ID>
     <ID>MagicNumber:EditorScreen.kt$1000</ID>
     <ID>MagicNumber:EditorScreen.kt$16f</ID>
@@ -416,8 +407,6 @@
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$12f</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1500</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$150f</ID>
-    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$15_000</ID>
-    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$16</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$17</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$192</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$1920</ID>
@@ -429,7 +418,6 @@
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$299</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$3</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$300f</ID>
-    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$30_000</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$31</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$36</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$36f</ID>
@@ -440,7 +428,6 @@
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$56</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$5_000</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$6</ID>
-    <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$700</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$72f</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$8</ID>
     <ID>MagicNumber:EditorViewModel.kt$EditorViewModel$800</ID>
@@ -530,13 +517,9 @@
     <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$255f</ID>
     <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$3</ID>
     <ID>MagicNumber:StampBrushRenderer.kt$StampBrushRenderer$360f</ID>
-    <ID>MagicNumber:StoreWindow.kt$0xFF4CAF50</ID>
-    <ID>MagicNumber:StoreWindow.kt$0xFFE53935</ID>
-    <ID>MagicNumber:StoreWindow.kt$0xFFFFA726</ID>
     <ID>MagicNumber:StoreWindow.kt$16f</ID>
     <ID>MagicNumber:StoreWindow.kt$9f</ID>
     <ID>MagicNumber:TextEditDialog.kt$0.2f</ID>
-    <ID>MagicNumber:TextEditDialog.kt$0xFF00E5FF</ID>
     <ID>MagicNumber:TextEditDialog.kt$0xFFFF9800</ID>
     <ID>MagicNumber:TextEditDialog.kt$300f</ID>
     <ID>MagicNumber:TextEditDialog.kt$8f</ID>
@@ -560,6 +543,7 @@
     <ID>MaxLineLength:BrushStudioWindow.kt$EnumButtons("Combine", MaskedBrushBlendMode.entries, mask.blendMode) { value -&gt; onEdit { it.copy(maskedBrush = mask.copy(blendMode = value)) } }</ID>
     <ID>MaxLineLength:BrushStudioWindow.kt$EnumButtons("Mode", GrainBlendMode.entries, draft.grainBlendMode) { value -&gt; onEdit { it.copy(grainBlendMode = value) } }</ID>
     <ID>MaxLineLength:BrushStudioWindow.kt$EnumButtons("Movement", GrainBehavior.entries, draft.grainBehavior) { value -&gt; onEdit { it.copy(grainBehavior = value) } }</ID>
+    <ID>MaxLineLength:BrushStudioWindow.kt$GraffuxButton(text = "Delete Brush", onClick = { confirmingDelete = true }, shape = GraffuxButtonShape.RECTANGLE)</ID>
     <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask flow", mask.flow, 0f..1f) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(flow = v)) } }</ID>
     <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask hardness", mask.hardness, 0f..1f) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(hardness = v)) } }</ID>
     <ID>MaxLineLength:BrushStudioWindow.kt$ParamSlider("Mask opacity", mask.opacity, 0f..1f) { v -&gt; onEdit { it.copy(maskedBrush = mask.copy(opacity = v)) } }</ID>
@@ -618,10 +602,6 @@
     <ID>MaxLineLength:EditorScreen.kt$if (shape.hasStroke) drawRoundRect(Color(shape.strokeArgb.toInt()), topLeft, sz, radius, style = Stroke(shape.strokeWidth))</ID>
     <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$"LayerBitmapReplace: skipping op for layer $layerId (decode returned null; bytes=${op.png.size})"</ID>
     <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$*</ID>
-    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Couldn't load that filter — it may be missing or corrupt", Toast.LENGTH_SHORT).show()</ID>
-    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Couldn't save the new layer — storage may be full", Toast.LENGTH_LONG).show()</ID>
-    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Fill needs a paint layer — vector shapes recolour via Edit", Toast.LENGTH_SHORT).show()</ID>
-    <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$Toast.makeText(context, "Move needs a paint layer — vector shapes move via Transform", Toast.LENGTH_SHORT).show()</ID>
     <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_liveStroke.update { s -&gt; if (s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s }</ID>
     <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_uiState.update { state -&gt; state.copy(layers = state.layers.map { if (it.id in groupIds) transform(it) else it }) }</ID>
     <ID>MaxLineLength:EditorViewModel.kt$EditorViewModel$_uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }</ID>
@@ -656,10 +636,15 @@
     <ID>MaxLineLength:ExportManager.kt$ExportManager$paint.style = Paint.Style.STROKE</ID>
     <ID>MaxLineLength:ExportManager.kt$ExportManager$private</ID>
     <ID>MaxLineLength:ExportManagerSampleMergedTest.kt$ExportManagerSampleMergedTest$assertEquals("anchor-local (15,$y) should show the other layer's red half", Color.RED, result.getPixel(15, y))</ID>
-    <ID>MaxLineLength:FigmaWindow.kt$Text(it, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)</ID>
     <ID>MaxLineLength:GpuStampCommit.kt$GpuStampCommit$*</ID>
     <ID>MaxLineLength:KritaPresetParser.kt$KritaPresetParser$/** Parses a `.kpp` file's raw bytes. Throws [ParseException] if there's no "preset" text chunk or the XML is malformed. */</ID>
     <ID>MaxLineLength:KritaPresetParser.kt$KritaPresetParser$/** Walks PNG chunks looking for a `tEXt`/`iTXt` chunk with the given keyword. Returns null if absent or the file isn't a PNG. */</ID>
+    <ID>MaxLineLength:LayerOptionsDialog.kt$GraffuxButton(text = "Corners", onClick = { onCornerRadius(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:LayerOptionsDialog.kt$GraffuxButton(text = "Edit Text", onClick = { onEditText(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:LayerOptionsDialog.kt$GraffuxButton(text = "Sides", onClick = { onPolygonSides(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:LayerOptionsDialog.kt$GraffuxButton(text = "Size", onClick = { onShapeSize(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:LayerOptionsDialog.kt$GraffuxButton(text = "Stroke", onClick = { onStrokeWidth(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:LayerOptionsDialog.kt$GraffuxButton(text = navStrings.invert, onClick = { onInvert(); onDismiss() }, shape = GraffuxButtonShape.RECTANGLE)</ID>
     <ID>MaxLineLength:MaterialStateCodec.kt$MaterialStateCodec$writeFloatTile(out, requireNotNull(snapshot.heightMap), snapshot.width, left, top, right, bottom)</ID>
     <ID>MaxLineLength:ProcreateParityTest.kt$ProcreateParityTest$EditorIntent.SetEyedrop(active = true, color = androidx.compose.ui.graphics.Color.Red, position = Offset(5f, 6f))</ID>
     <ID>MaxLineLength:ResolveGrainTileAndPhaseTest.kt$ResolveGrainTileAndPhaseTest$assertTrue("random component should shift the phase away from the fixed offset alone", a.phaseX != 1f || a.phaseY != 1f)</ID>
@@ -669,8 +654,12 @@
     <ID>MaxLineLength:SelectionTest.kt$SelectionTest$fun scale(v: Float)</ID>
     <ID>MaxLineLength:SnapEngineTest.kt$SnapEngineTest$val r = SnapEngine.snap(box(100f, 0f, 200f, 100f), targetsX = listOf(105f), targetsY = emptyList(), threshold = 10f)</ID>
     <ID>MaxLineLength:StampBrushRendererTest.kt$StampBrushRendererTest$dabs = listOf(Dab(x = 100f, y = 100f, radius = radius, alpha = 1f, angleDeg = 0f, hardness = soft.hardness))</ID>
-    <ID>MaxLineLength:TextEditDialog.kt$AzButton(text = "Center", onClick = { onAlign(AlignMode.H_CENTER) }, shape = AzButtonShape.RECTANGLE)</ID>
-    <ID>MaxLineLength:TextEditDialog.kt$AzButton(text = "Middle", onClick = { onAlign(AlignMode.V_CENTER) }, shape = AzButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$GraffuxButton(text = "Bottom", onClick = { onAlign(AlignMode.BOTTOM) }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$GraffuxButton(text = "Center", onClick = { onAlign(AlignMode.H_CENTER) }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$GraffuxButton(text = "Left", onClick = { onAlign(AlignMode.LEFT) }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$GraffuxButton(text = "Middle", onClick = { onAlign(AlignMode.V_CENTER) }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$GraffuxButton(text = "Right", onClick = { onAlign(AlignMode.RIGHT) }, shape = GraffuxButtonShape.RECTANGLE)</ID>
+    <ID>MaxLineLength:TextEditDialog.kt$GraffuxButton(text = "Top", onClick = { onAlign(AlignMode.TOP) }, shape = GraffuxButtonShape.RECTANGLE)</ID>
     <ID>MaxLineLength:TextEditDialog.kt$onClick = { hasDropShadow = !hasDropShadow; onStyleChange(bold, italic, hasOutline, hasDropShadow) }</ID>
     <ID>MaxLineLength:UndoRaceRegressionTest.kt$UndoRaceRegressionTest$fun</ID>
     <ID>NestedBlockDepth:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
@@ -786,7 +775,6 @@
     <ID>TooManyFunctions:SelectionMask.kt$SelectionMask</ID>
     <ID>UnusedParameter:BrushStudioWindow.kt$stampMaskShape: Bitmap? = null</ID>
     <ID>UnusedParameter:EditorUi.kt$showUnlockInstructions: Boolean</ID>
-    <ID>UnusedParameter:EditorViewModel.kt$EditorViewModel$layerId: String</ID>
     <ID>UnusedParameter:EditorViewModel.kt$brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush</ID>
     <ID>UnusedParameter:EditorViewModel.kt$grain: Bitmap?</ID>
     <ID>UnusedParameter:EditorViewModel.kt$maskShape: Bitmap?</ID>

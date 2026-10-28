@@ -1,7 +1,28 @@
 // FILE: core/design/src/main/java/com/hereliesaz/graffitixr/design/components/FloatingWindow.kt
 package com.hereliesaz.graffitixr.design.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.heightIn
@@ -21,32 +42,25 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.zIndex
-import com.hereliesaz.aznavrail.AzWindow
-import com.hereliesaz.aznavrail.AzWindowState
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
 /**
- * The horizontal strip of the screen the AzNavRail rail currently occupies. Every [FloatingWindow]
+ * The horizontal strip of the screen the tool rail currently occupies. Every [FloatingWindow]
  * keeps clear of it — both where it first appears and wherever it settles after being dragged —
  * since a panel spawning under, or later dragged under, the rail is unreachable there: the rail
  * always draws on top.
  *
- * Provide the real value once near the editor's root, alongside the same `azConfig(dockingSide =
- * ...)` call that docks the rail itself — see `MainActivity`'s `measuredRailWidth`, read back from
- * `AzNavHostScope.railWidth` rather than guessed, since the rail's actual on-screen width is a
- * separate config knob (`collapsedWidth`) from its per-button width. The default assumes no rail is
- * docked, so a host that never provides one still gets ordinary onscreen clamping.
+ * Provide the real value once near the editor's root, where the rail is docked (see `MainActivity`).
+ * The default assumes no rail is docked, so a host that never provides one still gets ordinary
+ * onscreen clamping.
  */
 data class RailInset(val dockedOnLeft: Boolean, val width: Dp)
 
@@ -57,60 +71,56 @@ private val MaxWindowHeight = 480.dp
 
 // [clampFullyOnscreen]'s `containerSize` (from LocalWindowInfo) is the full display area, not the
 // safe-content area clear of system bars -- a window whose available space is fully used (this
-// file's own mount-time correction, or AzWindow's internal one before it, pinning `maxY` exactly to
-// `containerSize.height`) can end up with its bottom edge sitting right under the gesture nav bar,
+// file's own mount-time correction pinning `maxY` exactly to `containerSize.height`) can end up with its bottom edge sitting right under the gesture nav bar,
 // content there unreachable even though the window is technically "fully onscreen" by the numbers.
 // A modest inset from every edge sidesteps this without needing precise WindowInsets plumbing here.
 private val SafeEdgeMargin = 24.dp
 
 /**
- * A floating, draggable, collapsible panel for tool options — Procreate-style, in place of a modal
- * [androidx.compose.material3.AlertDialog]. The header bar is the drag handle; unlike a dialog it
- * never dims or blocks the canvas, so several can be open over the artwork at once, each positioned
- * and collapsed independently.
- *
- * **This is a thin wrapper over AzNavRail's [AzWindow]** (11.19+). What it adds on top:
- *
- *  - **Rail avoidance**, via [AzWindow]'s own `obstruction` param, built from [LocalRailInset] here
- *    — a window can never be dragged (or settle) under the rail. Full-onscreen settling and
- *    drag-to-dismiss are [AzWindow]'s own job as of 11.38 (its abandonment timer — see the doc
- *    comment further down); this file no longer duplicates either.
- *  - **A newly-(re)opened window is corrected too**, not just a dragged one: [AzWindow]'s own
- *    mount-time clamp only guarantees a minimal sliver stays reachable, so this wrapper additionally
- *    pulls a freshly-placed window fully onscreen and clear of the rail right after its first
- *    layout, using the now-public [AzWindowState.moveTo] — no drag required to reach a safe position.
- *
- * The signature is deliberately unchanged, so the two dozen call sites did not have to move. What
- * they get for free: the clamp, an accent that follows the rail's rather than being independently
- * themed here (no fold control — `minimizable` is forced off below), and a place in the
- * stack: every call site shares [FloatingWindowStacking] through the same un-keyed defaults, so a
- * window opened after another always lands on top of it and doesn't start at the exact same point
- * on screen. Before this, all two dozen call sites defaulted to the identical fixed position and
- * z-index, so a just-opened window could render invisibly underneath an older one with no hint it
- * had opened at all — Compose breaks a tie between equal z-indices by composition order, which has
- * nothing to do with which window the user actually asked for most recently.
- *
- * [initialOffset] seeds the position once. Hoist an [AzWindowState] via [rememberFloatingWindowState]
- * and pass it as [state] when a window's placement has to outlive the window itself — a hoisted
- * state still gets the same rail-avoidance/onscreen correction, since [AzWindowState] exposes those
- * operations publicly regardless of who created it.
+ * Where a [FloatingWindow] sits, in window pixels. Hoist one via [rememberFloatingWindowState] when
+ * a window's placement has to outlive the window itself.
  */
+@Stable
+class FloatingWindowState(offsetX: Float, offsetY: Float) {
+    var offsetX by mutableFloatStateOf(offsetX)
+        private set
+    var offsetY by mutableFloatStateOf(offsetY)
+        private set
+
+    fun moveTo(x: Float, y: Float) {
+        offsetX = x
+        offsetY = y
+    }
+
+    fun dragBy(dx: Float, dy: Float) = moveTo(offsetX + dx, offsetY + dy)
+}
+
+/**
+ * A floating, draggable panel for tool options — Procreate-style, in place of a modal
+ * [androidx.compose.material3.AlertDialog]. The header bar is the drag handle; unlike a dialog it
+ * never dims or blocks the canvas, so several can be open over the artwork at once.
+ *
+ * It keeps clear of the rail ([LocalRailInset]) and fully onscreen: when it first appears and again
+ * whenever a drag ends. Every call site shares [FloatingWindowStacking] through the same un-keyed
+ * defaults, so a window opened after another lands on top of it and a step down and right of it.
+ *
+ * [initialOffset] seeds the position once; pass a hoisted [state] to keep a placement across closes.
+ */
+@Suppress("FunctionNaming", "LongMethod")
 @Composable
 fun FloatingWindow(
     title: String,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     initialOffset: Offset = Offset(60f, 160f),
-    state: AzWindowState? = null,
+    state: FloatingWindowState? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    // Claimed once per window instance: remember with no keys re-runs only when this call site
-    // re-enters composition, i.e. exactly when the window is (re)opened — not on every recomposition
-    // while it stays open, and not shared with any other window's instance of this same call site.
+    // Claimed once per window instance: re-runs only when the window is (re)opened.
     val stackSlot = remember { FloatingWindowStacking.claim() }
     val internalState = remember {
         val seed = initialOffset + stackSlot.cascadeOffset
-        AzWindowState(seed.x, seed.y, false)
+        FloatingWindowState(seed.x, seed.y)
     }
     val windowState = state ?: internalState
 
@@ -120,112 +130,88 @@ fun FloatingWindow(
     val obstruction = remember(containerSize, railInset, density) {
         railInset.asObstruction(containerSize, density)
     }
-
-    var liveRect by remember { mutableStateOf<Rect?>(null) }
-
-    Box(
-        modifier = Modifier.onGloballyPositioned { coordinates ->
-            liveRect = Rect(coordinates.positionInWindow(), coordinates.size.toSize())
-        }
-    ) {
-        AzWindow(
-            modifier = modifier
-                .zIndex(stackSlot.zIndex)
-                .widthIn(min = 220.dp, max = MaxWindowWidth)
-                .heightIn(max = MaxWindowHeight),
-            title = title,
-            state = windowState,
-            // Not the rail's accent by default here: these panels sit over the artwork, and the rail's
-            // accent is tuned to read against the rail rather than against whatever the user is painting.
-            accent = MaterialTheme.colorScheme.outlineVariant,
-            // Semi-transparent rather than the near-opaque 0.97 this used to be: every floating
-            // window sits directly over the artwork (a color picker, brush options, layers...),
-            // and a panel the user can still see the canvas through, at least faintly, keeps them
-            // oriented in the document while it's up instead of blanking out whatever was behind
-            // it. One shared value here means every FloatingWindow gets it at once.
-            surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-            // No fold control on any FloatingWindow: a folded window collapses to a bare title
-            // bar that can end up looking like a stray, unexplained close button once dragged
-            // away from its content -- see the "always-there X in the corner" report this
-            // disables. Closing (onDismiss) is still the only way out, so the window can never
-            // be left in a state that neither shows its content nor goes away.
-            minimizable = false,
-            onDismiss = onDismiss,
-            obstruction = obstruction,
-        ) {
-            // AzWindow caps its own height at MaxWindowHeight, but does not scroll content that
-            // exceeds it -- a plain Column measured that way gives every earlier child its full
-            // requested size and hands the last child whatever's left, which can be ~0px (this is
-            // how the Color picker's own Apply button was found rendered 1px tall: the wheel, tabs
-            // and slider above it already consumed nearly the entire 480dp budget). Scrolling here
-            // means content that doesn't fit is reachable, not silently crushed.
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(12.dp),
-                content = content,
+    var windowSize by remember { mutableStateOf<IntSize?>(null) }
+    val marginPx = with(density) { SafeEdgeMargin.toPx() }
+    val settle: () -> Unit = {
+        windowSize?.let { size ->
+            val safe = clampFullyOnscreen(
+                Offset(windowState.offsetX, windowState.offsetY),
+                Offset(size.width.toFloat(), size.height.toFloat()),
+                containerSize,
+                obstruction,
+                marginPx,
             )
+            if (safe.x != windowState.offsetX || safe.y != windowState.offsetY) windowState.moveTo(safe.x, safe.y)
         }
     }
-
-    // Mount-time correction: AzWindow is hard evidence that the SAME obstruction (`obstruction`,
-    // passed to AzWindow directly below) drives its own internal mount-time "minimal sliver" clamp
-    // independently of anything in this file. Logging `windowState.offsetX`/`offsetY` immediately
-    // after mount — with this effect's own `moveTo()` call disabled entirely — still showed `offsetY`
-    // already corrupted to the full container height (window pushed off the bottom edge) for a
-    // window opened next to a left-docked, full-height rail. AzNavRail's own internal obstruction-
-    // narrowing logic (decompiled: `AzWindow`'s own `LaunchedEffect` calls `AzWindowState.clampInto`,
-    // keyed on the same `containerSize`/`chromeHeightPx`/obstructions this effect watches) applied
-    // the identical bug this file's [clampFullyOnscreen] used to have: a full-height obstruction
-    // touches y=0 and y=height by construction regardless of which side it's docked on, and treating
-    // that alone as "this obstruction constrains the vertical range" pushed every window mounted next
-    // to a rail towards the bottom edge instead of merely clear of the rail horizontally.
-    //
-    // **Fixed upstream in AzNavRail 11.37** (`AzWindowState.narrowForObstruction` now classifies an
-    // obstruction as a full-height strip — narrows X only — or a full-width strip — narrows Y only —
-    // instead of testing each of the four edges independently; see its own `AzWindowStateObstructionTest`).
-    // This file's mount-time correction below is left in place regardless: it's still the one thing
-    // that pulls a freshly-(re)opened window fully onscreen without waiting for a drag, and
-    // duplicating a now-correct clamp is cheap next to the cost of getting the axis-narrowing subtly
-    // wrong again on some future obstruction shape this file doesn't happen to test.
-    //
-    // Reading and writing `windowState.offsetX`/`offsetY` directly — the one value AzWindow actually
-    // renders from (decompiled: `Modifier.offset { IntOffset(state.offsetX, state.offsetY) }` on the
-    // window's own Surface) — as an ABSOLUTE target, computed via this file's own (correctly
-    // axis-aware) [clampFullyOnscreen], using `liveRect` only for its WIDTH/HEIGHT.
-    //
-    // There used to be a second effect here too: watch `liveRect` for a live drag taking the window
-    // (almost) entirely offscreen, and dismiss it — a "drag it away to close" gesture AzWindow didn't
-    // offer on its own at the time. Removed on 11.33 (whatever position source it read could be
-    // transiently corrupted by AzWindow's own pre-11.37 obstruction bug above, and this watcher then
-    // correctly, by its own logic, read the corrupted position as "dragged mostly offscreen" and
-    // closed the window on an ordinary touch) and not restored on 11.37 for lack of a live device to
-    // verify against. Moot as of **11.38**: `AzWindow` now does this itself, and better — an
-    // abandonment timer (`AZ_WINDOW_ABANDONED_GRACE_MS` = 5s) that does nothing at all while a drag is
-    // in progress, only starts counting once a window is released still off-screen or over an
-    // obstruction, and restarts on any further movement; past the grace period it either settles the
-    // window fully onscreen or dismisses it, mirroring `snapFullyOnscreen` (now removed as an
-    // `AzWindow` param — the behavior is unconditional) and the "drag to dismiss" gesture this file
-    // used to attempt, without this file needing to read the window's position at all.
-    // `onDismiss` here still only ever fires from that (or the window's own Close button) — never
-    // this file.
-    LaunchedEffect(containerSize, railInset) {
-        val rect = snapshotFlow { liveRect }.filterNotNull().first()
-        val marginPx = with(density) { SafeEdgeMargin.toPx() }
-        val safe = clampFullyOnscreen(
-            Offset(windowState.offsetX, windowState.offsetY),
-            Offset(rect.width, rect.height),
-            containerSize,
-            obstruction,
-            marginPx,
-        )
-        if (safe.x != windowState.offsetX || safe.y != windowState.offsetY) {
-            windowState.moveTo(safe.x, safe.y)
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = modifier
+            .zIndex(stackSlot.zIndex)
+            .offset { IntOffset(windowState.offsetX.roundToInt(), windowState.offsetY.roundToInt()) }
+            .widthIn(min = 220.dp, max = MaxWindowWidth)
+            .heightIn(max = MaxWindowHeight)
+            .onSizeChanged { windowSize = it }
+            // Semi-transparent: the panel sits over the artwork, and a canvas faintly visible through
+            // it keeps the user oriented while it is up.
+            .background(colors.surface.copy(alpha = 0.85f))
+            .border(1.dp, colors.outlineVariant)
+            // Taps inside the window never fall through to the canvas.
+            .pointerInput(Unit) { detectTapGestures { } },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TitleBarHeight)
+                .background(colors.outlineVariant.copy(alpha = 0.35f))
+                .pointerInput(windowState) {
+                    detectDragGestures(onDragEnd = settle, onDragCancel = settle) { change, drag ->
+                        change.consume()
+                        windowState.dragBy(drag.x, drag.y)
+                    }
+                }
+                .padding(start = 12.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(TitleBarHeight)
+                    .clickable(onClickLabel = "Close $title", onClick = onDismiss)
+                    .semantics { contentDescription = "Close" },
+            ) {
+                Text("✕", color = colors.onSurface, style = MaterialTheme.typography.titleSmall)
+            }
         }
+        // Scrolls rather than crushing: a plain Column capped at MaxWindowHeight hands its last
+        // child whatever is left, which can be ~0px.
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
+            content = content,
+        )
+    }
+
+    // A newly (re)opened window is pulled fully onscreen and clear of the rail at once, with no
+    // drag required.
+    LaunchedEffect(containerSize, railInset) {
+        snapshotFlow { windowSize }.filterNotNull().first()
+        settle()
     }
 }
 
-/** [RailInset] as a container-space [Rect], matching what [AzWindow]'s `obstruction` param expects. */
+private val TitleBarHeight = 36.dp
+
+/** [RailInset] as a container-space [Rect]. */
 private fun RailInset.asObstruction(containerSize: IntSize, density: Density): Rect? {
     if (width == 0.dp || containerSize.width <= 0 || containerSize.height <= 0) return null
     val widthPx = with(density) { width.toPx() }
@@ -236,8 +222,7 @@ private fun RailInset.asObstruction(containerSize: IntSize, density: Density): R
 
 /**
  * Clamps a top-left position so the whole `size` footprint fits inside the container and clear of
- * `obstruction` — mirroring [AzWindowState]'s own internal `narrowForObstruction`: only the edge(s)
- * `obstruction` actually touches are enforced, since there's no side to define "clear of it" from
+ * `obstruction`: only the edge(s) `obstruction` actually touches are enforced, since there's no side to define "clear of it" from
  * for a rect that touches none of the container's edges.
  *
  * [RailInset.asObstruction] only ever produces a full-HEIGHT strip (a left- or right-docked rail)
@@ -283,14 +268,13 @@ private fun clampFullyOnscreen(topLeft: Offset, size: Offset, containerSize: Int
 }
 
 /**
- * Position (and the now-unused `minimized` flag `AzWindowState` still carries) for a
- * [FloatingWindow], for the caller that needs it to survive the window closing. `remember`ed
+ * Position for a [FloatingWindow], for the caller that needs it to survive the window closing. `remember`ed
  * against [initialOffset], so a window given a fresh starting position
  * takes it rather than silently keeping the first one it was ever handed.
  */
 @Composable
-fun rememberFloatingWindowState(initialOffset: Offset = Offset(60f, 160f)): AzWindowState =
-    remember(initialOffset) { AzWindowState(initialOffset.x, initialOffset.y, false) }
+fun rememberFloatingWindowState(initialOffset: Offset = Offset(60f, 160f)): FloatingWindowState =
+    remember(initialOffset) { FloatingWindowState(initialOffset.x, initialOffset.y) }
 
 /**
  * Assigns each [FloatingWindow] a place in the open-order stack: a z-index higher than every window

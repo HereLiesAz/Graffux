@@ -18,6 +18,7 @@ Gradle receives them as `-PversionCode`/`-PversionCodeOverride` and `-PversionNa
 branch publishes or records anything: after a successful publish the workflow writes `versionCode`
 (never lowered) and the version fields back into `version.properties` with a `[skip ci]` commit. The
 build never increments anything itself, so a local or CI compile leaves `version.properties` untouched.
+<<<<<<< HEAD
 
 ## AzNavRail
 
@@ -40,3 +41,5 @@ If you delegate AzNavRail work to another agent, pass it the guide too.
 Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
 @.entire/agent-guide.md
 <!-- entire-agent:end -->
+=======
+>>>>>>> dd8de4df913e8327b2bd9501b83d7ef2e08f8386

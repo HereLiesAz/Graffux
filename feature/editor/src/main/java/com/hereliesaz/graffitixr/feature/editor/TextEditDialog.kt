@@ -26,8 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
 
@@ -154,43 +154,43 @@ fun TextEditDialog(
 
                 // Bold / italic / outline / drop-shadow toggles.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AzButton(
+                    GraffuxButton(
                         text = if (bold) "Bold ✓" else "Bold",
                         onClick = { bold = !bold; onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
-                    AzButton(
+                    GraffuxButton(
                         text = if (italic) "Italic ✓" else "Italic",
                         onClick = { italic = !italic; onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AzButton(
+                    GraffuxButton(
                         text = if (hasOutline) "Outline ✓" else "Outline",
                         onClick = { hasOutline = !hasOutline; onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
-                    AzButton(
+                    GraffuxButton(
                         text = if (hasDropShadow) "Shadow ✓" else "Shadow",
                         onClick = { hasDropShadow = !hasDropShadow; onStyleChange(bold, italic, hasOutline, hasDropShadow) },
-                        shape = AzButtonShape.RECTANGLE,
+                        shape = GraffuxButtonShape.RECTANGLE,
                     )
                 }
 
                 // Layer alignment on the artboard.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AzButton(text = "Left", onClick = { onAlign(AlignMode.LEFT) }, shape = AzButtonShape.RECTANGLE)
-                    AzButton(text = "Center", onClick = { onAlign(AlignMode.H_CENTER) }, shape = AzButtonShape.RECTANGLE)
-                    AzButton(text = "Right", onClick = { onAlign(AlignMode.RIGHT) }, shape = AzButtonShape.RECTANGLE)
+                    GraffuxButton(text = "Left", onClick = { onAlign(AlignMode.LEFT) }, shape = GraffuxButtonShape.RECTANGLE)
+                    GraffuxButton(text = "Center", onClick = { onAlign(AlignMode.H_CENTER) }, shape = GraffuxButtonShape.RECTANGLE)
+                    GraffuxButton(text = "Right", onClick = { onAlign(AlignMode.RIGHT) }, shape = GraffuxButtonShape.RECTANGLE)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AzButton(text = "Top", onClick = { onAlign(AlignMode.TOP) }, shape = AzButtonShape.RECTANGLE)
-                    AzButton(text = "Middle", onClick = { onAlign(AlignMode.V_CENTER) }, shape = AzButtonShape.RECTANGLE)
-                    AzButton(text = "Bottom", onClick = { onAlign(AlignMode.BOTTOM) }, shape = AzButtonShape.RECTANGLE)
+                    GraffuxButton(text = "Top", onClick = { onAlign(AlignMode.TOP) }, shape = GraffuxButtonShape.RECTANGLE)
+                    GraffuxButton(text = "Middle", onClick = { onAlign(AlignMode.V_CENTER) }, shape = GraffuxButtonShape.RECTANGLE)
+                    GraffuxButton(text = "Bottom", onClick = { onAlign(AlignMode.BOTTOM) }, shape = GraffuxButtonShape.RECTANGLE)
                 }
 
-                AzButton(text = "Done", onClick = onDismiss, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Done", onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE)
         }
     }
 }

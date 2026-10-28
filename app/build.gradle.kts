@@ -243,7 +243,7 @@ dependencies {
     implementation(libs.androidx.hilt.navigation.compose)
 
     // The AzNavRail host (AzHostActivityLayout + the rail DSL) that MainActivity wraps the editor in.
-    // Reaches us transitively via :core:common's api(az-nav-rail), but :app now calls the DSL directly.
+    // AzNavRail, for its About reader only (AboutReader.kt). Everything else on screen is Graffux's own.
     implementation(libs.az.nav.rail)
     implementation(libs.navigation.compose)
 
@@ -254,7 +254,7 @@ dependencies {
 
     // Import the Firebase BoM so all Firebase library versions stay compatible; don't pin
     // individual Firebase dependency versions when using it.
-    implementation(platform("com.google.firebase:firebase-bom:35.0.0"))
+    implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
     implementation("com.google.firebase:firebase-analytics")
 
     testImplementation(libs.junit)

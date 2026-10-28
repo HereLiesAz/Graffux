@@ -24,6 +24,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
@@ -95,9 +99,8 @@ import kotlin.math.sin
  *  3. the [DrawingCanvas] brush touch layer when a tool is active, and
  *  4. the [EditorUi] bottom panels (layers / adjustments / color picker).
  *
- * The tool rail is NOT drawn here: GraffiXR wraps this screen in the app's [AzNavRail] host
- * (`AzHostActivityLayout`, in MainActivity), which renders this canvas as its full-screen `background`
- * and puts the design tools on the rail — the same arrangement GraffitiXR uses. Everything
+ * The tool rail is NOT drawn here: the app's host (MainActivity) draws this canvas full-screen and
+ * puts its rails, menus and sheet over it. Everything
  * AR/SLAM/co-op/camera in GraffitiXR's MainScreen is intentionally left out; Graffux is a pure 2D
  * design editor, so the layer render is always the plain 2D path.
  */
@@ -152,6 +155,11 @@ fun EditorScreen(
         Modifier
     }
 
+    val nib = rememberSaveable(saver = NibAngleSaver) { NibAngleState() }
+    val penAngleBrush = uiState.activeTool in BRUSH_TOOLS && vm.activeBrushForPreview()?.usesPenAngle() == true
+    TrackNibTwist(nib, LocalView.current, enabled = penAngleBrush)
+    SideEffect { nib.viewRotationDeg = uiState.viewportRotation }
+    CompositionLocalProvider(LocalNibAngle provides nib) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -479,7 +487,12 @@ fun EditorScreen(
             )
             fun toWorldSample(sample: BrushSample): BrushSample {
                 val world = toWorld(Offset(sample.x, sample.y))
-                return sample.copy(x = world.x, y = world.y)
+                // The nib was recorded as seen on screen; the layer sees it through the view's rotation.
+                val penAngle = nibLayerAngle(sample.telemetry.penAngleDegrees, uiState.viewportRotation)
+                return sample.copy(
+                    x = world.x, y = world.y,
+                    telemetry = sample.telemetry.copy(penAngleDegrees = penAngle),
+                )
             }
             DrawingCanvas(
                 activeTool = uiState.activeTool,
@@ -804,6 +817,19 @@ fun EditorScreen(
                 CircularProgressIndicator()
             }
         }
+        // The nib-angle dial, while a brush that reads the angle is in hand (see NibAngle.kt).
+        // Hidden with the rest of the chrome while a finger is on the canvas.
+        if (penAngleBrush && !uiState.hideUiForCapture) {
+            HiddenWhileDrawing {
+                NibAngleDial(
+                    nib,
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = NibDialTopInset),
+                )
+            }
+        }
+    }
     }
 }
 

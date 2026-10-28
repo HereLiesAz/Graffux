@@ -154,36 +154,6 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `tab row is Undo, Favorites, Brushes, Ink, Effects, Options, Redo`() {
-        assertEquals(
-            listOf("Undo", "Favorites", "Brushes", "Ink", "Effects", "Options", "Redo"),
-            CAROUSEL_TABS.map { it.label },
-        )
-    }
-
-    @Test
-    fun `undo and redo tabs are not pages and are enabled only with history`() {
-        assertEquals(CarouselTab.Undo, CAROUSEL_TABS.first())
-        assertEquals(CarouselTab.Redo, CAROUSEL_TABS.last())
-        // Every page category has exactly one tab, and nothing else in the row is a page.
-        assertEquals(
-            CarouselCategory.entries.filterNot { it.isToolGroup },
-            CAROUSEL_TABS.filterIsInstance<CarouselTab.Page>().map { it.category },
-        )
-        assertEquals(2, CAROUSEL_TABS.count { it !is CarouselTab.Page })
-
-        assertFalse(carouselTabEnabled(CarouselTab.Undo, undoCount = 0, redoCount = 3))
-        assertTrue(carouselTabEnabled(CarouselTab.Undo, undoCount = 1, redoCount = 0))
-        assertFalse(carouselTabEnabled(CarouselTab.Redo, undoCount = 3, redoCount = 0))
-        assertTrue(carouselTabEnabled(CarouselTab.Redo, undoCount = 0, redoCount = 1))
-        CarouselCategory.entries.forEach {
-            assertTrue(carouselTabEnabled(CarouselTab.Page(it), undoCount = 0, redoCount = 0))
-        }
-        // Nested tools are contextual, not permanent rail or carousel tabs.
-        assertTrue(CAROUSEL_TABS.none { it is CarouselTab.Page && it.category.isToolGroup })
-    }
-
-    @Test
     fun `toggling a favorite appends, and un-starring keeps the rest in place`() {
         var favs = emptyList<String>()
         favs = toggleCarouselFavorite(favs, "ink.pen")
@@ -306,23 +276,67 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `brushes page groups built-ins, studio and installed brushes into set chips in strip order`() {
+    fun `with the brush in hand the tab list holds only brush types and packs`() {
         val input = base.copy(
             customBrushes = listOf("c1" to builtIn.first().copy(name = "Mine")),
-            extensionBrushes = listOf("ext#0" to "Store Brush"),
+            extensionBrushes = listOf("kinetic::0" to "Fat Cap", "kinetic::1" to "Skinny", "gravity::0" to "Drop"),
         )
-        val entries = carouselEntries(CarouselCategory.BRUSHES, input)
-        val chips = carouselSetChips(entries)
-        assertEquals(
-            com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.sets.map { it.name } + STUDIO_SET + INSTALLED_SET,
-            chips.map { it.name },
+        val sections = carouselTabSections(
+            CarouselContext.BRUSHES, CarouselCategory.BRUSHES, input,
+            packNames = mapOf("kinetic" to "Spray Caps", "gravity" to "Gravity"),
         )
-        chips.forEach { assertEquals(it.name, entries[it.firstIndex].set) }
+        // No favourites starred, so that type is left out rather than offering an empty tab.
+        assertEquals(listOf("BASIC", "INK", "STUDIO", "INSTALLED"), sections.map { it.type })
+        val installed = sections.single { it.type == "INSTALLED" }.groups
+        assertEquals(listOf("Gravity", "Spray Caps"), installed.map { it.label })
+        val caps = installed.single { it.label == "Spray Caps" }
+        assertEquals(listOf("Fat Cap", "Skinny"), caps.entries.map { it.label })
+        val everything = sections.flatMap { s -> s.groups.flatMap { it.entries } }
+        assertTrue(everything.none { it.action is CarouselAction.PickTool })
+        assertTrue(everything.none { it.action is CarouselAction.StabilizerLevel })
     }
 
     @Test
-    fun `a single set draws no chips`() {
-        val one = carouselEntries(CarouselCategory.BRUSHES, base).filter { it.set == "Basics" }
-        assertEquals(emptyList<CarouselSetChip>(), carouselSetChips(one))
+    fun `a starred brush appears under Favorites and in its own pack`() {
+        val name = builtIn.first().name
+        val input = base.copy(favorites = listOf("builtin.$name", "blur"))
+        val sections = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, input)
+        assertEquals("FAVORITES", sections.first().type)
+        // The starred effect tool is not a brush, so it stays off the brush list.
+        assertEquals(listOf("builtin.$name"), sections.first().groups.single().entries.map { it.key })
+        val basic = sections.single { it.type == "BASIC" }.groups
+        assertTrue(basic.any { g -> g.entries.any { it.key == "builtin.$name" } })
+    }
+
+    @Test
+    fun `the requested tab wins, else the one holding the selection, else the first`() {
+        val sections = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, base)
+        assertEquals("ink", selectedTabGroup(sections, "ink")?.key)
+        assertEquals(selectedTabGroup(sections, null)?.key, selectedTabGroup(sections, "gone")?.key)
+        assertTrue(selectedTabGroup(sections, null)!!.key.startsWith("basic."))
+    }
+
+    @Test
+    fun `the vector group lists the effect packs and options after its own tab`() {
+        val sections = carouselTabSections(
+            CarouselContext.TOOL_GROUP, CarouselCategory.VECTOR,
+            base.copy(
+                groupEntries = listOf(CarouselEntry("tool.pen", "Pen", CarouselAction.PickTool(Tool.PEN), false)),
+            ),
+        )
+        assertEquals("VECTOR", sections.first().type)
+        assertTrue(sections.any { it.type == "EFFECTS" })
+    }
+
+    @Test
+    fun `tab list items are each heading followed by its tabs`() {
+        val sections = listOf(
+            CarouselTabSection("A", listOf(CarouselTabGroup("a1", "A1", CarouselCategory.BRUSHES, emptyList()))),
+            CarouselTabSection("B", listOf(CarouselTabGroup("b1", "B1", CarouselCategory.BRUSHES, emptyList()))),
+        )
+        val items = carouselTabListItems(sections)
+        assertEquals(4, items.size)
+        assertEquals(CarouselTabListItem.Heading("A"), items[0])
+        assertEquals("b1", (items[3] as CarouselTabListItem.Tab).group.key)
     }
 }

@@ -9,8 +9,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 
 /**
@@ -63,9 +63,9 @@ fun StoreChooserDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AzButton(text = "Web", onClick = onWeb, shape = AzButtonShape.RECTANGLE)
-                AzButton(text = "Android", onClick = onAndroid, shape = AzButtonShape.RECTANGLE)
-                AzButton(text = "Cancel", onClick = onCancel, shape = AzButtonShape.RECTANGLE)
+                GraffuxButton(text = "Web", onClick = onWeb, shape = GraffuxButtonShape.RECTANGLE)
+                GraffuxButton(text = "Android", onClick = onAndroid, shape = GraffuxButtonShape.RECTANGLE)
+                GraffuxButton(text = "Cancel", onClick = onCancel, shape = GraffuxButtonShape.RECTANGLE)
             }
         }
     }

@@ -31,8 +31,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.data.figma.FigmaFrame
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlin.math.roundToInt
@@ -74,7 +74,7 @@ fun FigmaWindow(
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
-            AzButton(text = "Open", onClick = onLoadFile, shape = AzButtonShape.RECTANGLE)
+            GraffuxButton(text = "Open", onClick = onLoadFile, shape = GraffuxButtonShape.RECTANGLE)
         }
 
         Spacer(Modifier.height(10.dp))
@@ -122,20 +122,20 @@ fun FigmaWindow(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                AzButton(
+                GraffuxButton(
                     text = if (state.selectedIds.isEmpty()) {
                         "Select frames to import"
                     } else {
                         "Import ${state.selectedIds.size} frame${if (state.selectedIds.size == 1) "" else "s"}"
                     },
                     onClick = onImport,
-                    shape = AzButtonShape.RECTANGLE,
+                    shape = GraffuxButtonShape.RECTANGLE,
                 )
             }
         }
 
         Spacer(Modifier.height(8.dp))
-        AzButton(text = "Disconnect", onClick = onDisconnect, shape = AzButtonShape.RECTANGLE)
+        GraffuxButton(text = "Disconnect", onClick = onDisconnect, shape = GraffuxButtonShape.RECTANGLE)
     }
 }
 
@@ -167,7 +167,7 @@ private fun ConnectSection(isLoading: Boolean, error: String?, onTokenSubmit: (S
             CircularProgressIndicator()
         }
     } else {
-        AzButton(text = "Connect", onClick = { onTokenSubmit(token) }, shape = AzButtonShape.RECTANGLE)
+        GraffuxButton(text = "Connect", onClick = { onTokenSubmit(token) }, shape = GraffuxButtonShape.RECTANGLE)
     }
     error?.let {
         Spacer(Modifier.height(8.dp))

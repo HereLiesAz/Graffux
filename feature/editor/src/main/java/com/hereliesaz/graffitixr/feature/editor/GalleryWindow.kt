@@ -32,10 +32,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
-import com.hereliesaz.graffitixr.design.components.AzFullWidthButtonHeight
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,11 +64,11 @@ fun GalleryWindow(
     onDismiss: () -> Unit,
 ) {
     FloatingWindow(title = "Gallery", onDismiss = onDismiss) {
-        AzButton(
+        GraffuxButton(
             text = "+ New canvas",
             onClick = onNew,
-            shape = AzButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth().height(AzFullWidthButtonHeight),
+            shape = GraffuxButtonShape.RECTANGLE,
+            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
         )
         if (projects.isEmpty()) {
             Text(

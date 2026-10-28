@@ -70,6 +70,8 @@ class StrokeProgramFrame(
     val phase: Int = 1,
     /** Pen clock in ms, the sample's uptime; ledger films dry against it. */
     val nowMs: Long = 0L,
+    /** The nib's edge direction, layer degrees like [headingDeg] (the user's nib-angle dial). */
+    val penAngleDeg: Float = DEFAULT_PEN_ANGLE_DEG,
 )
 
 /** A program's decision for one dab step: the dabs to paint, and how far to move before the next one. */
@@ -132,7 +134,7 @@ class StrokeProgram private constructor(
             "px", "py", "pressure", "speed", "heading", "turn", "dist", "time", "dt", "index",
             "diameter", "tilt", "azimuth", "dwell", "stepPx",
             "baseAlpha", "baseAngle", "baseTip", "baseHard",
-            "layerSpeed", "phase",
+            "layerSpeed", "phase", "penAngle",
         )
 
         /** Names a program may assign to, with the value each starts every step at. */
@@ -922,7 +924,7 @@ class StrokeProgramRunner internal constructor(
             frame.distancePx, frame.timeMs, frame.dtMs, frame.index.toFloat(), frame.diameterPx,
             frame.tiltDeg, frame.azimuthDeg, frame.dwellMs, frame.stepPx,
             template.alpha, template.angleDeg, template.tipRatio, template.hardness,
-            frame.layerSpeedPxPerMs, frame.phase.toFloat(),
+            frame.layerSpeedPxPerMs, frame.phase.toFloat(), frame.penAngleDeg,
         )
         for (i in inputs.indices) m[i] = finite(inputs[i])
         for ((i, out) in StrokeProgram.OUTPUTS.withIndex()) m[program.outputBase + i] = out.second

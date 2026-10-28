@@ -51,8 +51,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hereliesaz.graffitixr.design.GraffuxIcons
-import com.hereliesaz.aznavrail.AzButton
-import com.hereliesaz.aznavrail.model.AzButtonShape
+import com.hereliesaz.graffitixr.design.components.GraffuxButton
+import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY
@@ -451,7 +451,7 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
     }
     GraffuxAlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { AzButton(text = "Close", onClick = onDismiss, shape = AzButtonShape.RECTANGLE) },
+        confirmButton = { GraffuxButton(text = "Close", onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE) },
         title = { Text("Open-source notices") },
         text = {
             Text(
@@ -473,7 +473,7 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
 private fun GpuTestResultDialog(result: GpuStampEngineSelfTest.Result, onDismiss: () -> Unit) {
     GraffuxAlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { AzButton(text = "Close", onClick = onDismiss, shape = AzButtonShape.RECTANGLE) },
+        confirmButton = { GraffuxButton(text = "Close", onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE) },
         title = { Text(if (result.success) "GPU engine: pass" else "GPU engine: fail") },
         text = {
             Column {

@@ -2,77 +2,59 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
+    <ID>ComplexCondition:CarouselState.kt$((forward &amp;&amp; targetPage &gt; lastVisibleItemIndex) || (!forward &amp;&amp; targetPage &lt; firstVisibleItemIndex)) &amp;&amp; abs(targetPage - firstVisibleItemIndex) &gt;= MaxPagesForAnimateScroll</ID>
+    <ID>ComplexCondition:CarouselState.kt$CarouselItemDrawInfoImpl$left != cachedRect.left || top != cachedRect.top || right != cachedRect.right || bottom != cachedRect.bottom</ID>
+    <ID>ComplexCondition:Strategy.kt$Strategy$scrollOffset == cachedScrollOffset &amp;&amp; maxScrollOffset == cachedMaxScrollOffset &amp;&amp; roundToNearestStep == cachedRoundToNearestStep &amp;&amp; cachedKeylineList != null</ID>
     <ID>CyclomaticComplexMethod:MainActivity.kt$@Composable private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null)</ID>
-    <ID>CyclomaticComplexMethod:MainActivity.kt$private fun AzNavHostScope.ConfigureRailItems( vm: EditorViewModel, uiState: EditorUiState, activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */ drawingUiHidden: () -&gt; Boolean, )</ID>
-    <ID>CyclomaticComplexMethod:MainActivity.kt$private fun HiddenMenuScope.renderLayerLayoutMenu( layer: Layer, uiState: EditorUiState, vm: EditorViewModel, on: (() -&gt; Unit) -&gt; () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:MainActivity.kt$@Composable private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings)</ID>
+    <ID>CyclomaticComplexMethod:Strategy.kt$Strategy$override fun equals(other: Any?): Boolean</ID>
+    <ID>ForEachOnRange:KeylineList.kt$KeylineListScopeImpl$pivotIndex + 1 until tmpKeylines.size</ID>
+    <ID>ForEachOnRange:KeylineList.kt$KeylineListScopeImpl$pivotIndex - 1 downTo 0</ID>
+    <ID>FunctionNaming:Carousel.kt$@Composable internal fun Carousel( state: CarouselState, orientation: Orientation, keylineList: (availableSpace: Float, itemSpacing: Float) -&gt; KeylineList, contentPadding: PaddingValues, maxNonFocalVisibleItemCount: Int, modifier: Modifier = Modifier, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state = state), userScrollEnabled: Boolean = true, // Graffux fork: pin the focal range to its default keylines (no edge shift steps) and pad // the pager so the first and last items can rest in the focal range too. Horizontal only. pinFocalRange: Boolean = false, content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:Carousel.kt$@Composable internal fun HorizontalCenteredHeroCarousel( state: CarouselState, modifier: Modifier = Modifier, maxItemWidth: Dp = Dp.Unspecified, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state = state), userScrollEnabled: Boolean = true, minSmallItemWidth: Dp = CarouselDefaults.MinSmallItemSize, maxSmallItemWidth: Dp = CarouselDefaults.MaxSmallItemSize, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:Carousel.kt$@Composable internal fun HorizontalMultiBrowseCarousel( state: CarouselState, preferredItemWidth: Dp, modifier: Modifier = Modifier, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state = state), userScrollEnabled: Boolean = true, minSmallItemWidth: Dp = CarouselDefaults.MinSmallItemSize, maxSmallItemWidth: Dp = CarouselDefaults.MaxSmallItemSize, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:Carousel.kt$@Composable internal fun HorizontalUncontainedCarousel( state: CarouselState, itemWidth: Dp, modifier: Modifier = Modifier, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.noSnapFlingBehavior(), userScrollEnabled: Boolean = true, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:Carousel.kt$@OptIn(ExperimentalFoundationApi::class) @Composable private fun Carousel( state: CarouselState, orientation: Orientation, keylineList: (availableSpace: Float, itemSpacing: Float) -&gt; KeylineList, contentPadding: PaddingValues, maxNonFocalVisibleItemCount: Int, modifier: Modifier, itemSpacing: Dp, flingBehavior: TargetedFlingBehavior, userScrollEnabled: Boolean, pinFocalRange: Boolean, pagerBeforePadding: Int, pagerAfterPadding: Int, content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:KeylineSnapPosition.kt$internal fun CarouselBringIntoViewSpec(state: CarouselState, pageSize: CarouselPageSize)</ID>
+    <ID>FunctionNaming:KeylineSnapPosition.kt$internal fun KeylineSnapPosition(pageSize: CarouselPageSize): SnapPosition</ID>
     <ID>FunctionNaming:MainActivity.kt$@Composable private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null)</ID>
-    <ID>FunctionNaming:MainActivity.kt$@Composable private fun PaletteSwatch(color: Color)</ID>
-    <ID>FunctionNaming:MainActivity.kt$private fun AzNavHostScope.ConfigureRailItems( vm: EditorViewModel, uiState: EditorUiState, activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */ drawingUiHidden: () -&gt; Boolean, )</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable fun SettingsScreen( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun &lt;T&gt; ChoiceRow( title: String, subtitle: String, options: List&lt;T&gt;, selected: T, label: (T) -&gt; String, onSelect: (T) -&gt; Unit, )</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun ActionRow(title: String, subtitle: String, onClick: () -&gt; Unit)</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun GpuTestResultDialog(result: GpuStampEngineSelfTest.Result, onDismiss: () -&gt; Unit)</ID>
     <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun OpenSourceNotices(onDismiss: () -&gt; Unit)</ID>
-    <ID>FunctionNaming:SettingsScreen.kt$@Composable private fun SwitchRow( title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, )</ID>
     <ID>FunctionNaming:ShortcutsSheet.kt$@Composable internal fun ShortcutsSheet( activeTool: Tool, usage: ToolUsage, favorites: List&lt;String&gt;, onPickTool: (Tool) -&gt; Unit, onToggleFavorite: (Tool) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:ShortcutsSheet.kt$@Composable private fun TabLabel(text: String, selected: Boolean, onClick: () -&gt; Unit)</ID>
     <ID>FunctionNaming:ShortcutsSheet.kt$@OptIn(ExperimentalFoundationApi::class) @Composable private fun ToolChip( tool: Tool, isActive: Boolean, isFavorite: Boolean, onPick: () -&gt; Unit, onToggleFavorite: () -&gt; Unit, )</ID>
-    <ID>LongMethod:MainActivity.kt$@Composable private fun BrushSizePad(vm: EditorViewModel, strings: AppStrings)</ID>
+    <ID>LongMethod:Carousel.kt$@OptIn(ExperimentalFoundationApi::class) @Composable private fun Carousel( state: CarouselState, orientation: Orientation, keylineList: (availableSpace: Float, itemSpacing: Float) -&gt; KeylineList, contentPadding: PaddingValues, maxNonFocalVisibleItemCount: Int, modifier: Modifier, itemSpacing: Dp, flingBehavior: TargetedFlingBehavior, userScrollEnabled: Boolean, pinFocalRange: Boolean, pagerBeforePadding: Int, pagerAfterPadding: Int, content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>LongMethod:Carousel.kt$internal fun Modifier.carouselItem( index: Int, state: CarouselState, strategy: () -&gt; Strategy, carouselItemDrawInfo: CarouselItemDrawInfoImpl, clipShape: Shape, isVertical: Boolean, ): Modifier</ID>
+    <ID>LongMethod:KeylineList.kt$KeylineListScopeImpl$private fun createKeylinesWithPivot( pivotIndex: Int, pivotOffset: Float, firstFocalIndex: Int, lastFocalIndex: Int, itemMainAxisSize: Float, carouselMainAxisSize: Float, itemSpacing: Float, tmpKeylines: List&lt;TmpKeyline&gt;, ): List&lt;Keyline&gt;</ID>
+    <ID>LongMethod:Keylines.kt$internal fun multiBrowseKeylineList( density: Density, carouselMainAxisSize: Float, preferredItemSize: Float, itemSpacing: Float, itemCount: Int, minSmallItemSize: Float = with(density) { CarouselDefaults.MinSmallItemSize.toPx() }, maxSmallItemSize: Float = with(density) { CarouselDefaults.MaxSmallItemSize.toPx() }, ): KeylineList</ID>
     <ID>LongMethod:MainActivity.kt$@Composable private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null)</ID>
-    <ID>LongMethod:MainActivity.kt$private fun AzNavHostScope.ConfigureRailItems( vm: EditorViewModel, uiState: EditorUiState, activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */ drawingUiHidden: () -&gt; Boolean, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable fun SettingsScreen( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
-    <ID>LongParameterList:MainActivity.kt$( layer: Layer, uiState: EditorUiState, hostId: String, vm: EditorViewModel, activeColor: Color, navItemColor: Color, strings: AppStrings, onBlendMode: () -&gt; Unit, onEditClicked: () -&gt; Unit, onCurves: () -&gt; Unit, )</ID>
-    <ID>LongParameterList:MainActivity.kt$( vm: EditorViewModel, uiState: EditorUiState, activeInkUtensil: com.hereliesaz.graffitixr.common.model.InkUtensil?, brushes: List&lt;Pair&lt;String, String&gt;&gt;, brushPreviews: Map&lt;String, android.graphics.Bitmap&gt;, customBrushes: List&lt;CustomBrush&gt;, // Collected via collectAsState() in the calling @Composable (GraffuxApp) -- this builder isn't // @Composable itself, so it can't collect the StateFlow directly (same reason screenCenter and // the colours below are passed in rather than read here). railExpansion: Map&lt;String, Boolean&gt;, /** How many azphalt extensions are installed — badged on the Run Extension item. */ installedExtensionCount: Int, strings: AppStrings, navItemColor: Color, activeColor: Color, // Screen centre in px, resolved by the caller: this builder is not @Composable, so it can't // read LocalConfiguration/LocalDensity itself (same reason the colours above are passed in). screenCenter: Offset, onBlendMode: () -&gt; Unit, onCurves: () -&gt; Unit, onAddClicked: () -&gt; Unit, onEditClicked: () -&gt; Unit, onModelClicked: () -&gt; Unit, modelWindowOpen: Boolean, onToolOptionsClicked: () -&gt; Unit, toolOptionsOpen: Boolean, onForgetSelectionRequested: (String) -&gt; Unit, showLayersRail: Boolean, showBrushRail: Boolean, onOpenBrushGallery: () -&gt; Unit, onOpenBrushTipsManager: () -&gt; Unit, /** "UI hidden for drawing", read lazily in `expandWhen` so a stroke does not rebuild this DSL. */ drawingUiHidden: () -&gt; Boolean, )</ID>
+    <ID>LongMethod:Strategy.kt$Strategy$private fun getKeylineListForScrollOffsetInternal( scrollOffset: Float, maxScrollOffset: Float, roundToNearestStep: Boolean = false, ): KeylineList</ID>
+    <ID>LongMethod:Strategy.kt$private fun getEndKeylineSteps( defaultKeylines: KeylineList, carouselMainAxisSize: Float, itemSpacing: Float, afterContentPadding: Float, ): List&lt;KeylineList&gt;</ID>
+    <ID>LongMethod:Strategy.kt$private fun getStartKeylineSteps( defaultKeylines: KeylineList, carouselMainAxisSize: Float, itemSpacing: Float, beforeContentPadding: Float, ): List&lt;KeylineList&gt;</ID>
+    <ID>LongParameterList:Arrangement.kt$Arrangement$( private val priority: Int, val smallSize: Float, val smallCount: Int, val mediumSize: Float, val mediumCount: Int, val largeSize: Float, val largeCount: Int, )</ID>
+    <ID>LongParameterList:Arrangement.kt$Arrangement.Companion$( availableSpace: Float, itemSpacing: Float, targetSmallSize: Float, minSmallSize: Float, maxSmallSize: Float, smallCounts: IntArray, targetMediumSize: Float, mediumCounts: IntArray, targetLargeSize: Float, largeCounts: IntArray, )</ID>
+    <ID>LongParameterList:Arrangement.kt$Arrangement.Companion$( priority: Int, availableSpace: Float, itemSpacing: Float, smallCount: Int, smallSize: Float, minSmallSize: Float, maxSmallSize: Float, mediumCount: Int, mediumSize: Float, largeCount: Int, largeSize: Float, )</ID>
+    <ID>LongParameterList:Carousel.kt$( index: Int, state: CarouselState, strategy: () -&gt; Strategy, carouselItemDrawInfo: CarouselItemDrawInfoImpl, clipShape: Shape, isVertical: Boolean, )</ID>
+    <ID>LongParameterList:Carousel.kt$( state: CarouselState, itemWidth: Dp, modifier: Modifier = Modifier, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.noSnapFlingBehavior(), userScrollEnabled: Boolean = true, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:Carousel.kt$( state: CarouselState, modifier: Modifier = Modifier, maxItemWidth: Dp = Dp.Unspecified, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state = state), userScrollEnabled: Boolean = true, minSmallItemWidth: Dp = CarouselDefaults.MinSmallItemSize, maxSmallItemWidth: Dp = CarouselDefaults.MaxSmallItemSize, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:Carousel.kt$( state: CarouselState, orientation: Orientation, keylineList: (availableSpace: Float, itemSpacing: Float) -&gt; KeylineList, contentPadding: PaddingValues, maxNonFocalVisibleItemCount: Int, modifier: Modifier = Modifier, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state = state), userScrollEnabled: Boolean = true, // Graffux fork: pin the focal range to its default keylines (no edge shift steps) and pad // the pager so the first and last items can rest in the focal range too. Horizontal only. pinFocalRange: Boolean = false, content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:Carousel.kt$( state: CarouselState, orientation: Orientation, keylineList: (availableSpace: Float, itemSpacing: Float) -&gt; KeylineList, contentPadding: PaddingValues, maxNonFocalVisibleItemCount: Int, modifier: Modifier, itemSpacing: Dp, flingBehavior: TargetedFlingBehavior, userScrollEnabled: Boolean, pinFocalRange: Boolean, pagerBeforePadding: Int, pagerAfterPadding: Int, content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:Carousel.kt$( state: CarouselState, preferredItemWidth: Dp, modifier: Modifier = Modifier, itemSpacing: Dp = 0.dp, flingBehavior: TargetedFlingBehavior = CarouselDefaults.singleAdvanceFlingBehavior(state = state), userScrollEnabled: Boolean = true, minSmallItemWidth: Dp = CarouselDefaults.MinSmallItemSize, maxSmallItemWidth: Dp = CarouselDefaults.MaxSmallItemSize, contentPadding: PaddingValues = PaddingValues(0.dp), content: @Composable CarouselItemScope.(itemIndex: Int) -&gt; Unit, )</ID>
+    <ID>LongParameterList:KeylineList.kt$KeylineListScopeImpl$( pivotIndex: Int, pivotOffset: Float, firstFocalIndex: Int, lastFocalIndex: Int, itemMainAxisSize: Float, carouselMainAxisSize: Float, itemSpacing: Float, tmpKeylines: List&lt;TmpKeyline&gt;, )</ID>
+    <ID>LongParameterList:Keylines.kt$( density: Density, carouselMainAxisSize: Float, maxItemSize: Float?, itemSpacing: Float, itemCount: Int, isCentered: Boolean = false, minSmallItemSize: Float = with(density) { CarouselDefaults.MinSmallItemSize.toPx() }, maxSmallItemSize: Float = with(density) { CarouselDefaults.MaxSmallItemSize.toPx() }, )</ID>
+    <ID>LongParameterList:Keylines.kt$( density: Density, carouselMainAxisSize: Float, preferredItemSize: Float, itemSpacing: Float, itemCount: Int, minSmallItemSize: Float = with(density) { CarouselDefaults.MinSmallItemSize.toPx() }, maxSmallItemSize: Float = with(density) { CarouselDefaults.MaxSmallItemSize.toPx() }, )</ID>
     <ID>LongParameterList:SettingsScreen.kt$( title: String, subtitle: String, options: List&lt;T&gt;, selected: T, label: (T) -&gt; String, onSelect: (T) -&gt; Unit, )</ID>
     <ID>LongParameterList:SettingsScreen.kt$( vm: SettingsViewModel, appVersion: String, onClose: () -&gt; Unit, onDocumentSize: () -&gt; Unit, onBackground: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:ShortcutsSheet.kt$( activeTool: Tool, usage: ToolUsage, favorites: List&lt;String&gt;, onPickTool: (Tool) -&gt; Unit, onToggleFavorite: (Tool) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
-    <ID>MagicNumber:MainActivity.kt$0.005f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.05f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.06f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.07f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.085f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.08f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.09f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.10f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.16f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.18f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.23f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.28f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.29f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.30f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.31f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.34f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.42f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.43f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.51f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.52f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.54f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.55f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.56f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.59f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.5f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.61f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.62f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.63f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.64f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.66f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.67f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.68f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.72f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.78f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.80f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.82f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.84f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.88f</ID>
-    <ID>MagicNumber:MainActivity.kt$0.94f</ID>
-    <ID>MagicNumber:MainActivity.kt$0xFFFF2DAA</ID>
-    <ID>MagicNumber:MainActivity.kt$0xFFFFB300</ID>
-    <ID>MagicNumber:MainActivity.kt$0xFFFFC107</ID>
-    <ID>MagicNumber:MainActivity.kt$1.35f</ID>
-    <ID>MagicNumber:MainActivity.kt$1.5f</ID>
-    <ID>MagicNumber:MainActivity.kt$100f</ID>
-    <ID>MagicNumber:MainActivity.kt$120f</ID>
+    <ID>LongParameterList:Strategy.kt$( from: KeylineList, carouselMainAxisSize: Float, itemSpacing: Float, contentPadding: Float, pivot: Keyline, pivotIndex: Int, )</ID>
+    <ID>LongParameterList:Strategy.kt$Strategy$( val defaultKeylines: KeylineList, val startKeylineSteps: List&lt;KeylineList&gt;, val endKeylineSteps: List&lt;KeylineList&gt;, val availableSpace: Float, val itemSpacing: Float, val beforeContentPadding: Float, val afterContentPadding: Float, )</ID>
+    <ID>MagicNumber:Keylines.kt$0.5f</ID>
+    <ID>MagicNumber:Keylines.kt$1.25f</ID>
+    <ID>MagicNumber:Keylines.kt$1.2f</ID>
+    <ID>MagicNumber:Keylines.kt$1.5f</ID>
+    <ID>MagicNumber:Keylines.kt$3</ID>
+    <ID>MagicNumber:Keylines.kt$3f</ID>
     <ID>MagicNumber:MainActivity.kt$3</ID>
     <ID>MagicNumber:MainActivity.kt$5</ID>
     <ID>MagicNumber:MainActivity.kt$6</ID>
@@ -85,28 +67,30 @@
     <ID>MagicNumber:SettingsScreen.kt$90</ID>
     <ID>MagicNumber:SettingsViewModel.kt$SettingsViewModel$5_000</ID>
     <ID>MagicNumber:SettingsViewModel.kt$SettingsViewModel$60</ID>
+    <ID>MagicNumber:Strategy.kt$Strategy$0.01f</ID>
     <ID>MatchingDeclarationName:ToolCatalog.kt$ToolEntry</ID>
-    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.copy", text = "Copy", content = GraffuxIcons.LayerDuplicate, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCopySelection() })</ID>
-    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.cut", text = "Cut", content = GraffuxIcons.PathKnife, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onCutSelection() })</ID>
-    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.fill", text = "Colour Fill", content = GraffuxIcons.LayerFill, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onColorFillSelection() })</ID>
-    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.paste", text = "Paste", content = GraffuxIcons.LayerAdd, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onPasteSelection() })</ID>
-    <ID>MaxLineLength:MainActivity.kt$azRailItem(id = "sel.save", text = "Save Selection", content = GraffuxIcons.DocumentSave, color = navItemColor, shape = AzButtonShape.NONE_SQUARE, onClick = { vm.onSaveSelection(vm.nextSelectionName()) })</ID>
-    <ID>MaxLineLength:MainActivity.kt$fun</ID>
-    <ID>MaxLineLength:MainActivity.kt$listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }</ID>
-    <ID>MaxLineLength:MainActivity.kt$listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }</ID>
+    <ID>MaxLineLength:MainActivity.kt$"Run Extension" + allInstalledExtensions.size.takeIf { it &gt; 0 }?.let { " ($it)" }.orEmpty()</ID>
+    <ID>MaxLineLength:MainActivity.kt$MessageHost(alerts, Modifier.align(Alignment.TopCenter).padding(top = RailEdgeGap, start = besideRail, end = besideRail))</ID>
+    <ID>MaxLineLength:MainActivity.kt$ToolboxAction("Choose Model") { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) }</ID>
+    <ID>MaxLineLength:MainActivity.kt$ToolboxAction(if (uiState.onionSkinEnabled) "Onion Skin Off" else "Onion Skin On") { vm.onToggleOnionSkin() }</ID>
     <ID>MaxLineLength:MainActivity.kt$referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))</ID>
-    <ID>MaxLineLength:MainActivity.kt$stateSubItem(id, hostId, text, content) { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) }</ID>
-    <ID>MaxLineLength:RailHelp.kt$"stabilisation, the magic wand's tolerance, a selection's soft edge, a stamp brush's flow. A dial that is missing is "</ID>
+    <ID>NestedBlockDepth:Arrangement.kt$Arrangement.Companion$fun findLowestCostArrangement( availableSpace: Float, itemSpacing: Float, targetSmallSize: Float, minSmallSize: Float, maxSmallSize: Float, smallCounts: IntArray, targetMediumSize: Float, mediumCounts: IntArray, targetLargeSize: Float, largeCounts: IntArray, ): Arrangement?</ID>
+    <ID>ReturnCount:Arrangement.kt$Arrangement$private fun isValid(): Boolean</ID>
+    <ID>ReturnCount:Keylines.kt$internal fun heroKeylineList( density: Density, carouselMainAxisSize: Float, maxItemSize: Float?, itemSpacing: Float, itemCount: Int, isCentered: Boolean = false, minSmallItemSize: Float = with(density) { CarouselDefaults.MinSmallItemSize.toPx() }, maxSmallItemSize: Float = with(density) { CarouselDefaults.MaxSmallItemSize.toPx() }, ): KeylineList</ID>
+    <ID>ReturnCount:Keylines.kt$internal fun multiBrowseKeylineList( density: Density, carouselMainAxisSize: Float, preferredItemSize: Float, itemSpacing: Float, itemCount: Int, minSmallItemSize: Float = with(density) { CarouselDefaults.MinSmallItemSize.toPx() }, maxSmallItemSize: Float = with(density) { CarouselDefaults.MaxSmallItemSize.toPx() }, ): KeylineList</ID>
     <ID>ReturnCount:MainActivity.kt$private fun azphaltInstallUrl(intent: Intent?): String?</ID>
+    <ID>ReturnCount:Strategy.kt$Strategy$private fun getKeylineListForScrollOffsetInternal( scrollOffset: Float, maxScrollOffset: Float, roundToNearestStep: Boolean = false, ): KeylineList</ID>
+    <ID>ReturnCount:Strategy.kt$internal fun lerp( outputMin: Float, outputMax: Float, inputMin: Float, inputMax: Float, value: Float, ): Float</ID>
+    <ID>ReturnCount:Strategy.kt$private fun getEndKeylineSteps( defaultKeylines: KeylineList, carouselMainAxisSize: Float, itemSpacing: Float, afterContentPadding: Float, ): List&lt;KeylineList&gt;</ID>
+    <ID>ReturnCount:Strategy.kt$private fun getStartKeylineSteps( defaultKeylines: KeylineList, carouselMainAxisSize: Float, itemSpacing: Float, beforeContentPadding: Float, ): List&lt;KeylineList&gt;</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$t: Throwable</ID>
-    <ID>TooManyFunctions:MainActivity.kt$com.hereliesaz.graffux.MainActivity.kt</ID>
-    <ID>UnusedParameter:MainActivity.kt$onAddClicked: () -&gt; Unit</ID>
-    <ID>UnusedParameter:MainActivity.kt$onModelClicked: () -&gt; Unit</ID>
+    <ID>TooManyFunctions:Carousel.kt$com.hereliesaz.graffux.carousel.Carousel.kt</ID>
+    <ID>TopLevelPropertyNaming:CarouselState.kt$internal const val MaxPageOffset = 0.5f</ID>
+    <ID>TopLevelPropertyNaming:CarouselState.kt$internal const val MinPageOffset = -0.5f</ID>
+    <ID>TopLevelPropertyNaming:CarouselState.kt$private const val MaxPagesForAnimateScroll = 3</ID>
+    <ID>UnusedPrivateMember:Carousel.kt$private fun Modifier.drawDebugLines( state: CarouselState, pageSize: CarouselPageSize, strokeColor: Color = Color.Magenta, strokeWidth: Dp = 4.dp, ): Modifier</ID>
     <ID>UnusedPrivateProperty:MainActivity.kt$/** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */ private const val MIN_BRUSH_ALPHA = 0.05f</ID>
-    <ID>UnusedPrivateProperty:MainActivity.kt$val density = LocalDensity.current</ID>
     <ID>UnusedPrivateProperty:MainActivity.kt$val documentPicker = rememberLauncherForActivityResult( ActivityResultContracts.OpenDocument() ) { uri -&gt; uri?.let { vm.onImportDocument(it) } }</ID>
     <ID>UnusedPrivateProperty:MainActivity.kt$val photoPicker = rememberLauncherForActivityResult( ActivityResultContracts.PickVisualMedia() ) { uri -&gt; uri?.let { vm.onAddLayer(it) } }</ID>
-    <ID>WildcardImport:MainActivity.kt$import com.hereliesaz.aznavrail.*</ID>
-    <ID>WildcardImport:MainActivity.kt$import com.hereliesaz.aznavrail.model.*</ID>
   </CurrentIssues>
 </SmellBaseline>
