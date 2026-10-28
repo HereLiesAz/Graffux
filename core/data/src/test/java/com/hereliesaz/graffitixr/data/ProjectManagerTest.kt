@@ -352,4 +352,41 @@ class ProjectManagerTest {
         assertEquals(second, migrated.layers[1])
         assertEquals(LegacyVisuals(), migrated.legacyVisuals)
     }
+
+    @Test
+    fun `a version 1 project opens and becomes the current version`() {
+        // A project.json from before adjustment layers: no formatVersion key.
+        val v1 = """{"id":"old","name":"Wall","layers":""" +
+            """[{"id":"a","name":"Photo","uri":"file:///x.png","opacity":0.5}]}"""
+        val project = manager.decodeProject(v1)
+        assertEquals(com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION, project.formatVersion)
+        assertEquals(listOf("a"), project.layers.map { it.id })
+        assertEquals(0.5f, project.layers[0].opacity)
+        assertNull(project.layers[0].adjustment)
+    }
+
+    @Test
+    fun `an adjustment layer survives a save and a load`() {
+        val adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(
+            com.hereliesaz.graffitixr.common.photo.PhotoTool.LIGHT,
+            values = mapOf("exposure" to 0.35f, "contrast" to 12f),
+        )
+        val project = GraffitiProject(
+            id = "p",
+            layers = listOf(
+                OverlayLayer(id = "adj", name = "Light", uri = mockk(relaxed = true), adjustment = adjustment),
+            ),
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val text = json.encodeToString(GraffitiProject.serializer(), project)
+        assertTrue(text.contains("\"formatVersion\":2"))
+        val back = manager.decodeProject(text)
+        assertEquals(adjustment, back.layers.single().adjustment)
+        assertEquals(2, back.formatVersion)
+    }
+
+    @Test
+    fun `a newer format is never lowered`() {
+        assertEquals(7, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 7), 7).formatVersion)
+    }
 }

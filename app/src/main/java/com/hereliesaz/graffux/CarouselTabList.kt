@@ -227,6 +227,9 @@ internal fun CarouselTabList(
         val first = state.firstVisibleItemIndex
         val target = first - Math.floorMod(first, n) + selectedIndex
         state.scrollToItem(target)
+        // Nothing picked yet (the photo sheet's first visit): the list starts at its first heading,
+        // as the mockup's entry board draws it, rather than centring the heading.
+        if (items.none { it is CarouselTabListItem.Tab && it.group.key == selectedKey }) return@LaunchedEffect
         val info = state.layoutInfo
         val item = info.visibleItemsInfo.firstOrNull { it.index == target } ?: return@LaunchedEffect
         val viewportCentre = (info.viewportStartOffset + info.viewportEndOffset) / 2

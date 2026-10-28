@@ -131,6 +131,8 @@ internal data class CarouselUi(
     val sheetOpen: Boolean,
     val tab: String? = null,
     val showingCarousel: Boolean = true,
+    /** The photo tabs instead of brushes (the rail's Adjust); [tab] is then a [PhotoTab.key]. */
+    val photo: Boolean = false,
 )
 
 /** What the strip draws: its items plus what the brush previews need to render them. */

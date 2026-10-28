@@ -58,6 +58,19 @@ internal sealed interface EditorIntent {
     data class AddLayer(val layer: Layer, val resetActivePanel: Boolean = true, val activeToolOverride: Tool? = null) : EditorIntent
     /** Removes [id]; if it was active, activates the first remaining layer. Clears the tool. */
     data class RemoveLayer(val id: String) : EditorIntent
+
+    // ── Photo adjustment layers ──
+    /** Adds [layer] directly above [aboveId] (in that layer's parent), active; at the top when null. */
+    data class InsertLayerAbove(val layer: Layer, val aboveId: String?) : EditorIntent
+    /** Replaces layer [id]'s adjustment settings (a slider, a reset, a curve). */
+    data class SetLayerAdjustment(
+        val id: String,
+        val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment,
+    ) : EditorIntent
+    /** A fresh render of adjustment layer [id] (the layers below it, adjusted). */
+    data class SetAdjustmentRender(val id: String, val bitmap: Bitmap) : EditorIntent
+    /** Hold-to-compare: hide every adjustment layer while true. */
+    data class SetPhotoCompare(val comparing: Boolean) : EditorIntent
     /** Replaces the whole layer set (e.g. flatten) with [layers], activating [activeId]. */
     data class ReplaceLayers(val layers: List<Layer>, val activeId: String?) : EditorIntent
 

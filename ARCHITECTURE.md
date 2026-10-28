@@ -430,6 +430,17 @@ codebase is deferred scope or a real gap in the install-report flow.
   `GpuBudget` (collected, since the tier can change mid-session). On Android nothing waits for
   refinement (the CPU commit is the committed layer; the stroke-end refresh drops queued work); on
   desktop stroke end lands it before committing the GPU frame.
+- **Photo adjustments are layers rendered from what is below them, on their own wgpu device.**
+  Each photo tab (Light, Color, HSL, Curves, Detail, Effects, Heal, Red-eye) edits its own
+  `Layer.adjustment` layer. The layer's bitmap is a render of the layers below it in its parent,
+  adjusted and masked. `AdjustmentLayerRenderer` keeps it current: a CPU composite of the layers
+  below only when those change, then one wgpu compute pass and a readback per slider move
+  (`core/wgpu-engine/src/adjust.rs`). Because the result is an ordinary bitmap, hiding, reordering,
+  grouping, opacity, export and the rails need no new code. The alternatives were rejected. A
+  Compose `ColorFilter` cannot express curves, HSL, detail or masks. AGSL needs API 33, above the
+  minSdk of 29. Baking would be destructive. The adjuster has its own device so that a drag never
+  queues behind a stroke on the canvas engine's thread (`GpuRenderThread`). The CPU reference
+  `PhotoAdjustMath` is the fallback and the test oracle. Details: `spec/photo-adjustments.md`.
 - **Zoomed-in layers get a transient crisp re-render, not a bigger bitmap.** A layer bitmap is
   screen x `canvasRenderScale`, so zooming the viewport only magnifies it (bilinear, soft).
   `HighResOverlayController` (`:feature:editor`) fixes that for the common case: once the zoom is above

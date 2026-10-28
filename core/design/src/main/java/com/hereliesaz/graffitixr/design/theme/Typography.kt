@@ -25,6 +25,14 @@ val RobotoCondensedFamily = FontFamily(
     GoogleFontCompat(googleFont = RobotoCondensedFont, fontProvider = provider, weight = FontWeight.Bold)
 )
 
+/**
+ * Roboto Mono, for the photo sheet's slider values (the mockup sets them in it). Downloaded like
+ * Roboto Condensed; until it arrives (or with no Play services) the platform monospace stands in.
+ */
+val RobotoMonoFamily = FontFamily(
+    GoogleFontCompat(googleFont = GoogleFont("Roboto Mono"), fontProvider = provider, weight = FontWeight.Medium),
+)
+
 // Set of Material typography styles to start with.
 // Body/title/label sizes are set for comfortable reading on phone screens.
 // Display/headline sizes are decorative and stay large.

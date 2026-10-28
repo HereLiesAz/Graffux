@@ -91,6 +91,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
+import com.hereliesaz.graffitixr.common.photo.PhotoAdjustment as PhotoAdjustmentModel
 import javax.inject.Inject
 import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
@@ -607,6 +608,10 @@ class EditorViewModel @Inject constructor(
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
 
     companion object {
+        /** The world size an adjustment layer renders at when the display reports none (tests). */
+        private const val FALLBACK_WORLD_WIDTH = 1080
+        private const val FALLBACK_WORLD_HEIGHT = 1920
+        private const val NANOS_PER_MS = 1_000_000.0
         private const val HUD_MS = 700L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
@@ -752,6 +757,144 @@ class EditorViewModel @Inject constructor(
             )
             context.registerComponentCallbacks(highResTrimCallbacks)
         }
+    }
+
+    // ── Photo adjustment layers ─────────────────────────────────────────────────────────────
+    // Each photo tab (Light, Color, HSL, Curves, Detail, Effects, …) edits its own adjustment
+    // layer: a Layer whose `adjustment` is set and whose bitmap AdjustmentLayerRenderer keeps equal
+    // to the layers below it, adjusted. A slider gesture is one undo step (pushHistory at its start),
+    // the layer is created by the first move, directly above the selected layer.
+
+    /** The world size every layer is drawn into, which an adjustment layer's render matches. */
+    private fun adjustmentWorldSize(): Pair<Int, Int> {
+        val metrics = context.resources.displayMetrics
+        return (metrics.widthPixels.takeIf { it > 0 } ?: FALLBACK_WORLD_WIDTH) to
+            (metrics.heightPixels.takeIf { it > 0 } ?: FALLBACK_WORLD_HEIGHT)
+    }
+
+    internal val adjustmentRenderer = AdjustmentLayerRenderer(
+        scope = viewModelScope,
+        composite = { layers, w, h -> exportManager.compositeLayers(layers, w, h, renderAdjustments = false) },
+        publish = { id, bitmap ->
+            viewModelScope.launch(dispatchers.main) { dispatch(EditorIntent.SetAdjustmentRender(id, bitmap)) }
+        },
+    )
+
+    /** GPU time of the last adjustment render, ms (a slider move's cost); 0 before the first. */
+    val lastAdjustmentRenderMs: Double get() = adjustmentRenderer.lastRenderNanos / NANOS_PER_MS
+
+    init {
+        exportManager.adjustmentRenderer = { below, layer ->
+            layer.adjustment?.let { adjustmentRenderer.renderNow(below, it, layer.id.hashCode()) }
+        }
+        viewModelScope.launch(dispatchers.main) {
+            _uiState
+                .map { Triple(it.layers, it.undoCount, it.redoCount) }
+                .distinctUntilChanged()
+                .collect { (layers, _, _) ->
+                    if (layers.any { it.adjustment != null }) {
+                        val (w, h) = adjustmentWorldSize()
+                        adjustmentRenderer.sync(layers, w, h)
+                    }
+                }
+        }
+    }
+
+    /**
+     * When the active layer is an adjustment layer, selects the nearest ordinary layer under it for
+     * a paint tool. False when there is none (the caller then makes a blank layer); true otherwise.
+     */
+    private fun leaveAdjustmentLayerFor(): Boolean {
+        val layers = _uiState.value.layers
+        val active = layers.find { it.id == _uiState.value.activeLayerId }
+        val below = active?.takeIf { it.adjustment != null }?.let { adj ->
+            layers.subList(0, layers.indexOf(adj)).lastOrNull {
+                it.adjustment == null && it.type != com.hereliesaz.graffitixr.common.model.LayerType.GROUP
+            }
+        }
+        below?.let { dispatch(EditorIntent.ActivateLayer(it.id)) }
+        return active?.adjustment == null || below != null
+    }
+
+    /** The adjustment layer the [tool] tab edits now: the active layer, when it is one of [tool]'s. */
+    fun photoLayerFor(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool): Layer? {
+        val state = _uiState.value
+        return state.layers.find { it.id == state.activeLayerId && it.adjustment?.tool == tool }
+    }
+
+    private var photoGestureLayer: String? = null
+
+    /**
+     * A slider (or a curve point, or a swatch) on the [tool] tab is about to move: one undo step
+     * for the whole gesture, and the layer it edits, made now (directly above the selected layer)
+     * if the selected layer is not already one of [tool]'s. Returns that layer's id.
+     */
+    fun onPhotoGestureStart(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool): String {
+        pushHistory()
+        val existing = photoLayerFor(tool)
+        val id = existing?.id ?: run {
+            val layer = Layer(
+                id = UUID.randomUUID().toString(),
+                name = tool.label,
+                adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(tool),
+            )
+            dispatch(EditorIntent.InsertLayerAbove(layer, _uiState.value.activeLayerId))
+            opEmitter.emit(Op.LayerAdd(layer))
+            layer.id
+        }
+        photoGestureLayer = id
+        return id
+    }
+
+    /** Sets [slider] on the layer the current gesture edits (see [onPhotoGestureStart]). */
+    fun onPhotoSlider(
+        tool: com.hereliesaz.graffitixr.common.photo.PhotoTool,
+        slider: com.hereliesaz.graffitixr.common.photo.PhotoSlider,
+        value: Float,
+    ) = updatePhotoAdjustment(tool) { it.with(slider, value) }
+
+    /** Replaces the edited layer's settings through [change] (curves, HSL swatches, …). */
+    fun updatePhotoAdjustment(
+        tool: com.hereliesaz.graffitixr.common.photo.PhotoTool,
+        change: (PhotoAdjustmentModel) -> PhotoAdjustmentModel,
+    ) {
+        val id = photoGestureLayer ?: photoLayerFor(tool)?.id ?: onPhotoGestureStart(tool)
+        val layer = _uiState.value.layers.find { it.id == id } ?: return
+        val current = layer.adjustment ?: return
+        val next = change(current)
+        if (next != current) dispatch(EditorIntent.SetLayerAdjustment(id, next))
+    }
+
+    /** The gesture ended: save. */
+    fun onPhotoGestureEnd() {
+        photoGestureLayer = null
+        saveProject()
+    }
+
+    /** Double-tap on a slider: that slider back to its default, as one undo step. */
+    fun onPhotoSliderReset(
+        tool: com.hereliesaz.graffitixr.common.photo.PhotoTool,
+        slider: com.hereliesaz.graffitixr.common.photo.PhotoSlider,
+    ) {
+        val layer = photoLayerFor(tool) ?: return
+        if (layer.adjustment?.value(slider) == slider.default) return
+        onPhotoGestureStart(tool)
+        onPhotoSlider(tool, slider, slider.default)
+        onPhotoGestureEnd()
+    }
+
+    /** The tab header's Reset: every setting of [tool]'s layer back to neutral (the layer stays). */
+    fun onPhotoReset(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool) {
+        val layer = photoLayerFor(tool) ?: return
+        if (layer.adjustment?.isNeutral == true) return
+        pushHistory()
+        dispatch(EditorIntent.SetLayerAdjustment(layer.id, layer.adjustment!!.reset()))
+        saveProject()
+    }
+
+    /** Hold-to-compare: while [comparing], the canvas shows the photo without its adjustment layers. */
+    fun setPhotoCompare(comparing: Boolean) {
+        if (_uiState.value.photoCompare != comparing) dispatch(EditorIntent.SetPhotoCompare(comparing))
     }
 
     /**
@@ -2394,6 +2537,8 @@ class EditorViewModel @Inject constructor(
         // read this ViewModel again). Harmless when Liquify was never touched this session: destroy()
         // null-checks every native pointer and no-ops the GL release if the context was never built.
         liquifyEngine.destroy()
+        exportManager.adjustmentRenderer = null
+        adjustmentRenderer.close()
         super.onCleared()
     }
 
@@ -3816,7 +3961,11 @@ class EditorViewModel @Inject constructor(
         // menu, or the shortcuts sheet that these counts feed. Counting rail taps would miss three
         // of those four and file the same tool under different names.
         recordToolUse(tool)
-        if (tool != Tool.NONE && tool != Tool.PEN && _uiState.value.layers.isEmpty()) {
+        // An adjustment layer takes no paint: a paint tool picked while one is selected goes to the
+        // nearest ordinary layer under it (a new one when there is none).
+        val needsCanvas = tool != Tool.NONE && tool != Tool.PEN &&
+            (_uiState.value.layers.isEmpty() || !leaveAdjustmentLayerFor())
+        if (needsCanvas) {
             onAddBlankLayer(activeToolOverride = tool)
             return
         }

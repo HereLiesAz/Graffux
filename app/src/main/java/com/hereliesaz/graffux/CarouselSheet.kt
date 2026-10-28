@@ -107,8 +107,12 @@ internal fun CarouselSheet(
     hiddenForDrawing: () -> Boolean = { false },
     bottomInset: Dp = 0.dp,
     stages: SheetStages? = null,
+    // True while a photo slider is dragged: the sheet stays where it is (the row under the finger
+    // must not move) but its scrim and pill vanish, so only that row is left over the photo.
+    chromeHidden: () -> Boolean = { false },
     content: @Composable () -> Unit,
 ) {
+    val hideChrome by rememberUpdatedState(chromeHidden)
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var contentHeight by remember { mutableIntStateOf(0) }
@@ -178,7 +182,7 @@ internal fun CarouselSheet(
                 .matchParentSize()
                 .graphicsLayer {
                     val max = contentHeight.toFloat()
-                    alpha = if (max <= 0f) 1f else (1f - offset.value / max).coerceIn(0f, 1f)
+                    alpha = scrimAlpha(hideChrome(), offset.value, max)
                 }
                 .background(CarouselScrimBrush)
                 .testTag("carousel.scrim"),
@@ -191,7 +195,9 @@ internal fun CarouselSheet(
                     .nestedScroll(nested),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                GrabHandle(open = shownOpen) { onOpenChange(!open) }
+                Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) {
+                    GrabHandle(open = shownOpen) { onOpenChange(!open) }
+                }
                 Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
             }
             Box(Modifier.navigationBarsPadding().height(bottomInset))
@@ -303,6 +309,13 @@ internal fun carouselSheetSettlesOpen(fractionShut: Float, velocityDpPerSec: Flo
     velocityDpPerSec <= -SHEET_FLING_DP_PER_SEC -> true
     velocityDpPerSec >= SHEET_FLING_DP_PER_SEC -> false
     else -> fractionShut < SHEET_HALFWAY
+}
+
+/** The scrim's opacity: gone while [hidden], else fading out as the sheet shuts ([offset] of [max]). */
+private fun scrimAlpha(hidden: Boolean, offset: Float, max: Float): Float = when {
+    hidden -> 0f
+    max <= 0f -> 1f
+    else -> (1f - offset / max).coerceIn(0f, 1f)
 }
 
 /** How fast the sheet slides back once the post-stroke hold is over: quick, for the next pick. */

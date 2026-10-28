@@ -59,6 +59,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
@@ -335,6 +336,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // Starts shut: only the grab pill, until a swipe up brings the tab list.
     var carouselUi by remember {
         mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = false, showingCarousel = false))
+    }
+    // The photo sheet (Adjust on the rail): which tab it showed last, reopened on the next entry.
+    var lastPhotoTab by remember { mutableStateOf<PhotoTab?>(null) }
+    val photoDrag = remember { PhotoDrag() }
+    val photoActions = remember(vm) { vm.photoActions() }
+    // Any tool picked puts the sheet back on brushes: the photo tabs are a mode of the sheet.
+    LaunchedEffect(uiState.activeTool) {
+        if (uiState.activeTool != Tool.NONE && carouselUi.photo) carouselUi = carouselUi.copy(photo = false, tab = null)
     }
     // Arming the brush or eraser puts the sheet on brushes; nothing else is listed with one in hand.
     LaunchedEffect(uiState.activeTool) {
@@ -634,9 +643,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     ).toMutableSet().apply {
         if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("area.animation")
         if (showModelDialog) add("area.model")
-        if (carouselOnScreen && carouselUi.sheetOpen) {
+        if (carouselOnScreen && carouselUi.sheetOpen && !carouselUi.photo) {
             carouselGroupRailId(carouselUi.category)?.let(::add)
         }
+        if (carouselOnScreen && carouselUi.photo) add(PHOTO_RAIL_ID)
         if (showReferenceWindow) add("area.reference")
         if (showFigmaWindow) add("area.figma")
         if (uiState.activePanel == EditorPanel.EXTENSIONS || showStore) add("area.extensions")
@@ -650,7 +660,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // A finger on the canvas hides every piece of chrome at once and closes whatever was open; the
     // rails and the sheet's pill come back DRAWING_UI_RETURN_DELAY_MS after it lifts. See CanvasTouch.
     val canvasTouch = remember { CanvasTouch() }
-    val chrome = rememberChromeVisibility(canvasTouch, strokeGate) {
+    val chrome = rememberChromeVisibility(canvasTouch, strokeGate, forceHidden = { photoDrag.active }) {
         menuOpen = false
         showViewMenu = false
         brushMenuOpen = false
@@ -723,7 +733,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
-                    hiddenForDrawing = { chrome.hidden },
+                    hiddenForDrawing = { chrome.hidden && !chrome.forcedOnly },
+                    chromeHidden = { photoDrag.active },
                     // Clears the nav bar itself, plus the shortcuts sheet's swipe strip,
                     // which sits along the bottom edge and would otherwise take the grab
                     // pill's touches.
@@ -820,7 +831,23 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         effectPreviews.updateSource(previewLayer?.bitmap)
                     }
                     DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
-                    BottomCarousel(
+                    if (carouselUi.photo) {
+                        val photoTab = PhotoTab.ofKey(carouselUi.tab)
+                        val photoLayer = photoTab?.tool?.let { tool ->
+                            uiState.layers.find { it.id == uiState.activeLayerId && it.adjustment?.tool == tool }
+                        }
+                        PhotoSheetBody(
+                            tab = photoTab,
+                            showingControls = carouselUi.showingCarousel,
+                            adjustment = photoLayer?.adjustment,
+                            actions = photoActions,
+                            drag = photoDrag,
+                            onSelectTab = { tab ->
+                                lastPhotoTab = tab
+                                carouselUi = carouselUi.copy(tab = tab.key, showingCarousel = true)
+                            },
+                        )
+                    } else BottomCarousel(
                         ui = carouselUi,
                         onUiChange = { carouselUi = it },
                         content = CarouselContent(
@@ -946,9 +973,25 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             heroExpansion.collapse()
                             carouselUi = carouselUi.copy(
                                 category = category, sheetOpen = true, tab = null, showingCarousel = true,
+                                photo = false,
                             )
                         },
                         onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
+                        onAdjust = {
+                            heroExpansion.collapse()
+                            if (carouselUi.photo && carouselUi.sheetOpen) {
+                                // Lit already: a second tap leaves, back to brushes.
+                                carouselUi = carouselUi.copy(photo = false, tab = null, showingCarousel = false)
+                            } else {
+                                showCarousel = true
+                                if (uiState.activeTool != Tool.NONE) vm.setActiveTool(Tool.NONE)
+                                // Straight to the last tab used; the first time, the tab list.
+                                carouselUi = carouselUi.copy(
+                                    photo = true, sheetOpen = true,
+                                    tab = lastPhotoTab?.key, showingCarousel = lastPhotoTab != null,
+                                )
+                            }
+                        },
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
@@ -974,7 +1017,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         secondary = secondaryClassifiers,
                         expansion = railExpansion,
                         callbacks = LayersRailCallbacks(
-                            onActivate = { vm.onLayerActivated(it) },
+                            onActivate = { id ->
+                                vm.onLayerActivated(id)
+                                // An adjustment tile opens the sheet on its own tab, to edit it.
+                                uiState.layers.find { it.id == id }?.adjustment?.let { adjustment ->
+                                    val tab = PhotoTab.of(adjustment.tool)
+                                    lastPhotoTab = tab
+                                    showCarousel = true
+                                    carouselUi = carouselUi.copy(
+                                        photo = true, sheetOpen = true, tab = tab.key, showingCarousel = true,
+                                    )
+                                }
+                            },
                             onOpenMenu = { id ->
                                 vm.onLayerActivated(id)
                                 layerMenuFor = id

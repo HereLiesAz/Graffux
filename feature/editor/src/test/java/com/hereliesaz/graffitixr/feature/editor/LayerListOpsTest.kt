@@ -164,4 +164,25 @@ class LayerListOpsTest {
         )
         assertEquals(listOf("x", "g", "g2", "g1", "y"), LayerListOps.reorderSubset(layers, sub).map { it.id })
     }
+
+    @Test
+    fun `insertAbove puts a layer directly over the anchor, in its parent, past a group's children`() {
+        val adj = Layer(id = "adj", name = "Light")
+        val flat = listOf(Layer(id = "a", name = "a"), Layer(id = "b", name = "b"), Layer(id = "c", name = "c"))
+        assertEquals(listOf("a", "b", "adj", "c"), LayerListOps.insertAbove(flat, adj, "b").map { it.id })
+        assertEquals(listOf("a", "b", "c", "adj"), LayerListOps.insertAbove(flat, adj, null).map { it.id })
+        assertEquals(listOf("a", "b", "c", "adj"), LayerListOps.insertAbove(flat, adj, "gone").map { it.id })
+        val nested = listOf(
+            Layer(id = "g", name = "g", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP),
+            Layer(id = "g1", name = "g1", parentId = "g"),
+            Layer(id = "g2", name = "g2", parentId = "g"),
+            Layer(id = "top", name = "top"),
+        )
+        val inGroup = LayerListOps.insertAbove(nested, adj, "g1")
+        assertEquals(listOf("g", "g1", "adj", "g2", "top"), inGroup.map { it.id })
+        assertEquals("g", inGroup[2].parentId)
+        val overGroup = LayerListOps.insertAbove(nested, adj, "g")
+        assertEquals(listOf("g", "g1", "g2", "adj", "top"), overGroup.map { it.id })
+        assertEquals(null, overGroup[3].parentId)
+    }
 }

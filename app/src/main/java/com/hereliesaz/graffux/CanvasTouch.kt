@@ -78,8 +78,12 @@ internal class ChromeVisibility(
     private val touch: CanvasTouch,
     private val gate: StrokeGate,
     private val held: State<Boolean>,
+    private val forced: () -> Boolean = { false },
 ) {
-    val hidden: Boolean get() = touch.down || gate.strokeActive || held.value
+    val hidden: Boolean get() = touch.down || gate.strokeActive || held.value || forced()
+
+    /** Hidden only by [forced] (a photo slider drag), not by a canvas touch or stroke. */
+    val forcedOnly: Boolean get() = forced() && !(touch.down || gate.strokeActive || held.value)
 }
 
 /**
@@ -88,7 +92,14 @@ internal class ChromeVisibility(
  * closed when the chrome comes back.
  */
 @Composable
-internal fun rememberChromeVisibility(touch: CanvasTouch, gate: StrokeGate, onTouch: () -> Unit): ChromeVisibility {
+internal fun rememberChromeVisibility(
+    touch: CanvasTouch,
+    gate: StrokeGate,
+    // Hides the chrome at once, with no hold after: a photo slider drag (PhotoDrag).
+    forceHidden: () -> Boolean = { false },
+    onTouch: () -> Unit,
+): ChromeVisibility {
+    val latestForce by rememberUpdatedState(forceHidden)
     val held = rememberDrawingUiHidden { gate.strokeActive || touch.down }
     val latestOnTouch by rememberUpdatedState(onTouch)
     LaunchedEffect(touch) {
@@ -97,7 +108,7 @@ internal fun rememberChromeVisibility(touch: CanvasTouch, gate: StrokeGate, onTo
     LaunchedEffect(gate) {
         snapshotFlow { gate.strokeActive }.filter { it }.collect { latestOnTouch() }
     }
-    return remember(touch, gate, held) { ChromeVisibility(touch, gate, held) }
+    return remember(touch, gate, held) { ChromeVisibility(touch, gate, held) { latestForce() } }
 }
 
 /** Composes [content] only while the chrome is shown. Gone, not faded: nothing to touch by accident. */

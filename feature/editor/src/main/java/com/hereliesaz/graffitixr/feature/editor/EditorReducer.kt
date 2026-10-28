@@ -40,6 +40,7 @@ internal object EditorReducer {
         return reduceLayerProperties(state, intent)
             ?: reduceLayerTransforms(state, intent)
             ?: reduceLayerList(state, intent)
+            ?: reducePhotoLayers(state, intent)
             ?: reduceEditorSettings(state, intent)
             ?: reduceBrushSettings(state, intent)
             ?: reduceComponents(state, intent)
@@ -545,5 +546,26 @@ internal object EditorReducer {
     private fun EditorUiState.mapActive(transform: (Layer) -> Layer): EditorUiState {
         val id = activeLayerId ?: return this
         return copy(layers = LayerListOps.mapLayer(layers, id, transform))
+    }
+
+    /** Photo adjustment layers: their creation, settings, renders and hold-to-compare. */
+    private fun reducePhotoLayers(state: EditorUiState, intent: EditorIntent): EditorUiState? = when (intent) {
+        is EditorIntent.InsertLayerAbove -> state.copy(
+            layers = LayerListOps.insertAbove(state.layers, intent.layer, intent.aboveId),
+            activeLayerId = intent.layer.id,
+            activeTool = Tool.NONE,
+        )
+        is EditorIntent.SetLayerAdjustment -> state.copy(
+            layers = state.layers.map {
+                if (it.id == intent.id && it.adjustment != null) it.copy(adjustment = intent.adjustment) else it
+            },
+        )
+        is EditorIntent.SetAdjustmentRender -> state.copy(
+            layers = state.layers.map {
+                if (it.id == intent.id && it.adjustment != null) it.copy(bitmap = intent.bitmap) else it
+            },
+        )
+        is EditorIntent.SetPhotoCompare -> state.copy(photoCompare = intent.comparing)
+        else -> null
     }
 }

@@ -9,6 +9,12 @@ import com.hereliesaz.graffitixr.common.serialization.UriSerializer
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
+/** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
+const val CURRENT_FORMAT_VERSION = 2
+
+/** What a project.json without a `formatVersion` key is. */
+const val LEGACY_FORMAT_VERSION = 1
+
 /**
  * Grouping of legacy editor fields to reduce top-level field count in GraffitiProject.
  */
@@ -38,6 +44,13 @@ data class LegacyVisuals(
  */
 @Serializable
 data class GraffitiProject(
+    /**
+     * The project.json format: [CURRENT_FORMAT_VERSION] for every project this build writes. A
+     * file without the key is version 1 (before photo adjustment layers); `ProjectManager` reads
+     * the key before decoding and migrates (see its `migrateFormat`). Each bump lists what changed:
+     * - 2: `OverlayLayer.adjustment`, photo adjustment layers. Nothing in a version 1 file changes.
+     */
+    val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),
     val name: String = "Untitled",
     val created: Long = System.currentTimeMillis(),

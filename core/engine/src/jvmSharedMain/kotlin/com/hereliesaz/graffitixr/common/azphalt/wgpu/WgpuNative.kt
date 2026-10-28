@@ -91,6 +91,15 @@ internal object WgpuNative {
     @JvmStatic external fun nativeFlush(handle: Long): Boolean
     @JvmStatic external fun nativeMultipassStats(handle: Long): DoubleArray?
     @JvmStatic external fun nativeAdapterDescription(handle: Long): String
+
+    // Photo adjustment layers (core/wgpu-engine/src/adjust.rs): handles of their own.
+    @JvmStatic external fun nativeAdjustCreate(width: Int, height: Int, backend: Int): Long
+    @JvmStatic external fun nativeAdjustDestroy(handle: Long)
+    @JvmStatic external fun nativeAdjustSetSource(handle: Long, rgba: ByteArray): Boolean
+    @JvmStatic external fun nativeAdjustSetMask(handle: Long, alpha: ByteArray): Boolean
+    @JvmStatic external fun nativeAdjustSetCurves(handle: Long, table: FloatArray): Boolean
+    @JvmStatic external fun nativeAdjustRender(handle: Long, params: FloatArray, out: ByteArray): Boolean
+    @JvmStatic external fun nativeAdjustLastNanos(handle: Long): Long
 }
 
 /**
