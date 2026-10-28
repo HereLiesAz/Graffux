@@ -72,6 +72,7 @@ internal fun toolGroupCarouselEntries(
                         SelectionShape.AUTOMATIC -> GraffuxIcons.SelectWand
                     }, description = "Selection shape"))
             }
+            command("sel.subject", "Subject", GraffuxIcons.SelectSubject, "Select the subject of this layer")
             command("tool.quick", "Quick", GraffuxIcons.SelectQuick, "Open selection quick menu")
             command("tool.selectInvert", "Invert", GraffuxIcons.SelectInvert, "Invert the selection",
                 s.selection?.inverted == true)
@@ -134,6 +135,7 @@ internal fun executeToolGroupCommand(
             .firstOrNull { it.name == id.removePrefix("transform.") }?.let(vm::onSetTransformMode)
         id.startsWith("selectShape.") -> SelectionShape.entries
             .firstOrNull { it.name == id.removePrefix("selectShape.") }?.let(vm::onSetSelectionShape)
+        id == "sel.subject" -> vm.onSelectSubject()
         id == "tool.quick" -> vm.onOpenQuickMenu(screenCenter)
         id == "tool.selectInvert" -> vm.onInvertSelection()
         id == "tool.deselect" -> vm.onClearSelection()

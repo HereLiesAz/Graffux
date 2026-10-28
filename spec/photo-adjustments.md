@@ -204,8 +204,9 @@ revision it uses, so undo and redo simply move between revisions. 12 revisions a
 - Brush adds and Erase removes, both with a soft disc (`MaskPaint.dab`, Flow builds up across
   passes). A layer's first Brush stroke starts from an empty mask, so the effect is only where it is
   painted. A first Erase starts from a full mask.
-- From selection rasterises the lasso selection (`SelectionMask`, with its feather). Invert flips a
-  flag; no pixels change. Reset turns the mask off.
+- From selection rasterises the lasso selection (`SelectionMask`, with its feather), including a
+  Subject selection (the selection carousel's Subject, ML Kit subject isolation of the selected
+  layer). Invert flips a flag; no pixels change. Reset turns the mask off.
 - The overlay draws the mask in white over the photo. The layer's tile gets a badge: a real
   thumbnail of the mask at its bottom-left.
 - The GPU multiplies by the mask (`set_mask` is uploaded once per change of revision or stroke
