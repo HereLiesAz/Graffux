@@ -37,6 +37,8 @@ consumes the same modules for its 2D work and adds AR on top.
   `spec/package-format.md`).
 - **Artboard** — a fixed document size (social / print / custom presets) with a visible frame.
 - **Export & share** — save the composite to the gallery, or hand it to another app (e.g. GraffitiXR).
+  Poster PDF tiles the artwork (after the document crop) at real size across Letter, A4, A3 or
+  Legal pages, with margins, overlap, crop and registration marks and row/column labels.
 
 The UI is driven by [AzNavRail](https://github.com/HereLiesAz/AzNavRail) — the rail hosts the design
 tools; the canvas is its full-screen background. See `ARCHITECTURE.md` for module boundaries,
