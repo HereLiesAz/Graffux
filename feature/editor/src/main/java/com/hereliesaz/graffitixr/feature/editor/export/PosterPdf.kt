@@ -8,6 +8,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import java.io.OutputStream
+import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -69,18 +70,26 @@ object PosterPdf {
 
     /** One page onto [canvas], whose units are points from the paper's top-left. */
     fun drawPage(canvas: Canvas, art: Bitmap, plan: PosterPlan, spec: PosterSpec, tile: PosterTile) {
+        // One transform for the whole poster (k pixels per point), so a pixel lands on the same
+        // poster point on every page that shows it and the overlaps line up when assembled. Each
+        // page draws only the pixels covering its tile, at their exact offset, clipped to the tile.
         val k = art.width / plan.posterWidthPt
-        val src = Rect(
-            floor(tile.source.x * k).toInt().coerceIn(0, art.width - 1),
-            floor(tile.source.y * k).toInt().coerceIn(0, art.height - 1),
-            (tile.source.right * k).roundToInt().coerceIn(1, art.width),
-            (tile.source.bottom * k).roundToInt().coerceIn(1, art.height),
-        )
         val t = tile.target
-        val dst = RectF(t.x, t.y, t.right, t.bottom)
-        if (src.width() > 0 && src.height() > 0) {
-            canvas.drawBitmap(art, src, dst, Paint(Paint.FILTER_BITMAP_FLAG))
-        }
+        val x0 = floor(tile.source.x * k).toInt().coerceIn(0, art.width - 1)
+        val y0 = floor(tile.source.y * k).toInt().coerceIn(0, art.height - 1)
+        val x1 = ceil(tile.source.right * k).toInt().coerceIn(x0 + 1, art.width)
+        val y1 = ceil(tile.source.bottom * k).toInt().coerceIn(y0 + 1, art.height)
+        val left = t.x + (x0 / k - tile.source.x)
+        val top = t.y + (y0 / k - tile.source.y)
+        canvas.save()
+        canvas.clipRect(t.x, t.y, t.right, t.bottom)
+        canvas.drawBitmap(
+            art,
+            Rect(x0, y0, x1, y1),
+            RectF(left, top, left + (x1 - x0) / k, top + (y1 - y0) / k),
+            Paint(Paint.FILTER_BITMAP_FLAG),
+        )
+        canvas.restore()
         val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             strokeWidth = MARK_STROKE

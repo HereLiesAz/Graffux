@@ -55,6 +55,28 @@ class PosterPdfTest {
     }
 
     @Test
+    fun `a pixel in an overlap lands on the same poster point on both pages`() {
+        // A 1 px black line at x = 92 of 300 on white. At 1728 pt wide, a pixel is 5.76 pt: the line
+        // covers poster x 529.9..535.7. Page 1 shows it at 36 + that = 565.9..571.7; page 2 starts
+        // at poster 522, so 43.9..49.7. The same place on the poster, on both pages.
+        val plan = PosterLayout.plan(spec, 300, 400)
+        val line = Bitmap.createBitmap(300, 400, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+            for (y in 0 until 400) setPixel(92, y, Color.BLACK)
+        }
+        fun draw(i: Int) = Bitmap.createBitmap(612, 792, Bitmap.Config.ARGB_8888).also {
+            it.eraseColor(Color.WHITE)
+            PosterPdf.drawPage(Canvas(it), line, plan, spec, plan.tiles[i])
+        }
+        fun ink(b: Bitmap, x: Int) = Color.red(b.getPixel(x, 300)) < 128
+        val first = draw(0)
+        val second = draw(1)
+        assertTrue(ink(first, 568) && ink(second, 46))
+        assertTrue(!ink(first, 562) && !ink(second, 40))
+        assertTrue(!ink(first, 575) && !ink(second, 53))
+    }
+
+    @Test
     fun `crop marks sit off the corners and registration marks mid-edge`() {
         val p = page(0)
         System.getenv("POSTER_SCREENSHOTS")?.let { dir ->
