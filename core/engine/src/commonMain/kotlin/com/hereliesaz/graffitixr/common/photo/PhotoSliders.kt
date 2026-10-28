@@ -119,6 +119,16 @@ object PhotoSliders {
     val GRAIN = PhotoSlider("grain", "Grain amount", 0f, 100f, format = SliderFormat.PLAIN)
     val GRAIN_SIZE = PhotoSlider("grain.size", "Grain size", 0f, 100f, 25f, SliderFormat.PLAIN)
 
+    /** Canny edge outline: how dark the lines are, the weakest edge drawn, how far the photo fades to paper. */
+    val OUTLINE = PhotoSlider("outline", "Outline amount", 0f, 100f, format = SliderFormat.PLAIN)
+    val OUTLINE_THRESHOLD = PhotoSlider("outline.threshold", "Threshold", 1f, 100f, 20f, SliderFormat.PLAIN)
+    val OUTLINE_PAPER = PhotoSlider("outline.paper", "Paper", 0f, 100f, 0f, SliderFormat.PLAIN)
+
+    /** Pencil sketch: blend, blur radius (fine to broad), and how dark the strokes get. */
+    val SKETCH = PhotoSlider("sketch", "Sketch amount", 0f, 100f, format = SliderFormat.PLAIN)
+    val SKETCH_SOFTNESS = PhotoSlider("sketch.softness", "Softness", 0f, 100f, 30f, SliderFormat.PLAIN)
+    val SKETCH_DARKNESS = PhotoSlider("sketch.darkness", "Darkness", 0f, 100f, 20f, SliderFormat.PLAIN)
+
     val LEVELS_BLACK = PhotoSlider("levels.black", "Black point", 0f, 254f, 0f, SliderFormat.PLAIN)
     val LEVELS_MID = PhotoSlider("levels.mid", "Midpoint", 0.1f, 9.99f, 1f, SliderFormat.GAMMA)
     val LEVELS_WHITE = PhotoSlider("levels.white", "White point", 1f, 255f, 255f, SliderFormat.PLAIN)
@@ -140,7 +150,10 @@ object PhotoSliders {
         PhotoTool.HSL -> HueRange.entries.flatMap { r -> (0..2).map { hsl(r, it) } }
         PhotoTool.CURVES -> listOf(LEVELS_BLACK, LEVELS_MID, LEVELS_WHITE)
         PhotoTool.DETAIL -> listOf(CLARITY, TEXTURE, DEHAZE, NOISE_REDUCTION, SHARPEN)
-        PhotoTool.EFFECTS -> listOf(VIGNETTE, VIGNETTE_MIDPOINT, VIGNETTE_FEATHER, GRAIN, GRAIN_SIZE)
+        PhotoTool.EFFECTS -> listOf(
+            VIGNETTE, VIGNETTE_MIDPOINT, VIGNETTE_FEATHER, GRAIN, GRAIN_SIZE,
+            OUTLINE, OUTLINE_THRESHOLD, OUTLINE_PAPER, SKETCH, SKETCH_SOFTNESS, SKETCH_DARKNESS,
+        )
         PhotoTool.HEAL, PhotoTool.RED_EYE -> emptyList()
     }
 

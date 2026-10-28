@@ -45,7 +45,7 @@ class WgpuPhotoAdjuster private constructor(
     }
 
     companion object {
-        const val PARAM_FLOATS = 56
+        const val PARAM_FLOATS = 64
         const val CURVE_FLOATS = 1024
 
         /** Null when the library is missing or there is no adapter with compute shaders. */
