@@ -86,6 +86,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -8732,42 +8733,137 @@ class EditorViewModel @Inject constructor(
             ).firstOrNull() ?: return@launch
             val mask = MagicWand.mask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance)
                 ?: return@launch
-            val traced = ContourTrace.contours(mask, bitmap.width, bitmap.height)
-            if (traced.isEmpty()) return@launch
-            val rings = traced.map { ring ->
-                ring.copy(
-                    path = SelectionGeometry.simplify(
-                        ImageProcessor.mapBitmapToScreen(
-                            ring.path, canvasSize.width, canvasSize.height,
-                            layer.frame(bitmap.width, bitmap.height), layer.scale, layer.offset, layer.rotationZ,
-                        ),
-                        // Gentler than a traced lasso's thinning. The wand's vertices are already
-                        // only the turns, so anything aggressive here rounds off the corners that
-                        // are the whole reason the region was traced rather than boxed.
-                        minSpacing = 1.5f,
+            val wand = traceSelection(mask, bitmap.width, bitmap.height, 1f, layer, bitmap, canvasSize)
+                ?: return@launch
+            withContext(dispatchers.main) { dispatch(EditorIntent.SetSelection(composeTraced(wand, op, current))) }
+        }
+    }
+
+    /**
+     * A pixel [mask] of [layer]'s [bitmap] (traced at [mw]×[mh], which is the bitmap scaled by
+     * [scale]) as a screen-space selection, or null when nothing usable was traced.
+     */
+    @Suppress("LongParameterList")
+    private fun traceSelection(
+        mask: BooleanArray,
+        mw: Int,
+        mh: Int,
+        scale: Float,
+        layer: Layer,
+        bitmap: Bitmap,
+        canvasSize: IntSize,
+    ): Selection? {
+        val traced = ContourTrace.contours(mask, mw, mh)
+        if (traced.isEmpty()) return null
+        val rings = traced.map { ring ->
+            val inBitmap = if (scale == 1f) ring.path else ring.path.map { it / scale }
+            ring.copy(
+                path = SelectionGeometry.simplify(
+                    ImageProcessor.mapBitmapToScreen(
+                        inBitmap, canvasSize.width, canvasSize.height,
+                        layer.frame(bitmap.width, bitmap.height), layer.scale, layer.offset, layer.rotationZ,
                     ),
+                    // Gentler than a traced lasso's thinning. The wand's vertices are already
+                    // only the turns, so anything aggressive here rounds off the corners that
+                    // are the whole reason the region was traced rather than boxed.
+                    minSpacing = 1.5f,
+                ),
+            )
+        }.filter { it.isUsable }
+        return Selection(rings, canvasSize).takeIf { it.isUsable }
+    }
+
+    /**
+     * Composed through the same path a drawn region takes, so Add and Remove work on a traced
+     * selection exactly as they do on a lasso -- including wand-then-lasso mixes. No `?: traced`
+     * fallback: compose() returning null (Remove with nothing selected) must stay a no-op, per its
+     * own documented contract -- a fallback here used to substitute the whole freshly-traced region
+     * instead, silently turning a Remove-from-nothing into a de facto New.
+     */
+    private fun composeTraced(traced: Selection, op: SelectionOp, current: Selection?): Selection? =
+        if (op == SelectionOp.NEW) {
+            traced
+        } else {
+            traced.rings.fold(current) { acc, ring ->
+                SelectionGeometry.compose(
+                    acc, ring.path, traced.canvasSize,
+                    // A traced hole stays a hole whatever the user picked: Add means "add this
+                    // region", and the region includes its holes.
+                    if (ring.additive) op else SelectionOp.REMOVE,
                 )
-            }.filter { it.isUsable }
-            val wand = Selection(rings, canvasSize).takeIf { it.isUsable } ?: return@launch
-            withContext(dispatchers.main) {
-                // Composed through the same path a drawn region takes, so Add and Remove work on a
-                // wand selection exactly as they do on a lasso — including wand-then-lasso mixes.
-                // No `?: wand` fallback: compose() returning null (Remove with nothing selected)
-                // must stay a no-op, per its own documented contract -- a fallback here used to
-                // substitute the whole freshly-traced wand region instead, silently turning a
-                // Remove-from-nothing into a de facto New.
-                dispatch(EditorIntent.SetSelection(
-                    if (op == SelectionOp.NEW) wand
-                    else wand.rings.fold(current) { acc, ring ->
-                        SelectionGeometry.compose(
-                            acc, ring.path, canvasSize,
-                            // A traced hole stays a hole whatever the user picked: Add means "add
-                            // this region", and the region includes its holes.
-                            if (ring.additive) op else SelectionOp.REMOVE,
-                        )
-                    }
-                ))
             }
+        }
+
+    /**
+     * Subject isolation: ML Kit finds the subject of the active layer and it becomes the selection
+     * (New, Add or Remove, as the wand does), so Fill, Copy, Cut, Save and the photo tools' Local
+     * mask "From selection" all work on it. Runs off the main thread under the busy spinner; on
+     * the device, offline.
+     */
+    fun onSelectSubject() {
+        val state = _uiState.value
+        val layer = state.layers.find { it.id == state.activeLayerId }
+        val bitmap = layer?.bitmap ?: run {
+            notify("Subject needs a paint or photo layer", NoticeKind.NOTICE)
+            return
+        }
+        val canvasSize = state.canvasSize
+        if (canvasSize.width <= 0 || canvasSize.height <= 0) return
+        val op = state.selectionOp
+        val current = state.selection
+        subjectJob?.cancel()
+        subjectJob = viewModelScope.launch(dispatchers.default) {
+            withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(true)) }
+            val subject = try {
+                isolateSubject(layer, bitmap, canvasSize)
+            } finally {
+                withContext(NonCancellable + dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+            }
+            withContext(dispatchers.main) {
+                when (subject) {
+                    SubjectResult.Unavailable -> notify(
+                        "Subject isolation isn't available on this device yet", NoticeKind.WARNING,
+                    )
+                    SubjectResult.Nothing -> notify("No subject found on this layer", NoticeKind.NOTICE)
+                    is SubjectResult.Found ->
+                        dispatch(EditorIntent.SetSelection(composeTraced(subject.selection, op, current)))
+                }
+            }
+        }
+    }
+
+    private var subjectJob: Job? = null
+
+    /** The segmenter [onSelectSubject] uses; tests put a fake here. */
+    internal var subjectSegmenter: SubjectSegmenter = MlKitSubjectSegmenter()
+
+    private sealed interface SubjectResult {
+        data object Unavailable : SubjectResult
+        data object Nothing : SubjectResult
+        data class Found(val selection: Selection) : SubjectResult
+    }
+
+    private suspend fun isolateSubject(layer: Layer, bitmap: Bitmap, canvasSize: IntSize): SubjectResult {
+        val scale = SubjectMask.scaleFor(bitmap.width, bitmap.height)
+        val input = if (scale == 1f) {
+            bitmap
+        } else {
+            val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, w, h, true)
+        }
+        try {
+            val confidence = subjectSegmenter.segment(input) ?: return SubjectResult.Unavailable
+            val mask = SubjectMask.threshold(confidence)
+            val traced = if (mask.any { it }) {
+                val traceScale = input.width.toFloat() / bitmap.width
+                traceSelection(mask, input.width, input.height, traceScale, layer, bitmap, canvasSize)
+            } else {
+                null
+            }
+            return traced?.let { SubjectResult.Found(it) } ?: SubjectResult.Nothing
+        } finally {
+            if (input !== bitmap) input.recycle()
         }
     }
 

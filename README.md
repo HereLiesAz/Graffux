@@ -19,7 +19,8 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Paint** — brush and eraser with size + hardness, colour, node-edited vector paths (Pen), Heal,
   Clone, Blur, Sharpen, Smudge, Liquify (native GLES warper), Dodge, Burn, Colorize, plus
   wraparound painting mode. Brush Studio for building custom brushes.
-- **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, add/remove/replace,
+- **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, Subject (ML Kit
+  subject isolation, on the device and offline), add/remove/replace,
   save named selections, colour-fill/copy/cut/paste within a selection.
 - **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.
 - **Text** — parametric text layers with Google Fonts.

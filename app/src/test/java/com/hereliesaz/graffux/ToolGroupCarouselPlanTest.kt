@@ -28,6 +28,7 @@ class ToolGroupCarouselPlanTest {
         assertTrue(entries.any { it.key == "selectShape.ELLIPSE" && it.selected })
         assertTrue(entries.none { it.key.startsWith("selectOp.") })
         assertTrue(entries.any { it.key == "tool.quick" })
+        assertTrue(entries.any { it.key == "sel.subject" && it.label == "Subject" })
         assertTrue(entries.any { it.key == "tool.deselect" })
         assertEquals(entries.map { it.key }.size, entries.map { it.key }.distinct().size)
     }

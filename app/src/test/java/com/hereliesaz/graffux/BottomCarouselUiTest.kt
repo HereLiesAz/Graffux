@@ -74,6 +74,61 @@ class BottomCarouselUiTest {
     )
 
     @Test
+    fun `the selection page offers Subject beside the wand, one tap to run`() {
+        val clicks = mutableListOf<String>()
+        val state = com.hereliesaz.graffitixr.common.model.EditorUiState(
+            activeTool = Tool.SELECT, selectionShape = SelectionShape.AUTOMATIC,
+        )
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                val ui = remember { CarouselUi(CarouselCategory.SELECTION, sheetOpen = true) }
+                Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F)), contentAlignment = Alignment.BottomCenter) {
+                    CarouselSheet(open = ui.sheetOpen, onOpenChange = {}) {
+                        BottomCarousel(
+                            ui = ui,
+                            onUiChange = {},
+                            content = CarouselContent(
+                                entries = carouselEntries(
+                                    ui.category,
+                                    inputs(emptyList()).copy(
+                                        activeTool = Tool.SELECT,
+                                        selectionShape = SelectionShape.AUTOMATIC,
+                                        groupEntries = toolGroupCarouselEntries(CarouselCategory.SELECTION, state),
+                                    ),
+                                ),
+                                brushColor = Color.White,
+                                secondaryColor = Color.Red,
+                                extensionPreviews = emptyMap(),
+                            ),
+                            onEntryClick = { clicks += it.key },
+                            onToggleFavorite = {},
+                        )
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        // Walk the hero along the row, as a finger would, until Subject is on screen.
+        for (label in listOf("Freehand", "Ellipse", "Automatic")) {
+            if (rule.onAllNodesWithText("Subject").fetchSemanticsNodes().isNotEmpty()) break
+            rule.onAllNodesWithText(label)[0].performClick()
+            rule.waitForIdle()
+        }
+        // A side card's tap centres it (see the side-card test); a tap on the hero runs it.
+        rule.onAllNodesWithText("Subject")[0].performClick()
+        rule.waitForIdle()
+        System.getenv("SUBJECT_SCREENSHOT")?.let { path ->
+            val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
+            File(path).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
+        if ("sel.subject" !in clicks) {
+            rule.onAllNodesWithText("Subject")[0].performClick()
+            rule.waitForIdle()
+        }
+        assertTrue(clicks.contains("sel.subject"))
+    }
+
+    @Test
     fun `one hero card, centred on the selection, and the star toggles without selecting`() {
         val clicks = mutableListOf<String>()
         var favorites by mutableStateOf(emptyList<String>())
