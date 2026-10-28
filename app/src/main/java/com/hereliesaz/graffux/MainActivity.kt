@@ -404,6 +404,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val designActions = remember(vm) { vm.designActions() }
     val designLibraryActions = remember(vm) { vm.designLibraryActions() }
     val designLibrary = if (designMode) designLibraryOf(uiState) else DesignLibrary()
+    val designExportActions = remember(vm) { vm.designExportActions() }
+    val designExport = if (designMode) {
+        DesignExportContext(
+            targetName = vm.designExportFrameId()
+                ?.let { id -> uiState.layers.firstOrNull { it.id == id }?.name } ?: "The page",
+            hasFrames = uiState.layers.any { it.type == com.hereliesaz.graffitixr.common.model.LayerType.FRAME },
+            actions = designExportActions,
+        )
+    } else {
+        null
+    }
     val designTarget = if (designMode) designTargetIn(uiState) { vm.designBox(it) } else null
     // Picking up the Frame tool opens the sheet on the design tab (unless the side panel has them).
     LaunchedEffect(designMode, panelDocked) {
@@ -968,6 +979,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             actions = designActions,
                             library = designLibrary,
                             libraryActions = designLibraryActions,
+                            export = designExport,
                             onSelectTab = { tab ->
                                 designTab = tab
                                 carouselUi = carouselUi.copy(showingCarousel = true)
@@ -1261,6 +1273,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onPlacement = { settingsVm.setPropertiesPlacement(it.key) },
                         library = designLibrary,
                         libraryActions = designLibraryActions,
+                        export = designExport,
                         logoClearance = if (uiState.isRightHanded) 64.dp else 16.dp,
                         modifier = Modifier.align(layerCorner).fillMaxHeight(),
                     )

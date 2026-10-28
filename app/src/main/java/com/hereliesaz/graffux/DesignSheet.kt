@@ -55,6 +55,7 @@ internal enum class DesignTab(val label: String, val section: String) {
     STROKE("Stroke", "STYLE"),
     TEXT("Text", "STYLE"),
     COMPONENTS("Components", "COMPONENT"),
+    EXPORT("Export", "HANDOFF"),
     ;
 
     val key: String get() = "design.${name.lowercase()}"
@@ -166,6 +167,7 @@ internal fun DesignSheetBody(
     modifier: Modifier = Modifier,
     library: DesignLibrary = DesignLibrary(),
     libraryActions: DesignLibraryActions? = null,
+    export: DesignExportContext? = null,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (showingControls && tab != null) {
@@ -188,7 +190,9 @@ internal fun DesignSheetBody(
                 Spacer(Modifier.height(4.dp))
                 Box(Modifier.fillMaxWidth().height(SheetBodyHeight).fadeBottom()) {
                     Column(Modifier.verticalScroll(rememberScrollState())) {
-                        if (target == null) {
+                        if (tab == DesignTab.EXPORT && export != null) {
+                            ExportSection(export.targetName, export.hasFrames, export.actions, DesignDensity.SHEET)
+                        } else if (target == null) {
                             DesignEmpty()
                         } else {
                             val links = target.links
@@ -209,6 +213,7 @@ internal fun DesignSheetBody(
                                 tab == DesignTab.STROKE -> ColorStylesSection(true, links, library, libraryActions, DesignDensity.SHEET)
                                 tab == DesignTab.TEXT -> TextStylesSection(links, library, libraryActions, DesignDensity.SHEET)
                                 tab == DesignTab.COMPONENTS -> ComponentsSection(links, library, libraryActions, DesignDensity.SHEET)
+                                else -> Unit
                             }
                         }
                     }
@@ -396,6 +401,7 @@ internal fun PropertiesPanel(
     logoClearance: androidx.compose.ui.unit.Dp = 64.dp,
     library: DesignLibrary = DesignLibrary(),
     libraryActions: DesignLibraryActions? = null,
+    export: DesignExportContext? = null,
 ) {
     Column(
         modifier
@@ -452,6 +458,7 @@ internal fun PropertiesPanel(
                     ComponentsSection(links, library, libraryActions, DesignDensity.PANEL)
                 }
             }
+            if (export != null) ExportSection(export.targetName, export.hasFrames, export.actions, DesignDensity.PANEL)
         }
         PlacementSetting(placement, onPlacement)
     }
@@ -479,3 +486,6 @@ private fun Modifier.drawStartRule(): Modifier = drawBehind {
 private fun Modifier.drawTopRuleFull(): Modifier = drawBehind {
     drawLine(DesignInk.Line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
 }
+
+/** What the Export tab exports: the frame's (or document's) name, whether there are frames, and the call. */
+internal data class DesignExportContext(val targetName: String, val hasFrames: Boolean, val actions: DesignExportActions)

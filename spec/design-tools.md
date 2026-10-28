@@ -1,7 +1,7 @@
 # Design tools (Phase 1: design essentials)
 
 Status: frames, the properties (sheet and side panel), constraints, and the styles and components
-panels are implemented. SVG / PDF export is the last step of this phase.
+panels and SVG / PDF export are implemented: Phase 1 is complete.
 Source of truth for the UI: the approved "Graffux UI Rework" canvas, the "Design tools" row (boards
 DesignFrames, DesignComponent, DesignInspector, DesignInspect, DesignTablet, "Tablet · properties
 side panel", DesignDesktop). Live presence on those boards is out of scope: collaboration is
@@ -96,6 +96,31 @@ pins and the shape's fill and stroke after its fields, as the mockup's Propertie
 - **Text**: the document's text styles for a text layer: apply, update from the layer, delete, new.
 - **Components**: Make component, or for an instance Go to main and Detach, or for a main Release;
   then every main component with its instance count, to select or Place a new instance of.
+
+## Export: PNG, SVG, PDF
+
+The Export tab (HANDOFF) in the sheet and the Export section in the side panel. It exports the
+selected frame (or the frame the selection sits in), else the document's page, as the chosen format,
+into Downloads (PNG to the gallery). A PDF can take every top-level frame, a page each.
+
+One scene walk, two sinks (`feature/editor` `export/`):
+
+- `VectorScene` walks the layer tree in the raster exporter's order with its transforms
+  (`ExportManager.drawNode`, `getLayerScreenMatrix`) into a small display list: groups and frames
+  (with a frame's fill and clip box), shapes as path outlines (rectangles with their radius,
+  ellipses, lines, polygons, pen paths with their curves), and pixel layers as images. A frame's
+  page is exactly its box; the document's page is the artboard at document size.
+- `SvgWriter` writes it as SVG text: `<g>` with `matrix(...)`, a frame's `<clipPath>` and fill
+  `<rect>`, `<path>` per shape, PNG `<image>` per pixel layer, group opacity, and the blend modes CSS
+  has (`mix-blend-mode`).
+- `PdfExport` draws it on Android's `PdfDocument` page canvas, which keeps paths as PDF vectors and
+  bitmaps as images. Group opacity is carried down to each paint; blend modes are not kept.
+- A frame's PNG is `ExportManager.compositeFrame`: the frame's subtree composited on the existing
+  path, cut to its box.
+
+Raster, text and photo adjustment layers go in as images of their current pixels: text is not
+written as live SVG / PDF text (fonts would not travel with the file). The desktop app has no
+layers or frames, so it has no SVG / PDF export to add.
 
 ## Not in this phase
 

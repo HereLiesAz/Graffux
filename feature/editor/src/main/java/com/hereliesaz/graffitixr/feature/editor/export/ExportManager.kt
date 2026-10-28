@@ -107,7 +107,7 @@ class ExportManager @Inject constructor() {
         return result
     }
 
-    private fun drawNodes(canvas: Canvas, nodes: List<LayerNode>, w: Int, h: Int, target: Bitmap?) {
+    internal fun drawNodes(canvas: Canvas, nodes: List<LayerNode>, w: Int, h: Int, target: Bitmap?) {
         for (node in nodes) drawNode(canvas, node, w, h, target)
     }
 
