@@ -13,3 +13,8 @@ in short:
 - `versionName` = `versionMajor.versionMinor.versionPatch.versionBuild` from `version.properties`.
 - Only the default branch publishes or writes version state back; the build never increments
   anything.
+
+<!-- entire-agent:begin -->
+Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
+@.entire/agent-guide.md
+<!-- entire-agent:end -->

@@ -35,3 +35,8 @@ If `$AAR` is empty, resolve dependencies first (for example `./gradlew :app:depe
 run the command again.
 
 If you delegate AzNavRail work to another agent, pass it the guide too.
+
+<!-- entire-agent:begin -->
+Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
+@.entire/agent-guide.md
+<!-- entire-agent:end -->
