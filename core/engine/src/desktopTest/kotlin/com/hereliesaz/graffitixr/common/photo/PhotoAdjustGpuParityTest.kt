@@ -98,4 +98,51 @@ class PhotoAdjustGpuParityTest {
             println("PHOTO_ADJUST_TIMING 1080x2400 median ${times.sorted()[times.size / 2] / 1_000_000.0} ms")
         }
     }
+
+    @Test
+    fun `outline and sketch match the CPU reference`() {
+        val w = 64
+        val h = 48
+        val gpu = adjuster(w, h) ?: return
+        gpu.use {
+            val adj = PhotoAdjustment(PhotoTool.EFFECTS)
+                .with(PhotoSliders.OUTLINE, 90f).with(PhotoSliders.OUTLINE_THRESHOLD, 8f)
+                .with(PhotoSliders.OUTLINE_PAPER, 40f).with(PhotoSliders.SKETCH, 60f)
+                .with(PhotoSliders.SKETCH_DARKNESS, 30f)
+            val params = PhotoAdjustParams.pack(adj)
+            params[16] = w.toFloat()
+            params[17] = h.toFloat()
+            val src = source(w, h)
+            assertTrue(it.setSource(src))
+            val out = ByteArray(w * h * 4)
+            assertTrue(it.render(params, out))
+            val want = ByteArray(w * h * 4)
+            PhotoAdjustMath.render(src, w, h, params, null, null, want)
+            // Lines are all-or-nothing, so a threshold tie can flip a pixel: count, don't max.
+            val wrong = out.indices.count { i -> kotlin.math.abs((out[i].toInt() and 255) - (want[i].toInt() and 255)) > 3 }
+            assertTrue(wrong <= out.size / 200, "$wrong bytes differ")
+        }
+    }
+
+    @Test
+    fun `a phone-sized effects slider move`() {
+        val w = 1080
+        val h = 2400
+        val gpu = adjuster(w, h) ?: return
+        gpu.use {
+            it.setSource(source(w, h))
+            val out = ByteArray(w * h * 4)
+            val times = (0 until 12).map { step ->
+                val adj = PhotoAdjustment(PhotoTool.EFFECTS)
+                    .with(PhotoSliders.OUTLINE, 100f).with(PhotoSliders.OUTLINE_THRESHOLD, 10f + step)
+                    .with(PhotoSliders.SKETCH, 50f + step)
+                assertTrue(it.render(PhotoAdjustParams.pack(adj), out))
+                it.lastRenderNanos
+            }
+            // The first move also builds the blur and edge planes (once per upload).
+            println("PHOTO_EFFECTS_TIMING 1080x2400 first ${times[0] / 1_000_000.0} ms")
+            val moves = times.drop(2)
+            println("PHOTO_EFFECTS_TIMING 1080x2400 median ${moves.sorted()[moves.size / 2] / 1_000_000.0} ms")
+        }
+    }
 }

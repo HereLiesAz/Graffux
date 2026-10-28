@@ -19,14 +19,20 @@ use crate::engine::BackendChoice;
 pub const ADJUST_WGSL: &str = include_str!("shaders/adjust.wgsl");
 pub const ADJUST_BLUR_WGSL: &str = include_str!("shaders/adjust_blur.wgsl");
 
-/// Floats in a parameter block (`Params` in adjust.wgsl): 14 vec4s. The layout is documented
+/// Floats in a parameter block (`Params` in adjust.wgsl): 16 vec4s. The layout is documented
 /// there and in core/engine's `PhotoAdjustParams`, which packs it.
-pub const PARAM_FLOATS: usize = 56;
+pub const PARAM_FLOATS: usize = 64;
 /// Floats in the curves table: master, red, green, blue, 256 entries each.
 pub const CURVE_FLOATS: usize = 1024;
 
 /// Index of "detail on" in the parameter block (detail1.y).
 const DETAIL_ON: usize = 29;
+/// Index of "effects on" (outline or sketch; fx3.z): they read the blurred luma too.
+const EFFECTS_ON: usize = 62;
+/// Where the adjuster tells the shader the small blur radius (detail1.w).
+const SMALL_RADIUS: usize = 31;
+/// Where the adjuster tells the shader whether the edge plane exists (fx3.w).
+const EDGE_PLANE: usize = 63;
 
 pub struct Adjuster {
     device: wgpu::Device,
@@ -45,6 +51,10 @@ pub struct Adjuster {
     blur_pipeline: wgpu::ComputePipeline,
     blur_binds: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     blur_stale: bool,
+    /// Whether `blur` has room for the Outline effect's edge plane (`blur[2n..3n]`). Without it
+    /// the shader computes the same gradients from the small blur plane in the move pass.
+    edge_plane: bool,
+    edge_capacity: bool,
     small_radius: u32,
     large_radius: u32,
     error: Arc<AtomicBool>,
@@ -148,9 +158,14 @@ impl Adjuster {
         let n = width as u64 * height as u64;
         let src = storage(&device, "adjust src", n * 4, false);
         let mask = storage(&device, "adjust mask", n.div_ceil(4) * 4, false);
+        let limits = device.limits();
+        // Three planes when they fit (small, large, edges); the limit check in `with_backends`
+        // only guarantees two.
+        let edge_plane = n * 12 <= limits.max_storage_buffer_binding_size as u64
+            && n * 12 <= limits.max_buffer_size;
         let curves = storage(&device, "adjust curves", CURVE_FLOATS as u64 * 4, false);
         let dst = storage(&device, "adjust dst", n * 4, true);
-        let blur = storage(&device, "adjust blur", n * 8, true);
+        let blur = storage(&device, "adjust blur", if edge_plane { n * 12 } else { n * 8 }, true);
         let work = storage(&device, "adjust blur work", n * 8, false);
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("adjust staging"),
@@ -206,14 +221,18 @@ impl Adjuster {
         let small_radius = (long / 400).clamp(1, 8);
         let large_radius = (long / 40).clamp(4, 64);
         let n32 = n as u32;
-        // (mode, radius, in, out): luma; small h, small v; large h, large v.
-        let passes = [
+        // (mode, radius, in, out): luma; small h, small v; large h, large v; then the Outline
+        // effect's gradients of the small plane, when there is room for them.
+        let mut passes = vec![
             (0u32, 0u32, 0u32, 0u32),
             (1, small_radius, 0, n32),
             (2, small_radius, n32, 0),
             (1, large_radius, 0, n32),
             (2, large_radius, n32, n32),
         ];
+        if edge_plane {
+            passes.push((3, small_radius, 0, 2 * n32));
+        }
         let blur_layout = blur_pipeline.get_bind_group_layout(0);
         let blur_binds = passes
             .iter()
@@ -256,6 +275,8 @@ impl Adjuster {
             blur_pipeline,
             blur_binds,
             blur_stale: true,
+            edge_plane,
+            edge_capacity: edge_plane,
             small_radius,
             large_radius,
             error,
@@ -341,12 +362,14 @@ impl Adjuster {
         block.copy_from_slice(&params[..PARAM_FLOATS]);
         block[16] = self.width as f32;
         block[17] = self.height as f32;
+        block[SMALL_RADIUS] = self.small_radius as f32;
+        block[EDGE_PLANE] = if self.edge_plane { 1.0 } else { 0.0 };
         self.queue.write_buffer(&self.uniform, 0, bytemuck::cast_slice(&block));
         let (gx, gy) = self.groups();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("adjust") });
-        if block[DETAIL_ON] > 0.5 && self.blur_stale {
+        if (block[DETAIL_ON] > 0.5 || block[EFFECTS_ON] > 0.5) && self.blur_stale {
             for (_, group) in &self.blur_binds {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("adjust blur"),
@@ -403,9 +426,22 @@ impl Adjuster {
         self.last_nanos
     }
 
-    /// The blurred luma planes (small, then large), for tests.
+    /// Whether the edge plane is precomputed per upload (see [`Adjuster::read_blur`]).
+    pub fn has_edge_plane(&self) -> bool {
+        self.edge_plane
+    }
+
+    /// Turns the precomputed edge plane off (or back on, where it fits), so tests can check the
+    /// shader's inline gradients against it.
+    pub fn use_edge_plane(&mut self, on: bool) {
+        self.edge_plane = on && self.edge_capacity;
+    }
+
+    /// The blurred luma planes (small, then large, then the edge plane when there is one), for
+    /// tests.
     pub fn read_blur(&mut self) -> Option<Vec<f32>> {
-        let bytes = (self.pixels() * 8) as u64;
+        let planes = if self.edge_capacity { 12 } else { 8 };
+        let bytes = (self.pixels() * planes) as u64;
         let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("adjust blur readback"),
             size: bytes,

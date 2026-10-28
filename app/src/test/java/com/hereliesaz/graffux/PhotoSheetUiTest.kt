@@ -40,6 +40,7 @@ import com.hereliesaz.graffitixr.common.photo.PhotoAdjustment
 import com.hereliesaz.graffitixr.common.photo.PhotoSlider
 import com.hereliesaz.graffitixr.common.photo.PhotoSliders
 import com.hereliesaz.graffitixr.common.photo.PhotoTool
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -351,6 +352,24 @@ class PhotoSheetUiTest {
         rule.waitForIdle()
         rule.onNodeWithTag("photo.value.vignette.mid").assertTextEquals("50")
         rule.onNodeWithTag("photo.value.grain").assertTextEquals("0")
+    }
+
+    @Test
+    fun `Effects lists the outline and sketch sliders after grain`() {
+        tab = PhotoTab.EFFECTS
+        showing = true
+        adjustment = adjusted(
+            PhotoTool.EFFECTS, PhotoSliders.OUTLINE to 80f, PhotoSliders.OUTLINE_PAPER to 60f, PhotoSliders.SKETCH to 40f,
+        )
+        compose("PhotoEffects")
+        save("app-PhotoEffectsOutline")
+        rule.onNodeWithTag("photo.value.outline").performScrollTo().assertTextEquals("80")
+        rule.onNodeWithTag("photo.value.outline.threshold").performScrollTo().assertTextEquals("20")
+        rule.onNodeWithTag("photo.value.outline.paper").performScrollTo().assertTextEquals("60")
+        rule.onNodeWithTag("photo.value.sketch").performScrollTo().assertTextEquals("40")
+        rule.onNodeWithTag("photo.value.sketch.softness").performScrollTo().assertTextEquals("30")
+        rule.onNodeWithTag("photo.value.sketch.darkness").performScrollTo().assertTextEquals("20")
+        save("app-PhotoEffectsSketch")
     }
 
     @Test

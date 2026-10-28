@@ -15,12 +15,16 @@ import kotlin.math.pow
  * 13 levels gamma · 14 levels white (0..1) · 15 curves on · 16–17 width, height (the GPU fills them) ·
  * 18 dehaze · 19 grain seed · 20 vignette amount · 21 midpoint · 22 feather · 23 grain amount ·
  * 24 grain size (px) · 25 clarity · 26 texture · 27 sharpen · 28 noise reduction · 29 detail on ·
- * 30 mask inverted · 31 unused · 32–55 HSL, three per range (hue, saturation, luminance, −1..1).
+ * 30 mask inverted · 31 small blur radius (the GPU fills it) · 32–55 HSL, three per range (hue,
+ * saturation, luminance, −1..1) · 56 outline amount · 57 outline threshold · 58 outline paper ·
+ * 59 sketch amount · 60 sketch softness · 61 sketch darkness (56–61 each 0..1) · 62 effects on ·
+ * 63 edge plane present (the GPU fills it).
  */
 object PhotoAdjustParams {
-    const val FLOATS = 56
+    const val FLOATS = 64
     const val CURVE_FLOATS = 1024
     const val DETAIL_ON = 29
+    const val EFFECTS_ON = 62
 
     fun pack(adjustment: PhotoAdjustment, grainSeed: Int = 0, maskOn: Boolean = adjustment.mask.enabled): FloatArray {
         val a = adjustment
@@ -56,6 +60,13 @@ object PhotoAdjustParams {
         p[28] = v(PhotoSliders.NOISE_REDUCTION) / 100f
         p[DETAIL_ON] = if (p[25] != 0f || p[26] != 0f || p[27] != 0f || p[28] != 0f) 1f else 0f
         p[30] = if (a.mask.inverted) 1f else 0f
+        p[56] = v(PhotoSliders.OUTLINE) / 100f
+        p[57] = v(PhotoSliders.OUTLINE_THRESHOLD) / 100f
+        p[58] = v(PhotoSliders.OUTLINE_PAPER) / 100f
+        p[59] = v(PhotoSliders.SKETCH) / 100f
+        p[60] = v(PhotoSliders.SKETCH_SOFTNESS) / 100f
+        p[61] = v(PhotoSliders.SKETCH_DARKNESS) / 100f
+        p[EFFECTS_ON] = if (p[56] > 0f || p[59] > 0f) 1f else 0f
         HueRange.entries.forEachIndexed { r, range ->
             for (c in 0..2) p[32 + r * 3 + c] = v(PhotoSliders.hsl(range, c)) / 100f
         }

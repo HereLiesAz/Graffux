@@ -20,10 +20,14 @@ struct Params {
     fx: vec4<f32>,
     // [grain size, clarity, texture, sharpen]
     detail0: vec4<f32>,
-    // [noise reduction, detail on (0/1), invert mask (0/1), unused]
+    // [noise reduction, detail on (0/1), invert mask (0/1), small blur radius (the adjuster fills it)]
     detail1: vec4<f32>,
     // HSL: eight ranges x (hue shift, saturation, luminance), two ranges per pair of vec4s.
     hsl: array<vec4<f32>, 6>,
+    // [outline amount, outline threshold, outline paper, sketch amount], each 0..1
+    fx2: vec4<f32>,
+    // [sketch softness, sketch darkness, effects on (0/1), edge plane present (the adjuster fills it)]
+    fx3: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> p: Params;
@@ -178,6 +182,87 @@ fn hash(x: u32) -> u32 {
     return (w >> 22u) ^ w;
 }
 
+fn small_at(x: i32, y: i32, w: u32, h: u32) -> f32 {
+    let cx = clamp(x, 0, i32(w) - 1);
+    let cy = clamp(y, 0, i32(h) - 1);
+    return blur[u32(cy) * w + u32(cx)];
+}
+
+// adjust_blur.wgsl's `edge_code`, for an adapter with no room for the edge plane.
+fn edge_inline(x: i32, y: i32, w: u32, h: u32) -> f32 {
+    let a = small_at(x - 1, y - 1, w, h);
+    let bb = small_at(x, y - 1, w, h);
+    let c = small_at(x + 1, y - 1, w, h);
+    let d = small_at(x - 1, y, w, h);
+    let f = small_at(x + 1, y, w, h);
+    let g = small_at(x - 1, y + 1, w, h);
+    let hh = small_at(x, y + 1, w, h);
+    let k = small_at(x + 1, y + 1, w, h);
+    let gx = (c + 2.0 * f + k) - (a + 2.0 * d + g);
+    let gy = (g + 2.0 * hh + k) - (a + 2.0 * bb + c);
+    let mag = min(sqrt(gx * gx + gy * gy) * (2.0 * p.detail1.w + 1.0) / 8.0, 0.999);
+    let ax = abs(gx);
+    let ay = abs(gy);
+    var dir = 0.0;
+    if (ay <= ax * 0.41421356) {
+        dir = 0.0;
+    } else if (ax <= ay * 0.41421356) {
+        dir = 2.0;
+    } else if ((gx > 0.0) == (gy > 0.0)) {
+        dir = 1.0;
+    } else {
+        dir = 3.0;
+    }
+    return dir + mag;
+}
+
+fn edge_at(x: i32, y: i32, w: u32, h: u32) -> f32 {
+    if (p.fx3.w > 0.5) {
+        let cx = clamp(x, 0, i32(w) - 1);
+        let cy = clamp(y, 0, i32(h) - 1);
+        return blur[2u * w * h + u32(cy) * w + u32(cx)];
+    }
+    return edge_inline(x, y, w, h);
+}
+
+// Canny: the gradient (precomputed per upload) thinned by non-maximum suppression along its
+// direction, then a double threshold with one step of hysteresis (a weak edge survives when a
+// neighbour is strong). 1 on a line, 0 elsewhere. PhotoAdjustMath.cannyOutline is the reference.
+fn canny(x: i32, y: i32, w: u32, h: u32) -> f32 {
+    let e = edge_at(x, y, w, h);
+    let dir = u32(floor(e));
+    let mag = fract(e);
+    let high = p.fx2.y;
+    let low = high * 0.5;
+    if (mag < low || mag <= 0.0) {
+        return 0.0;
+    }
+    var o = vec2<i32>(1, 0);
+    if (dir == 1u) {
+        o = vec2<i32>(1, 1);
+    } else if (dir == 2u) {
+        o = vec2<i32>(0, 1);
+    } else if (dir == 3u) {
+        o = vec2<i32>(-1, 1);
+    }
+    let m1 = fract(edge_at(x + o.x, y + o.y, w, h));
+    let m2 = fract(edge_at(x - o.x, y - o.y, w, h));
+    if (mag < m1 || mag < m2) {
+        return 0.0;
+    }
+    if (mag >= high) {
+        return 1.0;
+    }
+    for (var dy = -1; dy <= 1; dy = dy + 1) {
+        for (var dx = -1; dx <= 1; dx = dx + 1) {
+            if ((dx != 0 || dy != 0) && fract(edge_at(x + dx, y + dy, w, h)) >= high) {
+                return 1.0;
+            }
+        }
+    }
+    return 0.0;
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let w = u32(p.dims.x);
@@ -234,6 +319,23 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
     let f = (1.0 + p.tone1.z * (1.0 - sat)) * (1.0 + p.tone1.w) * (1.0 + max(p.dims.z, 0.0) * 0.2);
     c = clamp(vec3<f32>(y) + (c - vec3<f32>(y)) * f, vec3<f32>(0.0), vec3<f32>(1.0));
+
+    // Effects. Outline: Canny lines of the source in ink, over the photo faded toward paper.
+    // Sketch: the source's luma colour-dodged by its blurred copy (a pencil drawing), darkened.
+    if (p.fx3.z > 0.5) {
+        let n = w * h;
+        if (p.fx2.w > 0.0) {
+            let y0 = luma(px.rgb / px.a);
+            let b0 = mix(blur[i], blur[n + i], p.fx3.x);
+            let s = pow(clamp(y0 / max(b0, 1e-3), 0.0, 1.0), 1.0 + 4.0 * p.fx3.y);
+            c = mix(c, vec3<f32>(s), p.fx2.w);
+        }
+        if (p.fx2.x > 0.0) {
+            let line = canny(i32(id.x), i32(id.y), w, h);
+            c = mix(c, vec3<f32>(1.0), p.fx2.z * p.fx2.x);
+            c = c * (1.0 - p.fx2.x * line);
+        }
+    }
 
     // Vignette: amount < 0 darkens the corners, > 0 lightens them.
     if (p.fx.x != 0.0) {

@@ -145,8 +145,21 @@ black to white.
 
 Detail has Clarity, Texture, Dehaze, Noise reduction and Sharpen; Noise reduction and Sharpen are
 unipolar and start at 0. Effects has Vignette amount, Midpoint, Feather, Grain amount and Grain
-size. They are plain slider lists. Their pixel work is in the shader (Detail reads the blurred-luma
-planes).
+size, then Outline amount, Threshold and Paper, then Sketch amount, Softness and Darkness. They are
+plain slider lists. Their pixel work is in the shader (Detail reads the blurred-luma planes).
+
+Outline is a Canny edge outline. Once per source upload, `adjust_blur.wgsl` (mode 3) writes the
+Sobel gradient of the small blurred-luma plane into a third plane, as the quantised direction plus a
+magnitude where a full black-to-white step reads 1. Each slider move then thins it by non-maximum
+suppression along the direction. It applies a double threshold: Threshold is the high one and half
+of it is the low one. One step of hysteresis keeps a weak edge only when it sits beside a strong
+one. The lines are drawn in black at the amount, over the photo faded toward white by Paper. Where
+the adapter has no room for the third plane, the move pass computes the same gradients inline.
+Sketch is the luma colour-dodged by its blur (the small plane blended toward the large one by
+Softness), raised to a power of up to 5 by Darkness, and blended in by the amount. The references
+are `PhotoAdjustMath.edgeCode`, `cannyOutline` and `sketch`. A move stays one compute pass: on
+lavapipe at 1080 × 2400, the median move with both effects on is 38 ms, against 30 ms with them
+off, and nearly all of that is the readback. The first move after an upload also builds the planes.
 
 ### Crop (geometry)
 

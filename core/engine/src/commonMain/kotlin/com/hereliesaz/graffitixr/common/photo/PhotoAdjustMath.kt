@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.common.photo
 
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
@@ -15,7 +16,7 @@ import kotlin.math.sqrt
  *
  * Pipeline, in order: white balance and exposure in linear light; blacks/whites; shadows and
  * highlights; contrast; Detail (local contrast against blurred luma); dehaze; curves; levels; HSL;
- * vibrance and saturation; vignette; grain; then the mask.
+ * vibrance and saturation; the effects (sketch, then outline); vignette; grain; then the mask.
  */
 object PhotoAdjustMath {
 
@@ -101,6 +102,7 @@ object PhotoAdjustMath {
         srcLuma: Float = 0f,
         blurSmall: Float = 0f,
         blurLarge: Float = 0f,
+        line: Float = 0f,
     ) {
         for (k in 0..2) c[k] = tone(exposure(c[k], p[0], p[8 + k]), p[1], p[2], p[3], p[4], p[5])
         if (p[PhotoAdjustParams.DETAIL_ON] > 0.5f) {
@@ -149,6 +151,18 @@ object PhotoAdjustMath {
         val sat = max(c[0], max(c[1], c[2])) - min(c[0], min(c[1], c[2]))
         val f = (1f + p[6] * (1f - sat)) * (1f + p[7]) * (1f + max(p[18], 0f) * 0.2f)
         for (k in 0..2) c[k] = (yy + (c[k] - yy) * f).coerceIn(0f, 1f)
+        if (p[PhotoAdjustParams.EFFECTS_ON] > 0.5f) {
+            if (p[59] > 0f) {
+                val s = sketch(srcLuma, blurSmall, blurLarge, p[60], p[61])
+                for (k in 0..2) c[k] = c[k] + (s - c[k]) * p[59]
+            }
+            if (p[56] > 0f) {
+                for (k in 0..2) {
+                    c[k] = c[k] + (1f - c[k]) * (p[58] * p[56])
+                    c[k] = c[k] * (1f - p[56] * line)
+                }
+            }
+        }
         if (p[20] != 0f) {
             val u = ((x + 0.5f) / w) * 2f - 1f
             val v = ((y + 0.5f) / h) * 2f - 1f
@@ -185,13 +199,18 @@ object PhotoAdjustMath {
     @Suppress("LongParameterList")
     fun render(src: ByteArray, w: Int, h: Int, p: FloatArray, curves: FloatArray?, mask: ByteArray?, out: ByteArray) {
         val n = w * h
-        val detail = p[PhotoAdjustParams.DETAIL_ON] > 0.5f
+        val detail = p[PhotoAdjustParams.DETAIL_ON] > 0.5f || p[PhotoAdjustParams.EFFECTS_ON] > 0.5f
         val lum = if (detail) FloatArray(n) { i -> pixelLuma(src, i) } else null
+        val smallRadius = smallBlurRadius(w, h)
         val (small, large) = if (lum != null) {
-            val long = max(w, h)
-            boxBlur(lum, w, h, (long / 400).coerceIn(1, 8)) to boxBlur(lum, w, h, (long / 40).coerceIn(4, 64))
+            boxBlur(lum, w, h, smallRadius) to boxBlur(lum, w, h, (max(w, h) / 40).coerceIn(4, 64))
         } else {
             null to null
+        }
+        val lines = if (small != null && p[PhotoAdjustParams.EFFECTS_ON] > 0.5f && p[56] > 0f) {
+            cannyOutline(edgePlane(small, w, h, smallRadius), w, h, p[57])
+        } else {
+            null
         }
         val c = FloatArray(3)
         for (i in 0 until n) {
@@ -203,7 +222,7 @@ object PhotoAdjustMath {
             for (k in 0..2) c[k] = (src[i * 4 + k].toInt() and 0xFF) / 255f / a0
             adjustPixel(
                 c, p, curves, i % w, i / w, w, h,
-                lum?.get(i) ?: 0f, small?.get(i) ?: 0f, large?.get(i) ?: 0f,
+                lum?.get(i) ?: 0f, small?.get(i) ?: 0f, large?.get(i) ?: 0f, lines?.get(i) ?: 0f,
             )
             var m = 1f
             if (p[11] > 0.5f && mask != null) {
@@ -215,6 +234,81 @@ object PhotoAdjustMath {
             out[i * 4 + 3] = (a.coerceIn(0f, 1f) * 255f).roundToInt().toByte()
         }
     }
+
+    /** The Detail blur's small radius at [w]×[h]: ~1/400 of the long edge (the shader's rule). */
+    fun smallBlurRadius(w: Int, h: Int): Int = (max(w, h) / 400).coerceIn(1, 8)
+
+    /**
+     * Sketch: luma [y] colour-dodged by its blur (a box blur blended from the small to the large
+     * radius by [softness]), so flat areas go white and edges leave pencil strokes; [darkness]
+     * (0..1) raises it to a power up to 5, deepening the strokes.
+     */
+    fun sketch(y: Float, blurSmall: Float, blurLarge: Float, softness: Float, darkness: Float): Float {
+        val b = blurSmall + (blurLarge - blurSmall) * softness
+        return (y / max(b, 1e-3f)).coerceIn(0f, 1f).pow(1f + 4f * darkness)
+    }
+
+    /**
+     * The Sobel gradient of [small] (a box blur of radius [r]) at ([x], [y]), edges clamped:
+     * direction quantised to 0 horizontal, 1 down-right, 2 vertical, 3 down-left, plus a magnitude
+     * in the fraction, scaled so a full black-to-white step reads 1 and capped at 0.999.
+     */
+    @Suppress("LongParameterList")
+    fun edgeCode(small: FloatArray, w: Int, h: Int, r: Int, x: Int, y: Int): Float {
+        fun at(xx: Int, yy: Int) = small[yy.coerceIn(0, h - 1) * w + xx.coerceIn(0, w - 1)]
+        val gx = (at(x + 1, y - 1) + 2f * at(x + 1, y) + at(x + 1, y + 1)) -
+            (at(x - 1, y - 1) + 2f * at(x - 1, y) + at(x - 1, y + 1))
+        val gy = (at(x - 1, y + 1) + 2f * at(x, y + 1) + at(x + 1, y + 1)) -
+            (at(x - 1, y - 1) + 2f * at(x, y - 1) + at(x + 1, y - 1))
+        val mag = min(sqrt(gx * gx + gy * gy) * (2 * r + 1).toFloat() / 8f, 0.999f)
+        val ax = abs(gx)
+        val ay = abs(gy)
+        val dir = when {
+            ay <= ax * TAN_22_5 -> 0f
+            ax <= ay * TAN_22_5 -> 2f
+            (gx > 0f) == (gy > 0f) -> 1f
+            else -> 3f
+        }
+        return dir + mag
+    }
+
+    /** [edgeCode] for every pixel: the plane the GPU precomputes once per source upload. */
+    fun edgePlane(small: FloatArray, w: Int, h: Int, r: Int): FloatArray =
+        FloatArray(w * h) { i -> edgeCode(small, w, h, r, i % w, i / w) }
+
+    /**
+     * Canny lines from an [edgePlane]: non-maximum suppression along each gradient's direction,
+     * a double threshold ([high], and half of it), and one step of hysteresis (a weak edge
+     * survives beside a strong one). 1 on a line, 0 elsewhere.
+     */
+    fun cannyOutline(edges: FloatArray, w: Int, h: Int, high: Float): FloatArray {
+        fun mag(x: Int, y: Int): Float {
+            val e = edges[y.coerceIn(0, h - 1) * w + x.coerceIn(0, w - 1)]
+            return e - floor(e)
+        }
+        val low = high * 0.5f
+        return FloatArray(w * h) { i ->
+            val x = i % w
+            val y = i / w
+            val e = edges[i]
+            val m = e - floor(e)
+            val (ox, oy) = when (floor(e).toInt()) {
+                1 -> 1 to 1
+                2 -> 0 to 1
+                3 -> -1 to 1
+                else -> 1 to 0
+            }
+            when {
+                m < low || m <= 0f -> 0f
+                m < mag(x + ox, y + oy) || m < mag(x - ox, y - oy) -> 0f
+                m >= high -> 1f
+                (-1..1).any { dy -> (-1..1).any { dx -> (dx != 0 || dy != 0) && mag(x + dx, y + dy) >= high } } -> 1f
+                else -> 0f
+            }
+        }
+    }
+
+    private const val TAN_22_5 = 0.41421356f
 
     private fun pixelLuma(src: ByteArray, i: Int): Float {
         val a = (src[i * 4 + 3].toInt() and 0xFF) / 255f
