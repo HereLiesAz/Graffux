@@ -4893,8 +4893,9 @@ class EditorViewModel @Inject constructor(
         // The Eraser is the Brush in reverse: with a stamp brush in hand it runs the same stamp
         // pipeline (dabs, dynamics, tip, grain) and only the composite differs.
         val stampErase = state.activeTool == Tool.ERASER && activeStampBrush != null
-        // Built ahead of the touch when nothing changed since; brush strokes only.
-        val warm = if (state.activeTool == Tool.BRUSH || stampErase) {
+        // Built ahead of the touch when nothing changed since; brush and eraser strokes (both
+        // paint on the GPU engine). Any other tool starts cold.
+        val warm = if (state.activeTool == Tool.BRUSH || state.activeTool == Tool.ERASER) {
             takePrewarmed(layerId, originalBitmap, residentGeneration)
         } else {
             discardPrewarm()
