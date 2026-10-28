@@ -226,6 +226,10 @@ dependencies {
     implementation(project(":core:nativebridge"))
 
     implementation(libs.androidx.core.ktx)
+
+    // Stripe Checkout for in-app purchases opens in a Custom Tab.
+
+    implementation(libs.androidx.browser)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)

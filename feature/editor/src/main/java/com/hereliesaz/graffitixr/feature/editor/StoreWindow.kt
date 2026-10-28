@@ -22,6 +22,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,6 +86,11 @@ fun StoreWindow(
     onBuy: (PackageSummary) -> Unit,
     onOtherSources: () -> Unit,
     onDismiss: () -> Unit,
+    /** In-app purchase progress per package id. */
+    purchaseStates: Map<String, com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState> = emptyMap(),
+    /** Buy on azphalt.store instead (the web checkout); always offered next to in-app Buy. */
+    onBuyOnWeb: (PackageSummary) -> Unit = {},
+    onRestorePurchases: () -> Unit = {},
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     val installedIds = remember(installed) { installed.map { it.id }.toSet() }
@@ -127,6 +134,9 @@ fun StoreWindow(
                     onInstall = onInstall,
                     onBuy = onBuy,
                     onOtherSources = onOtherSources,
+                    purchaseStates = purchaseStates,
+                    onBuyOnWeb = onBuyOnWeb,
+                    onRestorePurchases = onRestorePurchases,
                 )
                 StoreTab.INSTALLED -> InstalledTab(
                     installed = installed,
@@ -222,6 +232,9 @@ private fun BrowseTab(
     onInstall: (PackageSummary) -> Unit,
     onBuy: (PackageSummary) -> Unit,
     onOtherSources: () -> Unit,
+    purchaseStates: Map<String, com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState>,
+    onBuyOnWeb: (PackageSummary) -> Unit,
+    onRestorePurchases: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -276,6 +289,8 @@ private fun BrowseTab(
                     installing = pkg.id in installingIds,
                     onInstall = { onInstall(pkg) },
                     onBuy = { onBuy(pkg) },
+                    purchase = purchaseStates[pkg.id],
+                    onBuyOnWeb = { onBuyOnWeb(pkg) },
                 )
             }
         }
@@ -283,6 +298,16 @@ private fun BrowseTab(
         // A real store app or the web storefront can still do things this in-app browse can't
         // (Play Billing for a paid package, chief among them) — offered, not hidden, just no
         // longer the only door in.
+        // Restores licences bought in-app, on azphalt.store or in a store app, and installs what is missing.
+        GraffuxButton(
+            text = "Restore purchases",
+            onClick = onRestorePurchases,
+            shape = GraffuxButtonShape.RECTANGLE,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(FullWidthButtonHeight)
+                .padding(top = 4.dp),
+        )
         GraffuxButton(
             text = "Other sources (store app / browser)…",
             onClick = onOtherSources,
@@ -303,6 +328,8 @@ private fun PackageCard(
     installing: Boolean,
     onInstall: () -> Unit,
     onBuy: () -> Unit,
+    purchase: com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState? = null,
+    onBuyOnWeb: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -397,13 +424,44 @@ private fun PackageCard(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 )
 
-                pkg.priceStatus.isPaid -> GraffuxButton(
-                    text = "Buy",
-                    onClick = onBuy,
-                    shape = GraffuxButtonShape.RECTANGLE,
-                    contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                purchase is com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.Working -> Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(purchase.step, style = MaterialTheme.typography.bodySmall)
+                }
+
+                purchase is com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.Pending -> Text(
+                    text = purchase.message,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                 )
+
+                pkg.priceStatus.isPaid -> Column(Modifier.fillMaxWidth()) {
+                    GraffuxButton(
+                        text = "Buy",
+                        onClick = onBuy,
+                        shape = GraffuxButtonShape.RECTANGLE,
+                        contentPadding = CardActionPadding,
+                        modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                    )
+                    // In-app is one way to buy, not the only one.
+                    TextButton(onClick = onBuyOnWeb, modifier = Modifier.fillMaxWidth()) {
+                        Text("or buy on azphalt.store", style = MaterialTheme.typography.bodySmall)
+                    }
+                    (purchase as? com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.Failed)?.let {
+                        Text(
+                            it.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
 
                 else -> GraffuxButton(
                     text = "Get",

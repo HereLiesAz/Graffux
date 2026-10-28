@@ -4,6 +4,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.common.model.isAdjustment
+import com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState
 import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 
 import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
@@ -638,7 +639,87 @@ class EditorViewModel @Inject constructor(
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner,
     // TEMPORARY stroke-prediction ranking issues; nullable so tests needn't supply it.
     private val predictionReports: com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository? = null,
+    // In-app purchasing of paid packages; nullable so tests needn't supply it.
+    private val azphaltPurchases: com.hereliesaz.graffitixr.data.azphalt.purchase.AzphaltPurchases? = null,
 ) : ViewModel(), EditorActions {
+
+    /** Where each package's in-app purchase stands, for the store's cards. */
+    val purchaseStates: kotlinx.coroutines.flow.StateFlow<Map<String, PurchaseState>> =
+        azphaltPurchases?.coordinator?.states ?: kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+
+    init {
+        // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
+        // removes any that were refunded. Best effort; a network failure removes nothing.
+        azphaltPurchases?.let { purchases ->
+            viewModelScope.launch {
+                runCatching {
+                    purchases.coordinator.restore(paidCatalogue = { purchases.paidCatalogue(context.packageName) })
+                }
+            }
+        }
+    }
+
+    /**
+     * Buy [packageId] inside Graffux. The route (Play Billing, Google's choice screen, or Stripe) is
+     * the repository's call; [openCheckout] is asked to show a Stripe Checkout URL in a Custom Tab.
+     * One option among several: a purchase made on azphalt.store or in a store app still installs
+     * through the handoff with its licence honoured.
+     */
+    fun buyPackage(activity: android.app.Activity, packageId: String, openCheckout: (String) -> Unit) {
+        val coordinator = azphaltPurchases?.coordinator ?: return
+        viewModelScope.launch {
+            when (val state = coordinator.buy(activity, packageId)) {
+                is PurchaseState.AwaitingCheckout -> openCheckout(state.url)
+                is PurchaseState.Installed -> {
+                    notify("Purchased and installed.", NoticeKind.NOTICE)
+                    refreshStoreUpdates()
+                }
+                is PurchaseState.Pending -> notify(state.message, NoticeKind.NOTICE)
+                is PurchaseState.Failed -> notify(state.message, NoticeKind.WARNING)
+                else -> Unit
+            }
+        }
+    }
+
+    /** The app came back to the foreground: finish any Stripe checkout that was open. */
+    fun resumeCheckouts() {
+        val coordinator = azphaltPurchases?.coordinator ?: return
+        val open = coordinator.states.value.values
+            .filterIsInstance<PurchaseState.AwaitingCheckout>()
+        if (open.isEmpty()) return
+        viewModelScope.launch {
+            for (checkout in open) {
+                when (val state = coordinator.resumeCheckout(checkout.sessionId)) {
+                    is PurchaseState.Installed -> notify("Purchased and installed.", NoticeKind.NOTICE)
+                    is PurchaseState.Pending -> notify(state.message, NoticeKind.NOTICE)
+                    is PurchaseState.Failed -> notify(state.message, NoticeKind.WARNING)
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /** "Restore purchases": everything above, and installs what was bought but is not installed. */
+    fun restorePurchases() {
+        val purchases = azphaltPurchases ?: return
+        viewModelScope.launch {
+            val report = runCatching {
+                purchases.coordinator.restore(
+                    paidCatalogue = { purchases.paidCatalogue(context.packageName) },
+                    installMissing = true,
+                )
+            }.getOrNull()
+            notify(
+                when {
+                    report == null -> "Couldn't restore purchases right now."
+                    report.restored == 0 -> "Purchases are up to date."
+                    else -> "Restored ${report.restored} purchase(s)."
+                },
+                NoticeKind.NOTICE,
+            )
+            refreshStoreUpdates()
+        }
+    }
 
     private val brushPerformanceTier = BrushPerformanceTierResolver.resolve(context)
 
@@ -10826,6 +10907,12 @@ class EditorViewModel @Inject constructor(
                         knownVersion = fromStore?.version,
                     )
                 }
+                // A store app's (or azphalt.store's) licence for what it delivered is kept exactly like
+                // an in-app one, so updates and restores work whatever route the purchase took.
+                val handedOver = fromStore?.entitlement
+                if (handedOver != null && installed.id == storeId) {
+                    azphaltPurchases?.coordinator?.acceptExternal(installed.id, handedOver)
+                }
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
@@ -10939,11 +11026,9 @@ class EditorViewModel @Inject constructor(
      * (spec/repository-api.md § 4), through the identical [ExtensionRepository.installFromStream]
      * verification every other acquisition path uses — a repository's metadata is exactly as advisory
      * here as a store app's [com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.StoreResult] is
-     * under the delegated route. Never called for a paid package: the caller (BrowseStoreWindow via
-     * MainActivity) routes those to the web checkout instead, since Graffux has no in-app payment of
-     * its own — a [RepositoryApiClient.PaymentRequiredException]/[RepositoryApiClient.UnauthorizedException]
-     * surfacing here regardless (a card's `priceStatus` disagreeing with the server's own gate) is
-     * reported like any other failure rather than silently swallowed.
+     * under the delegated route. A paid package is downloaded with the licence this device holds for
+     * it (bought in-app via [buyPackage], or handed over by azphalt.store / a store app); without one
+     * the repository answers 401/402 and the user is pointed at Buy.
      */
     fun installFromRepository(id: String, version: String) {
         if (id in _uiState.value.storeInstallingIds) return
@@ -10951,7 +11036,10 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val now = System.currentTimeMillis()
             try {
-                val result = repositoryApiClient.download(id, version)
+                // A licence this device holds, from any route (in-app, azphalt.store, a store app):
+                // presented for every download, so an update of a paid package works too.
+                val entitlement = azphaltPurchases?.coordinator?.entitlementFor(id)
+                val result = repositoryApiClient.download(id, version, entitlementToken = entitlement)
                 // Only now are verified-pending bytes actually in hand -- same reasoning as
                 // installExtensionFromUri: recording `downloaded` before the stream opens would claim
                 // something that could be false if the request itself had failed.
