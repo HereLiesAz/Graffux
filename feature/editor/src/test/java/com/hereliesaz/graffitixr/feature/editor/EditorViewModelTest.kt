@@ -496,6 +496,58 @@ class EditorViewModelTest {
     private fun layer(id: String) = viewModel.uiState.value.layers.first { it.id == id }
 
     @Test
+    fun `the Frame tool leaves an image-locked layer where it is`() = runTest {
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(
+                Layer(
+                    id = "locked", name = "locked", isImageLocked = true,
+                    shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 20f, height = 20f)),
+                ),
+            ),
+        )
+        viewModel.onDesignDragStart("locked")
+        viewModel.onDesignMove("locked", Offset(100f, 0f))
+        viewModel.onDesignDragEnd("locked", moved = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Offset.Zero, layer("locked").offset)
+    }
+
+    @Test
+    fun `a drop into a frame and a frame drawn over artwork tell peers the new parent`() = runTest {
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(
+                Layer(
+                    id = "under", name = "under", offset = Offset(10f, 10f),
+                    shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 20f, height = 20f)),
+                ),
+            ),
+        )
+        viewModel.onAddFrame(400f, 400f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val frameId = viewModel.uiState.value.activeLayerId!!
+        verify { opEmitter.emit(Op.LayerParent("under", frameId)) }
+        viewModel.onDesignDragStart("under")
+        viewModel.onDesignMove("under", Offset(1000f, 0f))
+        viewModel.onDesignDragEnd("under", moved = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify { opEmitter.emit(Op.LayerParent("under", null)) }
+    }
+
+    @Test
+    fun `a hidden layer under the finger is not picked`() = runTest {
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(androidx.compose.ui.unit.IntSize(400, 400)))
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(
+                Layer(
+                    id = "hidden", name = "hidden", isVisible = false,
+                    shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 100f, height = 100f)),
+                ),
+            ),
+        )
+        assertEquals(null, viewModel.designHitAt(Offset(200f, 200f), 400f, 400f))
+    }
+
+    @Test
     fun `the Frame tool adds a frame beside the rest and keeps the tool in hand`() = runTest {
         viewModel.setActiveTool(com.hereliesaz.graffitixr.common.model.Tool.FRAME)
         viewModel.onAddFrame(390f, 844f)

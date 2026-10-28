@@ -8643,9 +8643,15 @@ class EditorViewModel @Inject constructor(
     }
 
     fun onUngroupLayer(groupId: String) {
+        val before = _uiState.value.layers
         pushHistory()
         dispatch(EditorIntent.UngroupLayer(groupId))
         saveProject()
+        // Peers: the children's new parent and offsets, then the container's removal.
+        if (_uiState.value.layers.none { it.id == groupId }) {
+            emitGeometryChanges(before, _uiState.value.layers)
+            opEmitter.emit(Op.LayerRemove(groupId))
+        }
     }
 
     /** Deletes group [groupId] AND its contents — unlike [onUngroupLayer], nothing survives it. */
@@ -11161,6 +11167,8 @@ class EditorViewModel @Inject constructor(
         val old = before.associateBy { it.id }
         after.forEach { l ->
             val prev = old[l.id] ?: return@forEach
+            // A drop into or out of a frame: the parent first, so the transform below lands in it.
+            if (prev.parentId != l.parentId) opEmitter.emit(Op.LayerParent(l.id, l.parentId))
             if (prev.shapes != l.shapes || prev.layoutWidth != l.layoutWidth || prev.layoutHeight != l.layoutHeight) {
                 opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
             }
@@ -11363,13 +11371,16 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     fun designHitAt(screen: Offset, canvasWidth: Float, canvasHeight: Float): String? {
         val st = _uiState.value
-        val flat = com.hereliesaz.graffitixr.common.model.FrameOps.flattenTransforms(st.layers)
-        CanvasHitTest.topHit(
+        val ops = com.hereliesaz.graffitixr.common.model.FrameOps
+        val world = screenToDesignWorld(screen, canvasWidth, canvasHeight)
+        val flat = ops.flattenTransforms(st.layers)
+        // Front to back, the first that shows there: not hidden (itself or through a parent), and
+        // not clipped away by a frame it sits in.
+        CanvasHitTest.allHits(
             flat.filterNot { it.isContainer || it.isAdjustment }, screen, canvasWidth, canvasHeight,
             st.viewportOffset, st.viewportZoom, st.viewportRotation,
-        )?.let { return it }
-        val world = screenToDesignWorld(screen, canvasWidth, canvasHeight)
-        com.hereliesaz.graffitixr.common.model.FrameOps.frameAt(st.layers, world)?.let { return it.id }
+        ).firstOrNull { id -> ops.showsAt(st.layers, id, world) }?.let { return it }
+        ops.frameAt(st.layers, world)?.takeIf { ops.showsAt(st.layers, it.id, world) }?.let { return it.id }
         val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
         return com.hereliesaz.graffitixr.common.model.FrameOps
             .labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)?.id
@@ -11408,6 +11419,8 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         applyDesign(ops.adoptContents(layers + frame, frame.id), frame.id)
         opEmitter.emit(Op.LayerAdd(frame))
+        // What the new frame adopted moved under it: peers get the parent and the local offset.
+        emitGeometryChanges(layers, _uiState.value.layers)
         saveProject()
     }
 
@@ -11422,6 +11435,8 @@ class EditorViewModel @Inject constructor(
     /** The drag moved [layerId] by [screenDelta] screen pixels. */
     fun onDesignMove(layerId: String, screenDelta: Offset) {
         val st = _uiState.value
+        // A locked layer stays put, as it does under the move gesture elsewhere.
+        if (st.layers.firstOrNull { it.id == layerId }?.isImageLocked == true) return
         val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
         val rad = Math.toRadians(-st.viewportRotation.toDouble())
         val c = kotlin.math.cos(rad).toFloat()
@@ -11436,6 +11451,7 @@ class EditorViewModel @Inject constructor(
     /** A resize handle dragged to [box] (world space) on frame [frameId]. */
     fun onDesignResize(frameId: String, box: com.hereliesaz.graffitixr.common.model.Rect) {
         if (box.width < 1f || box.height < 1f) return
+        if (_uiState.value.layers.firstOrNull { it.id == frameId }?.isImageLocked == true) return
         applyDesign(com.hereliesaz.graffitixr.common.model.FrameOps.setBox(_uiState.value.layers, frameId, box))
     }
 
@@ -12559,7 +12575,7 @@ class EditorViewModel @Inject constructor(
         is Op.LayerRemove -> op.layerId
         // Geometry is drawn from shapes/layout size at composite time, like a transform.
         is Op.LayerAdd, is Op.LayerReorder, is Op.LayerTransform, is Op.LayerPropsChange,
-        is Op.LayerGeometry -> null
+        is Op.LayerGeometry, is Op.LayerParent -> null
     }
 
     fun applySpectatorOp(op: Op) {
@@ -12585,6 +12601,7 @@ class EditorViewModel @Inject constructor(
             is Op.LayerGeometry -> dispatch(
                 EditorIntent.SetLayerGeometry(op.layerId, op.shapes, op.layoutWidth, op.layoutHeight),
             )
+            is Op.LayerParent -> dispatch(EditorIntent.SetLayerParent(op.layerId, op.parentId))
             is Op.StrokeComplete -> {
                 val layerId = op.layerId
                 val stroke = op.stroke

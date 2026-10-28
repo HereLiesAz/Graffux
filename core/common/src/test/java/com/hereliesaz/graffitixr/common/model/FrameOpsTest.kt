@@ -181,4 +181,39 @@ class FrameOpsTest {
         close(200f, out.width)
         close(150f, out.height)
     }
+
+    @Test
+    fun `a turned frame's corners turn with it and a corner drag resizes along its own edges`() {
+        // 200 x 100 about the origin, turned a quarter.
+        val f = frame("f", -100f, -50f, 200f, 100f).copy(rotationZ = 90f)
+        val pts = FrameOps.corners(listOf(f), f)
+        // Its top-left (-100, -50) turned 90 degrees lands at (50, -100).
+        close(50f, pts[0].x)
+        close(-100f, pts[0].y)
+        // Drag the bottom-right corner (on screen at (-50, 100)) 20 further along its own x axis,
+        // which after the turn points down.
+        val box = FrameOps.resizeFromCorner(listOf(f), f, 2, Offset(-50f, 120f))
+        close(220f, box.width)
+        close(100f, box.height)
+        // The top-left corner (50, -100) stays put: the centre moved 10 down.
+        close(10f, box.centerY)
+        close(0f, box.centerX)
+    }
+
+    @Test
+    fun `only what shows can be picked`() {
+        val clip = frame("clip", 0f, 0f, 100f, 100f)
+        val inClip = Layer(id = "a", name = "a", parentId = "clip", offset = Offset(0f, 0f))
+        val hiddenParent = frame("hidden", 300f, 0f, 100f, 100f).copy(isVisible = false)
+        val inHidden = Layer(id = "b", name = "b", parentId = "hidden")
+        val layers = listOf(clip, inClip, hiddenParent, inHidden)
+        assertTrue(FrameOps.showsAt(layers, "a", Offset(50f, 50f)))
+        // Outside a clipping frame's box: clipped away.
+        assertFalse(FrameOps.showsAt(layers, "a", Offset(150f, 50f)))
+        // Not clipped once the frame shows all.
+        val open = layers.map { if (it.id == "clip") it.copy(clipsContent = false) else it }
+        assertTrue(FrameOps.showsAt(open, "a", Offset(150f, 50f)))
+        assertFalse(FrameOps.showsAt(layers, "b", Offset(350f, 50f)))
+        assertFalse(FrameOps.showsAt(layers.map { if (it.id == "a") it.copy(isVisible = false) else it }, "a", Offset(50f, 50f)))
+    }
 }

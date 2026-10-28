@@ -185,4 +185,17 @@ class LayerListOpsTest {
         assertEquals(listOf("g", "g1", "g2", "adj", "top"), overGroup.map { it.id })
         assertEquals(null, overGroup[3].parentId)
     }
+
+    @Test
+    fun `ungrouping a frame keeps its children where they are`() {
+        val frame = com.hereliesaz.graffitixr.common.model.FrameOps.create(
+            "f", "Card", com.hereliesaz.graffitixr.common.model.Rect(0f, 0f, 200f, 100f),
+        ).copy(clipsContent = false, frameFillArgb = null)
+        val child = Layer(id = "c", name = "c", parentId = "f", offset = androidx.compose.ui.geometry.Offset(10f, 5f))
+        val out = LayerListOps.ungroup(listOf(frame, child), "f")
+        assertEquals(listOf("c"), out.map { it.id })
+        assertEquals(null, out.single().parentId)
+        // The frame sat at (100, 50): the child is at (110, 55) on screen, before and after.
+        assertEquals(androidx.compose.ui.geometry.Offset(110f, 55f), out.single().offset)
+    }
 }

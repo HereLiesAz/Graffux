@@ -151,6 +151,55 @@ object FrameOps {
             }
         }
 
+    /**
+     * Whether [layerId] shows at [world]: it and every parent are visible, and no frame it sits in
+     * that clips its content has [world] outside its box. The Frame tool picks only what shows.
+     */
+    fun showsAt(layers: List<Layer>, layerId: String, world: Offset): Boolean {
+        val byId = layers.associateBy { it.id }
+        val layer = byId[layerId] ?: return false
+        if (!layer.isVisible) return false
+        var parent = layer.parentId?.let(byId::get)
+        var depth = 0
+        while (parent != null && depth++ <= MAX_DEPTH) {
+            if (!parent.isVisible) return false
+            if (parent.isFrame && parent.clipsContent && !contains(layers, parent, world)) return false
+            parent = parent.parentId?.let(byId::get)
+        }
+        return true
+    }
+
+    /** [frame]'s four box corners in world space, TL TR BR BL, rotated with it. */
+    fun corners(layers: List<Layer>, frame: Layer): List<Offset> {
+        val t = worldTransform(layers, frame)
+        val hw = frame.layoutWidth / 2f
+        val hh = frame.layoutHeight / 2f
+        return listOf(Offset(-hw, -hh), Offset(hw, -hh), Offset(hw, hh), Offset(-hw, hh)).map(t::apply)
+    }
+
+    /**
+     * The box [setBox] takes after corner [corner] (0..3, TL TR BR BL) of [frame] is dragged to
+     * [world], the opposite corner staying put. Worked in the frame's own (rotated, scaled) space,
+     * so a turned frame resizes along its own edges; the result's centre and size are what
+     * [setBox] needs, the frame keeping its rotation.
+     */
+    fun resizeFromCorner(layers: List<Layer>, frame: Layer, corner: Int, world: Offset): Rect {
+        val t = worldTransform(layers, frame)
+        val hw = frame.layoutWidth / 2f
+        val hh = frame.layoutHeight / 2f
+        val opposite = when (corner) {
+            0 -> Offset(hw, hh)
+            1 -> Offset(-hw, hh)
+            2 -> Offset(-hw, -hh)
+            else -> Offset(hw, -hh)
+        }
+        val dragged = t.invert(world)
+        val centre = t.apply(Offset((opposite.x + dragged.x) / 2f, (opposite.y + dragged.y) / 2f))
+        val w = kotlin.math.abs(dragged.x - opposite.x) * t.scale
+        val h = kotlin.math.abs(dragged.y - opposite.y) * t.scale
+        return Rect(centre.x - w / 2f, centre.y - h / 2f, w, h)
+    }
+
     /** Whether [ancestorId] is [layer]'s parent, grandparent, ... */
     fun isDescendant(layers: List<Layer>, layer: Layer, ancestorId: String): Boolean {
         val byId = layers.associateBy { it.id }

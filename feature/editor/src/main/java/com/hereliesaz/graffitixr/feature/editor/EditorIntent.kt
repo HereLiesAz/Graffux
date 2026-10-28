@@ -82,6 +82,8 @@ internal sealed interface EditorIntent {
      * keeps the tool in hand, so the Frame tool stays armed across edits.
      */
     data class SetDesignLayers(val layers: List<Layer>, val activeId: String?) : EditorIntent
+    /** A peer moved [layerId] under [parentId] (null: the top level). */
+    data class SetLayerParent(val layerId: String, val parentId: String?) : EditorIntent
 
     // ── Tool / panel / gesture ────────────────────────────────────────────────
     data class SetActiveTool(val tool: Tool) : EditorIntent

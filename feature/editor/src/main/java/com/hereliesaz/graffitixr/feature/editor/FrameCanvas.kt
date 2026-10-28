@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "MaxLineLength", "FunctionNaming", "CyclomaticComplexMethod", "ReturnCount", "LoopWithTooManyJumpStatements")
+@file:Suppress("LongMethod", "MagicNumber", "MaxLineLength", "FunctionNaming", "CyclomaticComplexMethod", "ReturnCount", "LoopWithTooManyJumpStatements")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -81,7 +81,7 @@ internal fun FrameOverlay(uiState: EditorUiState, designMode: Boolean, modifier:
             box, cw, ch, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
         )
         frames.forEach { frame ->
-            val tl = corners(FrameOps.boxOf(uiState.layers, frame)).first()
+            val tl = frameScreenCorners(uiState, frame, cw, ch).first()
             val color = if (frame.id == activeId && designMode) SelectedInk else LabelInk
             val text = measurer.measure(frame.name, labelStyle.copy(color = color))
             drawText(text, topLeft = Offset(tl.x, tl.y - text.size.height - 4.dp.toPx()))
@@ -89,7 +89,7 @@ internal fun FrameOverlay(uiState: EditorUiState, designMode: Boolean, modifier:
         if (!designMode || activeId == null) return@Canvas
         val active = uiState.layers.firstOrNull { it.id == activeId } ?: return@Canvas
         val box = DesignGeometry.box(uiState.layers, activeId, cw, ch) ?: return@Canvas
-        val pts = corners(box)
+        val pts = if (active.isFrame) frameScreenCorners(uiState, active, cw, ch) else corners(box)
         drawOutline(pts)
         if (active.isFrame) pts.forEach { drawHandle(it) }
         // The size badge, under the box (the mockup's "218 × 70").
@@ -154,9 +154,14 @@ internal fun FrameToolCanvas(
                     var dragging = false
                     var last = start
                     var current = start
+                    var multiTouch = false
                     while (true) {
                         val event = awaitPointerEvent()
-                        if (event.changes.count { it.pressed } > 1) break
+                        if (event.changes.count { it.pressed } > 1) {
+                            // A second finger is the camera's pan / pinch: nothing is drawn.
+                            multiTouch = true
+                            break
+                        }
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
                         current = change.position
@@ -177,8 +182,10 @@ internal fun FrameToolCanvas(
                         last = current
                     }
                     when {
+                        // A move or resize already under way still ends (one undo step, saved).
+                        dragging && target != null -> actions.dragEnd(target, moved = handle == null)
+                        multiTouch -> Unit
                         !dragging -> actions.tap(start, w, h)
-                        target != null -> actions.dragEnd(target, moved = handle == null)
                         else -> actions.commitFrame(start, current, w, h)
                     }
                     drawing = null
@@ -199,24 +206,21 @@ internal fun FrameToolCanvas(
 private fun handleUnder(st: EditorUiState, p: Offset, w: Float, h: Float, tolerance: Float): Pair<String, Int>? {
     val id = st.activeLayerId ?: return null
     val frame = st.layers.firstOrNull { it.id == id }?.takeIf { it.isFrame } ?: return null
-    val pts = DesignGeometry.screenCorners(
-        FrameOps.boxOf(st.layers, frame), w, h, st.viewportOffset, st.viewportZoom, st.viewportRotation,
-    )
+    val pts = frameScreenCorners(st, frame, w, h)
     val index = pts.indices.minByOrNull { (pts[it] - p).getDistance() } ?: return null
     return if ((pts[index] - p).getDistance() <= tolerance) id to index else null
 }
 
+/** [frame]'s corners on screen, turned with it (FrameOps.corners under the camera). */
+internal fun frameScreenCorners(st: EditorUiState, frame: com.hereliesaz.graffitixr.common.model.Layer, w: Float, h: Float): List<Offset> =
+    FrameOps.corners(st.layers, frame).map {
+        CanvasHitTest.worldToScreen(Offset(it.x + w / 2f, it.y + h / 2f), st.viewportOffset, st.viewportZoom, st.viewportRotation)
+    }
+
 /** The frame's box with corner [corner] dragged to screen point [to]; the opposite corner stays put. */
 private fun resizedBox(st: EditorUiState, corner: Int, to: Offset, w: Float, h: Float): Rect {
     val frame = st.layers.first { it.id == st.activeLayerId }
-    val box = FrameOps.boxOf(st.layers, frame)
-    val opposite = when (corner) {
-        0 -> Offset(box.right, box.bottom)
-        1 -> Offset(box.x, box.bottom)
-        2 -> Offset(box.x, box.y)
-        else -> Offset(box.right, box.y)
-    }
     val world = CanvasHitTest.screenToWorld(to, st.viewportOffset, st.viewportZoom, st.viewportRotation)
         .let { Offset(it.x - w / 2f, it.y - h / 2f) }
-    return Rect(minOf(opposite.x, world.x), minOf(opposite.y, world.y), abs(world.x - opposite.x), abs(world.y - opposite.y))
+    return FrameOps.resizeFromCorner(st.layers, frame, corner, world)
 }

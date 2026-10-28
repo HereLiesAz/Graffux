@@ -42,6 +42,14 @@ sealed class Op {
         val layoutHeight: Float,
     ) : Op()
 
+    /**
+     * A layer moved into or out of a container (a frame drop, a frame drawn over artwork, a frame
+     * ungrouped). Sent alongside [LayerTransform], which carries the offset re-expressed in the new
+     * parent's space.
+     */
+    @Serializable
+    data class LayerParent(val layerId: String, val parentId: String?) : Op()
+
     @Serializable
     data class TextContentChange(val layerId: String, val text: String) : Op()
 

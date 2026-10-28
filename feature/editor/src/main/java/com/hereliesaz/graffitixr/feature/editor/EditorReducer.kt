@@ -156,6 +156,9 @@ internal object EditorReducer {
         }
         is EditorIntent.ReplaceLayers -> state.copy(layers = intent.layers, activeLayerId = intent.activeId, activeTool = Tool.NONE)
         is EditorIntent.SetDesignLayers -> state.copy(layers = intent.layers, activeLayerId = intent.activeId)
+        is EditorIntent.SetLayerParent -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(parentId = intent.parentId) },
+        )
         is EditorIntent.GroupLayers -> state.copy(
             layers = LayerListOps.group(state.layers, intent.aId, intent.bId, intent.newGroupId, intent.groupName),
         )

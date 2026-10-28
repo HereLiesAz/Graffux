@@ -134,7 +134,17 @@ internal object LayerListOps {
      * root), and the now-empty group layer is removed. A no-op if [groupId] doesn't name an actual
      * group.
      */
+    @Suppress("ReturnCount")
     fun ungroup(layers: List<Layer>, groupId: String): List<Layer> {
+        // A frame dissolves too (a sized group from an older file became one), its children kept
+        // where they are on screen as they move out of its transform.
+        layers.find { it.id == groupId && it.type == LayerType.FRAME }?.let { frame ->
+            var out = layers
+            layers.filter { it.parentId == groupId }.forEach {
+                out = com.hereliesaz.graffitixr.common.model.FrameOps.reparent(out, it.id, frame.parentId)
+            }
+            return out.filterNot { it.id == groupId }
+        }
         val group = layers.find { it.id == groupId && it.type == LayerType.GROUP } ?: return layers
         return layers.mapNotNull {
             when {
