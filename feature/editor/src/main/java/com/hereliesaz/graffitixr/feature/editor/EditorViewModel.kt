@@ -92,6 +92,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 import com.hereliesaz.graffitixr.common.photo.PhotoAdjustment as PhotoAdjustmentModel
+import com.hereliesaz.graffitixr.common.photo.PhotoTool
+import com.hereliesaz.graffitixr.common.photo.HealSpot
+import com.hereliesaz.graffitixr.common.photo.RedEyeSpot
+import com.hereliesaz.graffitixr.common.photo.RetouchMath
+import com.hereliesaz.graffitixr.common.photo.MaskPaint
+import com.hereliesaz.graffitixr.common.photo.PhotoAdjustMath
+import com.hereliesaz.graffitixr.common.photo.HueRange
+import com.hereliesaz.graffitixr.common.photo.CropGeometry
+import com.hereliesaz.graffitixr.common.photo.DocumentCrop
+import com.hereliesaz.graffitixr.common.photo.PhotoSlider
 import javax.inject.Inject
 import androidx.core.net.toUri
 import androidx.core.graphics.createBitmap
@@ -546,7 +556,7 @@ sealed class EditCommand {
      */
     data class PropertyChange(
         val oldLayers: List<Layer>,
-        val crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop? = null,
+        val crop: DocumentCrop? = null,
     ) : EditCommand()
 
     /**
@@ -622,6 +632,9 @@ class EditorViewModel @Inject constructor(
         /** Below this saturation the HSL eyedropper reads a pixel as grey and picks nothing. */
         private const val MIN_PICK_SATURATION = 0.08f
         private const val CHANNEL_MAX = 255f
+        private const val MASK_FULL: Byte = -1
+        /** The mask badge's thumbnail width in pixels. */
+        private const val MASK_THUMB = 48
         /** Auto level reads a copy this many pixels on its long side. */
         private const val AUTO_LEVEL_SIZE = 480f
         private const val LUMA_R = 0.2126f
@@ -787,7 +800,12 @@ class EditorViewModel @Inject constructor(
             (metrics.heightPixels.takeIf { it > 0 } ?: FALLBACK_WORLD_HEIGHT)
     }
 
+    /** The adjustment layers' masks, by layer and revision (the Local tab paints them). */
+    internal val adjustmentMasks = AdjustmentMasks()
+
     internal val adjustmentRenderer = AdjustmentLayerRenderer(
+        maskOf = { layer -> layer.adjustment?.mask?.let { adjustmentMasks.get(layer.id, it.revision) } },
+        maskGeneration = { adjustmentMasks.generation(it) },
         scope = viewModelScope,
         composite = { layers, w, h -> exportManager.compositeLayers(layers, w, h, renderAdjustments = false) },
         publish = { id, bitmap ->
@@ -800,7 +818,7 @@ class EditorViewModel @Inject constructor(
 
     init {
         exportManager.adjustmentRenderer = { below, layer ->
-            layer.adjustment?.let { adjustmentRenderer.renderNow(below, it, layer.id.hashCode()) }
+            adjustmentRenderer.renderNow(below, layer)
         }
         viewModelScope.launch(dispatchers.main) {
             _uiState
@@ -832,7 +850,7 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The adjustment layer the [tool] tab edits now: the active layer, when it is one of [tool]'s. */
-    fun photoLayerFor(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool): Layer? {
+    fun photoLayerFor(tool: PhotoTool): Layer? {
         val state = _uiState.value
         return state.layers.find { it.id == state.activeLayerId && it.adjustment?.tool == tool }
     }
@@ -844,14 +862,19 @@ class EditorViewModel @Inject constructor(
      * for the whole gesture, and the layer it edits, made now (directly above the selected layer)
      * if the selected layer is not already one of [tool]'s. Returns that layer's id.
      */
-    fun onPhotoGestureStart(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool): String {
+    fun onPhotoGestureStart(tool: PhotoTool): String {
         pushHistory()
+        return onPhotoGestureStartNoHistory(tool)
+    }
+
+    /** [onPhotoGestureStart] for a caller that already pushed history (a Local stroke). */
+    private fun onPhotoGestureStartNoHistory(tool: PhotoTool): String {
         val existing = photoLayerFor(tool)
         val id = existing?.id ?: run {
             val layer = Layer(
                 id = UUID.randomUUID().toString(),
                 name = tool.label,
-                adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(tool),
+                adjustment = PhotoAdjustmentModel(tool),
             )
             dispatch(EditorIntent.InsertLayerAbove(layer, _uiState.value.activeLayerId))
             opEmitter.emit(Op.LayerAdd(layer))
@@ -863,14 +886,14 @@ class EditorViewModel @Inject constructor(
 
     /** Sets [slider] on the layer the current gesture edits (see [onPhotoGestureStart]). */
     fun onPhotoSlider(
-        tool: com.hereliesaz.graffitixr.common.photo.PhotoTool,
-        slider: com.hereliesaz.graffitixr.common.photo.PhotoSlider,
+        tool: PhotoTool,
+        slider: PhotoSlider,
         value: Float,
     ) = updatePhotoAdjustment(tool) { it.with(slider, value) }
 
     /** Replaces the edited layer's settings through [change] (curves, HSL swatches, …). */
     fun updatePhotoAdjustment(
-        tool: com.hereliesaz.graffitixr.common.photo.PhotoTool,
+        tool: PhotoTool,
         change: (PhotoAdjustmentModel) -> PhotoAdjustmentModel,
     ) {
         val id = photoGestureLayer ?: photoLayerFor(tool)?.id ?: onPhotoGestureStart(tool)
@@ -888,8 +911,8 @@ class EditorViewModel @Inject constructor(
 
     /** Double-tap on a slider: that slider back to its default, as one undo step. */
     fun onPhotoSliderReset(
-        tool: com.hereliesaz.graffitixr.common.photo.PhotoTool,
-        slider: com.hereliesaz.graffitixr.common.photo.PhotoSlider,
+        tool: PhotoTool,
+        slider: PhotoSlider,
     ) {
         val layer = photoLayerFor(tool) ?: return
         if (layer.adjustment?.value(slider) == slider.default) return
@@ -899,7 +922,7 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The tab header's Reset: every setting of [tool]'s layer back to neutral (the layer stays). */
-    fun onPhotoReset(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool) {
+    fun onPhotoReset(tool: PhotoTool) {
         val layer = photoLayerFor(tool) ?: return
         if (layer.adjustment?.isNeutral == true) return
         pushHistory()
@@ -943,19 +966,19 @@ class EditorViewModel @Inject constructor(
      * before the composite is ready): the range whose weight at that hue is largest.
      */
     @Suppress("ReturnCount")
-    fun photoHueRangeAt(position: Offset): com.hereliesaz.graffitixr.common.photo.HueRange? {
+    fun photoHueRangeAt(position: Offset): HueRange? {
         val comp = photoPickComposite ?: return null
         val (x, y) = screenToWorld(position)
         if (x !in 0 until comp.width || y !in 0 until comp.height) return null
         val argb = comp.getPixel(x, y)
-        val hsl = com.hereliesaz.graffitixr.common.photo.PhotoAdjustMath.rgbToHsl(
+        val hsl = PhotoAdjustMath.rgbToHsl(
             android.graphics.Color.red(argb) / CHANNEL_MAX,
             android.graphics.Color.green(argb) / CHANNEL_MAX,
             android.graphics.Color.blue(argb) / CHANNEL_MAX,
         )
         if (hsl[1] < MIN_PICK_SATURATION) return null
-        return com.hereliesaz.graffitixr.common.photo.HueRange.entries.maxByOrNull {
-            com.hereliesaz.graffitixr.common.photo.PhotoAdjustMath.rangeWeight(hsl[0], it.ordinal)
+        return HueRange.entries.maxByOrNull {
+            PhotoAdjustMath.rangeWeight(hsl[0], it.ordinal)
         }
     }
 
@@ -1000,14 +1023,14 @@ class EditorViewModel @Inject constructor(
     fun onCropGestureStart() = pushHistory()
 
     /** The crop as the gesture has it now. */
-    fun setDocumentCrop(crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop) {
+    fun setDocumentCrop(crop: DocumentCrop) {
         if (_uiState.value.documentCrop != crop) dispatch(EditorIntent.SetDocumentCrop(crop))
     }
 
     fun onCropGestureEnd() = saveProject()
 
     /** One-tap crop changes (an aspect chip, Rotate 90, a flip, Auto level, Reset): each one undo step. */
-    fun applyCrop(change: (com.hereliesaz.graffitixr.common.photo.DocumentCrop) -> com.hereliesaz.graffitixr.common.photo.DocumentCrop) {
+    fun applyCrop(change: (DocumentCrop) -> DocumentCrop) {
         val next = change(_uiState.value.documentCrop)
         if (next == _uiState.value.documentCrop) return
         pushHistory()
@@ -1036,9 +1059,283 @@ class EditorViewModel @Inject constructor(
                 (android.graphics.Color.red(c) * LUMA_R + android.graphics.Color.green(c) * LUMA_G +
                     android.graphics.Color.blue(c) * LUMA_B) / CHANNEL_MAX
             }
-            val angle = com.hereliesaz.graffitixr.common.photo.CropGeometry.autoLevel(luma, small.width, small.height)
+            val angle = CropGeometry.autoLevel(luma, small.width, small.height)
             small.recycle()
             withContext(dispatchers.main) { applyCrop { it.copy(straighten = angle) } }
+        }
+    }
+
+    // ── Heal and Red-eye: one layer each, holding all their spots ────────────────────────────
+
+    /** The one layer of [tool] (Heal, Red-eye) wherever it is, made above the selected layer if there is none. */
+    private fun retouchLayer(tool: PhotoTool): String {
+        _uiState.value.layers.lastOrNull { it.adjustment?.tool == tool }?.let { return it.id }
+        val layer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = tool.label,
+            adjustment = PhotoAdjustmentModel(tool),
+        )
+        dispatch(EditorIntent.InsertLayerAbove(layer, _uiState.value.activeLayerId))
+        opEmitter.emit(Op.LayerAdd(layer))
+        return layer.id
+    }
+
+    private fun updateLayerAdjustment(id: String, change: (PhotoAdjustmentModel) -> PhotoAdjustmentModel) {
+        val current = _uiState.value.layers.find { it.id == id }?.adjustment ?: return
+        val next = change(current)
+        if (next != current) dispatch(EditorIntent.SetLayerAdjustment(id, next))
+    }
+
+    /** [values] with the Heal layer's mode set: Clone ([clone]) or content-aware. */
+    private fun withHealMode(values: Map<String, Float>, clone: Boolean): Map<String, Float> =
+        if (clone) {
+            values + (AdjustmentLayerRenderer.HEAL_CLONE_KEY to 1f)
+        } else {
+            values - AdjustmentLayerRenderer.HEAL_CLONE_KEY
+        }
+
+    private fun setMask(id: String, adj: PhotoAdjustmentModel, mask: com.hereliesaz.graffitixr.common.photo.AdjustmentMask) =
+        dispatch(EditorIntent.SetLayerAdjustment(id, adj.copy(mask = mask)))
+
+    /** The Heal layer, if there is one. */
+    fun healLayer(): Layer? = _uiState.value.layers.lastOrNull { it.adjustment?.tool == PhotoTool.HEAL }
+
+    /**
+     * A tap or brush on the photo with Heal: a spot at world ([x], [y]) of [radius], its source
+     * picked content-aware from the photo under the Heal layer (RetouchMath.autoSource). One
+     * undo step. [clone] sets the layer to copy as is.
+     */
+    @Suppress("LongParameterList")
+    fun onHealSpot(x: Float, y: Float, radius: Float, feather: Float, opacity: Float, clone: Boolean) {
+        pushHistory()
+        val id = retouchLayer(PhotoTool.HEAL)
+        dispatch(EditorIntent.ActivateLayer(id))
+        val below = AdjustmentLayerRenderer.plan(_uiState.value.layers)
+            .firstOrNull { it.first.id == id }?.second.orEmpty()
+        val (w, h) = adjustmentWorldSize()
+        viewModelScope.launch(dispatchers.default) {
+            val composite = exportManager.compositeLayers(below, w, h, renderAdjustments = false)
+            val bytes = ByteArray(w * h * 4)
+            composite.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(bytes))
+            composite.recycle()
+            val (sx, sy) = RetouchMath.autoSource(bytes, w, h, x, y, radius)
+            withContext(dispatchers.main) {
+                updateLayerAdjustment(id) { a ->
+                    a.copy(
+                        healSpots = a.healSpots + HealSpot(x, y, radius, sx, sy, feather, opacity),
+                        values = withHealMode(a.values, clone),
+                    )
+                }
+                saveProject()
+            }
+        }
+    }
+
+    /**
+     * Drags spot [index]'s source ring to world ([x], [y]); wrap a drag in
+     * [onPhotoGestureStart]/[onPhotoGestureEnd].
+     */
+    fun moveHealSource(index: Int, x: Float, y: Float) {
+        val id = healLayer()?.id ?: return
+        updateLayerAdjustment(id) { a ->
+            a.copy(
+                healSpots = a.healSpots.mapIndexed { i, s -> if (i == index) s.copy(sourceX = x, sourceY = y) else s },
+            )
+        }
+    }
+
+    /** The Heal layer's mode: content-aware or Clone. One undo step. */
+    fun setHealClone(clone: Boolean) {
+        val id = healLayer()?.id ?: return
+        pushHistory()
+        updateLayerAdjustment(id) { a ->
+            a.copy(values = withHealMode(a.values, clone))
+        }
+        saveProject()
+    }
+
+    /** A tap on an eye with Red-eye: a spot at world ([x], [y]) of [radius]. One undo step. */
+    fun onRedEyeSpot(x: Float, y: Float, radius: Float) {
+        pushHistory()
+        val id = retouchLayer(PhotoTool.RED_EYE)
+        dispatch(EditorIntent.ActivateLayer(id))
+        updateLayerAdjustment(id) { a -> a.copy(redEyeSpots = a.redEyeSpots + RedEyeSpot(x, y, radius)) }
+        saveProject()
+    }
+
+    // ── Local: the selected adjustment layer's mask ─────────────────────────────────────────
+
+    private val _maskOverlay = MutableStateFlow<Bitmap?>(null)
+
+    /** The Local tab's mask overlay (ALPHA_8, the world's size) while it is on, else null. */
+    val maskOverlay: StateFlow<Bitmap?> = _maskOverlay.asStateFlow()
+    private var maskOverlayOn = false
+
+    private val _maskThumbs = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
+
+    /** Each masked adjustment layer's mask as a small ALPHA_8 thumbnail, for its badge in the layers rail. */
+    val maskThumbs: StateFlow<Map<String, Bitmap>> = _maskThumbs.asStateFlow()
+
+    /** The layer Local paints: the selected adjustment layer, or a new Light layer above the selection. */
+    fun localTarget(): Layer? = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId && it.adjustment != null }
+
+    private var maskStrokeLayer: String? = null
+    private var maskStrokeBytes: ByteArray? = null
+    private var maskStroke: Pair<Float, Float>? = null
+
+    /**
+     * A Local stroke begins at world ([x], [y]): one undo step, a new mask revision (copied from
+     * the current one; a layer with no mask yet starts empty for Brush, full for Erase, so its
+     * effect is where it is painted).
+     */
+    @Suppress("LongParameterList")
+    fun onMaskStrokeStart(x: Float, y: Float, radius: Float, feather: Float, flow: Float, erase: Boolean) {
+        pushHistory()
+        val layer = localTarget() ?: run {
+            val id = onPhotoGestureStartNoHistory(PhotoTool.LIGHT)
+            _uiState.value.layers.find { it.id == id }
+        } ?: return
+        val adj = layer.adjustment ?: return
+        val (w, h) = adjustmentWorldSize()
+        val current = adjustmentMasks.get(layer.id, adj.mask.revision)?.takeIf { adj.mask.enabled && it.size == w * h }
+        val bytes = current?.copyOf() ?: ByteArray(w * h) { if (erase) MASK_FULL else 0 }
+        val revision = maxOf(adjustmentMasks.latest(layer.id), adj.mask.revision) + 1
+        adjustmentMasks.put(layer.id, revision, bytes)
+        maskStrokeLayer = layer.id
+        maskStrokeBytes = bytes
+        maskStroke = x to y
+        MaskPaint.dab(bytes, w, h, x, y, radius, feather, flow, erase)
+        setMask(layer.id, adj, adj.mask.copy(enabled = true, revision = revision))
+        refreshMaskViews(layer.id, bytes, w, h)
+    }
+
+    @Suppress("LongParameterList", "ReturnCount")
+    fun onMaskStrokeTo(x: Float, y: Float, radius: Float, feather: Float, flow: Float, erase: Boolean) {
+        val id = maskStrokeLayer ?: return
+        val bytes = maskStrokeBytes ?: return
+        val (x0, y0) = maskStroke ?: return
+        val (w, h) = adjustmentWorldSize()
+        MaskPaint.segment(bytes, w, h, x0, y0, x, y, radius, feather, flow, erase)
+        maskStroke = x to y
+        adjustmentMasks.touch(id)
+        // Kick the renderer: the layer list did not change, but its mask did.
+        adjustmentRenderer.sync(_uiState.value.layers, w, h)
+        refreshMaskViews(id, bytes, w, h)
+    }
+
+    fun onMaskStrokeEnd() {
+        val id = maskStrokeLayer ?: return
+        maskStrokeLayer = null
+        maskStrokeBytes = null
+        maskStroke = null
+        persistMask(id)
+        saveProject()
+    }
+
+    /** From selection: the lasso selection (feathered as it is) becomes the selected layer's mask. One undo step. */
+    @Suppress("ReturnCount")
+    fun onMaskFromSelection() {
+        val selection = _uiState.value.selection ?: run {
+            notify("Make a selection first (the rail's Selection), then use it as the mask", NoticeKind.NOTICE)
+            return
+        }
+        val layer = localTarget() ?: return
+        val adj = layer.adjustment ?: return
+        val (w, h) = adjustmentWorldSize()
+        val path = SelectionMask.bitmapPath(selection, w, h) ?: return
+        val feathered = SelectionMask.featherMask(path, w, h, selection.featherPx)
+        val bitmap = feathered ?: Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { b ->
+            android.graphics.Canvas(b).drawPath(path, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG))
+        }
+        val bytes = AdjustmentMasks.fromBitmap(bitmap, w, h)
+        bitmap.recycle()
+        pushHistory()
+        val revision = maxOf(adjustmentMasks.latest(layer.id), adj.mask.revision) + 1
+        adjustmentMasks.put(layer.id, revision, bytes)
+        setMask(layer.id, adj, adj.mask.copy(enabled = true, revision = revision))
+        refreshMaskViews(layer.id, bytes, w, h)
+        persistMask(layer.id)
+        saveProject()
+    }
+
+    /** Invert: the mask's inverse, as a flag (no pixels change). One undo step. */
+    fun onMaskInvert() {
+        val layer = localTarget() ?: return
+        val adj = layer.adjustment ?: return
+        pushHistory()
+        setMask(layer.id, adj, adj.mask.copy(inverted = !adj.mask.inverted, enabled = true))
+        saveProject()
+    }
+
+    /** The Local tab's Reset: the layer applies everywhere again (the mask is off; undo brings it back). */
+    @Suppress("ReturnCount")
+    fun onMaskReset() {
+        val layer = localTarget() ?: return
+        val adj = layer.adjustment ?: return
+        if (!adj.mask.enabled) return
+        pushHistory()
+        setMask(layer.id, adj, adj.mask.copy(enabled = false, inverted = false))
+        saveProject()
+    }
+
+    /** Overlay: show the selected layer's mask in white over the photo. */
+    fun setMaskOverlay(on: Boolean) {
+        maskOverlayOn = on
+        val layer = localTarget()
+        val mask = layer?.adjustment?.mask?.takeIf { it.enabled }?.let { adjustmentMasks.get(layer.id, it.revision) }
+        val (w, h) = adjustmentWorldSize()
+        _maskOverlay.value = mask?.takeIf { on && it.size == w * h }?.let { AdjustmentMasks.toBitmap(it, w, h) }
+    }
+
+    /** The overlay and the badge thumbnail for [layerId]'s mask. Display only: a failure (memory) skips them. */
+    private fun refreshMaskViews(layerId: String, bytes: ByteArray, w: Int, h: Int) {
+        runCatching {
+            if (maskOverlayOn) _maskOverlay.value = AdjustmentMasks.toBitmap(bytes, w, h)
+            val full = AdjustmentMasks.toBitmap(bytes, w, h)
+            val thumb: Bitmap? = Bitmap.createScaledBitmap(full, MASK_THUMB, MASK_THUMB * h / w.coerceAtLeast(1), true)
+            full.recycle()
+            if (thumb != null) _maskThumbs.value = _maskThumbs.value + (layerId to thumb)
+        }.onFailure { android.util.Log.w("EditorViewModel", "mask preview failed", it) }
+    }
+
+    /** Writes [layerId]'s current mask as a PNG beside the layer files and records it on the layer. */
+    @Suppress("ReturnCount")
+    private fun persistMask(layerId: String) {
+        val adj = _uiState.value.layers.find { it.id == layerId }?.adjustment ?: return
+        val bytes = adjustmentMasks.get(layerId, adj.mask.revision) ?: return
+        val (w, h) = adjustmentWorldSize()
+        val projectId = _uiState.value.projectId ?: return
+        viewModelScope.launch(dispatchers.io) {
+            // A failed save (storage, memory) keeps the mask in memory for this session and logs.
+            val path = runCatching {
+                val png = AdjustmentMasks.toPngBitmap(bytes, w, h)
+                val name = "mask_${layerId}_${adj.mask.revision}.png"
+                val bytesOut = ImageUtils.bitmapToByteArray(png)
+                png.recycle()
+                projectRepository.saveArtifact(projectId, name, bytesOut)
+            }.onFailure { android.util.Log.w("EditorViewModel", "mask save failed", it) }.getOrNull()
+            if (path != null) withContext(dispatchers.main) {
+                updateLayerAdjustment(layerId) { it.copy(mask = it.mask.copy(file = "file://$path")) }
+                saveProject()
+            }
+        }
+    }
+
+    /** On project load: each adjustment layer's saved mask into the store, at its revision. */
+    private fun loadAdjustmentMasks(layers: List<Layer>) {
+        val (w, h) = adjustmentWorldSize()
+        val withMasks = layers.filter { it.adjustment?.mask?.file != null }
+        if (withMasks.isEmpty()) return
+        viewModelScope.launch(dispatchers.io) {
+            withMasks.forEach { layer ->
+                val mask = layer.adjustment?.mask ?: return@forEach
+                val bitmap = ImageUtils.loadBitmapAsync(context, mask.file!!.toUri()) ?: return@forEach
+                val bytes = AdjustmentMasks.fromBitmap(bitmap, w, h)
+                bitmap.recycle()
+                adjustmentMasks.put(layer.id, mask.revision, bytes)
+                withContext(dispatchers.main) { refreshMaskViews(layer.id, bytes, w, h) }
+            }
+            withContext(dispatchers.main) { adjustmentRenderer.sync(_uiState.value.layers, w, h) }
         }
     }
 
@@ -1939,6 +2236,7 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetCanvasSubstrate(project.canvasSubstrateId))
                         dispatch(EditorIntent.SetSavedSelections(project.savedSelections))
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
+                        loadAdjustmentMasks(layers)
                         restoreModel(project)
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }

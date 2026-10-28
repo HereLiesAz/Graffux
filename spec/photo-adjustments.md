@@ -1,6 +1,6 @@
 # Photo adjustment layers
 
-Status: implemented (Light, Color, HSL, Curves + Levels, Detail, Effects, Crop). The tabs still to come are listed under "Tabs".
+Status: implemented (every tab: Light, Color, HSL, Curves + Levels, Detail, Effects, Crop, Heal, Red-eye, Local). The tabs still to come are listed under "Tabs".
 Source of truth for the UI: the approved "Graffux UI Rework" canvas, boards PhotoEntry …
 PhotoDesktop and their notes.
 
@@ -175,3 +175,43 @@ applied after the transform as a clip.
   of the artboard.
 - Not done: the frame does not constrain itself to stay inside the straightened image (Lightroom's
   "constrain to image"). Straightening can leave empty corners until the frame is pulled in.
+
+### Heal and Red-eye
+
+Each has **one** layer that holds all of its spots (`PhotoAdjustment.healSpots`,
+`redEyeSpots`). The first spot creates the layer above the selected one; later spots go on the same
+layer wherever it is. These layers do no shader work. The renderer writes only their spots, from
+the composite below, with `RetouchMath` on the CPU. That happens once per change, and a spot is
+small.
+
+- Heal applies the Clone tool's idea (copy from an offset) content-aware. `autoSource` picks a
+  source 2.2 to 3.6 radii away in 16 directions, whichever ring of pixels best matches the spot's
+  own ring. The patch is then shifted by the difference between the two rings' mean colours, so a
+  lighter source lands at the target's brightness. Clone mode (the chip) copies as is. The overlay
+  draws the target (solid) and the source (dashed) with a line between them. Drag the dashed ring
+  to re-pick. Brushing over an area heals the circle that holds the brushed path. Size, Feather and
+  Opacity shape the next spot.
+- Red-eye: tap each eye. Inside the circle, red becomes the mean of green and blue wherever red
+  clearly leads (r > 1.4 × both); the outer 30% fades.
+
+### Local (masks)
+
+Local paints the mask of the selected adjustment layer. With none selected, the first stroke makes
+a Light layer. Masks are one byte per world pixel in `AdjustmentMasks`, keyed by layer and
+revision. Each stroke makes a new revision. The layer's `AdjustmentMask.revision` says which
+revision it uses, so undo and redo simply move between revisions. 12 revisions are kept per layer.
+
+- Brush adds and Erase removes, both with a soft disc (`MaskPaint.dab`, Flow builds up across
+  passes). A layer's first Brush stroke starts from an empty mask, so the effect is only where it is
+  painted. A first Erase starts from a full mask.
+- From selection rasterises the lasso selection (`SelectionMask`, with its feather). Invert flips a
+  flag; no pixels change. Reset turns the mask off.
+- The overlay draws the mask in white over the photo. The layer's tile gets a badge: a real
+  thumbnail of the mask at its bottom-left.
+- The GPU multiplies by the mask (`set_mask` is uploaded once per change of revision or stroke
+  generation). The CPU paths do the same.
+- Saving: the mask is written as a PNG beside the layer files (`mask_<layer>_<revision>.png`, white
+  with the mask as alpha) and recorded in `AdjustmentMask.file`. On load it is read back and scaled
+  to this screen's world size.
+- Limit: while the Heal, Red-eye or Local overlay is up, it takes every touch on the canvas,
+  two-finger pan and zoom included.
