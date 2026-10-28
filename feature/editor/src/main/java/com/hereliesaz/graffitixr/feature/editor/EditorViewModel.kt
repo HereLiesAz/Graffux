@@ -11380,7 +11380,7 @@ class EditorViewModel @Inject constructor(
             flat.filterNot { it.isContainer || it.isAdjustment }, screen, canvasWidth, canvasHeight,
             st.viewportOffset, st.viewportZoom, st.viewportRotation,
         ).firstOrNull { id -> ops.showsAt(st.layers, id, world) }?.let { return it }
-        ops.frameAt(st.layers, world)?.takeIf { ops.showsAt(st.layers, it.id, world) }?.let { return it.id }
+        ops.frameAt(st.layers, world)?.let { return it.id }
         val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
         return com.hereliesaz.graffitixr.common.model.FrameOps
             .labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)?.id

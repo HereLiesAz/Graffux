@@ -138,12 +138,18 @@ internal object LayerListOps {
     fun ungroup(layers: List<Layer>, groupId: String): List<Layer> {
         // A frame dissolves too (a sized group from an older file became one), its children kept
         // where they are on screen as they move out of its transform.
+        // The released subtrees take the frame's place in the stack, in their own order, so what
+        // overlapped what is unchanged.
         layers.find { it.id == groupId && it.type == LayerType.FRAME }?.let { frame ->
+            val ops = com.hereliesaz.graffitixr.common.model.FrameOps
             var out = layers
-            layers.filter { it.parentId == groupId }.forEach {
-                out = com.hereliesaz.graffitixr.common.model.FrameOps.reparent(out, it.id, frame.parentId)
-            }
-            return out.filterNot { it.id == groupId }
+            layers.filter { it.parentId == groupId }.forEach { out = ops.reparent(out, it.id, frame.parentId) }
+            val inFrame = layers.filter { ops.isDescendant(layers, it, groupId) }.map { it.id }.toSet()
+            val subtree = { l: Layer -> l.id in inFrame }
+            val released = out.filter(subtree)
+            val rest = out.filterNot { it.id == groupId || subtree(it) }
+            val at = layers.takeWhile { it.id != groupId }.count { !subtree(it) }
+            return rest.take(at) + released + rest.drop(at)
         }
         val group = layers.find { it.id == groupId && it.type == LayerType.GROUP } ?: return layers
         return layers.mapNotNull {

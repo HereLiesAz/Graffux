@@ -141,13 +141,18 @@ object FrameOps {
 
     /** The topmost visible frame whose box contains [world], or null. */
     fun frameAt(layers: List<Layer>, world: Offset, except: String? = null): Layer? =
-        layers.asReversed().firstOrNull { it.isFrame && it.isVisible && it.id != except && contains(layers, it, world) }
+        // showsAt, not just the frame's own flag: a frame under a hidden parent, or clipped away by
+        // one, is passed over and the frame beneath it is tried.
+        layers.asReversed().firstOrNull { it.isFrame && it.id != except && contains(layers, it, world) && showsAt(layers, it.id, world) }
 
-    /** The topmost visible frame whose name label (above its top-left corner) contains [world]. */
+    /**
+     * The topmost visible frame whose name label contains [world]: [labelWidth] x [labelHeight]
+     * above its top-left corner, the corner turned with the frame, as the overlay draws it.
+     */
     fun labelAt(layers: List<Layer>, world: Offset, labelHeight: Float, labelWidth: Float): Layer? =
         layers.asReversed().firstOrNull { f ->
-            f.isFrame && f.isVisible && f.parentId == null && boxOf(layers, f).let { b ->
-                world.x in b.x..(b.x + labelWidth) && world.y in (b.y - labelHeight)..b.y
+            f.isFrame && f.isVisible && f.parentId == null && corners(layers, f).first().let { tl ->
+                world.x in tl.x..(tl.x + labelWidth) && world.y in (tl.y - labelHeight)..tl.y
             }
         }
 

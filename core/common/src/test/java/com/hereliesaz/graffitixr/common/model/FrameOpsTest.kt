@@ -216,4 +216,20 @@ class FrameOpsTest {
         assertFalse(FrameOps.showsAt(layers, "b", Offset(350f, 50f)))
         assertFalse(FrameOps.showsAt(layers.map { if (it.id == "a") it.copy(isVisible = false) else it }, "a", Offset(50f, 50f)))
     }
+
+    @Test
+    fun `a frame under a hidden parent is passed over for the one beneath`() {
+        val below = frame("below", 0f, 0f, 300f, 300f)
+        val hiddenParent = frame("hp", 0f, 0f, 300f, 300f).copy(isVisible = false)
+        val nested = frame("nested", 0f, 0f, 100f, 100f).copy(parentId = "hp", offset = Offset(-100f, -100f))
+        assertEquals("below", FrameOps.frameAt(listOf(below, hiddenParent, nested), Offset(50f, 50f))?.id)
+    }
+
+    @Test
+    fun `a turned frame's label is found at its turned corner`() {
+        // 200 x 100 about the origin, a quarter turn: its top-left corner is at (50, -100).
+        val f = frame("f", -100f, -50f, 200f, 100f).copy(rotationZ = 90f)
+        assertEquals("f", FrameOps.labelAt(listOf(f), Offset(60f, -105f), labelHeight = 16f, labelWidth = 80f)?.id)
+        assertNull(FrameOps.labelAt(listOf(f), Offset(-90f, -55f), labelHeight = 16f, labelWidth = 80f))
+    }
 }
