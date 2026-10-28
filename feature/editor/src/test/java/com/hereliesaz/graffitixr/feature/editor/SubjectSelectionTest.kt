@@ -175,4 +175,35 @@ class SubjectSelectionTest {
 
         assertNull(vm.uiState.value.selection)
     }
+
+    @Test
+    fun `a tall thin layer maps each axis back by its own ratio`() {
+        // 100 × 10000 is segmented at 12 × 1280: x and y scale by different ratios.
+        val layer = photo(100, 10000)
+        useLayers(layer, active = "photo")
+        val fake = BoxSegmenter(0f, 0.5f, 1f, 1f)
+        vm.subjectSegmenter = fake
+
+        vm.onSelectSubject()
+
+        assertEquals(12 to 1280, fake.seen)
+        val pts = vm.uiState.value.selection!!.rings.flatMap { it.path }
+        // The subject runs to the bitmap's bottom edge, not past it.
+        near(screenOf(layer, 50f, 10000f).let { Offset(0f, it.y) }, Offset(0f, pts.maxOf { it.y }), 2f)
+        near(screenOf(layer, 50f, 5000f).let { Offset(0f, it.y) }, Offset(0f, pts.minOf { it.y }), 2f)
+    }
+
+    @Test
+    fun `a result traced before the canvas changed size is dropped`() {
+        useLayers(photo(64, 64), active = "photo")
+        val fake = BoxSegmenter(0.25f, 0.25f, 0.75f, 0.75f).apply { gate = CompletableDeferred() }
+        vm.subjectSegmenter = fake
+
+        vm.onSelectSubject()
+        vm.dispatchForTest(EditorIntent.SetCanvasSize(IntSize(300, 120)))
+        fake.gate!!.complete(Unit)
+
+        assertNull(vm.uiState.value.selection)
+        assertFalse(vm.uiState.value.isLoading)
+    }
 }
