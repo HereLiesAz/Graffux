@@ -5,17 +5,20 @@ package com.hereliesaz.graffux.desktop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -32,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -45,21 +49,29 @@ internal val RailFill = Color(0xE6161618)
 internal val RailBorder = Color(0xFF2A2A2E)
 internal val RailWidth = 56.dp
 internal val RailGap = 8.dp
+
+/** The mockup's corner: 12 from the side, 16 from the top. */
+internal val RailSideInset = 12.dp
+internal val RailTopInset = 16.dp
+private val RailInk = Color(0xFFEDEDED)
+private val ShortcutInk = Color(0xFF8A8A90)
 private val PillShape = RoundedCornerShape(RailWidth / 2)
-private val ButtonShape = RoundedCornerShape(12.dp)
+private val ButtonShape = CircleShape
 private val MenuShape = RoundedCornerShape(14.dp)
 
 @Composable
 internal fun RailPill(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
         modifier = modifier
             .width(RailWidth)
             .clip(PillShape)
             .background(RailFill)
             .border(1.dp, RailBorder, PillShape)
             .verticalScroll(rememberScrollState())
-            .padding(vertical = 6.dp),
+            // 6 inside the 1dp border.
+            .padding(vertical = 7.dp),
         content = content,
     )
 }
@@ -87,7 +99,6 @@ internal fun RailButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .padding(vertical = 2.dp)
             .size(44.dp)
             .clip(ButtonShape)
             .background(if (active) accent.copy(alpha = 0.22f) else Color.Transparent)
@@ -97,15 +108,18 @@ internal fun RailButton(
                 contentDescription = label
                 selected = active
             }
-            .alpha(if (enabled) 1f else 0.35f),
+            .alpha(if (enabled) 1f else 0.3f),
     ) {
         RailButtonContent(icon, text)
         if (shortcut != null) {
+            // The mockup's key label: mono 9, grey, hanging 2 past the button's bottom-right.
             Text(
                 shortcut,
-                color = Color.White.copy(alpha = 0.7f),
+                color = ShortcutInk,
                 fontSize = 9.sp,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 3.dp, bottom = 1.dp),
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp),
             )
         }
     }
@@ -114,8 +128,8 @@ internal fun RailButton(
 @Composable
 private fun BoxScope.RailButtonContent(icon: Painter?, text: String?) {
     when {
-        icon != null -> Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-        text != null -> Text(text, color = Color.White, fontSize = 12.sp, maxLines = 1)
+        icon != null -> Icon(icon, contentDescription = null, tint = RailInk, modifier = Modifier.size(22.dp))
+        text != null -> Text(text, color = RailInk, fontSize = 12.sp, maxLines = 1)
     }
 }
 

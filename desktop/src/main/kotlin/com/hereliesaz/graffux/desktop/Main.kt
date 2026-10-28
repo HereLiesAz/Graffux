@@ -305,7 +305,10 @@ private fun GraffuxDesktopApp(
         }
         // The rail: one button per bundled brush set (its list opens beside it), then the canvas
         // actions, each with the key that does the same thing in its corner.
-        Row(Modifier.align(Alignment.CenterStart).padding(RailGap), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.align(Alignment.TopStart).padding(start = RailSideInset, top = RailTopInset, bottom = RailGap),
+            verticalAlignment = Alignment.Top,
+        ) {
             RailPill {
                 BuiltInBrushes.sets.forEach { set ->
                     RailButton(
@@ -316,8 +319,8 @@ private fun GraffuxDesktopApp(
                     )
                 }
                 RailDivider()
-                RailButton("Undo", { canvasState.undo() }, icon = undoIcon, enabled = canvasState.canUndo, shortcut = "Z")
-                RailButton("Redo", { canvasState.redo() }, icon = redoIcon, enabled = canvasState.canRedo, shortcut = "Y")
+                RailButton("Undo", { canvasState.undo() }, icon = undoIcon, enabled = canvasState.canUndo, shortcut = "^Z")
+                RailButton("Redo", { canvasState.redo() }, icon = redoIcon, enabled = canvasState.canRedo, shortcut = "⇧^Z")
                 RailButton("Clear", { canvasState.clear() }, icon = clearIcon, enabled = canvasState.committed != null)
                 RailButton(
                     "Save",
@@ -330,7 +333,7 @@ private fun GraffuxDesktopApp(
                     },
                     icon = saveIcon,
                     enabled = canvasState.committed != null,
-                    shortcut = "S",
+                    shortcut = "^S",
                 )
                 // Reopens the tool-options panel once its own close button has been used.
                 RailButton("Tool Options", { showToolOptions = true }, icon = brushIcon, active = showToolOptions)

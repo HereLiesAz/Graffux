@@ -14,11 +14,13 @@ import androidx.compose.ui.unit.Density
  * no meaning on desktop, so this loads the same source SVGs directly instead.
  */
 object GraffuxDesktopIcons {
+    // Undo and Redo are the rail mockup's own glyphs (rail-undo/rail-redo.svg), the same paths
+    // Android's RailIcons draws.
     @Composable
-    fun undo(): Painter = svgPainter("icons/undo.svg")
+    fun undo(): Painter = svgPainter("icons/rail-undo.svg")
 
     @Composable
-    fun redo(): Painter = svgPainter("icons/redo.svg")
+    fun redo(): Painter = svgPainter("icons/rail-redo.svg")
 
     @Composable
     fun clear(): Painter = svgPainter("icons/clear-history.svg")

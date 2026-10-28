@@ -88,7 +88,6 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LinkOps
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
-import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ProjectFile
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.ShapeKind
@@ -666,8 +665,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val toolRailActions = remember(vm) { vm.toolRailActions() }
     val toolSide = if (uiState.isRightHanded) Alignment.CenterStart else Alignment.CenterEnd
     val layerSide = if (uiState.isRightHanded) Alignment.CenterEnd else Alignment.CenterStart
-    // The rails sit between the logo row and the bottom swipe strip, and scroll when taller.
-    val railPadding = Modifier.padding(horizontal = RailEdgeGap, vertical = RailWidth + RailEdgeGap * 2)
+    val toolCorner = if (uiState.isRightHanded) Alignment.TopStart else Alignment.TopEnd
+    val layerCorner = if (uiState.isRightHanded) Alignment.TopEnd else Alignment.TopStart
+    // The rails hang from the top as the mockup has them: the tool rail 16 from the top and 12 from
+    // its side, the layers rail under the logo (top 72), each as tall as its buttons and scrolling
+    // only if it would reach the bottom swipe strip. Whichever rail shares the logo's (right) side
+    // is the one that drops below it.
+    val railBottom = RailWidth + RailEdgeGap * 2
+    val toolTop = if (uiState.isRightHanded) RailTopInset else LayersRailTopInset
+    val layersTop = if (uiState.isRightHanded) LayersRailTopInset else RailTopInset
+    val toolRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = toolTop, bottom = railBottom)
+    val layersRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = layersTop, bottom = railBottom)
     val besideRail = RailWidth + RailEdgeGap * 2
     CompositionLocalProvider(LocalRailInset provides railInset, LocalChromeHidden provides { chrome.hidden }) {
     Box(
@@ -942,7 +950,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         },
                         onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
                     ),
-                    modifier = Modifier.align(toolSide).then(railPadding),
+                    modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
                 if (brushMenuOpen) {
                     MenuPanel(
@@ -976,15 +984,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             onExpand = { id, open -> vm.onRailHostExpansionChanged(id, open) },
                             onRelocate = { order, parentId -> vm.onLayerRailRelocated(order, parentId) },
                             onAdd = { vm.onAddBlankLayer() },
-                            onDeleteActive = {
-                                uiState.activeLayerId?.let { activeId ->
-                                    val active = uiState.layers.firstOrNull { it.id == activeId }
-                                    if (active?.type == LayerType.GROUP) vm.onDeleteGroup(activeId)
-                                    else vm.onLayerRemoved(activeId)
-                                }
-                            },
                         ),
-                        modifier = Modifier.align(layerSide).then(railPadding),
+                        modifier = Modifier.align(layerCorner).then(layersRailPadding),
                     )
                 }
                 layerMenuFor?.let { id -> uiState.layers.firstOrNull { it.id == id } }?.let { layer ->
@@ -1128,7 +1129,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             listItem("About") { showAbout = true }
                         }
                     },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(RailEdgeGap),
+                    modifier = Modifier.align(Alignment.TopEnd),
                 )
 
                 // The tools you actually reach for, one swipe from the bottom edge: the flat row of

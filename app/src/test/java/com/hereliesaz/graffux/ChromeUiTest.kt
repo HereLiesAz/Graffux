@@ -104,7 +104,7 @@ class ChromeUiTest {
                             lit = activeRailClassifiers(RailClassifierInputs(uiState, emptyList(), emptyList(), false)),
                             secondary = emptySet(),
                             callbacks = ToolRailCallbacks({ calls += "options" }, { calls += "group:$it" }, { calls += "brushMenu" }),
-                            modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
+                            modifier = Modifier.align(Alignment.TopStart).padding(start = RailSideInset, top = RailTopInset),
                         )
                         LayersRail(
                             layers = uiState.layers,
@@ -117,15 +117,14 @@ class ChromeUiTest {
                                 onExpand = { _, _ -> },
                                 onRelocate = { order, parent -> relocated = order to parent },
                                 onAdd = { calls += "add" },
-                                onDeleteActive = { calls += "delete" },
                             ),
-                            modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(end = RailSideInset, top = LayersRailTopInset),
                         )
                         LogoMenu(
                             open = logoOpen,
                             onOpenChange = { logoOpen = it },
                             rows = buildMenu { listItem("Settings") {} },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                            modifier = Modifier.align(Alignment.TopEnd),
                         )
                     }
                     CarouselSheet(
@@ -165,6 +164,8 @@ class ChromeUiTest {
 
     @Test
     fun `the rails render and their buttons reach the editor`() {
+        // The open menu drops over the layers rail (as in the mockup), so start with it shut.
+        logoOpen = false
         compose()
         screenshot("1-rails")
         assertTrue(shown("rail.tools"))
