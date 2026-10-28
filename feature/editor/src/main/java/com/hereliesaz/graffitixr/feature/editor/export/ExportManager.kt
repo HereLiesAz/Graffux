@@ -52,12 +52,24 @@ fun artboardRect(canvasW: Int, canvasH: Int, docW: Int, docH: Int): FloatArray {
  */
 class ExportManager @Inject constructor() {
 
+    /**
+     * Renders a photo adjustment layer over what is beneath it: (the composite below, the layer)
+     * to the adjusted image times its mask. Set by the editor (`AdjustmentLayerRenderer.renderNow`,
+     * GPU where there is one); null draws the layer's last live render instead, which is the same
+     * image whenever it is current.
+     */
+    @Volatile var adjustmentRenderer: ((Bitmap, Layer) -> Bitmap?)? = null
+
+    @Suppress("LongParameterList")
     fun compositeLayers(
         layers: List<Layer>,
         screenWidth: Int,
         screenHeight: Int,
         backgroundBitmap: Bitmap? = null,
-        backgroundColor: Int = android.graphics.Color.TRANSPARENT
+        backgroundColor: Int = android.graphics.Color.TRANSPARENT,
+        // False draws adjustment layers from their live renders rather than rendering them anew:
+        // what the live renderer itself wants when compositing the layers under one.
+        renderAdjustments: Boolean = true,
     ): Bitmap {
         val result = Bitmap.createBitmap(screenWidth, screenHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
@@ -90,20 +102,34 @@ class ExportManager @Inject constructor() {
         // to the whole child stack, matching the live Compose LayerStackNode) rather than each child
         // painting individually at full strength straight onto the export — the flat forEach this
         // replaced didn't know groups existed at all.
-        drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight)
+        drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight, result.takeIf { renderAdjustments })
         return result
     }
 
-    private fun drawNodes(canvas: Canvas, nodes: List<LayerNode>, w: Int, h: Int) {
-        for (node in nodes) drawNode(canvas, node, w, h)
+    private fun drawNodes(canvas: Canvas, nodes: List<LayerNode>, w: Int, h: Int, target: Bitmap?) {
+        for (node in nodes) drawNode(canvas, node, w, h, target)
     }
 
-    private fun drawNode(canvas: Canvas, node: LayerNode, w: Int, h: Int) {
+    @Suppress("ReturnCount")
+    private fun drawNode(canvas: Canvas, node: LayerNode, w: Int, h: Int, target: Bitmap?) {
         val layer = node.layer
         if (!layer.isVisible) return
+        if (layer.adjustment != null && target != null) {
+            // Rendered from what this canvas holds so far: the layers beneath it in its parent.
+            val adjusted = adjustmentRenderer?.invoke(target, layer)
+            if (adjusted != null) {
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+                    alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                    blendMode = layer.blendMode.toNativeBlendMode()
+                }
+                canvas.drawBitmap(adjusted, null, android.graphics.Rect(0, 0, w, h), paint)
+                adjusted.recycle()
+                return
+            }
+        }
         if (layer.type == LayerType.GROUP) {
             val groupBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            drawNodes(Canvas(groupBmp), node.children, w, h)
+            drawNodes(Canvas(groupBmp), node.children, w, h, groupBmp.takeIf { target != null })
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                 blendMode = layer.blendMode.toNativeBlendMode()

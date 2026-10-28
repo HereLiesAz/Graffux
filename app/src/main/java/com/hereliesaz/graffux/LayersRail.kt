@@ -216,7 +216,8 @@ internal fun LayersRail(
 @Composable
 private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded: Boolean) {
     val isGroup = layer.type == LayerType.GROUP
-    val label = layer.name + (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else "")
+    val label = layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
+        (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else "")
     Box(contentAlignment = Alignment.CenterStart) {
         Box(
             modifier = Modifier
@@ -247,8 +248,21 @@ private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded
                     .alpha(if (layer.isVisible) 1f else HIDDEN_ALPHA),
             ) {
                 val bitmap = layer.bitmap
+                val adjustment = layer.adjustment
                 when {
                     isGroup -> RailGlyph(GraffuxIcons.LayerGroup)
+                    // An adjustment layer shows its tool's glyph, not its render (the mockup).
+                    adjustment != null -> Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize().background(AdjustmentTileFill),
+                    ) {
+                        Icon(
+                            photoToolGlyph(adjustment.tool),
+                            contentDescription = null,
+                            tint = RailInk,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                     bitmap != null -> Image(
                         painter = BitmapPainter(bitmap.asImageBitmap()),
                         contentDescription = null,
@@ -283,6 +297,22 @@ private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded
         }
     }
 }
+
+/** An adjustment layer's glyph on its tile (RailIcons; the mockup draws Light, Color, Curves, Heal). */
+internal fun photoToolGlyph(tool: com.hereliesaz.graffitixr.common.photo.PhotoTool): androidx.compose.ui.graphics.vector.ImageVector =
+    when (tool) {
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.LIGHT -> RailIcons.Adjust
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.COLOR,
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.HSL -> RailIcons.ColorHalf
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.CURVES -> RailIcons.Curve
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.DETAIL -> RailIcons.Detail
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.EFFECTS -> RailIcons.Effects
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.HEAL -> RailIcons.Heal
+        com.hereliesaz.graffitixr.common.photo.PhotoTool.RED_EYE -> RailIcons.Eye
+    }
+
+/** Behind an adjustment layer's glyph. */
+private val AdjustmentTileFill = Color(0xFF232326)
 
 private val ThumbShape = RoundedCornerShape(12.dp)
 private val ThumbInnerShape = RoundedCornerShape(8.dp)

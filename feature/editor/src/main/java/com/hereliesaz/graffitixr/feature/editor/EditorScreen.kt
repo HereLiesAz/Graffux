@@ -230,7 +230,16 @@ fun EditorScreen(
                             )
                         }
                         // 1. Layer stack render.
-                        val layerTree = remember(uiState.layers) { buildLayerTree(uiState.layers) }
+                        // Hold-to-compare (the photo sheet) drops the adjustment layers: the photo as it was.
+                        val layerTree = remember(uiState.layers, uiState.photoCompare) {
+                            buildLayerTree(
+                                if (uiState.photoCompare) {
+                                    uiState.layers.filter { it.adjustment == null }
+                                } else {
+                                    uiState.layers
+                                },
+                            )
+                        }
                         // Animation Assist: every top-level layer is a frame, so only the active
                         // frame draws at full strength and neighbours fade in as onion skins. Off
                         // (the normal editor), every frame stays at 1 and this is a no-op.

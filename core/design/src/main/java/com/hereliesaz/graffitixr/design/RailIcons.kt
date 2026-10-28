@@ -67,6 +67,84 @@ object RailIcons {
 
     val Redo: ImageVector by lazy { stroked("rail.redo", "M15 14l5-5-5-5", "M20 9H10a6 6 0 000 12h3") }
 
+    /**
+     * Adjust photo: two slider lines with their knobs (stroke 1.8, round caps). The circles are
+     * written as two arcs each.
+     */
+    val Adjust: ImageVector by lazy {
+        stroked(
+            "rail.adjust",
+            "M4 7h9M19 7h1M4 17h3M13 17h7",
+            "M13.5 7a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0z",
+            "M7.5 17a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0z",
+            round = true,
+        )
+    }
+
+    /**
+     * Hold to compare: a rounded square split down the middle, its right half filled. Drawn 20dp
+     * in `#B4B4BA` in the photo sheet's header.
+     */
+    val Compare: ImageVector by lazy {
+        ImageVector.Builder("photo.compare", 24.dp, 24.dp, 24f, 24f).apply {
+            addPath(
+                pathData = addPathNodes("M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z"),
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = STROKE,
+            )
+            addPath(pathData = addPathNodes("M12 4v16"), stroke = SolidColor(Color.White), strokeLineWidth = STROKE)
+            addPath(
+                pathData = addPathNodes("M12 4h6a2 2 0 012 2v12a2 2 0 01-2 2h-6z"),
+                fill = SolidColor(Color.White),
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = STROKE,
+            )
+        }.build()
+    }
+
+    /** A Heal layer's tile: a circle with a plus (round caps). */
+    val Heal: ImageVector by lazy {
+        stroked("photo.heal", "M5 12a7 7 0 1 0 14 0a7 7 0 1 0 -14 0z", "M12 9v6M9 12h6", round = true)
+    }
+
+    /** A Curves layer's tile: one S-curve (round caps). */
+    val Curve: ImageVector by lazy { stroked("photo.curve", "M4 20C10 20 14 4 20 4", round = true) }
+
+    /** A Color (and HSL) layer's tile: a circle, its right half filled. */
+    val ColorHalf: ImageVector by lazy {
+        ImageVector.Builder("photo.color", 24.dp, 24.dp, 24f, 24f).apply {
+            addPath(
+                pathData = addPathNodes("M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0z"),
+                stroke = SolidColor(Color.White),
+                strokeLineWidth = STROKE,
+            )
+            addPath(pathData = addPathNodes("M12 4a8 8 0 010 16z"), fill = SolidColor(Color.White))
+        }.build()
+    }
+
+    /** A Detail layer's tile (not drawn in the mockup): a sharp zigzag edge. */
+    val Detail: ImageVector by lazy { stroked("photo.detail", "M3 14h4l3-6 4 10 3-6h4", round = true) }
+
+    /** An Effects layer's tile (not drawn in the mockup): a vignetted frame. */
+    val Effects: ImageVector by lazy {
+        stroked(
+            "photo.effects",
+            "M6 4h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2z",
+            "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0z",
+            round = true,
+        )
+    }
+
+    /** A Red-eye layer's tile (not drawn in the mockup): an eye. */
+    val Eye: ImageVector by lazy {
+        stroked(
+            "photo.eye",
+            "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z",
+            "M9.5 12a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0z",
+            round = true,
+        )
+    }
+
     /** New layer. */
     val Plus: ImageVector by lazy { stroked("rail.plus", "M12 5v14M5 12h14") }
 

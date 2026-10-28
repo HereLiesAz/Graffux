@@ -52,6 +52,28 @@ internal object LayerListOps {
     const val RAIL_LAYER_PREFIX = "layer."
 
     /** Applies [transform] to the layer with [id], leaving every other layer untouched. */
+    /**
+     * [layer] placed directly above [aboveId]: in the same parent, after it and (for a group) after
+     * everything inside it, so it composites right over that layer. With no [aboveId], or one not in
+     * [layers], it goes on top. The list is bottom-first, as the editor keeps it.
+     */
+    fun insertAbove(layers: List<Layer>, layer: Layer, aboveId: String?): List<Layer> {
+        val anchor = layers.indexOfFirst { it.id == aboveId }
+        if (anchor < 0) return layers + layer.copy(parentId = null)
+        val byId = layers.associateBy { it.id }
+        fun inside(l: Layer): Boolean {
+            var p = l.parentId
+            val seen = HashSet<String>()
+            while (p != null && seen.add(p)) {
+                if (p == aboveId) return true
+                p = byId[p]?.parentId
+            }
+            return false
+        }
+        val last = layers.indices.filter { it == anchor || inside(layers[it]) }.max()
+        return layers.toMutableList().apply { add(last + 1, layer.copy(parentId = layers[anchor].parentId)) }
+    }
+
     fun mapLayer(layers: List<Layer>, id: String, transform: (Layer) -> Layer): List<Layer> =
         layers.map { if (it.id == id) transform(it) else it }
 

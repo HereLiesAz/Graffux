@@ -150,7 +150,7 @@ class ProjectManager @Inject constructor(
 
         return@withContext try {
             val jsonString = projectFile.readText()
-            val decoded = json.decodeFromString<GraffitiProject>(jsonString)
+            val decoded = decodeProject(jsonString)
             // Persist the migration only on a full load — loadProjectMetadata stays read-only.
             val projectData = migrateAndPersist(context, decoded)
 
@@ -172,7 +172,7 @@ class ProjectManager @Inject constructor(
 
         return@withContext try {
             val jsonString = projectFile.readText()
-            val project = json.decodeFromString<GraffitiProject>(jsonString)
+            val project = decodeProject(jsonString)
             // In-memory migration only: this is a read path (dashboard listing) and must not
             // write to disk — the persisted migration happens in loadProject.
             migrateInMemory(project)
@@ -180,6 +180,40 @@ class ProjectManager @Inject constructor(
             Log.e("ProjectManager", "Failed to load project metadata", e)
             null
         }
+    }
+
+    /**
+     * Decodes a project.json, reading its `formatVersion` first (a file without one is
+     * [LEGACY_FORMAT_VERSION]) and migrating it to [CURRENT_FORMAT_VERSION] with [migrateFormat].
+     * A file from a newer build is opened as far as this one understands it (unknown keys are
+     * ignored), and logged.
+     */
+    internal fun decodeProject(text: String): GraffitiProject {
+        val element = json.parseToJsonElement(text)
+        val version = (element as? kotlinx.serialization.json.JsonObject)
+            ?.get("formatVersion")
+            ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+            ?: LEGACY_FORMAT_VERSION
+        if (version > CURRENT_FORMAT_VERSION) {
+            Log.w("ProjectManager", "project.json format $version is newer than $CURRENT_FORMAT_VERSION")
+        }
+        return migrateFormat(json.decodeFromJsonElement(GraffitiProject.serializer(), element), version)
+    }
+
+    /**
+     * Brings a project decoded from format [fromVersion] to [CURRENT_FORMAT_VERSION], one step per
+     * version. 1 -> 2 (photo adjustment layers): a version 1 file has no adjustment layers and no
+     * key that changed meaning, so the step only records the new version; it is written back on
+     * the next save. Never lowers a newer version.
+     */
+    internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
+        var version = fromVersion
+        var migrated = project
+        if (version < 2) {
+            migrated = migrated.copy(layers = migrated.layers.map { it.copy(adjustment = null) })
+            version = 2
+        }
+        return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
 
     /**
@@ -412,7 +446,7 @@ class ProjectManager @Inject constructor(
     private fun parseArchiveProject(extracted: ExtractedArchive): GraffitiProject? {
         val project = extracted.projectJson?.let {
             try {
-                json.decodeFromString<GraffitiProject>(it)
+                decodeProject(it)
             } catch (e: Exception) {
                 Log.e("ProjectManager", "Failed to parse project.json", e)
                 null
@@ -450,7 +484,7 @@ class ProjectManager @Inject constructor(
             requireNotNull(extracted.projectJson).replace("/projects/${original.id}/", "/projects/$newId/"),
             "file://${projectsDir.absolutePath}/$newId/",
         )
-        val project = json.decodeFromString<GraffitiProject>(localized).copy(id = newId)
+        val project = decodeProject(localized).copy(id = newId)
         val projectJsonOverride: String? = json.encodeToString(project)
         val destDir = File(projectsDir, project.id)
         val staging = File(context.filesDir, "import_staging/${java.util.UUID.randomUUID()}")

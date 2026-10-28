@@ -723,3 +723,147 @@ mod tests {
         assert!(records::<GpuDab>(&[]).is_some_and(|r| r.is_empty()));
     }
 }
+
+// ── Photo adjustment layers (`adjust.rs`) ───────────────────────────────────────────────────────
+// Handles are `Box<Adjuster>` pointers, separate from the engine's.
+
+use crate::adjust::Adjuster;
+
+unsafe fn adjuster<'a>(handle: jlong) -> Option<&'a mut Adjuster> {
+    (handle as *mut Adjuster).as_mut()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustCreate(
+    _env: EnvUnowned,
+    _class: JClass,
+    width: jint,
+    height: jint,
+    backend: jint,
+) -> jlong {
+    catch_unwind(
+        || match Adjuster::new(width, height, BackendChoice::from_id(backend)) {
+            Some(a) => Box::into_raw(Box::new(a)) as jlong,
+            None => 0,
+        },
+    )
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustDestroy(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) {
+    if handle != 0 {
+        // SAFETY: the Kotlin wrapper hands each handle to nativeAdjustDestroy exactly once.
+        let _ = catch_unwind(|| drop(unsafe { Box::from_raw(handle as *mut Adjuster) }));
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustSetSource(
+    mut env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+    rgba: JByteArray,
+) -> jboolean {
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(a) = (unsafe { adjuster(handle) }) else {
+                return false;
+            };
+            if rgba.is_null() {
+                return false;
+            }
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(elements) = (unsafe { rgba.get_elements(env, ReleaseMode::NoCopyBack) }) else {
+                return false;
+            };
+            a.set_source(bytemuck::cast_slice(&elements))
+        }))
+    })
+    .resolve::<LogErrorAndDefault>()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustSetMask(
+    mut env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+    alpha: JByteArray,
+) -> jboolean {
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(a) = (unsafe { adjuster(handle) }) else {
+                return false;
+            };
+            if alpha.is_null() {
+                return false;
+            }
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(elements) = (unsafe { alpha.get_elements(env, ReleaseMode::NoCopyBack) }) else {
+                return false;
+            };
+            a.set_mask(bytemuck::cast_slice(&elements))
+        }))
+    })
+    .resolve::<LogErrorAndDefault>()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustSetCurves(
+    mut env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+    table: JFloatArray,
+) -> jboolean {
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(a) = (unsafe { adjuster(handle) }) else {
+                return false;
+            };
+            floats(env, &table).is_some_and(|t| a.set_curves(&t))
+        }))
+    })
+    .resolve::<LogErrorAndDefault>()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustRender(
+    mut env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+    params: JFloatArray,
+    out: JByteArray,
+) -> jboolean {
+    env.with_env(|env| {
+        Ok::<_, jni::errors::Error>(guard(|| {
+            let Some(a) = (unsafe { adjuster(handle) }) else {
+                return false;
+            };
+            let Some(params) = floats(env, &params) else {
+                return false;
+            };
+            if out.is_null() {
+                return false;
+            }
+            // SAFETY: no other JNI call happens while the elements are borrowed.
+            let Ok(mut elements) = (unsafe { out.get_elements(env, ReleaseMode::CopyBack) }) else {
+                return false;
+            };
+            a.render(&params, bytemuck::cast_slice_mut(&mut elements))
+        }))
+    })
+    .resolve::<LogErrorAndDefault>()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_hereliesaz_graffitixr_common_azphalt_wgpu_WgpuNative_nativeAdjustLastNanos(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) -> jlong {
+    catch_unwind(|| unsafe { adjuster(handle) }.map_or(0, |a| a.last_nanos() as jlong)).unwrap_or(0)
+}

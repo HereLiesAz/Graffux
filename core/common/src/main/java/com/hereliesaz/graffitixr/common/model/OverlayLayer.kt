@@ -85,5 +85,9 @@ data class OverlayLayer(
     val isInverted: Boolean = false,
     // Vector content — non-empty for a vector layer (uri is Uri.EMPTY in that case). Defaulted for
     // back-compat with projects saved before vector layers existed.
-    val shapes: List<VectorShape> = emptyList()
+    val shapes: List<VectorShape> = emptyList(),
+    // A photo adjustment layer's settings (Layer.adjustment). Absent from saves before format
+    // version 2 (GraffitiProject.formatVersion). Its type stays RASTER on disk, so an app that
+    // predates adjustment layers still opens the file and only shows the layer as an empty one.
+    val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment? = null,
 )

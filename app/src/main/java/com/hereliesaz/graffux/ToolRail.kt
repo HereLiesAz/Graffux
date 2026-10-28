@@ -69,6 +69,8 @@ internal class ToolRailCallbacks(
     val onToolGroup: (CarouselCategory) -> Unit,
     /** The brush's long-press: Brush Studio, My Brushes, Brush Tips. */
     val onBrushMenu: () -> Unit,
+    /** Adjust photo: put the sheet on the photo tabs. */
+    val onAdjust: () -> Unit = {},
 )
 
 /**
@@ -153,6 +155,7 @@ internal fun ToolRail(
             badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString(),
         )
         group("grp.transform", "Crop & Transform", RailIcons.Transform, CarouselCategory.TRANSFORM)
+        AdjustButton(on = PHOTO_RAIL_ID in lit, onClick = callbacks.onAdjust)
         // Not in the mockup; kept because the rail is the eraser's only always-there button.
         tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
         val viewMoved = uiState.viewportZoom != 1f ||
@@ -176,6 +179,33 @@ internal fun ToolRail(
         ) { RailGlyph(RailIcons.Redo) }
     }
 }
+
+/** The Adjust circle's rail id: lit while the sheet shows the photo tabs. */
+internal const val PHOTO_RAIL_ID = "area.photo"
+
+/**
+ * Adjust photo, after Transform. Lit as the mockup draws it: a filled ink circle with the glyph in
+ * the canvas's near-black, not the accent ring of the other tools, because it is a mode of the
+ * sheet rather than a tool in hand.
+ */
+@Composable
+private fun AdjustButton(on: Boolean, onClick: () -> Unit) {
+    RailButton(
+        label = "Adjust photo",
+        testTag = "rail.$PHOTO_RAIL_ID",
+        onClick = onClick,
+        modifier = if (on) Modifier.background(RailInk, CircleShape) else Modifier,
+    ) {
+        androidx.compose.material3.Icon(
+            RailIcons.Adjust,
+            contentDescription = null,
+            tint = if (on) AdjustOnInk else RailInk,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
+private val AdjustOnInk = androidx.compose.ui.graphics.Color(0xFF0E0E0F)
 
 /** The brush's long-press menu. */
 internal fun MenuBuilder.brushMenu(

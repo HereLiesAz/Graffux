@@ -3,8 +3,10 @@
 //!
 //! * [`engine`] -- the engine, mirroring `StampEngine.h` (core/nativebridge).
 //! * [`capi`] -- C ABI (`include/graffux_wgpu.h`) for the C++ `WgpuStampEngine` adapter.
+//! * [`adjust`] -- photo adjustment layers (one compute pass per slider move).
 //! * [`jni_api`] -- JNI for the Kotlin `WgpuNative`/`WgpuStampEngine` in core:engine.
 
+pub mod adjust;
 pub mod capi;
 pub mod draft;
 pub mod engine;

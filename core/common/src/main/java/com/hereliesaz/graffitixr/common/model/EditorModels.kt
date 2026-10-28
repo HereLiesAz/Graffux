@@ -168,7 +168,18 @@ data class Layer(
      * otherwise.
      */
     val frameHoldCount: Int = 1,
+    /**
+     * Set on a photo **adjustment layer** (the photo sheet's Light, Color, HSL, Curves, Detail,
+     * Effects, Heal and Red-eye tabs each make their own). Such a layer keeps no pixels of its own:
+     * [bitmap] is a render of the layers below it, adjusted, times its mask, redone whenever they or
+     * these settings change (`AdjustmentLayerRenderer`, feature/editor). Null on every other layer.
+     */
+    val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment? = null,
 )
+
+/** Whether this is a photo adjustment layer (see [Layer.adjustment]). */
+val Layer.isAdjustment: Boolean
+    get() = adjustment != null
 
 /**
  * Whether Alpha Lock means anything for this layer.
@@ -184,7 +195,7 @@ data class Layer(
  * Alpha Lock in one place, refuse it in another, and silently accept a no-op in a third.
  */
 val Layer.supportsAlphaLock: Boolean
-    get() = type == LayerType.RASTER && shapes.isEmpty()
+    get() = type == LayerType.RASTER && shapes.isEmpty() && adjustment == null
 
 /**
  * The subset of a layer's visual/aesthetic properties that can be changed without replacing
@@ -470,6 +481,9 @@ data class EditorUiState(
     // horizontal at these y's. Empty when not snapping.
     val snapGuidesX: List<Float> = emptyList(),
     val snapGuidesY: List<Float> = emptyList(),
+    // Hold-to-compare on the photo sheet: while true the canvas draws no adjustment layer, so the
+    // photo shows as it was. Transient UI state, never history.
+    val photoCompare: Boolean = false,
 )
 
 
