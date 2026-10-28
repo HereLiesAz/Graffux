@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import com.hereliesaz.graffitixr.common.model.isContainer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -1187,6 +1188,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             onExpand = { id, open -> vm.onRailHostExpansionChanged(id, open) },
                             onRelocate = { order, parentId -> vm.onLayerRailRelocated(order, parentId) },
                             onAdd = { vm.onAddBlankLayer() },
+                            onDelete = { id ->
+                                val group = uiState.layers.find { it.id == id }?.isContainer == true
+                                if (group) vm.onDeleteGroup(id) else vm.onLayerRemoved(id)
+                            },
                         ),
                         // With the side panel docked on its side, the layers rail moves beside the
                         // tool rail so the two never overlap (the mockup's tablet panel board).

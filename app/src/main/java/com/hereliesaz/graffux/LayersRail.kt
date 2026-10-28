@@ -41,7 +41,17 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -73,7 +83,56 @@ internal class LayersRailCallbacks(
      */
     val onRelocate: (List<String>, String?) -> Unit,
     val onAdd: () -> Unit,
+    /** A layer dragged onto the trash that appears while dragging: delete it (undoable). */
+    val onDelete: (String) -> Unit = {},
 )
+
+/** Whether a drag released at [finger] (window px) lands on the trash at [trash] (window px). */
+internal fun droppedOnTrash(finger: Offset, trash: Rect?): Boolean =
+    trash != null && !trash.isEmpty && trash.inflate(TRASH_SLOP_PX).contains(finger)
+
+/**
+ * Where the trash shows while a layer is dragged: centred at the bottom of the window, clear of
+ * the rails. Records the rectangle it placed so the drop can be hit-tested in the same space.
+ */
+private class TrashPosition(private val onPlaced: (Rect) -> Unit) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = (windowSize.width - popupContentSize.width) / 2
+        val y = windowSize.height - popupContentSize.height - (windowSize.height / TRASH_BOTTOM_FRACTION)
+        onPlaced(Rect(x.toFloat(), y.toFloat(), (x + popupContentSize.width).toFloat(), (y + popupContentSize.height).toFloat()))
+        return IntOffset(x, y)
+    }
+}
+
+/** The trash a dragged layer is dropped on; lit while the finger is over it. */
+@Composable
+private fun LayerTrash(hot: Boolean, onPlaced: (Rect) -> Unit) {
+    val provider = remember { TrashPosition(onPlaced) }
+    Popup(popupPositionProvider = provider, properties = PopupProperties(focusable = false, clippingEnabled = false)) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(TrashSize)
+                .clip(CircleShape)
+                .background(if (hot) RailInk else TrashFill)
+                .border(1.dp, if (hot) RailInk else RailBorder, CircleShape)
+                .semantics { contentDescription = "Delete layer" }
+                .testTag("rail.layer.trash"),
+        ) {
+            Icon(
+                painterResource(GraffuxIcons.LayerDelete),
+                contentDescription = null,
+                tint = if (hot) TrashFill else RailInk,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
 
 /**
  * The rows the layers rail shows: [layerRailRows]'s depth-first, top-first order, with every row
@@ -113,7 +172,8 @@ internal fun droppedSiblingOrder(
  * The right layers rail (left, for the left-handed), as the mockup draws it: + new layer, then the
  * layers top-first — each its own thumbnail, the active one ringed, a hidden one dimmed and badged,
  * a locked one badged. Tap selects; a second tap or a long-press opens the layer's menu (Delete is
- * there); long-press and drag reorders a layer among its siblings (a group carries its children).
+ * there); long-press and drag reorders a layer among its siblings (a group carries its children),
+ * and dropping it on the trash that appears while dragging deletes it (undoable).
  * The whole rail is hidden from View… → Layers panel.
  */
 @Suppress("FunctionNaming", "LongMethod")
@@ -131,6 +191,11 @@ internal fun LayersRail(
     val centers = remember { HashMap<String, Float>() }
     var dragging by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
+    var dragDx by remember { mutableFloatStateOf(0f) }
+    var overTrash by remember { mutableStateOf(false) }
+    val trashRect = remember { arrayOfNulls<Rect>(1) }
+    val windowOrigins = remember { HashMap<String, Offset>() }
+    if (dragging != null) LayerTrash(hot = overTrash) { trashRect[0] = it }
     RailPill(modifier.testTag("rail.layers")) {
         RailButton(label = "Add Layer", testTag = "rail.layer.add", onClick = callbacks.onAdd) {
             RailGlyph(RailIcons.Plus)
@@ -157,8 +222,7 @@ internal fun LayersRail(
             Box(
                 modifier = Modifier
                     .zIndex(if (dragging == id) 1f else 0f)
-                    .graphicsLayer { translationY = if (dragging == id) dragDy else 0f }
-                    .onGloballyPositioned { centers[id] = it.boundsInRoot().center.y }
+                    // Before graphicsLayer, so the gesture reads untranslated coordinates.
                     .pointerInput(id) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -175,16 +239,28 @@ internal fun LayersRail(
                             press.consume()
                             dragging = id
                             dragDy = 0f
+                            dragDx = 0f
+                            overTrash = false
+                            trashRect[0] = null
                             val start = centers[id] ?: 0f
+                            val downInWindow = (windowOrigins[id] ?: Offset.Zero) + press.position
                             drag(press.id) { change ->
-                                dragDy += change.positionChange().y
+                                val delta = change.positionChange()
+                                dragDy += delta.y
+                                dragDx += delta.x
+                                overTrash = droppedOnTrash(downInWindow + Offset(dragDx, dragDy), trashRect[0])
                                 change.consume()
                             }
-                            val moved = abs(dragDy) > viewConfiguration.touchSlop
+                            val moved = abs(dragDy) > viewConfiguration.touchSlop || abs(dragDx) > viewConfiguration.touchSlop
+                            val trashed = droppedOnTrash(downInWindow + Offset(dragDx, dragDy), trashRect[0])
                             val drop = start + dragDy
                             dragging = null
                             dragDy = 0f
-                            if (moved) {
+                            dragDx = 0f
+                            overTrash = false
+                            if (trashed) {
+                                callbacks.onDelete(layer.id)
+                            } else if (moved) {
                                 val order = droppedSiblingOrder(latestSiblings, id, drop, centers)
                                 if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
                             } else {
@@ -192,10 +268,21 @@ internal fun LayersRail(
                             }
                         }
                     }
+                    .graphicsLayer {
+                        translationY = if (dragging == id) dragDy else 0f
+                        translationX = if (dragging == id) dragDx else 0f
+                    }
+                    .onGloballyPositioned {
+                        if (dragging != id) {
+                            centers[id] = it.boundsInRoot().center.y
+                            windowOrigins[id] = it.boundsInWindow().topLeft
+                        }
+                    }
                     .semantics {
                         onClick(label = layer.name) { tap(); true }
                         customActions = listOf(
                             CustomAccessibilityAction("Layer menu") { callbacks.onOpenMenu(layer.id); true },
+                            CustomAccessibilityAction("Delete layer") { callbacks.onDelete(layer.id); true },
                         )
                     },
             ) {
@@ -354,3 +441,8 @@ private val EyeOffInk = Color(0xFFB4B4BA)
 private val EyeOffFill = Color(0xFF161618)
 
 private const val HIDDEN_ALPHA = 0.3f
+
+private val TrashSize = 56.dp
+private val TrashFill = Color(0xFF161618)
+private const val TRASH_SLOP_PX = 24f
+private const val TRASH_BOTTOM_FRACTION = 8

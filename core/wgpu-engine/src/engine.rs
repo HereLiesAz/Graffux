@@ -1536,7 +1536,12 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.note_write(self.dispatch_footprint(r));
+        let footprint = self.dispatch_footprint(r);
+        self.note_write(footprint);
+        // A non-OVER composite (erase, alpha lock, ...) bypasses multipass and writes the layer
+        // directly, but with multipass on, readback and direct display show `display`, not the
+        // layer: without this the erase stayed invisible until the stroke's commit.
+        self.mp_synced(footprint);
         self.ok()
     }
 
@@ -1754,7 +1759,12 @@ impl Engine {
             }
         }
         self.queue.submit([encoder.finish()]);
-        self.note_write(self.dispatch_footprint(r));
+        let footprint = self.dispatch_footprint(r);
+        self.note_write(footprint);
+        // A non-OVER composite (erase, alpha lock, ...) bypasses multipass and writes the layer
+        // directly, but with multipass on, readback and direct display show `display`, not the
+        // layer: without this the erase stayed invisible until the stroke's commit.
+        self.mp_synced(footprint);
         self.ok()
     }
 

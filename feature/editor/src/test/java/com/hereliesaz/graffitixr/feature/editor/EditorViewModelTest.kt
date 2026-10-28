@@ -513,6 +513,36 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `deleting a layer tells peers and undo brings it back`() = runTest {
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "solo", name = "solo")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onLayerRemoved("solo")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.none { it.id == "solo" })
+        verify { opEmitter.emit(Op.LayerRemove("solo")) }
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.any { it.id == "solo" })
+    }
+
+    @Test
+    fun `deleting a group tells peers about it and its contents, and undo brings both back`() = runTest {
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "kid", name = "kid", parentId = "grp")))
+        val group = Layer(id = "grp", name = "grp", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(group))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onDeleteGroup("grp")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.none { it.id == "grp" || it.id == "kid" })
+        verify { opEmitter.emit(Op.LayerRemove("kid")) }
+        verify { opEmitter.emit(Op.LayerRemove("grp")) }
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val ids = viewModel.uiState.value.layers.map { it.id }
+        assertTrue("grp" in ids && "kid" in ids)
+    }
+
+    @Test
     fun `a drop into a frame and a frame drawn over artwork tell peers the new parent`() = runTest {
         viewModel.dispatchForTest(
             EditorIntent.AppendLayer(
