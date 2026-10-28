@@ -59,6 +59,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.hereliesaz.graffitixr.common.photo.PhotoSliders
+import com.hereliesaz.graffitixr.common.photo.PhotoTool
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -340,6 +342,23 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The photo sheet (Adjust on the rail): which tab it showed last, reopened on the next entry.
     var lastPhotoTab by remember { mutableStateOf<PhotoTab?>(null) }
     val photoDrag = remember { PhotoDrag() }
+    val photoSheet = remember { PhotoSheetState() }
+    val photoHistogram by vm.photoHistogram.collectAsState()
+    photoSheet.histogram = photoHistogram
+    // HSL's eyedropper and Curves' histogram belong to their tabs.
+    val photoTabShown = PhotoTab.ofKey(carouselUi.tab).takeIf { carouselUi.photo && carouselUi.showingCarousel }
+    LaunchedEffect(photoTabShown) {
+        if (photoTabShown != PhotoTab.HSL && photoSheet.eyedropperArmed) {
+            photoSheet.eyedropperArmed = false
+            vm.disarmPhotoEyedropper()
+        }
+    }
+    LaunchedEffect(photoTabShown, uiState.undoCount, uiState.redoCount, uiState.layers.size) {
+        if (photoTabShown == PhotoTab.CURVES) {
+            kotlinx.coroutines.delay(EFFECT_SNAPSHOT_DEBOUNCE_MS)
+            vm.requestPhotoHistogram()
+        }
+    }
     val photoActions = remember(vm) { vm.photoActions() }
     // Any tool picked puts the sheet back on brushes: the photo tabs are a mode of the sheet.
     LaunchedEffect(uiState.activeTool) {
@@ -706,6 +725,20 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             )
         }
 
+        // HSL's eyedropper: while armed, a touch on the photo picks a range and drags it.
+        if (photoSheet.eyedropperArmed && photoTabShown == PhotoTab.HSL) {
+            HslEyedropperOverlay(
+                state = photoSheet,
+                actions = photoActions,
+                hueAt = vm::photoHueRangeAt,
+                saturationOf = { range ->
+                    uiState.layers.find { it.id == uiState.activeLayerId && it.adjustment?.tool == PhotoTool.HSL }
+                        ?.adjustment?.value(PhotoSliders.hsl(range, 1)) ?: 0f
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         // The bottom carousel, centred on the whole screen and over the canvas.
         if (carouselOnScreen) {
             Box(
@@ -842,6 +875,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             adjustment = photoLayer?.adjustment,
                             actions = photoActions,
                             drag = photoDrag,
+                            state = photoSheet,
                             onSelectTab = { tab ->
                                 lastPhotoTab = tab
                                 carouselUi = carouselUi.copy(tab = tab.key, showingCarousel = true)

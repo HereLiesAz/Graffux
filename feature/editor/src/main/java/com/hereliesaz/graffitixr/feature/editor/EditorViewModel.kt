@@ -612,6 +612,9 @@ class EditorViewModel @Inject constructor(
         private const val FALLBACK_WORLD_WIDTH = 1080
         private const val FALLBACK_WORLD_HEIGHT = 1920
         private const val NANOS_PER_MS = 1_000_000.0
+        /** Below this saturation the HSL eyedropper reads a pixel as grey and picks nothing. */
+        private const val MIN_PICK_SATURATION = 0.08f
+        private const val CHANNEL_MAX = 255f
         private const val HUD_MS = 700L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
@@ -890,6 +893,88 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.SetLayerAdjustment(layer.id, layer.adjustment!!.reset()))
         saveProject()
+    }
+
+    // ── HSL's eyedropper and Curves' histogram: both read the photo under the edited layer ──
+
+    @Volatile private var photoPickComposite: Bitmap? = null
+    private var photoPickJob: Job? = null
+
+    /** The layers the photo tools read (the eyedropper, the histogram): all but the active adjustment layer. */
+    private fun photoSourceLayers(): List<Layer> {
+        val st = _uiState.value
+        return st.layers.filter { !(it.id == st.activeLayerId && it.adjustment != null) }
+    }
+
+    /** HSL's eyedropper armed: composite the photo once, off the main thread, to read hues from. */
+    fun armPhotoEyedropper() {
+        val layers = photoSourceLayers()
+        val (w, h) = adjustmentWorldSize()
+        photoPickJob?.cancel()
+        photoPickJob = viewModelScope.launch(dispatchers.default) {
+            val composite = exportManager.compositeLayers(layers, w, h, renderAdjustments = false)
+            withContext(dispatchers.main) {
+                photoPickComposite?.recycle()
+                photoPickComposite = composite
+            }
+        }
+    }
+
+    fun disarmPhotoEyedropper() {
+        photoPickJob?.cancel()
+        photoPickComposite?.recycle()
+        photoPickComposite = null
+    }
+
+    /**
+     * The HSL range of the colour under screen point [position] (null on grey, off the photo, or
+     * before the composite is ready): the range whose weight at that hue is largest.
+     */
+    @Suppress("ReturnCount")
+    fun photoHueRangeAt(position: Offset): com.hereliesaz.graffitixr.common.photo.HueRange? {
+        val comp = photoPickComposite ?: return null
+        val (x, y) = screenToWorld(position)
+        if (x !in 0 until comp.width || y !in 0 until comp.height) return null
+        val argb = comp.getPixel(x, y)
+        val hsl = com.hereliesaz.graffitixr.common.photo.PhotoAdjustMath.rgbToHsl(
+            android.graphics.Color.red(argb) / CHANNEL_MAX,
+            android.graphics.Color.green(argb) / CHANNEL_MAX,
+            android.graphics.Color.blue(argb) / CHANNEL_MAX,
+        )
+        if (hsl[1] < MIN_PICK_SATURATION) return null
+        return com.hereliesaz.graffitixr.common.photo.HueRange.entries.maxByOrNull {
+            com.hereliesaz.graffitixr.common.photo.PhotoAdjustMath.rangeWeight(hsl[0], it.ordinal)
+        }
+    }
+
+    /** Screen to world, undoing the viewport camera (the long-press eyedropper's math). */
+    private fun screenToWorld(position: Offset): Pair<Int, Int> {
+        val st = _uiState.value
+        val rad = Math.toRadians(-st.viewportRotation.toDouble())
+        val cos = kotlin.math.cos(rad)
+        val sin = kotlin.math.sin(rad)
+        val ux = (position.x - st.viewportOffset.x) / st.viewportZoom
+        val uy = (position.y - st.viewportOffset.y) / st.viewportZoom
+        return (ux * cos - uy * sin).toInt() to (ux * sin + uy * cos).toInt()
+    }
+
+    private val _photoHistogram = MutableStateFlow<FloatArray?>(null)
+
+    /** The luma histogram of the photo under the Curves layer, 64 bins scaled to 0..1, for the graph. */
+    val photoHistogram: StateFlow<FloatArray?> = _photoHistogram.asStateFlow()
+    private var histogramJob: Job? = null
+
+    /** Recomputes [photoHistogram] in the background (the Curves tab asks when it opens or the photo changes). */
+    fun requestPhotoHistogram() {
+        val layers = photoSourceLayers()
+        val (w, h) = adjustmentWorldSize()
+        histogramJob?.cancel()
+        histogramJob = viewModelScope.launch(dispatchers.default) {
+            val composite = exportManager.compositeLayers(layers, w, h, renderAdjustments = false)
+            val bins = lumaHistogram(composite)
+            composite.recycle()
+            _photoHistogram.value = bins
+        }
     }
 
     /** Hold-to-compare: while [comparing], the canvas shows the photo without its adjustment layers. */

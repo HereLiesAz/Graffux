@@ -1,6 +1,6 @@
 # Photo adjustment layers
 
-Status: implemented (Light, Color). The tabs still to come are listed under "Tabs".
+Status: implemented (Light, Color, HSL, Curves + Levels, Detail, Effects). The tabs still to come are listed under "Tabs".
 Source of truth for the UI: the approved "Graffux UI Rework" canvas, boards PhotoEntry …
 PhotoDesktop and their notes.
 
@@ -117,3 +117,32 @@ adjustment layer's tile opens the sheet on that layer's tab.
 Dragging a slider hides all chrome except the row under the finger (`PhotoDrag`). That row stays
 in place as a pill showing its live value. The sheet does not move and the scrim goes. Everything
 comes back when the finger lifts.
+
+### HSL
+
+Eight swatches, one per `HueRange` (the mockup's colours), with the picked one ringed. Below them
+are Hue, Saturation and Luminance for that range. Hue moves ±30° at ±100. Luminance is scaled by
+the pixel's own saturation, so greys never move. The header's eyedropper arms
+`HslEyedropperOverlay` over the canvas. A touch there picks the range of the colour under the
+finger (`EditorViewModel.photoHueRangeAt`, read from a composite of the photo made once when the
+eyedropper is armed). Dragging then raises (up) or lowers (down) that range's **saturation**, 100
+per 200dp. The mockup's note does not say which component the drag changes; saturation is the one
+picked here.
+
+### Curves and Levels
+
+Channel chips (RGB, Red, Green, Blue) sit above the existing `CurvesAdjustment` editor (feature
+editor), restyled with `CurvesStyle.Photo`. Its new `editablePoints` mode works like this: tap the
+line to add a point; drag a point off the top or bottom of the graph to remove it. The ends stay.
+The line drawn is the curve's own LUT (`CurveLut`, monotone cubic). Behind it is the luma
+histogram of the photo under the layer (`EditorViewModel.photoHistogram`: 64 bins, square-rooted,
+recomputed when the tab opens and after each undoable change). Levels is the row under the graph:
+black point, midpoint and white point. The midpoint handle sits at `0.5^(1/gamma)` of the way from
+black to white.
+
+### Detail and Effects
+
+Detail has Clarity, Texture, Dehaze, Noise reduction and Sharpen; Noise reduction and Sharpen are
+unipolar and start at 0. Effects has Vignette amount, Midpoint, Feather, Grain amount and Grain
+size. They are plain slider lists. Their pixel work is in the shader (Detail reads the blurred-luma
+planes).

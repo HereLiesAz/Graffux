@@ -83,6 +83,11 @@ class PhotoSheetUiTest {
         }
         override fun reset(tool: PhotoTool) { calls += "resetAll:$tool" }
         override fun compare(comparing: Boolean) { calls += "compare:$comparing" }
+        override fun update(tool: PhotoTool, change: (PhotoAdjustment) -> PhotoAdjustment) {
+            calls += "update:$tool"
+            adjustment = change(adjustment ?: PhotoAdjustment(tool))
+        }
+        override fun eyedropper(armed: Boolean) { calls += "eyedropper:$armed" }
     }
     private val railActions = object : ToolRailActions {
         override fun setActiveTool(tool: Tool) = Unit
@@ -97,6 +102,7 @@ class PhotoSheetUiTest {
     private fun solid(argb: Int): Bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(argb) }
 
     private val drag = PhotoDrag()
+    private val sheet = PhotoSheetState()
     private var tab by mutableStateOf<PhotoTab?>(null)
     private var showing by mutableStateOf(false)
 
@@ -104,7 +110,7 @@ class PhotoSheetUiTest {
     private fun layers(): List<Layer> = listOfNotNull(
         Layer(id = "photo", name = "Photo", bitmap = solid(0xFF3C3C40.toInt())),
         Layer(id = "tag", name = "Tag", bitmap = solid(0xFFFF3EA5.toInt())),
-        adjustment?.let { Layer(id = "light", name = "Light", adjustment = it) },
+        adjustment?.let { Layer(id = "light", name = it.tool.label, adjustment = it) },
     )
 
     private fun compose(board: String) {
@@ -129,6 +135,7 @@ class PhotoSheetUiTest {
                                 adjustment = adjustment,
                                 actions = actions,
                                 drag = drag,
+                                state = sheet,
                                 onSelectTab = { tab = it; showing = true },
                             )
                         }
@@ -255,5 +262,113 @@ class PhotoSheetUiTest {
         assertEquals("compare:false", calls.last())
         rule.onNodeWithTag("photo.reset").performClick()
         assertEquals("resetAll:LIGHT", calls.last())
+    }
+
+    private fun adjusted(tool: PhotoTool, vararg values: Pair<com.hereliesaz.graffitixr.common.photo.PhotoSlider, Float>) =
+        values.fold(PhotoAdjustment(tool)) { a, (sl, v) -> a.with(sl, v) }
+
+    @Test
+    fun `HSL shows the picked range's three sliders under eight swatches`() {
+        tab = PhotoTab.HSL
+        showing = true
+        sheet.hslRange = com.hereliesaz.graffitixr.common.photo.HueRange.ORANGE
+        val orange = com.hereliesaz.graffitixr.common.photo.HueRange.ORANGE
+        adjustment = adjusted(
+            PhotoTool.HSL, PhotoSliders.hsl(orange, 0) to 6f, PhotoSliders.hsl(orange, 1) to 24f, PhotoSliders.hsl(orange, 2) to -12f,
+        )
+        compose("PhotoHSL")
+        save("app-PhotoHSL")
+        rule.onNodeWithTag("photo.title").assertTextEquals("HSL \u00b7 Orange")
+        rule.onNodeWithTag("photo.value.hsl.orange.saturation").assertTextEquals("+24")
+        rule.onNodeWithTag("photo.hsl.blue").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("photo.title").assertTextEquals("HSL \u00b7 Blue")
+        rule.onNodeWithTag("photo.value.hsl.blue.hue").assertTextEquals("0")
+        rule.onNodeWithTag("photo.eyedropper").performClick()
+        assertEquals("eyedropper:true", calls.last())
+        assertTrue(sheet.eyedropperArmed)
+    }
+
+    @Test
+    fun `Curves edits the channel's curve and Levels sits underneath`() {
+        tab = PhotoTab.CURVES
+        showing = true
+        sheet.histogram = FloatArray(64) { i -> (kotlin.math.sin(i / 63f * 3.14159f * 2.2f) * 0.4f + 0.5f).coerceIn(0f, 1f) * (1f - kotlin.math.abs(i - 32) / 40f) }
+        adjustment = PhotoAdjustment(
+            PhotoTool.CURVES,
+            curves = mapOf(
+                com.hereliesaz.graffitixr.common.photo.CurveChannel.RGB to listOf(
+                    com.hereliesaz.graffitixr.common.photo.CurvePoint(0f, 0f),
+                    com.hereliesaz.graffitixr.common.photo.CurvePoint(88f / 350f, 1f - 108f / 140f),
+                    com.hereliesaz.graffitixr.common.photo.CurvePoint(262f / 350f, 1f - 28f / 140f),
+                    com.hereliesaz.graffitixr.common.photo.CurvePoint(1f, 1f),
+                ),
+            ),
+        ).with(PhotoSliders.LEVELS_BLACK, 12f).with(PhotoSliders.LEVELS_MID, 1.1f).with(PhotoSliders.LEVELS_WHITE, 241f)
+        compose("PhotoCurves")
+        save("app-PhotoCurves")
+        rule.onNodeWithTag("photo.levels.value").assertTextEquals("12 \u00b7 1.10 \u00b7 241")
+        val graph = rule.onNodeWithTag("photo.curve").fetchSemanticsNode().boundsInRoot
+        assertEquals(350, dp(graph.width))
+        assertEquals(140, dp(graph.height))
+        // A tap on the line (at x = 0.5 the curve is about where y is) adds a point.
+        val before = adjustment!!.curves.getValue(com.hereliesaz.graffitixr.common.photo.CurveChannel.RGB).size
+        val lut = com.hereliesaz.graffitixr.common.photo.CurveLut.build(adjustment!!.curves.getValue(com.hereliesaz.graffitixr.common.photo.CurveChannel.RGB))
+        rule.onNodeWithTag("photo.curve").performTouchInput {
+            val x = left + width * 0.5f
+            val y = top + height * (1f - lut[128])
+            down(androidx.compose.ui.geometry.Offset(x, y))
+            up()
+        }
+        rule.waitForIdle()
+        assertEquals(before + 1, adjustment!!.curves.getValue(com.hereliesaz.graffitixr.common.photo.CurveChannel.RGB).size)
+        assertTrue(calls.contains("start:CURVES") && calls.last() == "end")
+        // Another channel starts straight.
+        rule.onNodeWithTag("photo.channel.red").performClick()
+        rule.waitForIdle()
+        assertEquals(com.hereliesaz.graffitixr.common.photo.CurveChannel.RED, sheet.curveChannel)
+        // Dragging the white point left lowers it.
+        rule.onNodeWithTag("photo.levels.white").performTouchInput {
+            down(center); moveBy(androidx.compose.ui.geometry.Offset(-60f, 0f)); up()
+        }
+        rule.waitForIdle()
+        assertTrue(adjustment!!.value(PhotoSliders.LEVELS_WHITE) < 241f)
+    }
+
+    @Test
+    fun `Detail and Effects are slider lists, the unipolar ones from zero`() {
+        tab = PhotoTab.DETAIL
+        showing = true
+        adjustment = adjusted(
+            PhotoTool.DETAIL, PhotoSliders.CLARITY to 18f, PhotoSliders.TEXTURE to 10f, PhotoSliders.DEHAZE to 22f,
+            PhotoSliders.NOISE_REDUCTION to 30f, PhotoSliders.SHARPEN to 25f,
+        )
+        compose("PhotoDetail")
+        save("app-PhotoDetail")
+        rule.onNodeWithTag("photo.value.noise").assertTextEquals("30")
+        rule.onNodeWithTag("photo.value.clarity").assertTextEquals("+18")
+        tab = PhotoTab.EFFECTS
+        rule.waitForIdle()
+        rule.onNodeWithTag("photo.value.vignette.mid").assertTextEquals("50")
+        rule.onNodeWithTag("photo.value.grain").assertTextEquals("0")
+    }
+
+    @Test
+    fun `the eyedropper picks a range from the photo and drags its saturation`() {
+        val picked = com.hereliesaz.graffitixr.common.photo.HueRange.GREEN
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                HslEyedropperOverlay(sheet, actions, hueAt = { picked }, saturationOf = { 10f }, modifier = Modifier.fillMaxSize())
+            }
+        }
+        rule.onNodeWithTag("photo.eyedropper.overlay").performTouchInput {
+            down(center); moveBy(androidx.compose.ui.geometry.Offset(0f, -100f)); up()
+        }
+        rule.waitForIdle()
+        assertEquals(picked, sheet.hslRange)
+        assertEquals(calls.toString(), "start:HSL", calls.first())
+        assertEquals("end", calls.last())
+        // 100px up at xhdpi is 50dp: +25 on top of 10.
+        assertEquals(calls.toString(), 35f, adjustment!!.value(PhotoSliders.hsl(picked, 1)))
     }
 }
