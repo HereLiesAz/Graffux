@@ -141,6 +141,12 @@ class ExtensionRepository @Inject constructor(
     fun isInstalled(id: String): Boolean = _installed.value.any { it.id == id }
 
     /**
+     * The repository signing keys this host trusts (`/.well-known/azphalt-repository.json`), as base64
+     * SPKI. Entitlements are checked against these on the device ([purchase.EntitlementVerifier]).
+     */
+    fun trustedKeys(): Set<String> = synchronized(lock) { trustStore.keys.map { it.publicKey }.toSet() }
+
+    /**
      * Verify and unpack an `.azp` from an arbitrary [input] stream — a user-picked file (a
      * `content://` Uri from the file picker) or a package handed off from a store app
      * ([AzphaltStoreHandoff]). Buffers to a bounded temp file first (a zip-bomb guard), then

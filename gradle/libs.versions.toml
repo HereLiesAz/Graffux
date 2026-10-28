@@ -36,6 +36,8 @@ roomExternalAntlr = "2.8.5"
 ink = "1.0.0"
 retrofit = "3.0.0"
 okhttp = "5.5.0"
+play-billing = "9.1.0"
+androidx-browser = "1.10.0"
 zxingCore = "3.5.4"
 zxingAndroidEmbedded = "4.3.0"
 chicory = "1.7.5"
@@ -44,6 +46,8 @@ composeMultiplatform = "1.12.2"
 composeHotReload = "1.2.0"
 
 [libraries]
+play-billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "play-billing" }
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidx-browser" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
