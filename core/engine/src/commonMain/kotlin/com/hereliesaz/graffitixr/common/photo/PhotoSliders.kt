@@ -79,16 +79,16 @@ data class PhotoSlider(
     }
 }
 
-/** The eight HSL ranges, in the order the swatches are drawn, with the hue each one centres on. */
+/** The eight HSL ranges, in the order the swatches are drawn (the mockup's colours), with the hue each centres on. */
 enum class HueRange(val label: String, val centerDegrees: Float, val swatchArgb: Long) {
     RED("Red", 0f, 0xFFE5484D),
-    ORANGE("Orange", 30f, 0xFFF0892A),
-    YELLOW("Yellow", 60f, 0xFFE8C21E),
-    GREEN("Green", 120f, 0xFF45A35A),
+    ORANGE("Orange", 30f, 0xFFF08A24),
+    YELLOW("Yellow", 60f, 0xFFE8C61C),
+    GREEN("Green", 120f, 0xFF46A758),
     AQUA("Aqua", 180f, 0xFF12A5A5),
-    BLUE("Blue", 240f, 0xFF4166E0),
-    PURPLE("Purple", 270f, 0xFF8E4FCC),
-    MAGENTA("Magenta", 300f, 0xFFD8459B),
+    BLUE("Blue", 240f, 0xFF3E63DD),
+    PURPLE("Purple", 270f, 0xFF8E4EC6),
+    MAGENTA("Magenta", 300f, 0xFFD6409F),
 }
 
 /** The sliders of every photo tab, in the order the mockup lists them. */

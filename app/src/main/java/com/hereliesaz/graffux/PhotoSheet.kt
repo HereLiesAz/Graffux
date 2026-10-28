@@ -4,6 +4,7 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -100,7 +102,9 @@ internal enum class PhotoTab(val label: String, val section: String, val tool: P
 }
 
 /** The tabs this build offers; the rest of the mockup's land with their tools. */
-internal val PHOTO_TABS: List<PhotoTab> = listOf(PhotoTab.LIGHT, PhotoTab.COLOR)
+internal val PHOTO_TABS: List<PhotoTab> = listOf(
+    PhotoTab.LIGHT, PhotoTab.COLOR, PhotoTab.HSL, PhotoTab.CURVES, PhotoTab.DETAIL, PhotoTab.EFFECTS,
+)
 
 /**
  * The tab list's sections for the photo sheet: [CarouselTabList] draws them exactly as it draws the
@@ -123,6 +127,12 @@ internal interface PhotoActions {
     fun resetSlider(tool: PhotoTool, slider: PhotoSlider)
     fun reset(tool: PhotoTool)
     fun compare(comparing: Boolean)
+
+    /** Any other change to [tool]'s layer inside a gesture (a curve point, a levels handle). */
+    fun update(tool: PhotoTool, change: (PhotoAdjustment) -> PhotoAdjustment) = Unit
+
+    /** HSL's eyedropper: armed, the next touch on the photo picks a range and drags it. */
+    fun eyedropper(armed: Boolean) = Unit
 }
 
 internal fun EditorViewModel.photoActions(): PhotoActions = object : PhotoActions {
@@ -134,6 +144,21 @@ internal fun EditorViewModel.photoActions(): PhotoActions = object : PhotoAction
     override fun resetSlider(tool: PhotoTool, slider: PhotoSlider) = onPhotoSliderReset(tool, slider)
     override fun reset(tool: PhotoTool) = onPhotoReset(tool)
     override fun compare(comparing: Boolean) = setPhotoCompare(comparing)
+    override fun update(tool: PhotoTool, change: (PhotoAdjustment) -> PhotoAdjustment) =
+        updatePhotoAdjustment(tool, change)
+    override fun eyedropper(armed: Boolean) = if (armed) armPhotoEyedropper() else disarmPhotoEyedropper()
+}
+
+/**
+ * The photo sheet's own choices that are not settings of a layer: which HSL range and curve
+ * channel are shown, whether HSL's eyedropper is armed, and the luma histogram drawn behind the
+ * curve. Host-owned, so they survive switching tabs.
+ */
+internal class PhotoSheetState {
+    var hslRange by mutableStateOf(com.hereliesaz.graffitixr.common.photo.HueRange.RED)
+    var curveChannel by mutableStateOf(com.hereliesaz.graffitixr.common.photo.CurveChannel.RGB)
+    var eyedropperArmed by mutableStateOf(false)
+    var histogram by mutableStateOf<FloatArray?>(null)
 }
 
 /**
@@ -161,10 +186,11 @@ internal fun PhotoSheetBody(
     onSelectTab: (PhotoTab) -> Unit,
     modifier: Modifier = Modifier,
     tabs: List<PhotoTab> = PHOTO_TABS,
+    state: PhotoSheetState = remember { PhotoSheetState() },
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (showingControls && tab != null) {
-            PhotoPanel(tab, adjustment, actions, drag)
+            PhotoPanel(tab, adjustment, actions, drag, state = state)
         }
         Box(Modifier.alpha(if (drag.active) 0f else 1f)) {
             CarouselTabList(
@@ -174,6 +200,49 @@ internal fun PhotoSheetBody(
             )
         }
     }
+}
+
+/**
+ * HSL's eyedropper on the photo, over the canvas while it is armed: touch a colour to pick its
+ * range, then drag up or down to raise or lower that range's saturation, without looking at the
+ * sheet. One gesture is one undo step.
+ */
+@Composable
+internal fun HslEyedropperOverlay(
+    state: PhotoSheetState,
+    actions: PhotoActions,
+    hueAt: (androidx.compose.ui.geometry.Offset) -> com.hereliesaz.graffitixr.common.photo.HueRange?,
+    saturationOf: (com.hereliesaz.graffitixr.common.photo.HueRange) -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val latestHue by rememberUpdatedState(hueAt)
+    val latestSat by rememberUpdatedState(saturationOf)
+    Box(
+        modifier
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    down.consume()
+                    val range = latestHue(down.position) ?: state.hslRange
+                    state.hslRange = range
+                    val slider = PhotoSliders.hsl(range, 1)
+                    val start = latestSat(range)
+                    actions.gestureStart(PhotoTool.HSL)
+                    var dy = 0f
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        change.consume()
+                        dy += change.positionChangeIgnoreConsumed().y
+                        // Up raises: a full sweep of 100 per 200dp.
+                        actions.slider(PhotoTool.HSL, slider, slider.snap(start - dy / (2f * density)))
+                    }
+                    actions.gestureEnd()
+                }
+            }
+            .testTag("photo.eyedropper.overlay"),
+    )
 }
 
 /** The sheet's colours and sizes, from the mockup. */
@@ -206,20 +275,24 @@ internal fun PhotoPanel(
     actions: PhotoActions,
     drag: PhotoDrag,
     modifier: Modifier = Modifier,
+    state: PhotoSheetState = remember { PhotoSheetState() },
 ) {
     val chromeAlpha = if (drag.active) 0f else 1f
     Column(modifier.widthIn(max = PhotoSheetStyle.ColumnMaxWidth).fillMaxWidth().testTag("photo.panel.${tab.key}")) {
         PhotoHeader(
-            title = tab.label,
+            title = if (tab == PhotoTab.HSL) "HSL \u00b7 ${state.hslRange.label}" else tab.label,
             tool = tab.tool,
             actions = actions,
             modifier = Modifier.alpha(chromeAlpha),
+            eyedropper = if (tab == PhotoTab.HSL) state else null,
         )
         Spacer(Modifier.height(PhotoSheetStyle.HeaderGap))
         Box(Modifier.fillMaxWidth().height(PhotoSheetStyle.BodyHeight)) {
             val tool = tab.tool
-            if (tool != null) {
-                PhotoSliderList(tool, PhotoSliders.of(tool), adjustment, actions, drag)
+            when (tab) {
+                PhotoTab.HSL -> HslBody(adjustment, actions, drag, state)
+                PhotoTab.CURVES -> CurvesBody(adjustment, actions, drag, state)
+                else -> if (tool != null) PhotoSliderList(tool, PhotoSliders.of(tool), adjustment, actions, drag)
             }
         }
         Spacer(Modifier.height(PhotoSheetStyle.TabsGap))
@@ -227,7 +300,13 @@ internal fun PhotoPanel(
 }
 
 @Composable
-private fun PhotoHeader(title: String, tool: PhotoTool?, actions: PhotoActions, modifier: Modifier = Modifier) {
+private fun PhotoHeader(
+    title: String,
+    tool: PhotoTool?,
+    actions: PhotoActions,
+    modifier: Modifier = Modifier,
+    eyedropper: PhotoSheetState? = null,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
@@ -245,6 +324,10 @@ private fun PhotoHeader(title: String, tool: PhotoTool?, actions: PhotoActions, 
             modifier = Modifier.weight(1f).testTag("photo.title"),
         )
         Spacer(Modifier.width(4.dp))
+        if (eyedropper != null) {
+            EyedropperButton(eyedropper, actions)
+            Spacer(Modifier.width(4.dp))
+        }
         CompareButton(actions)
         Spacer(Modifier.width(4.dp))
         Box(
@@ -268,6 +351,31 @@ private fun PhotoHeader(title: String, tool: PhotoTool?, actions: PhotoActions, 
         ) {
             Text("Reset", color = PhotoSheetStyle.Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily)
         }
+    }
+}
+
+/** HSL's eyedropper: armed (ink), the next touch on the photo picks a range and drags it. */
+@Composable
+private fun EyedropperButton(state: PhotoSheetState, actions: PhotoActions) {
+    val on = state.eyedropperArmed
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(if (on) PhotoSheetStyle.Ink else Color.Transparent)
+            .clickable(onClickLabel = "Pick a colour from the photo, then drag on it") {
+                state.eyedropperArmed = !on
+                actions.eyedropper(!on)
+            }
+            .testTag("photo.eyedropper"),
+    ) {
+        Icon(
+            RailIcons.Eyedropper,
+            contentDescription = "Pick a colour from the photo, then drag on it",
+            tint = if (on) Color(0xFF0E0E0F) else PhotoSheetStyle.Muted,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -309,6 +417,7 @@ internal fun PhotoSliderList(
     actions: PhotoActions,
     drag: PhotoDrag,
     modifier: Modifier = Modifier,
+    header: @Composable () -> Unit = {},
 ) {
     val scroll = rememberScrollState()
     // The scroll clips to its bounds, and the dragged row's pill reaches 6 past its row: the list
@@ -321,6 +430,7 @@ internal fun PhotoSliderList(
             .verticalScroll(scroll, enabled = !drag.active)
             .padding(vertical = PillOverhang),
     ) {
+        header()
         sliders.forEach { slider ->
             val value = adjustment?.value(slider) ?: slider.default
             PhotoSliderRow(
@@ -516,7 +626,7 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.wai
     while (true) {
         val event = awaitPointerEvent()
         if (event.changes.all { !it.pressed }) return event.changes.firstOrNull()
-        if (event.changes.any { it.isConsumed && it.pressed && it.positionChange() != androidx.compose.ui.geometry.Offset.Zero }) {
+        if (event.changes.any { it.isConsumed && it.pressed && it.positionChangeIgnoreConsumed() != androidx.compose.ui.geometry.Offset.Zero }) {
             return null
         }
     }

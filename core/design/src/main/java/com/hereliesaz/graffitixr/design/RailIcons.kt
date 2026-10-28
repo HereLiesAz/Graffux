@@ -102,6 +102,11 @@ object RailIcons {
         }.build()
     }
 
+    /** HSL's eyedropper (the mockup's, round caps). */
+    val Eyedropper: ImageVector by lazy {
+        stroked("photo.eyedropper", "M14 6l4 4M4 20l2-1 9-9-3-3-9 9z", "M15 4a2 2 0 013 0l2 2a2 2 0 010 3l-2 1-4-4z", round = true)
+    }
+
     /** A Heal layer's tile: a circle with a plus (round caps). */
     val Heal: ImageVector by lazy {
         stroked("photo.heal", "M5 12a7 7 0 1 0 14 0a7 7 0 1 0 -14 0z", "M12 9v6M9 12h6", round = true)
