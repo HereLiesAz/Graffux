@@ -8733,30 +8733,32 @@ class EditorViewModel @Inject constructor(
             ).firstOrNull() ?: return@launch
             val mask = MagicWand.mask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance)
                 ?: return@launch
-            val wand = traceSelection(mask, bitmap.width, bitmap.height, 1f, layer, bitmap, canvasSize)
+            val wand = traceSelection(mask, bitmap.width, bitmap.height, layer, bitmap, canvasSize)
                 ?: return@launch
             withContext(dispatchers.main) { dispatch(EditorIntent.SetSelection(composeTraced(wand, op, current))) }
         }
     }
 
     /**
-     * A pixel [mask] of [layer]'s [bitmap] (traced at [mw]×[mh], which is the bitmap scaled by
-     * [scale]) as a screen-space selection, or null when nothing usable was traced.
+     * A pixel [mask] of [layer]'s [bitmap], traced at [mw]×[mh] (the bitmap's own size, or a
+     * scaled copy's: each axis is mapped back by its own ratio), as a screen-space selection, or
+     * null when nothing usable was traced.
      */
     @Suppress("LongParameterList")
     private fun traceSelection(
         mask: BooleanArray,
         mw: Int,
         mh: Int,
-        scale: Float,
         layer: Layer,
         bitmap: Bitmap,
         canvasSize: IntSize,
     ): Selection? {
         val traced = ContourTrace.contours(mask, mw, mh)
         if (traced.isEmpty()) return null
+        val sx = bitmap.width.toFloat() / mw
+        val sy = bitmap.height.toFloat() / mh
         val rings = traced.map { ring ->
-            val inBitmap = if (scale == 1f) ring.path else ring.path.map { it / scale }
+            val inBitmap = if (sx == 1f && sy == 1f) ring.path else ring.path.map { Offset(it.x * sx, it.y * sy) }
             ring.copy(
                 path = SelectionGeometry.simplify(
                     ImageProcessor.mapBitmapToScreen(
@@ -8820,15 +8822,26 @@ class EditorViewModel @Inject constructor(
                 withContext(NonCancellable + dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
             }
             withContext(dispatchers.main) {
-                when (subject) {
-                    SubjectResult.Unavailable -> notify(
-                        "Subject isolation isn't available on this device yet", NoticeKind.WARNING,
-                    )
-                    SubjectResult.Nothing -> notify("No subject found on this layer", NoticeKind.NOTICE)
-                    is SubjectResult.Found ->
-                        dispatch(EditorIntent.SetSelection(composeTraced(subject.selection, op, current)))
+                // Traced against the canvas as it was. If it was resized meanwhile (a rotation),
+                // the coordinates no longer mean the same pixels, so the result is dropped.
+                val stale = _uiState.value.canvasSize != canvasSize
+                if (stale) {
+                    notify("The canvas changed while finding the subject. Tap Subject again.", NoticeKind.NOTICE)
+                } else {
+                    publishSubject(subject, op, current)
                 }
             }
+        }
+    }
+
+    private fun publishSubject(subject: SubjectResult, op: SelectionOp, current: Selection?) {
+        when (subject) {
+            SubjectResult.Unavailable -> notify(
+                "Subject isolation isn't available on this device yet", NoticeKind.WARNING,
+            )
+            SubjectResult.Nothing -> notify("No subject found on this layer", NoticeKind.NOTICE)
+            is SubjectResult.Found ->
+                dispatch(EditorIntent.SetSelection(composeTraced(subject.selection, op, current)))
         }
     }
 
@@ -8852,19 +8865,17 @@ class EditorViewModel @Inject constructor(
             val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
             Bitmap.createScaledBitmap(bitmap, w, h, true)
         }
-        try {
-            val confidence = subjectSegmenter.segment(input) ?: return SubjectResult.Unavailable
-            val mask = SubjectMask.threshold(confidence)
-            val traced = if (mask.any { it }) {
-                val traceScale = input.width.toFloat() / bitmap.width
-                traceSelection(mask, input.width, input.height, traceScale, layer, bitmap, canvasSize)
-            } else {
-                null
-            }
-            return traced?.let { SubjectResult.Found(it) } ?: SubjectResult.Nothing
-        } finally {
-            if (input !== bitmap) input.recycle()
+        // The scaled copy is recycled only once the segmenter has returned. If this coroutine is
+        // cancelled mid-run, ML Kit's task may still be reading it, so it is left to the GC.
+        val confidence = subjectSegmenter.segment(input)
+        if (input !== bitmap) input.recycle()
+        val mask = confidence?.let(SubjectMask::threshold) ?: return SubjectResult.Unavailable
+        val traced = if (mask.any { it }) {
+            traceSelection(mask, input.width, input.height, layer, bitmap, canvasSize)
+        } else {
+            null
         }
+        return traced?.let { SubjectResult.Found(it) } ?: SubjectResult.Nothing
     }
 
     fun onClearSelection() = dispatch(EditorIntent.SetSelection(null))
