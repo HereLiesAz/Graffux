@@ -81,6 +81,14 @@ object RailIcons {
         )
     }
 
+    /** Frame (the design tools' rail circle and a frame's layer tile): Figma's # frame glyph. */
+    val Frame: ImageVector by lazy { stroked("rail.frame", "M7 3v18M17 3v18M3 7h18M3 17h18") }
+
+    /** A main component (Figma's four-diamond glyph): the components panel and a main's layer tile. */
+    val Component: ImageVector by lazy {
+        stroked("rail.component", "M12 3l4 4-4 4-4-4zM12 13l4 4-4 4-4-4zM7 8l4 4-4 4-4-4zM17 8l4 4-4 4-4-4z")
+    }
+
     /**
      * Hold to compare: a rounded square split down the middle, its right half filled. Drawn 20dp
      * in `#B4B4BA` in the photo sheet's header.

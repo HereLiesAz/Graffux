@@ -185,6 +185,13 @@ object LayoutOps {
         }
     }
 
+    /**
+     * Scales [layer]'s size by [fx] x [fy] wherever that kind of layer keeps its size (a vector's
+     * shapes, a frame's box, otherwise its uniform scale), as a constraint resize would. The
+     * properties panel's W and H use it.
+     */
+    fun resizeLayer(layer: Layer, fx: Float, fy: Float): Layer = ConstraintSolver.resized(layer, fx, fy)
+
     private fun crossOffset(align: LayoutAlign, available: Float, size: Float): Float = when (align) {
         LayoutAlign.START -> 0f
         LayoutAlign.CENTER -> (available - size) / 2f

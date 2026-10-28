@@ -379,14 +379,54 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":3"))
+        assertTrue(text.contains("\"formatVersion\":4"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(3, back.formatVersion)
+        assertEquals(4, back.formatVersion)
     }
 
     @Test
     fun `a newer format is never lowered`() {
         assertEquals(7, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 7), 7).formatVersion)
+    }
+
+    @Test
+    fun `a version 3 sized group becomes a frame that looks the same`() {
+        val v3 = """{"formatVersion":3,"id":"old","name":"Wall","layers":[""" +
+            """{"id":"g","name":"Card","uri":"","layerType":"GROUP","layoutWidth":200.0,"layoutHeight":120.0},""" +
+            """{"id":"plain","name":"Group","uri":"","layerType":"GROUP"},""" +
+            """{"id":"c","name":"Child","uri":"","parentId":"g"}]}"""
+        val project = manager.decodeProject(v3)
+        assertEquals(com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION, project.formatVersion)
+        val frame = project.layers.first { it.id == "g" }
+        assertTrue(frame.isFrame)
+        assertNull(frame.frameFillArgb)
+        assertEquals(false, frame.clipsContent)
+        assertEquals(200f, frame.layoutWidth)
+        assertEquals(false, project.layers.first { it.id == "plain" }.isFrame)
+        assertEquals("g", project.layers.first { it.id == "c" }.parentId)
+    }
+
+    @Test
+    fun `a frame survives a save and a load and is written as a group`() {
+        val project = GraffitiProject(
+            id = "p",
+            layers = listOf(
+                OverlayLayer(
+                    id = "f", name = "Pay", uri = mockk(relaxed = true),
+                    layerType = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+                    isFrame = true, frameFillArgb = 0xFF1A1A1DL, clipsContent = true, frameRadius = 12f,
+                    layoutWidth = 390f, layoutHeight = 844f,
+                ),
+            ),
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val text = json.encodeToString(GraffitiProject.serializer(), project)
+        assertTrue(text.contains("\"layerType\":\"GROUP\""))
+        val back = manager.decodeProject(text).layers.single()
+        assertTrue(back.isFrame)
+        assertEquals(0xFF1A1A1DL, back.frameFillArgb)
+        assertTrue(back.clipsContent)
+        assertEquals(12f, back.frameRadius)
     }
 }

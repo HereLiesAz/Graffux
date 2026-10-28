@@ -1,6 +1,7 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/CanvasHitTest.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.isContainer
 import androidx.compose.ui.unit.IntRect
 import com.hereliesaz.graffitixr.common.model.frame
 import androidx.compose.ui.geometry.Offset
@@ -370,8 +371,7 @@ internal object CanvasHitTest {
      * origin; null for anything else.
      */
     private fun frameHalfExtents(layer: Layer): Pair<Float, Float>? {
-        val sized = layer.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP &&
-            layer.layoutWidth > 0f && layer.layoutHeight > 0f
+        val sized = layer.isContainer && layer.layoutWidth > 0f && layer.layoutHeight > 0f
         return if (sized) (layer.layoutWidth / 2f) to (layer.layoutHeight / 2f) else null
     }
 

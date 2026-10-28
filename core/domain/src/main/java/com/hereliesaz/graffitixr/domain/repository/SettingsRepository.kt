@@ -27,6 +27,14 @@ interface SettingsRepository {
     suspend fun setImperialUnits(imperial: Boolean)
 
     /**
+     * Where a tablet or desktop shows the design properties: `"side_panel"` or `"bottom_sheet"`,
+     * null until the user picks (the side panel). Phones always use the sheet and ignore it.
+     */
+    val propertiesPlacement: Flow<String?>
+
+    suspend fun setPropertiesPlacement(placement: String)
+
+    /**
      * Whether the brush size slider is a document-space footprint (off, default -- the same slider
      * value paints the same real mark on the artwork at any zoom, matching Photoshop/Procreate) or an
      * on-screen footprint (on -- the brush looks the same size on screen at any zoom, so the real

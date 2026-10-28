@@ -97,6 +97,13 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
    host's siblings — leaves and groups alike — in one draggable cluster. Keep the pin at `11.52`
    or newer; below it there is no draggable host and a group would again block its siblings.
 
+9. **A design frame is a layer, and saves as a group.** `LayerType.FRAME` layers are written as
+   `layerType: GROUP` plus `OverlayLayer.isFrame` (project.json format 4) so older apps still open
+   the file. Frame geometry lives in `FrameOps` (pure, `core/common`); the Frame tool and the
+   properties act only through it and `EditorIntent.SetDesignLayers`. `Tool.FRAME` is the last
+   `Tool`: strokes persist their tool by ordinal, so new tools are only ever appended. See
+   `spec/design-tools.md`.
+
 ---
 
 ## Crash reporting

@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.BlendMode
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerNode
 import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
@@ -127,9 +128,13 @@ class ExportManager @Inject constructor() {
                 return
             }
         }
-        if (layer.type == LayerType.GROUP) {
+        if (layer.isContainer) {
             val groupBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            drawNodes(Canvas(groupBmp), node.children, w, h, groupBmp.takeIf { target != null })
+            val groupCanvas = Canvas(groupBmp)
+            // A frame's own box: its fill behind the children, and its clip around them, centred
+            // on the canvas centre exactly as LayerStackNode draws it.
+            drawFrameBox(groupCanvas, layer, w, h)
+            drawNodes(groupCanvas, node.children, w, h, groupBmp.takeIf { target != null })
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                 blendMode = layer.blendMode.toNativeBlendMode()
@@ -551,3 +556,21 @@ class ExportManager @Inject constructor() {
         }
     }
 }
+
+/** A frame's fill, then (when it clips) its box as [canvas]'s clip for the children after it. */
+private fun drawFrameBox(canvas: Canvas, layer: Layer, w: Int, h: Int) {
+    if (layer.type != LayerType.FRAME || layer.layoutWidth <= 0f || layer.layoutHeight <= 0f) return
+    val box = android.graphics.RectF(
+        w / 2f - layer.layoutWidth / 2f, h / 2f - layer.layoutHeight / 2f,
+        w / 2f + layer.layoutWidth / 2f, h / 2f + layer.layoutHeight / 2f,
+    )
+    val r = layer.frameRadius.coerceAtLeast(0f)
+    if (layer.clipsContent) {
+        val path = android.graphics.Path().apply { addRoundRect(box, r, r, android.graphics.Path.Direction.CW) }
+        canvas.clipPath(path)
+    }
+    layer.frameFillArgb?.let { argb ->
+        canvas.drawRoundRect(box, r, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = argb.toInt() })
+    }
+}
+

@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
@@ -684,6 +685,14 @@ fun EditorScreen(
             )
         }
 
+        // 3b-ter. Design frames: their name labels always, and with the Frame tool in hand the
+        // selection, its handles, and the tool's own touches (draw / move / resize / select).
+        FrameOverlay(uiState, designMode = uiState.activeTool == Tool.FRAME, modifier = Modifier.fillMaxSize())
+        if (uiState.activeTool == Tool.FRAME) {
+            val frameActions = remember(vm) { vm.frameToolActions() }
+            FrameToolCanvas(uiState, frameActions, modifier = Modifier.fillMaxSize(), gate = strokeGate)
+        }
+
         // 3b-bis. Vector node editor — anchors and bezier handles for the path layer being edited.
         // Above the transform/gesture layers so a drag on a node is claimed here rather than moving
         // the whole layer, and only mounted while node editing is actually on.
@@ -874,27 +883,8 @@ private fun LayerStackNode(
     if (frameAlpha <= 0f) return
 
     key(layer.id) {
-        if (layer.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP) {
-            Box(
-                modifier = modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationX = layer.offset.x
-                        translationY = layer.offset.y
-                        scaleX = layer.scale
-                        scaleY = layer.scale
-                        rotationX = layer.rotationX
-                        rotationY = layer.rotationY
-                        rotationZ = layer.rotationZ
-                        alpha = layer.opacity * frameAlpha
-                        transformOrigin = TransformOrigin.Center
-                        blendMode = layer.blendMode
-                        compositingStrategy = if (layer.blendMode != BlendMode.SrcOver)
-                            CompositingStrategy.Offscreen
-                        else
-                            CompositingStrategy.Auto
-                    }
-            ) {
+        if (layer.isContainer) {
+            ContainerLayerBox(layer, modifier, frameAlpha) {
                 node.children.forEach { child ->
                     LayerStackNode(child, liveStroke, overlayGeometry = overlayGeometry)
                 }
@@ -1677,7 +1667,7 @@ private fun polygonPath(cx: Float, cy: Float, w: Float, h: Float, sides: Int): P
 }
 
 /** Tools with their own capture layer (or none), so the raster brush surface isn't composed for them. */
-private val NON_RASTER_TOOLS = setOf(Tool.NONE, Tool.PEN, Tool.SELECT)
+private val NON_RASTER_TOOLS = setOf(Tool.NONE, Tool.PEN, Tool.SELECT, Tool.FRAME)
 
 /** Accent ring colour for the brush-size HUD. */
 private val BrushHudAccent = HotPink

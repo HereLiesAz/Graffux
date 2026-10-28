@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.common.model.ColorStyle
 import com.hereliesaz.graffitixr.common.model.ComponentOps
@@ -34,7 +35,7 @@ internal object EditorReducer {
      * highlighted row anywhere to explain why) until the user happens to tap something else.
      */
     private fun List<Layer>.firstDrawableId(): String? =
-        (firstOrNull { it.type != LayerType.GROUP } ?: firstOrNull())?.id
+        (firstOrNull { !it.isContainer } ?: firstOrNull())?.id
 
     fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState {
         return reduceLayerProperties(state, intent)
@@ -154,6 +155,7 @@ internal object EditorReducer {
             )
         }
         is EditorIntent.ReplaceLayers -> state.copy(layers = intent.layers, activeLayerId = intent.activeId, activeTool = Tool.NONE)
+        is EditorIntent.SetDesignLayers -> state.copy(layers = intent.layers, activeLayerId = intent.activeId)
         is EditorIntent.GroupLayers -> state.copy(
             layers = LayerListOps.group(state.layers, intent.aId, intent.bId, intent.newGroupId, intent.groupName),
         )

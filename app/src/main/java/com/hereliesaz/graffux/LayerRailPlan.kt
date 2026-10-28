@@ -1,7 +1,7 @@
 package com.hereliesaz.graffux
 
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.LayerType
 
 /** The top-level layers host: an `azUnattachedHostItem`. */
 internal const val LAYERS_HOST_ID = "grp.layers"
@@ -11,7 +11,7 @@ internal fun layerRailId(layerId: String): String = "layer.$layerId"
 
 /** One layer row to declare in the rail: [layer] under the rail host [hostId]. */
 internal data class LayerRailRow(val layer: Layer, val hostId: String) {
-    val isGroup: Boolean get() = layer.type == LayerType.GROUP
+    val isGroup: Boolean get() = layer.isContainer
 }
 
 /**
@@ -33,7 +33,7 @@ internal fun layerRailRows(layers: List<Layer>): List<LayerRailRow> {
     fun declare(parentId: String?, hostId: String) {
         layers.filter { it.parentId == parentId }.reversed().forEach {
             rows += LayerRailRow(it, hostId)
-            if (it.type == LayerType.GROUP) declare(it.id, layerRailId(it.id))
+            if (it.isContainer) declare(it.id, layerRailId(it.id))
         }
     }
     declare(null, LAYERS_HOST_ID)

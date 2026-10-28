@@ -2,10 +2,10 @@
 
 package com.hereliesaz.graffux
 
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.LayoutAlign
 import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
@@ -29,7 +29,7 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     val onBlendMode = env.onBlendMode
     val onEditClicked = env.onEditClicked
     val onCurves = env.onCurves
-    val isGroup = layer.type == LayerType.GROUP
+    val isGroup = layer.isContainer
     // The layer's own tools, on the layer whose menu you opened. Each one selects that layer
     // first, so a tool never lands on whichever layer happened to be active a moment ago — which
     // is what made these worth moving here rather than leaving them as rail buttons that act on
@@ -164,7 +164,7 @@ private fun MenuBuilder.renderLayerLayoutMenu(
     on: (() -> Unit) -> () -> Unit,
 ) {
     val hasChildren = uiState.layers.any { it.parentId == layer.id }
-    if (hasChildren && layer.type == LayerType.GROUP) {
+    if (hasChildren && layer.isContainer) {
         // The frame's box, typed as "W x H". Setting it resizes the frame and runs its children's
         // constraints (or its auto-layout) — the numeric twin of the frame's resize handle. Same
         // inputItem row the Rename field above uses; an entry that doesn't parse is ignored.

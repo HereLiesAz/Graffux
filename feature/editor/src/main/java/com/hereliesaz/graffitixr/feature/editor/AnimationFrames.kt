@@ -1,8 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerNode
-import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.buildLayerTree
 
 /**
@@ -35,7 +35,7 @@ object AnimationFrames {
      */
     fun drawableLayerForFrame(layers: List<Layer>, index: Int): String? {
         val frame = topLevelFrames(layers).getOrNull(index) ?: return null
-        if (frame.type != LayerType.GROUP) return frame.id
+        if (!frame.isContainer) return frame.id
         return layers.lastOrNull { it.parentId == frame.id }?.id
     }
 

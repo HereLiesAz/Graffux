@@ -77,6 +77,11 @@ internal sealed interface EditorIntent {
     data class SetPhotoCompare(val comparing: Boolean) : EditorIntent
     /** Replaces the whole layer set (e.g. flatten) with [layers], activating [activeId]. */
     data class ReplaceLayers(val layers: List<Layer>, val activeId: String?) : EditorIntent
+    /**
+     * A design edit (frames, the properties panel) that rewrote [layers]: unlike [ReplaceLayers] it
+     * keeps the tool in hand, so the Frame tool stays armed across edits.
+     */
+    data class SetDesignLayers(val layers: List<Layer>, val activeId: String?) : EditorIntent
 
     // ── Tool / panel / gesture ────────────────────────────────────────────────
     data class SetActiveTool(val tool: Tool) : EditorIntent
