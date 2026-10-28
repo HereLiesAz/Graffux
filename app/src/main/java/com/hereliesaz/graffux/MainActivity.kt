@@ -402,6 +402,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         PropertiesPlacement.resolve(storedPlacement, LocalConfiguration.current.smallestScreenWidthDp)
     val panelDocked = designMode && propertiesPlacement == PropertiesPlacement.SIDE_PANEL
     val designActions = remember(vm) { vm.designActions() }
+    val designLibraryActions = remember(vm) { vm.designLibraryActions() }
+    val designLibrary = if (designMode) designLibraryOf(uiState) else DesignLibrary()
     val designTarget = if (designMode) designTargetIn(uiState) { vm.designBox(it) } else null
     // Picking up the Frame tool opens the sheet on the design tab (unless the side panel has them).
     LaunchedEffect(designMode, panelDocked) {
@@ -964,6 +966,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             showingControls = carouselUi.showingCarousel,
                             target = designTarget,
                             actions = designActions,
+                            library = designLibrary,
+                            libraryActions = designLibraryActions,
                             onSelectTab = { tab ->
                                 designTab = tab
                                 carouselUi = carouselUi.copy(showingCarousel = true)
@@ -1255,6 +1259,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         actions = designActions,
                         placement = propertiesPlacement,
                         onPlacement = { settingsVm.setPropertiesPlacement(it.key) },
+                        library = designLibrary,
+                        libraryActions = designLibraryActions,
                         logoClearance = if (uiState.isRightHanded) 64.dp else 16.dp,
                         modifier = Modifier.align(layerCorner).fillMaxHeight(),
                     )

@@ -181,4 +181,55 @@ class FrameOpsTest {
         close(200f, out.width)
         close(150f, out.height)
     }
+
+    @Test
+    fun `a turned frame's corners turn with it and a corner drag resizes along its own edges`() {
+        // 200 x 100 about the origin, turned a quarter.
+        val f = frame("f", -100f, -50f, 200f, 100f).copy(rotationZ = 90f)
+        val pts = FrameOps.corners(listOf(f), f)
+        // Its top-left (-100, -50) turned 90 degrees lands at (50, -100).
+        close(50f, pts[0].x)
+        close(-100f, pts[0].y)
+        // Drag the bottom-right corner (on screen at (-50, 100)) 20 further along its own x axis,
+        // which after the turn points down.
+        val box = FrameOps.resizeFromCorner(listOf(f), f, 2, Offset(-50f, 120f))
+        close(220f, box.width)
+        close(100f, box.height)
+        // The top-left corner (50, -100) stays put: the centre moved 10 down.
+        close(10f, box.centerY)
+        close(0f, box.centerX)
+    }
+
+    @Test
+    fun `only what shows can be picked`() {
+        val clip = frame("clip", 0f, 0f, 100f, 100f)
+        val inClip = Layer(id = "a", name = "a", parentId = "clip", offset = Offset(0f, 0f))
+        val hiddenParent = frame("hidden", 300f, 0f, 100f, 100f).copy(isVisible = false)
+        val inHidden = Layer(id = "b", name = "b", parentId = "hidden")
+        val layers = listOf(clip, inClip, hiddenParent, inHidden)
+        assertTrue(FrameOps.showsAt(layers, "a", Offset(50f, 50f)))
+        // Outside a clipping frame's box: clipped away.
+        assertFalse(FrameOps.showsAt(layers, "a", Offset(150f, 50f)))
+        // Not clipped once the frame shows all.
+        val open = layers.map { if (it.id == "clip") it.copy(clipsContent = false) else it }
+        assertTrue(FrameOps.showsAt(open, "a", Offset(150f, 50f)))
+        assertFalse(FrameOps.showsAt(layers, "b", Offset(350f, 50f)))
+        assertFalse(FrameOps.showsAt(layers.map { if (it.id == "a") it.copy(isVisible = false) else it }, "a", Offset(50f, 50f)))
+    }
+
+    @Test
+    fun `a frame under a hidden parent is passed over for the one beneath`() {
+        val below = frame("below", 0f, 0f, 300f, 300f)
+        val hiddenParent = frame("hp", 0f, 0f, 300f, 300f).copy(isVisible = false)
+        val nested = frame("nested", 0f, 0f, 100f, 100f).copy(parentId = "hp", offset = Offset(-100f, -100f))
+        assertEquals("below", FrameOps.frameAt(listOf(below, hiddenParent, nested), Offset(50f, 50f))?.id)
+    }
+
+    @Test
+    fun `a turned frame's label is found at its turned corner`() {
+        // 200 x 100 about the origin, a quarter turn: its top-left corner is at (50, -100).
+        val f = frame("f", -100f, -50f, 200f, 100f).copy(rotationZ = 90f)
+        assertEquals("f", FrameOps.labelAt(listOf(f), Offset(60f, -105f), labelHeight = 16f, labelWidth = 80f)?.id)
+        assertNull(FrameOps.labelAt(listOf(f), Offset(-90f, -55f), labelHeight = 16f, labelWidth = 80f))
+    }
 }
