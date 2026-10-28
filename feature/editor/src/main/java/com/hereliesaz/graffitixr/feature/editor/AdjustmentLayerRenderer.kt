@@ -13,7 +13,7 @@ import com.hereliesaz.graffitixr.common.photo.PhotoAdjustMath
 import com.hereliesaz.graffitixr.common.photo.PhotoAdjustParams
 import com.hereliesaz.graffitixr.common.photo.PhotoAdjustment
 import com.hereliesaz.graffitixr.common.photo.PhotoTool
-import com.hereliesaz.graffitixr.common.photo.RetouchMath
+import com.hereliesaz.graffitixr.common.photo.RetouchCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -66,6 +66,9 @@ internal class AdjustmentLayerRenderer(
         var maskKey: Long = Long.MIN_VALUE
         val outputs = arrayOfNulls<Bitmap>(2)
         var next = 0
+
+        /** Heal and Red-eye: the layer's last render, so an edit redraws only its spots. */
+        var retouch: RetouchCache? = null
     }
 
     private val slots = HashMap<String, Slot>()
@@ -172,9 +175,9 @@ internal class AdjustmentLayerRenderer(
         val outBytes = out?.takeIf { it.size == n * 4 } ?: ByteArray(n * 4).also { out = it }
         val mask = maskOf(request.layer)?.takeIf { adjustment.mask.enabled && it.size >= n }
         val started = System.nanoTime()
+        var pixels = outBytes
         if (adjustment.tool == PhotoTool.HEAL || adjustment.tool == PhotoTool.RED_EYE) {
-            // Spot work: small and only on a change, so on the CPU (RetouchMath).
-            retouch(adjustment, source, width, height, mask, outBytes)
+            pixels = liveRetouch(slot, request, source, mask)
             lastRenderNanos = System.nanoTime() - started
         } else {
             val params = PhotoAdjustParams.pack(adjustment, grainSeed = request.layer.id.hashCode(), maskOn = mask != null)
@@ -208,7 +211,7 @@ internal class AdjustmentLayerRenderer(
         val target = slot.outputs[slot.next]?.takeIf { !it.isRecycled && it.width == width && it.height == height }
             ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { slot.outputs[slot.next] = it }
         slot.next = 1 - slot.next
-        target.copyPixelsFromBuffer(ByteBuffer.wrap(outBytes))
+        target.copyPixelsFromBuffer(ByteBuffer.wrap(pixels))
         slot.renderKey = request.renderKey
         publish(request.layer.id, target)
     }
@@ -233,8 +236,9 @@ internal class AdjustmentLayerRenderer(
         if (adjustment.tool == PhotoTool.HEAL || adjustment.tool == PhotoTool.RED_EYE) {
             val sx = w.toFloat() / width.coerceAtLeast(1)
             val sy = h.toFloat() / height.coerceAtLeast(1)
-            retouch(scaled(adjustment, sx, sy), src, w, h, mask, outBytes)
-            return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { copyPixelsFromBuffer(ByteBuffer.wrap(outBytes)) }
+            val cache = RetouchCache(w, h)
+            retouch(cache, scaled(adjustment, sx, sy), src, 0L, mask, 0L)
+            return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { copyPixelsFromBuffer(ByteBuffer.wrap(cache.out)) }
         }
         val params = PhotoAdjustParams.pack(adjustment, grainSeed = layer.id.hashCode(), maskOn = mask != null)
         val curves = PhotoAdjustParams.curvesTable(adjustment)
@@ -273,18 +277,18 @@ internal class AdjustmentLayerRenderer(
      * The Heal or Red-eye layer: transparent but for its spots ([RetouchMath]), times its mask.
      * Content-aware unless the layer's "heal.clone" setting is on.
      */
-    private fun retouch(a: PhotoAdjustment, src: ByteArray, w: Int, h: Int, mask: ByteArray?, out: ByteArray) {
-        java.util.Arrays.fill(out, 0)
+    /** Spot work on the CPU (RetouchMath), cached per layer: an edit redraws only the spots it touched. */
+    private fun liveRetouch(slot: Slot, request: Request, source: ByteArray, mask: ByteArray?): ByteArray {
+        val adjustment = request.layer.adjustment ?: return ByteArray(0)
+        val cache = slot.retouch?.takeIf { it.width == width && it.height == height }
+            ?: RetouchCache(width, height).also { slot.retouch = it }
+        retouch(cache, adjustment, source, request.sourceKey, mask, maskGeneration(request.layer.id) * 31 + adjustment.mask.revision)
+        return cache.out
+    }
+
+    private fun retouch(cache: RetouchCache, a: PhotoAdjustment, src: ByteArray, sourceKey: Long, mask: ByteArray?, maskKey: Long) {
         val contentAware = (a.values[HEAL_CLONE_KEY] ?: 0f) < 0.5f
-        a.healSpots.forEach { RetouchMath.heal(src, w, h, it, contentAware, out) }
-        a.redEyeSpots.forEach { RetouchMath.redEye(src, w, h, it, out) }
-        if (mask != null) {
-            for (i in 0 until w * h) {
-                val m = (mask[i].toInt() and 0xFF).let { if (a.mask.inverted) 255 - it else it }
-                if (m == 255) continue
-                for (k in 0..3) out[i * 4 + k] = ((out[i * 4 + k].toInt() and 0xFF) * m / 255).toByte()
-            }
-        }
+        cache.render(src, sourceKey, a.healSpots, a.redEyeSpots, contentAware, mask, if (mask == null) Long.MIN_VALUE + 1 else maskKey, a.mask.inverted)
     }
 
     /**
