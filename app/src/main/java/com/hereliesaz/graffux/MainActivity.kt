@@ -1673,6 +1673,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // for what only a real store app can do (Play Billing).
             if (showStore) {
                 LaunchedEffect(Unit) { vm.refreshStoreUpdates() }
+                val purchaseStates by vm.purchaseStates.collectAsState()
+                // Back from a Stripe Checkout Custom Tab: confirm the payment and install.
+                androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+                    vm.resumeCheckouts()
+                    onPauseOrDispose { }
+                }
                 StoreWindow(
                     initialTab = storeTab,
                     installed = allInstalledExtensions,
@@ -1691,7 +1697,33 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onQueryChanged = { vm.onStoreBrowseQueryChanged(it) },
                     onSearch = { vm.onStoreSearch() },
                     onInstall = { pkg -> vm.installFromRepository(pkg.id, pkg.latest ?: pkg.version) },
+                    // In-app purchase: the repository picks Play Billing, Google's choice screen or
+                    // Stripe for this buyer; Stripe Checkout opens in a Custom Tab and is picked up
+                    // again on resume (below).
                     onBuy = { pkg ->
+                        val activity = context.findActivity()
+                        if (activity == null) {
+                            alerts.show(
+                                kind = MessageKind.WARNING,
+                                title = "Can't start a purchase",
+                                message = "Try again from the main screen.",
+                            )
+                        } else {
+                            vm.buyPackage(activity, pkg.id) { checkoutUrl ->
+                                runCatching {
+                                    androidx.browser.customtabs.CustomTabsIntent.Builder().build()
+                                        .launchUrl(activity, Uri.parse(checkoutUrl))
+                                }.onFailure {
+                                    runCatching {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkoutUrl)))
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    // Buying on azphalt.store stays a first-class option: the licence comes back through
+                    // the store handoff / Restore purchases and is honoured like an in-app one.
+                    onBuyOnWeb = { pkg ->
                         val url = "${AzphaltStoreHandoff.WEB_STORE_URL}/packages/" +
                             com.hereliesaz.graffitixr.data.azphalt.RepositoryApiClient.encodePathSegment(pkg.id)
                         runCatching {
@@ -1704,6 +1736,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             )
                         }
                     },
+                    purchaseStates = purchaseStates,
+                    onRestorePurchases = { vm.restorePurchases() },
                     onOtherSources = { showStore = false; showStoreChooser = true },
                     onDismiss = { showStore = false },
                 )
@@ -2059,3 +2093,10 @@ private data class StoreHandoffInstall(
     val packages: List<Uri>,
     val metadata: com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff.StoreResult?,
 )
+
+/** The Activity behind a Compose [android.content.Context], unwrapping ContextWrappers. */
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
