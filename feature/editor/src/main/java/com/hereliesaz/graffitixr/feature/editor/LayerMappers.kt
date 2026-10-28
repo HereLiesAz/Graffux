@@ -27,7 +27,16 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         alphaLock = alphaLock,
         clipToLayerBelow = clipToLayerBelow,
         parentId = parentId,
-        layerType = type,
+        // A frame is saved as a group plus isFrame, so an older app opens it as a group.
+        layerType = if (type == com.hereliesaz.graffitixr.common.model.LayerType.FRAME) {
+            com.hereliesaz.graffitixr.common.model.LayerType.GROUP
+        } else {
+            type
+        },
+        isFrame = type == com.hereliesaz.graffitixr.common.model.LayerType.FRAME,
+        frameFillArgb = frameFillArgb,
+        clipsContent = clipsContent,
+        frameRadius = frameRadius,
         componentId = componentId,
         instanceOf = instanceOf,
         constraints = constraints,
@@ -53,7 +62,10 @@ fun OverlayLayer.toLayer(): Layer {
     return Layer(
         id = id,
         name = name,
-        type = layerType,
+        type = if (isFrame) com.hereliesaz.graffitixr.common.model.LayerType.FRAME else layerType,
+        frameFillArgb = frameFillArgb,
+        clipsContent = clipsContent,
+        frameRadius = frameRadius,
         parentId = parentId,
         componentId = componentId,
         instanceOf = instanceOf,

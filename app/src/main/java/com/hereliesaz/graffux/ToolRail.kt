@@ -155,7 +155,21 @@ internal fun ToolRail(
             badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString(),
         )
         group("grp.transform", "Crop & Transform", RailIcons.Transform, CarouselCategory.TRANSFORM)
-        AdjustButton(on = PHOTO_RAIL_ID in lit, onClick = callbacks.onAdjust)
+        // The design tools: frames, the properties and the panels that act on them.
+        ModeButton(
+            label = "Frame",
+            tag = "rail.tool.frame",
+            icon = RailIcons.Frame,
+            on = uiState.activeTool == Tool.FRAME,
+            onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FRAME) Tool.NONE else Tool.FRAME) },
+        )
+        ModeButton(
+            label = "Adjust photo",
+            tag = "rail.$PHOTO_RAIL_ID",
+            icon = RailIcons.Adjust,
+            on = PHOTO_RAIL_ID in lit,
+            onClick = callbacks.onAdjust,
+        )
         // Not in the mockup; kept because the rail is the eraser's only always-there button.
         tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
         val viewMoved = uiState.viewportZoom != 1f ||
@@ -184,20 +198,20 @@ internal fun ToolRail(
 internal const val PHOTO_RAIL_ID = "area.photo"
 
 /**
- * Adjust photo, after Transform. Lit as the mockup draws it: a filled ink circle with the glyph in
- * the canvas's near-black, not the accent ring of the other tools, because it is a mode of the
- * sheet rather than a tool in hand.
+ * Frame and Adjust photo, after Transform. Lit as the mockup draws them: a filled ink circle with
+ * the glyph in the canvas's near-black, not the accent ring of the other tools, because each turns
+ * the sheet (and, on a tablet, the side panel) into a mode of its own.
  */
 @Composable
-private fun AdjustButton(on: Boolean, onClick: () -> Unit) {
+private fun ModeButton(label: String, tag: String, icon: ImageVector, on: Boolean, onClick: () -> Unit) {
     RailButton(
-        label = "Adjust photo",
-        testTag = "rail.$PHOTO_RAIL_ID",
+        label = label,
+        testTag = tag,
         onClick = onClick,
         modifier = if (on) Modifier.background(RailInk, CircleShape) else Modifier,
     ) {
         androidx.compose.material3.Icon(
-            RailIcons.Adjust,
+            icon,
             contentDescription = null,
             tint = if (on) AdjustOnInk else RailInk,
             modifier = Modifier.size(22.dp),

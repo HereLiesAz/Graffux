@@ -83,6 +83,14 @@ class SettingsViewModel @Inject constructor(
         settings.setRightHanded(isRight)
     }
 
+    /** Where a tablet or desktop shows the design properties (see [PropertiesPlacement]); null = default. */
+    val propertiesPlacement: StateFlow<String?> =
+        settings.propertiesPlacement.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setPropertiesPlacement(placement: String) = viewModelScope.launch(dispatchers.io) {
+        settings.setPropertiesPlacement(placement)
+    }
+
     fun setImperialUnits(imperial: Boolean) = viewModelScope.launch(dispatchers.io) {
         settings.setImperialUnits(imperial)
     }

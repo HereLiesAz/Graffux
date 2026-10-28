@@ -390,10 +390,28 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         }
     }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
+    // The design tools (the rail's Frame circle): the Frame tool in hand turns the sheet into the
+    // design tabs, or on a tablet / desktop docks the properties in a side panel instead (the
+    // "Show properties in" setting).
+    val designMode = uiState.activeTool == Tool.FRAME
+    var designTab by remember { mutableStateOf(DesignTab.FRAME) }
+    val storedPlacement by settingsVm.propertiesPlacement.collectAsState()
+    val propertiesPlacement =
+        PropertiesPlacement.resolve(storedPlacement, LocalConfiguration.current.smallestScreenWidthDp)
+    val panelDocked = designMode && propertiesPlacement == PropertiesPlacement.SIDE_PANEL
+    val designActions = remember(vm) { vm.designActions() }
+    val designTarget = if (designMode) designTargetIn(uiState) { vm.designBox(it) } else null
+    // Picking up the Frame tool opens the sheet on the design tab (unless the side panel has them).
+    LaunchedEffect(designMode, panelDocked) {
+        if (designMode && !panelDocked) {
+            showCarousel = true
+            carouselUi = carouselUi.copy(sheetOpen = true, showingCarousel = true, photo = false)
+        }
+    }
     // Selecting a main-rail tool group must reveal its carousel, even if an editor panel is open.
     // The ordinary carousel pages retain the original hide-while-panel-open behavior.
-    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture &&
-        (uiState.activePanel == EditorPanel.NONE || carouselUi.category.isToolGroup)
+    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture && !panelDocked &&
+        (uiState.activePanel == EditorPanel.NONE || carouselUi.category.isToolGroup || designMode)
     // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
     val heroExpansion = remember { HeroExpansion() }
     LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
@@ -741,6 +759,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val toolRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = toolTop, bottom = railBottom)
     val layersRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = layersTop, bottom = railBottom)
     val besideRail = RailWidth + RailEdgeGap * 2
+    val layersRailBesideTools = Modifier
+        .padding(horizontal = RailSideInset + RailWidth + RailSideInset)
+        .padding(top = LayersRailTopInset, bottom = railBottom)
     CompositionLocalProvider(LocalRailInset provides railInset, LocalChromeHidden provides { chrome.hidden }) {
     Box(
         modifier = Modifier
@@ -934,7 +955,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         effectPreviews.updateSource(previewLayer?.bitmap)
                     }
                     DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
-                    if (carouselUi.photo) {
+                    if (designMode) {
+                        DesignSheetBody(
+                            tab = designTab,
+                            showingControls = carouselUi.showingCarousel,
+                            target = designTarget,
+                            actions = designActions,
+                            onSelectTab = { tab ->
+                                designTab = tab
+                                carouselUi = carouselUi.copy(showingCarousel = true)
+                            },
+                        )
+                    } else if (carouselUi.photo) {
                         val photoTab = PhotoTab.ofKey(carouselUi.tab)
                         val photoLayer = photoTab?.tool?.let { tool ->
                             uiState.layers.find { it.id == uiState.activeLayerId && it.adjustment?.tool == tool }
@@ -1137,7 +1169,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             onRelocate = { order, parentId -> vm.onLayerRailRelocated(order, parentId) },
                             onAdd = { vm.onAddBlankLayer() },
                         ),
-                        modifier = Modifier.align(layerCorner).then(layersRailPadding),
+                        // With the side panel docked on its side, the layers rail moves beside the
+                        // tool rail so the two never overlap (the mockup's tablet panel board).
+                        modifier = if (panelDocked) {
+                            Modifier.align(toolCorner).then(layersRailBesideTools)
+                        } else {
+                            Modifier.align(layerCorner).then(layersRailPadding)
+                        },
                     )
                 }
                 layerMenuFor?.let { id -> uiState.layers.firstOrNull { it.id == id } }?.let { layer ->
@@ -1203,6 +1241,19 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         expanded = railExpansion[spec.id] ?: false,
                         onExpandedChange = { vm.onRailHostExpansionChanged(spec.id, it) },
                         initialOffset = IntOffset(toolboxStart + index * toolboxStep, toolboxStart / 2),
+                    )
+                }
+
+                // The design properties docked on the layers' side (tablet / desktop); the logo
+                // menu, composed after it, keeps its corner over the panel's header.
+                if (panelDocked) {
+                    PropertiesPanel(
+                        target = designTarget,
+                        actions = designActions,
+                        placement = propertiesPlacement,
+                        onPlacement = { settingsVm.setPropertiesPlacement(it.key) },
+                        logoClearance = if (uiState.isRightHanded) 64.dp else 16.dp,
+                        modifier = Modifier.align(layerCorner).fillMaxHeight(),
                     )
                 }
 

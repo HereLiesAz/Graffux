@@ -2,6 +2,8 @@
 
 package com.hereliesaz.graffux
 
+import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.isFrame
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -52,7 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.Amber
@@ -224,7 +225,7 @@ private fun LayerThumb(
     expanded: Boolean,
     maskThumb: android.graphics.Bitmap? = null,
 ) {
-    val isGroup = layer.type == LayerType.GROUP
+    val isGroup = layer.isContainer
     val label = layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
         (if (maskThumb != null) ", masked" else "") +
         (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else "")
@@ -260,6 +261,8 @@ private fun LayerThumb(
                 val bitmap = layer.bitmap
                 val adjustment = layer.adjustment
                 when {
+                    // A frame shows the mockup's # glyph; a plain group its stack glyph.
+                    layer.isFrame -> RailGlyph(RailIcons.Frame)
                     isGroup -> RailGlyph(GraffuxIcons.LayerGroup)
                     // An adjustment layer shows its tool's glyph, not its render (the mockup).
                     adjustment != null -> Box(

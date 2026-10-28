@@ -35,6 +35,7 @@ class SettingsRepositoryImpl @Inject constructor(
 
     private val IS_RIGHT_HANDED = booleanPreferencesKey("is_right_handed")
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
+    private val propertiesPlacementKey = stringPreferencesKey("properties_placement")
     private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
     private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
@@ -66,6 +67,16 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setImperialUnits(imperial: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[IS_IMPERIAL_UNITS] = imperial
+        }
+    }
+
+    override val propertiesPlacement: Flow<String?> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> preferences[propertiesPlacementKey] }
+
+    override suspend fun setPropertiesPlacement(placement: String) {
+        context.dataStore.edit { preferences ->
+            preferences[propertiesPlacementKey] = placement
         }
     }
 

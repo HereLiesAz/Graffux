@@ -48,6 +48,9 @@ internal object ConstraintSolver {
      *    exists, so the smaller of the axis factors that changed is applied. The layer keeps its
      *    aspect and sits centred in the box its constraints asked for.
      */
+    /** [resize], for [LayoutOps.resizeLayer]. */
+    fun resized(layer: Layer, fx: Float, fy: Float): Layer = resize(layer, fx, fy)
+
     private fun resize(layer: Layer, fx: Float, fy: Float): Layer = when {
         fx == 1f && fy == 1f -> layer
         layer.shapes.isNotEmpty() -> layer.copy(shapes = layer.shapes.map { resize(it, fx, fy) })

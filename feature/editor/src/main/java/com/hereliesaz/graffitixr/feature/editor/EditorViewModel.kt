@@ -1,6 +1,9 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.isFrame
+import com.hereliesaz.graffitixr.common.model.isAdjustment
 import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 
 import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
@@ -519,6 +522,20 @@ private const val CONTINUOUS_EDIT_IDLE_MS = 400L
 /** Upper bound on a numerically entered frame size — the same ceiling setVectorSize uses. */
 private const val MAX_FRAME_SIZE = 8192f
 
+/** A drawn frame smaller than this (world units) on either side was a tap, not a frame. */
+private const val MIN_FRAME_SIZE = 8f
+
+/** The Frame tab's Add frame: a phone screen, as Figma's first preset. */
+private const val DEFAULT_FRAME_WIDTH = 390f
+private const val DEFAULT_FRAME_HEIGHT = 844f
+
+/** A frame's name label, as a touch target on screen (dp-ish px at zoom 1). */
+private const val FRAME_LABEL_HIT_HEIGHT = 40f
+private const val FRAME_LABEL_HIT_WIDTH = 160f
+
+/** Below this zoom the design maths clamps, so nothing divides by zero. */
+private const val MIN_DESIGN_ZOOM = 0.01f
+
 /**
  * The tools that rework pixels already on the layer instead of painting new ones.
  *
@@ -842,7 +859,7 @@ class EditorViewModel @Inject constructor(
         val active = layers.find { it.id == _uiState.value.activeLayerId }
         val below = active?.takeIf { it.adjustment != null }?.let { adj ->
             layers.subList(0, layers.indexOf(adj)).lastOrNull {
-                it.adjustment == null && it.type != com.hereliesaz.graffitixr.common.model.LayerType.GROUP
+                it.adjustment == null && !it.isContainer
             }
         }
         below?.let { dispatch(EditorIntent.ActivateLayer(it.id)) }
@@ -4427,7 +4444,7 @@ class EditorViewModel @Inject constructor(
         recordToolUse(tool)
         // An adjustment layer takes no paint: a paint tool picked while one is selected goes to the
         // nearest ordinary layer under it (a new one when there is none).
-        val needsCanvas = tool != Tool.NONE && tool != Tool.PEN &&
+        val needsCanvas = tool != Tool.NONE && tool != Tool.PEN && tool != Tool.FRAME &&
             (_uiState.value.layers.isEmpty() || !leaveAdjustmentLayerFor())
         if (needsCanvas) {
             onAddBlankLayer(activeToolOverride = tool)
@@ -4795,7 +4812,8 @@ class EditorViewModel @Inject constructor(
      * transform tool keeps scaling it as a unit.
      */
     private fun Layer.isResizableFrame(): Boolean =
-        type == LayerType.GROUP && layoutWidth > 0f && layoutHeight > 0f &&
+        type == LayerType.FRAME ||
+            type == LayerType.GROUP && layoutWidth > 0f && layoutHeight > 0f &&
             _uiState.value.layers.any { it.parentId == id }
     override fun toggleImageLock() {
         pushHistory()
@@ -8521,7 +8539,7 @@ class EditorViewModel @Inject constructor(
         val siblings = layers.filter { it.parentId == upper.parentId }
         val siblingIndex = siblings.indexOfFirst { it.id == upper.id }
         val lower = siblings.getOrNull(siblingIndex - 1)
-        if (lower == null || lower.type == LayerType.GROUP) {
+        if (lower == null || lower.isContainer) {
             notify("Nothing below this layer to merge into", NoticeKind.NOTICE)
             return
         }
@@ -11216,6 +11234,208 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.ReleaseComponent(componentId))
         saveProject()
+    }
+
+    // ── Design frames and the properties panel ──────────────────────────────────────────────
+    //
+    // Frames are layers (LayerType.FRAME); everything here is a pure FrameOps / LayoutOps transform
+    // applied through SetDesignLayers, so the Frame tool stays in hand. Each discrete edit is one
+    // undo step; a drag (move or resize) is one undo step for the whole gesture.
+
+    /** The canvas the layers' offsets are measured in: the screen's canvas, or the display before it lays out. */
+    private fun designCanvasSize(): Pair<Float, Float> {
+        val size = _uiState.value.canvasSize
+        if (size.width > 0 && size.height > 0) return size.width.toFloat() to size.height.toFloat()
+        val metrics = context.resources.displayMetrics
+        return metrics.widthPixels.toFloat() to metrics.heightPixels.toFloat()
+    }
+
+    private fun screenToDesignWorld(screen: Offset, cw: Float, ch: Float): Offset {
+        val st = _uiState.value
+        val w = CanvasHitTest.screenToWorld(screen, st.viewportOffset, st.viewportZoom, st.viewportRotation)
+        return Offset(w.x - cw / 2f, w.y - ch / 2f)
+    }
+
+    private fun applyDesign(layers: List<Layer>, activeId: String? = _uiState.value.activeLayerId) {
+        dispatch(EditorIntent.SetDesignLayers(layers, activeId))
+    }
+
+    /**
+     * What a touch at [screen] picks with the Frame tool: the artwork under it first (wherever it
+     * is nested), then the frame whose box holds it, then a frame by its name label. Null: nothing.
+     */
+    @Suppress("ReturnCount")
+    fun designHitAt(screen: Offset, canvasWidth: Float, canvasHeight: Float): String? {
+        val st = _uiState.value
+        val flat = com.hereliesaz.graffitixr.common.model.FrameOps.flattenTransforms(st.layers)
+        CanvasHitTest.topHit(
+            flat.filterNot { it.isContainer || it.isAdjustment }, screen, canvasWidth, canvasHeight,
+            st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        )?.let { return it }
+        val world = screenToDesignWorld(screen, canvasWidth, canvasHeight)
+        com.hereliesaz.graffitixr.common.model.FrameOps.frameAt(st.layers, world)?.let { return it.id }
+        val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
+        return com.hereliesaz.graffitixr.common.model.FrameOps
+            .labelAt(st.layers, world, FRAME_LABEL_HIT_HEIGHT / zoom, FRAME_LABEL_HIT_WIDTH / zoom)?.id
+    }
+
+    /** A tap with the Frame tool: selects what is under it, or clears the selection. */
+    fun onDesignTap(screen: Offset, canvasWidth: Float, canvasHeight: Float) {
+        val hit = designHitAt(screen, canvasWidth, canvasHeight)
+        if (hit == _uiState.value.activeLayerId) return
+        if (hit != null) dispatch(EditorIntent.ActivateLayer(hit)) else applyDesign(_uiState.value.layers, null)
+    }
+
+    /**
+     * A frame drawn with the Frame tool, from screen point [start] to [end]. Artwork under it moves
+     * into it (staying where it is), the new frame is selected, and the tool stays in hand.
+     */
+    fun onCommitFrame(start: Offset, end: Offset, canvasWidth: Float, canvasHeight: Float) {
+        val a = screenToDesignWorld(start, canvasWidth, canvasHeight)
+        val b = screenToDesignWorld(end, canvasWidth, canvasHeight)
+        val box = com.hereliesaz.graffitixr.common.model.Rect(
+            minOf(a.x, b.x), minOf(a.y, b.y), kotlin.math.abs(b.x - a.x), kotlin.math.abs(b.y - a.y),
+        )
+        if (box.width < MIN_FRAME_SIZE || box.height < MIN_FRAME_SIZE) return
+        addFrame(box)
+    }
+
+    /** Adds a [width] x [height] frame beside the existing ones (the Frame tab's Add frame). */
+    fun onAddFrame(width: Float = DEFAULT_FRAME_WIDTH, height: Float = DEFAULT_FRAME_HEIGHT) {
+        addFrame(com.hereliesaz.graffitixr.common.model.FrameOps.nextPlacement(_uiState.value.layers, width, height))
+    }
+
+    private fun addFrame(box: com.hereliesaz.graffitixr.common.model.Rect) {
+        val ops = com.hereliesaz.graffitixr.common.model.FrameOps
+        val layers = _uiState.value.layers
+        val frame = ops.create(UUID.randomUUID().toString(), ops.nextName(layers), box)
+        pushHistory()
+        applyDesign(ops.adoptContents(layers + frame, frame.id), frame.id)
+        opEmitter.emit(Op.LayerAdd(frame))
+        saveProject()
+    }
+
+    /** A move or resize drag with the Frame tool begins: one undo step for the whole drag. */
+    fun onDesignDragStart(layerId: String) {
+        designDragBefore = _uiState.value.layers
+        pushHistory()
+        if (layerId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(layerId))
+        dispatch(EditorIntent.BeginGesture)
+    }
+
+    /** The drag moved [layerId] by [screenDelta] screen pixels. */
+    fun onDesignMove(layerId: String, screenDelta: Offset) {
+        val st = _uiState.value
+        val zoom = st.viewportZoom.coerceAtLeast(MIN_DESIGN_ZOOM)
+        val rad = Math.toRadians(-st.viewportRotation.toDouble())
+        val c = kotlin.math.cos(rad).toFloat()
+        val sn = kotlin.math.sin(rad).toFloat()
+        val world = Offset(
+            (screenDelta.x * c - screenDelta.y * sn) / zoom,
+            (screenDelta.x * sn + screenDelta.y * c) / zoom,
+        )
+        applyDesign(com.hereliesaz.graffitixr.common.model.FrameOps.moveBy(st.layers, layerId, world))
+    }
+
+    /** A resize handle dragged to [box] (world space) on frame [frameId]. */
+    fun onDesignResize(frameId: String, box: com.hereliesaz.graffitixr.common.model.Rect) {
+        if (box.width < 1f || box.height < 1f) return
+        applyDesign(com.hereliesaz.graffitixr.common.model.FrameOps.setBox(_uiState.value.layers, frameId, box))
+    }
+
+    /** The drag ends: a moved layer drops into (or out of) a frame, and everything is saved. */
+    fun onDesignDragEnd(layerId: String, moved: Boolean) {
+        val before = _uiState.value.layers
+        if (moved) {
+            val dropped = com.hereliesaz.graffitixr.common.model.FrameOps.reparentAfterMove(before, layerId)
+            if (dropped !== before) applyDesign(dropped)
+        }
+        dispatch(EditorIntent.SetGestureInProgress(false))
+        saveProject()
+        designDragBefore?.let { emitGeometryChanges(it, _uiState.value.layers) }
+        designDragBefore = null
+    }
+
+    /** The layers as a Frame-tool drag began, so its end can tell peers what it changed. */
+    private var designDragBefore: List<Layer>? = null
+
+    /** [layerId]'s box in world space (top-left + size), what the properties panel shows. */
+    fun designBox(layerId: String): com.hereliesaz.graffitixr.common.model.Rect? {
+        val (cw, ch) = designCanvasSize()
+        return DesignGeometry.box(_uiState.value.layers, layerId, cw, ch)
+    }
+
+    /**
+     * The properties panel's X, Y, W and H for the selected layer. A frame's box is set exactly
+     * (children follow their constraints); a vector stretches; anything else scales uniformly by
+     * the width. One undo step.
+     */
+    @Suppress("ReturnCount")
+    fun onSetLayerBox(x: Float, y: Float, width: Float, height: Float) {
+        val id = _uiState.value.activeLayerId ?: return
+        val layers = _uiState.value.layers
+        val layer = layers.firstOrNull { it.id == id } ?: return
+        val box = designBox(id) ?: return
+        val w = width.coerceIn(1f, MAX_FRAME_SIZE)
+        val h = height.coerceIn(1f, MAX_FRAME_SIZE)
+        val ops = com.hereliesaz.graffitixr.common.model.FrameOps
+        val next = if (layer.isFrame) {
+            ops.setBox(layers, id, com.hereliesaz.graffitixr.common.model.Rect(x, y, w, h))
+        } else {
+            val fx = if (box.width > 0f) w / box.width else 1f
+            val fy = if (box.height > 0f) h / box.height else 1f
+            val sized = if (fx == 1f && fy == 1f) layers else layers.map {
+                if (it.id == id) com.hereliesaz.graffitixr.common.model.LayoutOps.resizeLayer(it, fx, fy) else it
+            }
+            val resizedBox = DesignGeometry.box(sized, id, designCanvasSize().first, designCanvasSize().second) ?: box
+            ops.moveBy(sized, id, Offset(x - resizedBox.x, y - resizedBox.y))
+        }
+        if (next == layers) return
+        pushHistory()
+        applyDesign(next)
+        saveProject()
+        emitGeometryChanges(layers, next)
+    }
+
+    /** Rotation (degrees, Z) for the selected layer. */
+    fun onSetLayerRotation(degrees: Float) = designEdit { it.copy(rotationZ = degrees) }
+
+    /** Opacity, 0..100, for the selected layer. */
+    fun onSetLayerOpacityPercent(percent: Float) = designEdit { it.copy(opacity = (percent / 100f).coerceIn(0f, 1f)) }
+
+    /** A frame's corner radius (or a rectangle's, for a rectangle layer). */
+    fun onSetCornerRadius(radius: Float) = designEdit { layer ->
+        val r = radius.coerceAtLeast(0f)
+        when {
+            layer.isFrame -> layer.copy(frameRadius = r)
+            layer.shapes.isNotEmpty() -> layer.copy(
+                shapes = layer.shapes.map {
+                    val rect = it.kind == com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE
+                    if (rect) it.copy(cornerRadius = r) else it
+                },
+            )
+            else -> layer
+        }
+    }
+
+    /** Whether the selected frame clips its children. */
+    fun onSetFrameClip(clips: Boolean) = designEdit { if (it.isFrame) it.copy(clipsContent = clips) else it }
+
+    /** The selected frame's fill: an ARGB colour, or null for none. */
+    fun onSetFrameFill(argb: Long?) = designEdit { if (it.isFrame) it.copy(frameFillArgb = argb) else it }
+
+    /** The selected frame's fill set to the colour in hand (the colour rail). */
+    fun onFillFrameWithActiveColor() = onSetFrameFill(_uiState.value.activeColor.toArgb().toLong() and 0xFFFFFFFFL)
+
+    private fun designEdit(change: (Layer) -> Layer) {
+        val id = _uiState.value.activeLayerId ?: return
+        val layers = _uiState.value.layers
+        val next = layers.map { if (it.id == id) change(it) else it }
+        if (next == layers) return
+        pushHistory()
+        applyDesign(next)
+        saveProject()
+        emitActiveLayerProps()
     }
 
     // ── Vector node editing ──────────────────────────────────────────────────────────────────

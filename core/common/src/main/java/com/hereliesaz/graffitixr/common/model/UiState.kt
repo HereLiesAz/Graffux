@@ -22,6 +22,11 @@ enum class Tool {
     SMUDGE,
     CLONE,
     TEXT,
+    /**
+     * Design frames: a drag on empty canvas draws a new frame, a drag on a layer moves it, a tap
+     * selects. Last on purpose: a stroke persists its tool by ordinal (BrushStroke.blendModeOrdinal).
+     */
+    FRAME,
 }
 
 enum class BlendMode {

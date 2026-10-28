@@ -213,9 +213,9 @@ class PhotoSheetUiTest {
         val tabs = rule.onNodeWithTag("carousel.tabs").fetchSemanticsNode().boundsInRoot
         assertEquals(844 - 20, dp(tabs.bottom))
         assertEquals(344 - 48, dp(tabs.top - panel.top))
-        // The tool rail gains Adjust after Transform (the Eraser the app keeps follows it).
+        // The tool rail gains Frame and Adjust after Transform (the Eraser the app keeps follows them).
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
-        assertEquals(488 + 50 + 50, dp(tools.height))
+        assertEquals(488 + 50 + 50 + 50, dp(tools.height))
     }
 
     @Test

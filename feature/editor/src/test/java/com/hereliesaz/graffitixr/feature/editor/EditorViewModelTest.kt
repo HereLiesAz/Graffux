@@ -496,6 +496,68 @@ class EditorViewModelTest {
     private fun layer(id: String) = viewModel.uiState.value.layers.first { it.id == id }
 
     @Test
+    fun `the Frame tool adds a frame beside the rest and keeps the tool in hand`() = runTest {
+        viewModel.setActiveTool(com.hereliesaz.graffitixr.common.model.Tool.FRAME)
+        viewModel.onAddFrame(390f, 844f)
+        viewModel.onAddFrame(100f, 100f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val frames = viewModel.uiState.value.layers
+            .filter { it.type == com.hereliesaz.graffitixr.common.model.LayerType.FRAME }
+        assertEquals(listOf("Frame 1", "Frame 2"), frames.map { it.name })
+        // The second sits 80 to the right of the first, tops aligned.
+        assertEquals(195f + 80f + 50f, frames[1].offset.x, 0.01f)
+        assertEquals(-422f + 50f, frames[1].offset.y, 0.01f)
+        assertEquals(frames[1].id, viewModel.uiState.value.activeLayerId)
+        assertEquals(com.hereliesaz.graffitixr.common.model.Tool.FRAME, viewModel.uiState.value.activeTool)
+    }
+
+    @Test
+    fun `the properties set a frame's box, fill and clip, each one undo step`() = runTest {
+        viewModel.onAddFrame(200f, 100f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val id = viewModel.uiState.value.activeLayerId!!
+        val undoBefore = viewModel.uiState.value.undoCount
+        viewModel.onSetLayerBox(10f, 20f, 300f, 150f)
+        viewModel.onSetFrameFill(null)
+        viewModel.onSetFrameClip(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val f = layer(id)
+        assertEquals(Offset(160f, 95f), f.offset)
+        assertEquals(300f, f.layoutWidth, 0.01f)
+        assertEquals(null, f.frameFillArgb)
+        assertEquals(false, f.clipsContent)
+        assertEquals(undoBefore + 3, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        viewModel.onUndoClicked()
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(200f, layer(id).layoutWidth, 0.01f)
+        assertEquals(true, layer(id).clipsContent)
+    }
+
+    @Test
+    fun `a layer dragged into a frame with the Frame tool is adopted in one undo step`() = runTest {
+        viewModel.onAddFrame(400f, 400f) // centred on the origin
+        testDispatcher.scheduler.advanceUntilIdle()
+        val frameId = viewModel.uiState.value.activeLayerId!!
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(
+                Layer(
+                    id = "s", name = "s", offset = Offset(600f, 0f),
+                    shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 20f, height = 20f)),
+                ),
+            ),
+        )
+        val undoBefore = viewModel.uiState.value.undoCount
+        viewModel.onDesignDragStart("s")
+        viewModel.onDesignMove("s", Offset(-600f, 0f))
+        viewModel.onDesignDragEnd("s", moved = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(frameId, layer("s").parentId)
+        assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
     fun `a numeric frame resize and its constrained children undo as one step`() = runTest {
         seedFrame()
         val undoBefore = viewModel.uiState.value.undoCount

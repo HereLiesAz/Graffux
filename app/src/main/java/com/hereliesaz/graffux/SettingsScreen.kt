@@ -82,6 +82,8 @@ fun SettingsScreen(
 
     val rightHanded by vm.isRightHanded.collectAsStateWithLifecycle()
     val imperial by vm.isImperialUnits.collectAsStateWithLifecycle()
+    val storedPlacement by vm.propertiesPlacement.collectAsStateWithLifecycle()
+    val smallestWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
     val brushSizeFixedOnScreen by vm.brushSizeFixedOnScreen.collectAsStateWithLifecycle()
     val sampleRate by vm.inputSampleRateHz.collectAsStateWithLifecycle()
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
@@ -143,6 +145,23 @@ fun SettingsScreen(
                 onCheckedChange = vm::setImperialUnits,
             )
             HorizontalDivider()
+            // Phones always show the design properties in the sheet, so the choice is offered only
+            // where the side panel exists.
+            if (smallestWidthDp >= PropertiesPlacement.TABLET_MIN_WIDTH_DP) {
+                SwitchRow(
+                    title = "Properties in a side panel",
+                    subtitle = "On: the Frame tool's properties dock on the side of the canvas. " +
+                        "Off: they stay in the bottom sheet.",
+                    checked = PropertiesPlacement.resolve(storedPlacement, smallestWidthDp) ==
+                        PropertiesPlacement.SIDE_PANEL,
+                    onCheckedChange = { on ->
+                        vm.setPropertiesPlacement(
+                            (if (on) PropertiesPlacement.SIDE_PANEL else PropertiesPlacement.BOTTOM_SHEET).key,
+                        )
+                    },
+                )
+                HorizontalDivider()
+            }
             SwitchRow(
                 title = "Brush size follows zoom",
                 subtitle = "Zooming in enlarges the brush on screen and zooming out shrinks it; " +

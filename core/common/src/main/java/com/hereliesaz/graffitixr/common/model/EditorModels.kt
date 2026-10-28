@@ -32,7 +32,23 @@ enum class LayerType {
     RASTER,
     VECTOR,
     GROUP,
+    /**
+     * A design frame (Figma's frame / artboard): a container like [GROUP] that also has a box of
+     * its own ([Layer.layoutWidth] x [Layer.layoutHeight], centred on its origin), an optional fill
+     * ([Layer.frameFillArgb]) and corner radius, and clips its children to that box when
+     * [Layer.clipsContent] is set. A document holds any number of them on the unbounded canvas; see
+     * [FrameOps]. Saved as a GROUP with `isFrame` so an app that predates frames still opens it.
+     */
+    FRAME,
 }
+
+/** A layer that holds other layers: a [LayerType.GROUP] or a [LayerType.FRAME]. */
+val Layer.isContainer: Boolean
+    get() = type == LayerType.GROUP || type == LayerType.FRAME
+
+/** A design frame (see [LayerType.FRAME]). */
+val Layer.isFrame: Boolean
+    get() = type == LayerType.FRAME
 
 /**
  * Represents a single graphical layer in the editor with all aesthetic and spatial parameters.
@@ -168,6 +184,16 @@ data class Layer(
      * otherwise.
      */
     val frameHoldCount: Int = 1,
+    /**
+     * A [LayerType.FRAME]'s fill, drawn behind its children inside its box; null draws none. ARGB,
+     * as a Long like [VectorShape.fillArgb]. Ignored on every other layer type.
+     */
+    val frameFillArgb: Long? = null,
+    /** Whether a [LayerType.FRAME] clips its children to its box (Figma's "Clip content"). */
+    val clipsContent: Boolean = false,
+    /** A [LayerType.FRAME]'s corner radius, in the same units as its box. */
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
+    val frameRadius: Float = 0f,
     /**
      * Set on a photo **adjustment layer** (the photo sheet's Light, Color, HSL, Curves, Detail,
      * Effects, Heal and Red-eye tabs each make their own). Such a layer keeps no pixels of its own:

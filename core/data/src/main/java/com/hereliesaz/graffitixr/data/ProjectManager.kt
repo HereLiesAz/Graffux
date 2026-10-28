@@ -205,7 +205,10 @@ class ProjectManager @Inject constructor(
      * version. 1 -> 2 (photo adjustment layers): a version 1 file has no adjustment layers and no
      * key that changed meaning, so the step only records the new version; it is written back on
      * the next save. 2 -> 3 (the document crop): a missing crop is no crop, which is the field's
-     * default, so this step too only records the version. Never lowers a newer version.
+     * default, so this step too only records the version. 3 -> 4 (design frames): a group with a
+     * declared box (given a Frame Size before frames existed) was a frame in all but name, so it
+     * becomes one, with no fill and no clip so that nothing about how it looks changes; any frame
+     * keys a version 3 file could not have written are cleared. Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
         var version = fromVersion
@@ -218,8 +221,21 @@ class ProjectManager @Inject constructor(
             migrated = migrated.copy(documentCrop = com.hereliesaz.graffitixr.common.photo.DocumentCrop())
             version = FORMAT_DOCUMENT_CROP
         }
+        if (version < FORMAT_FRAMES) {
+            migrated = migrated.copy(layers = migrated.layers.map(::migrateSizedGroupToFrame))
+            version = FORMAT_FRAMES
+        }
         return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
+
+    private fun migrateSizedGroupToFrame(layer: com.hereliesaz.graffitixr.common.model.OverlayLayer) =
+        if (layer.layerType == com.hereliesaz.graffitixr.common.model.LayerType.GROUP &&
+            layer.layoutWidth > 0f && layer.layoutHeight > 0f
+        ) {
+            layer.copy(isFrame = true, frameFillArgb = null, clipsContent = false, frameRadius = 0f)
+        } else {
+            layer.copy(isFrame = false, frameFillArgb = null, clipsContent = false, frameRadius = 0f)
+        }
 
     /**
      * Migrates a decoded project and, when the migration changed anything, persists it so the
@@ -675,3 +691,6 @@ private const val FORMAT_ADJUSTMENT_LAYERS = 2
 
 /** The project.json format version that added the document crop. */
 private const val FORMAT_DOCUMENT_CROP = 3
+
+/** Design frames: `OverlayLayer.isFrame` and its fill, radius and clip. */
+private const val FORMAT_FRAMES = 4

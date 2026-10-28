@@ -90,4 +90,10 @@ data class OverlayLayer(
     // version 2 (GraffitiProject.formatVersion). Its type stays RASTER on disk, so an app that
     // predates adjustment layers still opens the file and only shows the layer as an empty one.
     val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment? = null,
+    // A design frame (LayerType.FRAME), format version 4. Written with layerType GROUP and this
+    // flag, so an app that predates frames still opens the file and shows the frame as a group.
+    val isFrame: Boolean = false,
+    val frameFillArgb: Long? = null,
+    val clipsContent: Boolean = false,
+    val frameRadius: Float = 0f,
 )
