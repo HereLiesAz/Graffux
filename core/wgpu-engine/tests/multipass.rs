@@ -17,7 +17,7 @@ mod common;
 use graffux_wgpu::wgpu::Backends;
 use graffux_wgpu::{
     ColorSmudgeDab, Engine, EngineOptions, GpuDab, GpuSecondaryDab, MaskedParams, MultipassConfig,
-    SubstrateParams,
+    SubstrateParams, STAMP_ERASE, STAMP_OVER,
 };
 
 const W: i32 = 131;
@@ -798,5 +798,35 @@ fn multipass_matches_plain_with_an_8x8_stamp_tile() {
             e.read_all().unwrap() == off.read_all().unwrap(),
             "[{name}] tile 8"
         );
+    }
+}
+
+/// The live Eraser: an erase (non-OVER) stamp bypasses multipass and writes the layer directly,
+/// and the very next readback -- what the live preview and direct display show -- must already
+/// carry it, not wait for the stroke to end. It used to read a stale display until the commit.
+#[test]
+fn an_erase_stamp_shows_on_the_next_readback_with_multipass_on() {
+    for (name, b) in backends() {
+        let base: Vec<u8> = (0..(W * H) as usize).flat_map(|_| [200u8, 100, 50, 255]).collect();
+        let mut dab = GpuDab::legacy(60.0, 48.0, 14.0, 1.0, 0.0);
+        dab.resolved = 0.0;
+        let expected = {
+            let mut off = engine(b, W, H);
+            assert!(off.upload(&base));
+            assert!(off.set_stamp_mode(STAMP_ERASE));
+            assert!(off.stamp_dabs(&[dab], 0xFFFFFFFF, 1.0, false, SubstrateParams::default(), true));
+            off.read_all().unwrap()
+        };
+        let mut e = engine(b, W, H);
+        assert!(e.set_multipass(on(2)));
+        assert!(e.upload(&base));
+        let mut shown = vec![0u8; (W * H * 4) as usize];
+        assert!(e.readback(&mut shown));
+        assert!(e.set_stamp_mode(STAMP_ERASE));
+        assert!(e.stamp_dabs(&[dab], 0xFFFFFFFF, 1.0, false, SubstrateParams::default(), true));
+        assert!(e.readback(&mut shown));
+        assert!(e.set_stamp_mode(STAMP_OVER));
+        assert_ne!(shown, base, "[{name}] the erase is visible at once");
+        assert_eq!(shown, expected, "[{name}] the display is exactly the erased layer");
     }
 }

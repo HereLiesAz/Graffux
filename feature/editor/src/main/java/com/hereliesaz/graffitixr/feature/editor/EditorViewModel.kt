@@ -8819,6 +8819,9 @@ class EditorViewModel @Inject constructor(
         val toRemove = descendantIds(layers, groupId) + groupId
         dispatch(EditorIntent.SetLayers(layers.filterNot { it.id in toRemove }))
         toRemove.forEach(::evictJobsFor)
+        // Peers drop the same layers: the contents first, then the container.
+        (toRemove - groupId).forEach { opEmitter.emit(Op.LayerRemove(it)) }
+        opEmitter.emit(Op.LayerRemove(groupId))
         saveProject()
     }
 
