@@ -4395,6 +4395,75 @@ class EditorViewModel @Inject constructor(
      * share intent; the Uri authority is `${applicationId}.fileprovider`, which each hosting app
      * declares in its manifest.
      */
+    /**
+     * Poster PDF: the document (cropped as set) printed at real size across pages of [spec]'s
+     * paper, with margins, overlap, crop and registration marks and row/column labels, saved to
+     * Downloads. One page per tile of [com.hereliesaz.graffitixr.feature.editor.export.PosterLayout].
+     */
+    fun exportPosterPdf(spec: com.hereliesaz.graffitixr.feature.editor.export.PosterSpec) {
+        viewModelScope.launch(dispatchers.default) {
+            dispatch(EditorIntent.SetLoading(true))
+            try {
+                val state = _uiState.value
+                val metrics = context.resources.displayMetrics
+                val art = exportManager.compositeToDocument(
+                    state.layers, metrics.widthPixels, metrics.heightPixels,
+                    state.documentWidth, state.documentHeight,
+                    backgroundBitmap = null,
+                    backgroundColor = exportBackgroundArgb(state.canvasBackground),
+                    crop = state.documentCrop,
+                )
+                val plan = com.hereliesaz.graffitixr.feature.editor.export.PosterLayout
+                    .plan(spec, art.width, art.height)
+                val name = "Graffux-poster-${System.currentTimeMillis()}.pdf"
+                val saved = try {
+                    savePdfToDownloads(name) { out ->
+                        com.hereliesaz.graffitixr.feature.editor.export.PosterPdf.write(art, plan, spec, out)
+                    }
+                } finally {
+                    art.recycle()
+                }
+                withContext(dispatchers.main) {
+                    dispatch(EditorIntent.SetLoading(false))
+                    if (saved) {
+                        notify("Saved $name to Downloads: ${plan.pageCount} pages", NoticeKind.NOTICE)
+                    } else {
+                        notify("Couldn't save the poster PDF to Downloads", NoticeKind.WARNING)
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dispatch(EditorIntent.SetLoading(false))
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+                reportExportFailure("Couldn't export the poster PDF", t)
+            }
+        }
+    }
+
+    private fun savePdfToDownloads(name: String, write: (java.io.OutputStream) -> Unit): Boolean {
+        val resolver = context.contentResolver
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+            put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+        val written = try {
+            resolver.openOutputStream(uri)?.use(write) != null
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("EditorViewModel", "poster PDF write failed", e)
+            false
+        }
+        if (written) {
+            values.clear()
+            values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        } else {
+            resolver.delete(uri, null, null)
+        }
+        return written
+    }
+
     suspend fun exportForShare(): Uri? = withContext(dispatchers.default) {
         val layers = _uiState.value.layers
         if (layers.isEmpty()) return@withContext null

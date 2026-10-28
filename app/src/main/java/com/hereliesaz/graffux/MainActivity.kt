@@ -293,6 +293,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The logo menu: open state, which page it shows, and a reopen request (see the menu).
     var menuOpen by remember { mutableStateOf(false) }
     var showViewMenu by remember { mutableStateOf(false) }
+    var showPosterMenu by remember { mutableStateOf(false) }
+    var posterChoices by remember { mutableStateOf(PosterChoices()) }
     // The brush's long-press menu, a layer's menu (by layer id), and AzNavRail's About reader.
     var brushMenuOpen by remember { mutableStateOf(false) }
     var layerMenuFor by remember { mutableStateOf<String?>(null) }
@@ -735,6 +737,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val chrome = rememberChromeVisibility(canvasTouch, strokeGate, forceHidden = { photoDrag.active }) {
         menuOpen = false
         showViewMenu = false
+        showPosterMenu = false
         brushMenuOpen = false
         layerMenuFor = null
         shortcutsOpen = false
@@ -1263,11 +1266,23 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     open = menuOpen,
                     onOpenChange = { open ->
                         menuOpen = open
-                        if (!open) showViewMenu = false
+                        if (!open) { showViewMenu = false; showPosterMenu = false }
                         if (open) { brushMenuOpen = false; layerMenuFor = null }
                     },
                     rows = buildMenu {
-                        if (showViewMenu) {
+                        if (showPosterMenu) {
+                            val (artW, artH) =
+                                posterArtSize(uiState.documentWidth, uiState.documentHeight, uiState.documentCrop)
+                            posterPage(
+                                choices = posterChoices,
+                                imperial = uiState.isImperialUnits,
+                                artW = artW,
+                                artH = artH,
+                                onChange = { posterChoices = it },
+                                onBack = { showPosterMenu = false },
+                                onExport = { spec -> showPosterMenu = false; vm.exportPosterPdf(spec) },
+                            )
+                        } else if (showViewMenu) {
                             page("‹ Back") { showViewMenu = false }
                             // Each row says what it shows and whether it's showing, so a hidden panel
                             // can be traced back here.
@@ -1292,6 +1307,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             listItem("Add Shape…") { showAddDialog = true }
                             listItem(strings.nav.save) { showSaveDialog = true }
                             listItem(strings.nav.export) { vm.exportImage() }
+                            page("Poster PDF…") { showPosterMenu = true }
                             // The always-visible way into the azphalt store.
                             listItem("Add-ons…") { openAzphaltStore() }
                             listItem("Install extension from file…") { extensionFilePicker.launch(arrayOf("*/*")) }
