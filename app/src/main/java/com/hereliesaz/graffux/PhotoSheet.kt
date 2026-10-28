@@ -44,6 +44,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
@@ -479,6 +492,53 @@ internal fun PhotoSliderList(
     }
 }
 
+/**
+ * The arrow keys on a focused slider row: Left/Right nudge it by a hundredth of its range, ten
+ * times that with Shift, each press one undo step (as a drag is).
+ */
+internal fun nudge(
+    e: KeyEvent,
+    slider: com.hereliesaz.graffitixr.common.photo.PhotoSlider,
+    value: Float,
+    start: () -> Unit,
+    change: (Float) -> Unit,
+    end: () -> Unit,
+): Boolean {
+    val dir = when (e.key) {
+        Key.DirectionLeft -> -1f
+        Key.DirectionRight -> 1f
+        else -> 0f
+    }
+    if (e.type != KeyEventType.KeyDown || dir == 0f) return false
+    val step = (slider.max - slider.min) / NUDGE_STEPS * (if (e.isShiftPressed) NUDGE_SHIFT else 1f)
+    start()
+    change(slider.snap((value + dir * step).coerceIn(slider.min, slider.max)))
+    end()
+    return true
+}
+
+/**
+ * The editor's photo keys, from a hardware keyboard: "A" opens Adjust (or leaves it, as the rail
+ * button does), and "\\" held shows the original while photo mode is on.
+ */
+internal fun photoShortcut(e: KeyEvent, photoOpen: Boolean, openAdjust: () -> Unit, compare: (Boolean) -> Unit): Boolean {
+    if (e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) return false
+    return when {
+        e.key == Key.A && e.type == KeyEventType.KeyDown -> {
+            openAdjust()
+            true
+        }
+        e.key == Key.Backslash && photoOpen -> {
+            compare(e.type == KeyEventType.KeyDown)
+            true
+        }
+        else -> false
+    }
+}
+
+private const val NUDGE_STEPS = 100f
+private const val NUDGE_SHIFT = 10f
+
 /** Fades the last [fade] of the content to transparent (CSS's mask-image on the mockup's list). */
 private fun Modifier.fadeBottom(fade: androidx.compose.ui.unit.Dp, inset: androidx.compose.ui.unit.Dp): Modifier =
     graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
@@ -524,10 +584,14 @@ internal fun PhotoSliderRow(
     val latestReset by rememberUpdatedState(onReset)
     var trackWidth by remember { mutableFloatStateOf(1f) }
     var lastTapAt by remember { mutableStateOf(0L) }
+    val focus = remember { FocusRequester() }
     Box(
         modifier
             .fillMaxWidth()
             .height(PhotoSheetStyle.RowHeight)
+            .focusRequester(focus)
+            .focusable()
+            .onKeyEvent { e -> nudge(e, slider, latestValue, latestStart, latestChange, latestEnd) }
             .alpha(if (hidden) 0f else 1f)
             .testTag("photo.slider.${slider.id}"),
     ) {
@@ -579,6 +643,8 @@ internal fun PhotoSliderRow(
                     .pointerInput(slider.id) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            // The touched row is the focused one: the arrow keys nudge it.
+                            runCatching { focus.requestFocus() }
                             val startValue = latestValue
                             var dx = 0f
                             var dragging0 = false

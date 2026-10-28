@@ -215,3 +215,19 @@ revision it uses, so undo and redo simply move between revisions. 12 revisions a
   to this screen's world size.
 - Limit: while the Heal, Red-eye or Local overlay is up, it takes every touch on the canvas,
   two-finger pan and zoom included.
+
+## Tablet and keyboard
+
+On a tablet the sheet is the same, a 390-wide slider column centred over the tab list (PhotoTablet).
+
+With a hardware keyboard (a tablet's, a Chromebook's, or Android desktop windowing), handled in
+`photoShortcut` and `nudge` (`app/.../PhotoSheet.kt`):
+
+- **A** opens Adjust, or leaves it, exactly as the rail button does.
+- **\\** held compares with the original while photo mode is on; releasing it shows the edit again.
+- **← / →** nudge the focused slider by 1% of its range, **Shift** for 10%. Each press is one undo
+  step. Touching a row focuses it, and Tab moves between rows.
+
+The PhotoDesktop board's letter hints beside every rail button are not drawn: the app's rail has
+no hints for any tool, and adding them is a rail-wide change outside the photo tools. The
+`desktop` module is a separate single-canvas app with no layers, so it has no Adjust.
