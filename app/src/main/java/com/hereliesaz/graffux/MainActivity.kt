@@ -347,6 +347,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     photoSheet.histogram = photoHistogram
     // HSL's eyedropper and Curves' histogram belong to their tabs.
     val photoTabShown = PhotoTab.ofKey(carouselUi.tab).takeIf { carouselUi.photo && carouselUi.showingCarousel }
+    val cropActions = remember(vm) { vm.cropActions() }
+    // The Crop tab shows the whole photo under the crop frame; elsewhere the crop is applied.
+    LaunchedEffect(photoTabShown) { vm.setCropEditing(photoTabShown == PhotoTab.CROP) }
     LaunchedEffect(photoTabShown) {
         if (photoTabShown != PhotoTab.HSL && photoSheet.eyedropperArmed) {
             photoSheet.eyedropperArmed = false
@@ -725,6 +728,19 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             )
         }
 
+        // Crop: the frame over the photo while the Crop tab is open.
+        if (photoTabShown == PhotoTab.CROP) {
+            CropOverlay(
+                crop = uiState.documentCrop,
+                docW = uiState.documentWidth,
+                docH = uiState.documentHeight,
+                zoom = uiState.viewportZoom,
+                offset = uiState.viewportOffset,
+                rotation = uiState.viewportRotation,
+                actions = cropActions,
+            )
+        }
+
         // HSL's eyedropper: while armed, a touch on the photo picks a range and drags it.
         if (photoSheet.eyedropperArmed && photoTabShown == PhotoTab.HSL) {
             HslEyedropperOverlay(
@@ -876,6 +892,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             actions = photoActions,
                             drag = photoDrag,
                             state = photoSheet,
+                            crop = CropContext(
+                                uiState.documentCrop, uiState.documentWidth, uiState.documentHeight, cropActions,
+                            ),
                             onSelectTab = { tab ->
                                 lastPhotoTab = tab
                                 carouselUi = carouselUi.copy(tab = tab.key, showingCarousel = true)

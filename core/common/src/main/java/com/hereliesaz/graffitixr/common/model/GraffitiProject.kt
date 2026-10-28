@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 2
+const val CURRENT_FORMAT_VERSION = 3
 
 /** What a project.json without a `formatVersion` key is. */
 const val LEGACY_FORMAT_VERSION = 1
@@ -49,6 +49,7 @@ data class GraffitiProject(
      * file without the key is version 1 (before photo adjustment layers); `ProjectManager` reads
      * the key before decoding and migrates (see its `migrateFormat`). Each bump lists what changed:
      * - 2: `OverlayLayer.adjustment`, photo adjustment layers. Nothing in a version 1 file changes.
+     * - 3: [documentCrop], the Crop tab's whole-document geometry. Absent before: no crop.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),
@@ -125,5 +126,10 @@ data class GraffitiProject(
     // All null on projects without a model, which is most of them.
     val modelPath: String? = null,
     val modelName: String? = null,
-    val modelTexturePath: String? = null
+    val modelTexturePath: String? = null,
+
+    // The Crop tab's crop and geometry (format version 3). Non-destructive: the layers keep every
+    // pixel; the canvas and the export draw them through this.
+    val documentCrop: com.hereliesaz.graffitixr.common.photo.DocumentCrop =
+        com.hereliesaz.graffitixr.common.photo.DocumentCrop(),
 )

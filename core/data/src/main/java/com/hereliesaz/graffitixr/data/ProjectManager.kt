@@ -204,14 +204,19 @@ class ProjectManager @Inject constructor(
      * Brings a project decoded from format [fromVersion] to [CURRENT_FORMAT_VERSION], one step per
      * version. 1 -> 2 (photo adjustment layers): a version 1 file has no adjustment layers and no
      * key that changed meaning, so the step only records the new version; it is written back on
-     * the next save. Never lowers a newer version.
+     * the next save. 2 -> 3 (the document crop): a missing crop is no crop, which is the field's
+     * default, so this step too only records the version. Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
         var version = fromVersion
         var migrated = project
-        if (version < 2) {
+        if (version < FORMAT_ADJUSTMENT_LAYERS) {
             migrated = migrated.copy(layers = migrated.layers.map { it.copy(adjustment = null) })
-            version = 2
+            version = FORMAT_ADJUSTMENT_LAYERS
+        }
+        if (version < FORMAT_DOCUMENT_CROP) {
+            migrated = migrated.copy(documentCrop = com.hereliesaz.graffitixr.common.photo.DocumentCrop())
+            version = FORMAT_DOCUMENT_CROP
         }
         return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
@@ -664,3 +669,9 @@ internal fun localizeArchiveUris(projectJson: String, localRoot: String): String
         val safe = inProject?.takeIf { rest -> rest.split('/').none { it == ".." || it.isEmpty() } }
         "\"" + (if (safe != null) localRoot + safe else "") + "\""
     }
+
+/** The project.json format version that added photo adjustment layers. */
+private const val FORMAT_ADJUSTMENT_LAYERS = 2
+
+/** The project.json format version that added the document crop. */
+private const val FORMAT_DOCUMENT_CROP = 3

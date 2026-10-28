@@ -1,6 +1,6 @@
 # Photo adjustment layers
 
-Status: implemented (Light, Color, HSL, Curves + Levels, Detail, Effects). The tabs still to come are listed under "Tabs".
+Status: implemented (Light, Color, HSL, Curves + Levels, Detail, Effects, Crop). The tabs still to come are listed under "Tabs".
 Source of truth for the UI: the approved "Graffux UI Rework" canvas, boards PhotoEntry …
 PhotoDesktop and their notes.
 
@@ -102,6 +102,7 @@ checks the GPU against `PhotoAdjustMath` with every stage on.
 |---|---|
 | 1 (no key) | Before adjustment layers. |
 | 2 | `OverlayLayer.adjustment`. |
+| 3 | `GraffitiProject.documentCrop`. Absent means no crop. |
 
 `ProjectManager.decodeProject` reads the key before it decodes, then runs `migrateFormat` one step
 at a time. Step 1 → 2 changes no data. On disk an adjustment layer's `layerType` stays `RASTER`, so
@@ -146,3 +147,31 @@ Detail has Clarity, Texture, Dehaze, Noise reduction and Sharpen; Noise reductio
 unipolar and start at 0. Effects has Vignette amount, Midpoint, Feather, Grain amount and Grain
 size. They are plain slider lists. Their pixel work is in the shader (Detail reads the blurred-luma
 planes).
+
+### Crop (geometry)
+
+Crop is a whole-document setting, `EditorUiState.documentCrop` (saved as
+`GraffitiProject.documentCrop`), not a layer. Every pixel is kept. `CropGeometry.matrix`
+(core/engine) is a 3×3 matrix about the artboard centre. It applies, in order: a keystone for
+Vertical and Horizontal perspective (±100 narrows or widens the far edge by 40%), the flips, the
+quarter turns and Straighten (±45°). The crop rectangle is a set of fractions of the artboard,
+applied after the transform as a clip.
+
+- The canvas (`Modifier.documentCrop`, wrapped around the layer stack and the artboard page) draws
+  through the matrix and clips to the crop. While the Crop tab is open (`cropEditing`) it does not
+  clip, and `CropOverlay` dims everything outside the crop. The overlay draws the frame and
+  L-shaped corner handles, and shows the thirds grid only while a handle is held. It draws in the
+  canvas camera's own transform, so it stays on the photo when the view moves.
+- Gestures: drag a corner or edge to resize (an aspect chip holds the ratio from the width), drag
+  inside to move, twist with two fingers to straighten. A gesture is one undo step. Undo restores
+  the crop because `EditCommand.PropertyChange` now records the crop alongside the layers.
+- Chips: Free, Original, 1:1, 4:5, 3:2, 16:9, 9:16 (`CropGeometry.withAspect`: the largest
+  rectangle of that ratio, centred where the crop is). Rotate 90° turns the content and the crop
+  together. Flip and Flip are horizontal and vertical. Auto level (`CropGeometry.autoLevel`) builds
+  a strength-weighted histogram of Sobel edge directions near horizontal and vertical (±15°, 0.5°
+  bins) and sets Straighten to undo the peak. Each of these is one undo step.
+- Export, share, the thumbnail and GIF export draw through `DocumentCropRender.render`. That is the
+  same matrix, cut to the crop rectangle, at the document's resolution scaled by the crop's share
+  of the artboard.
+- Not done: the frame does not constrain itself to stay inside the straightened image (Lightroom's
+  "constrain to image"). Straightening can leave empty corners until the frame is pulled in.

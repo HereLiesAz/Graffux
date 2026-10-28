@@ -255,4 +255,26 @@ class EditorViewModelPhotoTest {
         assertEquals(top, viewModel.uiState.value.activeLayerId)
         assertEquals(Tool.BRUSH, viewModel.uiState.value.activeTool)
     }
+
+    @Test
+    fun `crop changes are undoable document settings and survive with the layers`() {
+        twoLayers()
+        viewModel.applyCrop { it.copy(flipH = true) }
+        viewModel.onCropGestureStart()
+        viewModel.setDocumentCrop(viewModel.uiState.value.documentCrop.copy(straighten = -3f))
+        viewModel.onCropGestureEnd()
+        assertEquals(-3f, viewModel.uiState.value.documentCrop.straighten)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.documentCrop.straighten)
+        assertTrue(viewModel.uiState.value.documentCrop.flipH)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.documentCrop.flipH)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.documentCrop.flipH)
+        viewModel.setCropEditing(true)
+        assertTrue(viewModel.uiState.value.cropEditing)
+    }
 }

@@ -484,6 +484,13 @@ data class EditorUiState(
     // Hold-to-compare on the photo sheet: while true the canvas draws no adjustment layer, so the
     // photo shows as it was. Transient UI state, never history.
     val photoCompare: Boolean = false,
+    // The document's crop and geometry (the photo sheet's Crop tab): a whole-document setting,
+    // non-destructive, so reopening Crop shows the full photo again. Saved with the project.
+    val documentCrop: com.hereliesaz.graffitixr.common.photo.DocumentCrop =
+        com.hereliesaz.graffitixr.common.photo.DocumentCrop(),
+    // True while the Crop tab is open: the canvas shows the whole transformed photo with the crop
+    // frame over it instead of only what the crop keeps. Transient UI state.
+    val cropEditing: Boolean = false,
 )
 
 

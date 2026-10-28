@@ -189,6 +189,7 @@ class ExportManager @Inject constructor() {
      * centred artboard rect is cropped out and scaled to the document dimensions. Camera-independent
      * (pan/zoom/rotation are view-only and never enter the composite).
      */
+    @Suppress("LongParameterList", "ReturnCount")
     fun compositeToDocument(
         layers: List<Layer>,
         canvasW: Int,
@@ -197,8 +198,16 @@ class ExportManager @Inject constructor() {
         docH: Int,
         backgroundBitmap: Bitmap? = null,
         backgroundColor: Int = android.graphics.Color.TRANSPARENT,
+        // The Crop tab's crop and geometry; null or identity exports the artboard as it is.
+        crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop? = null,
     ): Bitmap {
         val full = compositeLayers(layers, canvasW, canvasH, backgroundBitmap, backgroundColor)
+        val cropToApply = crop?.takeIf { !it.isIdentity && docW > 0 && docH > 0 }
+        if (cropToApply != null) {
+            val out = com.hereliesaz.graffitixr.feature.editor.DocumentCropRender.render(full, cropToApply, docW, docH)
+            full.recycle()
+            return out
+        }
         if (docW <= 0 || docH <= 0) return full
         val rect = artboardRect(canvasW, canvasH, docW, docH)
         val left = rect[0].roundToInt().coerceIn(0, (full.width - 1).coerceAtLeast(0))

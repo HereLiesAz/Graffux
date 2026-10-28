@@ -107,6 +107,15 @@ object RailIcons {
         stroked("photo.eyedropper", "M14 6l4 4M4 20l2-1 9-9-3-3-9 9z", "M15 4a2 2 0 013 0l2 2a2 2 0 010 3l-2 1-4-4z", round = true)
     }
 
+    /** Crop's Rotate 90° (the mockup's: an arrow round a page). */
+    val Rotate90: ImageVector by lazy { stroked("photo.rotate90", "M4 12a8 8 0 0114-5.3M18 3v4h-4", "M7 11h10v9H7z") }
+
+    /** Crop's Flip horizontal: two triangles mirrored across a vertical line. */
+    val FlipH: ImageVector by lazy { stroked("photo.fliph", "M12 3v18M9 6L3 18h6zM15 6l6 12h-6z") }
+
+    /** Crop's Flip vertical: the same across a horizontal line. */
+    val FlipV: ImageVector by lazy { stroked("photo.flipv", "M3 12h18M6 9L18 3v6zM6 15l12 6v-6z") }
+
     /** A Heal layer's tile: a circle with a plus (round caps). */
     val Heal: ImageVector by lazy {
         stroked("photo.heal", "M5 12a7 7 0 1 0 14 0a7 7 0 1 0 -14 0z", "M12 9v6M9 12h6", round = true)
