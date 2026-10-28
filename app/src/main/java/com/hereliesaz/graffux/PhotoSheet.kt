@@ -104,6 +104,7 @@ internal enum class PhotoTab(val label: String, val section: String, val tool: P
 /** The tabs this build offers; the rest of the mockup's land with their tools. */
 internal val PHOTO_TABS: List<PhotoTab> = listOf(
     PhotoTab.LIGHT, PhotoTab.COLOR, PhotoTab.HSL, PhotoTab.CURVES, PhotoTab.DETAIL, PhotoTab.EFFECTS, PhotoTab.CROP,
+    PhotoTab.HEAL, PhotoTab.RED_EYE, PhotoTab.LOCAL,
 )
 
 /**
@@ -188,10 +189,11 @@ internal fun PhotoSheetBody(
     tabs: List<PhotoTab> = PHOTO_TABS,
     state: PhotoSheetState = remember { PhotoSheetState() },
     crop: CropContext? = null,
+    retouch: RetouchContext? = null,
 ) {
     Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (showingControls && tab != null) {
-            PhotoPanel(tab, adjustment, actions, drag, state = state, crop = crop)
+            PhotoPanel(tab, adjustment, actions, drag, state = state, crop = crop, retouch = retouch)
         }
         Box(Modifier.alpha(if (drag.active) 0f else 1f)) {
             CarouselTabList(
@@ -278,6 +280,7 @@ internal fun PhotoPanel(
     modifier: Modifier = Modifier,
     state: PhotoSheetState = remember { PhotoSheetState() },
     crop: CropContext? = null,
+    retouch: RetouchContext? = null,
 ) {
     val chromeAlpha = if (drag.active) 0f else 1f
     Column(modifier.widthIn(max = PhotoSheetStyle.ColumnMaxWidth).fillMaxWidth().testTag("photo.panel.${tab.key}")) {
@@ -285,17 +288,21 @@ internal fun PhotoPanel(
             title = when {
                 tab == PhotoTab.HSL -> "HSL \u00b7 ${state.hslRange.label}"
                 tab == PhotoTab.CROP && crop != null -> cropTitle(crop.crop)
+                tab == PhotoTab.LOCAL -> localTitle(retouch?.maskTarget)
                 else -> tab.label
             },
             tool = tab.tool,
             actions = actions,
             modifier = Modifier.alpha(chromeAlpha),
             eyedropper = if (tab == PhotoTab.HSL) state else null,
-            onReset = if (tab == PhotoTab.CROP && crop != null) {
-                { crop.actions.apply { com.hereliesaz.graffitixr.common.photo.DocumentCrop() } }
-            } else {
-                null
+            onReset = when {
+                tab == PhotoTab.CROP && crop != null -> {
+                    { crop.actions.apply { com.hereliesaz.graffitixr.common.photo.DocumentCrop() } }
+                }
+                tab == PhotoTab.LOCAL && retouch != null -> retouch.actions::maskReset
+                else -> null
             },
+            overlay = if (tab == PhotoTab.LOCAL) retouch else null,
         )
         Spacer(Modifier.height(PhotoSheetStyle.HeaderGap))
         Box(Modifier.fillMaxWidth().height(PhotoSheetStyle.BodyHeight)) {
@@ -304,6 +311,9 @@ internal fun PhotoPanel(
                 PhotoTab.HSL -> HslBody(adjustment, actions, drag, state)
                 PhotoTab.CURVES -> CurvesBody(adjustment, actions, drag, state)
                 PhotoTab.CROP -> if (crop != null) CropBody(crop.crop, crop.docW, crop.docH, crop.actions, drag)
+                PhotoTab.HEAL -> if (retouch != null) HealBody(retouch, drag)
+                PhotoTab.RED_EYE -> if (retouch != null) RedEyeBody(retouch, drag)
+                PhotoTab.LOCAL -> if (retouch != null) LocalBody(retouch, drag)
                 else -> if (tool != null) PhotoSliderList(tool, PhotoSliders.of(tool), adjustment, actions, drag)
             }
         }
@@ -319,6 +329,7 @@ private fun PhotoHeader(
     modifier: Modifier = Modifier,
     eyedropper: PhotoSheetState? = null,
     onReset: (() -> Unit)? = null,
+    overlay: RetouchContext? = null,
 ) {
     val reset: () -> Unit = onReset ?: { tool?.let(actions::reset) }
     Row(
@@ -338,6 +349,7 @@ private fun PhotoHeader(
             modifier = Modifier.weight(1f).testTag("photo.title"),
         )
         Spacer(Modifier.width(4.dp))
+        if (overlay != null) OverlayToggle(overlay)
         if (eyedropper != null) {
             EyedropperButton(eyedropper, actions)
             Spacer(Modifier.width(4.dp))

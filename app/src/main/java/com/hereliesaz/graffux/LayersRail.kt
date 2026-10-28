@@ -124,6 +124,8 @@ internal fun LayersRail(
     expansion: Map<String, Boolean>,
     callbacks: LayersRailCallbacks,
     modifier: Modifier = Modifier,
+    /** Masked adjustment layers' mask thumbnails (ALPHA_8), for their badge. */
+    maskThumbs: Map<String, android.graphics.Bitmap> = emptyMap(),
 ) {
     val centers = remember { HashMap<String, Float>() }
     var dragging by remember { mutableStateOf<String?>(null) }
@@ -197,6 +199,7 @@ internal fun LayersRail(
                     },
             ) {
                 LayerThumb(
+                    maskThumb = maskThumbs[layer.id]?.takeIf { layer.adjustment?.mask?.enabled == true },
                     layer = layer,
                     light = RailLight(active = layer.id == activeLayerId, secondary = id in secondary),
                     nested = layer.parentId != null,
@@ -214,9 +217,16 @@ internal fun LayersRail(
  */
 @Suppress("FunctionNaming")
 @Composable
-private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded: Boolean) {
+private fun LayerThumb(
+    layer: Layer,
+    light: RailLight,
+    nested: Boolean,
+    expanded: Boolean,
+    maskThumb: android.graphics.Bitmap? = null,
+) {
     val isGroup = layer.type == LayerType.GROUP
     val label = layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
+        (if (maskThumb != null) ", masked" else "") +
         (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else "")
     Box(contentAlignment = Alignment.CenterStart) {
         Box(
@@ -278,6 +288,23 @@ private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded
                     modifier = Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp),
                 )
             }
+            if (maskThumb != null) {
+                // The mask badge: a real thumbnail of the mask, white on black, at the bottom-left.
+                Image(
+                    painter = BitmapPainter(maskThumb.asImageBitmap()),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(RailInk),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .offset(x = (-3).dp, y = 3.dp)
+                        .size(16.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black)
+                        .border(1.dp, MaskBadgeBorder, RoundedCornerShape(4.dp))
+                        .testTag("rail.mask.${layer.id}"),
+                )
+            }
             if (!layer.isVisible) {
                 Icon(
                     RailIcons.EyeOff,
@@ -319,6 +346,7 @@ private val ThumbInnerShape = RoundedCornerShape(8.dp)
 
 /** Behind a thumbnail with nothing drawn yet. */
 private val ThumbEmpty = Color(0xFF141416)
+private val MaskBadgeBorder = Color(0xFF8A8A90)
 private val EyeOffInk = Color(0xFFB4B4BA)
 private val EyeOffFill = Color(0xFF161618)
 

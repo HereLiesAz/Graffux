@@ -277,4 +277,57 @@ class EditorViewModelPhotoTest {
         viewModel.setCropEditing(true)
         assertTrue(viewModel.uiState.value.cropEditing)
     }
+
+    @Test
+    fun `heal keeps every spot on one Heal layer, and red-eye on its own`() {
+        twoLayers()
+        viewModel.onHealSpot(100f, 120f, 20f, 0.4f, 1f, clone = false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onHealSpot(300f, 320f, 20f, 0.4f, 1f, clone = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val heals = layers().filter { it.adjustment?.tool == com.hereliesaz.graffitixr.common.photo.PhotoTool.HEAL }
+        assertEquals(1, heals.size)
+        val spots = heals.single().adjustment!!.healSpots
+        assertEquals(listOf(100f, 300f), spots.map { it.x })
+        assertEquals(1f, heals.single().adjustment!!.values[AdjustmentLayerRenderer.HEAL_CLONE_KEY])
+        viewModel.onPhotoGestureStart(com.hereliesaz.graffitixr.common.photo.PhotoTool.HEAL)
+        viewModel.moveHealSource(0, 50f, 60f)
+        viewModel.onPhotoGestureEnd()
+        val healed = layers().single { it.adjustment?.tool == com.hereliesaz.graffitixr.common.photo.PhotoTool.HEAL }
+        assertEquals(50f, healed.adjustment!!.healSpots[0].sourceX)
+        viewModel.onRedEyeSpot(10f, 10f, 5f)
+        viewModel.onRedEyeSpot(30f, 10f, 5f)
+        val red = layers().filter { it.adjustment?.tool == com.hereliesaz.graffitixr.common.photo.PhotoTool.RED_EYE }
+        assertEquals(1, red.size)
+        assertEquals(2, red.single().adjustment!!.redEyeSpots.size)
+    }
+
+    @Test
+    fun `a Local stroke makes a mask revision that undo takes back`() {
+        twoLayers()
+        viewModel.onPhotoGestureStart(light)
+        viewModel.onPhotoSlider(light, exposure, 0.5f)
+        viewModel.onPhotoGestureEnd()
+        val id = layers().single { it.adjustment != null }.id
+        viewModel.onMaskStrokeStart(100f, 100f, 20f, 0.5f, 1f, erase = false)
+        viewModel.onMaskStrokeTo(140f, 100f, 20f, 0.5f, 1f, erase = false)
+        viewModel.onMaskStrokeEnd()
+        val mask = layers().single { it.id == id }.adjustment!!.mask
+        assertTrue(mask.enabled)
+        assertEquals(1, mask.revision)
+        val bytes = viewModel.adjustmentMasks.get(id, 1)!!
+        // 1080 x 1920 world (the test display reports none): painted at (120, 100), empty far away.
+        assertEquals(255, bytes[100 * 1080 + 120].toInt() and 0xFF)
+        assertEquals(0, bytes[1000 * 1080 + 900].toInt() and 0xFF)
+        viewModel.onMaskInvert()
+        assertTrue(layers().single { it.id == id }.adjustment!!.mask.inverted)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(layers().single { it.id == id }.adjustment!!.mask.enabled)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, layers().single { it.id == id }.adjustment!!.mask.revision)
+    }
 }

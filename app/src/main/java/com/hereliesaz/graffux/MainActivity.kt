@@ -348,6 +348,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // HSL's eyedropper and Curves' histogram belong to their tabs.
     val photoTabShown = PhotoTab.ofKey(carouselUi.tab).takeIf { carouselUi.photo && carouselUi.showingCarousel }
     val cropActions = remember(vm) { vm.cropActions() }
+    val retouchActions = remember(vm) { vm.retouchActions() }
+    val retouchState = remember { RetouchState() }
+    val maskOverlay by vm.maskOverlay.collectAsState()
+    val maskThumbs by vm.maskThumbs.collectAsState()
+    LaunchedEffect(photoTabShown) {
+        if (photoTabShown != PhotoTab.LOCAL && retouchState.overlay) {
+            retouchState.overlay = false
+            vm.setMaskOverlay(false)
+        }
+    }
+    val canvasCamera = CanvasCamera(uiState.viewportZoom, uiState.viewportOffset, uiState.viewportRotation)
     // The Crop tab shows the whole photo under the crop frame; elsewhere the crop is applied.
     LaunchedEffect(photoTabShown) { vm.setCropEditing(photoTabShown == PhotoTab.CROP) }
     LaunchedEffect(photoTabShown) {
@@ -741,6 +752,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             )
         }
 
+        // Retouch: Heal's spots, Red-eye's circles, Local's mask brush, on the photo.
+        val retouchCtx = RetouchContext(retouchState, retouchActions, null)
+        when (photoTabShown) {
+            PhotoTab.HEAL -> HealOverlay(
+                uiState.layers.lastOrNull { it.adjustment?.tool == PhotoTool.HEAL }?.adjustment?.healSpots.orEmpty(),
+                canvasCamera, retouchCtx,
+            )
+            PhotoTab.RED_EYE -> RedEyeOverlay(
+                uiState.layers.lastOrNull { it.adjustment?.tool == PhotoTool.RED_EYE }
+                    ?.adjustment?.redEyeSpots.orEmpty(),
+                canvasCamera, retouchCtx,
+            )
+            PhotoTab.LOCAL -> LocalMaskOverlay(maskOverlay, canvasCamera, retouchCtx)
+            else -> Unit
+        }
+
         // HSL's eyedropper: while armed, a touch on the photo picks a range and drags it.
         if (photoSheet.eyedropperArmed && photoTabShown == PhotoTab.HSL) {
             HslEyedropperOverlay(
@@ -892,6 +919,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             actions = photoActions,
                             drag = photoDrag,
                             state = photoSheet,
+                            retouch = RetouchContext(
+                                retouchState, retouchActions,
+                                uiState.layers.find { it.id == uiState.activeLayerId && it.adjustment != null }?.name,
+                            ),
                             crop = CropContext(
                                 uiState.documentCrop, uiState.documentWidth, uiState.documentHeight, cropActions,
                             ),
@@ -1069,6 +1100,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         activeLayerId = uiState.activeLayerId,
                         secondary = secondaryClassifiers,
                         expansion = railExpansion,
+                        maskThumbs = maskThumbs,
                         callbacks = LayersRailCallbacks(
                             onActivate = { id ->
                                 vm.onLayerActivated(id)
