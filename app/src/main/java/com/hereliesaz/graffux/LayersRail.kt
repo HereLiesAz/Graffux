@@ -4,15 +4,22 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -23,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -35,13 +44,17 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.design.GraffuxIcons
+import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.Amber
 import kotlin.math.abs
 
@@ -59,7 +72,6 @@ internal class LayersRailCallbacks(
      */
     val onRelocate: (List<String>, String?) -> Unit,
     val onAdd: () -> Unit,
-    val onDeleteActive: () -> Unit,
 )
 
 /**
@@ -97,11 +109,11 @@ internal fun droppedSiblingOrder(
 }
 
 /**
- * The right layers rail (left, for the left-handed): + new layer, then the layers top-first — each
- * its own thumbnail, the active one ringed, a hidden one dimmed, a locked one badged — then delete.
- * Tap selects; a second tap or a long-press opens the layer's menu; long-press and drag reorders a
- * layer among its siblings (a group carries its children). The header's badge counts the top-level
- * layers and its tap folds the list away.
+ * The right layers rail (left, for the left-handed), as the mockup draws it: + new layer, then the
+ * layers top-first — each its own thumbnail, the active one ringed, a hidden one dimmed and badged,
+ * a locked one badged. Tap selects; a second tap or a long-press opens the layer's menu (Delete is
+ * there); long-press and drag reorders a layer among its siblings (a group carries its children).
+ * The whole rail is hidden from View… → Layers panel.
  */
 @Suppress("FunctionNaming", "LongMethod")
 @Composable
@@ -113,20 +125,12 @@ internal fun LayersRail(
     callbacks: LayersRailCallbacks,
     modifier: Modifier = Modifier,
 ) {
-    val listOpen = expansion[LAYERS_HOST_ID] ?: true
     val centers = remember { HashMap<String, Float>() }
     var dragging by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
     RailPill(modifier.testTag("rail.layers")) {
-        RailButton(
-            label = if (listOpen) "Layers, shown" else "Layers, folded",
-            badge = layers.count { it.parentId == null }.takeIf { it > 0 }?.toString(),
-            testTag = "rail.grp.layers",
-            onClick = { callbacks.onExpand(LAYERS_HOST_ID, !listOpen) },
-        ) { RailGlyph(GraffuxIcons.Layers) }
-        if (!listOpen) return@RailPill
         RailButton(label = "Add Layer", testTag = "rail.layer.add", onClick = callbacks.onAdd) {
-            RailGlyph(GraffuxIcons.LayerAdd)
+            RailGlyph(RailIcons.Plus)
         }
         RailDivider()
         visibleLayerRows(layers, expansion).forEach { row ->
@@ -200,47 +204,76 @@ internal fun LayersRail(
                 )
             }
         }
-        activeLayerId?.let {
-            RailDivider()
-            RailButton(label = "Delete Active Layer", testTag = "rail.layer.deleteActive", onClick = callbacks.onDeleteActive) {
-                RailGlyph(GraffuxIcons.LayerDelete)
-            }
-        }
     }
 }
 
-/** One layer's button: its thumbnail (a group's glyph), dimmed while hidden, badged while locked. */
+/**
+ * One layer's button, as the mockup draws it: a 44dp rounded square with a hairline border (2dp
+ * and ink for the active layer), the layer's content inset 3dp inside it, dimmed with an eye-off
+ * badge at the corner while hidden.
+ */
 @Suppress("FunctionNaming")
 @Composable
 private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded: Boolean) {
     val isGroup = layer.type == LayerType.GROUP
+    val label = layer.name + (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else "")
     Box(contentAlignment = Alignment.CenterStart) {
-        RailButton(
-            label = layer.name + (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else ""),
-            light = light,
-            badge = if (layer.alphaLock) "🔒" else null,
-            testTag = "rail.${layerRailId(layer.id)}",
-            // The row around this handles the touch: tap, long-press and drag are one gesture.
-            onClick = null,
-        ) {
-            val dim = Modifier.alpha(if (layer.isVisible) 1f else HIDDEN_ALPHA)
-            val bitmap = layer.bitmap
-            when {
-                isGroup -> Box(dim) { RailGlyph(GraffuxIcons.LayerGroup) }
-                bitmap != null -> Image(
-                    painter = BitmapPainter(bitmap.asImageBitmap()),
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = dim.fillMaxSize().padding(4.dp),
+        Box(
+            modifier = Modifier
+                .size(RailButtonSize)
+                .border(
+                    width = if (light.active) 2.dp else 1.dp,
+                    color = when {
+                        light.active -> RailInk
+                        light.secondary -> Amber
+                        else -> RailBorder
+                    },
+                    shape = ThumbShape,
                 )
-                else -> Box(dim) { RailGlyph(GraffuxIcons.LayerThumbnail) }
+                // The row around this handles the touch: tap, long-press and drag are one gesture.
+                .semantics {
+                    contentDescription = label
+                    selected = light.active
+                }
+                .testTag("rail.${layerRailId(layer.id)}"),
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(3.dp)
+                    .clip(ThumbInnerShape)
+                    .background(ThumbEmpty)
+                    .alpha(if (layer.isVisible) 1f else HIDDEN_ALPHA),
+            ) {
+                val bitmap = layer.bitmap
+                when {
+                    isGroup -> RailGlyph(GraffuxIcons.LayerGroup)
+                    bitmap != null -> Image(
+                        painter = BitmapPainter(bitmap.asImageBitmap()),
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            if (layer.alphaLock) {
+                Text(
+                    "🔒",
+                    fontSize = 9.sp,
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp),
+                )
             }
             if (!layer.isVisible) {
-                // The hidden-layer marker: a slash across the corner, readable over any thumbnail.
-                androidx.compose.material3.Text(
-                    "⊘",
-                    color = Amber,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 2.dp),
+                Icon(
+                    RailIcons.EyeOff,
+                    contentDescription = null,
+                    tint = EyeOffInk,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 3.dp, y = 3.dp)
+                        .size(14.dp)
+                        .background(EyeOffFill, CircleShape),
                 )
             }
         }
@@ -251,4 +284,12 @@ private fun LayerThumb(layer: Layer, light: RailLight, nested: Boolean, expanded
     }
 }
 
-private const val HIDDEN_ALPHA = 0.35f
+private val ThumbShape = RoundedCornerShape(12.dp)
+private val ThumbInnerShape = RoundedCornerShape(8.dp)
+
+/** Behind a thumbnail with nothing drawn yet. */
+private val ThumbEmpty = Color(0xFF141416)
+private val EyeOffInk = Color(0xFFB4B4BA)
+private val EyeOffFill = Color(0xFF161618)
+
+private const val HIDDEN_ALPHA = 0.3f

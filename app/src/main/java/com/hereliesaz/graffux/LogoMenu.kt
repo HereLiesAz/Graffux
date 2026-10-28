@@ -16,11 +16,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.design.RailIcons
 
 /**
  * The logo menu: the Graffux mark at the top-right corner, and the app's menu dropping from it.
@@ -35,24 +36,33 @@ internal fun LogoMenu(
     rows: List<MenuRow>,
     modifier: Modifier = Modifier,
 ) {
-    Column(horizontalAlignment = Alignment.End, modifier = modifier) {
+    // The mockup's corner: 16 from the top; 18 from the side while shut, 12 while open, where the
+    // button takes a fill and an ink ring and the menu drops from under it, 12 from the side too.
+    Column(
+        horizontalAlignment = Alignment.End,
+        modifier = modifier.padding(top = RailTopInset, end = if (open) RailSideInset else LogoShutEndInset),
+    ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(RailWidth)
+                .size(RailButtonSize)
                 .clip(CircleShape)
-                .background(RailFill)
-                .border(1.dp, RailBorder, CircleShape)
+                .then(
+                    if (open) Modifier.background(LogoOpenFill).border(1.dp, RailInk, CircleShape) else Modifier,
+                )
                 .clickable(role = Role.Button, onClickLabel = if (open) "Close menu" else "Open menu") {
                     onOpenChange(!open)
                 }
                 .semantics { contentDescription = "Graffux menu" }
                 .testTag("logo.menu"),
         ) {
-            Image(painterResource(R.drawable.graffuxicon), contentDescription = null, modifier = Modifier.size(34.dp))
+            Image(RailIcons.LogoMark, contentDescription = null, modifier = Modifier.size(26.dp))
         }
         if (open) {
             MenuPanel(rows = rows, onDismiss = { onOpenChange(false) }, modifier = Modifier.padding(top = RailEdgeGap))
         }
     }
 }
+
+private val LogoShutEndInset = 18.dp
+private val LogoOpenFill = Color(0xFF161618)
