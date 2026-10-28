@@ -50,6 +50,8 @@ dependencies {
 
     implementation(libs.gson)
     implementation(libs.kotlinx.serialization.json)
+    // In-app purchasing of azphalt packages (azphalt/purchase/). 9.1+ for the billing-choice programme.
+    implementation(libs.play.billing.ktx)
     implementation(libs.androidx.compose.ui.geometry)
     // ProjectManager persists layer BlendMode (androidx.compose.ui.graphics.BlendMode). This was
     // previously reaching us transitively through core:common's api(az-nav-rail); the AzNavRail
