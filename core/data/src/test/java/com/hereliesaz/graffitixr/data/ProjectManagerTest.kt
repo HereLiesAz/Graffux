@@ -386,6 +386,25 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `format five project persists spatial curves without changing older files`() {
+        val stroke = com.hereliesaz.graffitixr.common.mesh.SpatialStroke(
+            "line", listOf(
+                com.hereliesaz.graffitixr.common.mesh.SpatialPoint(0f, 0f, 0f, 0.3f),
+                com.hereliesaz.graffitixr.common.mesh.SpatialPoint(1f, 0f, 1f, 0.7f),
+            ), 0xFFABCDEF.toInt(), 0.125f,
+        )
+        val project = GraffitiProject(id = "ink-project", spatialStrokes = listOf(stroke))
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val payload = json.encodeToString(GraffitiProject.serializer(), project)
+        assertEquals(listOf(stroke), manager.decodeProject(payload).spatialStrokes)
+
+        // Version 4 project.json predates the field and must load with no fabricated ink.
+        val old = payload.replace("\"formatVersion\":5", "\"formatVersion\":4")
+            .replace(Regex(",?\\s*\"spatialStrokes\":\\[[^]]*]"), "")
+        assertTrue(manager.decodeProject(old).spatialStrokes.isEmpty())
+    }
+
+    @Test
     fun `a newer format is never lowered`() {
         assertEquals(7, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 7), 7).formatVersion)
     }
