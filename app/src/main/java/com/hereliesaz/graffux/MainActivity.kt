@@ -617,6 +617,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
 
+    // 3D ink exports geometry rather than a screenshot; the SAF picker owns the destination.
+    val spatialGltfExporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("model/gltf+json")
+    ) { uri -> uri?.let { vm.exportSpatialGltf(it) } }
+
     val brushes by vm.installedBrushes.collectAsState()
     val brushPreviews by vm.installedBrushPreviews.collectAsState()
     val brushTips by vm.installedBrushTips.collectAsState()
@@ -1916,6 +1921,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 onErase = vm::onSpatialErase,
                 onUndo = vm::onSpatialUndo,
                 onRedo = vm::onSpatialRedo,
+                onExport = { spatialGltfExporter.launch("Graffux-Spatial-Sketch.gltf") },
                 onClose = { showSpatialSketch = false },
                 modifier = Modifier.fillMaxSize(),
             )

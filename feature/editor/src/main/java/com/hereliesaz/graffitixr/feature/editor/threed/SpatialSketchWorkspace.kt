@@ -56,6 +56,7 @@ fun SpatialSketchWorkspace(
     onErase: (String) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onExport: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -74,7 +75,8 @@ fun SpatialSketchWorkspace(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onClose) { Text("‹ 2D") }
-            Text("Spatial Sketch · ${strokes.size} strokes", color = Color.White)
+            Text("Spatial Sketch · ${strokes.size}", color = Color.White)
+            TextButton(onClick = onExport) { Text("Export glTF") }
         }
         Column(
             Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing)
