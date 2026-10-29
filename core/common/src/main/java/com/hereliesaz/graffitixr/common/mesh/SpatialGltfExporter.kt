@@ -37,7 +37,7 @@ object SpatialGltfExporter {
             if (stroke.width <= 0f || !stroke.width.isFinite()) continue
             // Only remove consecutive duplicates. A curve that loops back to its starting
             // position must stay closed; global distinctBy would cut its final segment off.
-            val points = stroke.points.filter {
+            val unique = stroke.points.filter {
                 it.x.isFinite() && it.y.isFinite() && it.z.isFinite() && it.pressure.isFinite()
             }.fold(mutableListOf<SpatialPoint>()) { kept, point ->
                 val last = kept.lastOrNull()
@@ -46,7 +46,15 @@ object SpatialGltfExporter {
                 }
                 kept
             }
-            if (points.size < 2) continue
+            if (unique.isEmpty()) continue
+            // A tap creates a one-point 3D mark. Export it as a short capsule, not as nothing.
+            val points = if (unique.size == 1) {
+                val point = unique.single()
+                listOf(
+                    point.copy(z = point.z - stroke.width * 0.25f),
+                    point.copy(z = point.z + stroke.width * 0.25f),
+                )
+            } else unique
             require(positions.size / 3 + points.size * SIDES <= MAX_VERTICES) {
                 "Spatial export exceeds the geometry safety limit"
             }
