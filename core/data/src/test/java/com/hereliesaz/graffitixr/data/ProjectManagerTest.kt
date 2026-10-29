@@ -398,9 +398,8 @@ class ProjectManagerTest {
         val payload = json.encodeToString(GraffitiProject.serializer(), project)
         assertEquals(listOf(stroke), manager.decodeProject(payload).spatialStrokes)
 
-        // Version 4 project.json predates the field and must load with no fabricated ink.
-        val old = payload.replace("\"formatVersion\":5", "\"formatVersion\":4")
-            .replace(Regex(",?\\s*\"spatialStrokes\":\\[[^]]*]"), "")
+        // Independent historical fixture, not derived from the new serializer's output.
+        val old = """{"formatVersion":4,"id":"old-project","name":"Old"}"""
         assertTrue(manager.decodeProject(old).spatialStrokes.isEmpty())
     }
 
