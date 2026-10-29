@@ -479,3 +479,23 @@ codebase is deferred scope or a real gap in the install-report flow.
   `Bitmap.generationId`) drops its overlay; `onTrimMemory` drops them all until the view zooms out. A GPU
   failure keeps the base path and is logged once. Switch the whole feature off with
   `HighResOverlayConfig.ENABLED = false`.
+
+
+## Spatial Sketch: editable 3D ink (project format v5)
+
+The spatial sketch is a **separate full-screen scene** at View → 3D → Sketch in 3D, not a 2D
+snapshot of the imported model's UV texture. `SpatialSketchGeometry` intersects the input ray
+(`MeshPicker.unproject` + `OrbitCamera`) with the camera-facing guide, adjustable in depth.
+Each resulting point stores real XYZ plus stylus pressure. Colour and world-space width belong to
+the complete `SpatialStroke`; orbiting the camera does not move an existing stroke.
+
+`EditorViewModel.spatialStrokes` owns a scene-wide list and a bounded, independent history;
+changes save through the existing project persistence flow. `GraffitiProject.spatialStrokes` is
+written to project.json, so .fux backups and project reopening preserve its geometry. Imported
+OBJ UV-paint remains unchanged.
+
+**Incomplete relative to Feather:** the Compose renderer is a screen projection without GPU
+occlusion, geometry tubes, paint materials or shading. Guides are view-facing planes, not
+bendable/lofted surfaces or primitives. Shape editing, selection/transforms, true mesh-guided
+curves, scene OBJ/glTF export and AR view remain unimplemented. Do not conflate this vertical
+slice with feature parity.
