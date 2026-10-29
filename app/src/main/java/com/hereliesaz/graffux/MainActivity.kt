@@ -133,6 +133,7 @@ import com.hereliesaz.graffitixr.feature.editor.performGestureAction
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
+import com.hereliesaz.graffitixr.feature.editor.threed.SpatialSketchWorkspace
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
@@ -279,6 +280,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val modelState by vm.modelState.collectAsState()
+    val spatialStrokes by vm.spatialStrokes.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
@@ -343,6 +345,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showSpatialSketch by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
     var showReferenceWindow by remember { mutableStateOf(false) }
@@ -1245,6 +1248,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ToolboxSpec(
                         "area.model", "3D", GraffuxIcons.GuideIsometric, "area.model" in activeClassifiers,
                         listOf(
+                            ToolboxAction("Sketch in 3D", lit = showSpatialSketch) { showSpatialSketch = true },
                             ToolboxAction("3D Model", lit = showModelDialog) { showModelDialog = true },
                             ToolboxAction("Choose Model") { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
                         ),
@@ -1901,6 +1905,20 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onDismiss = { showBrushTipsManager = false },
                 )
             }
+        }
+        // Unlike the imported-OBJ texture painter, spatial ink needs a full-screen 3D scene.
+        if (showSpatialSketch) {
+            SpatialSketchWorkspace(
+                strokes = spatialStrokes,
+                color = uiState.activeColor,
+                brushRadiusPx = uiState.brushSize / 2f,
+                onStroke = vm::onSpatialStroke,
+                onErase = vm::onSpatialErase,
+                onUndo = vm::onSpatialUndo,
+                onRedo = vm::onSpatialRedo,
+                onClose = { showSpatialSketch = false },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         if (showAbout) AboutReader(onDismiss = { showAbout = false })
         // The project dialog, above the rail and every window: mandatory with no project open,
