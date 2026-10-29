@@ -130,4 +130,14 @@ class SpatialSketchTest {
         assertEquals(24, document.getValue("accessors").jsonArray[0].jsonObject
             .getValue("count").jsonPrimitive.int)
     }
+
+    @Test
+    fun `a single tap exports as geometry instead of disappearing`() {
+        val dot = SpatialStroke("dot", listOf(SpatialPoint(0f, 0f, 0f)), -1, 0.2f)
+        val document = Json.parseToJsonElement(SpatialGltfExporter.encode(listOf(dot))).jsonObject
+        assertEquals(12, document.getValue("accessors").jsonArray[0].jsonObject
+            .getValue("count").jsonPrimitive.int)
+        assertEquals(36, document.getValue("accessors").jsonArray[2].jsonObject
+            .getValue("count").jsonPrimitive.int)
+    }
 }
