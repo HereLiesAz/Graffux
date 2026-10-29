@@ -1,3 +1,9 @@
+@file:Suppress(
+    "LongMethod", "CyclomaticComplexMethod", "ComplexCondition",
+    "LoopWithTooManyJumpStatements", "MagicNumber",
+)
+// Hexagonal tube topology and GL component constants are intentionally numeric geometry.
+
 package com.hereliesaz.graffitixr.common.mesh
 
 import java.nio.ByteBuffer

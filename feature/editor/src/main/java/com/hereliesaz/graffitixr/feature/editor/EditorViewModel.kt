@@ -11124,13 +11124,14 @@ class EditorViewModel @Inject constructor(
 
     // Snapshot once per committed curve, not per input sample. This history never mixes 2D layers
     // with 3D curves or travels to a different project.
+    private val spatialUndoLimit = 64
     private val spatialUndoHistory =
         ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
     private val spatialRedoHistory =
         ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
 
     private fun recordSpatialEdit() {
-        if (spatialUndoHistory.size >= 64) spatialUndoHistory.removeFirst()
+        if (spatialUndoHistory.size >= spatialUndoLimit) spatialUndoHistory.removeFirst()
         spatialUndoHistory.addLast(_spatialStrokes.value)
         spatialRedoHistory.clear()
     }

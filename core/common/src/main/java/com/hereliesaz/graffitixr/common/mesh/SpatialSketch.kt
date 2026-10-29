@@ -1,3 +1,8 @@
+@file:Suppress(
+    "LongParameterList", "TooManyFunctions", "ComplexCondition", "ReturnCount", "MagicNumber",
+)
+// Coordinate transforms use fixed NDC and vector dimensions; early exits guard invalid rays.
+
 package com.hereliesaz.graffitixr.common.mesh
 
 import kotlinx.serialization.Serializable

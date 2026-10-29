@@ -1,3 +1,9 @@
+@file:Suppress(
+    "LongParameterList", "LongMethod", "CyclomaticComplexMethod", "FunctionNaming",
+    "LoopWithTooManyJumpStatements", "MagicNumber",
+)
+// Compose entrypoints and gesture arbitration need stable, explicit callbacks and numeric bounds.
+
 package com.hereliesaz.graffitixr.feature.editor.threed
 
 import androidx.compose.foundation.Canvas
