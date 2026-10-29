@@ -3,6 +3,10 @@ package com.hereliesaz.graffitixr.common.mesh
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.int
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -87,5 +91,43 @@ class SpatialSketchTest {
     fun `touch inputs with invalid dimensions never create a point`() {
         assertNull(SpatialSketchGeometry.onViewPlane(camera, 1f, 1f, 0f, 200f))
         assertNull(SpatialSketchGeometry.onViewPlane(camera, 1f, 1f, 200f, 0f))
+    }
+
+    @Test
+    fun `glTF encodes an independently counted tube mesh and RGBA colours`() {
+        // Two centres, six vertices per ring => 12 vertices; six quads, two triangles each
+        // => 36 32-bit indices. POSITION = 144 bytes, COLOR_0 = 192, indices = 144.
+        val ink = SpatialStroke(
+            "green", listOf(SpatialPoint(0f, 0f, 0f), SpatialPoint(1f, 0f, 0f)),
+            0x8000FF00.toInt(), 0.2f,
+        )
+        val document = Json.parseToJsonElement(SpatialGltfExporter.encode(listOf(ink))).jsonObject
+        val accessors = document.getValue("accessors").jsonArray
+        assertEquals(12, accessors[0].jsonObject.getValue("count").jsonPrimitive.int)
+        assertEquals(12, accessors[1].jsonObject.getValue("count").jsonPrimitive.int)
+        assertEquals(36, accessors[2].jsonObject.getValue("count").jsonPrimitive.int)
+        val encoded = document.getValue("buffers").jsonArray[0].jsonObject
+            .getValue("uri").jsonPrimitive.content.substringAfter("base64,")
+        val bytes = java.util.Base64.getDecoder().decode(encoded)
+        assertEquals(480, bytes.size)
+        val buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        assertEquals(0f, buffer.getFloat(144), 0.001f) // red
+        assertEquals(1f, buffer.getFloat(148), 0.001f) // green
+        assertEquals(0f, buffer.getFloat(152), 0.001f) // blue
+        assertEquals(128f / 255f, buffer.getFloat(156), 0.001f) // alpha
+    }
+
+    @Test
+    fun `glTF preserves a curve that returns to its starting point`() {
+        val path = listOf(
+            SpatialPoint(0f, 0f, 0f), SpatialPoint(1f, 0f, 0f),
+            SpatialPoint(1f, 1f, 0f), SpatialPoint(0f, 0f, 0f),
+        )
+        val document = Json.parseToJsonElement(
+            SpatialGltfExporter.encode(listOf(SpatialStroke("loop", path, -1, 0.2f))),
+        ).jsonObject
+        // All four rings remain; a global distinctBy would have silently dropped the last one.
+        assertEquals(24, document.getValue("accessors").jsonArray[0].jsonObject
+            .getValue("count").jsonPrimitive.int)
     }
 }
