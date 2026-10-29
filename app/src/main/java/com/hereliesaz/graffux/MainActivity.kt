@@ -12,6 +12,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
@@ -33,10 +35,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.unit.IntOffset
 import com.hereliesaz.graffitixr.feature.editor.LocalChromeHidden
@@ -165,6 +164,12 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Artwork extends beneath both transparent system bars. Compose insets keep interactive
+        // chrome clear of those bars and display cutouts without shrinking the drawing surface.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         // Launch intents are acted on once. A recreation (rotation, dark-mode or locale change)
         // hands back the same original intent with a non-null savedInstanceState; replaying it would
         // add the shared image to the project a second time and re-raise an install prompt the user
@@ -1115,12 +1120,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ExpandedHeroLayer(heroExpansion)
         }
 
-        // The onscreen chrome, inside the system bars and the display cutout.
+        // The onscreen chrome stays inside the safe drawing area; the canvas remains full bleed.
         Box(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(
-                    WindowInsets.statusBars.union(WindowInsets.navigationBars).union(WindowInsets.displayCutout),
+                    WindowInsets.safeDrawing,
                 ),
         ) {
             if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome) {
