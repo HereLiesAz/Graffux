@@ -11156,6 +11156,24 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    /** Writes a self-contained glTF with real stroke tube geometry, not a flattened render. */
+    fun exportSpatialGltf(uri: Uri) {
+        val snapshot = _spatialStrokes.value
+        viewModelScope.launch(dispatchers.io) {
+            runCatching {
+                val gltf = com.hereliesaz.graffitixr.common.mesh.SpatialGltfExporter.encode(snapshot)
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(gltf.toByteArray(Charsets.UTF_8))
+                    stream.flush()
+                } ?: throw java.io.IOException("Couldn't open export destination")
+            }.onSuccess {
+                notify("Exported spatial sketch as glTF", NoticeKind.NOTICE)
+            }.onFailure { error ->
+                notify("3D export failed: ${error.message ?: "Unknown error"}", NoticeKind.WARNING)
+            }
+        }
+    }
+
     fun onSpatialRedo() {
         if (spatialRedoHistory.isEmpty()) return
         spatialUndoHistory.addLast(_spatialStrokes.value)
