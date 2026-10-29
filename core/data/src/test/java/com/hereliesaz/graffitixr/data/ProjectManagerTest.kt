@@ -386,6 +386,26 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `a project from a newer format is never overwritten`() = runTest {
+        val dir = File(tempFilesDir, "projects/newer").also { it.mkdirs() }
+        val newer = """{"id":"newer","name":"Future","formatVersion":99,"futureField":{"keep":true}}"""
+        File(dir, "project.json").writeText(newer)
+
+        val loaded = manager.loadProject(mockContext, "newer")
+        assertEquals(99, loaded?.projectData?.formatVersion)
+        assertFalse(manager.saveProject(mockContext, loaded!!.projectData.copy(name = "Edited")))
+
+        assertEquals(newer, File(dir, "project.json").readText())
+    }
+
+    @Test
+    fun `a current-format project still saves`() = runTest {
+        assertTrue(manager.saveProject(mockContext, GraffitiProject(id = "cur", name = "Now")))
+        assertTrue(manager.saveProject(mockContext, GraffitiProject(id = "cur", name = "Again")))
+        assertEquals("Again", manager.loadProjectMetadata(mockContext, "cur")?.name)
+    }
+
+    @Test
     fun `a newer format is never lowered`() {
         assertEquals(7, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 7), 7).formatVersion)
     }

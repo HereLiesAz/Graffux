@@ -2310,6 +2310,14 @@ class EditorViewModel @Inject constructor(
                     val projectIdChanged = _uiState.value.projectId != project.id
 
                     if (projectIdChanged) {
+                        if (com.hereliesaz.graffitixr.common.model.isNewerFormat(project.formatVersion)) {
+                            // ProjectManager.saveProject refuses to write over it; say so up front.
+                            notify(
+                                "“${project.name}” was saved by a newer version of Graffux. It's open " +
+                                    "read-only: changes won't be saved. Update the app to edit it.",
+                                NoticeKind.WARNING,
+                            )
+                        }
                         inkLedger.clear()
                         val currentLayers = _uiState.value.layers
                         val layers = project.layers.map { overlayLayer ->
