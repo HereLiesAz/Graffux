@@ -103,9 +103,9 @@ object SpatialGltfExporter {
         val indexBytes = indices.size * 4
         val buffer = ByteBuffer.allocate(positionBytes + colorBytes + indexBytes)
             .order(ByteOrder.LITTLE_ENDIAN)
-        positions.forEach(buffer::putFloat)
-        colors.forEach(buffer::putFloat)
-        indices.forEach(buffer::putInt)
+        positions.forEach { buffer.putFloat(it) }
+        colors.forEach { buffer.putFloat(it) }
+        indices.forEach { buffer.putInt(it) }
         val encoded = Base64.getEncoder().encodeToString(buffer.array())
         val minimum = boundsMin.joinToString(",")
         val maximum = boundsMax.joinToString(",")
