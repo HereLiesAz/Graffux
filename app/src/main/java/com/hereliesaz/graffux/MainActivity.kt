@@ -83,6 +83,9 @@ import androidx.compose.ui.res.painterResource
 
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.hereliesaz.graffitixr.feature.editor.NoticeKind
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
@@ -164,12 +167,13 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Artwork extends beneath both transparent system bars. Compose insets keep interactive
-        // chrome clear of those bars and display cutouts without shrinking the drawing surface.
+        // The editor is immersive: system bars must never cover the rulers or brush carousel.
+        // They can still be revealed temporarily by swiping from a screen edge.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
+        enterImmersiveMode()
         // Launch intents are acted on once. A recreation (rotation, dark-mode or locale change)
         // hands back the same original intent with a non-null savedInstanceState; replaying it would
         // add the shared image to the project a second time and re-raise an install prompt the user
@@ -188,6 +192,19 @@ class MainActivity : ComponentActivity() {
                 GraffuxApp(sharedImageUri = sharedImage, azphaltInstallUrl = azpInstallUrl)
                 LaunchUpdatePrompt()
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterImmersiveMode()
+    }
+
+    /** Restore immersive drawing after an external picker or other window takes focus. */
+    private fun enterImmersiveMode() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
