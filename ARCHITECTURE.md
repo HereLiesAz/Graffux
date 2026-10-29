@@ -497,5 +497,6 @@ OBJ UV-paint remains unchanged.
 **Incomplete relative to Feather:** the Compose renderer is a screen projection without GPU
 occlusion, geometry tubes, paint materials or shading. Guides are view-facing planes, not
 bendable/lofted surfaces or primitives. Shape editing, selection/transforms, true mesh-guided
-curves, scene OBJ/glTF export and AR view remain unimplemented. Do not conflate this vertical
+curves, scene OBJ export and AR view remain unimplemented. The glTF 2.0 exporter does
+provide real tube meshes with per-vertex colour and alpha, but no end caps or complex materials. Do not conflate this vertical
 slice with feature parity.

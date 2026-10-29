@@ -29,7 +29,8 @@ consumes the same modules for its 2D work and adds AR on top.
   camera-facing depth guide, orbit to inspect parallax, erase and undo/redo curves, and reopen them
   from a saved `.fux`. Open View → 3D → Sketch in 3D. Curve rendering is currently screen-projected
   rather than GPU depth-tested; curved/primitive guides, mesh-guided curves, transforms and
-  OBJ/glTF scene export are still outstanding.
+  OBJ export and advanced glTF materials remain outstanding; the sketch toolbar exports
+  self-contained glTF 2.0 tube geometry.
 - **3D model texture painting** — load an `.obj`, paint directly on its UV surface, and add the
   painted view as a flattened 2D layer. This remains independent of spatial strokes.
 - **Animation Assist** — each top-level layer as one frame, with onion skinning, playback, and
