@@ -2344,6 +2344,9 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModel(project)
+                        _spatialStrokes.value = project.spatialStrokes
+                        spatialUndoHistory.clear()
+                        spatialRedoHistory.clear()
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -4340,6 +4343,7 @@ class EditorViewModel @Inject constructor(
                 canvasSubstrateId = _uiState.value.canvasSubstrateId,
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
+                spatialStrokes = _spatialStrokes.value,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4357,6 +4361,7 @@ class EditorViewModel @Inject constructor(
                     canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
                     documentCrop = _uiState.value.documentCrop,
+                    spatialStrokes = _spatialStrokes.value,
                     formatVersion = maxOf(
                         current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
                     ),
@@ -11108,6 +11113,54 @@ class EditorViewModel @Inject constructor(
                 "Installed $name — nothing in it applies to this app yet"
             else -> "Installed $name — find it under ${where.joinToString(" and ")}"
         }
+    }
+
+    // ── Editable world-space ink ──────────────────────────────────────────────────────────────
+
+    private val _spatialStrokes =
+        MutableStateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>(emptyList())
+    val spatialStrokes: StateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>> =
+        _spatialStrokes.asStateFlow()
+
+    // Snapshot once per committed curve, not per input sample. This history never mixes 2D layers
+    // with 3D curves or travels to a different project.
+    private val spatialUndoHistory =
+        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
+    private val spatialRedoHistory =
+        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
+
+    private fun recordSpatialEdit() {
+        if (spatialUndoHistory.size >= 64) spatialUndoHistory.removeFirst()
+        spatialUndoHistory.addLast(_spatialStrokes.value)
+        spatialRedoHistory.clear()
+    }
+
+    fun onSpatialStroke(stroke: com.hereliesaz.graffitixr.common.mesh.SpatialStroke) {
+        if (stroke.points.isEmpty()) return
+        recordSpatialEdit()
+        _spatialStrokes.update { it + stroke }
+        saveProject()
+    }
+
+    fun onSpatialErase(id: String) {
+        if (_spatialStrokes.value.none { it.id == id }) return
+        recordSpatialEdit()
+        _spatialStrokes.update { list -> list.filterNot { it.id == id } }
+        saveProject()
+    }
+
+    fun onSpatialUndo() {
+        if (spatialUndoHistory.isEmpty()) return
+        spatialRedoHistory.addLast(_spatialStrokes.value)
+        _spatialStrokes.value = spatialUndoHistory.removeLast()
+        saveProject()
+    }
+
+    fun onSpatialRedo() {
+        if (spatialRedoHistory.isEmpty()) return
+        spatialUndoHistory.addLast(_spatialStrokes.value)
+        _spatialStrokes.value = spatialRedoHistory.removeLast()
+        saveProject()
     }
 
     // ── 3D model viewport ────────────────────────────────────────────────────────────────────
