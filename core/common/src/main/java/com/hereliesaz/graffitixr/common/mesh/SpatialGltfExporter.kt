@@ -35,9 +35,17 @@ object SpatialGltfExporter {
 
         for (stroke in strokes) {
             if (stroke.width <= 0f || !stroke.width.isFinite()) continue
+            // Only remove consecutive duplicates. A curve that loops back to its starting
+            // position must stay closed; global distinctBy would cut its final segment off.
             val points = stroke.points.filter {
                 it.x.isFinite() && it.y.isFinite() && it.z.isFinite() && it.pressure.isFinite()
-            }.distinctBy { Triple(it.x, it.y, it.z) }
+            }.fold(mutableListOf<SpatialPoint>()) { kept, point ->
+                val last = kept.lastOrNull()
+                if (last == null || last.x != point.x || last.y != point.y || last.z != point.z) {
+                    kept.add(point)
+                }
+                kept
+            }
             if (points.size < 2) continue
             require(positions.size / 3 + points.size * SIDES <= MAX_VERTICES) {
                 "Spatial export exceeds the geometry safety limit"
