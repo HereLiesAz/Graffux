@@ -42,6 +42,35 @@ class ProjectRepositoryImpl @Inject constructor(
     // Guarded by [saveMutex].
     private val deletedIds = mutableSetOf<String>()
 
+    // Whether this process has swept `cache/readonly_artifacts/` yet. Scratch from an earlier process
+    // belongs to no live session (nothing on disk points at it), so the first locked operation clears
+    // it all, before this process can have written any. Guarded by [saveMutex].
+    private var scratchSwept = false
+
+    private fun scratchRoot() = File(context.cacheDir, "readonly_artifacts")
+
+    /** Startup sweep; call with [saveMutex] held. */
+    private fun sweepScratchOnce() {
+        if (scratchSwept) return
+        scratchSwept = true
+        // Best-effort: cleaning the cache must never fail the project operation it rides on.
+        runCatching { scratchRoot().deleteRecursively() }
+    }
+
+    /** Drops [id]'s read-only scratch (its session edits); call with [saveMutex] held. */
+    private fun discardScratch(id: String?) {
+        if (id == null || !projectManager.isSafeProjectId(id)) return
+        runCatching { File(scratchRoot(), id).deleteRecursively() }
+    }
+
+    /** Makes [project] current, discarding the scratch of the project it replaces (that one is closed). */
+    private fun switchTo(project: GraffitiProject?) {
+        sweepScratchOnce()
+        val previous = _currentProject.value?.id
+        if (previous != project?.id) discardScratch(previous)
+        _currentProject.value = project
+    }
+
     // Backing state for the project list so observers see creates/deletes/imports,
     // as the ProjectRepository contract promises. A plain cold flow emitted once.
     private val _projects = MutableStateFlow<List<GraffitiProject>>(emptyList())
@@ -70,7 +99,7 @@ class ProjectRepositoryImpl @Inject constructor(
         saveMutex.withLock {
             projectManager.saveProject(context, newProject)
             deletedIds.remove(newProject.id)
-            _currentProject.value = newProject
+            switchTo(newProject)
             refreshProject(newProject.id)
         }
         return newProject
@@ -81,7 +110,7 @@ class ProjectRepositoryImpl @Inject constructor(
         saveMutex.withLock {
             projectManager.saveProject(context, project)
             deletedIds.remove(project.id)
-            _currentProject.value = project
+            switchTo(project)
             refreshProject(project.id)
         }
     }
@@ -101,7 +130,7 @@ class ProjectRepositoryImpl @Inject constructor(
         val project = getProject(id)
         if (project != null) {
             deletedIds.remove(id)
-            _currentProject.value = project
+            switchTo(project)
             Result.success(Unit)
         } else {
             Result.failure(Exception("Project not found"))
@@ -137,6 +166,8 @@ class ProjectRepositoryImpl @Inject constructor(
         saveMutex.withLock {
             projectManager.deleteProject(context, id)
             deletedIds.add(id)
+            sweepScratchOnce()
+            discardScratch(id)
             if (_currentProject.value?.id == id) {
                 _currentProject.value = null
             }
@@ -152,6 +183,7 @@ class ProjectRepositoryImpl @Inject constructor(
         }
         // Under the same lock as deleteProject, so a delete can't interleave with the write.
         saveMutex.withLock {
+            sweepScratchOnce()
             if (projectId in deletedIds) {
                 // Deleted while this write was in flight: writing would recreate the directory as an
                 // invisible, never-reclaimed orphan.
@@ -192,7 +224,7 @@ class ProjectRepositoryImpl @Inject constructor(
             ?: return Result.failure(Exception("Failed to import project from $uri"))
         saveMutex.withLock {
             deletedIds.remove(project.id)
-            _currentProject.value = project
+            switchTo(project)
             refreshProject(project.id)
         }
         return Result.success(project)

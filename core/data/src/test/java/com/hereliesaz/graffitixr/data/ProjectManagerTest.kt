@@ -494,11 +494,51 @@ class ProjectManagerTest {
     }
 
     @Test
-    fun `an unreadable project json refuses the save instead of passing as legacy`() = runTest {
+    fun `an unreadable project json fails the save instead of passing as legacy or as newer`() = runTest {
         val dir = File(tempFilesDir, "projects/broken").also { it.mkdirs() }
         File(dir, "project.json").writeText("{ not json")
-        assertFalse(manager.saveProject(mockContext, GraffitiProject(id = "broken", name = "Over")))
+        val e = runCatching { manager.saveProject(mockContext, GraffitiProject(id = "broken", name = "Over")) }
+        assertTrue(e.exceptionOrNull() is java.io.IOException)
         assertEquals("{ not json", File(dir, "project.json").readText())
+    }
+
+    @Test
+    fun `a read error is an IO failure, never a read-only verdict, and is not cached`() = runTest {
+        val dir = File(tempFilesDir, "projects/flaky").also { it.mkdirs() }
+        // A directory where project.json should be: exists(), but every read throws IOException.
+        val pj = File(dir, "project.json").also { it.mkdirs() }
+        val first = runCatching { manager.saveProject(mockContext, GraffitiProject(id = "flaky", name = "A")) }
+        assertTrue(first.exceptionOrNull() is java.io.IOException)
+        val artifact = runCatching { manager.writeIfWritable(mockContext, "flaky") { "wrote" } }
+        assertTrue(artifact.exceptionOrNull() is java.io.IOException)
+        // The fault clears: the next write goes through (nothing remembered "read-only").
+        pj.delete()
+        File(dir, "project.json").writeText("""{"id":"flaky","name":"A"}""")
+        assertEquals("wrote", manager.writeIfWritable(mockContext, "flaky") { "wrote" })
+    }
+
+    @Test
+    fun `after a load, artifact writes and saves do not re-read project json`() = runTest {
+        val project = GraffitiProject(id = "hot", name = "Hot")
+        manager.saveProject(mockContext, project)
+        val fresh = ProjectManager(mockContext, uriProvider, mockk(relaxed = true))
+        assertEquals("Hot", fresh.loadProjectMetadata(mockContext, "hot")?.name)
+        val pj = File(tempFilesDir, "projects/hot/project.json")
+        // If the hot path parsed the file it would now fail; a cached verdict needs no read.
+        pj.writeText("{ garbage")
+        assertEquals("ok", fresh.writeIfWritable(mockContext, "hot") { "ok" })
+        assertTrue(fresh.saveProject(mockContext, project.copy(name = "Saved")))
+        assertEquals("Saved", fresh.loadProjectMetadata(mockContext, "hot")?.name)
+    }
+
+    @Test
+    fun `a newer-format verdict is cached on load and dropped on delete`() = runTest {
+        val dir = File(tempFilesDir, "projects/later").also { it.mkdirs() }
+        File(dir, "project.json").writeText("""{"id":"later","name":"F","formatVersion":99}""")
+        manager.loadProjectMetadata(mockContext, "later")
+        assertNull(manager.writeIfWritable(mockContext, "later") { "x" })
+        manager.deleteProject(mockContext, "later")
+        assertTrue(manager.saveProject(mockContext, GraffitiProject(id = "later", name = "New")))
     }
 
     @Test

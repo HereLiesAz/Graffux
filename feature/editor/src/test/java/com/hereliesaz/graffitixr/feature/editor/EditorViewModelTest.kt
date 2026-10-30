@@ -322,6 +322,19 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a rail toggle survives a refused or failed project write`() = runTest {
+        coEvery { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } throws
+            java.io.IOException("transient read failure")
+        viewModel.onRailHostExpansionChanged("host", true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coEvery { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } throws
+            com.hereliesaz.graffitixr.domain.repository.ProjectNotSavedException("test-project")
+        viewModel.onRailHostExpansionChanged("host", false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 2) { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) }
+    }
+
+    @Test
     fun `saveProject calls updateProject when project exists`() = runTest {
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)
