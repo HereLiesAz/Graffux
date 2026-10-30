@@ -47,3 +47,10 @@ class AzphaltPurchases @Inject constructor(
     fun paidCatalogue(appId: String): List<String> =
         repository.search(appId = appId).filter { it.priceStatus.isPaid }.map { it.id }
 }
+
+/**
+ * `runCatching` around a suspend call also catches the caller's cancellation; this puts it back, so a
+ * cancelled scope stops instead of carrying on as if the call had merely failed.
+ */
+fun <T> Result<T>.rethrowCancellation(): Result<T> =
+    onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }

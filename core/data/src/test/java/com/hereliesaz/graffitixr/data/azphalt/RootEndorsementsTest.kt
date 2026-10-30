@@ -126,11 +126,34 @@ class RootEndorsementsTest {
     }
 
     @Test
-    fun `an expired or not yet valid endorsement is rejected`() {
+    fun `an expired endorsement is rejected once past the clock-skew grace`() {
         val e = root.endorse(store.publicKey, ent, notAfter = "2026-06-01T00:00:00Z")
         assertEquals("endorsement has expired", refusal(e))
-        val early = Instant.parse("2025-01-01T00:00:00Z")
-        assertEquals("endorsement is not valid yet", refusal(root.endorse(store.publicKey, ent), at = early))
+    }
+
+    @Test
+    fun `a device clock behind notBefore does not drop the key`() {
+        // A dead RTC reading 1970: the root's signature is the proof, not the device's idea of the date.
+        val epoch = Instant.parse("1970-01-01T00:00:00Z")
+        assertNull(refusal(root.endorse(store.publicKey, ent), at = epoch))
+        val published = listOf(
+            PublishedKey(TrustedKey(store.publicKey, "store-v1"), root.endorse(store.publicKey, ent)),
+        )
+        val trust = KeyTrust.from(published, enforceRoot = true, now = epoch, rootPublicKey = root.publicKey)
+        assertEquals(setOf(store.publicKey), trust.entitlementKeys)
+    }
+
+    @Test
+    fun `a device clock a little past notAfter keeps the key, within the grace`() {
+        val e = root.endorse(store.publicKey, ent, notAfter = "2027-01-01T00:00:00Z")
+        val graceEnds = Instant.parse("2027-01-01T00:00:00Z").plus(RootEndorsements.CLOCK_SKEW)
+        assertNull(refusal(e, at = graceEnds.minusSeconds(1)))
+        assertEquals("endorsement has expired", refusal(e, at = graceEnds))
+    }
+
+    @Test
+    fun `the trust document URL is built on the store host constant`() {
+        assertTrue(ExtensionRepository.WELL_KNOWN_URL.startsWith(AzphaltStoreHandoff.WEB_STORE_URL + "/"))
     }
 
     @Test

@@ -15,8 +15,8 @@ data class Grant(
 internal data class Accepted(val state: PurchaseState, val kept: Boolean)
 
 private const val VERIFY_LATER =
-    "Paid. The licence will be verified and installed as soon as the store's keys load; " +
-    "Restore purchases retries it."
+    "Paid, and nothing is lost. The store hasn't published keys this app can trust yet, so the licence " +
+    "waits here and installs once it does; Restore purchases checks again."
 private const val SAVE_FAILED =
     "Paid, but the licence couldn't be saved on this device. Restore purchases retries it."
 private const val RENEWAL_NEEDED = "This subscription needs renewing. It stays installed meanwhile."
@@ -63,7 +63,8 @@ internal class Licences(
     private suspend fun verifyFresh(token: String, packageId: String): EntitlementCheck {
         val first = verifier.verify(token, packageId, tuning.now())
         if (first !is EntitlementCheck.Invalid || !first.isTrustGap()) return first
-        runCatching { tuning.io { hooks.refreshTrust() } }
+        // Best effort, but a cancelled caller stops here rather than going on to store and install.
+        runCatching { tuning.io { hooks.refreshTrust() } }.onFailure { if (it is CancellationException) throw it }
         return verifier.verify(token, packageId, tuning.now())
     }
 
