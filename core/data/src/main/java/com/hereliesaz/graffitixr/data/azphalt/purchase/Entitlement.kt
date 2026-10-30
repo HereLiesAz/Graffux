@@ -41,15 +41,19 @@ sealed interface EntitlementCheck {
  * purchase on azphalt.store, or a store app's handoff. All of them are signed by the same registry
  * key, so one check covers every route and none is privileged over another.
  *
- * The token is accepted only when its key is one of [trustedKeys] (the repository's published signing
- * keys, `/.well-known/azphalt-repository.json`), the signature verifies over the canonical claims,
+ * The token is accepted only when its key is one of [trustedKeys] (the repository's published keys,
+ * `/.well-known/azphalt-repository.json`, that the pinned offline root endorsed for `entitlement`;
+ * see [com.hereliesaz.graffitixr.data.azphalt.RootEndorsements]), the signature verifies over the canonical claims,
  * and the claims name [packageId]. A token that names its own key is never trusted for that alone.
  * Its `kind` must be `perpetual` (a one-time purchase, which never expires on the device) or
  * `subscription` (which must carry `expiresAt`).
  *
- * This is only as strong as the trust store: the keys are fetched over TLS from the same origin that
- * issues the tokens, with no root key pinned in the APK, so whoever can answer for azphalt.store can
- * mint licences. The device check stops forged or edited tokens, not a compromised repository.
+ * The keys are fetched over TLS from the same origin that issues the tokens, so on their own they
+ * would let whoever answers for azphalt.store mint licences. The APK therefore pins the owner's
+ * offline root key: a fetched key becomes an entitlement signer only with the root's endorsement of
+ * that exact key for `entitlement` (not `package-catalog`), within its validity window. A compromised
+ * origin can withhold keys but cannot introduce one. Release builds always enforce this; only a
+ * debug build built with `-Pgraffux.azphaltRootEnforcement=false` falls back to every published key.
  */
 class EntitlementVerifier(private val trustedKeys: () -> Set<String>) {
 

@@ -451,6 +451,38 @@ nothing else about the package changing.
 > "out-of-band by design; this only enforces the cryptography" — `TrustStore.kt` does not claim to
 > solve that problem, only to evaluate signatures/chains against whatever keys the host already holds.
 
+#### Pinned root (root endorsements)
+
+TLS to azphalt.store proves only who answered, so the keys alone would let whoever controls the
+store's responses mint licences and swap packages. Graffux therefore pins the owner's **offline root
+key** (`RootEndorsements.ROOT_PUBLIC_KEY_SPKI_B64`, Ed25519
+`MCowBQYDK2VwAyEAjVS5e0Si26c3lzFyqnuW7VwMUmnwRF5AmBUBzYwrh6M=`) and sorts the published keys by
+purpose (`KeyTrust.from`, azphalt spec/repository-api.md § Root endorsements):
+
+- a key enters the package `TrustStore` above only with a valid root endorsement for
+  `package-catalog`;
+- a key may sign entitlement tokens (`EntitlementVerifier`, via `ExtensionRepository.entitlementKeys`)
+  only with a valid root endorsement for `entitlement`.
+
+An endorsement is valid when it names exactly that key and purpose, its Ed25519 signature over the
+canonical statement verifies against the pinned root, and `notBefore ≤ now < notAfter`. Missing,
+forged, expired, not-yet-valid and cross-purpose endorsements all leave the key untrusted for that
+purpose. They are re-checked whenever the keys are loaded or refreshed (every launch).
+
+Graffux ships no bundled `.azp` packages; its first-party packages come from the azphalt catalog,
+signed by the catalog key (`packages-v1`), so they stay `SIGNED_TRUSTED` once that key's
+`package-catalog` endorsement is served. Until then they install as `SIGNED_UNTRUSTED` (still
+installable; § 3.4), and purchases wait in "verify later" rather than failing.
+
+Enforcement is the build flag `BuildConfig.AZPHALT_ROOT_ENFORCED` (core/data/build.gradle.kts). It is
+always `true` in release builds; a debug build may opt out with
+`-Pgraffux.azphaltRootEnforcement=false`, for testing against a store that has not deployed its
+endorsements, in which case every published key serves both purposes as before. **Before releasing
+a build with this change, the owner must deploy both endorsements to the azphalt.store Worker**
+(`ROOT_ENDORSEMENT_ENTITLEMENT`, `ROOT_ENDORSEMENT_CATALOG`; azphalt
+`apps/storefront-worker/README.md` § Root endorsements) and confirm `/.well-known/azphalt.json` serves
+them; otherwise the release trusts no store key.
+
 ### 3.4 What "signing" buys a package, concretely
 
 - `INVALID` (bad/corrupt signature) → always refused, regardless of trust.
