@@ -19,8 +19,8 @@ class TestRegistry {
         subject: String = "buyer_x",
         expiresAt: String? = null,
         tamper: Boolean = false,
+        kind: String = if (expiresAt != null) "subscription" else "perpetual",
     ): String {
-        val kind = if (expiresAt != null) "subscription" else "perpetual"
         val claims = EntitlementClaims(packageId, subject, kind, "2026-10-01T00:00:00.000Z", expiresAt)
         val signer = Ed25519Signer().apply { init(true, key) }
         val bytes = EntitlementVerifier.canonicalClaims(claims).toByteArray()

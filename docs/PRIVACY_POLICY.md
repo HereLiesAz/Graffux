@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** October 23, 2026
+**Effective Date:** October 29, 2026
 
 Graffux (the "App") is committed to protecting your privacy. This Privacy Policy describes how we handle information in our mobile application.
 
@@ -25,9 +25,14 @@ If the App crashes or freezes, it writes a technical report to its own private c
   happen after you switched it on are posted as **public** issues on
   <https://github.com/HereLiesAz/Graffux>, where anyone can read them. Reports from before you
   switched it on are never sent.
-- **Redaction:** before a report is saved or sent, the App removes GPS coordinates, auth tokens
-  and bearer headers (including GitHub and Figma tokens), email addresses, file and content
-  addresses and private storage paths. Redaction of free-form text cannot be perfect.
+- **Redaction:** before a report is saved or sent, the App removes GPS coordinates, auth tokens,
+  passwords, bearer and basic auth headers (including GitHub and Figma tokens), cookies, IP
+  addresses, email addresses, file and content addresses and private storage paths. Redaction of
+  free-form text cannot be perfect.
+- **Stroke-prediction rankings:** with the same token connected, the App also files a short
+  ranking of its stroke-prediction models (your device model, Android and App version, and timing
+  numbers; no drawings) as a public issue. They are redacted the same way, and one left over from a
+  run that ended unexpectedly is sent on the next launch only if crash reports are switched on.
 - **Stopping:** switch the setting off. To have a posted report removed, contact us (section 9).
 
 ## 4. Stroke-Model Training Data (Opt-In)
@@ -83,10 +88,21 @@ The App contains no advertising. It connects to third-party services only as fol
   Code extensions run sandboxed, with no network or file access of their own, limited to the
   capabilities their package declares. See
   `spec/package-format.md` for the sandbox's exact guarantees.
+- **Purchases (optional).** If you buy a paid extension inside the App, the App asks azphalt.store
+  how to pay and sends it the extension's id, this App's package name and, on a Google Play install,
+  your Google Play country code. Paying through Google Play is handled by Google under Google's
+  privacy policy; the App sends the purchase token Google returns to azphalt.store so it can verify
+  the purchase with Google and issue your licence. Paying by card opens Stripe Checkout, where Stripe
+  and azphalt.store collect what the payment needs (such as your email and card details) under their
+  own privacy policies; the App never sees your card. azphalt.store then sets a buyer-session cookie
+  that the App keeps on this device, with your licences, so it can restore your purchases. The
+  cookie and licences are never included in device backups or transfers, and are sent only to
+  azphalt.store (the licence also when downloading the extension you bought). See
+  <https://azphalt.store> for the store's own privacy policy.
 
 ## 7. Children's Privacy
 
-The App does not ask for personal information; analytics, crash reports and training data are all off by default. We do not knowingly collect any data from children under the age of 13.
+The App does not ask for personal information; purchases happen only when you start one, and analytics, crash reports and training data are all off by default. We do not knowingly collect any data from children under the age of 13.
 
 ## 8. Changes to This Policy
 

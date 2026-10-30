@@ -5,7 +5,9 @@
      bring that code over without the install-time confirmation, signature evaluation and trust-store
      check that gated it here, so extensions and everything derived from them stay local; the user
      reinstalls on the new device. The trust cache is re-fetched, and the state store describes
-     extensions that will not exist after restore. Projects, settings and everything else are backed up
+     extensions that will not exist after restore. The entitlement store (and its .bak/.tmp/.corrupt
+     siblings) holds the buyer-session cookie, a bearer credential, and is restored from the store
+     instead (Restore purchases). Projects, settings and everything else are backed up
      as before. -->
 <data-extraction-rules>
     <cloud-backup>
@@ -13,11 +15,19 @@
         <exclude domain="file" path="azphalt-state.json" />
         <exclude domain="file" path="azphalt-trust-keys.json" />
         <exclude domain="file" path="import_staging" />
+        <exclude domain="file" path="azphalt-entitlements.json" />
+        <exclude domain="file" path="azphalt-entitlements.json.bak" />
+        <exclude domain="file" path="azphalt-entitlements.json.tmp" />
+        <exclude domain="file" path="azphalt-entitlements.json.corrupt" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="extensions" />
         <exclude domain="file" path="azphalt-state.json" />
         <exclude domain="file" path="azphalt-trust-keys.json" />
         <exclude domain="file" path="import_staging" />
+        <exclude domain="file" path="azphalt-entitlements.json" />
+        <exclude domain="file" path="azphalt-entitlements.json.bak" />
+        <exclude domain="file" path="azphalt-entitlements.json.tmp" />
+        <exclude domain="file" path="azphalt-entitlements.json.corrupt" />
     </device-transfer>
 </data-extraction-rules>

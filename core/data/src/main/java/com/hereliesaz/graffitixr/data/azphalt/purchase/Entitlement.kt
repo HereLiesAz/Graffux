@@ -44,6 +44,12 @@ sealed interface EntitlementCheck {
  * The token is accepted only when its key is one of [trustedKeys] (the repository's published signing
  * keys, `/.well-known/azphalt-repository.json`), the signature verifies over the canonical claims,
  * and the claims name [packageId]. A token that names its own key is never trusted for that alone.
+ * Its `kind` must be `perpetual` (a one-time purchase, which never expires on the device) or
+ * `subscription` (which must carry `expiresAt`).
+ *
+ * This is only as strong as the trust store: the keys are fetched over TLS from the same origin that
+ * issues the tokens, with no root key pinned in the APK, so whoever can answer for azphalt.store can
+ * mint licences. The device check stops forged or edited tokens, not a compromised repository.
  */
 class EntitlementVerifier(private val trustedKeys: () -> Set<String>) {
 
@@ -55,13 +61,19 @@ class EntitlementVerifier(private val trustedKeys: () -> Set<String>) {
     fun verify(encoded: String, packageId: String, now: Instant = Instant.now()): EntitlementCheck {
         val token = decode(encoded) ?: return EntitlementCheck.Invalid("not an entitlement token")
         val expires = token.claims.expiresAt?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val trusted = trustedKeys()
+        val kind = token.claims.kind
         return when {
             token.claims.packageId != packageId -> EntitlementCheck.Invalid("entitlement is for another package")
-            token.publicKey !in trustedKeys() ->
+            trusted.isEmpty() -> EntitlementCheck.Invalid(NO_TRUSTED_KEYS)
+            token.publicKey !in trusted ->
                 EntitlementCheck.Invalid("entitlement is not signed by a trusted repository")
-            !signatureVerifies(token) -> EntitlementCheck.Invalid("entitlement signature does not verify")
-            token.claims.expiresAt != null && expires == null -> EntitlementCheck.Invalid("unreadable expiry")
-            expires != null && !expires.isAfter(now) -> EntitlementCheck.Expired(token)
+            !signatureVerifies(token) -> EntitlementCheck.Invalid("entitlement $SIGNATURE_FAILS")
+            kind != KIND_PERPETUAL && kind != KIND_SUBSCRIPTION -> EntitlementCheck.Invalid("unknown licence kind")
+            // A one-time purchase never expires on the device, whatever its clock says.
+            kind == KIND_PERPETUAL -> EntitlementCheck.Valid(token)
+            expires == null -> EntitlementCheck.Invalid("subscription without a readable expiry")
+            !expires.isAfter(now) -> EntitlementCheck.Expired(token)
             else -> EntitlementCheck.Valid(token)
         }
     }
@@ -75,6 +87,12 @@ class EntitlementVerifier(private val trustedKeys: () -> Set<String>) {
     }.getOrDefault(false)
 
     companion object {
+        const val KIND_PERPETUAL = "perpetual"
+        const val KIND_SUBSCRIPTION = "subscription"
+        /** The trust store has not loaded yet: says nothing about the token. */
+        const val NO_TRUSTED_KEYS = "no trusted repository keys loaded yet"
+        /** The only [EntitlementCheck.Invalid] reason that is proof the token itself is bad. */
+        const val SIGNATURE_FAILS = "signature does not verify"
         private val LENIENT = Json { ignoreUnknownKeys = true }
 
         /** The exact bytes the registry signs: JSON with fields in this order, absent optionals omitted. */

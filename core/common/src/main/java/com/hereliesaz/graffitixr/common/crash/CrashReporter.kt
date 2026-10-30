@@ -154,7 +154,8 @@ class CrashReporter internal constructor(
         }
 
         // Best-effort scrub of shapes that are sensitive if they end up in a public crash report:
-        // GPS coordinates, bearer/session/API tokens, and email addresses. Not exhaustive (there is
+        // GPS coordinates, bearer/basic/session/API tokens and passwords, cookies, IP addresses and
+        // email addresses. Not exhaustive (there is
         // no reliable way to redact arbitrary PII from free-form log text), but it removes the
         // concrete categories this app's own logs and libraries are known to emit.
         private val REDACTION_PATTERNS: List<Pair<Regex, String>> = listOf(
@@ -165,7 +166,14 @@ class CrashReporter internal constructor(
             Regex("""(?i)\b(lon(?:g(?:itude)?)?)\s*[=:]\s*-?\d{1,3}\.\d+""") to "$1=[REDACTED]",
             // Bearer/auth headers and token-/secret-/key-/session-shaped key=value pairs.
             Regex("""(?i)\bBearer\s+[A-Za-z0-9\-_.=]{8,}""") to "Bearer [REDACTED]",
-            Regex("""(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth)\s*[=:]\s*[A-Za-z0-9\-_.]{6,}""") to "$1=[REDACTED]",
+            // Basic credentials and whole Cookie / Set-Cookie headers (session cookies are bearer credentials).
+            Regex("""(?i)\bBasic\s+[A-Za-z0-9+/=]{8,}""") to "Basic [REDACTED]",
+            Regex("""(?i)\b(set-cookie|cookie)\s*:\s*[^\r\n]+""") to "$1: [REDACTED]",
+            Regex(
+                """(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth|password|passwd|pwd)""" +
+                    """\s*[=:]\s*[^\s&,;"']{3,}""",
+            ) to
+                "$1=[REDACTED]",
             // The same keys as JSON: "token":"value".
             Regex("""(?i)"(token|secret|api[_-]?key|session[_-]?id|auth|password)"\s*:\s*"[^"]*"""") to
                 "\"$1\":\"[REDACTED]\"",
@@ -175,6 +183,18 @@ class CrashReporter internal constructor(
             // Content and file URIs and app-private paths name the user's own files.
             Regex("""\b(?:content|file)://\S+""") to "[REDACTED_URI]",
             Regex("""/(?:data/(?:user/\d+|data)|storage/emulated/\d+|sdcard)/\S+""") to "[REDACTED_PATH]",
+            // IPv4 and IPv6 addresses (a client address identifies a user's network).
+            // Not a four-part version: "1.53.2.1 (140010150)" is this app's build label, and "v1.2.3.4" a version.
+            Regex(
+                """(?<![\w.])(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}""" +
+                    """(?![\w.])(?!\s\(\d+\))""",
+            ) to
+                "[REDACTED_IP]",
+            Regex(
+                """(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b""" +
+                    """|\b(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}:?){1,6}\b""",
+            ) to
+                "[REDACTED_IP]",
             // Email addresses.
             Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[REDACTED_EMAIL]",
         )

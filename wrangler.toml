@@ -14,7 +14,7 @@ entrypoint = "RepositoryTokens"
 GH_REPO = "HereLiesAz/Graffux"
 DATA_BRANCH = "stroke-data"
 
-# 30 uploads per client address per minute, per Cloudflare location. The app uploads every pending
+# 6 uploads per client address per minute, per Cloudflare location. The app uploads every pending
 # session file back to back and stops at the first failure, so a normal backlog fits.
 [[ratelimits]]
 name = "RATE_LIMITER"

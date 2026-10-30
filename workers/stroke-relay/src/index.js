@@ -29,11 +29,30 @@
  */
 
 export const MAX_BYTES = 8 * 1024 * 1024;
-/** A recorded session inflates roughly 5-10x; anything far past that is not a session. */
-const MAX_INFLATED = 96 * 1024 * 1024;
+/**
+ * A recorded session inflates roughly 5-10x; anything far past that is not a session. Kept well
+ * under the Worker's 128 MB isolate: the inflated text, its lines and the re-encoded copy all live
+ * at once.
+ */
+export const MAX_INFLATED = 24 * 1024 * 1024;
+/** One stroke line: samples, sensors at 200 Hz and up to 384 KiB of heatmap (512 KiB as base64). */
+export const MAX_LINE = 2 * 1024 * 1024;
 const MAX_STRING = 256;
+/** `heatmap.frames`: base64 of at most 384 KiB of int16 cells (SCHEMA.md § heatmap). */
+export const MAX_FRAMES = 4 * Math.ceil((384 * 1024) / 3);
+const KEY = /^[A-Za-z][A-Za-z0-9_]{0,47}$/;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const RECORD_TYPES = new Set(["stroke", "hover"]);
+/** Top-level fields per record type (tools/stroke-model/SCHEMA.md and what StrokeDataRecorder writes). */
+const SESSION_KEYS = new Set([
+  "type", "schema", "manufacturer", "model", "sdk", "displayHz", "widthPx", "heightPx", "xdpi", "ydpi",
+  "density", "startedAtMs", "appVersion", "heatmap", "clockCheckNs",
+]);
+const STROKE_KEYS = new Set([
+  "type", "tool", "inputDevice", "cancelled", "multiTouch", "pointerId", "canceled", "palm", "samples",
+  "pointers", "hover", "clock", "clockOffsetNs", "uptimeToElapsedNs", "context", "sensors",
+  "sensorsRegistered", "sensorStatus", "flush", "heatmap", "heatmapStatus",
+]);
 const DEVICE = /^[A-Za-z0-9-]{1,48}$/;
 const FILE = /^session-\d{10,16}\.jsonl\.gz$/;
 const CONFLICT_RETRIES = 3;
@@ -60,23 +79,36 @@ async function inflate(bytes) {
   } finally {
     reader.cancel().catch(() => {});
   }
-  const out = new Uint8Array(size);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
+  // Decoded chunk by chunk, so the inflated bytes are never copied into one more buffer.
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let text = "";
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      text += decoder.decode(chunks[i], { stream: true });
+      chunks[i] = null;
+    }
+    return text + decoder.decode();
+  } catch {
+    return null;
   }
-  return new TextDecoder("utf-8", { fatal: true }).decode(out);
 }
 
-/** True when every string in [value] is short, except base64 heatmap frames under `data`. */
-function stringsAreData(value, key = "") {
+/**
+ * True when every key is a short identifier and every string a short label, except the base64
+ * heatmap frames at `heatmap.frames` (capped at [MAX_FRAMES]).
+ */
+function stringsAreData(value, path = []) {
   if (typeof value === "string") {
-    if (key === "data") return BASE64.test(value);
+    const n = path.length;
+    if (n >= 2 && path[n - 1] === "frames" && path[n - 2] === "heatmap") {
+      return value.length <= MAX_FRAMES && BASE64.test(value);
+    }
     return value.length <= MAX_STRING;
   }
-  if (Array.isArray(value)) return value.every((v) => stringsAreData(v, key));
-  if (value && typeof value === "object") return Object.entries(value).every(([k, v]) => stringsAreData(v, k));
+  if (Array.isArray(value)) return value.every((v) => stringsAreData(v, path));
+  if (value && typeof value === "object") {
+    return Object.entries(value).every(([k, v]) => KEY.test(k) && stringsAreData(v, [...path, k]));
+  }
   return true;
 }
 
@@ -92,6 +124,7 @@ export async function strokeDataText(bytes) {
   const lines = text.split("\n").filter((l) => l.length > 0);
   if (lines.length === 0) return null;
   for (let i = 0; i < lines.length; i++) {
+    if (lines[i].length > MAX_LINE) return null;
     let record;
     try {
       record = JSON.parse(lines[i]);
@@ -102,7 +135,8 @@ export async function strokeDataText(bytes) {
     const ok = i === 0
       ? record.type === "session" && Number.isInteger(record.schema)
       : RECORD_TYPES.has(record.type);
-    if (!ok || !stringsAreData(record)) return null;
+    const allowed = i === 0 ? SESSION_KEYS : STROKE_KEYS;
+    if (!ok || !Object.keys(record).every((k) => allowed.has(k)) || !stringsAreData(record)) return null;
   }
   return lines.join("\n") + "\n";
 }

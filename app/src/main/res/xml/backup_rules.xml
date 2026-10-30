@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Auto Backup rules for Android 10-11 (minSdk 29, targetSdk below 31 semantics). Same exclusions as
      data_extraction_rules.xml: installed extensions are code and must not be restored onto another
-     device without passing the install flow again. -->
+     device without passing the install flow again. The entitlement store holds the
+     buyer-session cookie, a bearer credential, so it never leaves the device either. -->
 <full-backup-content>
     <exclude domain="file" path="extensions" />
     <exclude domain="file" path="azphalt-state.json" />
     <exclude domain="file" path="azphalt-trust-keys.json" />
     <exclude domain="file" path="import_staging" />
+    <exclude domain="file" path="azphalt-entitlements.json" />
+    <exclude domain="file" path="azphalt-entitlements.json.bak" />
+    <exclude domain="file" path="azphalt-entitlements.json.tmp" />
+    <exclude domain="file" path="azphalt-entitlements.json.corrupt" />
 </full-backup-content>

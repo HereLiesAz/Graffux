@@ -11,9 +11,22 @@ data class Grant(
     val productId: String? = null,
 )
 
+/** What [Licences.accept] did: the state to show, and whether the licence is now stored. */
+internal data class Accepted(val state: PurchaseState, val kept: Boolean)
+
+private const val VERIFY_LATER =
+    "Paid. The licence will be verified and installed as soon as the store's keys load; " +
+    "Restore purchases retries it."
+private const val SAVE_FAILED =
+    "Paid, but the licence couldn't be saved on this device. Restore purchases retries it."
+private const val RENEWAL_NEEDED = "This subscription needs renewing. It stays installed meanwhile."
+
 /**
  * The licences this device holds. Every one is verified on the device before it is kept, whatever
- * route produced it, and removed (with its package) once it is revoked, lapses or stops verifying.
+ * route produced it. One is removed (with its package) only on proof: the repository says it was
+ * refunded or voided, or its signature fails. A lapsed subscription is kept and marked
+ * [PurchaseState.RenewalNeeded], because "lapsed" here is only the device clock's opinion; a
+ * one-time purchase never lapses at all.
  */
 internal class Licences(
     private val verifier: EntitlementVerifier,
@@ -23,7 +36,7 @@ internal class Licences(
     private val report: (String, PurchaseState) -> PurchaseState,
 ) {
     fun entitlementFor(packageId: String): String? {
-        val stored = store.get(packageId) ?: return null
+        val stored = runCatching { store.get(packageId) }.getOrNull() ?: return null
         return (verifier.verify(stored.token, packageId, tuning.now()) as? EntitlementCheck.Valid)?.let { stored.token }
     }
 
@@ -34,23 +47,51 @@ internal class Licences(
      */
     fun acceptExternal(packageId: String, token: String): EntitlementCheck {
         val check = verifier.verify(token, packageId, tuning.now())
-        if (check is EntitlementCheck.Valid) store.put(StoredEntitlement(packageId, token, EntitlementSource.EXTERNAL))
-        return check
+        if (check !is EntitlementCheck.Valid) return check
+        return try {
+            store.put(StoredEntitlement(packageId, token, EntitlementSource.EXTERNAL))
+            check
+        } catch (e: java.io.IOException) {
+            EntitlementCheck.Invalid("couldn't save the licence: ${e.message}")
+        }
     }
 
     fun isValid(packageId: String, token: String): Boolean =
         verifier.verify(token, packageId, tuning.now()) is EntitlementCheck.Valid
 
-    suspend fun accept(grant: Grant, installNow: Boolean): PurchaseState {
+    /** Verify, refreshing the trust store once when it is empty or does not know the signing key. */
+    private suspend fun verifyFresh(token: String, packageId: String): EntitlementCheck {
+        val first = verifier.verify(token, packageId, tuning.now())
+        if (first !is EntitlementCheck.Invalid || !first.isTrustGap()) return first
+        runCatching { tuning.io { hooks.refreshTrust() } }
+        return verifier.verify(token, packageId, tuning.now())
+    }
+
+    private fun EntitlementCheck.Invalid.isTrustGap() =
+        reason == EntitlementVerifier.NO_TRUSTED_KEYS || reason.contains("not signed by a trusted")
+
+    suspend fun accept(grant: Grant, installNow: Boolean): Accepted {
         val id = grant.packageId
-        return when (val check = verifier.verify(grant.token, id, tuning.now())) {
+        return when (val check = verifyFresh(grant.token, id)) {
             is EntitlementCheck.Valid -> {
-                store.put(StoredEntitlement(id, grant.token, grant.source, grant.purchaseToken, grant.productId))
-                if (installNow) install(id, grant.token) else report(id, PurchaseState.Idle)
+                try {
+                    store.put(StoredEntitlement(id, grant.token, grant.source, grant.purchaseToken, grant.productId))
+                } catch (@Suppress("SwallowedException") e: java.io.IOException) {
+                    // Reported as SAVE_FAILED; the pending record stays, so restore retries.
+                    return Accepted(report(id, PurchaseState.Failed(SAVE_FAILED)), kept = false)
+                }
+                Accepted(if (installNow) install(id, grant.token) else report(id, PurchaseState.Idle), kept = true)
             }
-            is EntitlementCheck.Expired -> report(id, PurchaseState.Failed("That licence has expired."))
+            is EntitlementCheck.Expired ->
+                Accepted(report(id, PurchaseState.Failed("That licence has expired.")), kept = false)
             is EntitlementCheck.Invalid ->
-                report(id, PurchaseState.Failed("The store's licence couldn't be verified (${check.reason})."))
+                if (check.reason == EntitlementVerifier.NO_TRUSTED_KEYS) {
+                    // Not a verdict on the purchase: keep the pending record and say so.
+                    Accepted(report(id, PurchaseState.Pending(VERIFY_LATER)), kept = false)
+                } else {
+                    val why = "The store's licence couldn't be verified (${check.reason})."
+                    Accepted(report(id, PurchaseState.Failed(why)), kept = false)
+                }
         }
     }
 
@@ -69,25 +110,30 @@ internal class Licences(
         }
     }
 
+    /** Remove the licence, then the package. If the store can't be written, nothing is uninstalled. */
     suspend fun remove(packageId: String, reason: String) {
         store.remove(packageId)
         if (hooks.isInstalled(packageId)) tuning.io { hooks.revoke(packageId, reason) }
         report(packageId, PurchaseState.Idle)
     }
 
-    /** Remove every stored licence that lapsed or whose signature fails. Returns how many. */
-    suspend fun revalidate(): Int {
+    /**
+     * Re-check every stored licence. Only a signature that fails removes one; a lapsed subscription is
+     * kept and marked [PurchaseState.RenewalNeeded]. [locked] runs each package's change under that
+     * package's lock. Returns how many were removed.
+     */
+    suspend fun revalidate(locked: suspend (String, suspend () -> Unit) -> Unit): Int {
         var removed = 0
         for (e in store.all()) {
-            val reason = when (val check = verifier.verify(e.token, e.packageId, tuning.now())) {
-                is EntitlementCheck.Valid -> null
-                is EntitlementCheck.Expired -> "licence expired"
+            when (val check = verifier.verify(e.token, e.packageId, tuning.now())) {
+                is EntitlementCheck.Valid -> Unit
+                is EntitlementCheck.Expired -> report(e.packageId, PurchaseState.RenewalNeeded(RENEWAL_NEEDED))
                 // A changed trust store is not proof the token is bad; only a signature that fails is.
-                is EntitlementCheck.Invalid ->
-                    if (check.reason.contains("signature")) "licence no longer verifies" else null
-            } ?: continue
-            remove(e.packageId, reason)
-            removed++
+                is EntitlementCheck.Invalid -> if (check.reason.contains(EntitlementVerifier.SIGNATURE_FAILS)) {
+                    locked(e.packageId) { remove(e.packageId, "licence no longer verifies") }
+                    removed++
+                }
+            }
         }
         return removed
     }
