@@ -91,7 +91,7 @@ internal fun HslBody(adjustment: PhotoAdjustment?, actions: PhotoActions, drag: 
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp)
+                    .heightIn(min = 44.dp)
                     .padding(horizontal = 19.dp)
                     .alpha(if (drag.active) 0f else 1f),
             ) {
@@ -128,7 +128,7 @@ internal fun CurvesBody(adjustment: PhotoAdjustment?, actions: PhotoActions, dra
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 20.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 20.dp),
         ) {
             CurveChannel.entries.forEach { c -> ChannelChip(c, c == channel) { state.curveChannel = c } }
         }
@@ -156,7 +156,7 @@ private fun ChannelChip(channel: CurveChannel, picked: Boolean, onPick: () -> Un
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .height(36.dp)
+            .heightIn(min = 36.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(if (picked) PhotoSheetStyle.Ink else Color.Transparent)
             .then(if (picked) Modifier else Modifier.border(1.dp, RailBorder, RoundedCornerShape(18.dp)))

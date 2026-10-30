@@ -347,7 +347,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var showViewMenu by rememberSaveable { mutableStateOf(false) }
     var showPosterMenu by rememberSaveable { mutableStateOf(false) }
-    var posterChoices by remember { mutableStateOf(PosterChoices()) }
+    var posterChoices by rememberSaveable(stateSaver = PosterChoicesSaver) { mutableStateOf(PosterChoices()) }
     // The brush's long-press menu, a layer's menu (by layer id), and the About reader.
     var brushMenuOpen by rememberSaveable { mutableStateOf(false) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
@@ -402,14 +402,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The photo sheet (Adjust on the rail): which tab it showed last, reopened on the next entry.
     var lastPhotoTab by rememberSaveable { mutableStateOf<PhotoTab?>(null) }
     val photoDrag = remember { PhotoDrag() }
-    val photoSheet = remember { PhotoSheetState() }
+    val photoSheet = rememberSaveable(saver = PhotoSheetState.Saver) { PhotoSheetState() }
     val photoHistogram by vm.photoHistogram.collectAsState()
     photoSheet.histogram = photoHistogram
     // HSL's eyedropper and Curves' histogram belong to their tabs.
     val photoTabShown = PhotoTab.ofKey(carouselUi.tab).takeIf { carouselUi.photo && carouselUi.showingCarousel }
     val cropActions = remember(vm) { vm.cropActions() }
     val retouchActions = remember(vm) { vm.retouchActions() }
-    val retouchState = remember { RetouchState() }
+    val retouchState = rememberSaveable(saver = RetouchState.Saver) { RetouchState() }
     val maskOverlay by vm.maskOverlay.collectAsState()
     val maskThumbs by vm.maskThumbs.collectAsState()
     LaunchedEffect(photoTabShown) {

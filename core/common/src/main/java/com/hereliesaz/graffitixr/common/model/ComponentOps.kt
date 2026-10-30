@@ -85,6 +85,23 @@ object ComponentOps {
     }
 
     /**
+     * Carries the edits that turned [before] into [after] from each main component onto its
+     * instances, keeping each instance's overrides.
+     *
+     * Run on every state transition (the editor runs it at the reducer's exit and on every other
+     * state write), so any edit to a main — paint, text, adjustments, shapes, warp — reaches its
+     * instances, whichever code path made it. A content field moves to an instance only when the
+     * main changed it AND the instance still showed the main's old value: an instance that set that
+     * field itself has overridden it, and keeps its own value (Figma's override rule) with no
+     * per-instance bookkeeping to store. The pixel fields move as one unit, keyed on the bitmap.
+     *
+     * Returns [after] itself (same reference) when nothing needs to move, so it costs one map
+     * lookup per main when no main changed, and nothing at all when the stack has no components.
+     */
+    fun propagate(before: List<Layer>, after: List<Layer>): List<Layer> =
+        if (before === after) after else InstanceFollow.apply(before, after)
+
+    /**
      * Turns an instance back into an independent layer, keeping the content it currently shows.
      * The content is already resolved on the layer (see [syncInstances]), so this only has to drop
      * the link.
@@ -136,5 +153,72 @@ object ComponentOps {
         // Everything else — id, name, parentId, offset, scale, rotation*, isVisible, opacity,
         // blendMode, locks, instanceOf, and layoutWidth/Height (constraints resize each instance
         // on its own) — is deliberately left as the instance had it.
+    )
+}
+
+/** [ComponentOps.propagate]'s workings: which mains changed, and how each instance follows. */
+private object InstanceFollow {
+
+    fun apply(before: List<Layer>, after: List<Layer>): List<Layer> {
+        val edits = changedMains(before, after)
+        if (edits.isEmpty()) return after
+        var touched = false
+        val out = after.map { layer ->
+            val edit = layer.instanceOf?.let { edits[it] }
+            val next = if (edit == null) layer else layer.followEdits(edit.first, edit.second)
+            if (next !== layer) touched = true
+            next
+        }
+        return if (touched) out else after
+    }
+
+    /** componentId -> (main before, main after), for each main whose content changed. */
+    private fun changedMains(before: List<Layer>, after: List<Layer>): Map<String, Pair<Layer, Layer>> {
+        val mains = after.filter { it.componentId != null }
+        if (mains.isEmpty()) return emptyMap()
+        val olds = before.filter { it.componentId != null }.associateBy { it.componentId!! }
+        val out = HashMap<String, Pair<Layer, Layer>>()
+        for (main in mains) {
+            val old = olds[main.componentId!!]
+            if (old != null && old !== main && old.contentDiffers(main)) out[main.componentId] = old to main
+        }
+        return out
+    }
+
+    private fun Layer.contentDiffers(o: Layer): Boolean = CONTENT_FIELDS.any { it.get(this) != it.get(o) }
+
+    /**
+     * Takes each field [new] changed from [old], unless this instance had overridden it (shows
+     * something other than [old]'s value).
+     */
+    private fun Layer.followEdits(old: Layer, new: Layer): Layer = CONTENT_FIELDS.fold(this) { out, f ->
+        val was = f.get(old)
+        if (was != f.get(new) && f.get(out) == was) f.set(out, new) else out
+    }
+
+    /** One inherited field (or group of fields that only make sense together). */
+    private class ContentField(val get: (Layer) -> Any?, val set: (Layer, Layer) -> Layer)
+
+    /** Mirrors ComponentOps.withContentOf; keep the two lists in step. */
+    private val CONTENT_FIELDS: List<ContentField> = listOf(
+        // The pixels and everything that says where they sit: the bitmap reference changes on
+        // every commit, so it keys the group.
+        ContentField({ it.bitmap ?: it.uri }) { l, s ->
+            l.copy(
+                uri = s.uri, bitmap = s.bitmap, frameWidth = s.frameWidth, frameHeight = s.frameHeight,
+                originX = s.originX, originY = s.originY, heightMap = s.heightMap,
+            )
+        },
+        ContentField({ it.shapes }) { l, s -> l.copy(shapes = s.shapes) },
+        ContentField({ it.textParams }) { l, s -> l.copy(textParams = s.textParams) },
+        ContentField({ it.warpMesh }) { l, s -> l.copy(warpMesh = s.warpMesh) },
+        ContentField({ it.type }) { l, s -> l.copy(type = s.type) },
+        ContentField({ it.brightness }) { l, s -> l.copy(brightness = s.brightness) },
+        ContentField({ it.contrast }) { l, s -> l.copy(contrast = s.contrast) },
+        ContentField({ it.saturation }) { l, s -> l.copy(saturation = s.saturation) },
+        ContentField({ it.colorBalanceR }) { l, s -> l.copy(colorBalanceR = s.colorBalanceR) },
+        ContentField({ it.colorBalanceG }) { l, s -> l.copy(colorBalanceG = s.colorBalanceG) },
+        ContentField({ it.colorBalanceB }) { l, s -> l.copy(colorBalanceB = s.colorBalanceB) },
+        ContentField({ it.isInverted }) { l, s -> l.copy(isInverted = s.isInverted) },
     )
 }

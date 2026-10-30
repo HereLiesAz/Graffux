@@ -165,4 +165,14 @@ class PhotoAdjustMathTest {
         assertEquals(129708002L, PhotoAdjustMath.hash(0).toLong() and 0xFFFFFFFFL)
         assertEquals(2831084092L, PhotoAdjustMath.hash(1).toLong() and 0xFFFFFFFFL)
     }
+
+    @Test
+    fun vignetteEdgeStaysPastTheMidpointAtTheSliderMaximum() {
+        // Audit round 2, #7: midpoint 100 made the falloff zero-width (smoothstep(1, 1, r)).
+        for (feather in listOf(0f, 0.5f, 1f)) {
+            val edge = PhotoAdjustMath.vignetteEdge(1f, feather)
+            kotlin.test.assertTrue(edge > 1f, "feather $feather: edge $edge")
+        }
+        kotlin.test.assertEquals(0.75f, PhotoAdjustMath.vignetteEdge(0.5f, 0.5f), 1e-6f)
+    }
 }

@@ -17,24 +17,32 @@ internal object ConstraintSolver {
     /** Applies this layer's constraints for a frame resize from [old] to [new], each axis on its own. */
     fun constrain(layer: Layer, old: Rect, new: Rect): Layer {
         val (w, h) = layer.layoutDeclaredSize
-        val (cx, fx) = axis(
-            layer.constraints.horizontal, layer.offset.x, w, Span(old.x, old.width), Span(new.x, new.width),
+        val c = layer.constraints
+        val x = axis(
+            c.horizontal, Extent(layer.offset.x, w, c.collapsedWidth), Span(old.x, old.width), Span(new.x, new.width),
         )
-        val (cy, fy) = axis(
-            layer.constraints.vertical, layer.offset.y, h, Span(old.y, old.height), Span(new.y, new.height),
+        val y = axis(
+            c.vertical, Extent(layer.offset.y, h, c.collapsedHeight), Span(old.y, old.height), Span(new.y, new.height),
         )
-        return resize(layer, fx, fy).copy(offset = Offset(cx, cy))
+        val constraints = c.copy(collapsedWidth = x.collapsed, collapsedHeight = y.collapsed)
+        return resize(layer, x.factor, y.factor).copy(offset = Offset(x.centre, y.centre), constraints = constraints)
     }
 
+    /** The child's box on one axis: its centre, its extent, and any collapsed STRETCH extent. */
+    private data class Extent(val centre: Float, val size: Float, val collapsed: Float?)
+
+    /** One axis's answer: the new centre, the extent factor, and any collapsed STRETCH extent. */
+    private data class AxisResult(val centre: Float, val factor: Float, val collapsed: Float? = null)
+
+    /** The smallest extent STRETCH shrinks a child to; below it the child is held, not zeroed. */
+    const val MIN_STRETCH_EXTENT = 1f
+
     /**
-     * The box a frame hands its own children: its local rect, or — for an auto-layout frame, which
-     * positions children from its offset (see [LayoutOps.applyAutoLayout]) — the rect it lays out
-     * into. Null for anything without a declared layout box.
+     * The box a frame hands its own children: its local (centred) rect, for constraints and
+     * auto-layout alike. Null for anything without a declared layout box.
      */
     fun frameBox(layer: Layer): Rect? = when {
         layer.shapes.isNotEmpty() || layer.layoutWidth <= 0f || layer.layoutHeight <= 0f -> null
-        layer.autoLayout.direction != LayoutDirection.NONE ->
-            Rect(layer.offset.x, layer.offset.y, layer.layoutWidth, layer.layoutHeight)
         else -> LayoutOps.localFrameRect(layer.layoutWidth, layer.layoutHeight)
     }
 
@@ -80,32 +88,46 @@ internal object ConstraintSolver {
     }
 
     /**
-     * One axis of constraint solving. [centre] and [size] are the child's box on this axis; the
+     * One axis of constraint solving. [box] is the child's box on this axis; the
      * frame's box went from [old] to [new]. Returns the child's new centre and the factor its extent
      * changes by — 1 except for STRETCH and SCALE. A child with no measurable size (a raster layer
      * with no declared size) can still SCALE, since that factor is the frame's own ratio, but has
      * nothing for STRETCH to divide by and only moves.
+     *
+     * STRETCH never takes a child below [MIN_STRETCH_EXTENT]: a frame smaller than the child's
+     * margins holds it there and records the extent it "should" have ([Extent.collapsed]), and the next
+     * resize measures the margins from that recorded extent, so growing the frame back restores
+     * the original size exactly.
      */
-    private fun axis(anchor: ConstraintAnchor, centre: Float, size: Float, old: Span, new: Span): Pair<Float, Float> {
+    private fun axis(anchor: ConstraintAnchor, box: Extent, old: Span, new: Span): AxisResult {
+        val (centre, size, collapsed) = box
         val start = centre - size / 2f
         val startGap = start - old.origin
         val endGap = (old.origin + old.extent) - (start + size)
         return when (anchor) {
-            ConstraintAnchor.START -> (new.origin + startGap + size / 2f) to 1f
-            ConstraintAnchor.END -> (new.origin + new.extent - endGap - size / 2f) to 1f
+            ConstraintAnchor.START -> AxisResult(new.origin + startGap + size / 2f, 1f)
+            ConstraintAnchor.END -> AxisResult(new.origin + new.extent - endGap - size / 2f, 1f)
             ConstraintAnchor.CENTER ->
-                (new.origin + new.extent / 2f + centre - (old.origin + old.extent / 2f)) to 1f
+                AxisResult(new.origin + new.extent / 2f + centre - (old.origin + old.extent / 2f), 1f)
             ConstraintAnchor.STRETCH -> if (size <= 0f) {
-                (new.origin + startGap) to 1f
+                AxisResult(new.origin + startGap, 1f)
             } else {
-                val newSize = (new.extent - startGap - endGap).coerceAtLeast(0f)
-                (new.origin + startGap + newSize / 2f) to (newSize / size)
+                // While collapsed, the margins are those of the extent the child would have had.
+                val effective = collapsed ?: size
+                val effectiveEndGap = (old.origin + old.extent) - (start + effective)
+                val wanted = new.extent - startGap - effectiveEndGap
+                val actual = wanted.coerceAtLeast(MIN_STRETCH_EXTENT)
+                AxisResult(
+                    new.origin + startGap + actual / 2f,
+                    actual / size,
+                    collapsed = wanted.takeIf { it < MIN_STRETCH_EXTENT },
+                )
             }
             ConstraintAnchor.SCALE -> if (old.extent <= 0f) {
-                (new.origin + startGap + size / 2f) to 1f
+                AxisResult(new.origin + startGap + size / 2f, 1f)
             } else {
                 val ratio = new.extent / old.extent
-                (new.origin + startGap * ratio + size * ratio / 2f) to ratio
+                AxisResult(new.origin + startGap * ratio + size * ratio / 2f, ratio)
             }
         }
     }

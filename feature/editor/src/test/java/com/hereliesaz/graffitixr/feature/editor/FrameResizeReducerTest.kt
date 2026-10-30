@@ -57,9 +57,11 @@ class FrameResizeReducerTest {
             frame(row).copy(offset = Offset(5f, 7f)),
             shape("a", 999f, 999f, 100f to 50f, Constraints(horizontal = ConstraintAnchor.END)),
         )
-        // Laid out from the frame's origin (auto-layout's convention), ignoring the END constraint.
-        assertEquals(5f, out.first { it.id == "a" }.offset.x, 0.01f)
-        assertEquals(7f, out.first { it.id == "a" }.offset.y, 0.01f)
+        // Laid out in the top-left slot of the frame's new local box (-400..400 x -200..200),
+        // ignoring the END constraint; offsets are centres, and the frame's own offset (5, 7) is
+        // applied by its container transform, not added again here.
+        assertEquals(-350f, out.first { it.id == "a" }.offset.x, 0.01f)
+        assertEquals(-175f, out.first { it.id == "a" }.offset.y, 0.01f)
     }
 
     @Test

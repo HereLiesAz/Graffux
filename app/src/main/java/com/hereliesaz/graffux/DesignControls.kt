@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -162,7 +163,7 @@ internal fun DesignRow(label: String, density: DesignDensity, modifier: Modifier
 /** A section's heading in the side panel, with an optional action at its end ("+", "Remove"). */
 @Composable
 internal fun DesignSectionHeader(title: String, action: String? = null, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().height(24.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp)) {
         Text(
             title,
             color = DesignInk.Ink,
@@ -175,7 +176,7 @@ internal fun DesignSectionHeader(title: String, action: String? = null, actionLa
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .height(32.dp)
+                    .heightIn(min = 32.dp)
                     .clickable(role = Role.Button, onClick = onAction)
                     .semantics { contentDescription = actionLabel ?: action }
                     .padding(horizontal = 8.dp)
@@ -271,7 +272,7 @@ internal fun DesignNumberField(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = modifier
-                .height(40.dp)
+                .heightIn(min = 40.dp)
                 .border(1.dp, DesignInk.Line, RoundedCornerShape(10.dp))
                 .padding(horizontal = 10.dp),
         ) {
@@ -285,7 +286,7 @@ internal fun DesignNumberField(
                 contentAlignment = Alignment.CenterStart,
                 modifier = Modifier
                     .weight(1f)
-                    .height(32.dp)
+                    .heightIn(min = 32.dp)
                     .background(DesignInk.Field, RoundedCornerShape(8.dp))
                     .border(1.dp, DesignInk.Line, RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp),

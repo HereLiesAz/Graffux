@@ -342,7 +342,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let uv = (vec2<f32>(f32(id.x), f32(id.y)) + 0.5) / vec2<f32>(f32(w), f32(h)) * 2.0 - 1.0;
         let r = length(uv) / 1.41421356;
         let mid = p.fx.y;
-        let edge = mid + max(p.fx.z, 0.01) * (1.0 - mid);
+        // Strictly past mid: at the midpoint slider's maximum (mid = 1) the plain formula gives
+        // edge == mid, and smoothstep(low, high, x) with low >= high is undefined in WGSL.
+        // PhotoAdjustMath.vignetteEdge applies the same floor.
+        let edge = max(mid + max(p.fx.z, 0.01) * (1.0 - mid), mid + 1e-4);
         let t = smoothstep(mid, edge, r);
         c = clamp(c * (1.0 + p.fx.x * t), vec3<f32>(0.0), vec3<f32>(1.0));
     }

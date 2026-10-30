@@ -177,6 +177,25 @@ internal class PhotoSheetState {
     var curveChannel by mutableStateOf(com.hereliesaz.graffitixr.common.photo.CurveChannel.RGB)
     var eyedropperArmed by mutableStateOf(false)
     var histogram by mutableStateOf<FloatArray?>(null)
+
+    companion object {
+        /**
+         * Keeps the picked HSL range and curve channel across a rotation. The histogram is
+         * recomputed by the host and an armed eyedropper is a one-shot, so neither is kept.
+         */
+        val Saver: androidx.compose.runtime.saveable.Saver<PhotoSheetState, Any> =
+            androidx.compose.runtime.saveable.listSaver(
+                save = { listOf(it.hslRange.name, it.curveChannel.name) },
+                restore = { v ->
+                    PhotoSheetState().apply {
+                        com.hereliesaz.graffitixr.common.photo.HueRange.entries
+                            .firstOrNull { it.name == v[0] }?.let { hslRange = it }
+                        com.hereliesaz.graffitixr.common.photo.CurveChannel.entries
+                            .firstOrNull { it.name == v[1] }?.let { curveChannel = it }
+                    }
+                },
+            )
+    }
 }
 
 /**
@@ -376,7 +395,7 @@ private fun PhotoHeader(
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .height(44.dp)
+                .heightIn(min = 44.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .semantics {
                     role = Role.Button

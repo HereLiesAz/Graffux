@@ -544,6 +544,22 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `an edit to a main component reaches its instance and its peers`() = runTest {
+        // Audit round 2, #3: instances followed their main only for path-node edits.
+        every { opEmitter.isActive } returns true
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "m", name = "m", componentId = "C1")))
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "i", name = "i", instanceOf = "C1")))
+        viewModel.dispatchForTest(EditorIntent.ActivateLayer("m"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.dispatchForTest(EditorIntent.SetSaturation(0.25f))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0.25f, viewModel.uiState.value.layers.first { it.id == "i" }.saturation)
+        verify {
+            opEmitter.emit(match { it is Op.LayerPropsChange && it.layerId == "i" && it.props.saturation == 0.25f })
+        }
+    }
+
+    @Test
     fun `local edits not yet sent still reach peers when a peer's op lands first`() = runTest {
         every { opEmitter.isActive } returns true
         viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "c", name = "c")))

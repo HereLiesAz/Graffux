@@ -168,8 +168,7 @@ object PhotoAdjustMath {
             val v = ((y + 0.5f) / h) * 2f - 1f
             val r = sqrt(u * u + v * v) / 1.41421356f
             val mid = p[21]
-            val edge = mid + max(p[22], 0.01f) * (1f - mid)
-            val t = smoothstep(mid, edge, r)
+            val t = smoothstep(mid, vignetteEdge(mid, p[22]), r)
             for (k in 0..2) c[k] = (c[k] * (1f + p[20] * t)).coerceIn(0f, 1f)
         }
         if (p[23] > 0f) {
@@ -179,6 +178,17 @@ object PhotoAdjustMath {
             for (k in 0..2) c[k] = (c[k] + n * p[23] * 0.25f).coerceIn(0f, 1f)
         }
     }
+
+    /**
+     * Where the vignette's falloff ends, always strictly past [mid]. At the midpoint slider's
+     * maximum (mid = 1) the plain formula gives edge == mid, and `smoothstep(1, 1, r)` is undefined
+     * in WGSL (and a division by zero here). adjust.wgsl applies the same floor.
+     */
+    fun vignetteEdge(mid: Float, feather: Float): Float =
+        max(mid + max(feather, 0.01f) * (1f - mid), mid + VIGNETTE_MIN_SPAN)
+
+    /** The smallest vignette falloff width; keep in step with adjust.wgsl. */
+    const val VIGNETTE_MIN_SPAN = 1e-4f
 
     private fun smoothstep(e0: Float, e1: Float, x: Float): Float {
         val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)

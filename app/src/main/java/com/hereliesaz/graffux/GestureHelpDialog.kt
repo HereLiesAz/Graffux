@@ -27,8 +27,8 @@ internal fun gestureHelpLines(mapping: Map<GestureSlot, GestureAction>): List<St
 
 /**
  * Every gesture the editor answers to, in one place (menu → Gestures…): the reassignable
- * multi-finger ones with their current action — so a three-finger scrub that clears the layer is
- * no longer a surprise — and the touches on the chrome that nothing on screen otherwise names.
+ * multi-finger ones with their current action — so whatever a gesture was set to is never a
+ * surprise — and the touches on the chrome that nothing on screen otherwise names.
  */
 @Composable
 internal fun GestureHelpDialog(

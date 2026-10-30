@@ -119,3 +119,26 @@ internal fun MenuBuilder.posterPage(
     val pages = if (plan.pageCount == 1) "1 page" else "${plan.pageCount} pages (${plan.rows} × ${plan.columns})"
     listItem("Export $pages") { onExport(spec) }
 }
+
+/** Keeps the poster dialog's choices across a rotation (MainActivity's `rememberSaveable`). */
+internal val PosterChoicesSaver: androidx.compose.runtime.saveable.Saver<PosterChoices, Any> =
+    androidx.compose.runtime.saveable.listSaver(
+        save = {
+            listOf(
+                it.paper.name, it.landscape, it.width, it.margin, it.overlap,
+                it.cropMarks, it.registrationMarks, it.pageLabels,
+            )
+        },
+        restore = { v ->
+            PosterChoices(
+                paper = PosterPaper.entries.firstOrNull { it.name == v[0] } ?: PosterPaper.LETTER,
+                landscape = v[1] as Boolean,
+                width = v[2] as Int,
+                margin = v[3] as Int,
+                overlap = v[4] as Int,
+                cropMarks = v[5] as Boolean,
+                registrationMarks = v[6] as Boolean,
+                pageLabels = v[7] as Boolean,
+            )
+        },
+    )
