@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.common.model.isAdjustment
 import com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState
+import com.hereliesaz.graffitixr.data.azphalt.purchase.rethrowCancellation
 import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 
 import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
@@ -683,6 +684,16 @@ class EditorViewModel @Inject constructor(
     val purchaseStates: kotlinx.coroutines.flow.StateFlow<Map<String, PurchaseState>> =
         azphaltPurchases?.coordinator?.states ?: kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
 
+    /** Whose price each paid card shows (Play's on a Play route, the repository's on Stripe). */
+    val buyPrices: kotlinx.coroutines.flow.StateFlow<Map<String, com.hereliesaz.graffitixr.data.azphalt.purchase.BuyPrice>> =
+        azphaltPurchases?.coordinator?.prices ?: kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+
+    /** Load [buyPrices] for the paid packages on screen. */
+    fun loadBuyPrices(packageIds: List<String>) {
+        val coordinator = azphaltPurchases?.coordinator ?: return
+        viewModelScope.launch { runCatching { coordinator.loadPrices(packageIds) }.rethrowCancellation() }
+    }
+
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
         // removes any the repository says were refunded. Best effort; a network failure, an
@@ -691,7 +702,7 @@ class EditorViewModel @Inject constructor(
             viewModelScope.launch {
                 runCatching {
                     purchases.coordinator.restore(paidCatalogue = { purchases.paidCatalogue(context.packageName) })
-                }
+                }.rethrowCancellation()
             }
         }
     }
@@ -757,16 +768,44 @@ class EditorViewModel @Inject constructor(
                     paidCatalogue = { purchases.paidCatalogue(context.packageName) },
                     installMissing = true,
                 )
-            }.getOrNull()
+            }.rethrowCancellation().getOrNull()
             notify(
                 when {
                     report == null -> "Couldn't restore purchases right now."
+                    // No buyer cookie here: card purchases from another device or install can't be
+                    // found without the code azphalt.store showed, so say how.
+                    report.restored == 0 && !purchases.coordinator.hasCardPurchaseSession() ->
+                        "Purchases are up to date. Bought with a card before reinstalling or on another device? " +
+                            "Use Restore with a purchase code."
                     report.restored == 0 -> "Purchases are up to date."
                     else -> "Restored ${report.restored} purchase(s)."
                 },
                 NoticeKind.NOTICE,
             )
             refreshStoreUpdates()
+        }
+    }
+
+    /**
+     * "Restore with a purchase code": a card purchase made on another device or before a reinstall,
+     * from the code (or success link) azphalt.store showed. Restores that purchase and, through the
+     * buyer cookie it brings back, every other card purchase by the same buyer.
+     */
+    fun restorePurchaseFromCode(code: String) {
+        val purchases = azphaltPurchases ?: return
+        viewModelScope.launch {
+            val state = runCatching { purchases.coordinator.restoreFromCode(code) }.rethrowCancellation()
+                .getOrElse { PurchaseState.Failed("Couldn't check that purchase code right now.") }
+            when (state) {
+                null -> notify("That doesn't look like a purchase code. It starts with cs_.", NoticeKind.WARNING)
+                is PurchaseState.Installed, PurchaseState.Idle -> {
+                    notify("Purchase restored.", NoticeKind.NOTICE)
+                    restorePurchases()
+                }
+                is PurchaseState.Pending -> notify(state.message, NoticeKind.NOTICE)
+                is PurchaseState.Failed -> notify(state.message, NoticeKind.WARNING)
+                else -> Unit
+            }
         }
     }
 
@@ -850,9 +889,15 @@ class EditorViewModel @Inject constructor(
         // A read-only project records nothing, rail state included.
         if (openProjectIsReadOnly()) return
         viewModelScope.launch(dispatchers.io) {
-            projectRepository.updateProject {
-                if (it.id != projectId) it
-                else it.copy(railExpansion = it.railExpansion + (hostId to expanded))
+            // Rail state is cosmetic: a refused (read-only) or failed (IO) write is logged, never
+            // allowed to take the app down from a toggle.
+            try {
+                projectRepository.updateProject {
+                    if (it.id != projectId) it
+                    else it.copy(railExpansion = it.railExpansion + (hostId to expanded))
+                }
+            } catch (e: java.io.IOException) {
+                android.util.Log.w("EditorViewModel", "Rail state not recorded: ${e.message}")
             }
         }
     }
@@ -3110,25 +3155,8 @@ class EditorViewModel @Inject constructor(
         failurePrefix: String,
     ) {
         try {
-            val filename = file.name
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val contentValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
-                }
-                val uri = context.contentResolver.insert(
-                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                    contentValues,
-                )
-                // A null stream used to fall through to "Saved" with an empty file left in Downloads.
-                val out = uri?.let { context.contentResolver.openOutputStream(it) }
-                if (uri == null || out == null) {
-                    uri?.let { context.contentResolver.delete(it, null, null) }
-                    val why = if (uri == null) "Failed to create MediaStore entry" else "couldn't open the file"
-                    throw java.io.IOException(why)
-                }
-                out.use { o -> file.inputStream().use { it.copyTo(o) } }
+                val uri = DownloadsPublisher.publish(context.contentResolver, file, mimeType)
                 withContext(dispatchers.main) {
                     _notices.tryEmit(
                         EditorNotice(NoticeKind.NOTICE, successMessage, openUri = uri, mimeType = mimeType),
@@ -3136,8 +3164,13 @@ class EditorViewModel @Inject constructor(
                 }
             } else {
                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                val dest = File(downloadsDir, filename)
-                file.copyTo(dest, overwrite = true)
+                val dest = File(downloadsDir, file.name)
+                try {
+                    file.copyTo(dest, overwrite = true)
+                } catch (e: java.io.IOException) {
+                    dest.delete() // no half-written file left under the final name
+                    throw e
+                }
                 withContext(dispatchers.main) {
                     notify("$successMessage (${dest.absolutePath})", NoticeKind.NOTICE)
                 }
@@ -4305,9 +4338,22 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             dispatch(EditorIntent.SetLoading(true, "Loading background…"))
             val bitmap = ImageUtils.loadBitmapAsync(context, uri)
-            if (bitmap != null) {
-                val filename = "bg_${UUID.randomUUID()}.png"
-                val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(bitmap))
+            val path = bitmap?.let {
+                try {
+                    val bytes = ImageUtils.bitmapToByteArray(it)
+                    projectRepository.saveArtifact(projectId, "bg_${UUID.randomUUID()}.png", bytes)
+                } catch (e: java.io.IOException) {
+                    android.util.Log.e("EditorViewModel", "Background not saved", e)
+                    withContext(dispatchers.main) {
+                        notify("Couldn't save the background: ${plainFailure(e)}.", NoticeKind.WARNING)
+                    }
+                    null
+                }
+            }
+            if (bitmap != null && path == null) {
+                bitmap.recycle()
+                withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+            } else if (bitmap != null && path != null) {
                 val localUri = "file://$path".toUri()
 
                 // The transform overload, not updateProject(project.copy(...)): loadBitmapAsync and
@@ -4322,6 +4368,12 @@ class EditorViewModel @Inject constructor(
                 } catch (e: ProjectNotSavedException) {
                     // Read-only project: shown for this session, not recorded on the manifest.
                     android.util.Log.w("EditorViewModel", "Background not recorded: ${e.message}")
+                } catch (e: java.io.IOException) {
+                    // A transient failure, not read-only: say so, the background is session-only.
+                    android.util.Log.e("EditorViewModel", "Background not recorded", e)
+                    withContext(dispatchers.main) {
+                        notify("Background shown but not saved: ${plainFailure(e)}.", NoticeKind.WARNING)
+                    }
                 }
 
                 withContext(dispatchers.main) {
@@ -5981,7 +6033,7 @@ class EditorViewModel @Inject constructor(
 
     /** A peer's mask pixels into the store, scaled to this screen's world size, then redrawn. */
     private fun installPeerMask(op: Op.AdjustmentMaskData) {
-        val raw = CoopMaskCodec.inflate(op.deflated, op.width * op.height) ?: return
+        val raw = CoopMaskCodec.inflateMask(op.deflated, op.width, op.height) ?: return
         val (w, h) = adjustmentWorldSize()
         val bytes = if (op.width == w && op.height == h) raw else runCatching {
             val bitmap = AdjustmentMasks.toBitmap(raw, op.width, op.height)
@@ -9082,18 +9134,21 @@ class EditorViewModel @Inject constructor(
             val (w, h) = newLayerSize()
             // A failed composite or artifact write (OOM, disk full) leaves both layers as they were;
             // it must neither crash the app nor leave the loading spinner up for good.
+            var composite: Bitmap? = null
             val (merged, path) = try {
                 // Composited in paint order (lower first) so the upper layer's blend mode and opacity
                 // resolve against the one it is being merged into, exactly as they do on canvas.
-                val composite = exportManager.compositeLayers(listOf(lower, upper), w, h)
+                val c = exportManager.compositeLayers(listOf(lower, upper), w, h).also { composite = it }
                 val filename = "merged_${UUID.randomUUID()}.png"
-                composite to projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(composite))
+                c to projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(c))
             } catch (e: kotlinx.coroutines.CancellationException) {
+                composite?.recycle()
                 withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
                 }
                 throw e
             } catch (e: Throwable) {
+                composite?.recycle() // composited but never adopted by a layer
                 android.util.Log.e("EditorViewModel", "Merge down failed", e)
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
@@ -12351,6 +12406,9 @@ class EditorViewModel @Inject constructor(
             file.writeText(
                 com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) },
             )
+        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+            file.delete() // a failed or cancelled build must not leave a partial file in the cache
+            throw t
         } finally {
             rasters.forEach { it.recycle() }
         }
@@ -12367,6 +12425,9 @@ class EditorViewModel @Inject constructor(
         try {
             val layers = _uiState.value.layers
             val frameIds = if (allFrames) scene.allFrameIds(layers) else emptyList()
+            // The page builders don't suspend; checking the job between pages lets Cancel stop a
+            // many-frame PDF at the next page instead of after the last.
+            val job = kotlinx.coroutines.currentCoroutineContext()[Job]
             file.outputStream().use { out ->
                 if (frameIds.isEmpty()) {
                     com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(
@@ -12379,6 +12440,7 @@ class EditorViewModel @Inject constructor(
                     com.hereliesaz.graffitixr.feature.editor.export.PdfExport.writeEach(
                         frameIds, out,
                         page = { id ->
+                            job?.ensureActive()
                             val raster = DesignRasterizer(designCanvas = true).also { perFrame[id] = it }
                             scene.framePage(layers, id, cw, ch, raster)
                         },
@@ -12386,6 +12448,9 @@ class EditorViewModel @Inject constructor(
                     )
                 }
             }
+        } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
+            file.delete() // a failed or cancelled build must not leave a partial file in the cache
+            throw t
         } finally {
             rasters.forEach { it.recycle() }
         }

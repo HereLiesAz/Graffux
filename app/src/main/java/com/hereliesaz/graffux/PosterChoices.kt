@@ -120,7 +120,7 @@ internal fun MenuBuilder.posterPage(
     listItem("Export $pages") { onExport(spec) }
 }
 
-/** Keeps the poster dialog's choices across a rotation (MainActivity's `rememberSaveable`). */
+/** Keeps the Poster PDF choices across rotation and process death (rememberSaveable). */
 internal val PosterChoicesSaver: androidx.compose.runtime.saveable.Saver<PosterChoices, Any> =
     androidx.compose.runtime.saveable.listSaver(
         save = {

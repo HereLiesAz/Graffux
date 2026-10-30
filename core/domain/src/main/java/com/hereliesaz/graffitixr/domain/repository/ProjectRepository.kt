@@ -58,7 +58,8 @@ interface ProjectRepository {
     /**
      * Updates an existing project. The in-memory state changes only once the write succeeded.
      * @param project The project with updated fields.
-     * @throws ProjectNotSavedException when the project can't be written (e.g. it is read-only).
+     * @throws ProjectNotSavedException when the project is read-only (a newer format).
+     * @throws java.io.IOException when its project.json couldn't be read to check (a transient failure).
      */
     suspend fun updateProject(project: GraffitiProject)
 
@@ -66,7 +67,8 @@ interface ProjectRepository {
      * Atomically updates the current project using a transformation function.
      * Useful for modifying immutable data classes safely.
      * @param transform A function that takes the current project and returns the new state.
-     * @throws ProjectNotSavedException when the result can't be written; [currentProject] keeps the old state.
+     * @throws ProjectNotSavedException when the project is read-only (a newer format), or
+     *   [java.io.IOException] when the write or its format check failed; [currentProject] keeps the old state.
      */
     suspend fun updateProject(transform: (GraffitiProject) -> GraffitiProject)
 
@@ -96,6 +98,6 @@ interface ProjectRepository {
     suspend fun importProject(uri: android.net.Uri): Result<GraffitiProject>
 }
 
-/** A project write was refused — its project.json is from a newer format, or couldn't be read. */
+/** A project write was refused because its project.json is from a newer format (read-only). */
 class ProjectNotSavedException(val projectId: String) :
     java.io.IOException("Project $projectId is read-only and was not saved")

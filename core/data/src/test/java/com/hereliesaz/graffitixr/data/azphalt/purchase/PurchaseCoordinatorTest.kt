@@ -36,6 +36,8 @@ class FakeBilling : BillingGateway {
         return next
     }
     override suspend fun ownedPurchases() = owned
+    var price: String? = null
+    override suspend fun formattedPrice(productId: String) = price
 }
 
 class FakeApi(private val registry: TestRegistry) : PurchaseApi {
@@ -46,10 +48,13 @@ class FakeApi(private val registry: TestRegistry) : PurchaseApi {
     val checkouts = mutableListOf<Pair<String?, String?>>()
     val routeQueries = mutableListOf<Triple<String, String, String?>>()
     var routeFails = false
+    var routeError: Throwable? = null
+    var routes = mapOf<String, BillingRoute>()
     override fun route(appId: String, distribution: String, country: String?, packageId: String): BillingRoute {
         routeQueries += Triple(appId, distribution, country)
         if (routeFails) throw IOException("offline")
-        return route
+        routeError?.let { throw it }
+        return routes[packageId] ?: route
     }
     override fun exchangePlay(appId: String, packageId: String, productId: String, purchaseToken: String) =
         exchange(purchaseToken)

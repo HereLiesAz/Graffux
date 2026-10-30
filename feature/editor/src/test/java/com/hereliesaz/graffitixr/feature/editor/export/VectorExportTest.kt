@@ -13,7 +13,6 @@ import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -121,6 +120,7 @@ class VectorExportTest {
         val wide = Bitmap.createBitmap(260, 100, Bitmap.Config.ARGB_8888)
         PdfExport.draw(Canvas(wide), page)
         assertEquals(0, wide.getPixel(210, 50))
-        assertNotNull(wide)
+        // Inside the frame the spilled card still draws, so the 0 above is the clip, not a blank page.
+        assertEquals(0xFFFF0000.toInt(), wide.getPixel(195, 50))
     }
 }

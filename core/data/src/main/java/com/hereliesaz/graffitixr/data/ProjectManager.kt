@@ -77,9 +77,23 @@ class ProjectManager @Inject constructor(
      * Whether this build may write into `projects/<id>/`: false when its project.json is from a newer
      * format ([isNewerFormat]) or can't be read to tell. Caller holds the project's lock.
      */
-    private fun isWritable(root: File): Boolean {
+    private fun isWritable(id: String, root: File): Boolean {
         val existing = File(root, "project.json")
-        return !existing.exists() || diskFormatVersion(existing)?.let { !isNewerFormat(it) } == true
+        // The hot path (every layer write after a stroke, every autosave): a cached verdict, no parse.
+        return !existing.exists() ||
+            (writableVerdicts[id] ?: (!isNewerFormat(diskFormatVersion(existing))).also { writableVerdicts[id] = it })
+    }
+
+    /**
+     * Per-project "may this build write here?" verdicts, so a 32 MB project.json is not re-parsed
+     * for every artifact write. Set from what was just read or written: on load
+     * ([loadProject]/[loadProjectMetadata]), on install, and on every [saveProject]; dropped on
+     * [deleteProject]. Only a parsed format version is ever cached — a read failure is not.
+     */
+    private val writableVerdicts = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    private fun recordVerdict(id: String, formatVersion: Int) {
+        writableVerdicts[id] = !isNewerFormat(formatVersion)
     }
 
     /**
@@ -91,10 +105,10 @@ class ProjectManager @Inject constructor(
     suspend fun <T> writeIfWritable(context: Context, projectId: String, write: () -> T): T? =
         withProjectLock(projectId) {
             val root = File(context.filesDir, "projects/$projectId")
-            if (isWritable(root)) {
+            if (isWritable(projectId, root)) {
                 write()
             } else {
-                Log.w("ProjectManager", "Not writing into $projectId: read-only (newer or unreadable format)")
+                Log.w("ProjectManager", "Not writing into $projectId: read-only (newer format)")
                 null
             }
         }
@@ -111,6 +125,7 @@ class ProjectManager @Inject constructor(
         if (projectDir.exists()) {
             projectDir.deleteRecursively()
         }
+        writableVerdicts.remove(projectName)
     }
 
     /**
@@ -118,7 +133,8 @@ class ProjectManager @Inject constructor(
      * already on disk is from a newer format than this build knows ([isNewerFormat]): this build
      * decoded it ignoring the keys it doesn't understand, so writing it back would silently drop
      * them. Such a project opens read-only (the editor says so) and stays intact for the newer build.
-     * Also returns false when the project.json on disk can't be read to check its format.
+     * Throws [java.io.IOException] (never returns false) when the project.json on disk can't be read
+     * or parsed to check its format: that is a failure to report or retry, not a newer format.
      */
     suspend fun saveProject(
         context: Context,
@@ -127,8 +143,8 @@ class ProjectManager @Inject constructor(
         thumbnail: Bitmap? = null,
     ): Boolean = withContext(Dispatchers.IO) { withProjectLock(projectData.id) {
         val root = File(context.filesDir, "projects/${projectData.id}")
-        if (!isWritable(root)) {
-            Log.w("ProjectManager", "Not saving ${projectData.id}: its project.json is newer or unreadable")
+        if (!isWritable(projectData.id, root)) {
+            Log.w("ProjectManager", "Not saving ${projectData.id}: its project.json is from a newer format")
             return@withProjectLock false
         }
         if (!root.exists()) root.mkdirs()
@@ -175,18 +191,28 @@ class ProjectManager @Inject constructor(
 
         val jsonString = json.encodeToString(updatedGraffitiProject)
         atomicWriteText(File(root, "project.json"), jsonString)
+        recordVerdict(projectData.id, updatedGraffitiProject.formatVersion)
         true
     } }
 
     /**
-     * The `formatVersion` recorded in [file] ([LEGACY_FORMAT_VERSION] when it has none), or null when
-     * the file can't be read or parsed — which callers must treat as "don't write", never as legacy.
+     * The `formatVersion` recorded in [file] ([LEGACY_FORMAT_VERSION] when it has none). A read error
+     * is retried once (a transient failure: low storage, a concurrent rename); one that persists, or
+     * a file that doesn't parse, throws [java.io.IOException], so callers neither write nor mistake
+     * the failure for a newer format.
      */
-    private fun diskFormatVersion(file: File): Int? = try {
-        formatVersionOf(json.parseToJsonElement(file.readText()))
-    } catch (e: Exception) {
-        Log.w("ProjectManager", "Couldn't read formatVersion of ${file.path}: ${e.message}")
-        null
+    private fun diskFormatVersion(file: File): Int {
+        val text = try {
+            file.readText()
+        } catch (first: java.io.IOException) {
+            Log.w("ProjectManager", "Retrying read of ${file.path}: ${first.message}")
+            file.readText()
+        }
+        return try {
+            formatVersionOf(json.parseToJsonElement(text))
+        } catch (e: kotlinx.serialization.SerializationException) {
+            throw java.io.IOException("Couldn't parse ${file.name} to check its format", e)
+        }
     }
 
     private fun formatVersionOf(element: kotlinx.serialization.json.JsonElement): Int =
@@ -221,6 +247,7 @@ class ProjectManager @Inject constructor(
         return@withContext try {
             val jsonString = projectFile.readText()
             val decoded = decodeProject(jsonString)
+            recordVerdict(projectId, decoded.formatVersion)
             // Persist the migration only on a full load — loadProjectMetadata stays read-only.
             val projectData = migrateAndPersist(context, decoded)
 
@@ -243,6 +270,7 @@ class ProjectManager @Inject constructor(
         return@withContext try {
             val jsonString = projectFile.readText()
             val project = decodeProject(jsonString)
+            recordVerdict(projectId, project.formatVersion)
             // In-memory migration only: this is a read path (dashboard listing) and must not
             // write to disk — the persisted migration happens in loadProject.
             migrateInMemory(project)
@@ -599,6 +627,7 @@ class ProjectManager @Inject constructor(
             // and write after it. Atomic, and fails (rather than merging) if destDir appeared meanwhile.
             withProjectLock(project.id) {
                 check(!destDir.exists() && staging.renameTo(destDir)) { "Couldn't move imported project into place" }
+                recordVerdict(project.id, project.formatVersion)
             }
             installed = true
             // project.json is now on disk under destDir; migrate it there too.

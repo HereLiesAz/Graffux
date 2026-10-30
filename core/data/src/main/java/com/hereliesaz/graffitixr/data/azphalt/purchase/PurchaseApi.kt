@@ -52,7 +52,15 @@ sealed interface PlayExchange {
 data class CheckoutStart(val sessionId: String, val url: String, val buyerCookie: String?)
 
 sealed interface CheckoutStatus {
-    data class Ready(val entitlement: String) : CheckoutStatus
+    /**
+     * Paid. [packageId] and [buyerCookie] are what the repository's reply named and set, when it did:
+     * a restore from a purchase code knows neither until this answer.
+     */
+    data class Ready(
+        val entitlement: String,
+        val packageId: String? = null,
+        val buyerCookie: String? = null,
+    ) : CheckoutStatus
     data object Pending : CheckoutStatus
     data object Revoked : CheckoutStatus
     data class Unavailable(val message: String) : CheckoutStatus
@@ -85,6 +93,49 @@ internal fun isRevokedReply(body: String): Boolean = runCatching {
     val code = ((o["error"] as? JsonObject)?.get("code") as? JsonPrimitive)?.content
     code == "revoked" || (o["status"] as? JsonPrimitive)?.content == "revoked"
 }.getOrDefault(false)
+
+/**
+ * Parsing of the repository's 200 replies. A body that is not the JSON promised (a captive portal's
+ * login page, a CDN error page, a proxy's HTML, all served with 200) is an [IOException] like any
+ * other failure to reach the store, never a SerializationException or ClassCastException that
+ * escapes the purchase flow and crashes the app.
+ */
+internal object PurchaseReplies {
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private inline fun <T> parsing(what: String, block: () -> T): T = try {
+        block()
+    } catch (e: IOException) {
+        throw e
+    } catch (@Suppress("TooGenericExceptionCaught") e: RuntimeException) {
+        // SerializationException, IllegalArgumentException, ClassCastException: the body is not JSON.
+        throw IOException("$what: the store's reply wasn't readable", e)
+    }
+
+    fun route(body: String): BillingRoute = parsing("billing route") {
+        json.decodeFromString(BillingRoute.serializer(), body)
+    }
+
+    fun checkoutStart(body: String, setCookie: String?): CheckoutStart = parsing("checkout") {
+        val session = (json.parseToJsonElement(body) as JsonObject)["session"] as? JsonObject
+            ?: throw IOException("checkout returned no session")
+        val id = (session["id"] as? JsonPrimitive)?.content ?: throw IOException("checkout returned no session id")
+        val url = (session["url"] as? JsonPrimitive)?.content ?: throw IOException("checkout returned no url")
+        if (!url.startsWith("https://")) throw IOException("checkout url is not https")
+        CheckoutStart(id, url, setCookie)
+    }
+
+    fun purchases(body: String): List<RestoredPurchase> = parsing("purchases") {
+        val items = json.parseToJsonElement(body) as kotlinx.serialization.json.JsonArray
+        items.mapNotNull { item ->
+            val o = item as? JsonObject ?: return@mapNotNull null
+            val id = (o["packageId"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            val token = (o["token"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            val revoked = (o["revoked"] as? JsonPrimitive)?.content == "true"
+            RestoredPurchase(id, token, revoked)
+        }
+    }
+}
 
 /** [PurchaseApi] over HTTPS against [baseUrl] (azphalt.store by default). */
 class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL) : PurchaseApi {
@@ -136,7 +187,7 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
             "&country=${enc(country ?: "")}&packageId=${enc(packageId)}"
         val r = call("GET", "/billing/route?$query")
         if (r.code != HTTP_OK) throw IOException("billing route: HTTP ${r.code}")
-        return json.decodeFromString(BillingRoute.serializer(), r.body)
+        return PurchaseReplies.route(r.body)
     }
 
     override fun exchangePlay(
@@ -179,19 +230,14 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
             externalTransactionToken?.let { put("externalTransactionToken", it) }
         }, buyerCookie)
         if (r.code != HTTP_OK) throw IOException(field(r.body, "error") ?: "checkout failed: HTTP ${r.code}")
-        val session = (json.parseToJsonElement(r.body) as JsonObject)["session"] as? JsonObject
-            ?: throw IOException("checkout returned no session")
-        val id = (session["id"] as? JsonPrimitive)?.content ?: throw IOException("checkout returned no session id")
-        val url = (session["url"] as? JsonPrimitive)?.content ?: throw IOException("checkout returned no url")
-        if (!url.startsWith("https://")) throw IOException("checkout url is not https")
-        return CheckoutStart(id, url, r.setCookie)
+        return PurchaseReplies.checkoutStart(r.body, r.setCookie)
     }
 
     override fun checkoutStatus(sessionId: String, buyerCookie: String?): CheckoutStatus = try {
         val path = "/api/checkout/session/" + RepositoryApiClient.encodePathSegment(sessionId)
         val r = call("GET", path, cookie = buyerCookie)
         when (r.code) {
-            HTTP_OK -> field(r.body, "token")?.let { CheckoutStatus.Ready(it) }
+            HTTP_OK -> field(r.body, "token")?.let { CheckoutStatus.Ready(it, field(r.body, "packageId"), r.setCookie) }
                 ?: CheckoutStatus.Unavailable("no token")
             HTTP_ACCEPTED -> CheckoutStatus.Pending
             HTTP_FORBIDDEN ->
@@ -206,14 +252,7 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
         // includeRevoked: refunded purchases come back flagged, so restore revokes exactly those.
         val r = call("GET", "/api/purchases?includeRevoked=1", cookie = buyerCookie)
         if (r.code != HTTP_OK) throw IOException("purchases: HTTP ${r.code}")
-        val items = json.parseToJsonElement(r.body) as? kotlinx.serialization.json.JsonArray
-        return items.orEmpty().mapNotNull { item ->
-            val o = item as? JsonObject ?: return@mapNotNull null
-            val id = (o["packageId"] as? JsonPrimitive)?.content ?: return@mapNotNull null
-            val token = (o["token"] as? JsonPrimitive)?.content ?: return@mapNotNull null
-            val revoked = (o["revoked"] as? JsonPrimitive)?.content == "true"
-            RestoredPurchase(id, token, revoked)
-        }
+        return PurchaseReplies.purchases(r.body)
     }
 
     private companion object {
