@@ -81,9 +81,10 @@ private fun adjustGuide(guide: SpatialGuide, parameter: GuideParameter, directio
 }
 
 /**
- * Full-screen 3D drawing: each gesture is unprojected onto a camera-facing guide at an editable
- * depth. After commit the points are world coordinates, not screen pixels, so orbiting reveals
- * real parallax. A stylus or finger paints; two fingers always navigate.
+ * Full-screen 3D drawing: each stylus gesture intersects the currently selected analytic
+ * drawing guide, either an adjustable view plane or a fixed plane, sphere or cylinder. Each hit is
+ * a world-space XYZ point and remains in place after guide adjustments or camera orbit. A finger
+ * or stylus paints; two fingers always navigate.
  */
 @Composable
 fun SpatialSketchWorkspace(
@@ -174,7 +175,7 @@ fun SpatialSketchWorkspace(
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 val selected = when (parameter) {
                     GuideParameter.DEPTH -> guide.depth
                     GuideParameter.X -> guide.center.x
