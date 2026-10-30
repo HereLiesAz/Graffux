@@ -27,8 +27,9 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Vector shapes** — rectangle, ellipse, line, and regular polygons as their own editable layers.
 - **3D spatial sketch (first slice)** — draw pressure-sensitive world-space curves on a
   camera-facing depth guide, orbit to inspect parallax, erase and undo/redo curves, and reopen them
-  from a saved `.fux`. Open View → 3D → Sketch in 3D. Curve rendering is currently screen-projected
-  rather than GPU depth-tested; curved/primitive guides, mesh-guided curves, transforms and
+  from a saved `.fux`. Open View → 3D → Sketch in 3D. The live workspace now draws the same
+  tube triangles used by glTF export through GLES 3.0 with a real depth buffer. Curved/primitive
+  guides, mesh-guided curves, transforms and
   OBJ export and advanced glTF materials remain outstanding; the sketch toolbar exports
   self-contained glTF 2.0 tube geometry.
 - **3D model texture painting** — load an `.obj`, paint directly on its UV surface, and add the

@@ -494,9 +494,17 @@ changes save through the existing project persistence flow. `GraffitiProject.spa
 written to project.json, so .fux backups and project reopening preserve its geometry. Imported
 OBJ UV-paint remains unchanged.
 
-**Incomplete relative to Feather:** the Compose renderer is a screen projection without GPU
-occlusion, geometry tubes, paint materials or shading. Guides are view-facing planes, not
-bendable/lofted surfaces or primitives. Shape editing, selection/transforms, true mesh-guided
-curves, scene OBJ export and AR view remain unimplemented. The glTF 2.0 exporter does
-provide real tube meshes with per-vertex colour and alpha, but no end caps or complex materials. Do not conflate this vertical
-slice with feature parity.
+The spatial workspace now uses `SpatialStrokeRenderer` (GLES 3.0) to draw the exact triangle
+tubes produced by `SpatialGltfExporter.buildMesh`. The same camera matrices drive the GL scene
+and the Compose drawing guide. GLES depth testing makes nearer ink occlude farther ink per
+fragment, rather than approximating depth with a per-stroke sort. GL resource creation, context-loss
+re-upload and tessellation happen on the GL thread. Render-on-demand avoids a busy 60 Hz loop
+when neither camera nor strokes change. The host resumes and pauses the surface with lifecycle.
+
+**Still incomplete relative to Feather:** transparent strokes use conventional alpha blending
+and depth writes, not order-independent transparency. The tubes remain unlit with open end
+caps; material lighting and sophisticated brush texture are not implemented. Guides are
+camera-facing planes, not curved or lofted surfaces. Shape editing, selection/transforms, true
+mesh-guided curves, scene OBJ export and AR view remain unimplemented. The existing OBJ
+UV-paint tool is intentionally separate, preserving its original workflow. Do not call
+this Feather parity.

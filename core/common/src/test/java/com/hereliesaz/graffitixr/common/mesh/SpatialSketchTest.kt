@@ -140,4 +140,37 @@ class SpatialSketchTest {
         assertEquals(36, document.getValue("accessors").jsonArray[2].jsonObject
             .getValue("count").jsonPrimitive.int)
     }
+
+    @Test
+    fun `one depth-tested mesh retains near and far tubes at their true z coordinates`() {
+        // Facing +Z, both segments travel +X. The first hex-ring vertex is +0.1 on Z
+        // for a diameter of 0.2, regardless of the curve's overall order in the list.
+        val front = SpatialStroke(
+            "near", listOf(SpatialPoint(0f, 0f, 0.5f), SpatialPoint(1f, 0f, 0.5f)),
+            0xFF00FF00.toInt(), 0.2f,
+        )
+        val behind = SpatialStroke(
+            "far", listOf(SpatialPoint(0f, 0f, -0.5f), SpatialPoint(1f, 0f, -0.5f)),
+            0xFFFF0000.toInt(), 0.2f,
+        )
+        val mesh = SpatialGltfExporter.buildMesh(listOf(front, behind))
+        assertEquals(24, mesh.positions.size / 3)
+        assertEquals(72, mesh.indices.size)
+        assertEquals(0.6f, mesh.positions[2], 1e-5f)
+        assertEquals(-0.4f, mesh.positions[12 * 3 + 2], 1e-5f)
+        // Each hexagonal cylinder has six side quads, triangulated in index order.
+        assertEquals(listOf(0, 6, 1, 1, 6, 7), mesh.indices.take(6))
+        assertEquals(listOf(12, 18, 13), mesh.indices.drop(36).take(3))
+    }
+
+    @Test
+    fun `empty spatial scene returns no GPU triangles without corrupting export semantics`() {
+        val mesh = SpatialGltfExporter.buildMesh(emptyList())
+        assertEquals(0, mesh.positions.size)
+        assertEquals(0, mesh.colors.size)
+        assertEquals(0, mesh.indices.size)
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            SpatialGltfExporter.encode(emptyList())
+        }
+    }
 }
