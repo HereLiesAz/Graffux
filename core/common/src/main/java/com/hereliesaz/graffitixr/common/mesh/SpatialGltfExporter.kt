@@ -23,7 +23,17 @@ object SpatialGltfExporter {
     private const val SIDES = 6
     private const val MAX_VERTICES = 1_000_000
 
-    fun encode(strokes: List<SpatialStroke>): String {
+    /** Packed per-vertex position and RGBA data, plus triangle indices in world coordinates. */
+    data class TubeMesh(
+        val positions: FloatArray,
+        val colors: FloatArray,
+        val indices: IntArray,
+        val boundsMin: FloatArray,
+        val boundsMax: FloatArray,
+    )
+
+    /** Single canonical tube tessellator for both live GLES drawing and glTF export. */
+    fun buildMesh(strokes: List<SpatialStroke>): TubeMesh {
         val positions = ArrayList<Float>()
         val colors = ArrayList<Float>()
         val indices = ArrayList<Int>()
@@ -111,7 +121,21 @@ object SpatialGltfExporter {
             }
         }
 
-        require(indices.isNotEmpty()) { "Draw at least one two-point curve before exporting" }
+        return TubeMesh(
+            positions.toFloatArray(), colors.toFloatArray(), indices.toIntArray(),
+            boundsMin, boundsMax,
+        )
+    }
+
+    /** glTF serializes the identical triangle mesh used by the on-device depth renderer. */
+    fun encode(strokes: List<SpatialStroke>): String {
+        val mesh = buildMesh(strokes)
+        require(mesh.indices.isNotEmpty()) { "Draw at least one spatial mark before exporting" }
+        val positions = mesh.positions
+        val colors = mesh.colors
+        val indices = mesh.indices
+        val boundsMin = mesh.boundsMin
+        val boundsMax = mesh.boundsMax
         val positionBytes = positions.size * 4
         val colorBytes = colors.size * 4
         val indexBytes = indices.size * 4
