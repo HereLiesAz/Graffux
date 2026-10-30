@@ -1038,4 +1038,29 @@ class EditorViewModelTest {
         assertEquals(0, viewModel.uiState.value.selectedNodeIndex)
     }
 
+    @Test
+    fun `the read-only warning for a newer-format project waits for the host`() = runTest {
+        // Cold start: the project opens before anything collects (no collector is ever attached here).
+        currentProjectFlow.value = GraffitiProject(id = "future", name = "Future", formatVersion = 99)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val notice = viewModel.readOnlyNotice.value
+        assertNotNull(notice)
+        assertEquals(NoticeKind.WARNING, notice!!.kind)
+        viewModel.consumeReadOnlyNotice(notice)
+        assertNull(viewModel.readOnlyNotice.value)
+    }
+
+    @Test
+    fun `a read-only project is never saved`() = runTest {
+        currentProjectFlow.value = GraffitiProject(id = "future", name = "Future", formatVersion = 99)
+        testDispatcher.scheduler.advanceUntilIdle()
+        clearMocks(
+            projectRepository, answers = false, recordedCalls = true, childMocks = false,
+            verificationMarks = true, exclusionRules = false,
+        )
+        viewModel.saveProject()
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) }
+        coVerify(exactly = 0) { projectRepository.updateProject(any<GraffitiProject>()) }
+    }
 }

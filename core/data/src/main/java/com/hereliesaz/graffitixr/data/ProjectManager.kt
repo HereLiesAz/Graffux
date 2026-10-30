@@ -11,6 +11,8 @@ import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -63,6 +65,40 @@ class ProjectManager @Inject constructor(
         private const val MAX_PROJECT_JSON_BYTES = 32L * 1024 * 1024
     }
 
+    // One lock per project id, held across every "may I write projects/<id>/?" check and the write
+    // that follows it (saveProject, writeIfWritable) and across an install's move into place, so a
+    // newer-format project.json can't land between a format check and the write it allowed.
+    private val projectLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    internal suspend fun <T> withProjectLock(id: String, block: suspend () -> T): T =
+        projectLocks.computeIfAbsent(id) { Mutex() }.withLock { block() }
+
+    /**
+     * Whether this build may write into `projects/<id>/`: false when its project.json is from a newer
+     * format ([isNewerFormat]) or can't be read to tell. Caller holds the project's lock.
+     */
+    private fun isWritable(root: File): Boolean {
+        val existing = File(root, "project.json")
+        return !existing.exists() || diskFormatVersion(existing)?.let { !isNewerFormat(it) } == true
+    }
+
+    /**
+     * Runs [write] (an artifact write into `projects/<projectId>/`: a layer bitmap, a sidecar, a
+     * thumbnail) under the project's lock, only if the project is writable. Returns null, running
+     * nothing, for a newer-format or unreadable project.json — the same rule as [saveProject], so a
+     * read-only project keeps every file the newer build wrote.
+     */
+    suspend fun <T> writeIfWritable(context: Context, projectId: String, write: () -> T): T? =
+        withProjectLock(projectId) {
+            val root = File(context.filesDir, "projects/$projectId")
+            if (isWritable(root)) {
+                write()
+            } else {
+                Log.w("ProjectManager", "Not writing into $projectId: read-only (newer or unreadable format)")
+                null
+            }
+        }
+
     fun getProjectList(context: Context): List<String> {
         val projectsDir = File(context.filesDir, "projects")
         if (!projectsDir.exists()) return emptyList()
@@ -82,18 +118,18 @@ class ProjectManager @Inject constructor(
      * already on disk is from a newer format than this build knows ([isNewerFormat]): this build
      * decoded it ignoring the keys it doesn't understand, so writing it back would silently drop
      * them. Such a project opens read-only (the editor says so) and stays intact for the newer build.
+     * Also returns false when the project.json on disk can't be read to check its format.
      */
     suspend fun saveProject(
         context: Context,
         projectData: GraffitiProject,
         targetImages: List<Bitmap>? = null,
         thumbnail: Bitmap? = null,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(Dispatchers.IO) { withProjectLock(projectData.id) {
         val root = File(context.filesDir, "projects/${projectData.id}")
-        val existing = File(root, "project.json")
-        if (existing.exists() && isNewerFormat(diskFormatVersion(existing))) {
-            Log.w("ProjectManager", "Not saving ${projectData.id}: its project.json is from a newer format")
-            return@withContext false
+        if (!isWritable(root)) {
+            Log.w("ProjectManager", "Not saving ${projectData.id}: its project.json is newer or unreadable")
+            return@withProjectLock false
         }
         if (!root.exists()) root.mkdirs()
 
@@ -140,14 +176,17 @@ class ProjectManager @Inject constructor(
         val jsonString = json.encodeToString(updatedGraffitiProject)
         atomicWriteText(File(root, "project.json"), jsonString)
         true
-    }
+    } }
 
-    /** The `formatVersion` recorded in [file], or [LEGACY_FORMAT_VERSION] when it has none or can't be read. */
-    private fun diskFormatVersion(file: File): Int = try {
+    /**
+     * The `formatVersion` recorded in [file] ([LEGACY_FORMAT_VERSION] when it has none), or null when
+     * the file can't be read or parsed — which callers must treat as "don't write", never as legacy.
+     */
+    private fun diskFormatVersion(file: File): Int? = try {
         formatVersionOf(json.parseToJsonElement(file.readText()))
     } catch (e: Exception) {
         Log.w("ProjectManager", "Couldn't read formatVersion of ${file.path}: ${e.message}")
-        LEGACY_FORMAT_VERSION
+        null
     }
 
     private fun formatVersionOf(element: kotlinx.serialization.json.JsonElement): Int =
@@ -556,8 +595,11 @@ class ProjectManager @Inject constructor(
         try {
             stageFiles(extracted, staging, projectJsonOverride)
             projectsDir.mkdirs()
-            // Atomic, and fails (rather than merging) if something created destDir meanwhile.
-            check(staging.renameTo(destDir)) { "Couldn't move imported project into place" }
+            // Under the id's lock, so a save of the same id can't check the format before this move
+            // and write after it. Atomic, and fails (rather than merging) if destDir appeared meanwhile.
+            withProjectLock(project.id) {
+                check(!destDir.exists() && staging.renameTo(destDir)) { "Couldn't move imported project into place" }
+            }
             installed = true
             // project.json is now on disk under destDir; migrate it there too.
             result = migrateAndPersist(context, project)

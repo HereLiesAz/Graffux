@@ -322,6 +322,16 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             )
         }
     }
+    // The read-only warning for a newer-format project is retained state, not a notice: on a cold
+    // start's auto-reopen it is set before this collector exists. Shown once, then consumed.
+    LaunchedEffect(vm) {
+        vm.readOnlyNotice.collect { notice ->
+            if (notice != null) {
+                alerts.show(kind = MessageKind.WARNING, message = notice.text)
+                vm.consumeReadOnlyNotice(notice)
+            }
+        }
+    }
     val noticeContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         HardwareFloorNotice.takeOnce(noticeContext)?.let { alerts.show(kind = MessageKind.NOTICE, message = it) }

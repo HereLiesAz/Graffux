@@ -10,6 +10,8 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -489,5 +491,47 @@ class ProjectManagerTest {
         assertEquals(0xFF1A1A1DL, back.frameFillArgb)
         assertTrue(back.clipsContent)
         assertEquals(12f, back.frameRadius)
+    }
+
+    @Test
+    fun `an unreadable project json refuses the save instead of passing as legacy`() = runTest {
+        val dir = File(tempFilesDir, "projects/broken").also { it.mkdirs() }
+        File(dir, "project.json").writeText("{ not json")
+        assertFalse(manager.saveProject(mockContext, GraffitiProject(id = "broken", name = "Over")))
+        assertEquals("{ not json", File(dir, "project.json").readText())
+    }
+
+    @Test
+    fun `artifact writes into a newer-format project are refused`() = runTest {
+        val dir = File(tempFilesDir, "projects/future").also { it.mkdirs() }
+        File(dir, "project.json").writeText("""{"id":"future","name":"F","formatVersion":99}""")
+        assertNull(manager.writeIfWritable(mockContext, "future") { File(dir, "layer.png").writeText("x") })
+        assertFalse(File(dir, "layer.png").exists())
+        assertEquals("ok", manager.writeIfWritable(mockContext, "fresh") { "ok" })
+    }
+
+    @Test
+    fun `a save waits for an install of the same id and then sees its format`() = runTest {
+        val dir = File(tempFilesDir, "projects/race")
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val holding = kotlinx.coroutines.CompletableDeferred<Unit>()
+        // Stands in for installExtracted's move into place, which holds the id's lock.
+        val install = launch(Dispatchers.IO) {
+            manager.withProjectLock("race") {
+                holding.complete(Unit)
+                gate.await()
+                dir.mkdirs()
+                File(dir, "project.json").writeText("""{"id":"race","name":"Future","formatVersion":99}""")
+            }
+        }
+        holding.await()
+        val save = async(Dispatchers.IO) {
+            manager.saveProject(mockContext, GraffitiProject(id = "race", name = "Old"))
+        }
+        Thread.sleep(200) // the save is parked on the lock, past nothing
+        gate.complete(Unit)
+        install.join()
+        assertFalse(save.await())
+        assertEquals("Future", manager.loadProjectMetadata(mockContext, "race")?.name)
     }
 }

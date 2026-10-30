@@ -50,8 +50,8 @@ class VectorParityTest {
     )
 
     private fun raster(layers: List<Layer>, crop: DocumentCrop?, bg: Int) = object : VectorRasterizer {
-        override fun composite(nodes: List<LayerNode>, backgroundArgb: Int, container: Layer?) =
-            Layer(id = "r", name = "r", bitmap = manager.compositeNodes(nodes, size, size, backgroundArgb, container))
+        override fun composite(nodes: List<LayerNode>, backgroundArgb: Int, container: Layer?, region: RasterRegion) =
+            Layer(id = "r", name = "r", bitmap = manager.compositeNodes(nodes, size, size, backgroundArgb, container, region))
 
         override fun document() =
             Layer(id = "d", name = "d", bitmap = manager.compositeToDocument(layers, size, size, size, size, backgroundColor = bg, crop = crop))
@@ -117,5 +117,44 @@ class VectorParityTest {
         val layers = listOf(rect("left", 0xFFFF0000L, 50f, 100f, Offset(-25f, 0f)))
         val crop = DocumentCrop(vertical = 40f)
         assertParity(layers, crop = crop, points = listOf(10 to 50, 90 to 50, 50 to 5))
+    }
+
+    @Test
+    fun `a raster fallback in a frame bigger than the canvas covers the whole frame`() {
+        // A 300 x 100 frame in a 100 x 100 canvas, filled by a colour-filtered (so rasterized) rect.
+        val frame = Layer(
+            id = "f", name = "Wide", type = com.hereliesaz.graffitixr.common.model.LayerType.FRAME,
+            layoutWidth = 300f, layoutHeight = 100f,
+        )
+        val inside = rect("red", 0xFFFF0000L, 300f, 100f).copy(parentId = "f", isInverted = true)
+        val layers = listOf(frame, inside)
+        val page = requireNotNull(VectorScene.framePage(layers, "f", 100f, 100f, raster(layers, null, 0)))
+        assertEquals(300f, page.width)
+        val vec = Bitmap.createBitmap(300, 100, Bitmap.Config.ARGB_8888)
+        PdfExport.draw(Canvas(vec), page)
+        // Inverted red is cyan, at both ends of the frame, well outside the canvas.
+        for (x in listOf(5, 150, 295)) {
+            assertEquals("pixel ($x, 50)", Integer.toHexString(0xFF00FFFF.toInt()), Integer.toHexString(vec.getPixel(x, 50)))
+        }
+    }
+
+    @Test
+    fun `an adjustment in a region render lands on the pixels beneath it`() {
+        val layers = listOf(rect("left", 0xFFFF0000L, 50f, 100f, Offset(-25f, 0f)))
+        val nodes = com.hereliesaz.graffitixr.common.model.buildLayerTree(
+            layers + Layer(id = "adj", name = "Invert", adjustment = PhotoAdjustment(PhotoTool.LIGHT)),
+        )
+        // The region's left half is canvas x 0..50 (red, inverted to cyan); its right half is off-canvas.
+        val b = manager.compositeNodes(nodes, size, size, region = RasterRegion(0, 0, 100, 100))
+        val shifted = manager.compositeNodes(nodes, size, size, region = RasterRegion(-50, 0, 100, 100))
+        assertEquals(Integer.toHexString(b.getPixel(25, 50)), Integer.toHexString(shifted.getPixel(75, 50)))
+    }
+
+    @Test
+    fun `PDF pages are released one at a time as they are written`() {
+        val events = mutableListOf<String>()
+        val page = VectorScene.documentPage("Doc", listOf(rect("r", 0xFFFF0000L)), 100f, 100f, 100, 100)
+        PdfExport.forEachPage(listOf(1, 2, 3), { events += "build $it"; page }, { events += "release $it" }) { _, n -> events += "page $n" }
+        assertEquals(listOf("build 1", "page 1", "release 1", "build 2", "page 2", "release 2", "build 3", "page 3", "release 3"), events)
     }
 }

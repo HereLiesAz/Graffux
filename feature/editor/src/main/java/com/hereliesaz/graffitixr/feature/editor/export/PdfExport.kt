@@ -19,20 +19,44 @@ import kotlin.math.ceil
  */
 object PdfExport {
 
-    fun write(pages: List<VectorPage>, out: OutputStream) {
+    fun write(pages: List<VectorPage>, out: OutputStream) = writeEach(pages, out, { it }, {})
+
+    /**
+     * Writes one page per item of [items], building each with [page] only when it is its turn and
+     * calling [release] as soon as that page is finished — its drawing has been recorded into the
+     * document by then — so the bitmaps behind one page (its raster fallbacks) can be freed before
+     * the next page's are made, rather than every page's living until the file is written. A null
+     * page is skipped (still released). [release] runs for every item whose page was built, even
+     * when writing fails.
+     */
+    fun <T> writeEach(items: List<T>, out: OutputStream, page: (T) -> VectorPage?, release: (T) -> Unit) {
         val doc = PdfDocument()
         try {
-            pages.forEachIndexed { index, page ->
+            forEachPage(items, page, release) { p, number ->
                 val info = PdfDocument.PageInfo.Builder(
-                    ceil(page.width).toInt().coerceAtLeast(1), ceil(page.height).toInt().coerceAtLeast(1), index + 1,
+                    ceil(p.width).toInt().coerceAtLeast(1), ceil(p.height).toInt().coerceAtLeast(1), number,
                 ).create()
                 val pdfPage = doc.startPage(info)
-                draw(pdfPage.canvas, page)
+                draw(pdfPage.canvas, p)
                 doc.finishPage(pdfPage)
             }
             doc.writeTo(out)
         } finally {
             doc.close()
+        }
+    }
+
+    /** [writeEach]'s order: build one page, [emit] it (numbered from 1), [release] it, then the next. */
+    internal fun <T> forEachPage(items: List<T>, page: (T) -> VectorPage?, release: (T) -> Unit, emit: (VectorPage, Int) -> Unit) {
+        var number = 0
+        for (item in items) {
+            try {
+                val p = page(item) ?: continue
+                number += 1
+                emit(p, number)
+            } finally {
+                release(item)
+            }
         }
     }
 

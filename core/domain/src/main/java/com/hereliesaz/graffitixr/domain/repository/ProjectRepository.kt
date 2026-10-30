@@ -56,8 +56,9 @@ interface ProjectRepository {
     suspend fun loadProject(id: String): Result<Unit>
 
     /**
-     * Updates an existing project.
+     * Updates an existing project. The in-memory state changes only once the write succeeded.
      * @param project The project with updated fields.
+     * @throws ProjectNotSavedException when the project can't be written (e.g. it is read-only).
      */
     suspend fun updateProject(project: GraffitiProject)
 
@@ -65,6 +66,7 @@ interface ProjectRepository {
      * Atomically updates the current project using a transformation function.
      * Useful for modifying immutable data classes safely.
      * @param transform A function that takes the current project and returns the new state.
+     * @throws ProjectNotSavedException when the result can't be written; [currentProject] keeps the old state.
      */
     suspend fun updateProject(transform: (GraffitiProject) -> GraffitiProject)
 
@@ -79,7 +81,9 @@ interface ProjectRepository {
      * @param projectId The project ID.
      * @param filename The name of the file to save.
      * @param data The binary content.
-     * @return The absolute path to the saved file.
+     * @return The absolute path to the saved file. For a read-only project (a newer-format
+     *   project.json) nothing is written into the project: the file goes to a scratch copy in the
+     *   cache and that path is returned, so the session can still use it.
      */
     suspend fun saveArtifact(projectId: String, filename: String, data: ByteArray): String
 
@@ -91,3 +95,7 @@ interface ProjectRepository {
      */
     suspend fun importProject(uri: android.net.Uri): Result<GraffitiProject>
 }
+
+/** A project write was refused — its project.json is from a newer format, or couldn't be read. */
+class ProjectNotSavedException(val projectId: String) :
+    java.io.IOException("Project $projectId is read-only and was not saved")
