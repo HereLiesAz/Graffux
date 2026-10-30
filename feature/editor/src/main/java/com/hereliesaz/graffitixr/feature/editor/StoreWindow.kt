@@ -66,6 +66,7 @@ enum class StoreTab { BROWSE, INSTALLED }
  * depends on which entry point opened it ([initialTab]), and switching tabs never re-fetches or
  * loses either side's state, since both lists are already held in the caller's UI state either way.
  */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun StoreWindow(
     initialTab: StoreTab,
@@ -227,6 +228,7 @@ private fun InstalledTab(
     }
 }
 
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 private fun BrowseTab(
     query: String,
@@ -331,6 +333,7 @@ private fun BrowseTab(
     }
 }
 
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 private fun PackageCard(
     pkg: PackageSummary,
@@ -459,7 +462,9 @@ private fun PackageCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
-                    TextButton(onClick = onCheckAgain, modifier = Modifier.heightIn(min = 48.dp)) { Text("I've paid — check now") }
+                    TextButton(onClick = onCheckAgain, modifier = Modifier.heightIn(min = MinTouch)) {
+                        Text("I've paid — check now")
+                    }
                 }
 
                 purchase is com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.Pending -> Column(
@@ -473,7 +478,9 @@ private fun PackageCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     )
-                    TextButton(onClick = onCheckAgain, modifier = Modifier.heightIn(min = 48.dp)) { Text("Check again") }
+                    TextButton(onClick = onCheckAgain, modifier = Modifier.heightIn(min = MinTouch)) {
+                        Text("Check again")
+                    }
                 }
 
                 pkg.priceStatus.isPaid -> Column(Modifier.fillMaxWidth()) {
@@ -635,3 +642,5 @@ internal fun formatPrice(
     val digits = currency.defaultFractionDigits.coerceAtLeast(0)
     return format.format(java.math.BigDecimal.valueOf(price.amountMinor, digits))
 }
+
+private val MinTouch = 48.dp

@@ -141,7 +141,8 @@ internal data class CarouselUi(
                 save = { listOf(it.category.name, it.sheetOpen, it.tab, it.showingCarousel, it.photo) },
                 restore = {
                     CarouselUi(
-                        category = CarouselCategory.entries.firstOrNull { c -> c.name == it[0] } ?: CarouselCategory.BRUSHES,
+                        category = CarouselCategory.entries.firstOrNull { c -> c.name == it[0] }
+                            ?: CarouselCategory.BRUSHES,
                         sheetOpen = it[1] as Boolean,
                         tab = it[2] as String?,
                         showingCarousel = it[3] as Boolean,

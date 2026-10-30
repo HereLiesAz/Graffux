@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
@@ -68,6 +69,8 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.isActive
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
@@ -252,10 +255,15 @@ internal fun LayersRail(
         if (dragging == null) return@LaunchedEffect
         val edge = with(density) { AutoscrollEdge.toPx() }
         val maxStep = with(density) { AutoscrollMaxStep.toPx() }
-        while (isActive && dragging != null) {
-            val step = if (fingerY.isNaN()) 0f else railAutoscrollStep(fingerY, railTop, railBottom, edge, maxStep)
-            if (step != 0f) scroll.scrollBy(step)
-            withFrameNanos { }
+        fun step() = if (fingerY.isNaN()) 0f else railAutoscrollStep(fingerY, railTop, railBottom, edge, maxStep)
+        // Idle unless the finger is in an edge band; then scroll a step a frame until it leaves,
+        // or the rail can scroll no further.
+        snapshotFlow { step() != 0f }.collectLatest { inEdge ->
+            while (inEdge && isActive) {
+                val s = step()
+                if (s == 0f || scroll.scrollBy(s) == 0f) break
+                withFrameNanos { }
+            }
         }
     }
     if (dragging != null) {
@@ -269,7 +277,8 @@ internal fun LayersRail(
                 popupPositionProvider = GhostPosition((origin.x + dragDx).toInt(), (origin.y + dragDy).toInt()),
                 properties = PopupProperties(focusable = false, clippingEnabled = false),
             ) {
-                Box(Modifier.alpha(GHOST_ALPHA).testTag("rail.layer.ghost")) {
+                // Decorative: the real row (dimmed in the rail) keeps the semantics.
+                Box(Modifier.alpha(GHOST_ALPHA).clearAndSetSemantics { }) {
                     LayerThumb(
                         layer = carried,
                         light = RailLight(active = carried.id == activeLayerId),

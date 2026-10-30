@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming")
+@file:Suppress("FunctionNaming", "MagicNumber")
 
 package com.hereliesaz.graffux
 
@@ -59,7 +59,10 @@ internal fun GestureHelpDialog(
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(top = 12.dp).semantics { heading() },
                 )
-                listOf(strings.sizeChip, strings.layerTap, strings.sliderReset, strings.edgeSwipe, strings.hiddenUi).forEach {
+                val others = listOf(
+                    strings.sizeChip, strings.layerTap, strings.sliderReset, strings.edgeSwipe, strings.hiddenUi,
+                )
+                others.forEach {
                     Text("• $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
                 }
             }

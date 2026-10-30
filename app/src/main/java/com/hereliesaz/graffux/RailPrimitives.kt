@@ -123,7 +123,8 @@ internal fun RailPill(
 internal fun RailDivider() {
     Box(
         Modifier
-            .padding(vertical = 4.dp)
+            // 6, not 4: the 48dp targets either side took 2dp each out of the item gap.
+            .padding(vertical = 6.dp)
             .width(28.dp)
             .height(1.dp)
             .background(RailBorder),

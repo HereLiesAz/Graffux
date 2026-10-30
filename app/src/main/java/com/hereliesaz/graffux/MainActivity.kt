@@ -1460,7 +1460,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             }
 
             // Failures and confirmations, over the artwork, never blocking it.
-            MessageHost(alerts, okLabel = strings.messages.ok, modifier = Modifier.align(Alignment.TopCenter).padding(top = RailEdgeGap, start = besideRail, end = besideRail))
+            MessageHost(
+                alerts,
+                okLabel = strings.messages.ok,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
+            )
         }
 
         // Windows and dialogs, over the rails.

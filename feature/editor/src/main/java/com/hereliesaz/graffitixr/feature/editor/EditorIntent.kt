@@ -98,7 +98,11 @@ internal sealed interface EditorIntent {
      * cancelled) or ending. Counted, so the first of two overlapping jobs to finish no longer
      * takes the spinner down while the other still runs.
      */
-    data class SetLoading(val loading: Boolean, val label: String? = null, val cancellable: Boolean = false) : EditorIntent
+    data class SetLoading(
+        val loading: Boolean,
+        val label: String? = null,
+        val cancellable: Boolean = false,
+    ) : EditorIntent
     data class SetBackgroundBitmap(val bitmap: Bitmap?) : EditorIntent
 
     // ── Settings / tool / brush / color ───────────────────────────────────────

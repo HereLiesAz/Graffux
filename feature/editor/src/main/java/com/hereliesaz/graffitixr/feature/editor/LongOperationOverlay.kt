@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming")
+@file:Suppress("FunctionNaming", "MagicNumber")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -61,7 +61,10 @@ fun LongOperationOverlay(label: String?, onCancel: (() -> Unit)?, modifier: Modi
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
             if (onCancel != null) {
-                TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp).testTag("editor.progress.cancel")) {
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("editor.progress.cancel"),
+                ) {
                     Text(strings.cancel)
                 }
             }

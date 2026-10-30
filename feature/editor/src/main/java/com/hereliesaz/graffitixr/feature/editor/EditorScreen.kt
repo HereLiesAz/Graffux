@@ -830,7 +830,8 @@ fun EditorScreen(
                     // list — and it isn't the mechanism anyway: picking a raster tool creates a
                     // layer on demand (EditorViewModel.setActiveTool). That's the fastest path for
                     // a genuinely new document; the menu still covers bringing in an existing one.
-                    text = "Pick a brush or tool from the rail to start a layer,\nor use the menu to open or import one.",
+                    text = "Pick a brush or tool from the rail to start a layer,\n" +
+                        "or use the menu to open or import one.",
                     // On its own dark pill: the canvas colour is the user's, and a light canvas
                     // made the old 55% white text unreadable.
                     color = Color.White.copy(alpha = 0.85f),

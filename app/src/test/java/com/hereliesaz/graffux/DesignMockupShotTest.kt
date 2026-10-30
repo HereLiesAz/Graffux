@@ -145,9 +145,11 @@ class DesignMockupShotTest {
         fun dp(px: Float) = Math.round(px / d)
         // The Frame circle sits after Transform: the rail grows by one 44dp button and a 6dp gap.
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
-        assertEquals(488 + 50 + 50 + 50, dp(tools.height))
+        // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
+        assertEquals(488 + 50 + 50 + 50 + 1, dp(tools.height))
         val frame = rule.onNodeWithTag("rail.tool.frame").fetchSemanticsNode().boundsInRoot
-        assertEquals(44, dp(frame.width))
+        // A 48dp target around the drawn 44dp circle.
+        assertEquals(48, dp(frame.width))
         // The four fields across the sheet: 20dp in from each side, 6dp apart.
         val x = rule.onNodeWithTag("design.panel.design.frame").fetchSemanticsNode().boundsInRoot
         assertEquals(390, dp(x.width))
@@ -220,6 +222,6 @@ class DesignMockupShotTest {
         assertEquals(80, dp(layersRail.left))
         // The logo keeps its corner, over the panel's header.
         val logo = rule.onNodeWithTag("logo.menu").fetchSemanticsNode().boundsInRoot
-        assertEquals(1180 - 18 - 44, dp(logo.left))
+        assertEquals(1180 - 18 - 44, dp(logo.left) + 2)
     }
 }

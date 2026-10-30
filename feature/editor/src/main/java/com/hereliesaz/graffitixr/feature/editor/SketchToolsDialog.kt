@@ -246,7 +246,7 @@ fun ColorPickerDialog(
 
             // Opacity and an exact value, under every mode: the wheel alone is drag-only.
             Text(
-                "Opacity ${(alpha * 100).roundToInt()}%",
+                "Opacity ${(alpha * PERCENT).roundToInt()}%",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.Start).padding(top = 8.dp),
@@ -266,6 +266,7 @@ fun ColorPickerDialog(
 private enum class BrushColorTarget(val label: String) { FOREGROUND("Foreground"), BACKGROUND("Background") }
 
 /** The working colour typed as hex; applied on Done or as soon as a whole value is typed. */
+@Suppress("FunctionNaming")
 @Composable
 private fun HexField(color: Color, onColor: (Color) -> Unit) {
     var text by remember { mutableStateOf(hexOf(color)) }
@@ -277,7 +278,7 @@ private fun HexField(color: Color, onColor: (Color) -> Unit) {
         value = text,
         onValueChange = { typed ->
             editing = true
-            text = typed.take(9)
+            text = typed.take(HEX_FIELD_MAX)
             parseHexColor(text)?.let(onColor)
         },
         singleLine = true,
@@ -329,6 +330,7 @@ private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
  * swatch removes it. Recents aren't removable — they are a rolling view, not something the user
  * curates.
  */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 private fun PalettesTab(
     savedPalette: List<Color>,
@@ -432,6 +434,11 @@ private fun Swatch(
             )
     )
 }
+
+private const val PERCENT = 100f
+
+/** `#AARRGGBB` is the longest value the hex field takes. */
+private const val HEX_FIELD_MAX = 9
 
 /** How far off a harmony marker a pick can land and still snap to it. */
 private const val HARMONY_SNAP_DEGREES = 12f

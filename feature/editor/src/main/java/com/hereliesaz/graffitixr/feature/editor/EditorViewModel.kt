@@ -3087,7 +3087,9 @@ class EditorViewModel @Inject constructor(
                     ?: throw java.io.IOException("Failed to create MediaStore entry")
                 context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
                 withContext(dispatchers.main) {
-                    _notices.tryEmit(EditorNotice(NoticeKind.NOTICE, successMessage, openUri = uri, mimeType = mimeType))
+                    _notices.tryEmit(
+                        EditorNotice(NoticeKind.NOTICE, successMessage, openUri = uri, mimeType = mimeType),
+                    )
                 }
             } else {
                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
@@ -4475,7 +4477,7 @@ class EditorViewModel @Inject constructor(
      */
     fun exportImage() {
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true, "Exporting PNG…", cancellable = true)); trackCancellable(coroutineContext[Job])
+            startCancellable("Exporting PNG…")
             try {
                 val background = exportBackgroundArgb(_uiState.value.canvasBackground)
                 val metrics = context.resources.displayMetrics
@@ -4522,7 +4524,7 @@ class EditorViewModel @Inject constructor(
      */
     fun exportPosterPdf(spec: com.hereliesaz.graffitixr.feature.editor.export.PosterSpec) {
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true, "Making poster PDF…", cancellable = true)); trackCancellable(coroutineContext[Job])
+            startCancellable("Making poster PDF…")
             try {
                 val state = _uiState.value
                 val metrics = context.resources.displayMetrics
@@ -4620,7 +4622,8 @@ class EditorViewModel @Inject constructor(
         // Earlier shares are done with once a new one starts (the receiving app has read them).
         val cutoff = System.currentTimeMillis() - SHARE_FILE_TTL_MS
         dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
-        val file = java.io.File(dir, shareFileName(projectRepository.currentProject.value?.name, System.currentTimeMillis()))
+        val name = shareFileName(projectRepository.currentProject.value?.name, System.currentTimeMillis())
+        val file = java.io.File(dir, name)
         java.io.FileOutputStream(file).use { out ->
             composite.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
@@ -5541,6 +5544,12 @@ class EditorViewModel @Inject constructor(
      */
     /** Long operations the progress overlay's Cancel stops (exports, subject isolation). */
     private val cancellableWork = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
+
+    /** A cancellable long operation starting in this coroutine: labelled spinner, Cancel offered. */
+    private fun kotlinx.coroutines.CoroutineScope.startCancellable(label: String) {
+        dispatch(EditorIntent.SetLoading(true, label, cancellable = true))
+        trackCancellable(coroutineContext[Job])
+    }
 
     private fun trackCancellable(job: Job?) {
         job ?: return
@@ -9053,7 +9062,9 @@ class EditorViewModel @Inject constructor(
         subjectJob?.cancel()
         subjectJob = viewModelScope.launch(dispatchers.default) {
             trackCancellable(coroutineContext[Job])
-            withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(true, "Finding the subject…", cancellable = true)) }
+            withContext(dispatchers.main) {
+                dispatch(EditorIntent.SetLoading(true, "Finding the subject…", cancellable = true))
+            }
             val subject = try {
                 isolateSubject(layer, bitmap, canvasSize)
             } finally {
@@ -9953,7 +9964,7 @@ class EditorViewModel @Inject constructor(
         val range = resolvedPlaybackRange(state)
         stopPlayback()
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true, "Exporting animation…", cancellable = true)); trackCancellable(coroutineContext[Job])
+            startCancellable("Exporting animation…")
             try {
                 val metrics = context.resources.displayMetrics
                 val dir = File(context.cacheDir, "animation").apply { mkdirs() }
@@ -11829,7 +11840,7 @@ class EditorViewModel @Inject constructor(
             return
         }
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true, "Exporting…", cancellable = true)); trackCancellable(coroutineContext[Job])
+            startCancellable("Exporting…")
             try {
                 val name = _uiState.value.layers.firstOrNull { it.id == frameId }?.name ?: "Graffux"
                 when (format) {
@@ -12154,7 +12165,7 @@ class EditorViewModel @Inject constructor(
         // the same set and order the PNGs composite.
         val inkStrokes = layers.filter { it.isVisible }.flatMap { inkLedger.strokes(it.id) }
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true, "Preparing for Figma…", cancellable = true)); trackCancellable(coroutineContext[Job])
+            startCancellable("Preparing for Figma…")
             try {
                 val metrics = context.resources.displayMetrics
                 val docW = state.documentWidth.coerceAtLeast(1)

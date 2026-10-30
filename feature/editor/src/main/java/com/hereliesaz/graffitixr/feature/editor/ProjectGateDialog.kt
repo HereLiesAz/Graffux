@@ -87,7 +87,9 @@ fun ProjectGateDialog(
     // document type or a custom size.
     var name by rememberSaveable(state.defaultName) { mutableStateOf(state.defaultName) }
     var category by rememberSaveable(state.defaultName) { mutableStateOf(CATEGORY_SCREEN) }
-    val fields = rememberSaveable(state.defaultName, state.defaultWidth, state.defaultHeight, saver = SizeFields.Saver) {
+    val fields = rememberSaveable(
+        state.defaultName, state.defaultWidth, state.defaultHeight, saver = SizeFields.Saver,
+    ) {
         SizeFields(
             CanvasSize(
                 state.defaultWidth,
@@ -200,11 +202,11 @@ private class SizeFields(initial: CanvasSize) {
                     listOf(f.size.widthPx, f.size.heightPx, f.size.dpi, f.size.unit.name, f.width, f.height, f.ratio)
                 },
                 restore = { v ->
-                    val unit = LengthUnit.entries.firstOrNull { it.name == v[3] } ?: LengthUnit.INCHES
+                    val unit = LengthUnit.entries.firstOrNull { it.name == v[UNIT_SLOT] } ?: LengthUnit.INCHES
                     SizeFields(CanvasSize(v[0] as Int, v[1] as Int, v[2] as Int, unit)).apply {
-                        width = v[4] as String
-                        height = v[5] as String
-                        ratio = v[6] as String
+                        width = v[UNIT_SLOT + 1] as String
+                        height = v[UNIT_SLOT + 2] as String
+                        ratio = v[UNIT_SLOT + 3] as String
                     }
                 },
             )
@@ -390,3 +392,6 @@ private const val SCRIM_ALPHA = 0.6f
 
 /** GraffuxAlertDialog's (and FloatingWindow's) surface alpha. */
 private const val SURFACE_ALPHA = 0.85f
+
+/** Where SizeFields.Saver keeps the unit; the three typed texts follow it. */
+private const val UNIT_SLOT = 3

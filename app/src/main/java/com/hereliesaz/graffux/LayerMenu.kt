@@ -180,6 +180,7 @@ private fun MenuBuilder.renderLayerStyleMenu(
  * to be constrained within — and not even then if that parent runs auto-layout, since the parent
  * owns placement in that case and a constraint would be a control that does nothing.
  */
+@Suppress("NestedBlockDepth")
 private fun MenuBuilder.renderLayerLayoutMenu(
     layer: Layer,
     uiState: EditorUiState,

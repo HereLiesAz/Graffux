@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber") // Hex digits and channel masks are literal.
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.ui.graphics.Color
@@ -18,8 +20,7 @@ fun pushRecentColor(recent: List<Color>, color: Color, max: Int = RECENT_COLORS_
 /** `#RRGGBB` or `#AARRGGBB` (the `#` optional, either case) as a colour; null if it isn't one. */
 fun parseHexColor(text: String): Color? {
     val hex = text.trim().removePrefix("#")
-    if (hex.length != 6 && hex.length != 8) return null
-    val value = hex.toLongOrNull(16) ?: return null
+    val value = hex.takeIf { it.length == 6 || it.length == 8 }?.toLongOrNull(16) ?: return null
     val argb = if (hex.length == 6) 0xFF000000L or value else value
     return Color(argb.toInt())
 }
