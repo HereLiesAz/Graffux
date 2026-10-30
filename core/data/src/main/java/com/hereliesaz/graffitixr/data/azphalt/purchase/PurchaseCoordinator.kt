@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.data.azphalt.purchase
 
 import android.app.Activity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.time.Duration
 import java.time.Instant
 import kotlin.coroutines.CoroutineContext
 
@@ -29,6 +31,14 @@ sealed interface PurchaseState {
     data class RenewalNeeded(val message: String) : PurchaseState
     data object Installed : PurchaseState
     data class Failed(val message: String) : PurchaseState
+}
+
+/** The price a paid card's Buy button shows, from whoever will actually charge it. */
+sealed interface BuyPrice {
+    /** A Play route: Google's localised price, the amount the Play sheet will charge. */
+    data class Play(val formatted: String) : BuyPrice
+    /** A Stripe route (or a non-Play build): the repository's listed price. */
+    data object Repository : BuyPrice
 }
 
 /** Who the coordinator talks to. */
@@ -71,6 +81,12 @@ internal class PackageLocks {
 class PurchaseTuning(
     val now: () -> Instant = Instant::now,
     val pollDelayMs: Long = 2_000,
+    /**
+     * How long an opened Stripe Checkout session is polled before it is dropped as abandoned: Stripe
+     * expires an unpaid session after 24 hours. A payment that settles later (a bank debit) still
+     * arrives, through the buyer's purchases on the next restore.
+     */
+    val checkoutLifetime: Duration = Duration.ofHours(CHECKOUT_LIFETIME_HOURS),
     /** Where blocking HTTP and disk work runs; Play's UI calls stay on the caller's (main) thread. */
     val ioContext: CoroutineContext = Dispatchers.IO,
 )
@@ -84,6 +100,14 @@ private const val NOT_SAVED = "This device's purchase records can't be read, so 
     "and no licence was removed. Your purchase is safe with the store."
 private const val NOT_PAID_YET =
     "Not paid yet. If you finished checkout, it installs as soon as the payment clears."
+private const val UNEXPECTED = "Something went wrong talking to the store. Nothing was charged here; try again."
+private const val CODE_UNREADABLE = "The store's reply didn't name the extension. Try again later."
+private const val CODE_NOT_PAID = "That purchase hasn't been paid yet. It installs once the payment clears."
+private const val CODE_UNREACHABLE = "Couldn't check that purchase code right now. Try again when you're online."
+
+/** Stripe expires an unpaid Checkout Session after this many hours. */
+private const val CHECKOUT_LIFETIME_HOURS = 24L
+
 private const val PENDING_PLAY = "Your payment is pending. The extension installs when Google Play confirms it."
 
 /**
@@ -105,7 +129,7 @@ private const val PENDING_PLAY = "Your payment is pending. The extension install
 class PurchaseCoordinator(
     private val appId: String,
     private val backend: PurchaseBackend,
-    hooks: PurchaseHooks,
+    private val hooks: PurchaseHooks,
     private val tuning: PurchaseTuning = PurchaseTuning(),
 ) {
     private val gateway get() = backend.gateway
@@ -120,6 +144,44 @@ class PurchaseCoordinator(
     private val restoring = Mutex()
     private val restorer = PurchaseRestorer(appId, backend, hooks, tuning, licences, locks)
 
+    private val _prices = MutableStateFlow<Map<String, BuyPrice>>(emptyMap())
+
+    /**
+     * Per package, whose price to show. No entry means not known yet (or Play couldn't say on a Play
+     * route): show no number, rather than one the buyer may not be charged.
+     */
+    val prices: StateFlow<Map<String, BuyPrice>> = _prices.asStateFlow()
+
+    /**
+     * Work out [packageIds]' [prices]. A non-Play build always buys through Stripe at the repository's
+     * price. A Play build asks the repository for each package's route, and for a `play` or `choice`
+     * route asks Play for its own price: Google applies regional pricing and tax, so the repository's
+     * number can differ from what the Play sheet charges.
+     */
+    suspend fun loadPrices(packageIds: List<String>) {
+        val missing = packageIds.filter { it !in _prices.value }
+        if (missing.isEmpty()) return
+        if (!gateway.isPlayDistribution()) {
+            _prices.update { m -> m + missing.associateWith { BuyPrice.Repository } }
+            return
+        }
+        val country = gateway.countryCode()
+        for (id in missing) {
+            val price = playRoutePrice(id, country) ?: continue
+            _prices.update { it + (id to price) }
+        }
+    }
+
+    private suspend fun playRoutePrice(packageId: String, country: String?): BuyPrice? {
+        val route = guardedCall { tuning.io { api.route(appId, "play", country, packageId) } }
+        return when (route?.route) {
+            // Under the US programme a Play build may still fall back to Play Billing: no number.
+            "stripe" -> if (route.clientApi == "alternative_billing_only") null else BuyPrice.Repository
+            "play", "choice" -> route.productId?.let { guardedCall { gateway.formattedPrice(it) } }?.let(BuyPrice::Play)
+            else -> null
+        }
+    }
+
     private fun set(packageId: String, state: PurchaseState): PurchaseState {
         _states.update { it + (packageId to state) }
         return state
@@ -128,15 +190,41 @@ class PurchaseCoordinator(
     /** The entitlement to present when downloading [packageId], if this device holds a valid one. */
     fun entitlementFor(packageId: String): String? = licences.entitlementFor(packageId)
 
+    /** Whether this device holds the repository's buyer cookie, so card purchases restore on their own. */
+    fun hasCardPurchaseSession(): Boolean = runCatching { store.buyerCookie != null }.getOrDefault(false)
+
     /** A licence obtained outside this app; see [Licences.acceptExternal]. */
     fun acceptExternal(packageId: String, token: String): EntitlementCheck = licences.acceptExternal(packageId, token)
 
     /** Buy [packageId]. A second tap while that package's purchase is under way returns its current state. */
     suspend fun buy(activity: Activity, packageId: String): PurchaseState =
-        locks.ifFree(packageId) { unreadableAsFailure(packageId) { buyLocked(activity, packageId) } }
+        locks.ifFree(packageId) { guarded(packageId) { buyLocked(activity, packageId) } }
             ?: _states.value[packageId] ?: PurchaseState.Working("Checking how to pay")
 
-    private inline fun unreadableAsFailure(packageId: String, block: () -> PurchaseState): PurchaseState = try {
+    /**
+     * Any failure of [block] other than cancellation ends as [PurchaseState.Failed] rather than an
+     * uncaught crash, and a [PurchaseState.Working] left behind by an abnormal exit (cancellation)
+     * is reset to Idle, so a card never stays on "Working".
+     */
+    @Suppress("TooGenericExceptionCaught") // the point: nothing escapes the purchase flow
+    private suspend fun guarded(packageId: String, block: suspend () -> PurchaseState): PurchaseState {
+        var finished = false
+        try {
+            return unreadableAsFailure(packageId) { block() }.also { finished = true }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            finished = true
+            return set(packageId, PurchaseState.Failed(UNEXPECTED + (e.message?.let { " ($it)" } ?: "")))
+        } finally {
+            if (!finished) _states.update { m -> if (m[packageId] is PurchaseState.Working) m - packageId else m }
+        }
+    }
+
+    private suspend fun unreadableAsFailure(
+        packageId: String,
+        block: suspend () -> PurchaseState,
+    ): PurchaseState = try {
         block()
     } catch (@Suppress("SwallowedException") e: EntitlementStoreUnreadable) {
         // Shown as NOT_SAVED; nothing was written or removed.
@@ -234,30 +322,39 @@ class PurchaseCoordinator(
             return set(packageId, PurchaseState.Failed("Checkout couldn't start: ${e.message}"))
         }
         start.buyerCookie?.let { store.buyerCookie = it }
-        store.pending.addCheckout(start.sessionId, packageId)
+        store.pending.addCheckout(start.sessionId, packageId, tuning.now().toEpochMilli())
         return set(packageId, PurchaseState.AwaitingCheckout(start.sessionId, start.url))
     }
 
     /** After the Custom Tab closes: poll the session a few times for its entitlement. */
-    suspend fun resumeCheckout(sessionId: String, attempts: Int = 5): PurchaseState {
+    suspend fun resumeCheckout(sessionId: String, attempts: Int = 5): PurchaseState =
+        resumeCheckout(sessionId, attempts, quiet = false)
+
+    /**
+     * [quiet] (the startup restore): a session that is still unpaid leaves the card as it was, rather
+     * than telling the buyer "Not paid yet" on every launch for a checkout they closed.
+     */
+    private suspend fun resumeCheckout(sessionId: String, attempts: Int, quiet: Boolean): PurchaseState {
         val packageId = runCatching { store.pending.checkouts()[sessionId] }.getOrNull() ?: return PurchaseState.Idle
         return locks.locked(packageId) {
-            unreadableAsFailure(packageId) { resumeLocked(sessionId, packageId, attempts) }
+            guarded(packageId) { resumeLocked(sessionId, packageId, attempts, quiet) }
         }
     }
 
-    private suspend fun resumeLocked(sessionId: String, packageId: String, attempts: Int): PurchaseState {
+    private suspend fun resumeLocked(
+        sessionId: String,
+        packageId: String,
+        attempts: Int,
+        quiet: Boolean,
+    ): PurchaseState {
         // Another resume finished this session while we waited for the lock.
         if (sessionId !in store.pending.checkouts()) return _states.value[packageId] ?: PurchaseState.Idle
+        val before = _states.value[packageId]
+        val expired = isExpired(sessionId)
         set(packageId, PurchaseState.Working("Confirming your payment"))
-        var status: CheckoutStatus = CheckoutStatus.Pending
-        for (i in 0 until attempts) {
-            if (i > 0) delay(tuning.pollDelayMs)
-            status = tuning.io { api.checkoutStatus(sessionId, store.buyerCookie) }
-            if (status is CheckoutStatus.Ready || status is CheckoutStatus.Revoked) break
-        }
-        return when (val s = status) {
+        return when (val s = poll(sessionId, attempts)) {
             is CheckoutStatus.Ready -> {
+                s.buyerCookie?.let { store.buyerCookie = it }
                 val grant = Grant(packageId, s.entitlement, EntitlementSource.STRIPE)
                 val accepted = licences.accept(grant, installNow = true)
                 // Only a stored licence clears the session; otherwise restore polls it again.
@@ -268,8 +365,83 @@ class PurchaseCoordinator(
                 store.pending.removeCheckout(sessionId)
                 set(packageId, PurchaseState.Failed("This purchase was refunded or disputed."))
             }
+            else -> unpaid(sessionId, packageId, expired, if (quiet) before ?: PurchaseState.Idle else null)
+        }
+    }
+
+    /** Up to [attempts] checks of [sessionId], stopping at the first final answer. */
+    private suspend fun poll(sessionId: String, attempts: Int): CheckoutStatus {
+        var status: CheckoutStatus = CheckoutStatus.Pending
+        for (i in 0 until attempts) {
+            if (i > 0) delay(tuning.pollDelayMs)
+            status = tuning.io { api.checkoutStatus(sessionId, store.buyerCookie) }
+            if (status is CheckoutStatus.Ready || status is CheckoutStatus.Revoked) break
+        }
+        return status
+    }
+
+    /** Whether [sessionId] was opened longer ago than Stripe keeps an unpaid session. */
+    private fun isExpired(sessionId: String): Boolean {
+        val now = tuning.now()
+        val opened = Instant.ofEpochMilli(store.pending.checkoutSeenAt(sessionId, now.toEpochMilli()))
+        return !now.isBefore(opened.plus(tuning.checkoutLifetime))
+    }
+
+    /**
+     * A session the store still calls unpaid. [restoreTo] (a quiet restore) puts the card back as it
+     * was; otherwise the buyer is told it is not paid yet. An expired one is dropped either way.
+     */
+    private fun unpaid(
+        sessionId: String,
+        packageId: String,
+        expired: Boolean,
+        restoreTo: PurchaseState?,
+    ): PurchaseState =
+        when {
+            // Abandoned: Stripe has expired it. Dropped, and the card goes back to Buy.
+            expired -> {
+                store.pending.removeCheckout(sessionId)
+                set(packageId, PurchaseState.Idle)
+            }
+            restoreTo != null -> set(packageId, restoreTo)
             else -> set(packageId, PurchaseState.Pending(NOT_PAID_YET))
         }
+
+    /**
+     * Restore a Stripe purchase on a device that has no buyer cookie (a reinstall, a new phone: the
+     * cookie is deliberately never backed up). [code] is the purchase's Checkout Session id (`cs_…`)
+     * or the `…/checkout/success?session_id=cs_…` link it was shown. The repository answers with the
+     * licence and sets the buyer cookie again, so the next [restore] brings back every other purchase
+     * that buyer made too. Null when [code] holds no session id.
+     */
+    suspend fun restoreFromCode(code: String): PurchaseState? {
+        val sessionId = checkoutSessionId(code) ?: return null
+        val status = guardedCall { tuning.io { api.checkoutStatus(sessionId, store.buyerCookie) } }
+        return when (status) {
+            is CheckoutStatus.Ready -> status.packageId?.let { acceptRestored(it, status) }
+                ?: PurchaseState.Failed(CODE_UNREADABLE)
+            CheckoutStatus.Revoked -> PurchaseState.Failed("That purchase was refunded or disputed.")
+            CheckoutStatus.Pending -> PurchaseState.Pending(CODE_NOT_PAID)
+            is CheckoutStatus.Unavailable, null -> PurchaseState.Failed(CODE_UNREACHABLE)
+        }
+    }
+
+    private suspend fun acceptRestored(packageId: String, status: CheckoutStatus.Ready): PurchaseState =
+        locks.locked(packageId) {
+            guarded(packageId) {
+                status.buyerCookie?.let { store.buyerCookie = it }
+                val grant = Grant(packageId, status.entitlement, EntitlementSource.STRIPE)
+                licences.accept(grant, installNow = !hooks.isInstalled(packageId)).state
+            }
+        }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun <T> guardedCall(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (@Suppress("SwallowedException") e: Exception) {
+        null
     }
 
     /**
@@ -281,13 +453,18 @@ class PurchaseCoordinator(
         installMissing: Boolean = false,
     ): RestoreReport = restoring.withLock {
         // Throws EntitlementStoreUnreadable rather than comparing anything against an unreadable store.
-        for ((sessionId, _) in store.pending.checkouts()) resumeCheckout(sessionId, attempts = 1)
+        for ((sessionId, _) in store.pending.checkouts()) resumeCheckout(sessionId, attempts = 1, quiet = true)
         restorer.restore(paidCatalogue, installMissing)
     }
 
     companion object {
         /** The Play product id a package is sold as (same rule as the repository's `playSkuFor`). */
         fun playSkuFor(packageId: String): String = packageId.lowercase().replace(Regex("[^a-z0-9_.]"), "_")
+
+        private val SESSION_ID = Regex("""\bcs_(?:test_|live_)?[A-Za-z0-9]{8,200}""")
+
+        /** The Checkout Session id in a pasted code or success link, or null. */
+        fun checkoutSessionId(code: String): String? = SESSION_ID.find(code.trim())?.value
     }
 }
 

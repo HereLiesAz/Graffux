@@ -28,6 +28,11 @@ private data class StoreFile(
     val buyerCookie: String? = null,
     /** Stripe Checkout sessions opened but not yet confirmed: sessionId → packageId. */
     val pendingCheckouts: Map<String, String> = emptyMap(),
+    /**
+     * When each of [pendingCheckouts] was first seen (epoch ms), so an abandoned one expires. A
+     * session from before this field existed has no entry and is stamped the first time it is read.
+     */
+    val checkoutSeenAt: Map<String, Long> = emptyMap(),
     /** Play purchases Google still holds as pending: purchaseToken → packageId. */
     val pendingPlay: Map<String, String> = emptyMap(),
 )
@@ -107,9 +112,22 @@ class EntitlementStore(private val file: File) {
 
     inner class Pending {
         fun checkouts(): Map<String, String> = synchronized(lock) { read().pendingCheckouts }
-        fun addCheckout(sessionId: String, packageId: String) =
-            update { it.copy(pendingCheckouts = it.pendingCheckouts + (sessionId to packageId)) }
-        fun removeCheckout(sessionId: String) = update { it.copy(pendingCheckouts = it.pendingCheckouts - sessionId) }
+        fun addCheckout(sessionId: String, packageId: String, nowMs: Long = System.currentTimeMillis()) = update {
+            it.copy(
+                pendingCheckouts = it.pendingCheckouts + (sessionId to packageId),
+                checkoutSeenAt = it.checkoutSeenAt + (sessionId to nowMs),
+            )
+        }
+        fun removeCheckout(sessionId: String) = update {
+            it.copy(pendingCheckouts = it.pendingCheckouts - sessionId, checkoutSeenAt = it.checkoutSeenAt - sessionId)
+        }
+
+        /** When [sessionId] was opened; stamps [nowMs] on a session recorded before stamps existed. */
+        fun checkoutSeenAt(sessionId: String, nowMs: Long): Long {
+            synchronized(lock) { read().checkoutSeenAt[sessionId] }?.let { return it }
+            update { it.copy(checkoutSeenAt = it.checkoutSeenAt + (sessionId to nowMs)) }
+            return nowMs
+        }
 
         fun play(): Map<String, String> = synchronized(lock) { read().pendingPlay }
         fun addPlay(purchaseToken: String, packageId: String) =

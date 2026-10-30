@@ -1797,6 +1797,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             if (showStore) {
                 LaunchedEffect(Unit) { vm.refreshStoreUpdates() }
                 val purchaseStates by vm.purchaseStates.collectAsState()
+                val buyPrices by vm.buyPrices.collectAsState()
                 // Back from a Stripe Checkout Custom Tab: confirm the payment and install.
                 androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
                     vm.resumeCheckouts()
@@ -1862,6 +1863,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     purchaseStates = purchaseStates,
                     onRestorePurchases = { vm.restorePurchases() },
                     onCheckPurchase = { pkg -> vm.recheckPurchase(pkg.id) },
+                    buyPrices = buyPrices,
+                    onLoadPrices = { ids -> vm.loadBuyPrices(ids) },
+                    onRestoreWithCode = { code -> vm.restorePurchaseFromCode(code) },
                     onOtherSources = { showStore = false; showStoreChooser = true },
                     onDismiss = { showStore = false },
                 )
