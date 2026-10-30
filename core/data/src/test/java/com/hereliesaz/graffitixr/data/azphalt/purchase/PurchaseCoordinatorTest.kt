@@ -2,6 +2,8 @@ package com.hereliesaz.graffitixr.data.azphalt.purchase
 
 import android.app.Activity
 import io.mockk.mockk
+import kotlinx.coroutines.async
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,6 +12,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.File
 import java.io.IOException
 import java.time.Instant
 
@@ -22,12 +25,14 @@ class FakeBilling : BillingGateway {
         PlayFlowResult.Purchased(PlayPurchase(listOf("com.example.paid"), "ptok", pending = false))
     var owned = listOf<PlayPurchase>()
     val launches = mutableListOf<Pair<String, BillingMode>>()
+    var beforeResult: suspend () -> Unit = {}
     override fun isPlayDistribution() = play
     override suspend fun countryCode() = country
     override suspend fun isProgrammeAvailable(clientApi: String) = clientApi in available
     override suspend fun alternativeBillingOnlyToken(activity: Activity) = altToken
     override suspend fun purchase(activity: Activity, productId: String, mode: BillingMode): PlayFlowResult {
         launches += productId to mode
+        beforeResult()
         return next
     }
     override suspend fun ownedPurchases() = owned
@@ -78,18 +83,29 @@ class PurchaseCoordinatorTest {
     @Before fun setUp() {
         billing = FakeBilling()
         api = FakeApi(registry)
-        store = EntitlementStore(tmp.newFile("e.json").also { it.delete() })
-        c = PurchaseCoordinator(
-            appId = "com.hereliesaz.graffux",
-            backend = PurchaseBackend(billing, api, EntitlementVerifier { setOf(registry.publicKey) }, store),
-            hooks = PurchaseHooks(
-                install = { id, token -> installed[id] = token },
-                revoke = { id, _ -> revoked += id; installed.remove(id) },
-                isInstalled = { it in installed },
-            ),
-            tuning = PurchaseTuning(now = { Instant.parse("2026-10-28T00:00:00Z") }, pollDelayMs = 0),
-        )
+        storeFile = tmp.newFile("e.json").also { it.delete() }
+        store = EntitlementStore(storeFile)
+        c = coordinator(trusted = { setOf(registry.publicKey) })
     }
+
+    private lateinit var storeFile: File
+
+    private fun coordinator(
+        trusted: () -> Set<String>,
+        now: Instant = Instant.parse("2026-10-28T00:00:00Z"),
+        refresh: () -> Unit = {},
+        onInstall: () -> Unit = {},
+    ) = PurchaseCoordinator(
+        appId = "com.hereliesaz.graffux",
+        backend = PurchaseBackend(billing, api, EntitlementVerifier(trusted), store),
+        hooks = PurchaseHooks(
+            install = { id, token -> onInstall(); yield(); installed[id] = token },
+            revoke = { id, _ -> revoked += id; installed.remove(id) },
+            isInstalled = { it in installed },
+            refreshTrust = { refresh() },
+        ),
+        tuning = PurchaseTuning(now = { now }, pollDelayMs = 0),
+    )
 
     @Test fun `play route buys with Play Billing, verifies, stores and installs with the entitlement`() = runTest {
         assertEquals(PurchaseState.Installed, c.buy(activity, "com.example.paid"))
@@ -209,13 +225,118 @@ class PurchaseCoordinatorTest {
         assertNull(store.get("com.example.paid"))
     }
 
-    @Test fun `a lapsed subscription licence is removed on restore`() = runTest {
+    @Test fun `a subscription past expiry by the device clock is kept and marked for renewal`() = runTest {
         val lapsed = registry.token("com.example.sub", expiresAt = "2026-10-02T00:00:00Z")
         store.put(StoredEntitlement("com.example.sub", lapsed, EntitlementSource.STRIPE))
         installed["com.example.sub"] = "x"
         billing.play = false
+        assertEquals(0, c.restore().removed)
+        assertTrue(revoked.isEmpty())
+        assertTrue(store.get("com.example.sub") != null)
+        assertTrue(c.states.value["com.example.sub"] is PurchaseState.RenewalNeeded)
+    }
+
+    @Test fun `a one-time purchase survives a clock set far forward`() = runTest {
+        c.buy(activity, PAID)
+        val future = coordinator(trusted = { setOf(registry.publicKey) }, now = Instant.parse("2099-01-01T00:00:00Z"))
+        billing.play = false
+        assertEquals(0, future.restore().removed)
+        assertTrue(revoked.isEmpty())
+        assertTrue(future.entitlementFor(PAID) != null)
+    }
+
+    @Test fun `a refunded Play purchase that Play stopped listing is revoked once the repository says so`() = runTest {
+        c.buy(activity, PAID)
+        billing.owned = emptyList()
+        api.exchange = { PlayExchange.Ready(registry.token(PAID)) } // not voided yet: kept
+        assertEquals(0, c.restore().removed)
+        assertTrue(store.get(PAID) != null)
+        api.exchange = { PlayExchange.Revoked }
         assertEquals(1, c.restore().removed)
-        assertEquals(listOf("com.example.sub"), revoked)
+        assertEquals(listOf(PAID), revoked)
+    }
+
+    @Test fun `a 403 that is not a void removes nothing`() = runTest {
+        c.buy(activity, PAID)
+        billing.owned = listOf(PlayPurchase(listOf(PAID), "ptok", pending = false))
+        api.exchange = { PlayExchange.NotAccepted("app_not_accepted") }
+        assertEquals(0, c.restore().removed)
+        billing.owned = emptyList()
+        assertEquals(0, c.restore().removed)
+        assertTrue(revoked.isEmpty())
+        assertTrue(store.get(PAID) != null)
+    }
+
+    @Test fun `a refunded Stripe purchase is revoked from the buyer's list`() = runTest {
+        billing.play = false
+        store.buyerCookie = "azphalt_buyer_session=abc"
+        val token = registry.token(PAID)
+        api.restored = listOf(RestoredPurchase(PAID, token))
+        c.restore()
+        installed[PAID] = token
+        api.restored = listOf(RestoredPurchase(PAID, token, revoked = true))
+        assertEquals(1, c.restore().removed)
+        assertEquals(listOf(PAID), revoked)
+        assertNull(store.get(PAID))
+    }
+
+    @Test fun `a purchase made before the trust store loads stays pending and finishes after a refresh`() = runTest {
+        var keys = emptySet<String>()
+        var refreshes = 0
+        val early = coordinator(trusted = { keys }, refresh = { refreshes++ })
+        assertTrue(early.buy(activity, PAID) is PurchaseState.Pending)
+        assertEquals(1, refreshes)
+        assertEquals(mapOf("ptok" to PAID), store.pending.play())
+        assertNull(store.get(PAID))
+
+        keys = setOf(registry.publicKey)
+        billing.owned = listOf(PlayPurchase(listOf(PAID), "ptok", pending = false))
+        assertEquals(1, early.restore(installMissing = true).restored)
+        assertTrue(store.pending.play().isEmpty())
+        assertTrue(PAID in installed)
+    }
+
+    @Test fun `a Stripe session is kept until its licence is stored`() = runTest {
+        billing.play = false
+        api.route = BillingRoute(route = "stripe", productId = PAID)
+        val early = coordinator(trusted = { emptySet() })
+        early.buy(activity, PAID)
+        assertTrue(early.resumeCheckout("cs_1") is PurchaseState.Pending)
+        assertEquals(mapOf("cs_1" to PAID), store.pending.checkouts())
+    }
+
+    @Test fun `a second Buy tap while the first is open does not start a second flow`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        billing.beforeResult = { gate.await() }
+        val first = async { c.buy(activity, PAID) }
+        kotlinx.coroutines.yield()
+        val second = c.buy(activity, PAID)
+        assertTrue(second is PurchaseState.Working)
+        gate.complete(Unit)
+        assertEquals(PurchaseState.Installed, first.await())
+        assertEquals(1, billing.launches.size)
+    }
+
+    @Test fun `concurrent resumes of one checkout install once`() = runTest {
+        billing.play = false
+        api.route = BillingRoute(route = "stripe", productId = PAID)
+        c.buy(activity, PAID)
+        var installs = 0
+        val counting = coordinator(trusted = { setOf(registry.publicKey) }, onInstall = { installs++ })
+        val a = async { counting.resumeCheckout("cs_1") }
+        val b = async { counting.resumeCheckout("cs_1") }
+        a.await(); b.await()
+        assertEquals(1, installs)
+    }
+
+    @Test fun `an unreadable store fails the purchase and removes nothing`() = runTest {
+        c.buy(activity, PAID)
+        storeFile.writeText("{ not json")
+        File(storeFile.parentFile, storeFile.name + ".bak").delete()
+        assertTrue(c.buy(activity, PAID) is PurchaseState.Failed)
+        assertTrue(runCatching { c.restore() }.isFailure)
+        assertTrue(revoked.isEmpty())
+        assertEquals("{ not json", storeFile.readText())
     }
 
     @Test fun `network failure during restore removes nothing`() = runTest {

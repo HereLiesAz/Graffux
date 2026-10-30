@@ -425,8 +425,10 @@ be lost: "its brushes, LUTs, filters."
 
 ## 8. What this is not (explicitly, from the code's own framing)
 
-- Graffux does not implement browsing, search, ranking, or purchase flows for extensions. `StoreWindow`
-  only shows what's already installed.
+- Graffux is not a marketplace: it hosts no catalog and ranks nothing. Its in-app store browses and
+  searches the Repository API, and buys paid packages through `PurchaseCoordinator` (Play Billing or
+  Stripe Checkout, as the repository's `/billing/route` decides), verifying every licence on the
+  device; buying on azphalt.store or in a store app stays equally valid.
 - A store's claims about a package (`StoreResult`'s `signed`/`integrity`/etc.) never substitute for
   this host's own verification — every package, from every source (file picker, Android store
   handoff, or web deep link), goes through the identical `AzpInstaller` check.

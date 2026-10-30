@@ -18,7 +18,9 @@ import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * [BillingGateway] over the Play Billing Library (9.1+, which the billing-choice programme needs).
@@ -28,6 +30,7 @@ import kotlin.coroutines.resume
  * issued the licence (`POST /entitlements/play`), so a purchase that never became a licence stays
  * unacknowledged and Google refunds it.
  */
+@Suppress("TooManyFunctions") // the BillingGateway surface plus the Play client plumbing
 class PlayBillingGateway(private val context: Context) : BillingGateway {
 
     private val clients = mutableMapOf<BillingMode, BillingClient>()
@@ -155,7 +158,15 @@ class PlayBillingGateway(private val context: Context) : BillingGateway {
         }
     }
 
+    /** Play reports every flow's result to one listener, so only one flow may be open at a time. */
+    private val flowLock = Mutex()
+
     override suspend fun purchase(activity: Activity, productId: String, mode: BillingMode): PlayFlowResult {
+        if (!flowLock.tryLock()) return PlayFlowResult.Failed("Another purchase is already open.")
+        return try { purchaseLocked(activity, productId, mode) } finally { flow = null; flowLock.unlock() }
+    }
+
+    private suspend fun purchaseLocked(activity: Activity, productId: String, mode: BillingMode): PlayFlowResult {
         val c = client(mode)
         val details = if (!ready(c)) null else suspendCancellableCoroutine<ProductDetails?> { cont ->
             c.queryProductDetailsAsync(
@@ -189,11 +200,11 @@ class PlayBillingGateway(private val context: Context) : BillingGateway {
         val result = when (launched.responseCode) {
             OK -> deferred.await()
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED ->
-                ownedPurchases().firstOrNull { productId in it.productIds }?.let { PlayFlowResult.Purchased(it) }
+                runCatching { ownedPurchases() }.getOrDefault(emptyList())
+                    .firstOrNull { productId in it.productIds }?.let { PlayFlowResult.Purchased(it) }
                     ?: PlayFlowResult.Failed("Google Play says you already own this.")
             else -> PlayFlowResult.Failed(failure(launched))
         }
-        flow = null
         return result
     }
 
@@ -204,7 +215,12 @@ class PlayBillingGateway(private val context: Context) : BillingGateway {
             val params = QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.INAPP).build()
             c.queryPurchasesAsync(params) { r, list ->
                 if (!cont.isActive) return@queryPurchasesAsync
-                cont.resume(if (r.responseCode == OK) list.map { it.toPlayPurchase() } else emptyList())
+                // An error is not "owns nothing": restore must not compare its licences against it.
+                if (r.responseCode == OK) {
+                    cont.resume(list.map { it.toPlayPurchase() })
+                } else {
+                    cont.resumeWithException(java.io.IOException(failure(r)))
+                }
             }
         }
     }

@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.data.prediction
 
 import android.content.Context
 import com.hereliesaz.graffitixr.common.DispatcherProvider
+import com.hereliesaz.graffitixr.common.crash.CrashReporter
 import com.hereliesaz.graffitixr.data.figma.SecureTokenStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,7 +54,11 @@ class PredictionReportRepository @Inject constructor(
     suspend fun fileIssue(title: String, body: String): Result<Unit> = withContext(dispatchers.io) {
         runCatching {
             val token = tokenStore.load(KEY_TOKEN) ?: return@runCatching
-            val json = JSONObject().put("title", title).put("body", body).toString()
+            // Every issue is public: redacted here, whichever caller filed it.
+            val json = JSONObject()
+                .put("title", CrashReporter.redactSensitive(title))
+                .put("body", CrashReporter.redactSensitive(body))
+                .toString()
             val code = request("POST", "$REPO_URL/issues", token, json)
             if (code == HTTP_UNAUTHORIZED) disconnect()
             check(code in HTTP_OK) { "GitHub refused the ranking issue (HTTP $code)" }

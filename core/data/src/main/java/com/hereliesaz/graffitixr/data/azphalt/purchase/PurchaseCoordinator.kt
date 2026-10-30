@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.time.Instant
@@ -18,8 +20,13 @@ sealed interface PurchaseState {
     data class Working(val step: String) : PurchaseState
     /** Open [url] (Stripe Checkout) in a Custom Tab, then call [PurchaseCoordinator.resumeCheckout]. */
     data class AwaitingCheckout(val sessionId: String, val url: String) : PurchaseState
-    /** Paid with a slow method, or Google has not confirmed yet. Restored automatically when it settles. */
+    /**
+     * Paid with a slow method, Google has not confirmed yet, or the licence is waiting on the store's
+     * keys. Finished by the next restore: on the next launch, or when the buyer taps Restore purchases.
+     */
     data class Pending(val message: String) : PurchaseState
+    /** A subscription past its expiry by this device's clock. Kept installed; never removed for this alone. */
+    data class RenewalNeeded(val message: String) : PurchaseState
     data object Installed : PurchaseState
     data class Failed(val message: String) : PurchaseState
 }
@@ -39,7 +46,27 @@ class PurchaseHooks(
     /** Remove a package whose entitlement was revoked or lapsed. */
     val revoke: suspend (packageId: String, reason: String) -> Unit,
     val isInstalled: (String) -> Boolean,
+    /** Re-fetch the repository's signing keys (blocking; run off the main thread). */
+    val refreshTrust: suspend () -> Unit = {},
 )
+
+/**
+ * One lock per package, so a buy, a checkout resume and a restore never run the same package's
+ * exchange-and-install twice at once (two installs into one package directory).
+ */
+internal class PackageLocks {
+    private val locks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private fun of(packageId: String) = locks.getOrPut(packageId) { Mutex() }
+
+    suspend fun <T> locked(packageId: String, block: suspend () -> T): T = of(packageId).withLock { block() }
+
+    /** Runs [block] only if nothing else holds [packageId]; null when it is busy. */
+    suspend fun <T> ifFree(packageId: String, block: suspend () -> T): T? {
+        val m = of(packageId)
+        if (!m.tryLock()) return null
+        return try { block() } finally { m.unlock() }
+    }
+}
 
 class PurchaseTuning(
     val now: () -> Instant = Instant::now,
@@ -51,7 +78,10 @@ class PurchaseTuning(
 internal suspend fun <T> PurchaseTuning.io(block: suspend () -> T): T = withContext(ioContext) { block() }
 
 private const val NOT_IN_APP = "This extension can't be bought in this app. You can still buy it on azphalt.store."
-private const val CONFIRM_LATER = "Paid. Waiting to confirm with the store; this finishes automatically."
+private const val CONFIRM_LATER =
+    "Paid. Waiting to confirm with the store; this finishes on the next launch or Restore purchases."
+private const val NOT_SAVED = "This device's purchase records can't be read, so nothing was changed " +
+    "and no licence was removed. Your purchase is safe with the store."
 private const val NOT_PAID_YET =
     "Not paid yet. If you finished checkout, it installs as soon as the payment clears."
 private const val PENDING_PLAY = "Your payment is pending. The extension installs when Google Play confirms it."
@@ -71,6 +101,7 @@ private const val PENDING_PLAY = "Your payment is pending. The extension install
  *   billing, Stripe runs with the token Google handed over. Not enrolled: plain Play Billing.
  * - `play`: Play Billing.
  */
+@Suppress("TooManyFunctions") // one public entry per purchase step, each with its locked body
 class PurchaseCoordinator(
     private val appId: String,
     private val backend: PurchaseBackend,
@@ -85,7 +116,9 @@ class PurchaseCoordinator(
     val states: StateFlow<Map<String, PurchaseState>> = _states.asStateFlow()
 
     private val licences = Licences(backend.verifier, store, hooks, tuning) { id, state -> set(id, state) }
-    private val restorer = PurchaseRestorer(appId, backend, hooks, tuning, licences)
+    private val locks = PackageLocks()
+    private val restoring = Mutex()
+    private val restorer = PurchaseRestorer(appId, backend, hooks, tuning, licences, locks)
 
     private fun set(packageId: String, state: PurchaseState): PurchaseState {
         _states.update { it + (packageId to state) }
@@ -98,7 +131,19 @@ class PurchaseCoordinator(
     /** A licence obtained outside this app; see [Licences.acceptExternal]. */
     fun acceptExternal(packageId: String, token: String): EntitlementCheck = licences.acceptExternal(packageId, token)
 
-    suspend fun buy(activity: Activity, packageId: String): PurchaseState {
+    /** Buy [packageId]. A second tap while that package's purchase is under way returns its current state. */
+    suspend fun buy(activity: Activity, packageId: String): PurchaseState =
+        locks.ifFree(packageId) { unreadableAsFailure(packageId) { buyLocked(activity, packageId) } }
+            ?: _states.value[packageId] ?: PurchaseState.Working("Checking how to pay")
+
+    private inline fun unreadableAsFailure(packageId: String, block: () -> PurchaseState): PurchaseState = try {
+        block()
+    } catch (@Suppress("SwallowedException") e: EntitlementStoreUnreadable) {
+        // Shown as NOT_SAVED; nothing was written or removed.
+        set(packageId, PurchaseState.Failed(NOT_SAVED))
+    }
+
+    private suspend fun buyLocked(activity: Activity, packageId: String): PurchaseState {
         set(packageId, PurchaseState.Working("Checking how to pay"))
         val play = gateway.isPlayDistribution()
         val country = if (play) gateway.countryCode() else null
@@ -154,9 +199,13 @@ class PurchaseCoordinator(
         set(packageId, PurchaseState.Working("Confirming your purchase"))
         return when (val r = tuning.io { api.exchangePlay(appId, packageId, productId, purchaseToken) }) {
             is PlayExchange.Ready -> {
-                store.pending.removePlay(purchaseToken)
+                // Recorded first and cleared only once the licence is stored, so a licence that
+                // can't be verified yet (keys not loaded) is retried by restore, not lost.
+                store.pending.addPlay(purchaseToken, packageId)
                 val grant = Grant(packageId, r.entitlement, EntitlementSource.PLAY, purchaseToken, productId)
-                licences.accept(grant, installNow = true)
+                val accepted = licences.accept(grant, installNow = true)
+                if (accepted.kept) store.pending.removePlay(purchaseToken)
+                accepted.state
             }
             PlayExchange.Pending -> {
                 store.pending.addPlay(purchaseToken, packageId)
@@ -164,6 +213,7 @@ class PurchaseCoordinator(
             }
             PlayExchange.Refused -> set(packageId, PurchaseState.Failed("Google Play didn't confirm this purchase."))
             PlayExchange.Revoked -> set(packageId, PurchaseState.Failed("This purchase was refunded or cancelled."))
+            is PlayExchange.NotAccepted,
             is PlayExchange.Unavailable -> {
                 // Paid, but not confirmed yet: keep it, and restore will finish it.
                 store.pending.addPlay(purchaseToken, packageId)
@@ -190,7 +240,15 @@ class PurchaseCoordinator(
 
     /** After the Custom Tab closes: poll the session a few times for its entitlement. */
     suspend fun resumeCheckout(sessionId: String, attempts: Int = 5): PurchaseState {
-        val packageId = store.pending.checkouts()[sessionId] ?: return PurchaseState.Idle
+        val packageId = runCatching { store.pending.checkouts()[sessionId] }.getOrNull() ?: return PurchaseState.Idle
+        return locks.locked(packageId) {
+            unreadableAsFailure(packageId) { resumeLocked(sessionId, packageId, attempts) }
+        }
+    }
+
+    private suspend fun resumeLocked(sessionId: String, packageId: String, attempts: Int): PurchaseState {
+        // Another resume finished this session while we waited for the lock.
+        if (sessionId !in store.pending.checkouts()) return _states.value[packageId] ?: PurchaseState.Idle
         set(packageId, PurchaseState.Working("Confirming your payment"))
         var status: CheckoutStatus = CheckoutStatus.Pending
         for (i in 0 until attempts) {
@@ -198,11 +256,18 @@ class PurchaseCoordinator(
             status = tuning.io { api.checkoutStatus(sessionId, store.buyerCookie) }
             if (status is CheckoutStatus.Ready || status is CheckoutStatus.Revoked) break
         }
-        if (status is CheckoutStatus.Ready || status is CheckoutStatus.Revoked) store.pending.removeCheckout(sessionId)
         return when (val s = status) {
-            is CheckoutStatus.Ready ->
-                licences.accept(Grant(packageId, s.entitlement, EntitlementSource.STRIPE), installNow = true)
-            CheckoutStatus.Revoked -> set(packageId, PurchaseState.Failed("This purchase was refunded or disputed."))
+            is CheckoutStatus.Ready -> {
+                val grant = Grant(packageId, s.entitlement, EntitlementSource.STRIPE)
+                val accepted = licences.accept(grant, installNow = true)
+                // Only a stored licence clears the session; otherwise restore polls it again.
+                if (accepted.kept) store.pending.removeCheckout(sessionId)
+                accepted.state
+            }
+            CheckoutStatus.Revoked -> {
+                store.pending.removeCheckout(sessionId)
+                set(packageId, PurchaseState.Failed("This purchase was refunded or disputed."))
+            }
             else -> set(packageId, PurchaseState.Pending(NOT_PAID_YET))
         }
     }
@@ -214,9 +279,10 @@ class PurchaseCoordinator(
     suspend fun restore(
         paidCatalogue: suspend () -> List<String> = { emptyList() },
         installMissing: Boolean = false,
-    ): RestoreReport {
+    ): RestoreReport = restoring.withLock {
+        // Throws EntitlementStoreUnreadable rather than comparing anything against an unreadable store.
         for ((sessionId, _) in store.pending.checkouts()) resumeCheckout(sessionId, attempts = 1)
-        return restorer.restore(paidCatalogue, installMissing)
+        restorer.restore(paidCatalogue, installMissing)
     }
 
     companion object {

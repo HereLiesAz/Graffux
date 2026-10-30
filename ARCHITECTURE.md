@@ -372,7 +372,8 @@ codebase is deferred scope or a real gap in the install-report flow.
   adapter; there is no backend choice. Where wgpu cannot start (no adapter, no Vulkan, or a build
   without `libgraffux_wgpu.so`; the library is built for both arm64-v8a and armeabi-v7a, so
   32-bit devices keep GPU painting), `init()` returns
-  false and the stroke draws on the CPU, exactly as on a device with no usable GPU. Direct display
+  false and the stroke is not painted (there is no CPU renderer; `HardwareFloorNotice` tells the
+  user). Direct display
   is the wgpu engine presenting into the overlay SurfaceView through a wgpu swapchain
   (`core/wgpu-engine/src/direct.rs`; design doc §3, "wgpu direct display"). wgpu was chosen over
   consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
@@ -389,8 +390,8 @@ codebase is deferred scope or a real gap in the install-report flow.
   preview of the same layer. They were kept for comparison and as fallbacks while wgpu matured
   (`tools/stamp-engine-diff` measured wgpu within 1-2 levels of them). Once the owner confirmed
   wgpu on their devices, all of it was deleted: three engines' worth of shader parity, sync code
-  and interop was upkeep with no remaining user, and the CPU path already covers any device wgpu
-  can't run on. `RetiredGpuBackendMigration` (`:app`) deletes the stale `backend` key from the
+  and interop was upkeep with no remaining user. A device wgpu can't run on cannot draw (there is
+  no CPU renderer). `RetiredGpuBackendMigration` (`:app`) deletes the stale `backend` key from the
   `gpu_engine` preferences. The code is in git history before the retirement commit; the design
   doc's "Retired backends" section keeps what was learned.
 - **wgpu keeps layers resident on the GPU across strokes** (§2b of the design doc). The engine

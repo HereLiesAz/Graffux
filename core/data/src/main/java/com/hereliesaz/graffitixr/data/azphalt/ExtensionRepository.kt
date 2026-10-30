@@ -140,6 +140,9 @@ class ExtensionRepository @Inject constructor(
 
     fun isInstalled(id: String): Boolean = _installed.value.any { it.id == id }
 
+    /** Fetch the registry's signing keys now (blocking; call off the main thread). Failures keep what is loaded. */
+    fun refreshTrustedKeys() = refreshTrustStore()
+
     /**
      * The repository signing keys this host trusts (`/.well-known/azphalt-repository.json`), as base64
      * SPKI. Entitlements are checked against these on the device ([purchase.EntitlementVerifier]).

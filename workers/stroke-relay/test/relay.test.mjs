@@ -191,3 +191,38 @@ test("commits the re-encoded, validated text, not the uploaded bytes", async () 
   const text = gunzipSync(Buffer.from(sent, "base64")).toString();
   assert.equal(text, '{"type":"session","schema":4,"model":"Pixel 5"}\n{"type":"stroke"}\n');
 });
+
+const upload = (text) =>
+  handle(put("/v1/stroke-data/Pixel-5/session-1700000000000.jsonl.gz", gzipSync(Buffer.from(text))), env, noSleep);
+
+test("accepts a heatmap's base64 frames, and only there", async () => {
+  github({ status: 201 });
+  const frames = Buffer.alloc(300 * 1024).toString("base64");
+  const ok = `{"type":"session","schema":4}\n{"type":"stroke","heatmap":{"w":16,"h":32,"frames":"${frames}"}}\n`;
+  assert.equal((await upload(ok)).status, 201);
+  const elsewhere = `{"type":"session","schema":4}\n{"type":"stroke","context":{"data":"${frames}"}}\n`;
+  assert.equal((await upload(elsewhere)).status, 415);
+});
+
+test("caps heatmap frames at the recorder's 384 KiB", async () => {
+  github({ status: 201 });
+  const frames = Buffer.alloc(400 * 1024).toString("base64");
+  const body = `{"type":"session","schema":4}\n{"type":"stroke","heatmap":{"frames":"${frames}"}}\n`;
+  assert.equal((await upload(body)).status, 415);
+});
+
+test("rejects unknown top-level fields and long or odd keys", async () => {
+  github({ status: 201 });
+  assert.equal((await upload('{"type":"session","schema":4}\n{"type":"stroke","payload":1}\n')).status, 415);
+  assert.equal((await upload('{"type":"session","schema":4,"extra":1}\n{"type":"stroke"}\n')).status, 415);
+  const longKey = "k".repeat(5000);
+  assert.equal((await upload(`{"type":"session","schema":4}\n{"type":"stroke","context":{"${longKey}":1}}\n`)).status, 415);
+  assert.equal((await upload('{"type":"session","schema":4}\n{"type":"stroke","context":{"a b":1}}\n')).status, 415);
+});
+
+test("rejects a session that inflates past the cap", async () => {
+  github({ status: 201 });
+  const filler = '{"type":"stroke","samples":{"x":[' + "0,".repeat(1000) + "0]}}\n";
+  const big = '{"type":"session","schema":4}\n' + filler.repeat(Math.ceil((25 * 1024 * 1024) / filler.length));
+  assert.equal((await upload(big)).status, 415);
+});

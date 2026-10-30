@@ -68,8 +68,9 @@ orchestrates side effects (history, persistence) around each dispatch.
 | `:core:design` | Design system: theme, strings, reusable components. |
 | `:core:nativebridge` | JNI bridge to the native world: the Liquify warper (`LiquifyEngine`) and the GPU brush engine. |
 
-Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app),
-and on the CPU on any device where wgpu can't start. The wgpu library ships for both 64-bit
+Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app).
+There is no CPU renderer: on a device where wgpu can't start, strokes are not painted and the App
+says so (`HardwareFloorNotice`). The wgpu library ships for both 64-bit
 (arm64-v8a) and 32-bit (armeabi-v7a) devices, so both paint on the GPU. wgpu is the only GPU backend: the earlier
 Vulkan and OpenGL ES engines, and the Settings switch between them, were retired (see
 `ARCHITECTURE.md`, Decisions, and `docs/Native Rendering Engine Design.md` §2c).

@@ -656,7 +656,8 @@ class EditorViewModel @Inject constructor(
 
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
-        // removes any that were refunded. Best effort; a network failure removes nothing.
+        // removes any the repository says were refunded. Best effort; a network failure, an
+        // unreadable store or the device clock removes nothing.
         azphaltPurchases?.let { purchases ->
             viewModelScope.launch {
                 runCatching {
@@ -3047,9 +3048,18 @@ class EditorViewModel @Inject constructor(
                     put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                     put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                 }
-                val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                    ?: throw java.io.IOException("Failed to create MediaStore entry")
-                context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                val uri = context.contentResolver.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    contentValues,
+                )
+                // A null stream used to fall through to "Saved" with an empty file left in Downloads.
+                val out = uri?.let { context.contentResolver.openOutputStream(it) }
+                if (uri == null || out == null) {
+                    uri?.let { context.contentResolver.delete(it, null, null) }
+                    val why = if (uri == null) "Failed to create MediaStore entry" else "couldn't open the file"
+                    throw java.io.IOException(why)
+                }
+                out.use { o -> file.inputStream().use { it.copyTo(o) } }
                 withContext(dispatchers.main) {
                     notify(successMessage, NoticeKind.NOTICE)
                 }
@@ -8830,10 +8840,8 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    private fun descendantIds(layers: List<Layer>, parentId: String): Set<String> {
-        val direct = layers.filter { it.parentId == parentId }.map { it.id }
-        return direct.toSet() + direct.flatMap { descendantIds(layers, it) }
-    }
+    private fun descendantIds(layers: List<Layer>, parentId: String): Set<String> =
+        com.hereliesaz.graffitixr.feature.editor.descendantLayerIds(layers, parentId)
 
     fun onToggleClipToLayerBelow(id: String) {
         pushHistory()
@@ -10978,8 +10986,9 @@ class EditorViewModel @Inject constructor(
     // ── In-app azphalt store browse (spec/repository-api.md) ────────────────────────────────────
     //
     // Graffux talks to the Repository API directly here rather than only delegating to a separate
-    // store app (AzphaltStoreHandoff): it is still not a marketplace (it hosts no catalog and takes no
-    // payment), but there is no reason to make browsing, obtaining and installing free extensions any
+    // store app (AzphaltStoreHandoff): it is still not a marketplace (it hosts no catalog; paid packages
+    // are bought through the repository's own payment routes, see buyPackage), but there is no
+    // reason to make browsing, obtaining and installing free extensions any
     // less than a first-class in-app path. The delegated handoff and the azphalt://install deep link
     // both still exist and still work — this is a second, primary way in, not a replacement.
 
@@ -12265,7 +12274,8 @@ class EditorViewModel @Inject constructor(
         private val serialIo = dispatchers.io.limitedParallelism(1)
 
         override fun save(title: String, body: String) {
-            if (predictionReports == null) return
+            // Nothing can file it without a connected token, so don't write a file per stroke for nothing.
+            if (predictionReports?.isConnected?.value != true) return
             // First line title, rest body -- CrashIssueUploader's format for this file.
             viewModelScope.launch(serialIo) { runCatching { file.writeText(title + "\n" + body) } }
         }
