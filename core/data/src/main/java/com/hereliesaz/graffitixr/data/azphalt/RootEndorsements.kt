@@ -24,6 +24,13 @@ object RootEndorsements {
 
     const val TYPE = "azphalt-root-endorsement"
 
+    /**
+     * Grace past `notAfter` for a device clock that runs ahead. Generous on purpose: expiry is the
+     * root's rotation backstop, while withdrawing a key is done by removing it from the document.
+     */
+    val CLOCK_SKEW: java.time.Duration = java.time.Duration.ofDays(CLOCK_SKEW_DAYS)
+    private const val CLOCK_SKEW_DAYS = 30L
+
     /** The key signs entitlement tokens ([purchase.EntitlementVerifier]). */
     const val PURPOSE_ENTITLEMENT = "entitlement"
 
@@ -50,8 +57,9 @@ object RootEndorsements {
 
     /**
      * Null when [endorsement] is the root's endorsement of exactly [publicKey] for [purpose], valid at
-     * [now]; otherwise why not. Missing, malformed, forged, cross-key, cross-purpose, not-yet-valid
-     * and expired endorsements are all refusals.
+     * [now]; otherwise why not. Missing, malformed, forged, cross-key, cross-purpose and expired
+     * (past `notAfter` by more than [CLOCK_SKEW]) endorsements are refusals; `notBefore` is signed
+     * and must parse, but is not compared with the device clock.
      */
     fun refusal(
         endorsement: JsonObject?,
@@ -72,8 +80,13 @@ object RootEndorsements {
                 canonical(purpose, publicKey, e.notBefore!!, e.notAfter).toByteArray(Charsets.UTF_8),
                 e.signature!!,
             ) -> "root signature does not verify"
-            now.isBefore(e.start) -> "endorsement is not valid yet"
-            e.end != null && !now.isBefore(e.end) -> "endorsement has expired"
+            // notBefore is deliberately not compared with the device clock: the root's signature is
+            // the whole proof, an endorsement that is merely early grants nothing the root did not
+            // sign, and a clock that is behind (a dead RTC reading 1970) would otherwise drop every key.
+            // notAfter is judged by this device's clock with CLOCK_SKEW of grace. Not by the server's
+            // HTTP Date: the endorsement exists to distrust whoever answers for azphalt.store, and
+            // that party writes the Date header.
+            e.end != null && !now.isBefore(e.end.plus(CLOCK_SKEW)) -> "endorsement has expired"
             else -> null
         }
     }

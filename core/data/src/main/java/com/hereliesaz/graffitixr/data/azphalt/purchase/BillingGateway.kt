@@ -49,6 +49,13 @@ interface BillingGateway {
     /** Launch Play's purchase flow for [productId], under [mode]. Suspends until Google answers. */
     suspend fun purchase(activity: Activity, productId: String, mode: BillingMode): PlayFlowResult
 
+    /**
+     * What Play will charge for [productId], localised and formatted by Google (`ProductDetails`
+     * one-time offer's `formattedPrice`): the number a Play route's Buy button must show. Null when
+     * Play cannot say.
+     */
+    suspend fun formattedPrice(productId: String): String? = null
+
     /** Every one-time purchase Play holds for this user (restores on reinstall / a new device). */
     suspend fun ownedPurchases(): List<PlayPurchase>
 }

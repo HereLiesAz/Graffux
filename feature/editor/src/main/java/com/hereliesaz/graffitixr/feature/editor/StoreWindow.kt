@@ -1,4 +1,6 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/StoreWindow.kt
+@file:Suppress("TooManyFunctions") // one window: its tabs, card, dialogs and label helpers
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.foundation.layout.size
@@ -50,6 +52,7 @@ import com.hereliesaz.graffitixr.common.azphalt.PackageSummary
 import com.hereliesaz.graffitixr.common.azphalt.SignatureStatus
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
+import com.hereliesaz.graffitixr.data.azphalt.purchase.BuyPrice
 import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.FloatingWindow
@@ -100,6 +103,12 @@ fun StoreWindow(
     onRestorePurchases: () -> Unit = {},
     /** An awaiting or pending purchase's "check again". */
     onCheckPurchase: (PackageSummary) -> Unit = {},
+    /** Whose price each paid card shows; see [buyLabel]. */
+    buyPrices: Map<String, BuyPrice> = emptyMap(),
+    /** Asked for the paid packages on screen, so their [buyPrices] load. */
+    onLoadPrices: (List<String>) -> Unit = {},
+    /** "Restore with a purchase code", with what the buyer entered. */
+    onRestoreWithCode: (String) -> Unit = {},
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     val installedIds = remember(installed) { installed.map { it.id }.toSet() }
@@ -147,6 +156,9 @@ fun StoreWindow(
                     onBuyOnWeb = onBuyOnWeb,
                     onRestorePurchases = onRestorePurchases,
                     onCheckPurchase = onCheckPurchase,
+                    buyPrices = buyPrices,
+                    onLoadPrices = onLoadPrices,
+                    onRestoreWithCode = onRestoreWithCode,
                 )
                 StoreTab.INSTALLED -> InstalledTab(
                     installed = installed,
@@ -247,7 +259,19 @@ private fun BrowseTab(
     onBuyOnWeb: (PackageSummary) -> Unit,
     onRestorePurchases: () -> Unit,
     onCheckPurchase: (PackageSummary) -> Unit,
+    buyPrices: Map<String, BuyPrice>,
+    onLoadPrices: (List<String>) -> Unit,
+    onRestoreWithCode: (String) -> Unit,
 ) {
+    val paidIds = remember(results) { results.filter { it.priceStatus.isPaid }.map { it.id } }
+    LaunchedEffect(paidIds) { if (paidIds.isNotEmpty()) onLoadPrices(paidIds) }
+    var askCode by remember { mutableStateOf(false) }
+    if (askCode) {
+        RestoreCodeDialog(
+            onRestore = { code -> askCode = false; onRestoreWithCode(code) },
+            onDismiss = { askCode = false },
+        )
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -304,6 +328,7 @@ private fun BrowseTab(
                     purchase = purchaseStates[pkg.id],
                     onBuyOnWeb = { onBuyOnWeb(pkg) },
                     onCheckAgain = { onCheckPurchase(pkg) },
+                    buyPrice = buyPrices[pkg.id],
                 )
             }
         }
@@ -321,6 +346,11 @@ private fun BrowseTab(
                 .height(FullWidthButtonHeight)
                 .padding(top = 4.dp),
         )
+        // A card purchase on a reinstalled or new device: the buyer cookie is never backed up, so the
+        // code azphalt.store showed at checkout (or its success link) brings it back.
+        TextButton(onClick = { askCode = true }, modifier = Modifier.fillMaxWidth().heightIn(min = MinTouch)) {
+            Text("Restore with a purchase code", style = MaterialTheme.typography.bodySmall)
+        }
         GraffuxButton(
             text = "Other sources (store app / browser)…",
             onClick = onOtherSources,
@@ -345,6 +375,7 @@ private fun PackageCard(
     purchase: com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState? = null,
     onBuyOnWeb: () -> Unit = {},
     onCheckAgain: () -> Unit = {},
+    buyPrice: BuyPrice? = null,
 ) {
     Column(
         modifier = Modifier
@@ -385,7 +416,7 @@ private fun PackageCard(
                     pkg.author?.let { append(it) }
                     if (pkg.priceStatus.isPaid) {
                         if (isNotEmpty()) append(" · ")
-                        append(pkg.price?.let(::formatPrice) ?: "Paid")
+                        append(shownPrice(pkg.price, buyPrice) ?: "Paid")
                     }
                     pkg.rating?.let {
                         if (isNotEmpty()) append(" · ")
@@ -486,7 +517,7 @@ private fun PackageCard(
                 pkg.priceStatus.isPaid -> Column(Modifier.fillMaxWidth()) {
                     GraffuxButton(
                         // The price before the tap, when the repository sends it.
-                        text = buyLabel(pkg.price),
+                        text = buyLabel(pkg.price, buyPrice),
                         onClick = onBuy,
                         shape = GraffuxButtonShape.RECTANGLE,
                         contentPadding = CardActionPadding,
@@ -626,9 +657,26 @@ private fun rememberExtensionCapabilities(extension: InstalledExtension): List<S
     }
 }
 
-/** A paid card's button: "Buy · $4.99" when the repository sends a price, else plain "Buy". */
-internal fun buyLabel(price: com.hereliesaz.graffitixr.common.azphalt.PackagePrice?): String =
-    price?.let { "Buy · ${formatPrice(it)}" } ?: "Buy"
+/**
+ * A paid card's button: "Buy · <price>" with the price of whoever will charge it, else plain "Buy".
+ * A Play route shows Google's own localised price ([BuyPrice.Play]); a Stripe route the repository's.
+ * Null [buyPrice] (a Play build whose route or Play price isn't known yet) shows no number at all,
+ * rather than one the Play sheet may not charge.
+ */
+internal fun buyLabel(
+    price: com.hereliesaz.graffitixr.common.azphalt.PackagePrice?,
+    buyPrice: BuyPrice? = BuyPrice.Repository,
+): String = shownPrice(price, buyPrice)?.let { "Buy · $it" } ?: "Buy"
+
+/** The price text to show for a paid package; see [buyLabel]. */
+internal fun shownPrice(
+    price: com.hereliesaz.graffitixr.common.azphalt.PackagePrice?,
+    buyPrice: BuyPrice?,
+): String? = when (buyPrice) {
+    is BuyPrice.Play -> buyPrice.formatted
+    BuyPrice.Repository -> price?.let(::formatPrice)
+    null -> null
+}
 
 /** [price] in the user's locale: "$4.99", "€12.00", "¥500"; unknown currencies as "499 XYZ". */
 internal fun formatPrice(
@@ -644,3 +692,34 @@ internal fun formatPrice(
 }
 
 private val MinTouch = 48.dp
+
+/** Asks for a card purchase's code (`cs_…`) or the success link azphalt.store showed. */
+@Suppress("FunctionNaming")
+@Composable
+private fun RestoreCodeDialog(onRestore: (String) -> Unit, onDismiss: () -> Unit) {
+    var code by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Restore with a purchase code") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Paste the purchase code (it starts with cs_) or the link from your azphalt.store " +
+                        "checkout. Every card purchase you made comes back with it.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it },
+                    label = { Text("Purchase code or link") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onRestore(code) }, enabled = code.isNotBlank()) { Text("Restore") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}

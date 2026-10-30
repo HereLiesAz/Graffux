@@ -168,16 +168,7 @@ class PlayBillingGateway(private val context: Context) : BillingGateway {
 
     private suspend fun purchaseLocked(activity: Activity, productId: String, mode: BillingMode): PlayFlowResult {
         val c = client(mode)
-        val details = if (!ready(c)) null else suspendCancellableCoroutine<ProductDetails?> { cont ->
-            c.queryProductDetailsAsync(
-                QueryProductDetailsParams.newBuilder().setProductList(listOf(
-                    QueryProductDetailsParams.Product.newBuilder()
-                        .setProductId(productId)
-                        .setProductType(BillingClient.ProductType.INAPP)
-                        .build(),
-                )).build(),
-            ) { _, result -> if (cont.isActive) cont.resume(result.productDetailsList.firstOrNull()) }
-        }
+        val details = productDetails(c, productId)
         if (details == null) return PlayFlowResult.Failed(NOT_ON_PLAY)
 
         val deferred = CompletableDeferred<PlayFlowResult>()
@@ -207,6 +198,21 @@ class PlayBillingGateway(private val context: Context) : BillingGateway {
         }
         return result
     }
+
+    private suspend fun productDetails(c: BillingClient, productId: String): ProductDetails? =
+        if (!ready(c)) null else suspendCancellableCoroutine { cont ->
+            c.queryProductDetailsAsync(
+                QueryProductDetailsParams.newBuilder().setProductList(listOf(
+                    QueryProductDetailsParams.Product.newBuilder()
+                        .setProductId(productId)
+                        .setProductType(BillingClient.ProductType.INAPP)
+                        .build(),
+                )).build(),
+            ) { _, result -> if (cont.isActive) cont.resume(result.productDetailsList.firstOrNull()) }
+        }
+
+    override suspend fun formattedPrice(productId: String): String? =
+        productDetails(client(BillingMode.PLAY_ONLY), productId)?.oneTimePurchaseOfferDetails?.formattedPrice
 
     override suspend fun ownedPurchases(): List<PlayPurchase> {
         val c = client(BillingMode.PLAY_ONLY)

@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.common.model.isAdjustment
 import com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState
+import com.hereliesaz.graffitixr.data.azphalt.purchase.rethrowCancellation
 import com.hereliesaz.graffitixr.common.crash.Breadcrumbs
 
 import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
@@ -683,6 +684,16 @@ class EditorViewModel @Inject constructor(
     val purchaseStates: kotlinx.coroutines.flow.StateFlow<Map<String, PurchaseState>> =
         azphaltPurchases?.coordinator?.states ?: kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
 
+    /** Whose price each paid card shows (Play's on a Play route, the repository's on Stripe). */
+    val buyPrices: kotlinx.coroutines.flow.StateFlow<Map<String, com.hereliesaz.graffitixr.data.azphalt.purchase.BuyPrice>> =
+        azphaltPurchases?.coordinator?.prices ?: kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+
+    /** Load [buyPrices] for the paid packages on screen. */
+    fun loadBuyPrices(packageIds: List<String>) {
+        val coordinator = azphaltPurchases?.coordinator ?: return
+        viewModelScope.launch { runCatching { coordinator.loadPrices(packageIds) }.rethrowCancellation() }
+    }
+
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
         // removes any the repository says were refunded. Best effort; a network failure, an
@@ -691,7 +702,7 @@ class EditorViewModel @Inject constructor(
             viewModelScope.launch {
                 runCatching {
                     purchases.coordinator.restore(paidCatalogue = { purchases.paidCatalogue(context.packageName) })
-                }
+                }.rethrowCancellation()
             }
         }
     }
@@ -757,16 +768,44 @@ class EditorViewModel @Inject constructor(
                     paidCatalogue = { purchases.paidCatalogue(context.packageName) },
                     installMissing = true,
                 )
-            }.getOrNull()
+            }.rethrowCancellation().getOrNull()
             notify(
                 when {
                     report == null -> "Couldn't restore purchases right now."
+                    // No buyer cookie here: card purchases from another device or install can't be
+                    // found without the code azphalt.store showed, so say how.
+                    report.restored == 0 && !purchases.coordinator.hasCardPurchaseSession() ->
+                        "Purchases are up to date. Bought with a card before reinstalling or on another device? " +
+                            "Use Restore with a purchase code."
                     report.restored == 0 -> "Purchases are up to date."
                     else -> "Restored ${report.restored} purchase(s)."
                 },
                 NoticeKind.NOTICE,
             )
             refreshStoreUpdates()
+        }
+    }
+
+    /**
+     * "Restore with a purchase code": a card purchase made on another device or before a reinstall,
+     * from the code (or success link) azphalt.store showed. Restores that purchase and, through the
+     * buyer cookie it brings back, every other card purchase by the same buyer.
+     */
+    fun restorePurchaseFromCode(code: String) {
+        val purchases = azphaltPurchases ?: return
+        viewModelScope.launch {
+            val state = runCatching { purchases.coordinator.restoreFromCode(code) }.rethrowCancellation()
+                .getOrElse { PurchaseState.Failed("Couldn't check that purchase code right now.") }
+            when (state) {
+                null -> notify("That doesn't look like a purchase code. It starts with cs_.", NoticeKind.WARNING)
+                is PurchaseState.Installed, PurchaseState.Idle -> {
+                    notify("Purchase restored.", NoticeKind.NOTICE)
+                    restorePurchases()
+                }
+                is PurchaseState.Pending -> notify(state.message, NoticeKind.NOTICE)
+                is PurchaseState.Failed -> notify(state.message, NoticeKind.WARNING)
+                else -> Unit
+            }
         }
     }
 
@@ -5985,7 +6024,7 @@ class EditorViewModel @Inject constructor(
 
     /** A peer's mask pixels into the store, scaled to this screen's world size, then redrawn. */
     private fun installPeerMask(op: Op.AdjustmentMaskData) {
-        val raw = CoopMaskCodec.inflate(op.deflated, op.width * op.height) ?: return
+        val raw = CoopMaskCodec.inflateMask(op.deflated, op.width, op.height) ?: return
         val (w, h) = adjustmentWorldSize()
         val bytes = if (op.width == w && op.height == h) raw else runCatching {
             val bitmap = AdjustmentMasks.toBitmap(raw, op.width, op.height)
