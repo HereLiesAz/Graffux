@@ -1,4 +1,7 @@
-@file:Suppress("MagicNumber", "LongMethod", "LongParameterList", "CyclomaticComplexMethod", "ReturnCount")
+@file:Suppress(
+    "MagicNumber", "LongMethod", "LongParameterList", "CyclomaticComplexMethod",
+    "ReturnCount", "TooManyFunctions", "ComplexCondition",
+)
 
 package com.hereliesaz.graffitixr.common.mesh
 
