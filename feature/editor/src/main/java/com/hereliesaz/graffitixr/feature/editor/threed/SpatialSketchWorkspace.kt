@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,10 +36,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import android.opengl.GLSurfaceView
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.mesh.OrbitCamera
 import com.hereliesaz.graffitixr.common.mesh.SpatialPoint
@@ -129,7 +135,54 @@ private fun SketchViewport(
     var draft by remember { mutableStateOf<List<SpatialPoint>>(emptyList()) }
     LaunchedEffect(cameraReset) { camera = OrbitCamera(pitch = 0f) }
 
-    Canvas(modifier.pointerInput(strokes, tool, depth, colorArgb, brushRadiusPx) {
+    // Scene ink is depth-tested in GLES; Compose owns only the translucent guide and gestures.
+    val renderer = remember { SpatialStrokeRenderer() }
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val surface = remember(context) {
+        GLSurfaceView(context).apply {
+            setEGLContextClientVersion(3)
+            setEGLConfigChooser(8, 8, 8, 8, 24, 0)
+            preserveEGLContextOnPause = true
+            setRenderer(renderer)
+            renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
+        }
+    }
+    // A preview uses the same triangles as committed geometry, so drawing does not jump when
+    // the pen lifts. Only geometry changes trigger tessellation; camera movement updates MVP.
+    var viewportHeight by remember { mutableIntStateOf(1) }
+    val visibleStrokes = remember(strokes, draft, colorArgb, brushRadiusPx, camera, viewportHeight) {
+        if (draft.isEmpty()) strokes else strokes + SpatialStroke(
+            "live-preview", draft, colorArgb,
+            SpatialSketchGeometry.widthForBrush(camera, brushRadiusPx, viewportHeight.toFloat()),
+        )
+    }
+    LaunchedEffect(camera, visibleStrokes) {
+        renderer.camera = camera
+        renderer.setStrokes(visibleStrokes)
+        surface.requestRender()
+    }
+    DisposableEffect(lifecycleOwner, surface) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> surface.onResume()
+                Lifecycle.Event.ON_PAUSE -> surface.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            surface.onResume()
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            surface.onPause()
+        }
+    }
+
+    Box(modifier.onSizeChanged { viewportHeight = it.height.coerceAtLeast(1) }) {
+        AndroidView(factory = { surface }, modifier = Modifier.fillMaxSize())
+        Canvas(Modifier.fillMaxSize().pointerInput(strokes, tool, depth, colorArgb, brushRadiusPx) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             val w = size.width.toFloat()
@@ -198,32 +251,6 @@ private fun SketchViewport(
                     Offset(two.first, two.second), strokeWidth = 1f)
             }
         }
-        val eye = camera.eye()
-        val ordered = strokes.sortedByDescending { s ->
-            s.points.firstOrNull()?.let { p ->
-                val x = p.x - eye[0]; val y = p.y - eye[1]; val z = p.z - eye[2]
-                x * x + y * y + z * z
-            } ?: 0f
-        }
-        ordered.forEach { renderStroke(it, camera) }
-        if (draft.isNotEmpty()) {
-            renderStroke(SpatialStroke("preview", draft, colorArgb,
-                SpatialSketchGeometry.widthForBrush(camera, brushRadiusPx, size.height)), camera)
-        }
     }
-}
-
-private fun DrawScope.renderStroke(stroke: SpatialStroke, camera: OrbitCamera) {
-    val tint = Color(stroke.colorArgb)
-    for (i in stroke.points.indices) {
-        val point = stroke.points[i]
-        val one = SpatialSketchGeometry.project(camera, point, size.width, size.height) ?: continue
-        val width = (SpatialSketchGeometry.widthPixels(camera, point, stroke.width, size.height) *
-            point.pressure.coerceIn(0.05f, 1f)).coerceAtLeast(1f)
-        val start = Offset(one.first, one.second)
-        if (i == 0) drawCircle(tint, radius = width / 2f, center = start)
-        val next = stroke.points.getOrNull(i + 1) ?: continue
-        val two = SpatialSketchGeometry.project(camera, next, size.width, size.height) ?: continue
-        drawLine(tint, start, Offset(two.first, two.second), strokeWidth = width, cap = StrokeCap.Round)
     }
 }
