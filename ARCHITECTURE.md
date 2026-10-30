@@ -482,30 +482,32 @@ codebase is deferred scope or a real gap in the install-report flow.
   `HighResOverlayConfig.ENABLED = false`.
 
 
-## Spatial Sketch: editable 3D ink (project format v5)
+## Spatial Sketch: editable 3D ink and guides (project format v6)
 
-The spatial sketch is a **separate full-screen scene** at View → 3D → Sketch in 3D, not a 2D
-snapshot of the imported model's UV texture. `SpatialSketchGeometry` intersects the input ray
-(`MeshPicker.unproject` + `OrbitCamera`) with the camera-facing guide, adjustable in depth.
-Each resulting point stores real XYZ plus stylus pressure. Colour and world-space width belong to
-the complete `SpatialStroke`; orbiting the camera does not move an existing stroke.
+The full-screen workspace at View → 3D → Sketch in 3D remains independent of the imported-OBJ
+texture painter. `SpatialGuideSurface.intersect` uses `MeshPicker.unproject` and an `OrbitCamera`
+world ray; a bounded plane, sphere, or finite cylinder then finds the *nearest positive hit* in
+guide-local space. Fixed guides have a persistent XYZ centre and yaw/pitch axes, independent of
+the orbit camera. A camera-facing view plane remains the default for version-5 and earlier
+projects; it moves with the view, preserving the original workflow. The same local-to-world
+transform generates the wireframe segments. A ray miss ends the current stroke segment, avoiding
+phantom straight bridges across off-surface gaps.
 
-`EditorViewModel.spatialStrokes` owns a scene-wide list and a bounded, independent history;
-changes save through the existing project persistence flow. `GraffitiProject.spatialStrokes` is
-written to project.json, so .fux backups and project reopening preserve its geometry. Imported
-OBJ UV-paint remains unchanged.
+`GraffitiProject.spatialGuide` is serializable guide metadata (kind, centre, radius, height, yaw,
+pitch, view depth and visibility). `EditorViewModel.spatialGuide` publishes edits and saves them
+through the same project repository used for the independent world-space
+`GraffitiProject.spatialStrokes`. A guide change affects only FUTURE input points; previous XYZ
+strokes retain their positions, and 2D layers/history are untouched. The format-6 upgrade
+defaults absent guide metadata without changing a saved format-5 stroke.
 
-The spatial workspace now uses `SpatialStrokeRenderer` (GLES 3.0) to draw the exact triangle
-tubes produced by `SpatialGltfExporter.buildMesh`. The same camera matrices drive the GL scene
-and the Compose drawing guide. GLES depth testing makes nearer ink occlude farther ink per
-fragment, rather than approximating depth with a per-stroke sort. GL resource creation, context-loss
-re-upload and tessellation happen on the GL thread. Render-on-demand avoids a busy 60 Hz loop
-when neither camera nor strokes change. The host resumes and pauses the surface with lifecycle.
+`SpatialStrokeRenderer` (GLES 3.0) draws the exact triangle tubes produced by
+`SpatialGltfExporter.buildMesh`. Depth testing occludes farther ink; changing camera matrices
+does not rebuild unchanged meshes. Compose continues to draw lightweight wireframe guides and
+own touch input. The surface is resumed and paused with its lifecycle; GL handles and mesh uploads
+are refreshed after context recreation.
 
-**Still incomplete relative to Feather:** transparent strokes use conventional alpha blending
-and depth writes, not order-independent transparency. The tubes remain unlit with open end
-caps; material lighting and sophisticated brush texture are not implemented. Guides are
-camera-facing planes, not curved or lofted surfaces. Shape editing, selection/transforms, true
-mesh-guided curves, scene OBJ export and AR view remain unimplemented. The existing OBJ
-UV-paint tool is intentionally separate, preserving its original workflow. Do not call
-this Feather parity.
+**Remaining limitations:** wireframe guides are a visual overlay, not a depth-occluded shaded
+surface. The cylinder deliberately paints only its curved side, not its caps; sphere and cylinder
+are analytic primitives rather than deformable lofted guides. Transparent ink uses ordinary alpha
+blending with depth writes, not order-independent transparency. Stroke handles/transforms, textured
+paint materials, arbitrary mesh-guided 3D strokes, and OBJ scene export are still pending.
