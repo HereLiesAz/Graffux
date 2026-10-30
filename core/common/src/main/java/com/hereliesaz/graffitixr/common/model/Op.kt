@@ -67,4 +67,29 @@ sealed class Op {
         }
         override fun hashCode(): Int = 31 * layerId.hashCode() + png.contentHashCode()
     }
+
+    /**
+     * The pixels of an adjustment layer's mask at [revision] (the Local tab paints them), which
+     * [LayerPropsChange] names but cannot carry: one byte per world pixel, [width] x [height],
+     * deflated. Sent before the props that first name the revision, and again when a mask stroke
+     * finishes. A peer that predates this op drops it (an unknown type) and renders that adjustment
+     * everywhere, as every peer did before it existed.
+     */
+    @Serializable
+    data class AdjustmentMaskData(
+        val layerId: String,
+        val revision: Int,
+        val width: Int,
+        val height: Int,
+        val deflated: ByteArray,
+    ) : Op() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is AdjustmentMaskData) return false
+            return layerId == other.layerId && revision == other.revision && width == other.width &&
+                height == other.height && deflated.contentEquals(other.deflated)
+        }
+        override fun hashCode(): Int =
+            (((layerId.hashCode() * 31 + revision) * 31 + width) * 31 + height) * 31 + deflated.contentHashCode()
+    }
 }

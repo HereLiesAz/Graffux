@@ -1046,7 +1046,9 @@ The finished stroke becomes an ordinary `StrokeCommand` carrying `inkStroke` and
   back to the round brush, which is what every Ink stroke did before the id existed.
   - The wire has no input timestamps, so the guest spaces its inputs evenly. The stock families
     shape strokes by distance, so this is invisible.
-  - Alpha lock, wrap-around and the selection clip are not carried, as for every co-op stroke.
+  - A stroke carries no clip: the guest does not confine it by alpha lock, wrap-around or the
+    selection, as for every co-op stroke. The layer's alpha-lock flag itself is synced, in
+    `LayerProps`, like its other properties.
   - The field is null on round-brush strokes and is not encoded, so those strokes are unchanged on
     the wire.
   - No co-op transport is bound yet (`NoOpOpEmitter`). A future transport that decodes strictly
