@@ -34,7 +34,8 @@ class ExtensionRepositoryTrustRefreshTest {
             override val default = idle
             override val unconfined = idle
         }
-        return ExtensionRepository(context, dispatchers)
+        // These bodies carry no root endorsements; this suite is about refresh ordering, not trust.
+        return ExtensionRepository(context, dispatchers).also { it.enforceRootEndorsements = false }
     }
 
     private val keysBody = """{"signingKeys":[{"publicKey":"AAAA","keyId":"k1"}]}"""

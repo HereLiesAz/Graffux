@@ -13,8 +13,10 @@ import com.hereliesaz.graffitixr.common.azphalt.TrustStore
 import com.hereliesaz.graffitixr.common.azphalt.parseCubeLut
 import com.hereliesaz.graffitixr.common.azphalt.parseManifest
 import com.hereliesaz.graffitixr.common.DispatcherProvider
+import com.hereliesaz.graffitixr.data.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.floatOrNull
@@ -55,6 +57,13 @@ class ExtensionRepository @Inject constructor(
     dispatcherProvider: DispatcherProvider,
 ) {
     private val extensionsRoot = File(context.filesDir, "extensions")
+
+    /**
+     * Trust a published key only with the pinned root's endorsement for its purpose. Always true in a
+     * release build; a debug build may opt out with `-Pgraffux.azphaltRootEnforcement=false`
+     * (core/data/build.gradle.kts). A test seam, never changed at runtime by the app.
+     */
+    internal var enforceRootEndorsements: Boolean = BuildConfig.AZPHALT_ROOT_ENFORCED
 
     /**
      * What this host has done with each package it acquired (spec/state-reporting.md). Kept apart
@@ -102,9 +111,18 @@ class ExtensionRepository @Inject constructor(
      * survives offline launches, and refreshed in the background. A non-empty store transitively
      * trusts every author the registry counter-signs, so installed extensions' [SignatureStatus]
      * upgrades from SIGNED_UNTRUSTED to SIGNED_TRUSTED the moment the registry key arrives.
+     *
+     * The registry's word is not enough on its own: with [enforceRootEndorsements] on (always, in a
+     * release build) a published key enters this store only with the pinned offline root's
+     * `package-catalog` endorsement, and serves entitlements only with its `entitlement` one
+     * ([RootEndorsements], [KeyTrust]). Endorsements are re-checked against the clock whenever the
+     * keys are loaded or refreshed, so one that expires drops its key at the next launch or refresh.
      */
     @Volatile
     private var trustStore: TrustStore = TrustStore.EMPTY
+
+    @Volatile
+    private var entitlementKeys: Set<String> = emptySet()
 
     @Volatile
     private var installer = AzpInstaller(extensionsRoot, trustStore)
@@ -130,7 +148,10 @@ class ExtensionRepository @Inject constructor(
     init {
         ioScope.launch {
             synchronized(lock) {
-                trustStore = loadCachedTrustStore()
+                loadCachedTrust().let {
+                    trustStore = it.packages
+                    entitlementKeys = it.entitlementKeys
+                }
                 installer = AzpInstaller(extensionsRoot, trustStore)
                 _installed.value = scanInstalled()
             }
@@ -144,10 +165,11 @@ class ExtensionRepository @Inject constructor(
     fun refreshTrustedKeys() = refreshTrustStore()
 
     /**
-     * The repository signing keys this host trusts (`/.well-known/azphalt-repository.json`), as base64
-     * SPKI. Entitlements are checked against these on the device ([purchase.EntitlementVerifier]).
+     * The published keys (`/.well-known/azphalt-repository.json`, base64 SPKI) this host accepts as
+     * entitlement signers: with root enforcement on, only those the pinned root endorsed for
+     * `entitlement`. Entitlements are checked against these on the device ([purchase.EntitlementVerifier]).
      */
-    fun trustedKeys(): Set<String> = synchronized(lock) { trustStore.keys.map { it.publicKey }.toSet() }
+    fun entitlementKeys(): Set<String> = entitlementKeys
 
     /**
      * Verify and unpack an `.azp` from an arbitrary [input] stream — a user-picked file (a
@@ -522,11 +544,11 @@ class ExtensionRepository @Inject constructor(
 
     // ── Trust store bootstrap (spec/repository-api.md § Trust bootstrap) ─────────────────────────
 
-    private fun loadCachedTrustStore(): TrustStore {
+    private fun loadCachedTrust(): KeyTrust {
         val file = File(context.filesDir, TRUST_CACHE_FILE)
-        if (!file.exists()) return TrustStore.EMPTY
+        if (!file.exists()) return KeyTrust.EMPTY
         val keys = runCatching { parseSigningKeys(file.readText()) }.getOrNull()
-        return if (keys.isNullOrEmpty()) TrustStore.EMPTY else TrustStore(keys)
+        return if (keys.isNullOrEmpty()) KeyTrust.EMPTY else KeyTrust.from(keys, enforceRootEndorsements)
     }
 
     private fun refreshTrustStore() {
@@ -560,8 +582,9 @@ class ExtensionRepository @Inject constructor(
     internal fun applyFetchedTrustStore(body: String, generationAtStart: Long): Boolean {
         // null = not a trust-store document (malformed, or no signingKeys array): keep what we have.
         // An explicit empty list is a real answer -- the registry revoking every key -- and applies.
-        val store = parseSigningKeys(body)?.let { TrustStore(it) }
-        if (store == null || store == trustStore) return false
+        val trust = parseSigningKeys(body)?.let { KeyTrust.from(it, enforceRootEndorsements) }
+        if (trust == null || (trust.packages == trustStore && trust.entitlementKeys == entitlementKeys)) return false
+        val store = trust.packages
         return synchronized(lock) {
             // Write-then-rename so a kill mid-write can't leave truncated JSON in the cache.
             val cache = File(context.filesDir, TRUST_CACHE_FILE)
@@ -572,6 +595,7 @@ class ExtensionRepository @Inject constructor(
                 tmp.delete()
             }
             trustStore = store
+            entitlementKeys = trust.entitlementKeys
             installer = AzpInstaller(extensionsRoot, store)
             val unchanged = mutationGeneration == generationAtStart
             if (unchanged) _installed.value = scanInstalled()
@@ -579,17 +603,23 @@ class ExtensionRepository @Inject constructor(
         }
     }
 
+    /** Test seam: the package trust store in use. */
+    internal fun trustStoreForTest(): TrustStore = trustStore
+
     /** Test seam: the current [mutationGeneration]. */
     internal fun currentMutationGeneration(): Long = synchronized(lock) { mutationGeneration }
 
     /** The document's keys (possibly empty), or null when [json] isn't a trust-store document. */
-    private fun parseSigningKeys(json: String): List<TrustedKey>? = runCatching {
+    private fun parseSigningKeys(json: String): List<PublishedKey>? = runCatching {
         val root = Json.parseToJsonElement(json).jsonObject
         val arr = root["signingKeys"]?.jsonArray ?: return@runCatching null
         arr.mapNotNull { el ->
             val obj = el.jsonObject
             val pk = obj["publicKey"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-            TrustedKey(pk, obj["keyId"]?.jsonPrimitive?.contentOrNull, obj["label"]?.jsonPrimitive?.contentOrNull)
+            PublishedKey(
+                TrustedKey(pk, obj["keyId"]?.jsonPrimitive?.contentOrNull, obj["label"]?.jsonPrimitive?.contentOrNull),
+                obj["endorsement"] as? JsonObject,
+            )
         }
     }.getOrNull()
 

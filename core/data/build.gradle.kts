@@ -31,6 +31,21 @@ android {
     buildFeatures {
         buildConfig = true
     }
+
+    // Root endorsements (azphalt spec/repository-api.md § Root endorsements): a key azphalt.store
+    // publishes is trusted for entitlements or packages only when the pinned offline root endorsed
+    // it for that purpose. A release build always enforces this. A debug build enforces it too
+    // unless built with -Pgraffux.azphaltRootEnforcement=false, which exists only to test against a
+    // store that has not deployed its endorsements yet. Deploy them before shipping any release.
+    buildTypes {
+        getByName("debug") {
+            val enforce = providers.gradleProperty("graffux.azphaltRootEnforcement").orNull?.toBooleanStrict() ?: true
+            buildConfigField("boolean", "AZPHALT_ROOT_ENFORCED", enforce.toString())
+        }
+        getByName("release") {
+            buildConfigField("boolean", "AZPHALT_ROOT_ENFORCED", "true")
+        }
+    }
 }
 
 // Pin Kotlin's JVM target to match Java (21). Without this, Kotlin defaults to a lower target

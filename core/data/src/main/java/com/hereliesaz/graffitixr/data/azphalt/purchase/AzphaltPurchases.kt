@@ -25,7 +25,7 @@ class AzphaltPurchases @Inject constructor(
         backend = PurchaseBackend(
             gateway = PlayBillingGateway(context),
             api = HttpPurchaseApi(),
-            verifier = EntitlementVerifier { extensions.trustedKeys() },
+            verifier = EntitlementVerifier { extensions.entitlementKeys() },
             store = store,
         ),
         hooks = PurchaseHooks(
