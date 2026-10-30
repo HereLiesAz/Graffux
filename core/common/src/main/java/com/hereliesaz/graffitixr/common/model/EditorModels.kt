@@ -254,7 +254,11 @@ data class LayerProps(
 /**
  * The layer state [LayerProps] didn't originally carry: the photo adjustment (with its mask, heal
  * and red-eye spots), design constraints and auto-layout, component links, frame styling, the warp
- * mesh and the name. Every field is the layer's actual value (a null adjustment is no adjustment).
+ * mesh, the name and a text layer's [textParams]. Every field is the layer's actual value (a null
+ * adjustment is no adjustment), except [textParams]: null there means "not sent" (a peer that
+ * predates it), so a receiver keeps its own, since props never turn a text layer into a non-text one.
+ *
+ * The mask's pixels are not here, only its revision: they travel in [Op.AdjustmentMaskData].
  */
 @Serializable
 data class LayerExtProps(
@@ -272,6 +276,8 @@ data class LayerExtProps(
     val frameHoldCount: Int = 1,
     val isSketch: Boolean = false,
     val isLinked: Boolean = false,
+    /** The text layer's content and formatting (font, size, colour, spacing, style); null = not sent. */
+    val textParams: TextLayerParams? = null,
 )
 
 /** Everything [LayerProps] carries, read from this layer. */
@@ -305,6 +311,7 @@ fun Layer.toLayerProps(): LayerProps = LayerProps(
         frameHoldCount = frameHoldCount,
         isSketch = isSketch,
         isLinked = isLinked,
+        textParams = textParams,
     ),
 )
 
@@ -342,6 +349,7 @@ fun Layer.withLayerProps(props: LayerProps): Layer {
         frameHoldCount = x.frameHoldCount,
         isSketch = x.isSketch,
         isLinked = x.isLinked,
+        textParams = x.textParams ?: textParams,
     )
 }
 

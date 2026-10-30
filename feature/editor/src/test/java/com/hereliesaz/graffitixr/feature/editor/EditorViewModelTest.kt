@@ -544,6 +544,56 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `local edits not yet sent still reach peers when a peer's op lands first`() = runTest {
+        every { opEmitter.isActive } returns true
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "c", name = "c")))
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "d", name = "d")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val end = com.hereliesaz.graffitixr.common.model.Constraints(
+            com.hereliesaz.graffitixr.common.model.ConstraintAnchor.END,
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayerConstraints("c", end))
+        // Before the collector runs: a peer renames d.
+        val renamed = viewModel.uiState.value.layers.first { it.id == "d" }.copy(name = "peer d")
+        viewModel.applySpectatorOp(Op.LayerPropsChange("d", renamed.toLayerProps()))
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify {
+            opEmitter.emit(
+                match { it is Op.LayerPropsChange && it.layerId == "c" && it.props.extended?.constraints == end },
+            )
+        }
+    }
+
+    @Test
+    fun `the first edit after a session starts reaches peers`() = runTest {
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "c", name = "c")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        every { opEmitter.isActive } returns true
+        viewModel.dispatchForTest(EditorIntent.RenameLayer("c", "first"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify { opEmitter.emit(match { it is Op.LayerPropsChange && it.props.extended?.name == "first" }) }
+        // What peers already had from the session's project load is not sent again.
+        verify(exactly = 0) { opEmitter.emit(match { it is Op.LayerAdd }) }
+    }
+
+    @Test
+    fun `layers added or removed with no emit of their own, and by undo, reach peers once`() = runTest {
+        every { opEmitter.isActive } returns true
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "solo", name = "solo")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 1) { opEmitter.emit(match { it is Op.LayerAdd && it.layer.id == "solo" }) }
+        viewModel.onLayerRemoved("solo")
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 1) { opEmitter.emit(Op.LayerRemove("solo")) }
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 2) { opEmitter.emit(match { it is Op.LayerAdd && it.layer.id == "solo" }) }
+        viewModel.dispatchForTest(EditorIntent.RemoveLayerById("solo"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 2) { opEmitter.emit(Op.LayerRemove("solo")) }
+    }
+
+    @Test
     fun `deleting a layer tells peers and undo brings it back`() = runTest {
         viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "solo", name = "solo")))
         testDispatcher.scheduler.advanceUntilIdle()
