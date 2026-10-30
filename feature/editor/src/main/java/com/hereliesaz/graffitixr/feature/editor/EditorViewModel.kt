@@ -87,6 +87,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -683,7 +684,8 @@ class EditorViewModel @Inject constructor(
 
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
-        // removes any that were refunded. Best effort; a network failure removes nothing.
+        // removes any the repository says were refunded. Best effort; a network failure, an
+        // unreadable store or the device clock removes nothing.
         azphaltPurchases?.let { purchases ->
             viewModelScope.launch {
                 runCatching {
@@ -2270,6 +2272,9 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // Declared ahead of the init block below, whose co-op collector reads it (see syncLayersToPeers).
+    private val coopSeenState = CoopSeen()
+
     init {
         com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.add(onDeviceLost)
         // Keep the next stroke's setup built ahead of the touch (see PrewarmedStroke).
@@ -2343,12 +2348,25 @@ class EditorViewModel @Inject constructor(
             }
         }
 
+        // Co-op: every change to a layer's props reaches peers, from whichever mutation made it.
+        viewModelScope.launch(dispatchers.main) {
+            _uiState.map { it.layers }.distinctUntilChanged().collect { syncLayersToPeers(it) }
+        }
+
         viewModelScope.launch(dispatchers.main) {
             projectRepository.currentProject.collect { project ->
                 if (project != null) {
                     val projectIdChanged = _uiState.value.projectId != project.id
 
                     if (projectIdChanged) {
+                        if (com.hereliesaz.graffitixr.common.model.isNewerFormat(project.formatVersion)) {
+                            // ProjectManager.saveProject refuses to write over it; say so up front.
+                            notify(
+                                "“${project.name}” was saved by a newer version of Graffux. It's open " +
+                                    "read-only: changes won't be saved. Update the app to edit it.",
+                                NoticeKind.WARNING,
+                            )
+                        }
                         inkLedger.clear()
                         val currentLayers = _uiState.value.layers
                         val layers = project.layers.map { overlayLayer ->
@@ -2383,6 +2401,10 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModel(project)
+                        _spatialStrokes.value = project.spatialStrokes
+                        _spatialGuide.value = project.spatialGuide
+                        spatialUndoHistory.clear()
+                        spatialRedoHistory.clear()
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -3083,9 +3105,18 @@ class EditorViewModel @Inject constructor(
                     put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                     put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                 }
-                val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                    ?: throw java.io.IOException("Failed to create MediaStore entry")
-                context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
+                val uri = context.contentResolver.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    contentValues,
+                )
+                // A null stream used to fall through to "Saved" with an empty file left in Downloads.
+                val out = uri?.let { context.contentResolver.openOutputStream(it) }
+                if (uri == null || out == null) {
+                    uri?.let { context.contentResolver.delete(it, null, null) }
+                    val why = if (uri == null) "Failed to create MediaStore entry" else "couldn't open the file"
+                    throw java.io.IOException(why)
+                }
+                out.use { o -> file.inputStream().use { it.copyTo(o) } }
                 withContext(dispatchers.main) {
                     _notices.tryEmit(
                         EditorNotice(NoticeKind.NOTICE, successMessage, openUri = uri, mimeType = mimeType),
@@ -4381,6 +4412,8 @@ class EditorViewModel @Inject constructor(
                 canvasSubstrateId = _uiState.value.canvasSubstrateId,
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
+                spatialStrokes = _spatialStrokes.value,
+                spatialGuide = _spatialGuide.value,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4398,6 +4431,8 @@ class EditorViewModel @Inject constructor(
                     canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
                     documentCrop = _uiState.value.documentCrop,
+                    spatialStrokes = _spatialStrokes.value,
+                    spatialGuide = _spatialGuide.value,
                     formatVersion = maxOf(
                         current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
                     ),
@@ -4491,9 +4526,13 @@ class EditorViewModel @Inject constructor(
                     backgroundColor = background,
                     crop = _uiState.value.documentCrop,
                 )
-
-                val success = saveBitmapToGallery(context, exportBitmap)
-                exportBitmap.recycle()
+                // Cancel stops here, before anything is published to the gallery.
+                val success = try {
+                    ensureActive()
+                    saveBitmapToGallery(context, exportBitmap)
+                } finally {
+                    exportBitmap.recycle()
+                }
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetLoading(false))
@@ -4539,6 +4578,8 @@ class EditorViewModel @Inject constructor(
                     .plan(spec, art.width, art.height)
                 val name = "Graffux-poster-${System.currentTimeMillis()}.pdf"
                 val saved = try {
+                    // Cancel stops here, before a file appears in Downloads.
+                    ensureActive()
                     savePdfToDownloads(name) { out ->
                         com.hereliesaz.graffitixr.feature.editor.export.PosterPdf.write(art, plan, spec, out)
                     }
@@ -5277,7 +5318,7 @@ class EditorViewModel @Inject constructor(
         }
         saveProject()
         _uiState.value.activeLayerId?.let { id ->
-            _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+            _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
         }
     }
 
@@ -5459,7 +5500,7 @@ class EditorViewModel @Inject constructor(
     private fun emitLayerStateResync(layers: List<Layer>) {
         opEmitter.emit(Op.LayerReorder(layers.map { it.id }))
         layers.forEach { l ->
-            opEmitter.emit(Op.LayerPropsChange(l.id, l.toLayerProps()))
+            emitLayerProps(l.id, l.toLayerProps())
             opEmitter.emit(Op.LayerTransform(l.id, listOf(
                 l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
                 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
@@ -5470,23 +5511,6 @@ class EditorViewModel @Inject constructor(
             opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
         }
     }
-
-    private fun Layer.toLayerProps() = LayerProps(
-        isVisible = isVisible,
-        opacity = opacity,
-        brightness = brightness,
-        contrast = contrast,
-        saturation = saturation,
-        colorBalanceR = colorBalanceR,
-        colorBalanceG = colorBalanceG,
-        colorBalanceB = colorBalanceB,
-        isImageLocked = isImageLocked,
-        alphaLock = alphaLock,
-        isInverted = isInverted,
-        blendMode = blendMode,
-        clipToLayerBelow = clipToLayerBelow,
-        isPinnedAcrossFrames = isPinnedAcrossFrames,
-    )
 
     private fun updateActiveLayer(transform: (Layer) -> Layer) {
         _uiState.update { state ->
@@ -5549,6 +5573,17 @@ class EditorViewModel @Inject constructor(
     private fun kotlinx.coroutines.CoroutineScope.startCancellable(label: String) {
         dispatch(EditorIntent.SetLoading(true, label, cancellable = true))
         trackCancellable(coroutineContext[Job])
+    }
+
+    /**
+     * Before a cancellable export publishes [file] to Downloads: if Cancel was pressed meanwhile,
+     * delete the intermediate and stop, so nothing is published.
+     */
+    private suspend fun publishCheckpoint(file: File) {
+        if (!kotlinx.coroutines.currentCoroutineContext().isActive) {
+            file.delete()
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        }
     }
 
     private fun trackCancellable(job: Job?) {
@@ -5701,10 +5736,85 @@ class EditorViewModel @Inject constructor(
         )
     }
 
+    /** What a co-op peer last saw of one layer's non-pixel state. */
+    private data class CoopLayerState(
+        val props: LayerProps,
+        val transform: List<Float>,
+        val geometry: Triple<List<VectorShape>, Float, Float>,
+        val parentId: String?,
+    )
+
+    private fun Layer.coopState() = CoopLayerState(
+        toLayerProps(),
+        coopTransform(),
+        Triple(shapes, layoutWidth, layoutHeight),
+        parentId,
+    )
+
+    /** The LayerTransform encoding: [scale, offsetX, offsetY, rotX, rotY, rotZ], zero-padded to 16. */
+    private fun Layer.coopTransform(): List<Float> = listOf(
+        scale, offset.x, offset.y, rotationX, rotationY, rotationZ,
+        0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
+    )
+
+    /**
+     * What peers last saw of each layer, and the layer order. [syncLayersToPeers] diffs the layer
+     * list against it, so a change to a layer's props (adjustment, mask, constraints, auto-layout,
+     * components, name, ...), transform, geometry, parent or order reaches peers from whichever
+     * mutation made it, whether or not its call site emits. A peer's applied op is recorded, not
+     * sent back. Main thread only.
+     */
+    private class CoopSeen {
+        val layers = HashMap<String, CoopLayerState>()
+        var order: List<String> = emptyList()
+    }
+
+    private val coopSeen get() = coopSeenState.layers
+
+    private fun emitLayerProps(id: String, props: LayerProps) {
+        coopSeen[id]?.let { coopSeen[id] = it.copy(props = props) }
+        opEmitter.emit(Op.LayerPropsChange(id, props))
+    }
+
+    /**
+     * Sends the ops that bring peers from what they last saw to [layers]. A layer seen for the first
+     * time is recorded, not sent: it arrived by LayerAdd or the session's project load, which carry it
+     * whole. With [send] false it only records (after applying a peer's op). Costs nothing without a
+     * live session ([OpEmitter.isActive]). Pixels travel in their own ops (strokes, bitmap replaces).
+     */
+    internal fun syncLayersToPeers(layers: List<Layer>, send: Boolean = true) {
+        if (!opEmitter.isActive) {
+            coopSeen.clear()
+            coopSeenState.order = emptyList()
+            return
+        }
+        val ids = ArrayList<String>(layers.size)
+        val known = coopSeenState.order.toHashSet()
+        for (layer in layers) {
+            ids += layer.id
+            val now = layer.coopState()
+            val was = coopSeen.put(layer.id, now)
+            if (!send || was == null || was == now) continue
+            if (was.parentId != now.parentId) opEmitter.emit(Op.LayerParent(layer.id, now.parentId))
+            if (was.geometry != now.geometry) {
+                opEmitter.emit(Op.LayerGeometry(layer.id, now.geometry.first, now.geometry.second, now.geometry.third))
+            }
+            if (was.transform != now.transform) opEmitter.emit(Op.LayerTransform(layer.id, now.transform))
+            if (was.props != now.props) opEmitter.emit(Op.LayerPropsChange(layer.id, now.props))
+        }
+        // Reordered, not merely added or removed (those have their own ops).
+        val present = ids.toHashSet()
+        if (send && ids.filter { it in known } != coopSeenState.order.filter { it in present }) {
+            opEmitter.emit(Op.LayerReorder(ids))
+        }
+        coopSeenState.order = ids
+        coopSeen.keys.retainAll(present)
+    }
+
     /** Emits a co-op LayerPropsChange for the active layer, if any. */
     private fun emitActiveLayerProps() {
         val id = _uiState.value.activeLayerId ?: return
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     /** Returns the IDs of all layers in the same link-group as [layerId].
@@ -8905,23 +9015,21 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
-    private fun descendantIds(layers: List<Layer>, parentId: String): Set<String> {
-        val direct = layers.filter { it.parentId == parentId }.map { it.id }
-        return direct.toSet() + direct.flatMap { descendantIds(layers, it) }
-    }
+    private fun descendantIds(layers: List<Layer>, parentId: String): Set<String> =
+        com.hereliesaz.graffitixr.feature.editor.descendantLayerIds(layers, parentId)
 
     fun onToggleClipToLayerBelow(id: String) {
         pushHistory()
         dispatch(EditorIntent.ToggleClipToLayerBelow(id))
         saveProject()
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     fun onTogglePinnedAcrossFrames(id: String) {
         pushHistory()
         dispatch(EditorIntent.TogglePinnedAcrossFrames(id))
         saveProject()
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     // ── QuickMenu (Procreate's radial six-slot) ──────────────────────────────────────────────
@@ -9965,10 +10073,11 @@ class EditorViewModel @Inject constructor(
         stopPlayback()
         viewModelScope.launch(dispatchers.default) {
             startCancellable("Exporting animation…")
+            val job = coroutineContext[Job]
+            val dir = File(context.cacheDir, "animation").apply { mkdirs() }
+            val file = File(dir, "animation_${System.currentTimeMillis()}.gif")
             try {
                 val metrics = context.resources.displayMetrics
-                val dir = File(context.cacheDir, "animation").apply { mkdirs() }
-                val file = File(dir, "animation_${System.currentTimeMillis()}.gif")
                 val written = com.hereliesaz.graffitixr.feature.editor.animation.AnimationGifWriter.write(
                     file = file,
                     range = range,
@@ -9976,6 +10085,8 @@ class EditorViewModel @Inject constructor(
                     loopMode = state.animationLoopMode,
                     holdCountAt = { index -> frames.getOrNull(index)?.frameHoldCount ?: 1 },
                 ) { index ->
+                    // Cancel is checked between frames: the encoder stops at the next one.
+                    job?.ensureActive()
                     val frame = frames.getOrNull(index) ?: return@write null
                     val ids = AnimationFrames.frameSubtreeIds(state.layers, frame.id)
                     exportManager.compositeToDocument(
@@ -9988,6 +10099,7 @@ class EditorViewModel @Inject constructor(
                         crop = state.documentCrop,
                     )
                 }
+                ensureActive()
                 withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
                 if (written > 0) {
                     saveAnimationToDownloads(file)
@@ -9998,6 +10110,8 @@ class EditorViewModel @Inject constructor(
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
+                // The half-written GIF is an intermediate: nothing of a cancelled export stays.
+                file.delete()
                 dispatch(EditorIntent.SetLoading(false))
                 throw e
             } catch (@Suppress("TooGenericExceptionCaught") t: Throwable) {
@@ -10015,7 +10129,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.ToggleAlphaLock(id))
         saveProject()
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     // ── QuickShape (pen snapped to an ideal ellipse on hold) ────────────────────────────────
@@ -11056,8 +11170,9 @@ class EditorViewModel @Inject constructor(
     // ── In-app azphalt store browse (spec/repository-api.md) ────────────────────────────────────
     //
     // Graffux talks to the Repository API directly here rather than only delegating to a separate
-    // store app (AzphaltStoreHandoff): it is still not a marketplace (it hosts no catalog and takes no
-    // payment), but there is no reason to make browsing, obtaining and installing free extensions any
+    // store app (AzphaltStoreHandoff): it is still not a marketplace (it hosts no catalog; paid packages
+    // are bought through the repository's own payment routes, see buyPackage), but there is no
+    // reason to make browsing, obtaining and installing free extensions any
     // less than a first-class in-app path. The delegated handoff and the azphalt://install deep link
     // both still exist and still work — this is a second, primary way in, not a replacement.
 
@@ -11191,6 +11306,84 @@ class EditorViewModel @Inject constructor(
                 "Installed $name — nothing in it applies to this app yet"
             else -> "Installed $name — find it under ${where.joinToString(" and ")}"
         }
+    }
+
+    // ── Editable world-space ink and guides ──────────────────────────────────────────────────
+
+    private val _spatialGuide = MutableStateFlow(com.hereliesaz.graffitixr.common.mesh.SpatialGuide())
+    val spatialGuide: StateFlow<com.hereliesaz.graffitixr.common.mesh.SpatialGuide> =
+        _spatialGuide.asStateFlow()
+
+    /** Persist guide edits without moving already committed world-space ink. */
+    fun onSpatialGuideChanged(guide: com.hereliesaz.graffitixr.common.mesh.SpatialGuide) {
+        if (guide == _spatialGuide.value) return
+        _spatialGuide.value = guide
+        saveProject()
+    }
+
+
+    private val _spatialStrokes =
+        MutableStateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>(emptyList())
+    val spatialStrokes: StateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>> =
+        _spatialStrokes.asStateFlow()
+
+    // Snapshot once per committed curve, not per input sample. This history never mixes 2D layers
+    // with 3D curves or travels to a different project.
+    private val spatialUndoHistory =
+        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
+    private val spatialRedoHistory =
+        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
+
+    private fun recordSpatialEdit() {
+        if (spatialUndoHistory.size >= SPATIAL_UNDO_LIMIT) spatialUndoHistory.removeFirst()
+        spatialUndoHistory.addLast(_spatialStrokes.value)
+        spatialRedoHistory.clear()
+    }
+
+    fun onSpatialStroke(stroke: com.hereliesaz.graffitixr.common.mesh.SpatialStroke) {
+        if (stroke.points.isEmpty()) return
+        recordSpatialEdit()
+        _spatialStrokes.update { it + stroke }
+        saveProject()
+    }
+
+    fun onSpatialErase(id: String) {
+        if (_spatialStrokes.value.none { it.id == id }) return
+        recordSpatialEdit()
+        _spatialStrokes.update { list -> list.filterNot { it.id == id } }
+        saveProject()
+    }
+
+    fun onSpatialUndo() {
+        if (spatialUndoHistory.isEmpty()) return
+        spatialRedoHistory.addLast(_spatialStrokes.value)
+        _spatialStrokes.value = spatialUndoHistory.removeLast()
+        saveProject()
+    }
+
+    /** Writes a self-contained glTF with real stroke tube geometry, not a flattened render. */
+    fun exportSpatialGltf(uri: Uri) {
+        val snapshot = _spatialStrokes.value
+        viewModelScope.launch(dispatchers.io) {
+            runCatching {
+                val gltf = com.hereliesaz.graffitixr.common.mesh.SpatialGltfExporter.encode(snapshot)
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(gltf.toByteArray(Charsets.UTF_8))
+                    stream.flush()
+                } ?: throw java.io.IOException("Couldn't open export destination")
+            }.onSuccess {
+                notify("Exported spatial sketch as glTF", NoticeKind.NOTICE)
+            }.onFailure { error ->
+                notify("3D export failed: ${error.message ?: "Unknown error"}", NoticeKind.WARNING)
+            }
+        }
+    }
+
+    fun onSpatialRedo() {
+        if (spatialRedoHistory.isEmpty()) return
+        spatialUndoHistory.addLast(_spatialStrokes.value)
+        _spatialStrokes.value = spatialRedoHistory.removeLast()
+        saveProject()
     }
 
     // ── 3D model viewport ────────────────────────────────────────────────────────────────────
@@ -11550,8 +11743,8 @@ class EditorViewModel @Inject constructor(
 
     // ── Components and instances ─────────────────────────────────────────────────────────────
     //
-    // Like node editing, these are undoable and persisted but NOT emitted to co-op peers — no Op
-    // carries the component link, so a LayerPropsChange would announce a change it can't transmit.
+    // Undoable and persisted. Co-op peers get the component link through LayerProps.extended, sent
+    // by syncLayersToPeers when the layer list changes.
 
     /** Promotes the active layer to a main component. */
     fun onMakeComponent() {
@@ -11831,7 +12024,9 @@ class EditorViewModel @Inject constructor(
     /**
      * Exports the selected frame (or, with none, the document's artboard) as [format], into
      * Downloads. A PDF with [allFrames] has one page per top-level frame. Shapes stay vectors in SVG
-     * and PDF; raster, text and photo adjustment layers go in as images of their pixels.
+     * and PDF; raster and text layers go in as images of their pixels, and what vectors can't
+     * express (colour filters, photo adjustments, clipping masks, a perspective crop) as the PNG
+     * export's render of it. The document page has the PNG export's crop and canvas background.
      */
     fun exportDesign(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean = false) {
         val frameId = designExportFrameId()
@@ -11857,17 +12052,73 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** The page an export writes: the frame's box, or the document's artboard. */
-    private fun designExportPage(frameId: String?, name: String): com.hereliesaz.graffitixr.feature.editor.export.VectorPage {
+    /**
+     * The page an export writes: the frame's box, or the document's artboard. The rasterizer it
+     * uses is added to [rasters], for the caller to recycle once the file is written.
+     */
+    private fun designExportPage(
+        frameId: String?,
+        name: String,
+        rasters: MutableList<DesignRasterizer>,
+    ): com.hereliesaz.graffitixr.feature.editor.export.VectorPage {
         val st = _uiState.value
         val (cw, ch) = designCanvasSize()
         val scene = com.hereliesaz.graffitixr.feature.editor.export.VectorScene
-        frameId?.let { scene.framePage(st.layers, it, cw, ch) }?.let { return it }
+        frameId?.let { id ->
+            scene.framePage(st.layers, id, cw, ch, DesignRasterizer(designCanvas = true).also(rasters::add))
+        }
+            ?.let { return it }
         val metrics = context.resources.displayMetrics
         return scene.documentPage(
             name, st.layers, metrics.widthPixels.toFloat(), metrics.heightPixels.toFloat(),
             st.documentWidth, st.documentHeight,
+            crop = st.documentCrop,
+            backgroundArgb = exportBackgroundArgb(st.canvasBackground),
+            raster = DesignRasterizer(designCanvas = false).also(rasters::add),
         )
+    }
+
+    /**
+     * What the vector export embeds where vectors fall short (colour filters, adjustment and
+     * clip-to-below layers, a perspective crop): the PNG export's own render, so the two agree.
+     * Frames live in the design canvas ([designCanvas]); the document's artboard in the display's.
+     * The bitmaps it hands out stay valid until [recycle], once the file is written.
+     */
+    private inner class DesignRasterizer(
+        designCanvas: Boolean,
+    ) : com.hereliesaz.graffitixr.feature.editor.export.VectorRasterizer {
+        private val made = mutableListOf<android.graphics.Bitmap>()
+        private val size: Pair<Int, Int> = if (designCanvas) {
+            designCanvasSize().let { it.first.toInt() to it.second.toInt() }
+        } else {
+            context.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+        }
+
+        override fun composite(
+            nodes: List<com.hereliesaz.graffitixr.common.model.LayerNode>,
+            backgroundArgb: Int,
+            container: Layer?,
+        ): Layer = keep(exportManager.compositeNodes(nodes, size.first, size.second, backgroundArgb, container))
+
+        override fun document(): Layer {
+            val st = _uiState.value
+            return keep(
+                exportManager.compositeToDocument(
+                    st.layers, size.first, size.second, st.documentWidth, st.documentHeight,
+                    backgroundColor = exportBackgroundArgb(st.canvasBackground), crop = st.documentCrop,
+                ),
+            )
+        }
+
+        private fun keep(b: android.graphics.Bitmap): Layer {
+            made += b
+            return Layer(id = "export-raster-${made.size}", name = "Rendered", bitmap = b)
+        }
+
+        fun recycle() {
+            made.forEach { it.recycle() }
+            made.clear()
+        }
     }
 
     private fun designExportFile(name: String, extension: String): File {
@@ -11878,10 +12129,16 @@ class EditorViewModel @Inject constructor(
 
     private suspend fun exportSvg(frameId: String?, name: String) {
         val file = designExportFile(name, "svg")
-        val page = designExportPage(frameId, name)
-        val svg = com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) }
-        file.writeText(svg)
-        // The spinner stays up until the copy to Downloads is done: it is part of the export.
+        val rasters = mutableListOf<DesignRasterizer>()
+        try {
+            val page = designExportPage(frameId, name, rasters)
+            file.writeText(
+                com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) },
+            )
+        } finally {
+            rasters.forEach { it.recycle() }
+        }
+        publishCheckpoint(file)
         copyToDownloads(file, "image/svg+xml", "Saved ${file.name} to Downloads", "SVG export failed")
         withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
     }
@@ -11889,10 +12146,21 @@ class EditorViewModel @Inject constructor(
     private suspend fun exportPdf(frameId: String?, name: String, allFrames: Boolean) {
         val (cw, ch) = designCanvasSize()
         val scene = com.hereliesaz.graffitixr.feature.editor.export.VectorScene
-        val pages = scene.allFramePages(_uiState.value.layers, cw, ch).takeIf { allFrames }.orEmpty()
-            .ifEmpty { listOf(designExportPage(frameId, name)) }
         val file = designExportFile(name, "pdf")
-        file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
+        val rasters = mutableListOf<DesignRasterizer>()
+        try {
+            val frames = if (allFrames) {
+                val raster = DesignRasterizer(designCanvas = true).also(rasters::add)
+                scene.allFramePages(_uiState.value.layers, cw, ch, raster)
+            } else {
+                emptyList()
+            }
+            val pages = frames.ifEmpty { listOf(designExportPage(frameId, name, rasters)) }
+            file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
+        } finally {
+            rasters.forEach { it.recycle() }
+        }
+        publishCheckpoint(file)
         copyToDownloads(file, "application/pdf", "Saved ${file.name} to Downloads", "PDF export failed")
         withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
     }
@@ -11920,9 +12188,8 @@ class EditorViewModel @Inject constructor(
 
     // ── Vector node editing ──────────────────────────────────────────────────────────────────
     //
-    // Node edits are undoable and persisted, but NOT emitted to co-op peers: no Op carries vector
-    // geometry (LayerProps has no `shapes`), so emitting LayerPropsChange would announce a change
-    // it cannot actually transmit. A geometry-carrying op is the honest fix, and is follow-up work.
+    // Node edits are undoable and persisted. Co-op peers get the new shapes as Op.LayerGeometry,
+    // sent by syncLayersToPeers when the layer list changes.
 
     /**
      * Enters node-edit mode on [layerId], or leaves it with null. Only a layer whose single shape
@@ -12278,7 +12545,8 @@ class EditorViewModel @Inject constructor(
         private val serialIo = dispatchers.io.limitedParallelism(1)
 
         override fun save(title: String, body: String) {
-            if (predictionReports == null) return
+            // Nothing can file it without a connected token, so don't write a file per stroke for nothing.
+            if (predictionReports?.isConnected?.value != true) return
             // First line title, rest body -- CrashIssueUploader's format for this file.
             viewModelScope.launch(serialIo) { runCatching { file.writeText(title + "\n" + body) } }
         }
@@ -12705,8 +12973,16 @@ class EditorViewModel @Inject constructor(
 
     override fun onColorPickerDismissed() {
         // The colour the picker settled on joins its Recent row (this session's, newest first).
-        _recentColors.update { pushRecentColor(it, _uiState.value.activeColor) }
         dispatch(EditorIntent.DismissColorPicker)
+    }
+
+    /**
+     * The picker closed on [color], the one its Foreground/Background target was editing: that
+     * colour (not always the foreground) joins the Recent row, newest first.
+     */
+    fun onColorPickerDismissed(color: androidx.compose.ui.graphics.Color) {
+        _recentColors.update { pushRecentColor(it, color) }
+        onColorPickerDismissed()
     }
 
     private val _recentColors = MutableStateFlow<List<androidx.compose.ui.graphics.Color>>(emptyList())
@@ -12792,7 +13068,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.ToggleVisibility(layerId))
         saveProject()
-        _uiState.value.layers.find { it.id == layerId }?.let { opEmitter.emit(Op.LayerPropsChange(layerId, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == layerId }?.let { emitLayerProps(layerId, it.toLayerProps()) }
     }
 
     fun setLayers(layers: List<Layer>) {
@@ -12935,9 +13211,8 @@ class EditorViewModel @Inject constructor(
     // Co-op spectator API
     // -------------------------------------------------------------------------
 
-    /** Applies a remote Op received from the host, without echoing it back through opEmitter. */
-    // Co-op, so GraffitiXR's. Graffux binds NoOpOpEmitter (see CoopModule) and never joins a
-    // session, so no remote op ever arrives for this to apply.
+    // Graffux binds NoOpOpEmitter (see CoopModule) and has no transport, so nothing calls
+    // applySpectatorOp yet: a transport delivers each received op to it, on the main thread.
     /**
      * The layer whose pixels a co-op op changes, or null when it changes none (a new layer has no
      * GPU copy yet; order, transform and props are applied at composite time, not in the layer's
@@ -12953,9 +13228,17 @@ class EditorViewModel @Inject constructor(
         is Op.LayerGeometry, is Op.LayerParent -> null
     }
 
+    /** Applies a remote Op received from a peer, without echoing it back through opEmitter. Main thread. */
     fun applySpectatorOp(op: Op) {
         // A peer's op changes layer content outside this device's strokes.
         spectatorOpContentLayer(op)?.let(::invalidateResident)
+        applySpectatorOpToState(op)
+        // What the op changed is what the peer already has: record it so it isn't sent back.
+        syncLayersToPeers(_uiState.value.layers, send = false)
+    }
+
+    @Suppress("LongMethod", "CyclomaticComplexMethod") // one branch per Op type
+    private fun applySpectatorOpToState(op: Op) {
         when (op) {
             is Op.LayerAdd -> dispatch(EditorIntent.AppendLayer(op.layer))
             is Op.LayerRemove -> dispatch(EditorIntent.RemoveLayerById(op.layerId))
@@ -13098,3 +13381,6 @@ class EditorViewModel @Inject constructor(
     // dead code from Task 14 — never called — and implied a second, unimplemented load path.
 
 }
+
+/** A spatial edit is one complete curve, not one input sample. */
+private const val SPATIAL_UNDO_LIMIT = 64

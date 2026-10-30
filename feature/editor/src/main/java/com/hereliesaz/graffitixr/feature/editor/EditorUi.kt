@@ -67,6 +67,7 @@ fun EditorUi(
                 onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
                 onSwapColors = actions::swapBrushColors,
                 onDismiss = { actions.onColorPickerDismissed() },
+                onDismissWithColor = { color -> actions.onColorPickerDismissed(color) },
                 strings = strings,
                 savedPalette = palette,
                 onSavePaletteColor = { actions.onSavePaletteColor(it) },

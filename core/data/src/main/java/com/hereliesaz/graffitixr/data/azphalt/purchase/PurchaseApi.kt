@@ -38,8 +38,13 @@ sealed interface PlayExchange {
     data object Pending : PlayExchange
     /** 402: Google says this purchase does not entitle the package. */
     data object Refused : PlayExchange
-    /** 403: voided (refunded, charged back) or the app is not accepted. */
+    /** 403 `revoked`: the repository voided it (refunded, charged back). The only removal signal. */
     data object Revoked : PlayExchange
+    /**
+     * Any other 403 (`app_not_accepted`, or a repository too old to say): a configuration problem,
+     * not proof the buyer lost the purchase. Never removes anything.
+     */
+    data class NotAccepted(val message: String) : PlayExchange
     /** 502 or a network failure: try again later; never tell the buyer they did not pay. */
     data class Unavailable(val message: String) : PlayExchange
 }
@@ -53,7 +58,8 @@ sealed interface CheckoutStatus {
     data class Unavailable(val message: String) : CheckoutStatus
 }
 
-data class RestoredPurchase(val packageId: String, val token: String)
+/** One of the buyer's purchases; [revoked] when the repository says it was refunded or disputed. */
+data class RestoredPurchase(val packageId: String, val token: String, val revoked: Boolean = false)
 
 /** The repository's purchase endpoints. An interface so [PurchaseCoordinator] is testable with a fake. */
 interface PurchaseApi {
@@ -69,6 +75,16 @@ interface PurchaseApi {
     fun checkoutStatus(sessionId: String, buyerCookie: String?): CheckoutStatus
     fun purchases(buyerCookie: String): List<RestoredPurchase>
 }
+
+/**
+ * Whether a 403 body says the purchase was voided: `{error:{code:"revoked"}}` (`/entitlements/play`)
+ * or `{status:"revoked"}` (checkout session). Anything else, including a bare 403, is not.
+ */
+internal fun isRevokedReply(body: String): Boolean = runCatching {
+    val o = Json.parseToJsonElement(body) as JsonObject
+    val code = ((o["error"] as? JsonObject)?.get("code") as? JsonPrimitive)?.content
+    code == "revoked" || (o["status"] as? JsonPrimitive)?.content == "revoked"
+}.getOrDefault(false)
 
 /** [PurchaseApi] over HTTPS against [baseUrl] (azphalt.store by default). */
 class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STORE_URL) : PurchaseApi {
@@ -140,7 +156,8 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
                 ?: PlayExchange.Unavailable("no entitlement in response")
             HTTP_ACCEPTED -> PlayExchange.Pending
             HTTP_PAYMENT_REQUIRED -> PlayExchange.Refused
-            HTTP_FORBIDDEN -> PlayExchange.Revoked
+            HTTP_FORBIDDEN ->
+                if (isRevokedReply(r.body)) PlayExchange.Revoked else PlayExchange.NotAccepted(r.body.take(ERROR_CHARS))
             else -> PlayExchange.Unavailable("HTTP ${r.code}")
         }
     } catch (e: IOException) {
@@ -177,7 +194,8 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
             HTTP_OK -> field(r.body, "token")?.let { CheckoutStatus.Ready(it) }
                 ?: CheckoutStatus.Unavailable("no token")
             HTTP_ACCEPTED -> CheckoutStatus.Pending
-            HTTP_FORBIDDEN -> CheckoutStatus.Revoked
+            HTTP_FORBIDDEN ->
+                if (isRevokedReply(r.body)) CheckoutStatus.Revoked else CheckoutStatus.Unavailable("HTTP 403")
             else -> CheckoutStatus.Unavailable("HTTP ${r.code}")
         }
     } catch (e: IOException) {
@@ -185,14 +203,16 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
     }
 
     override fun purchases(buyerCookie: String): List<RestoredPurchase> {
-        val r = call("GET", "/api/purchases", cookie = buyerCookie)
+        // includeRevoked: refunded purchases come back flagged, so restore revokes exactly those.
+        val r = call("GET", "/api/purchases?includeRevoked=1", cookie = buyerCookie)
         if (r.code != HTTP_OK) throw IOException("purchases: HTTP ${r.code}")
         val items = json.parseToJsonElement(r.body) as? kotlinx.serialization.json.JsonArray
         return items.orEmpty().mapNotNull { item ->
             val o = item as? JsonObject ?: return@mapNotNull null
             val id = (o["packageId"] as? JsonPrimitive)?.content ?: return@mapNotNull null
             val token = (o["token"] as? JsonPrimitive)?.content ?: return@mapNotNull null
-            RestoredPurchase(id, token)
+            val revoked = (o["revoked"] as? JsonPrimitive)?.content == "true"
+            RestoredPurchase(id, token, revoked)
         }
     }
 
@@ -202,5 +222,6 @@ class HttpPurchaseApi(private val baseUrl: String = AzphaltStoreHandoff.WEB_STOR
         const val HTTP_MULT_CHOICE = 300
         const val BUFFER_BYTES = 8192
         const val MAX_RESPONSE_BYTES = 1_000_000
+        const val ERROR_CHARS = 200
     }
 }

@@ -94,4 +94,21 @@ class AuditFixesTest {
         assertEquals(MenuRow.Divider, rows[2])
         assertTrue((rows.last() as MenuRow.Action).destructive)
     }
+
+    @Test
+    fun `back closes floating windows latest-opened first`() {
+        val order = WindowOpenOrder()
+        val closed = mutableListOf<String>()
+        fun windows(figma: Boolean, open: Boolean) = listOf(
+            "open" to BackLayer(open) { closed += "open" },
+            "figma" to BackLayer(figma) { closed += "figma" },
+        )
+        // Figma opened first, then Open on top of it.
+        order.topFirst(windows(figma = true, open = false))
+        order.topFirst(windows(figma = true, open = true)).topmost()?.close?.invoke()
+        assertEquals(listOf("open"), closed)
+        // Open shut; reopening it later puts it on top again.
+        order.topFirst(windows(figma = true, open = false)).topmost()?.close?.invoke()
+        assertEquals(listOf("open", "figma"), closed)
+    }
 }

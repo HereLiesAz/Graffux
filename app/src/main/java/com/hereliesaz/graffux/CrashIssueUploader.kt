@@ -36,8 +36,9 @@ class CrashIssueUploader(
 ) {
     suspend fun uploadPending() {
         if (!reports.isConnected.value) return
-        if (PrivacyConsent.crashReportsEnabled(context)) uploadCrashes()
-        uploadPendingRanking(File(context.cacheDir, PredictionRankingReporter.PENDING_FILE))
+        val consent = PrivacyConsent.crashReportsEnabled(context)
+        if (consent) uploadCrashes()
+        uploadPendingRanking(File(context.cacheDir, PredictionRankingReporter.PENDING_FILE), consent)
     }
 
     private suspend fun uploadCrashes() {
@@ -82,17 +83,19 @@ class CrashIssueUploader(
         }
     }
 
-    /** The stroke-prediction ranking the last run saved but never filed (it died first). */
-    private suspend fun uploadPendingRanking(file: File) {
+    /**
+     * The stroke-prediction ranking the last run saved but never filed (it died first). Filed from
+     * this background path only under the same crash-report opt-in, and redacted like a crash.
+     */
+    private suspend fun uploadPendingRanking(file: File, consent: Boolean) {
         if (!file.exists()) return
         val text = runCatching { file.readText() }.getOrNull().orEmpty()
-        val title = text.substringBefore('\n').trim()
-        val body = text.substringAfter('\n', "")
-        if (title.isBlank() || body.isBlank()) {
+        val issue = pendingRankingIssue(text, consent)
+        if (issue == null) {
             file.delete()
             return
         }
-        reports.fileIssue(title, body)
+        reports.fileIssue(issue.first, issue.second)
             .onSuccess { file.delete() }
             .onFailure { Log.w(TAG, "saved ranking not filed", it) }
     }
@@ -149,6 +152,20 @@ class CrashIssueUploader(
         if (file.exists()) runCatching { file.readText() }.getOrNull() else null
 
     companion object {
+        /**
+         * The redacted (title, body) to file for a saved ranking, or null when it must not be sent:
+         * no crash-report consent, or an empty file. The first line is the title.
+         */
+        internal fun pendingRankingIssue(text: String, consent: Boolean): Pair<String, String>? {
+            val title = text.substringBefore('\n').trim()
+            val body = text.substringAfter('\n', "")
+            return if (!consent || title.isBlank() || body.isBlank()) {
+                null
+            } else {
+                CrashReporter.redactSensitive(title) to CrashReporter.redactSensitive(body)
+            }
+        }
+
         /**
          * Whether an exit record is worth an issue. Crashes, native crashes and ANRs always are. A
          * low-memory kill only is when the process was foreground or visible ([importance] at most

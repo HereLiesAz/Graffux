@@ -26,7 +26,7 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 | no `Content-Length` | 411 |
 | over 8 MiB, or empty | 413 |
 | not gzip, or the first line is not a `{"type":"session","schema":<n>}` line | 415 |
-| more than 30 requests a minute from one address (per Cloudflare location) | 429 |
+| more than 6 requests a minute from one address (per Cloudflare location) | 429 |
 | GitHub conflict while two uploads move the branch | retried 3 times, then 502 |
 | the file is already on the branch | 200 `exists` (retries are safe) |
 | the branch is missing | 503. The Worker never creates it, so a deleted branch is visible. |
@@ -36,8 +36,10 @@ Files land at `stroke-data/<device>/<file>` with the commit message `stroke data
 
 This is spam and abuse *limiting*, not authentication: nothing in an open-source app can prove a
 request came from the app. What keeps the branch clean is content, not identity: the whole file is
-inflated (capped at 96 MB), every line must be a `session`, `stroke` or `hover` record with no
-free-form strings over 256 characters (base64 heatmap `data` aside), and the committed bytes are
+inflated (capped at 24 MB, each line at 2 MB), every line must be a `session`, `stroke` or `hover`
+record whose top-level fields are the ones in SCHEMA.md, every key is a short identifier (at most 48
+characters), no string is over 256 characters except the base64 `heatmap.frames` (at most the
+recorder's 384 KiB per stroke), and the committed bytes are
 re-encoded from the checked text, so nothing rides along in a second gzip member or after a valid
 header. Uploads are limited to 6 a minute per client address. If abuse still shows up, the next
 step is Play Integrity attestation.

@@ -95,7 +95,7 @@ allprojects {
         buildUponDefaultConfig = true
         allRules = false
         config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
-        // The ~2,900 findings that predate the detekt check (PR #409) are recorded per module in
+        // The findings that predate the detekt check (PR #409; ~2,900 then, ~1,600 now) are recorded per module in
         // detekt-baseline.xml, so CI fails only on NEW findings. Shrink the backlog by fixing
         // entries and re-running `./gradlew detektBaseline`; never regenerate it to hide new ones.
         baseline = file("$projectDir/detekt-baseline.xml")

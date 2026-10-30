@@ -39,6 +39,7 @@ class AzphaltPurchases @Inject constructor(
             },
             revoke = { id, _ -> extensions.uninstall(id) },
             isInstalled = { extensions.isInstalled(it) },
+            refreshTrust = { extensions.refreshTrustedKeys() },
         ),
     )
 

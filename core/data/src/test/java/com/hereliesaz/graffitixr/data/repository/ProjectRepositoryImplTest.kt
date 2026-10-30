@@ -76,7 +76,7 @@ class ProjectRepositoryImplTest {
 
         val saved = mutableListOf<GraffitiProject>()
         val gate = CompletableDeferred<Unit>()
-        coEvery { mockManager.saveProject(any(), capture(saved), any(), any()) } coAnswers { gate.await() }
+        coEvery { mockManager.saveProject(any(), capture(saved), any(), any()) } coAnswers { gate.await(); true }
 
         launch { repo.updateProject { it.copy(name = "A-edited") } }
         runCurrent() // the transform ran and its save is parked on the gate

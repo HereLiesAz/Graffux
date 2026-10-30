@@ -372,7 +372,8 @@ codebase is deferred scope or a real gap in the install-report flow.
   adapter; there is no backend choice. Where wgpu cannot start (no adapter, no Vulkan, or a build
   without `libgraffux_wgpu.so`; the library is built for both arm64-v8a and armeabi-v7a, so
   32-bit devices keep GPU painting), `init()` returns
-  false and the stroke draws on the CPU, exactly as on a device with no usable GPU. Direct display
+  false and the stroke is not painted (there is no CPU renderer; `HardwareFloorNotice` tells the
+  user). Direct display
   is the wgpu engine presenting into the overlay SurfaceView through a wgpu swapchain
   (`core/wgpu-engine/src/direct.rs`; design doc §3, "wgpu direct display"). wgpu was chosen over
   consolidating on Vulkan because of the desktop app (one engine on Vulkan, DX12, Metal or GL,
@@ -389,8 +390,8 @@ codebase is deferred scope or a real gap in the install-report flow.
   preview of the same layer. They were kept for comparison and as fallbacks while wgpu matured
   (`tools/stamp-engine-diff` measured wgpu within 1-2 levels of them). Once the owner confirmed
   wgpu on their devices, all of it was deleted: three engines' worth of shader parity, sync code
-  and interop was upkeep with no remaining user, and the CPU path already covers any device wgpu
-  can't run on. `RetiredGpuBackendMigration` (`:app`) deletes the stale `backend` key from the
+  and interop was upkeep with no remaining user. A device wgpu can't run on cannot draw (there is
+  no CPU renderer). `RetiredGpuBackendMigration` (`:app`) deletes the stale `backend` key from the
   `gpu_engine` preferences. The code is in git history before the retirement commit; the design
   doc's "Retired backends" section keeps what was learned.
 - **wgpu keeps layers resident on the GPU across strokes** (§2b of the design doc). The engine
@@ -479,3 +480,34 @@ codebase is deferred scope or a real gap in the install-report flow.
   `Bitmap.generationId`) drops its overlay; `onTrimMemory` drops them all until the view zooms out. A GPU
   failure keeps the base path and is logged once. Switch the whole feature off with
   `HighResOverlayConfig.ENABLED = false`.
+
+
+## Spatial Sketch: editable 3D ink and guides (project format v6)
+
+The full-screen workspace at View → 3D → Sketch in 3D remains independent of the imported-OBJ
+texture painter. `SpatialGuideSurface.intersect` uses `MeshPicker.unproject` and an `OrbitCamera`
+world ray; a bounded plane, sphere, or finite cylinder then finds the *nearest positive hit* in
+guide-local space. Fixed guides have a persistent XYZ centre and yaw/pitch axes, independent of
+the orbit camera. A camera-facing view plane remains the default for version-5 and earlier
+projects; it moves with the view, preserving the original workflow. The same local-to-world
+transform generates the wireframe segments. A ray miss ends the current stroke segment, avoiding
+phantom straight bridges across off-surface gaps.
+
+`GraffitiProject.spatialGuide` is serializable guide metadata (kind, centre, radius, height, yaw,
+pitch, view depth and visibility). `EditorViewModel.spatialGuide` publishes edits and saves them
+through the same project repository used for the independent world-space
+`GraffitiProject.spatialStrokes`. A guide change affects only FUTURE input points; previous XYZ
+strokes retain their positions, and 2D layers/history are untouched. The format-6 upgrade
+defaults absent guide metadata without changing a saved format-5 stroke.
+
+`SpatialStrokeRenderer` (GLES 3.0) draws the exact triangle tubes produced by
+`SpatialGltfExporter.buildMesh`. Depth testing occludes farther ink; changing camera matrices
+does not rebuild unchanged meshes. Compose continues to draw lightweight wireframe guides and
+own touch input. The surface is resumed and paused with its lifecycle; GL handles and mesh uploads
+are refreshed after context recreation.
+
+**Remaining limitations:** wireframe guides are a visual overlay, not a depth-occluded shaded
+surface. The cylinder deliberately paints only its curved side, not its caps; sphere and cylinder
+are analytic primitives rather than deformable lofted guides. Transparent ink uses ordinary alpha
+blending with depth writes, not order-independent transparency. Stroke handles/transforms, textured
+paint materials, arbitrary mesh-guided 3D strokes, and OBJ scene export are still pending.

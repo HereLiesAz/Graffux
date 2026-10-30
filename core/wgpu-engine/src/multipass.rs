@@ -923,12 +923,16 @@ impl Engine {
     }
 
     /// Runs `f` with the multipass state taken out of the engine (both can then be borrowed
-    /// mutably). Only called while multipass is on.
+    /// mutably). Only called while multipass is on. The state is put back even if `f` panics, so a
+    /// panic caught at the FFI boundary does not leave every later multipass call on `expect`.
     fn with_mp<R>(&mut self, f: impl FnOnce(&mut Engine, &mut Multipass) -> R) -> R {
         let mut mp = self.mp.take().expect("multipass state");
-        let out = f(self, &mut mp);
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self, &mut mp)));
         self.mp = Some(mp);
-        out
+        match out {
+            Ok(out) => out,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
 
     // ---- public API ---------------------------------------------------------------------------

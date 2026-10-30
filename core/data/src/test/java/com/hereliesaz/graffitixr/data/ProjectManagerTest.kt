@@ -379,10 +379,71 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":4"))
+        assertTrue(text.contains("\"formatVersion\":6"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(4, back.formatVersion)
+        assertEquals(6, back.formatVersion)
+    }
+
+    @Test
+    fun `format five project persists spatial curves without changing older files`() {
+        val stroke = com.hereliesaz.graffitixr.common.mesh.SpatialStroke(
+            "line", listOf(
+                com.hereliesaz.graffitixr.common.mesh.SpatialPoint(0f, 0f, 0f, 0.3f),
+                com.hereliesaz.graffitixr.common.mesh.SpatialPoint(1f, 0f, 1f, 0.7f),
+            ), 0xFFABCDEF.toInt(), 0.125f,
+        )
+        val project = GraffitiProject(id = "ink-project", spatialStrokes = listOf(stroke))
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val payload = json.encodeToString(GraffitiProject.serializer(), project)
+        assertEquals(listOf(stroke), manager.decodeProject(payload).spatialStrokes)
+
+        // Independent historical fixture, not derived from the new serializer's output.
+        val old = """{"formatVersion":4,"id":"old-project","name":"Old"}"""
+        assertTrue(manager.decodeProject(old).spatialStrokes.isEmpty())
+    }
+
+    @Test
+    fun `guide transforms persist in format six and old sketches keep a view plane`() {
+        val storedGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(
+            kind = com.hereliesaz.graffitixr.common.mesh.SpatialGuideKind.CYLINDER,
+            center = com.hereliesaz.graffitixr.common.mesh.SpatialPoint(0.5f, 1f, -0.5f),
+            radius = 1.4f, height = 3f, yaw = 0.6f, pitch = -0.25f, visible = false,
+        )
+        val project = GraffitiProject(id = "guide-scene", spatialGuide = storedGuide)
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val restored = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
+        assertEquals(6, restored.formatVersion)
+        assertEquals(storedGuide, restored.spatialGuide)
+
+        // Independent historical format-5 fixture: no guide key was ever written in that format.
+        val legacy = """{"formatVersion":5,"id":"old-sketch","spatialStrokes":[
+            {"id":"old-line","points":[{"x":1.0,"y":0.0,"z":0.0}],
+             "colorArgb":-1,"width":0.2}]}"""
+        val reopened = manager.decodeProject(legacy)
+        assertEquals(6, reopened.formatVersion)
+        assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), reopened.spatialGuide)
+        assertEquals(1f, reopened.spatialStrokes.single().points.single().x, 0f)
+    }
+
+    @Test
+    fun `a project from a newer format is never overwritten`() = runTest {
+        val dir = File(tempFilesDir, "projects/newer").also { it.mkdirs() }
+        val newer = """{"id":"newer","name":"Future","formatVersion":99,"futureField":{"keep":true}}"""
+        File(dir, "project.json").writeText(newer)
+
+        val loaded = manager.loadProject(mockContext, "newer")
+        assertEquals(99, loaded?.projectData?.formatVersion)
+        assertFalse(manager.saveProject(mockContext, loaded!!.projectData.copy(name = "Edited")))
+
+        assertEquals(newer, File(dir, "project.json").readText())
+    }
+
+    @Test
+    fun `a current-format project still saves`() = runTest {
+        assertTrue(manager.saveProject(mockContext, GraffitiProject(id = "cur", name = "Now")))
+        assertTrue(manager.saveProject(mockContext, GraffitiProject(id = "cur", name = "Again")))
+        assertEquals("Again", manager.loadProjectMetadata(mockContext, "cur")?.name)
     }
 
     @Test

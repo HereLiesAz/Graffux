@@ -77,8 +77,24 @@ class ProjectManager @Inject constructor(
         }
     }
 
-    suspend fun saveProject(context: Context, projectData: GraffitiProject, targetImages: List<Bitmap>? = null, thumbnail: Bitmap? = null) = withContext(Dispatchers.IO) {
+    /**
+     * Writes [projectData] to `projects/<id>/`. Returns false, writing nothing, when the project.json
+     * already on disk is from a newer format than this build knows ([isNewerFormat]): this build
+     * decoded it ignoring the keys it doesn't understand, so writing it back would silently drop
+     * them. Such a project opens read-only (the editor says so) and stays intact for the newer build.
+     */
+    suspend fun saveProject(
+        context: Context,
+        projectData: GraffitiProject,
+        targetImages: List<Bitmap>? = null,
+        thumbnail: Bitmap? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
         val root = File(context.filesDir, "projects/${projectData.id}")
+        val existing = File(root, "project.json")
+        if (existing.exists() && isNewerFormat(diskFormatVersion(existing))) {
+            Log.w("ProjectManager", "Not saving ${projectData.id}: its project.json is from a newer format")
+            return@withContext false
+        }
         if (!root.exists()) root.mkdirs()
 
         val incoming = projectData
@@ -123,7 +139,22 @@ class ProjectManager @Inject constructor(
 
         val jsonString = json.encodeToString(updatedGraffitiProject)
         atomicWriteText(File(root, "project.json"), jsonString)
+        true
     }
+
+    /** The `formatVersion` recorded in [file], or [LEGACY_FORMAT_VERSION] when it has none or can't be read. */
+    private fun diskFormatVersion(file: File): Int = try {
+        formatVersionOf(json.parseToJsonElement(file.readText()))
+    } catch (e: Exception) {
+        Log.w("ProjectManager", "Couldn't read formatVersion of ${file.path}: ${e.message}")
+        LEGACY_FORMAT_VERSION
+    }
+
+    private fun formatVersionOf(element: kotlinx.serialization.json.JsonElement): Int =
+        (element as? kotlinx.serialization.json.JsonObject)
+            ?.get("formatVersion")
+            ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
+            ?: LEGACY_FORMAT_VERSION
 
     /**
      * Writes [text] to [target] atomically: stream into a sibling temp file then rename
@@ -186,14 +217,12 @@ class ProjectManager @Inject constructor(
      * Decodes a project.json, reading its `formatVersion` first (a file without one is
      * [LEGACY_FORMAT_VERSION]) and migrating it to [CURRENT_FORMAT_VERSION] with [migrateFormat].
      * A file from a newer build is opened as far as this one understands it (unknown keys are
-     * ignored), and logged.
+     * ignored) and keeps its newer `formatVersion`, so [isNewerFormat] marks it read-only and
+     * [saveProject] never writes the reduced copy over it.
      */
     internal fun decodeProject(text: String): GraffitiProject {
         val element = json.parseToJsonElement(text)
-        val version = (element as? kotlinx.serialization.json.JsonObject)
-            ?.get("formatVersion")
-            ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() }
-            ?: LEGACY_FORMAT_VERSION
+        val version = formatVersionOf(element)
         if (version > CURRENT_FORMAT_VERSION) {
             Log.w("ProjectManager", "project.json format $version is newer than $CURRENT_FORMAT_VERSION")
         }
@@ -208,7 +237,10 @@ class ProjectManager @Inject constructor(
      * default, so this step too only records the version. 3 -> 4 (design frames): a group with a
      * declared box (given a Frame Size before frames existed) was a frame in all but name, so it
      * becomes one, with no fill and no clip so that nothing about how it looks changes; any frame
-     * keys a version 3 file could not have written are cleared. Never lowers a newer version.
+     * keys a version 3 file could not have written are cleared. 4 -> 5 introduces spatial ink,
+     * defaulting to an empty list for older projects. 5 -> 6 adds transformable sketch guides,
+     * defaulting to the original view plane. Neither step moves existing XYZ ink.
+     * Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
         var version = fromVersion
@@ -506,7 +538,17 @@ class ProjectManager @Inject constructor(
             "file://${projectsDir.absolutePath}/$newId/",
         )
         val project = decodeProject(localized).copy(id = newId)
-        val projectJsonOverride: String? = json.encodeToString(project)
+        // A newer-format project.json is installed as written (only its id changed), never
+        // re-encoded through this build's model, which would drop the fields it doesn't know.
+        val projectJsonOverride: String? = if (isNewerFormat(project.formatVersion)) {
+            val obj = json.parseToJsonElement(localized) as kotlinx.serialization.json.JsonObject
+            json.encodeToString(
+                kotlinx.serialization.json.JsonObject.serializer(),
+                kotlinx.serialization.json.JsonObject(obj + ("id" to kotlinx.serialization.json.JsonPrimitive(newId))),
+            )
+        } else {
+            json.encodeToString(project)
+        }
         val destDir = File(projectsDir, project.id)
         val staging = File(context.filesDir, "import_staging/${java.util.UUID.randomUUID()}")
         var installed = false

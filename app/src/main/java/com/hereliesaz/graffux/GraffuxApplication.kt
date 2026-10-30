@@ -78,7 +78,7 @@ class GraffuxApplication : Application() {
         // every such request ran on whatever provider the device happened to ship. Async and
         // non-blocking; a failure here degrades to the device's own provider rather than crashing.
         securityProviderManager.installAsync(this)
-        // Signal-level (SIGSEGV/SIGABRT) backtraces the JVM handler above can't see -- the Vulkan
+        // Signal-level (SIGSEGV/SIGABRT) backtraces the JVM handler above can't see -- the wgpu
         // stamp engine and Ink predictor run native code on the drawing path. Needs loadAll() above.
         NativeCrashHandler.install(File(cacheDir, CrashIssueUploader.NATIVE_CRASH_FILE).path)
         // Crash reports go out only with Settings → Privacy → Send crash reports on (and the reports

@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -176,5 +177,27 @@ class AuditUiShotTest {
         save("rail-landscape")
         val redo = rule.onNodeWithTag("rail.history.redo").fetchSemanticsNode().boundsInRoot
         assertTrue("redo bottom ${dp(redo.bottom)}", dp(redo.bottom) <= 320)
+    }
+
+    @Test
+    fun `closing the picker on the background target reports the background colour`() {
+        var closedOn: Color? = null
+        rule.setContent {
+            GraffitiXRTheme {
+                ColorPickerDialog(
+                    currentColor = Color(0xFFFF3EA5),
+                    secondaryColor = Color(0xFF00FFFF),
+                    history = emptyList(),
+                    onSelectColor = {},
+                    onDismiss = {},
+                    strings = rememberAppStrings(),
+                    onDismissWithColor = { closedOn = it },
+                )
+            }
+        }
+        rule.onNodeWithTag("color.target.background").performClick()
+        rule.onNodeWithContentDescription("Close Colour").performClick()
+        rule.waitForIdle()
+        assertTrue("closed on $closedOn", closedOn?.toArgb() == Color(0xFF00FFFF).toArgb())
     }
 }

@@ -177,7 +177,11 @@ class RepositoryApiClient @Inject constructor() {
         connection.connectTimeout = 15_000
         connection.readTimeout = 30_000
         connection.setRequestProperty("Accept", "${AzphaltStoreHandoff.MIME}, application/octet-stream")
-        if (entitlementToken != null) connection.setRequestProperty("Authorization", "Bearer $entitlementToken")
+        if (entitlementToken != null) {
+            connection.setRequestProperty("Authorization", "Bearer $entitlementToken")
+            // A licence is a bearer credential: never let a redirect carry it to another host.
+            connection.instanceFollowRedirects = false
+        }
         connection.connect()
         val code = connection.responseCode
         if (code == 200 || code == 206) {

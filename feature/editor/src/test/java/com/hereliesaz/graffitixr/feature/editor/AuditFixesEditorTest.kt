@@ -76,4 +76,14 @@ class AuditFixesEditorTest {
         assertEquals("$4.99", formatPrice(PackagePrice(499, "USD"), Locale.US))
         assertEquals("499 XQZ", formatPrice(PackagePrice(499, "xqz"), Locale.US))
     }
+
+    @Test
+    fun `a colour change from outside the hex field ends its edit`() {
+        val pink = Color(0xFFFF3EA5)
+        // The typed value landing on the wheel keeps the edit going.
+        assertEquals("#ff3ea5" to true, hexFieldSync("#ff3ea5", editing = true, color = pink))
+        // The wheel, a swatch or the other target moving the colour ends it and shows the new one.
+        assertEquals("#000000" to false, hexFieldSync("#ff3ea5", editing = true, color = Color.Black))
+        assertEquals("#FF3EA5" to false, hexFieldSync("", editing = false, color = pink))
+    }
 }

@@ -25,8 +25,16 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.
 - **Text** — parametric text layers with Google Fonts.
 - **Vector shapes** — rectangle, ellipse, line, and regular polygons as their own editable layers.
-- **3D** — load an `.obj` model, paint directly on its surface, and drop the painted view back onto
-  the canvas as a layer.
+- **3D spatial sketch** — draw real XYZ pressure-sensitive curves against adjustable camera-facing
+  planes, anchored planes, cylinders, and spheres. Reposition guides in XYZ, rotate, resize, adjust
+  cylinder height, and toggle the wireframe. The stylus ray intersects the actual selected surface;
+  missing a bounded guide ends that segment rather than bridging through empty space. Guides persist
+  with the sketch in `.fux` (project format v6) and leave existing curves unmoved when edited.
+  Orbit, pan, zoom, erase, undo/redo, and export world-space ink as glTF 2.0 tube geometry. The
+  GLES 3.0 renderer depth-tests the geometry. Open View → 3D → Sketch in 3D. Curve transforms,
+  brush materials, lofted/freeform guides, mesh-guided paint, and scene OBJ export remain outstanding.
+- **3D model texture painting** — load an `.obj`, paint directly on its UV surface, and add the
+  painted view as a flattened 2D layer. This remains independent of spatial strokes.
 - **Animation Assist** — each top-level layer as one frame, with onion skinning, playback, and
   time-lapse recording of a drawing session.
 - **Reference & import** — a floating reference image that stays on top while you draw; import
@@ -61,8 +69,9 @@ orchestrates side effects (history, persistence) around each dispatch.
 | `:core:design` | Design system: theme, strings, reusable components. |
 | `:core:nativebridge` | JNI bridge to the native world: the Liquify warper (`LiquifyEngine`) and the GPU brush engine. |
 
-Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app),
-and on the CPU on any device where wgpu can't start. The wgpu library ships for both 64-bit
+Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app).
+There is no CPU renderer: on a device where wgpu can't start, strokes are not painted and the App
+says so (`HardwareFloorNotice`). The wgpu library ships for both 64-bit
 (arm64-v8a) and 32-bit (armeabi-v7a) devices, so both paint on the GPU. wgpu is the only GPU backend: the earlier
 Vulkan and OpenGL ES engines, and the Settings switch between them, were retired (see
 `ARCHITECTURE.md`, Decisions, and `docs/Native Rendering Engine Design.md` §2c).

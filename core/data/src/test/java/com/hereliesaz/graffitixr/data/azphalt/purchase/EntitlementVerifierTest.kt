@@ -42,4 +42,32 @@ class EntitlementVerifierTest {
         assertTrue(check(lapsed, "com.example.sub") is EntitlementCheck.Expired)
         assertTrue(check(current, "com.example.sub") is EntitlementCheck.Valid)
     }
+
+    @Test fun `a one-time purchase never expires on the device, whatever the clock says`() {
+        val perpetual = registry.token("com.example.paid")
+        val farFuture = Instant.parse("2099-01-01T00:00:00Z")
+        assertTrue(verifier.verify(perpetual, "com.example.paid", farFuture) is EntitlementCheck.Valid)
+        val oddlyDated = registry.token("com.example.paid", expiresAt = "2026-01-01T00:00:00Z", kind = "perpetual")
+        assertTrue(check(oddlyDated, "com.example.paid") is EntitlementCheck.Valid)
+    }
+
+    @Test fun `the kind claim is checked`() {
+        val bogus = check(registry.token("com.example.paid", kind = "trial"), "com.example.paid")
+        assertEquals("unknown licence kind", (bogus as EntitlementCheck.Invalid).reason)
+        val noExpiry = check(registry.token("com.example.sub", kind = "subscription"), "com.example.sub")
+        assertTrue(noExpiry is EntitlementCheck.Invalid)
+    }
+
+    @Test fun `an empty trust store says so rather than calling the token untrusted`() {
+        val r = EntitlementVerifier { emptySet() }.verify(registry.token("com.example.paid"), "com.example.paid", now)
+        assertEquals(EntitlementVerifier.NO_TRUSTED_KEYS, (r as EntitlementCheck.Invalid).reason)
+    }
+
+    @Test fun `only a 403 that says revoked is a revocation`() {
+        assertTrue(isRevokedReply("""{"error":{"code":"revoked","message":"x"}}"""))
+        assertTrue(isRevokedReply("""{"status":"revoked"}"""))
+        assertTrue(!isRevokedReply("""{"error":{"code":"app_not_accepted"}}"""))
+        assertTrue(!isRevokedReply("""{"error":{"code":"forbidden"}}"""))
+        assertTrue(!isRevokedReply(""))
+    }
 }

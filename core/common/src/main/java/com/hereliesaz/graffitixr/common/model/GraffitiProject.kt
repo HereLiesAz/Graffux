@@ -10,7 +10,13 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 4
+const val CURRENT_FORMAT_VERSION = 6
+
+/**
+ * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
+ * this build can't carry the fields it doesn't know, so saving would drop them.
+ */
+fun isNewerFormat(formatVersion: Int): Boolean = formatVersion > CURRENT_FORMAT_VERSION
 
 /** What a project.json without a `formatVersion` key is. */
 const val LEGACY_FORMAT_VERSION = 1
@@ -53,6 +59,9 @@ data class GraffitiProject(
      * - 4: design frames (`OverlayLayer.isFrame`, its fill, radius and clip). A sized group from an
      *   older file (a group given a Frame Size) becomes a frame with no fill and no clip, so it
      *   looks exactly as it did.
+     * - 5: [spatialStrokes], editable 3D ink. Old projects default to an empty sketch.
+     * - 6: [spatialGuide], persistent guide geometry and transforms. Existing XYZ strokes
+     *   remain untouched; older projects get the original camera-facing guide.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),
@@ -130,6 +139,14 @@ data class GraffitiProject(
     val modelPath: String? = null,
     val modelName: String? = null,
     val modelTexturePath: String? = null,
+
+    // True 3D artwork, independent of imported model textures and 2D layer snapshots.
+    // Saved in project.json and consequently included in the .fux archive.
+    val spatialStrokes: List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke> = emptyList(),
+
+    // Guide geometry affects only FUTURE stylus samples. Editing a guide never moves stored ink.
+    val spatialGuide: com.hereliesaz.graffitixr.common.mesh.SpatialGuide =
+        com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
 
     // The Crop tab's crop and geometry (format version 3). Non-destructive: the layers keep every
     // pixel; the canvas and the export draw them through this.

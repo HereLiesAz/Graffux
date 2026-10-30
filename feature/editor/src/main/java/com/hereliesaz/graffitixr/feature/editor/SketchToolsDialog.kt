@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -63,6 +64,7 @@ enum class ColorPickerMode(val label: String) {
  * [savedPalette] and its callbacks are hoisted rather than read here so the picker stays a pure
  * composable over its inputs; persistence belongs to the view-model.
  */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun ColorPickerDialog(
     currentColor: Color,
@@ -76,6 +78,8 @@ fun ColorPickerDialog(
     savedPalette: List<Color> = emptyList(),
     onSavePaletteColor: (Color) -> Unit = {},
     onRemovePaletteColor: (Color) -> Unit = {},
+    /** Closing, with the colour the Foreground/Background target ended on (for the Recent row). */
+    onDismissWithColor: ((Color) -> Unit)? = null,
 ) {
     // Decompose current color into HSV
     val initHsv = FloatArray(3)
@@ -126,7 +130,10 @@ fun ColorPickerDialog(
         if (mode == ColorPickerMode.HARMONY) ColorHarmony.partners(hue, harmony) else emptyList()
     }
 
-    FloatingWindow(title = "Colour", onDismiss = onDismiss) {
+    FloatingWindow(
+        title = "Colour",
+        onDismiss = { onDismissWithColor?.invoke(selectedColor) ?: onDismiss() },
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BrushColorTarget.entries.forEach { candidate ->
@@ -271,8 +278,13 @@ private enum class BrushColorTarget(val label: String) { FOREGROUND("Foreground"
 private fun HexField(color: Color, onColor: (Color) -> Unit) {
     var text by remember { mutableStateOf(hexOf(color)) }
     var editing by remember { mutableStateOf(false) }
-    // Follow the wheel while the field isn't being typed in.
-    LaunchedEffect(color) { if (!editing) text = hexOf(color) }
+    // Follow the wheel, a swatch or the other target: any colour change that isn't the typed
+    // value ends the edit, so a later Done can never re-apply a stale typed value.
+    LaunchedEffect(color) {
+        val (synced, stillEditing) = hexFieldSync(text, editing, color)
+        text = synced
+        editing = stillEditing
+    }
     val valid = parseHexColor(text) != null
     OutlinedTextField(
         value = text,
@@ -293,9 +305,20 @@ private fun HexField(color: Color, onColor: (Color) -> Unit) {
             editing = false
             parseHexColor(text)?.let(onColor)
         }),
-        modifier = Modifier.fillMaxWidth().testTag("color.hex"),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { if (!it.isFocused) editing = false }
+            .testTag("color.hex"),
     )
 }
+
+/**
+ * The hex field's text and editing state after the working colour became [color]: while the typed
+ * [text] is that colour the edit goes on; any other colour (wheel, swatch, the other target) ends
+ * it and shows [color].
+ */
+internal fun hexFieldSync(text: String, editing: Boolean, color: Color): Pair<String, Boolean> =
+    if (editing && parseHexColor(text)?.toArgb() == color.toArgb()) text to true else hexOf(color) to false
 
 /** A small selectable label — the picker's mode and harmony choosers. */
 @Composable
