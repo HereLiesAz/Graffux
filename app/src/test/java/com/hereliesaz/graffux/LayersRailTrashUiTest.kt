@@ -24,7 +24,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** Long-press a layer thumbnail and drag it onto the trash that appears: the layer is deleted. */
+/** The trash sits at the foot of the layers rail; a layer thumbnail dragged onto it is deleted. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w390dp-h844dp-xhdpi", application = Application::class)
@@ -65,7 +65,6 @@ class LayersRailTrashUiTest {
             moveBy(Offset(-40f, 40f))
         }
         rule.waitForIdle()
-        // On screen: the trash is a popup, its own window.
         val trashNode = rule.onNodeWithTag("rail.layer.trash", useUnmergedTree = true).fetchSemanticsNode()
         val trash = androidx.compose.ui.geometry.Rect(
             trashNode.positionOnScreen,
@@ -78,7 +77,21 @@ class LayersRailTrashUiTest {
         }
         rule.waitForIdle()
         assertEquals(listOf("b"), deleted)
-        assertTrue(rule.onAllNodesWithTagCount("rail.layer.trash") == 0)
+        assertTrue(relocated.isEmpty())
+        // Still there for the next one.
+        assertEquals(1, rule.onAllNodesWithTagCount("rail.layer.trash"))
+    }
+
+    @Test
+    fun `the trash is always at the bottom of the layers rail`() {
+        show()
+        // No drag in progress: it is there anyway.
+        assertEquals(1, rule.onAllNodesWithTagCount("rail.layer.trash"))
+        val rail = rule.onNodeWithTag("rail.layers").fetchSemanticsNode().boundsInRoot
+        val trash = rule.onNodeWithTag("rail.layer.trash", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val lastLayer = rule.onNodeWithTag("rail.layer.a").fetchSemanticsNode().boundsInRoot
+        assertTrue("inside the rail", rail.contains(trash.center))
+        assertTrue("below every layer", trash.top >= lastLayer.bottom)
     }
 
     @Test

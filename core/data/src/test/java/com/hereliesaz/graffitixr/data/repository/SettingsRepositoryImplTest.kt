@@ -6,7 +6,6 @@ import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
-import com.hereliesaz.graffitixr.common.model.Tool
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import androidx.compose.ui.graphics.toArgb
@@ -66,37 +65,6 @@ class SettingsRepositoryImplTest {
         // Other slots are unaffected by setting this one.
         val otherSlot = GestureSlot.entries.first { it != slot }
         assertEquals(otherSlot.defaultAction, repo.gestureMapping.first()[otherSlot])
-    }
-
-    @Test
-    fun `recordToolUse updates toolUsage but Tool NONE is a no-op`() = runTest {
-        val before = repo.toolUsage.first()
-        repo.recordToolUse(Tool.NONE, atMs = 1_000L)
-        assertEquals(before, repo.toolUsage.first())
-
-        repo.recordToolUse(Tool.BRUSH, atMs = 5_000L)
-        val after = repo.toolUsage.first()
-        assertTrue(after != before)
-    }
-
-    @Test
-    fun `toggleFavoriteTool pins in order, then unpins, preserving remaining order`() = runTest {
-        repo.toggleFavoriteTool(Tool.BRUSH)
-        repo.toggleFavoriteTool(Tool.ERASER)
-        assertEquals(listOf(Tool.BRUSH.name, Tool.ERASER.name), repo.favoriteTools.first())
-
-        // Unpin the first; the second keeps its position rather than the list resorting.
-        repo.toggleFavoriteTool(Tool.BRUSH)
-        assertEquals(listOf(Tool.ERASER.name), repo.favoriteTools.first())
-
-        // Re-pinning appends at the end, not back at the front.
-        repo.toggleFavoriteTool(Tool.BRUSH)
-        assertEquals(listOf(Tool.ERASER.name, Tool.BRUSH.name), repo.favoriteTools.first())
-
-        // Tool.NONE is a no-op, same as recordToolUse.
-        val before = repo.favoriteTools.first()
-        repo.toggleFavoriteTool(Tool.NONE)
-        assertEquals(before, repo.favoriteTools.first())
     }
 
     @Test

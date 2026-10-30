@@ -127,7 +127,7 @@ class PhotoSheetUiTest {
                         CarouselSheet(
                             open = true,
                             onOpenChange = {},
-                            bottomInset = EdgeStripHeight + 4.dp,
+                            bottomInset = CarouselBottomInset,
                             chromeHidden = { drag.active },
                         ) {
                             PhotoSheetBody(

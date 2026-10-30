@@ -7,9 +7,7 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
  * The one description of a tool: its rail item id, its label, and its glyph.
  *
  * There used to be two. `TOOL_IDS` held the ids, and the label and glyph were written a second time
- * at each `toolItem(...)` call site — which is fine while the rail is the only thing that draws
- * tools, and stops being fine the moment a second surface does. The shortcuts sheet is that second
- * surface, and rather than let it invent its own names for the same fourteen tools, both read this.
+ * at each `toolItem(...)` call site. Every surface that draws a tool reads this instead.
  *
  * Two of the labels do not match their enum ([Tool.COLOR] is "Colorize", [Tool.SELECT] is "Select"
  * rather than "Selection"), which is exactly the sort of pair that drifts when it is written twice.
