@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.Op
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.toLayerProps
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
@@ -510,6 +511,36 @@ class EditorViewModelTest {
         viewModel.onDesignDragEnd("locked", moved = true)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(Offset.Zero, layer("locked").offset)
+    }
+
+    @Test
+    fun `a mutation with no emit of its own still reaches peers, and a peer's op is not echoed`() = runTest {
+        every { opEmitter.isActive } returns true
+        viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "c", name = "c")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val end = com.hereliesaz.graffitixr.common.model.Constraints(
+            com.hereliesaz.graffitixr.common.model.ConstraintAnchor.END,
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayerConstraints("c", end))
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify {
+            opEmitter.emit(
+                match { it is Op.LayerPropsChange && it.layerId == "c" && it.props.extended?.constraints == end },
+            )
+        }
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayerTransformById("c", scale = 2f, offset = Offset(5f, 0f), rx = 0f, ry = 0f, rz = 0f),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify { opEmitter.emit(match { it is Op.LayerTransform && it.layerId == "c" && it.matrix[0] == 2f }) }
+
+        val renamed = viewModel.uiState.value.layers.first { it.id == "c" }.copy(name = "from peer")
+        viewModel.applySpectatorOp(Op.LayerPropsChange("c", renamed.toLayerProps()))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("from peer", viewModel.uiState.value.layers.first { it.id == "c" }.name)
+        verify(exactly = 0) {
+            opEmitter.emit(match { it is Op.LayerPropsChange && it.props.extended?.name == "from peer" })
+        }
     }
 
     @Test

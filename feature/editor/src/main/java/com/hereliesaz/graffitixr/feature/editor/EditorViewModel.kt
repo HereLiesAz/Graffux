@@ -2232,6 +2232,9 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // Declared ahead of the init block below, whose co-op collector reads it (see syncLayersToPeers).
+    private val coopSeenState = CoopSeen()
+
     init {
         com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.add(onDeviceLost)
         // Keep the next stroke's setup built ahead of the touch (see PrewarmedStroke).
@@ -2303,6 +2306,11 @@ class EditorViewModel @Inject constructor(
                     createProjectWithScreenSize("Untitled")
                 }
             }
+        }
+
+        // Co-op: every change to a layer's props reaches peers, from whichever mutation made it.
+        viewModelScope.launch(dispatchers.main) {
+            _uiState.map { it.layers }.distinctUntilChanged().collect { syncLayersToPeers(it) }
         }
 
         viewModelScope.launch(dispatchers.main) {
@@ -5246,7 +5254,7 @@ class EditorViewModel @Inject constructor(
         }
         saveProject()
         _uiState.value.activeLayerId?.let { id ->
-            _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+            _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
         }
     }
 
@@ -5428,7 +5436,7 @@ class EditorViewModel @Inject constructor(
     private fun emitLayerStateResync(layers: List<Layer>) {
         opEmitter.emit(Op.LayerReorder(layers.map { it.id }))
         layers.forEach { l ->
-            opEmitter.emit(Op.LayerPropsChange(l.id, l.toLayerProps()))
+            emitLayerProps(l.id, l.toLayerProps())
             opEmitter.emit(Op.LayerTransform(l.id, listOf(
                 l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
                 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
@@ -5439,23 +5447,6 @@ class EditorViewModel @Inject constructor(
             opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
         }
     }
-
-    private fun Layer.toLayerProps() = LayerProps(
-        isVisible = isVisible,
-        opacity = opacity,
-        brightness = brightness,
-        contrast = contrast,
-        saturation = saturation,
-        colorBalanceR = colorBalanceR,
-        colorBalanceG = colorBalanceG,
-        colorBalanceB = colorBalanceB,
-        isImageLocked = isImageLocked,
-        alphaLock = alphaLock,
-        isInverted = isInverted,
-        blendMode = blendMode,
-        clipToLayerBelow = clipToLayerBelow,
-        isPinnedAcrossFrames = isPinnedAcrossFrames,
-    )
 
     private fun updateActiveLayer(transform: (Layer) -> Layer) {
         _uiState.update { state ->
@@ -5647,10 +5638,85 @@ class EditorViewModel @Inject constructor(
         )
     }
 
+    /** What a co-op peer last saw of one layer's non-pixel state. */
+    private data class CoopLayerState(
+        val props: LayerProps,
+        val transform: List<Float>,
+        val geometry: Triple<List<VectorShape>, Float, Float>,
+        val parentId: String?,
+    )
+
+    private fun Layer.coopState() = CoopLayerState(
+        toLayerProps(),
+        coopTransform(),
+        Triple(shapes, layoutWidth, layoutHeight),
+        parentId,
+    )
+
+    /** The LayerTransform encoding: [scale, offsetX, offsetY, rotX, rotY, rotZ], zero-padded to 16. */
+    private fun Layer.coopTransform(): List<Float> = listOf(
+        scale, offset.x, offset.y, rotationX, rotationY, rotationZ,
+        0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
+    )
+
+    /**
+     * What peers last saw of each layer, and the layer order. [syncLayersToPeers] diffs the layer
+     * list against it, so a change to a layer's props (adjustment, mask, constraints, auto-layout,
+     * components, name, ...), transform, geometry, parent or order reaches peers from whichever
+     * mutation made it, whether or not its call site emits. A peer's applied op is recorded, not
+     * sent back. Main thread only.
+     */
+    private class CoopSeen {
+        val layers = HashMap<String, CoopLayerState>()
+        var order: List<String> = emptyList()
+    }
+
+    private val coopSeen get() = coopSeenState.layers
+
+    private fun emitLayerProps(id: String, props: LayerProps) {
+        coopSeen[id]?.let { coopSeen[id] = it.copy(props = props) }
+        opEmitter.emit(Op.LayerPropsChange(id, props))
+    }
+
+    /**
+     * Sends the ops that bring peers from what they last saw to [layers]. A layer seen for the first
+     * time is recorded, not sent: it arrived by LayerAdd or the session's project load, which carry it
+     * whole. With [send] false it only records (after applying a peer's op). Costs nothing without a
+     * live session ([OpEmitter.isActive]). Pixels travel in their own ops (strokes, bitmap replaces).
+     */
+    internal fun syncLayersToPeers(layers: List<Layer>, send: Boolean = true) {
+        if (!opEmitter.isActive) {
+            coopSeen.clear()
+            coopSeenState.order = emptyList()
+            return
+        }
+        val ids = ArrayList<String>(layers.size)
+        val known = coopSeenState.order.toHashSet()
+        for (layer in layers) {
+            ids += layer.id
+            val now = layer.coopState()
+            val was = coopSeen.put(layer.id, now)
+            if (!send || was == null || was == now) continue
+            if (was.parentId != now.parentId) opEmitter.emit(Op.LayerParent(layer.id, now.parentId))
+            if (was.geometry != now.geometry) {
+                opEmitter.emit(Op.LayerGeometry(layer.id, now.geometry.first, now.geometry.second, now.geometry.third))
+            }
+            if (was.transform != now.transform) opEmitter.emit(Op.LayerTransform(layer.id, now.transform))
+            if (was.props != now.props) opEmitter.emit(Op.LayerPropsChange(layer.id, now.props))
+        }
+        // Reordered, not merely added or removed (those have their own ops).
+        val present = ids.toHashSet()
+        if (send && ids.filter { it in known } != coopSeenState.order.filter { it in present }) {
+            opEmitter.emit(Op.LayerReorder(ids))
+        }
+        coopSeenState.order = ids
+        coopSeen.keys.retainAll(present)
+    }
+
     /** Emits a co-op LayerPropsChange for the active layer, if any. */
     private fun emitActiveLayerProps() {
         val id = _uiState.value.activeLayerId ?: return
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     /** Returns the IDs of all layers in the same link-group as [layerId].
@@ -8858,14 +8924,14 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.ToggleClipToLayerBelow(id))
         saveProject()
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     fun onTogglePinnedAcrossFrames(id: String) {
         pushHistory()
         dispatch(EditorIntent.TogglePinnedAcrossFrames(id))
         saveProject()
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     // ── QuickMenu (Procreate's radial six-slot) ──────────────────────────────────────────────
@@ -9956,7 +10022,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.ToggleAlphaLock(id))
         saveProject()
-        _uiState.value.layers.find { it.id == id }?.let { opEmitter.emit(Op.LayerPropsChange(id, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == id }?.let { emitLayerProps(id, it.toLayerProps()) }
     }
 
     // ── QuickShape (pen snapped to an ideal ellipse on hold) ────────────────────────────────
@@ -11570,8 +11636,8 @@ class EditorViewModel @Inject constructor(
 
     // ── Components and instances ─────────────────────────────────────────────────────────────
     //
-    // Like node editing, these are undoable and persisted but NOT emitted to co-op peers — no Op
-    // carries the component link, so a LayerPropsChange would announce a change it can't transmit.
+    // Undoable and persisted. Co-op peers get the component link through LayerProps.extended, sent
+    // by syncLayersToPeers when the layer list changes.
 
     /** Promotes the active layer to a main component. */
     fun onMakeComponent() {
@@ -11939,9 +12005,8 @@ class EditorViewModel @Inject constructor(
 
     // ── Vector node editing ──────────────────────────────────────────────────────────────────
     //
-    // Node edits are undoable and persisted, but NOT emitted to co-op peers: no Op carries vector
-    // geometry (LayerProps has no `shapes`), so emitting LayerPropsChange would announce a change
-    // it cannot actually transmit. A geometry-carrying op is the honest fix, and is follow-up work.
+    // Node edits are undoable and persisted. Co-op peers get the new shapes as Op.LayerGeometry,
+    // sent by syncLayersToPeers when the layer list changes.
 
     /**
      * Enters node-edit mode on [layerId], or leaves it with null. Only a layer whose single shape
@@ -12805,7 +12870,7 @@ class EditorViewModel @Inject constructor(
         pushHistory()
         dispatch(EditorIntent.ToggleVisibility(layerId))
         saveProject()
-        _uiState.value.layers.find { it.id == layerId }?.let { opEmitter.emit(Op.LayerPropsChange(layerId, it.toLayerProps())) }
+        _uiState.value.layers.find { it.id == layerId }?.let { emitLayerProps(layerId, it.toLayerProps()) }
     }
 
     fun setLayers(layers: List<Layer>) {
@@ -12948,9 +13013,8 @@ class EditorViewModel @Inject constructor(
     // Co-op spectator API
     // -------------------------------------------------------------------------
 
-    /** Applies a remote Op received from the host, without echoing it back through opEmitter. */
-    // Co-op, so GraffitiXR's. Graffux binds NoOpOpEmitter (see CoopModule) and never joins a
-    // session, so no remote op ever arrives for this to apply.
+    // Graffux binds NoOpOpEmitter (see CoopModule) and has no transport, so nothing calls
+    // applySpectatorOp yet: a transport delivers each received op to it, on the main thread.
     /**
      * The layer whose pixels a co-op op changes, or null when it changes none (a new layer has no
      * GPU copy yet; order, transform and props are applied at composite time, not in the layer's
@@ -12966,9 +13030,17 @@ class EditorViewModel @Inject constructor(
         is Op.LayerGeometry, is Op.LayerParent -> null
     }
 
+    /** Applies a remote Op received from a peer, without echoing it back through opEmitter. Main thread. */
     fun applySpectatorOp(op: Op) {
         // A peer's op changes layer content outside this device's strokes.
         spectatorOpContentLayer(op)?.let(::invalidateResident)
+        applySpectatorOpToState(op)
+        // What the op changed is what the peer already has: record it so it isn't sent back.
+        syncLayersToPeers(_uiState.value.layers, send = false)
+    }
+
+    @Suppress("LongMethod", "CyclomaticComplexMethod") // one branch per Op type
+    private fun applySpectatorOpToState(op: Op) {
         when (op) {
             is Op.LayerAdd -> dispatch(EditorIntent.AppendLayer(op.layer))
             is Op.LayerRemove -> dispatch(EditorIntent.RemoveLayerById(op.layerId))

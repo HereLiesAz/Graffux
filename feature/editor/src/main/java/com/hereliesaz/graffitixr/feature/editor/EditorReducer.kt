@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.withLayerProps
 import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.common.model.ColorStyle
 import com.hereliesaz.graffitixr.common.model.ComponentOps
@@ -64,24 +65,9 @@ internal object EditorReducer {
         is EditorIntent.ToggleAlphaLock ->
             state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) { it.copy(alphaLock = !it.alphaLock) })
         is EditorIntent.SetBlendMode -> state.mapActive { it.copy(blendMode = intent.mode.toComposeBlendMode()) }
-        is EditorIntent.SetLayerProps -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
-            it.copy(
-                isVisible = intent.props.isVisible,
-                opacity = intent.props.opacity,
-                brightness = intent.props.brightness,
-                contrast = intent.props.contrast,
-                saturation = intent.props.saturation,
-                colorBalanceR = intent.props.colorBalanceR,
-                colorBalanceG = intent.props.colorBalanceG,
-                colorBalanceB = intent.props.colorBalanceB,
-                isImageLocked = intent.props.isImageLocked,
-                alphaLock = intent.props.alphaLock,
-                isInverted = intent.props.isInverted,
-                blendMode = intent.props.blendMode,
-                clipToLayerBelow = intent.props.clipToLayerBelow,
-                isPinnedAcrossFrames = intent.props.isPinnedAcrossFrames,
-            )
-        })
+        is EditorIntent.SetLayerProps -> state.copy(
+            layers = LayerListOps.mapLayer(state.layers, intent.id) { it.withLayerProps(intent.props) },
+        )
         is EditorIntent.PasteLayerModifications -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.id) {
             it.copy(
                 opacity = intent.source.opacity,
