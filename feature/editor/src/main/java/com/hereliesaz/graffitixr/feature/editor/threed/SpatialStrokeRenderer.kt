@@ -124,7 +124,7 @@ class SpatialStrokeRenderer : GLSurfaceView.Renderer {
         }
         interleaved.flip()
         val indices = ByteBuffer.allocateDirect(indexCount * 4).order(ByteOrder.nativeOrder())
-        mesh.indices.forEach(indices::putInt)
+        mesh.indices.forEach { indices.putInt(it) }
         indices.flip()
 
         if (vertexBuffer == 0 || indexBuffer == 0) {
