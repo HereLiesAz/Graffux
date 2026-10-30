@@ -10,9 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -53,8 +54,15 @@ internal val RailGap = 8.dp
 /** The mockup's corner: 12 from the side, 16 from the top. */
 internal val RailSideInset = 12.dp
 internal val RailTopInset = 16.dp
-private val RailInk = Color(0xFFEDEDED)
-private val ShortcutInk = Color(0xFF8A8A90)
+internal val RailInk = Color(0xFFEDEDED)
+internal val ShortcutInk = Color(0xFF8A8A90)
+
+/** The mockup's accent: an active rail button's ring and fill, a lit menu row. */
+internal val RailAccent = Color(0xFFFF3EA5)
+
+/** Drawn size of a rail button; its hit target is [RailTargetSize] around it. */
+internal val RailButtonSize = 44.dp
+internal val RailTargetSize = 48.dp
 private val PillShape = RoundedCornerShape(RailWidth / 2)
 private val ButtonShape = CircleShape
 private val MenuShape = RoundedCornerShape(14.dp)
@@ -95,14 +103,13 @@ internal fun RailButton(
     enabled: Boolean = true,
     shortcut: String? = null,
 ) {
-    val accent = GraffuxColors.HotPink
+    val accent = RailAccent
+    // A 48dp target around the 44dp drawn button.
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(44.dp)
+            .size(RailTargetSize)
             .clip(ButtonShape)
-            .background(if (active) accent.copy(alpha = 0.22f) else Color.Transparent)
-            .border(if (active) 1.5.dp else 0.dp, if (active) accent else Color.Transparent, ButtonShape)
             .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
             .semantics {
                 contentDescription = label
@@ -110,16 +117,25 @@ internal fun RailButton(
             }
             .alpha(if (enabled) 1f else 0.3f),
     ) {
-        RailButtonContent(icon, text)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(RailButtonSize)
+                .clip(ButtonShape)
+                .background(if (active) accent.copy(alpha = 0.22f) else Color.Transparent)
+                .border(if (active) 1.5.dp else 0.dp, if (active) accent else Color.Transparent, ButtonShape),
+        ) {
+            RailButtonContent(icon, text)
+        }
         if (shortcut != null) {
-            // The mockup's key label: mono 9, grey, hanging 2 past the button's bottom-right.
+            // The mockup's key label: mono 9, grey, hanging 2 past the drawn button's bottom-right.
             Text(
                 shortcut,
                 color = ShortcutInk,
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
-                modifier = Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp),
+                modifier = Modifier.align(Alignment.BottomEnd),
             )
         }
     }
@@ -129,44 +145,70 @@ internal fun RailButton(
 private fun BoxScope.RailButtonContent(icon: Painter?, text: String?) {
     when {
         icon != null -> Icon(icon, contentDescription = null, tint = RailInk, modifier = Modifier.size(22.dp))
-        text != null -> Text(text, color = RailInk, fontSize = 12.sp, maxLines = 1)
+        text != null -> Text(text, color = RailInk, fontSize = if (text.length == 1) 20.sp else 12.sp, maxLines = 1)
     }
 }
 
-/** A list of labelled rows beside the rail; [onPick] runs one, [lit] marks the current one. */
+/**
+ * A list of labelled rows beside the rail; [onPick] runs one, [lit] marks the current one, and
+ * [trailing] (by row) is a grey mono note at the row's end: its shortcut, or › for a page.
+ */
 @Composable
 internal fun RailMenu(
-    title: String,
+    title: String?,
     rows: List<String>,
     lit: String?,
     onPick: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    trailing: List<String?> = emptyList(),
+    enabled: List<Boolean> = emptyList(),
 ) {
     Column(
         modifier = modifier
-            .widthIn(min = 180.dp, max = 260.dp)
+            .widthIn(min = 180.dp, max = 280.dp)
             .clip(MenuShape)
             .background(RailFill)
             .border(1.dp, RailBorder, MenuShape)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 6.dp),
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.6f),
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-        )
-        rows.forEachIndexed { index, row ->
+        if (title != null) {
             Text(
-                if (row == lit) "$row ✓" else row,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
+                title,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
+        rows.forEachIndexed { index, row ->
+            if (row == MENU_DIVIDER) {
+                Box(Modifier.padding(vertical = 4.dp).fillMaxWidth().height(1.dp).background(RailBorder))
+                return@forEachIndexed
+            }
+            val on = enabled.getOrElse(index) { true }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onPick(index) }
+                    .heightIn(min = 36.dp)
+                    .clickable(enabled = on) { onPick(index) }
+                    .alpha(if (on) 1f else 0.35f)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            ) {
+                Text(
+                    if (row == lit) "$row ✓" else row,
+                    color = if (row == lit) RailAccent else Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                trailing.getOrNull(index)?.let { note ->
+                    Text(note, color = ShortcutInk, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1, modifier = Modifier.padding(start = 16.dp))
+                }
+            }
         }
     }
 }
+
+/** A row of [RailMenu] drawn as a hairline. */
+internal const val MENU_DIVIDER = "\u0000—"

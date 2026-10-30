@@ -55,12 +55,9 @@ import kotlin.random.Random
  *
  * What this still does NOT attempt (see DESKTOP.md): shaped/masked brush tips (a null tip renders
  * a generated round mask, same as [com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes]' own
- * presets do without an installed extension), grain, layers, or project persistence -- a first,
- * honestly-scoped vertical slice proving the shared engine and a pen-aware, multi-core-parallel
- * desktop renderer actually work end to end against the SAME dab-generation code Android runs, not
- * a full port of feature:editor's surrounding UI/state. [CanvasState] does give it real Undo,
- * though -- a whole-canvas snapshot stack, not tile-diffed the way Android's history eventually
- * might be, but genuinely functional.
+ * presets do without an installed extension) or grain. Strokes paint into [CanvasState]'s active
+ * layer; the layers under and over it are drawn flattened around the live frame, each with its
+ * opacity. [CanvasState] keeps the history as document snapshots that share unchanged layers.
  */
 @Composable
 fun DesktopStampCanvas(
@@ -82,36 +79,18 @@ fun DesktopStampCanvas(
     SideEffect { gpu.multipass = multipass }
     MultipassTicker(gpu) { displayBitmap = it }
 
-    // The ONE place that ever creates or resizes `state.committed`'s backing bitmap, covering
-    // three cases uniformly: the very first layout pass (`committed == null`), a live window
-    // resize, and -- caught by adversarial review, not something this file's own testing had
-    // exercised -- Undo/Redo restoring a snapshot taken before the window was last resized.
-    // `replaceWithoutHistory` used to be called only from `onSizeChanged`, so an undo/redo that
-    // crossed a resize left `committed` permanently smaller (or larger) than `canvasSize` with
-    // nothing to ever notice or fix it: `compositeTileParallel` composites and clips against
-    // `base.width`/`base.height` (the stale, wrong-sized `committed`), silently discarding paint
-    // outside that stale rectangle even though the visible window was the new, correct size.
-    // Keying this effect on both `state.committed` and `canvasSize` means ANY path that changes
-    // either one re-checks the other and re-syncs before ever touching `displayBitmap`.
-    LaunchedEffect(state.committed, canvasSize) {
-        val committed = state.committed
-        val sizeKnown = canvasSize.width > 0 && canvasSize.height > 0
-        if (sizeKnown && (committed == null || committed.width != canvasSize.width || committed.height != canvasSize.height)) {
-            val fresh = BufferedImage(canvasSize.width, canvasSize.height, BufferedImage.TYPE_INT_ARGB)
-            if (committed != null) {
-                fresh.createGraphics().apply {
-                    drawImage(committed, 0, 0, null)
-                    dispose()
-                }
-            }
-            // Deliberately NOT an undo-able edit -- see CanvasState.replaceWithoutHistory -- this
-            // re-triggers the effect above with matching dimensions, which then falls through to
-            // updating `displayBitmap` below.
-            state.replaceWithoutHistory(fresh)
-        } else {
-            displayBitmap = committed?.toComposeImageBitmap()
-        }
+    // The ONE place that sizes the document's layers to the canvas, covering the first layout
+    // pass (no layers yet), a live window resize, and an undo/redo/open that brought back layers
+    // of another size: keyed on both, so any path that changes either re-checks the other before
+    // `displayBitmap` (the active layer, live while a stroke is drawn) is updated.
+    LaunchedEffect(state.layers, state.activeLayerId, canvasSize) {
+        state.ensureSize(canvasSize.width, canvasSize.height)
+        displayBitmap = state.committed?.toComposeImageBitmap()
     }
+    // The layers under and over the active one, flattened once per document change.
+    val below = remember(state.layers, state.activeLayerId) { state.compositeBelowActive()?.toComposeImageBitmap() }
+    val above = remember(state.layers, state.activeLayerId) { state.compositeAboveActive()?.toComposeImageBitmap() }
+    val active = state.activeLayer
 
     Box(
         modifier = modifier
@@ -247,9 +226,13 @@ fun DesktopStampCanvas(
                 }
             },
     ) {
-        displayBitmap?.let { bmp ->
-            Image(bitmap = bmp, contentDescription = "Canvas", modifier = Modifier.fillMaxSize())
+        below?.let { Image(bitmap = it, contentDescription = null, modifier = Modifier.fillMaxSize()) }
+        if (active == null || active.visible) {
+            displayBitmap?.let { bmp ->
+                Image(bitmap = bmp, contentDescription = "Canvas", alpha = active?.opacity ?: 1f, modifier = Modifier.fillMaxSize())
+            }
         }
+        above?.let { Image(bitmap = it, contentDescription = null, modifier = Modifier.fillMaxSize()) }
         hoverPosition?.let { position ->
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(

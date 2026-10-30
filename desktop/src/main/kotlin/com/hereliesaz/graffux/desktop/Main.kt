@@ -2,6 +2,15 @@
 
 package com.hereliesaz.graffux.desktop
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.MenuBar
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,7 +45,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.loadImageBitmap
@@ -65,63 +73,176 @@ private val PALETTE = listOf(
 )
 
 /**
- * Entry point for the real Graffux desktop app (Linux + Windows) — see [DesktopStampCanvas] for
- * the shared-engine drawing surface and DESKTOP.md at the repo root for what's verified vs.
- * explicitly deferred. The rail is drawn with the same pill, button and menu shapes as the Android
- * app's (DesktopRail.kt); AzNavRail (`aznavrail-cmp`) supplies only the About reader. The
- * brush presets on the rail are [BuiltInBrushes.presets] — the same shared, pure-Kotlin brush
- * definitions the Android app ships with, not desktop-only stand-ins.
+ * Entry point for the real Graffux desktop app (Linux, Windows, macOS) -- see [DesktopStampCanvas]
+ * for the shared-engine drawing surface and DESKTOP.md at the repo root for what's verified vs.
+ * deferred. The chrome follows the approved Desktop / DesignDesktop boards: the tool rail at the
+ * top-left, the layers rail under the logo menu at the top-right (beside the tool rail while the
+ * properties panel is docked), the properties side panel, and a menu bar. The menu bar and the logo
+ * menu list the same [CommandMenu]s, each with its key; Cmd on macOS, Ctrl elsewhere ([Shortcut]).
  */
 fun main() = application {
-    // The library's default 800x600 window ran out of vertical room for a 6th rail item (Undo +
-    // Redo pushed the rail's total height past 600px, so Redo silently rendered off the bottom of
-    // the window with no scroll/overflow indicator -- not a rail capacity bug, just too small a
-    // window for how many tools this app now has). 1000x1100 leaves real headroom to keep adding
-    // rail items without repeating this (bumped from an earlier 900 while testing a 9th item,
-    // the About "?" button -- see DESKTOP.md).
-    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
-    // Hoisted here (rather than inside GraffuxDesktopApp, where every other piece of UI state
-    // lives) purely so Window's own onKeyEvent below -- Ctrl+Z / Ctrl+Y, a desktop convention
-    // Android's touch-only editor has no equivalent shortcut for -- can reach it directly. Same
-    // reason `lastSavedPath` (Ctrl+S's own feedback label) lives here too.
+    // Tall enough for the tool rail's every item without scrolling (see DESKTOP.md).
+    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1280.dp, 1000.dp))
     val canvasState = remember { CanvasState() }
-    var lastSavedPath by remember { mutableStateOf<String?>(null) }
-    // exportPng() can throw (unwritable directory, full disk) -- IOException from ImageIO.write
-    // propagating out of this composable's key-event handler would crash the whole app, and the
-    // Save button's onClick below is just as unguarded, so both wrap the call and surface the
-    // failure here instead of letting it crash or silently vanish.
-    var saveError by remember { mutableStateOf<String?>(null) }
-    // The same app icon Android's launcher uses (`branding/icon-512.png`) instead of the
-    // unbranded default JVM coffee-cup icon — part of UI parity, not just the in-window theme.
+    val recent = remember { RecentProjects() }
+    var recentFiles by remember { mutableStateOf(recent.list()) }
+    var documentFile by remember { mutableStateOf<File?>(null) }
+    var status by remember { mutableStateOf<Status?>(null) }
+    var showProperties by remember { mutableStateOf(true) }
+    var showToolOptions by remember { mutableStateOf(true) }
+    var showAbout by remember { mutableStateOf(false) }
+    var frame by remember { mutableStateOf<java.awt.Frame?>(null) }
+    val documentName = documentFile?.nameWithoutExtension ?: "Untitled"
+
+    // Every file action reports here instead of throwing out of a key or menu handler.
+    fun saveTo(file: File): Boolean = try {
+        val snapshot = canvasState.currentSnapshot()
+        ProjectFile.save(snapshot, file)
+        canvasState.markSaved(snapshot)
+        documentFile = file
+        recentFiles = recent.add(file)
+        status = Status("Saved ${file.absolutePath}")
+        true
+    } catch (e: Exception) {
+        status = Status("Save failed: ${e.message ?: e::class.simpleName}", error = true)
+        false
+    }
+
+    fun saveAs(): Boolean = FileDialogs.saveProject(frame, "$documentName.${ProjectFile.EXTENSION}")?.let(::saveTo) ?: false
+    fun save(): Boolean = documentFile?.let(::saveTo) ?: saveAs()
+
+    /** True when the current document may be replaced: it is saved, or the user said discard. */
+    fun mayDiscard(): Boolean = !canvasState.isDirty || when (FileDialogs.confirmUnsaved(frame, documentName)) {
+        FileDialogs.Unsaved.SAVE -> save()
+        FileDialogs.Unsaved.DISCARD -> true
+        FileDialogs.Unsaved.CANCEL -> false
+    }
+
+    fun newDocument() {
+        if (!mayDiscard()) return
+        canvasState.newDocument()
+        documentFile = null
+        status = null
+    }
+
+    fun open(chosen: File? = null) {
+        if (!mayDiscard()) return
+        val file = chosen ?: FileDialogs.openProject(frame) ?: return
+        try {
+            canvasState.load(ProjectFile.load(file))
+            documentFile = file
+            recentFiles = recent.add(file)
+            status = Status("Opened ${file.absolutePath}")
+        } catch (e: Exception) {
+            if (!file.isFile) recentFiles = recent.remove(file)
+            status = Status("Open failed: ${e.message ?: e::class.simpleName}", error = true)
+        }
+    }
+
+    fun exportPng() {
+        val file = FileDialogs.exportPng(frame, "$documentName.png") ?: return
+        status = try {
+            if (canvasState.exportPngTo(file)) Status("Exported ${file.absolutePath}") else Status("Nothing to export", error = true)
+        } catch (e: Exception) {
+            Status("Export failed: ${e.message ?: e::class.simpleName}", error = true)
+        }
+    }
+
+    fun quit() {
+        if (mayDiscard()) exitApplication()
+    }
+
+    val active = canvasState.activeLayer
+    val activeIndex = canvasState.layers.indexOf(active)
+    val menus = listOf(
+        CommandMenu(
+            "File",
+            listOf(
+                Command("New", Shortcuts.New) { newDocument() },
+                Command("Open…", Shortcuts.Open) { open() },
+                null,
+                Command("Save", Shortcuts.Save) { save() },
+                Command("Save As…", Shortcuts.SaveAs) { saveAs() },
+                Command("Export PNG…", Shortcuts.ExportPng, enabled = active != null) { exportPng() },
+                null,
+                Command("Quit", Shortcuts.Quit) { quit() },
+            ),
+        ),
+        CommandMenu(
+            "Edit",
+            listOf(
+                Command("Undo", Shortcuts.Undo, enabled = canvasState.canUndo) { canvasState.undo() },
+                Command("Redo", Shortcuts.Redo, enabled = canvasState.canRedo) { canvasState.redo() },
+                null,
+                Command("Clear Layer", enabled = active != null) { canvasState.clear() },
+            ),
+        ),
+        CommandMenu(
+            "Layer",
+            listOf(
+                Command("New Layer", Shortcuts.NewLayer, enabled = active != null) { canvasState.addLayer() },
+                Command("Duplicate Layer", Shortcuts.DuplicateLayer, enabled = active != null) { active?.let { canvasState.duplicateLayer(it.id) } },
+                Command("Merge Down", Shortcuts.MergeDown, enabled = activeIndex > 0) { active?.let { canvasState.mergeDown(it.id) } },
+                null,
+                Command("Move Up", Shortcuts.LayerUp, enabled = active != null && activeIndex < canvasState.layers.lastIndex) { active?.let { canvasState.moveLayer(it.id, 1) } },
+                Command("Move Down", Shortcuts.LayerDown, enabled = activeIndex > 0) { active?.let { canvasState.moveLayer(it.id, -1) } },
+                null,
+                Command("Hide Layer", enabled = active != null, checked = active?.visible == false) { active?.let { canvasState.setVisible(it.id, !it.visible) } },
+                Command("Rename…", enabled = active != null) { active?.let { l -> FileDialogs.askName(frame, l.name)?.let { canvasState.rename(l.id, it) } } },
+                Command("Delete Layer", enabled = active != null) { active?.let { canvasState.deleteLayer(it.id) } },
+            ),
+        ),
+        CommandMenu(
+            "View",
+            listOf(
+                Command("Properties Panel", Shortcuts.Properties, checked = showProperties) { showProperties = !showProperties },
+                Command("Tool Options", checked = showToolOptions) { showToolOptions = !showToolOptions },
+            ),
+        ),
+        CommandMenu("Help", listOf(Command("About Graffux") { showAbout = true })),
+    )
+
+    // The same app icon Android's launcher uses (`branding/icon-512.png`).
     val windowIcon = remember {
         object {}.javaClass.classLoader.getResourceAsStream("icon-512.png")?.use { loadImageBitmap(it) }
     }
     Window(
-        onCloseRequest = ::exitApplication,
-        title = "Graffux",
+        onCloseRequest = ::quit,
+        title = "$documentName${if (canvasState.isDirty) " •" else ""} — Graffux",
         state = windowState,
         icon = windowIcon?.let { androidx.compose.ui.graphics.painter.BitmapPainter(it) },
         onKeyEvent = { event ->
-            if (event.type != KeyEventType.KeyDown || !event.isCtrlPressed) {
+            // The menu bar binds every listed key itself; this adds the common alternates only.
+            val primary = if (IsMac) event.isMetaPressed else event.isCtrlPressed
+            if (event.type == KeyEventType.KeyDown && primary && !IsMac && event.key == Key.Y && canvasState.canRedo) {
+                canvasState.redo()
+                true
+            } else {
                 false
-            } else when {
-                event.key == Key.Z && !event.isShiftPressed -> { canvasState.undo(); true }
-                event.key == Key.Z && event.isShiftPressed -> { canvasState.redo(); true }
-                event.key == Key.Y -> { canvasState.redo(); true }
-                event.key == Key.S -> {
-                    try {
-                        lastSavedPath = canvasState.exportPng()?.absolutePath
-                        saveError = null
-                    } catch (e: Exception) {
-                        lastSavedPath = null
-                        saveError = e.message ?: "Failed to save image"
-                    }
-                    true
-                }
-                else -> false
             }
         },
     ) {
+        SideEffect { frame = window }
+        MenuBar {
+            menus.forEach { menu ->
+                Menu(menu.title) {
+                    menu.items.forEach { command ->
+                        when {
+                            command == null -> Separator()
+                            command.checked != null -> CheckboxItem(command.label, command.checked, enabled = command.enabled, shortcut = command.shortcut?.keyShortcut(), onCheckedChange = { command.run() })
+                            else -> Item(command.label, enabled = command.enabled, shortcut = command.shortcut?.keyShortcut(), onClick = command.run)
+                        }
+                        if (command?.label == "Open…") {
+                            Menu("Open Recent", enabled = recentFiles.isNotEmpty()) {
+                                recentFiles.forEach { file -> Item(file.name, onClick = { open(file) }) }
+                                Separator()
+                                Item("Clear Recent", onClick = { recentFiles = recent.clear() })
+                            }
+                        }
+                    }
+                }
+            }
+        }
         GraffuxDesktopTheme {
             CompositionLocalProvider(
                 // Desktop has no OS-level app name/icon the way an Android manifest does, so the
@@ -130,30 +251,45 @@ fun main() = application {
             ) {
                 GraffuxDesktopApp(
                     canvasState = canvasState,
-                    lastSavedPath = lastSavedPath,
-                    saveError = saveError,
-                    onSaved = { lastSavedPath = it; saveError = null },
-                    onSaveError = { lastSavedPath = null; saveError = it },
+                    menus = menus,
+                    recentFiles = recentFiles,
+                    onOpenRecent = { open(it) },
+                    documentName = documentName,
+                    status = status,
+                    onSave = { save() },
+                    showProperties = showProperties,
+                    showToolOptions = showToolOptions,
+                    onShowToolOptions = { showToolOptions = it },
+                    onRename = { l -> FileDialogs.askName(frame, l.name)?.let { canvasState.rename(l.id, it) } },
                 )
+                if (showAbout) AboutReader(onDismiss = { showAbout = false })
             }
         }
     }
 }
 
+/** A line at the window's foot: the last save, open or export, or why it failed. */
+internal data class Status(val text: String, val error: Boolean = false)
+
 @Composable
 private fun GraffuxDesktopApp(
     canvasState: CanvasState,
-    lastSavedPath: String?,
-    saveError: String?,
-    onSaved: (String?) -> Unit,
-    onSaveError: (String?) -> Unit,
+    menus: List<CommandMenu>,
+    recentFiles: List<File>,
+    onOpenRecent: (File) -> Unit,
+    documentName: String,
+    status: Status?,
+    onSave: () -> Unit,
+    showProperties: Boolean,
+    showToolOptions: Boolean,
+    onShowToolOptions: (Boolean) -> Unit,
+    onRename: (DesktopLayer) -> Unit,
 ) {
     var brushRadius by remember { mutableFloatStateOf(24f) }
     var brushFlow by remember { mutableFloatStateOf(1f) }
     var selectedBrush by remember { mutableStateOf<AzphaltBrush>(BuiltInBrushes.presets.first()) }
     var selectedColor by remember { mutableStateOf(PALETTE.first()) }
     var showColorWheel by remember { mutableStateOf(false) }
-    var showToolOptions by remember { mutableStateOf(true) }
     // Multipass drying (experimental, GPU canvas only): off by default.
     var multipass by remember { mutableStateOf(MultipassSettings()) }
     // Real icons (the same master SVGs Android's `GraffuxIcons` generates from) -- see Icons.kt.
@@ -163,28 +299,37 @@ private fun GraffuxDesktopApp(
     val clearIcon = GraffuxDesktopIcons.clear()
     val saveIcon = GraffuxDesktopIcons.save()
 
-    // Which brush set's list is open beside the rail, and whether About is showing.
+    // Which brush set's list is open beside the tool rail; which layer's menu beside the layers
+    // rail; and the logo menu's page (null: shut; "" its top level; else a menu's title).
     var openSet by remember { mutableStateOf<String?>(null) }
-    var showAbout by remember { mutableStateOf(false) }
+    var layerMenuFor by remember { mutableStateOf<String?>(null) }
+    var logoPage by remember { mutableStateOf<String?>(null) }
     Box(Modifier.fillMaxSize()) {
-        // Android's own screens sit on `MaterialTheme.colorScheme.background` (black, per
-        // `GraffuxDarkColorScheme`) -- without an explicit Surface here the window's content
-        // pane defaults to plain white, the one background-color mismatch icons/accent/rail
-        // theming alone didn't fix.
+        // Android's own screens sit on `MaterialTheme.colorScheme.background` (black); without an
+        // explicit Surface the window's content pane defaults to plain white.
         androidx.compose.material3.Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Procreate-style floating, draggable panel in place of the old fixed top toolbar
-            // Row -- matches Android's own `FloatingWindow`-based tool-option panels (both wrap
-            // the same `AzWindow`/`AzWindowState` primitive; see FloatingWindow.kt).
-            if (showToolOptions) {
-                FloatingWindow(
-                    title = "Tool Options",
-                    onDismiss = { showToolOptions = false },
-                    initialOffset = Offset(120f, 80f),
-                ) {
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    CompositionLocalProvider(LocalMultipassSettings provides multipass) {
+                        DesktopStampCanvas(
+                            state = canvasState,
+                            brush = selectedBrush,
+                            brushRadiusPx = brushRadius,
+                            colorArgb = selectedColor.toArgb(),
+                            flow = brushFlow,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    // Procreate-style floating, draggable panels (FloatingWindow.kt).
+                    if (showToolOptions) {
+                        FloatingWindow(
+                            title = "Tool Options",
+                            onDismiss = { onShowToolOptions(false) },
+                            initialOffset = Offset(120f, 80f),
+                        ) {
                     Text("Brush: ${selectedBrush.name} — ${brushRadius.toInt()}px")
                     Slider(
                         value = brushRadius,
@@ -264,47 +409,33 @@ private fun GraffuxDesktopApp(
                     }
                 }
             }
-            if (showColorWheel) {
-                FloatingWindow(
-                    title = "Color",
-                    onDismiss = { showColorWheel = false },
-                    initialOffset = Offset(120f, 340f),
-                ) {
-                    ColorWheel(
-                        currentColor = selectedColor,
-                        onColorSelected = { selectedColor = it },
-                    )
+                    if (showColorWheel) {
+                        FloatingWindow(
+                            title = "Color",
+                            onDismiss = { showColorWheel = false },
+                            initialOffset = Offset(120f, 340f),
+                        ) {
+                            ColorWheel(
+                                currentColor = selectedColor,
+                                onColorSelected = { selectedColor = it },
+                            )
+                        }
+                    }
+                    status?.let {
+                        Text(
+                            it.text,
+                            color = if (it.error) Color(0xFFE53935) else ShortcutInk,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = RailSideInset + RailWidth + RailGap, vertical = 12.dp),
+                        )
+                    }
                 }
-            }
-            lastSavedPath?.let { path ->
-                Text(
-                    text = "Saved to $path",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = Color(0xFF43A047),
-                )
-            }
-            saveError?.let { message ->
-                Text(
-                    text = "Save failed: $message",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = Color(0xFFE53935),
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            CompositionLocalProvider(LocalMultipassSettings provides multipass) {
-                DesktopStampCanvas(
-                    state = canvasState,
-                    brush = selectedBrush,
-                    brushRadiusPx = brushRadius,
-                    colorArgb = selectedColor.toArgb(),
-                    flow = brushFlow,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                )
+                if (showProperties) PropertiesPanel(canvasState, documentName)
             }
         }
-        }
-        // The rail: one button per bundled brush set (its list opens beside it), then the canvas
-        // actions, each with the key that does the same thing in its corner.
+        // The tool rail: one button per bundled brush set (its list opens beside it), then the
+        // canvas actions, each with the key that does the same thing in its corner.
         Row(
             Modifier.align(Alignment.TopStart).padding(start = RailSideInset, top = RailTopInset, bottom = RailGap),
             verticalAlignment = Alignment.Top,
@@ -319,26 +450,16 @@ private fun GraffuxDesktopApp(
                     )
                 }
                 RailDivider()
-                RailButton("Undo", { canvasState.undo() }, icon = undoIcon, enabled = canvasState.canUndo, shortcut = "^Z")
-                RailButton("Redo", { canvasState.redo() }, icon = redoIcon, enabled = canvasState.canRedo, shortcut = "⇧^Z")
-                RailButton("Clear", { canvasState.clear() }, icon = clearIcon, enabled = canvasState.committed != null)
-                RailButton(
-                    "Save",
-                    {
-                        try {
-                            onSaved(canvasState.exportPng()?.absolutePath)
-                        } catch (e: Exception) {
-                            onSaveError(e.message ?: "Failed to save image")
-                        }
-                    },
-                    icon = saveIcon,
-                    enabled = canvasState.committed != null,
-                    shortcut = "^S",
-                )
+                RailButton("Undo", { canvasState.undo() }, icon = undoIcon, enabled = canvasState.canUndo, shortcut = Shortcuts.Undo.label)
+                RailButton("Redo", { canvasState.redo() }, icon = redoIcon, enabled = canvasState.canRedo, shortcut = Shortcuts.Redo.label)
+                RailButton("Clear Layer", { canvasState.clear() }, icon = clearIcon, enabled = canvasState.activeLayer != null)
+                RailButton("Save", onSave, icon = saveIcon, shortcut = Shortcuts.Save.label)
                 // Reopens the tool-options panel once its own close button has been used.
-                RailButton("Tool Options", { showToolOptions = true }, icon = brushIcon, active = showToolOptions)
-                RailDivider()
-                RailButton("About", { showAbout = true }, text = "?")
+                RailButton("Tool Options", { onShowToolOptions(!showToolOptions) }, icon = brushIcon, active = showToolOptions)
+            }
+            if (showProperties) {
+                // Docked panel: the layers rail moves beside the tool rail (spec/design-tools.md).
+                LayersColumn(canvasState, layerMenuFor, { layerMenuFor = it }, onRename, menuOnLeft = false, modifier = Modifier.padding(start = RailGap))
             }
             BuiltInBrushes.sets.firstOrNull { it.name == openSet }?.let { set ->
                 RailMenu(
@@ -350,7 +471,145 @@ private fun GraffuxDesktopApp(
                 )
             }
         }
-        if (showAbout) AboutReader(onDismiss = { showAbout = false })
+        if (!showProperties) {
+            LayersColumn(
+                canvasState, layerMenuFor, { layerMenuFor = it }, onRename, menuOnLeft = true,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = RailTopInset + RailButtonSize + RailSideInset, end = RailSideInset),
+            )
+        }
+        LogoMenu(
+            page = logoPage,
+            onPage = { logoPage = it },
+            menus = menus,
+            recentFiles = recentFiles,
+            onOpenRecent = onOpenRecent,
+            modifier = Modifier.align(Alignment.TopEnd),
+        )
+    }
+}
+
+/** The layers rail with its layer menu beside it, on the side away from the window's edge. */
+@Composable
+private fun LayersColumn(
+    state: CanvasState,
+    menuFor: String?,
+    onMenuFor: (String?) -> Unit,
+    onRename: (DesktopLayer) -> Unit,
+    menuOnLeft: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val rail = @Composable {
+        LayersRail(
+            layers = state.layers,
+            activeLayerId = state.activeLayerId,
+            callbacks = LayersRailCallbacks(
+                onActivate = { state.setActive(it); onMenuFor(null) },
+                onOpenMenu = { id -> state.setActive(id); onMenuFor(if (menuFor == id) null else id) },
+                onMove = { id, by -> state.moveLayer(id, by) },
+                onAdd = { state.addLayer(); onMenuFor(null) },
+            ),
+        )
+    }
+    val menu = @Composable {
+        state.layers.firstOrNull { it.id == menuFor }?.let { layer ->
+            val index = state.layers.indexOf(layer)
+            val rows = listOf(
+                "Rename…" to { onRename(layer) },
+                (if (layer.visible) "Hide" else "Show") to { state.setVisible(layer.id, !layer.visible) },
+                "Duplicate" to { state.duplicateLayer(layer.id) },
+                "Merge Down" to { state.mergeDown(layer.id) },
+                "Move Up" to { state.moveLayer(layer.id, 1) },
+                "Move Down" to { state.moveLayer(layer.id, -1) },
+                "Clear" to { state.clear() },
+                "Delete" to { state.deleteLayer(layer.id) },
+            )
+            RailMenu(
+                title = layer.name,
+                rows = rows.map { it.first },
+                lit = null,
+                trailing = listOf(null, null, Shortcuts.DuplicateLayer.label, Shortcuts.MergeDown.label, Shortcuts.LayerUp.label, Shortcuts.LayerDown.label, null, null),
+                enabled = listOf(true, true, true, index > 0, index < state.layers.lastIndex, index > 0, true, true),
+                onPick = { i -> onMenuFor(null); rows[i].second() },
+                modifier = Modifier.padding(horizontal = RailGap),
+            )
+        }
+    }
+    Row(modifier, verticalAlignment = Alignment.Top) {
+        if (menuOnLeft) { menu(); rail() } else { rail(); menu() }
+    }
+}
+
+/**
+ * The logo menu (Android's LogoMenu.kt): the Graffux mark at the top-right corner and the app's
+ * menu dropping from it -- the menu bar's menus as pages, each row with its key.
+ */
+@Composable
+private fun LogoMenu(
+    page: String?,
+    onPage: (String?) -> Unit,
+    menus: List<CommandMenu>,
+    recentFiles: List<File>,
+    onOpenRecent: (File) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val open = page != null
+    Column(
+        horizontalAlignment = Alignment.End,
+        modifier = modifier.padding(top = RailTopInset, end = if (open) RailSideInset else 18.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(RailTargetSize)
+                .clip(CircleShape)
+                .clickable(role = Role.Button, onClickLabel = if (open) "Close menu" else "Open menu") { onPage(if (open) null else "") },
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(RailButtonSize)
+                    .clip(CircleShape)
+                    .then(if (open) Modifier.background(Color(0xFF161618)).border(1.dp, RailInk, CircleShape) else Modifier),
+            ) {
+                Image(rememberVectorPainter(RailGlyphs.LogoMark), contentDescription = "Graffux menu", modifier = Modifier.size(26.dp))
+            }
+        }
+        if (!open) return@Column
+        val menu = menus.firstOrNull { it.title == page }
+        val back = "‹ Back"
+        when {
+            page == "" -> {
+                val titles = menus.map { it.title } + listOf(MENU_DIVIDER, "Open Recent")
+                RailMenu(
+                    title = null,
+                    rows = titles,
+                    lit = null,
+                    trailing = titles.map { if (it == MENU_DIVIDER) null else "›" },
+                    enabled = titles.map { it != "Open Recent" || recentFiles.isNotEmpty() },
+                    onPick = { onPage(titles[it]) },
+                    modifier = Modifier.padding(top = RailGap),
+                )
+            }
+            page == "Open Recent" -> RailMenu(
+                title = "Open Recent",
+                rows = listOf(back) + recentFiles.map { it.name },
+                lit = null,
+                onPick = { i -> if (i == 0) onPage("") else { onPage(null); onOpenRecent(recentFiles[i - 1]) } },
+                modifier = Modifier.padding(top = RailGap),
+            )
+            menu != null -> {
+                val items = menu.items
+                RailMenu(
+                    title = menu.title,
+                    rows = listOf(back) + items.map { c -> c?.let { if (it.checked == true) "${it.label} ●" else it.label } ?: MENU_DIVIDER },
+                    lit = null,
+                    trailing = listOf(null) + items.map { it?.shortcut?.label },
+                    enabled = listOf(true) + items.map { it?.enabled ?: true },
+                    onPick = { i -> if (i == 0) onPage("") else items[i - 1]?.let { onPage(null); it.run() } },
+                    modifier = Modifier.padding(top = RailGap),
+                )
+            }
+        }
     }
 }
 
