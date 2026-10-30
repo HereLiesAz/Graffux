@@ -2346,6 +2346,7 @@ class EditorViewModel @Inject constructor(
                         loadAdjustmentMasks(layers)
                         restoreModel(project)
                         _spatialStrokes.value = project.spatialStrokes
+                        _spatialGuide.value = project.spatialGuide
                         spatialUndoHistory.clear()
                         spatialRedoHistory.clear()
 
@@ -4354,6 +4355,7 @@ class EditorViewModel @Inject constructor(
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
                 spatialStrokes = _spatialStrokes.value,
+                spatialGuide = _spatialGuide.value,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4372,6 +4374,7 @@ class EditorViewModel @Inject constructor(
                     savedSelections = _uiState.value.savedSelections,
                     documentCrop = _uiState.value.documentCrop,
                     spatialStrokes = _spatialStrokes.value,
+                    spatialGuide = _spatialGuide.value,
                     formatVersion = maxOf(
                         current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
                     ),
@@ -11124,7 +11127,19 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // ── Editable world-space ink ──────────────────────────────────────────────────────────────
+    // ── Editable world-space ink and guides ──────────────────────────────────────────────────
+
+    private val _spatialGuide = MutableStateFlow(com.hereliesaz.graffitixr.common.mesh.SpatialGuide())
+    val spatialGuide: StateFlow<com.hereliesaz.graffitixr.common.mesh.SpatialGuide> =
+        _spatialGuide.asStateFlow()
+
+    /** Persist guide edits without moving already committed world-space ink. */
+    fun onSpatialGuideChanged(guide: com.hereliesaz.graffitixr.common.mesh.SpatialGuide) {
+        if (guide == _spatialGuide.value) return
+        _spatialGuide.value = guide
+        saveProject()
+    }
+
 
     private val _spatialStrokes =
         MutableStateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>(emptyList())

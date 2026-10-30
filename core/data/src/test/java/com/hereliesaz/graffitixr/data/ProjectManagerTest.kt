@@ -379,10 +379,10 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":5"))
+        assertTrue(text.contains("\"formatVersion\":6"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(5, back.formatVersion)
+        assertEquals(6, back.formatVersion)
     }
 
     @Test

@@ -281,6 +281,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val modelState by vm.modelState.collectAsState()
     val spatialStrokes by vm.spatialStrokes.collectAsState()
+    val spatialGuide by vm.spatialGuide.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
@@ -1915,6 +1916,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         if (showSpatialSketch) {
             SpatialSketchWorkspace(
                 strokes = spatialStrokes,
+                guide = spatialGuide,
+                onGuideChange = vm::onSpatialGuideChanged,
                 color = uiState.activeColor,
                 brushRadiusPx = uiState.brushSize / 2f,
                 onStroke = vm::onSpatialStroke,

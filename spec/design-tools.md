@@ -37,7 +37,7 @@ turned into a frame without changing where every existing layer sits.
 
 ## Saving
 
-project.json format 5 (`GraffitiProject.formatVersion`; spatial ink added in v5). A frame is written as `layerType: GROUP`
+project.json format 6 (`GraffitiProject.formatVersion`; spatial ink added in v5, editable 3D guides in v6). A frame is written as `layerType: GROUP`
 plus `isFrame`, `frameFillArgb`, `clipsContent` and `frameRadius` on `OverlayLayer`, so an app that
 predates frames opens the file and shows the frame as a group. `ProjectManager.migrateFormat` 3 -> 4
 turns a sized group from an older file (a group given a Frame Size) into a frame with no fill and no
