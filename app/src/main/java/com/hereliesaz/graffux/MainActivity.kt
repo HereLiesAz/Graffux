@@ -441,6 +441,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             carouselUi = carouselUi.copy(category = CarouselCategory.BRUSHES, tab = null)
         }
     }
+    // The brush in hand always brings up its sheet, on the Brushes page with the carousel showing.
+    val openBrushSheet: () -> Unit = {
+        showCarousel = true
+        carouselUi = carouselUi.openOnBrushes()
+    }
+    brushOpensSheet(uiState.activeTool, openBrushSheet)
     val carouselFavorites by vm.carouselFavorites.collectAsState()
     // The design tools (the rail's Frame circle): the Frame tool in hand turns the sheet into the
     // design tabs, or on a tablet / desktop docks the properties in a side panel instead (the
@@ -1230,6 +1236,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         },
                         onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
                         onAdjust = openAdjust,
+                        onBrush = openBrushSheet,
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )

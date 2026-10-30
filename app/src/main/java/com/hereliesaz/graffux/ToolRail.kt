@@ -78,6 +78,8 @@ internal class ToolRailCallbacks(
     val onBrushMenu: () -> Unit,
     /** Adjust photo: put the sheet on the photo tabs. */
     val onAdjust: () -> Unit = {},
+    /** The Brush item: bring up the brush sheet, even with the brush already in hand. */
+    val onBrush: () -> Unit = {},
 )
 
 /**
@@ -113,7 +115,16 @@ internal fun ToolRail(
             light = light(entry.id),
             testTag = "rail.${entry.id}",
             // Tapping the tool already in hand puts it down (Procreate's rule, and the sheet's).
-            onClick = { vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool) },
+            onClick = {
+                if (tool == Tool.BRUSH) {
+                    // The brush is never put down from here: a tap always picks it up and opens
+                    // its sheet, so one dismissed by hand comes back on the next tap.
+                    if (uiState.activeTool != Tool.BRUSH) vm.setActiveTool(Tool.BRUSH)
+                    callbacks.onBrush()
+                } else {
+                    vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
+                }
+            },
         ) { glyph(entry.id in lit) }
     }
 
