@@ -51,6 +51,7 @@ fun artboardRect(canvasW: Int, canvasH: Int, docW: Int, docH: Int): FloatArray {
 /**
  * Handles compositing and exporting of project layers.
  */
+@Suppress("TooManyFunctions")
 class ExportManager @Inject constructor() {
 
     /**
@@ -104,6 +105,26 @@ class ExportManager @Inject constructor() {
         // painting individually at full strength straight onto the export — the flat forEach this
         // replaced didn't know groups existed at all.
         drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight, result.takeIf { renderAdjustments })
+        return result
+    }
+
+    /**
+     * [nodes] (one parent's children, or a run of them) composited into a [w] x [h] canvas exactly
+     * as [compositeLayers] composites them: over [backgroundColor] and, for a frame's children,
+     * inside [container]'s box. What the vector export embeds where vectors can't express a layer.
+     */
+    fun compositeNodes(
+        nodes: List<LayerNode>,
+        w: Int,
+        h: Int,
+        backgroundColor: Int = android.graphics.Color.TRANSPARENT,
+        container: Layer? = null,
+    ): Bitmap {
+        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        if (backgroundColor != android.graphics.Color.TRANSPARENT) canvas.drawColor(backgroundColor)
+        container?.let { drawFrameBox(canvas, it, w, h) }
+        drawNodes(canvas, nodes, w, h, result)
         return result
     }
 

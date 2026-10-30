@@ -11917,7 +11917,9 @@ class EditorViewModel @Inject constructor(
     /**
      * Exports the selected frame (or, with none, the document's artboard) as [format], into
      * Downloads. A PDF with [allFrames] has one page per top-level frame. Shapes stay vectors in SVG
-     * and PDF; raster, text and photo adjustment layers go in as images of their pixels.
+     * and PDF; raster and text layers go in as images of their pixels, and what vectors can't
+     * express (colour filters, photo adjustments, clipping masks, a perspective crop) as the PNG
+     * export's render of it. The document page has the PNG export's crop and canvas background.
      */
     fun exportDesign(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean = false) {
         val frameId = designExportFrameId()
@@ -11943,17 +11945,73 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** The page an export writes: the frame's box, or the document's artboard. */
-    private fun designExportPage(frameId: String?, name: String): com.hereliesaz.graffitixr.feature.editor.export.VectorPage {
+    /**
+     * The page an export writes: the frame's box, or the document's artboard. The rasterizer it
+     * uses is added to [rasters], for the caller to recycle once the file is written.
+     */
+    private fun designExportPage(
+        frameId: String?,
+        name: String,
+        rasters: MutableList<DesignRasterizer>,
+    ): com.hereliesaz.graffitixr.feature.editor.export.VectorPage {
         val st = _uiState.value
         val (cw, ch) = designCanvasSize()
         val scene = com.hereliesaz.graffitixr.feature.editor.export.VectorScene
-        frameId?.let { scene.framePage(st.layers, it, cw, ch) }?.let { return it }
+        frameId?.let { id ->
+            scene.framePage(st.layers, id, cw, ch, DesignRasterizer(designCanvas = true).also(rasters::add))
+        }
+            ?.let { return it }
         val metrics = context.resources.displayMetrics
         return scene.documentPage(
             name, st.layers, metrics.widthPixels.toFloat(), metrics.heightPixels.toFloat(),
             st.documentWidth, st.documentHeight,
+            crop = st.documentCrop,
+            backgroundArgb = exportBackgroundArgb(st.canvasBackground),
+            raster = DesignRasterizer(designCanvas = false).also(rasters::add),
         )
+    }
+
+    /**
+     * What the vector export embeds where vectors fall short (colour filters, adjustment and
+     * clip-to-below layers, a perspective crop): the PNG export's own render, so the two agree.
+     * Frames live in the design canvas ([designCanvas]); the document's artboard in the display's.
+     * The bitmaps it hands out stay valid until [recycle], once the file is written.
+     */
+    private inner class DesignRasterizer(
+        designCanvas: Boolean,
+    ) : com.hereliesaz.graffitixr.feature.editor.export.VectorRasterizer {
+        private val made = mutableListOf<android.graphics.Bitmap>()
+        private val size: Pair<Int, Int> = if (designCanvas) {
+            designCanvasSize().let { it.first.toInt() to it.second.toInt() }
+        } else {
+            context.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+        }
+
+        override fun composite(
+            nodes: List<com.hereliesaz.graffitixr.common.model.LayerNode>,
+            backgroundArgb: Int,
+            container: Layer?,
+        ): Layer = keep(exportManager.compositeNodes(nodes, size.first, size.second, backgroundArgb, container))
+
+        override fun document(): Layer {
+            val st = _uiState.value
+            return keep(
+                exportManager.compositeToDocument(
+                    st.layers, size.first, size.second, st.documentWidth, st.documentHeight,
+                    backgroundColor = exportBackgroundArgb(st.canvasBackground), crop = st.documentCrop,
+                ),
+            )
+        }
+
+        private fun keep(b: android.graphics.Bitmap): Layer {
+            made += b
+            return Layer(id = "export-raster-${made.size}", name = "Rendered", bitmap = b)
+        }
+
+        fun recycle() {
+            made.forEach { it.recycle() }
+            made.clear()
+        }
     }
 
     private fun designExportFile(name: String, extension: String): File {
@@ -11964,9 +12022,15 @@ class EditorViewModel @Inject constructor(
 
     private suspend fun exportSvg(frameId: String?, name: String) {
         val file = designExportFile(name, "svg")
-        val page = designExportPage(frameId, name)
-        val svg = com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) }
-        file.writeText(svg)
+        val rasters = mutableListOf<DesignRasterizer>()
+        try {
+            val page = designExportPage(frameId, name, rasters)
+            file.writeText(
+                com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) },
+            )
+        } finally {
+            rasters.forEach { it.recycle() }
+        }
         withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
         copyToDownloads(file, "image/svg+xml", "Saved ${file.name} to Downloads", "SVG export failed")
     }
@@ -11974,10 +12038,20 @@ class EditorViewModel @Inject constructor(
     private suspend fun exportPdf(frameId: String?, name: String, allFrames: Boolean) {
         val (cw, ch) = designCanvasSize()
         val scene = com.hereliesaz.graffitixr.feature.editor.export.VectorScene
-        val pages = scene.allFramePages(_uiState.value.layers, cw, ch).takeIf { allFrames }.orEmpty()
-            .ifEmpty { listOf(designExportPage(frameId, name)) }
         val file = designExportFile(name, "pdf")
-        file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
+        val rasters = mutableListOf<DesignRasterizer>()
+        try {
+            val frames = if (allFrames) {
+                val raster = DesignRasterizer(designCanvas = true).also(rasters::add)
+                scene.allFramePages(_uiState.value.layers, cw, ch, raster)
+            } else {
+                emptyList()
+            }
+            val pages = frames.ifEmpty { listOf(designExportPage(frameId, name, rasters)) }
+            file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
+        } finally {
+            rasters.forEach { it.recycle() }
+        }
         withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
         copyToDownloads(file, "application/pdf", "Saved ${file.name} to Downloads", "PDF export failed")
     }
