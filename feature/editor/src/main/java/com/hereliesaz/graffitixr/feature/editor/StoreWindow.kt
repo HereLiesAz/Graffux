@@ -1,6 +1,12 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/StoreWindow.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import com.hereliesaz.graffitixr.design.theme.Amber
 import com.hereliesaz.graffitixr.design.theme.NeonGreen
 import androidx.compose.foundation.background
@@ -60,6 +66,7 @@ enum class StoreTab { BROWSE, INSTALLED }
  * depends on which entry point opened it ([initialTab]), and switching tabs never re-fetches or
  * loses either side's state, since both lists are already held in the caller's UI state either way.
  */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun StoreWindow(
     initialTab: StoreTab,
@@ -91,6 +98,8 @@ fun StoreWindow(
     /** Buy on azphalt.store instead (the web checkout); always offered next to in-app Buy. */
     onBuyOnWeb: (PackageSummary) -> Unit = {},
     onRestorePurchases: () -> Unit = {},
+    /** An awaiting or pending purchase's "check again". */
+    onCheckPurchase: (PackageSummary) -> Unit = {},
 ) {
     var tab by remember { mutableStateOf(initialTab) }
     val installedIds = remember(installed) { installed.map { it.id }.toSet() }
@@ -137,6 +146,7 @@ fun StoreWindow(
                     purchaseStates = purchaseStates,
                     onBuyOnWeb = onBuyOnWeb,
                     onRestorePurchases = onRestorePurchases,
+                    onCheckPurchase = onCheckPurchase,
                 )
                 StoreTab.INSTALLED -> InstalledTab(
                     installed = installed,
@@ -218,6 +228,7 @@ private fun InstalledTab(
     }
 }
 
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 private fun BrowseTab(
     query: String,
@@ -235,6 +246,7 @@ private fun BrowseTab(
     purchaseStates: Map<String, com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState>,
     onBuyOnWeb: (PackageSummary) -> Unit,
     onRestorePurchases: () -> Unit,
+    onCheckPurchase: (PackageSummary) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -255,7 +267,7 @@ private fun BrowseTab(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                CircularProgressIndicator(modifier = Modifier.height(24.dp))
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
             }
         }
 
@@ -291,6 +303,7 @@ private fun BrowseTab(
                     onBuy = { onBuy(pkg) },
                     purchase = purchaseStates[pkg.id],
                     onBuyOnWeb = { onBuyOnWeb(pkg) },
+                    onCheckAgain = { onCheckPurchase(pkg) },
                 )
             }
         }
@@ -320,6 +333,7 @@ private fun BrowseTab(
     }
 }
 
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 private fun PackageCard(
     pkg: PackageSummary,
@@ -330,6 +344,7 @@ private fun PackageCard(
     onBuy: () -> Unit,
     purchase: com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState? = null,
     onBuyOnWeb: () -> Unit = {},
+    onCheckAgain: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -370,7 +385,7 @@ private fun PackageCard(
                     pkg.author?.let { append(it) }
                     if (pkg.priceStatus.isPaid) {
                         if (isNotEmpty()) append(" · ")
-                        append("Paid")
+                        append(pkg.price?.let(::formatPrice) ?: "Paid")
                     }
                     pkg.rating?.let {
                         if (isNotEmpty()) append(" · ")
@@ -403,7 +418,7 @@ private fun PackageCard(
                 installing -> Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
-                ) { CircularProgressIndicator(modifier = Modifier.height(20.dp)) }
+                ) { CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp) }
 
                 updateVersion != null -> GraffuxButton(
                     text = "Update to $updateVersion",
@@ -429,22 +444,49 @@ private fun PackageCard(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
                     Text(purchase.step, style = MaterialTheme.typography.bodySmall)
                 }
 
-                purchase is com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.Pending -> Text(
-                    text = purchase.message,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                )
+                // Stripe Checkout is open in a browser tab: say so, and let the user ask again once
+                // they've paid instead of waiting for the app to come back to the foreground.
+                purchase is com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.AwaitingCheckout -> Column(
+                    Modifier.fillMaxWidth().testTag("store.purchase.awaiting"),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "Finish paying in the browser. It installs when the payment goes through.",
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    TextButton(onClick = onCheckAgain, modifier = Modifier.heightIn(min = MinTouch)) {
+                        Text("I've paid — check now")
+                    }
+                }
+
+                purchase is com.hereliesaz.graffitixr.data.azphalt.purchase.PurchaseState.Pending -> Column(
+                    Modifier.fillMaxWidth().testTag("store.purchase.pending"),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = purchase.message,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    TextButton(onClick = onCheckAgain, modifier = Modifier.heightIn(min = MinTouch)) {
+                        Text("Check again")
+                    }
+                }
 
                 pkg.priceStatus.isPaid -> Column(Modifier.fillMaxWidth()) {
                     GraffuxButton(
-                        text = "Buy",
+                        // The price before the tap, when the repository sends it.
+                        text = buyLabel(pkg.price),
                         onClick = onBuy,
                         shape = GraffuxButtonShape.RECTANGLE,
                         contentPadding = CardActionPadding,
@@ -514,7 +556,7 @@ private fun InstalledExtensionCard(
         if (updateVersion != null) {
             if (updating) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator(modifier = Modifier.height(20.dp))
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
             } else {
                 GraffuxButton(
@@ -583,3 +625,22 @@ private fun rememberExtensionCapabilities(extension: InstalledExtension): List<S
         }
     }
 }
+
+/** A paid card's button: "Buy · $4.99" when the repository sends a price, else plain "Buy". */
+internal fun buyLabel(price: com.hereliesaz.graffitixr.common.azphalt.PackagePrice?): String =
+    price?.let { "Buy · ${formatPrice(it)}" } ?: "Buy"
+
+/** [price] in the user's locale: "$4.99", "€12.00", "¥500"; unknown currencies as "499 XYZ". */
+internal fun formatPrice(
+    price: com.hereliesaz.graffitixr.common.azphalt.PackagePrice,
+    locale: java.util.Locale = java.util.Locale.getDefault(),
+): String {
+    val code = price.currency.uppercase(java.util.Locale.ROOT)
+    val currency = runCatching { java.util.Currency.getInstance(code) }.getOrNull()
+        ?: return "${price.amountMinor} $code"
+    val format = java.text.NumberFormat.getCurrencyInstance(locale).apply { this.currency = currency }
+    val digits = currency.defaultFractionDigits.coerceAtLeast(0)
+    return format.format(java.math.BigDecimal.valueOf(price.amountMinor, digits))
+}
+
+private val MinTouch = 48.dp

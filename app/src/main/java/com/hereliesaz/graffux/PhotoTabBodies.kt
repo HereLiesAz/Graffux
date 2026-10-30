@@ -2,6 +2,11 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -176,6 +181,17 @@ internal fun levelsGammaAt(fraction: Float): Float =
     (ln(fraction.coerceIn(0.01f, 0.99f)) / ln(0.5f)).let { 1f / it }.coerceIn(PhotoSliders.LEVELS_MID.min, PhotoSliders.LEVELS_MID.max)
 
 /**
+ * A Levels handle's new value for a set-progress request (TalkBack / switch access), kept in order:
+ * black stays below white and white above black. Returns the slider to write and its value.
+ */
+internal fun levelsTargetValue(which: String, target: Float, black: Float, white: Float): Pair<com.hereliesaz.graffitixr.common.photo.PhotoSlider, Float> =
+    when (which) {
+        "black" -> PhotoSliders.LEVELS_BLACK to target.coerceIn(0f, white - 1f)
+        "white" -> PhotoSliders.LEVELS_WHITE to target.coerceIn(black + 1f, 255f)
+        else -> PhotoSliders.LEVELS_MID to PhotoSliders.LEVELS_MID.snap(target.coerceIn(PhotoSliders.LEVELS_MID.min, PhotoSliders.LEVELS_MID.max))
+    }
+
+/**
  * Levels, folded into Curves: black point, midpoint and white point on a black-to-white track,
  * their values to the right ("12 · 1.10 · 241"). Each handle drags; the midpoint stays between
  * the other two.
@@ -189,11 +205,13 @@ private fun LevelsRow(adjustment: PhotoAdjustment?, actions: PhotoActions) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 20.dp).testTag("photo.levels"),
+        // heightIn, not height: the text may grow with the system font scale.
+        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 20.dp).testTag("photo.levels"),
     ) {
-        Text("Levels", color = PhotoSheetStyle.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily, modifier = Modifier.width(44.dp))
-        BoxWithConstraints(Modifier.weight(1f).height(44.dp)) {
-            val handle = 28.dp
+        Text("Levels", color = PhotoSheetStyle.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+        BoxWithConstraints(Modifier.weight(1f).height(48.dp)) {
+            // 48dp touch targets; the drawn triangle is still 14dp wide, centred in each.
+            val handle = 48.dp
             val span = maxWidth - handle
             var spanPx by remember { mutableFloatStateOf(1f) }
             Box(
@@ -214,8 +232,24 @@ private fun LevelsRow(adjustment: PhotoAdjustment?, actions: PhotoActions) {
                     modifier = Modifier
                         .offset(x = span * t.coerceIn(0f, 1f))
                         .width(handle)
-                        .height(44.dp)
-                        .semantics { contentDescription = "Levels $which" }
+                        .height(48.dp)
+                        // Operable without the drag: a slider TalkBack can step or set.
+                        .semantics {
+                            contentDescription = "Levels ${if (which == "mid") "midpoint" else "$which point"}"
+                            val (current, range) = when (which) {
+                                "black" -> black to 0f..255f
+                                "white" -> white to 0f..255f
+                                else -> gamma to PhotoSliders.LEVELS_MID.min..PhotoSliders.LEVELS_MID.max
+                            }
+                            progressBarRangeInfo = ProgressBarRangeInfo(current, range)
+                            setProgress { target ->
+                                val (slider, value) = levelsTargetValue(which, target, latest.first, latest.third)
+                                actions.gestureStart(PhotoTool.CURVES)
+                                actions.slider(PhotoTool.CURVES, slider, value)
+                                actions.gestureEnd()
+                                true
+                            }
+                        }
                         .pointerInput(which) {
                             spanPx = (maxWidth - handle).toPx()
                             awaitEachGesture {
@@ -268,7 +302,10 @@ private fun LevelsRow(adjustment: PhotoAdjustment?, actions: PhotoActions) {
             fontFamily = RobotoMonoFamily,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.End,
-            modifier = Modifier.width(92.dp).testTag("photo.levels.value"),
+            // One line, always: it wrapped inside the row at 92dp.
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.widthIn(min = 92.dp).testTag("photo.levels.value"),
         )
     }
 }

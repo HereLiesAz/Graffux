@@ -1,30 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Label for the Trace mode, which locks the screen for manual tracing. -->
-    <string name="nav_trace">Trace</string>
-
-    <!-- Label for Canvas mode, which is optimized for smaller, desk-scale artwork. -->
-    <string name="nav_canvas">Canvas</string>
-
-    <string name="nav_coop">Co-op</string>
-
-    <!-- Label for the design and layer management menu. -->
-    <string name="nav_design">Design</string>
 
     <!-- Action label to open or import an image. -->
     <string name="nav_open">Open</string>
 
-    <!-- Label for the color inversion tool. -->
-    <string name="nav_invert">Invert</string>
-
     <!-- Label for image adjustment tools (brightness, contrast, etc.). -->
     <string name="nav_adjust">Adjust</string>
 
-    <!-- Label for the application settings menu. -->
-    <string name="nav_settings">Settings</string>
-
-    <!-- Label for the project management menu. -->
-    <string name="nav_project">Project</string>
+    <!-- Action label for the colour inversion tool. -->
+    <string name="nav_invert">Invert</string>
 
     <!-- Action label to start a new project. -->
     <string name="nav_new">New</string>
@@ -32,51 +16,16 @@
     <!-- Action label to save the current project. -->
     <string name="nav_save">Save</string>
 
-    <!-- Action label to load a project from the library. -->
-    <string name="nav_load">Load</string>
-
     <!-- Action label to export the final image. -->
     <string name="nav_export">Export</string>
-
-    <!-- Label for the touch input lock feature. -->
-    <string name="nav_lock">Lock</string>
-
-    <!-- Action label to add a text layer. -->
-    <string name="nav_text">Text</string>
-    <!-- Action label to add a blank drawing layer. -->
-    <string name="nav_draw">Draw</string>
-    <!-- Action label to edit layer content (like text). -->
-    <string name="nav_edit">Edit</string>
-    <!-- Action label for font selection. -->
-    <string name="nav_font">Font</string>
-    <!-- Action label for size adjustment. -->
-    <string name="nav_size">Size</string>
-    <!-- Action label for color selection. -->
-    <string name="nav_color">Color</string>
-    <!-- Rail label: select the move/transform tool (no active brush). -->
-    <string name="nav_move">Move</string>
     <!-- Rail label: select the brush/paint tool. -->
     <string name="nav_brush">Brush</string>
     <!-- Rail label: share/export the composed design to another app. -->
     <string name="nav_share">Share</string>
-    <!-- Action label for drop shadow toggle. -->
-    <string name="nav_shadow">Shadow</string>
-    <!-- Action label for the eraser tool. -->
-    <string name="nav_eraser">Eraser</string>
-    <!-- Action label for the blur/smudge tool. -->
-    <string name="nav_blur">Blur</string>
-    <!-- Action label for the filter/adjustments tool. -->
-    <string name="nav_filter">Filter</string>
-    <!-- Wall background source: pick an existing image file. -->
-    <string name="nav_file">File</string>
-    <!-- Action label for the liquify/warp tool. -->
-    <string name="nav_liquify">Liquify</string>
     <!-- Action label for the dodge/lighten tool. -->
     <string name="nav_dodge">Dodge</string>
     <!-- Action label for the burn/darken tool. -->
     <string name="nav_burn">Burn</string>
-
-    <string name="ok_button">OK</string>
 
     <!-- Action to duplicate a layer. -->
     <string name="duplicate">Duplicate</string>
@@ -86,17 +35,10 @@
     <string name="show_layer">Show Layer</string>
     <!-- Action to delete a layer. -->
     <string name="delete">Delete</string>
-    <!-- Label for the lock button. -->
-    <string name="lock_button">Lock</string>
 
     <!-- General Actions -->
     <string name="cancel_button">Cancel</string>
-    <string name="done_button">Done</string>
-    <string name="apply_button">Apply</string>
     <string name="close_button">Close</string>
-    <string name="next_button">Next</string>
-    <string name="save_button">Save</string>
-    <string name="capture_button">Capture</string>
 
     <!-- Adjustments Panel -->
     <string name="adj_detail">Detail</string>
@@ -109,17 +51,4 @@
     <string name="adj_blue">Blue</string>
     <string name="adj_undo">Undo</string>
     <string name="adj_redo">Redo</string>
-
-    <!-- Settings Screen -->
-    <string name="settings_title">Settings</string>
-    <string name="settings_preferences_section">Preferences</string>
-    <string name="settings_on">On</string>
-    <string name="settings_version_label">Version</string>
-    <string name="settings_updates_section">Updates</string>
-
-    <!-- Editor UI -->
-    <string name="layers_title">Layers</string>
-    <string name="brush_size_title">Brush Size</string>
-
-    <string name="reset_button">Reset</string>
 </resources>

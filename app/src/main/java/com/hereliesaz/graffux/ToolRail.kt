@@ -37,7 +37,14 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.RobotoCondensedFamily
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 
 /** The editor calls the tool rail makes. EditorViewModel's own methods, as an interface tests can fake. */
 internal interface ToolRailActions {
@@ -121,7 +128,14 @@ internal fun ToolRail(
         ) { RailGlyph(icon, active = id in lit) }
     }
 
-    RailPill(modifier.testTag("rail.tools")) {
+    // Two pills: the tools scroll when the screen is short (a small phone, any phone in
+    // landscape), while Undo and Redo sit in their own pill below that never scrolls away.
+    Column(
+        verticalArrangement = Arrangement.spacedBy(RailEdgeGap),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.testTag("rail.tools"),
+    ) {
+    RailPill(Modifier.weight(1f, fill = false)) {
         // Tap for the item's card, drag up/down for size and across for hardness, long-press for
         // the brush menu.
         BrushSizeChip(uiState, vm, callbacks.onToolOptions, callbacks.onBrushMenu)
@@ -181,8 +195,9 @@ internal fun ToolRail(
                 RailGlyph(GraffuxIcons.ZoomFit)
             }
         }
-        RailDivider()
-        // Always on the rail: the sheet shuts during every stroke, and undo must never go with it.
+    }
+    // Always on screen: the sheet shuts during every stroke, and undo must never go with it.
+    RailPill(Modifier.testTag("rail.history")) {
         RailButton(
             label = "Undo", enabled = uiState.undoCount > 0, testTag = "rail.history.undo",
             onClick = { vm.onUndoClicked() },
@@ -192,7 +207,15 @@ internal fun ToolRail(
             onClick = { vm.onRedoClicked() },
         ) { RailGlyph(RailIcons.Redo) }
     }
+    }
 }
+
+/** The axis a brush-chip drag is locked to. */
+internal enum class DragAxis { VERTICAL, HORIZONTAL }
+
+/** The axis a drag that has moved [total] so far is locked to: whichever it moved further along. */
+internal fun dominantAxis(total: Offset): DragAxis =
+    if (abs(total.x) > abs(total.y)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
 
 /** The Adjust circle's rail id: lit while the sheet shows the photo tabs. */
 internal const val PHOTO_RAIL_ID = "area.photo"
@@ -208,8 +231,8 @@ private fun ModeButton(label: String, tag: String, icon: ImageVector, on: Boolea
         label = label,
         testTag = tag,
         onClick = onClick,
-        modifier = if (on) Modifier.background(RailInk, CircleShape) else Modifier,
     ) {
+        if (on) Box(Modifier.fillMaxSize().background(RailInk, CircleShape))
         androidx.compose.material3.Icon(
             icon,
             contentDescription = null,
@@ -250,12 +273,13 @@ private fun BrushSizeChip(state: EditorUiState, vm: ToolRailActions, onOpenOptio
     val latest by rememberUpdatedState(state)
     val size = state.brushSize.roundToInt()
     val hardnessPercent = ((1f - state.brushFeathering.coerceIn(0f, 1f)) * 100f).roundToInt()
+    // Which value this drag moves, decided once per gesture, so a drag up for size no longer drifts
+    // the hardness with finger jitter (and vice versa).
+    var axis by remember { mutableStateOf<DragAxis?>(null) }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(RailButtonSize)
-            .clip(CircleShape)
-            .background(RailChip)
+            .size(RailTouchSize)
             .combinedClickable(
                 onClickLabel = "Set brush size",
                 onLongClickLabel = "Brush menu",
@@ -273,22 +297,33 @@ private fun BrushSizeChip(state: EditorUiState, vm: ToolRailActions, onOpenOptio
                 }
             }
             .pointerInput(Unit) {
-                detectDragGestures { change, drag ->
+                var total = Offset.Zero
+                detectDragGestures(
+                    onDragStart = { total = Offset.Zero; axis = null },
+                    onDragEnd = { axis = null },
+                    onDragCancel = { axis = null },
+                ) { change, drag ->
                     change.consume()
-                    // Clamped to the brush's real range, never to this chip's size.
-                    if (drag.y != 0f) {
-                        vm.setBrushSize((latest.brushSize - drag.y * 0.5f).coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
-                    }
-                    // Hardness, always — never flow (a stamp brush's flow lives in Tool Options).
-                    if (drag.x != 0f) {
-                        vm.setBrushFeathering((latest.brushFeathering + drag.x * 0.005f).coerceIn(0f, 1f))
+                    total += drag
+                    val locked = axis ?: dominantAxis(total).also { axis = it }
+                    when (locked) {
+                        // Clamped to the brush's real range, never to this chip's size.
+                        DragAxis.VERTICAL -> if (drag.y != 0f) {
+                            vm.setBrushSize((latest.brushSize - drag.y * 0.5f).coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
+                        }
+                        // Hardness, always — never flow (a stamp brush's flow lives in Tool Options).
+                        DragAxis.HORIZONTAL -> if (drag.x != 0f) {
+                            vm.setBrushFeathering((latest.brushFeathering + drag.x * 0.005f).coerceIn(0f, 1f))
+                        }
                     }
                 }
             }
             .testTag("rail.adj.brush"),
     ) {
+        Box(Modifier.size(RailButtonSize).clip(CircleShape).background(RailChip))
         Text(
-            "$size",
+            // The chip shows whichever value the drag is moving.
+            if (axis == DragAxis.HORIZONTAL) "$hardnessPercent%" else "$size",
             color = RailInk,
             fontSize = 13.sp,
             fontWeight = FontWeight.ExtraBold,

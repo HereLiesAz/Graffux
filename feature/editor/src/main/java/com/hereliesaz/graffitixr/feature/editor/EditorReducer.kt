@@ -189,7 +189,23 @@ internal object EditorReducer {
             state.copy(activePanel = if (state.activePanel == EditorPanel.TRANSFORM) EditorPanel.NONE else EditorPanel.TRANSFORM)
         EditorIntent.DismissPanel -> state.copy(activePanel = EditorPanel.NONE)
         is EditorIntent.SetGestureInProgress -> state.copy(gestureInProgress = intent.inProgress)
-        is EditorIntent.SetLoading -> state.copy(isLoading = intent.loading)
+        is EditorIntent.SetLoading -> {
+            val jobs = if (intent.loading) state.loadingJobs + 1 else (state.loadingJobs - 1).coerceAtLeast(0)
+            state.copy(
+                isLoading = jobs > 0,
+                loadingJobs = jobs,
+                loadingLabel = when {
+                    jobs == 0 -> null
+                    intent.loading -> intent.label ?: state.loadingLabel
+                    else -> state.loadingLabel
+                },
+                loadingCancellable = when {
+                    jobs == 0 -> false
+                    intent.loading -> intent.cancellable
+                    else -> state.loadingCancellable
+                },
+            )
+        }
         is EditorIntent.SetBackgroundBitmap -> state.copy(backgroundBitmap = intent.bitmap)
         is EditorIntent.SetCanvasBackground -> state.copy(canvasBackground = intent.color)
         // Normalised through the catalog so an unknown id can never reach a stroke as anything but Smooth.

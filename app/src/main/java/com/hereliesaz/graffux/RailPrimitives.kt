@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,8 +61,14 @@ internal val RailChip = Color(0xFF232326)
 /** The pill's width (border included); also what a floating window keeps clear of. */
 internal val RailWidth = 56.dp
 
-/** One rail button. */
+/** One rail button, as drawn (the mockup's 44). */
 internal val RailButtonSize = 44.dp
+
+/**
+ * One rail button's touch target: the 48dp accessibility minimum. The 2dp around the drawn button
+ * comes out of the gap between items, so the rail's pitch (and look) is unchanged.
+ */
+internal val RailTouchSize = 48.dp
 
 /** Space between a rail and what opens beside it. */
 internal val RailEdgeGap = 8.dp
@@ -75,8 +82,11 @@ internal val RailTopInset = 16.dp
 /** The layers rail's distance from the top: below the logo, with the same 12 between. */
 internal val LayersRailTopInset = RailTopInset + RailButtonSize + RailSideInset
 
-/** Space between neighbouring items in a rail. */
-private val RailItemGap = 6.dp
+/**
+ * Space between neighbouring touch targets in a rail: 2, so drawn buttons still sit 6 apart
+ * (48 - 44 + 2) as the mockup has them.
+ */
+private val RailItemGap = 2.dp
 
 private val PillShape = RoundedCornerShape(RailWidth / 2)
 private val ButtonShape = CircleShape
@@ -87,7 +97,11 @@ private val ButtonShape = CircleShape
  */
 @Suppress("FunctionNaming")
 @Composable
-internal fun RailPill(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+internal fun RailPill(
+    modifier: Modifier = Modifier,
+    scrollState: ScrollState = rememberScrollState(),
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(RailItemGap),
@@ -96,9 +110,9 @@ internal fun RailPill(modifier: Modifier = Modifier, content: @Composable Column
             .clip(PillShape)
             .background(RailFill)
             .border(1.dp, RailBorder, PillShape)
-            .verticalScroll(rememberScrollState())
-            // 6 inside the 1dp border.
-            .padding(vertical = 7.dp),
+            .verticalScroll(scrollState)
+            // 6 inside the 1dp border, less the 2 each 48dp target adds.
+            .padding(vertical = 5.dp),
         content = content,
     )
 }
@@ -109,7 +123,8 @@ internal fun RailPill(modifier: Modifier = Modifier, content: @Composable Column
 internal fun RailDivider() {
     Box(
         Modifier
-            .padding(vertical = 4.dp)
+            // 6, not 4: the 48dp targets either side took 2dp each out of the item gap.
+            .padding(vertical = 6.dp)
             .width(28.dp)
             .height(1.dp)
             .background(RailBorder),
@@ -143,6 +158,34 @@ internal fun RailButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
+            .size(RailTouchSize)
+            // Null when the caller handles the touch itself (a layer row, which also drags).
+            // No onClickLabel: it repeated the label ("Undo, button, double tap to Undo").
+            .then(
+                if (onClick == null) Modifier else Modifier.combinedClickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onLongClick = onLongClick,
+                    onClick = onClick,
+                ),
+            )
+            .semantics {
+                contentDescription = label
+                selected = light.active
+            }
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA),
+    ) {
+        RailButtonFace(light, accent, badge, content)
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun RailButtonFace(light: RailLight, accent: Color, badge: String?, content: @Composable BoxScope.() -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
             .size(RailButtonSize)
             .clip(ButtonShape)
             .background(if (light.active) accent.copy(alpha = ACTIVE_FILL_ALPHA) else Color.Transparent)
@@ -154,23 +197,7 @@ internal fun RailButton(
                     else -> Color.Transparent
                 },
                 shape = ButtonShape,
-            )
-            // Null when the caller handles the touch itself (a layer row, which also drags).
-            .then(
-                if (onClick == null) Modifier else Modifier.combinedClickable(
-                    enabled = enabled,
-                    role = Role.Button,
-                    onClickLabel = label,
-                    onLongClick = onLongClick,
-                    onClick = onClick,
-                ),
-            )
-            .semantics {
-                contentDescription = label
-                selected = light.active
-            }
-            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
-            .alpha(if (enabled) 1f else DISABLED_ALPHA),
+            ),
     ) {
         content()
         if (badge != null) {

@@ -196,8 +196,8 @@ private fun ColorStyleRow(style: ColorStyle, linked: Boolean, density: DesignDen
         DesignSwatch(style.argb, if (density == DesignDensity.SHEET) 28.dp else 20.dp)
         Text(style.name, color = DesignInk.Ink, fontSize = density.fontSize.sp, fontFamily = RobotoCondensedFamily, maxLines = 1, modifier = Modifier.weight(1f))
         DesignChip(if (linked) "Linked" else "Apply", on = linked, tag = "design.style.${style.name}.apply", onClick = onApply)
-        DesignChip("Update", on = false, tag = "design.style.${style.name}.update", onClick = onUpdate)
-        DesignChip("×", on = false, tag = "design.style.${style.name}.delete", onClick = onDelete)
+        DesignChip("Update", on = false, toggle = false, tag = "design.style.${style.name}.update", onClick = onUpdate)
+        DesignChip("Delete", on = false, toggle = false, tag = "design.style.${style.name}.delete", onClick = onDelete)
     }
 }
 
@@ -249,7 +249,7 @@ internal fun ColorStylesSection(
             }
             if (density == DesignDensity.SHEET) {
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    DesignChip("New style from fill", on = false, tag = "design.${title.lowercase()}.newStyle", onClick = newStyle)
+                    DesignChip("New style from fill", on = false, toggle = false, tag = "design.${title.lowercase()}.newStyle", onClick = newStyle)
                 }
             }
         }
@@ -296,13 +296,13 @@ internal fun TextStylesSection(links: DesignLinks, library: DesignLibrary, actio
                     DesignChip(if (linked) "Linked" else "Apply", on = linked, tag = "design.textStyle.${style.name}.apply") {
                         actions.applyTextStyle(if (linked) null else style.id)
                     }
-                    DesignChip("Update", on = false, tag = "design.textStyle.${style.name}.update") { actions.updateTextStyle(style.id) }
-                    DesignChip("×", on = false, tag = "design.textStyle.${style.name}.delete") { actions.deleteTextStyle(style.id) }
+                    DesignChip("Update", on = false, toggle = false, tag = "design.textStyle.${style.name}.update") { actions.updateTextStyle(style.id) }
+                    DesignChip("Delete", on = false, toggle = false, tag = "design.textStyle.${style.name}.delete") { actions.deleteTextStyle(style.id) }
                 }
             }
             if (density == DesignDensity.SHEET) {
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    DesignChip("New text style", on = false, tag = "design.text.newStyle", onClick = newStyle)
+                    DesignChip("New text style", on = false, toggle = false, tag = "design.text.newStyle", onClick = newStyle)
                 }
             }
         }
@@ -328,13 +328,13 @@ internal fun ComponentsSection(links: DesignLinks, library: DesignLibrary, actio
     val body: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(horizontal = pad, vertical = 6.dp)) {
             when {
-                links.componentId != null -> DesignChip("Release component", on = false, tag = "design.component.release", onClick = actions::releaseComponent)
+                links.componentId != null -> DesignChip("Release component", on = false, toggle = false, tag = "design.component.release", onClick = actions::releaseComponent)
                 links.instanceOf != null -> {
                     val main = library.components.firstOrNull { it.componentId == links.instanceOf }
-                    if (main != null) DesignChip("Go to main", on = false, tag = "design.component.main") { actions.selectLayer(main.layerId) }
-                    DesignChip("Detach", on = false, tag = "design.component.detach", onClick = actions::detachInstance)
+                    if (main != null) DesignChip("Go to main", on = false, toggle = false, tag = "design.component.main") { actions.selectLayer(main.layerId) }
+                    DesignChip("Detach", on = false, toggle = false, tag = "design.component.detach", onClick = actions::detachInstance)
                 }
-                else -> DesignChip("Make component", on = false, tag = "design.component.make", onClick = actions::makeComponent)
+                else -> DesignChip("Make component", on = false, toggle = false, tag = "design.component.make", onClick = actions::makeComponent)
             }
         }
         if (library.components.isEmpty()) {
@@ -363,7 +363,7 @@ internal fun ComponentsSection(links: DesignLinks, library: DesignLibrary, actio
                     if (entry.instances == 1) "1 instance" else "${entry.instances} instances",
                     color = DesignInk.Faint, fontSize = 11.sp, fontFamily = RobotoMonoFamily,
                 )
-                DesignChip("Place", on = false, tag = "design.component.${entry.name}.place") { actions.placeInstance(entry.componentId) }
+                DesignChip("Place", on = false, toggle = false, tag = "design.component.${entry.name}.place") { actions.placeInstance(entry.componentId) }
             }
         }
     }
@@ -439,7 +439,7 @@ internal fun ExportSection(targetName: String, hasFrames: Boolean, actions: Desi
                 color = DesignInk.Muted, fontSize = density.fontSize.sp, fontFamily = RobotoCondensedFamily, maxLines = 1,
                 modifier = Modifier.weight(1f).testTag("design.export.target"),
             )
-            DesignChip("Export ${format.name}", on = true, tag = "design.export.go") { actions.export(format, allFrames) }
+            DesignChip("Export ${format.name}", on = true, tag = "design.export.go", toggle = false) { actions.export(format, allFrames) }
         }
     }
     if (density == DesignDensity.SHEET) {

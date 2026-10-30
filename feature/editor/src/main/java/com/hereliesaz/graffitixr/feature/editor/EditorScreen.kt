@@ -29,6 +29,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
@@ -772,7 +776,10 @@ fun EditorScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = 80.dp)
                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
-                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                    .padding(horizontal = 18.dp, vertical = 6.dp)
+                    // Announced by TalkBack: "Cleared layer - Undo on the rail" must not be silent.
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .testTag("editor.hud"),
             ) {
                 Text(message, color = Color.White)
             }
@@ -819,13 +826,19 @@ fun EditorScreen(
         if (uiState.layers.isEmpty() && !uiState.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    // There is no "File" menu — the top-right dropdown is a flat Open/New/Import
+                    // There is no "File" menu — the logo menu at the top right is a flat Open/New/Import
                     // list — and it isn't the mechanism anyway: picking a raster tool creates a
                     // layer on demand (EditorViewModel.setActiveTool). That's the fastest path for
                     // a genuinely new document; the menu still covers bringing in an existing one.
-                    text = "Pick a tool from the rail to start a layer,\nor use the menu to open or import one.",
-                    color = Color.White.copy(alpha = 0.55f),
+                    text = "Pick a brush or tool from the rail to start a layer,\n" +
+                        "or use the menu to open or import one.",
+                    // On its own dark pill: the canvas colour is the user's, and a light canvas
+                    // made the old 55% white text unreadable.
+                    color = Color.White.copy(alpha = 0.85f),
                     textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
         }
@@ -840,11 +853,13 @@ fun EditorScreen(
             imperial = uiState.isImperialUnits,
         )
 
-        // 5. Loading indicator.
-        if (uiState.isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+        // 5. Loading indicator. Hosted (MainActivity), the host draws it above all of its chrome
+        // instead, so the rails can't be used under a running operation either.
+        if (uiState.isLoading && hostStrokeGate == null) {
+            LongOperationOverlay(
+                label = uiState.loadingLabel,
+                onCancel = if (uiState.loadingCancellable) vm::cancelLongOperations else null,
+            )
         }
         // The nib-angle dial, while a brush that reads the angle is in hand (see NibAngle.kt).
         // Hidden with the rest of the chrome while a finger is on the canvas.

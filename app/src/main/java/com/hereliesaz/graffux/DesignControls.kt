@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,17 +81,27 @@ internal enum class DesignDensity(val rowLabelWidth: Dp, val fontSize: Int, val 
 
 /** A pill chip (the mockup's 32dp buttons): ink-filled when [on], outlined otherwise. */
 @Composable
-internal fun DesignChip(label: String, on: Boolean, tag: String, height: Dp = 32.dp, onClick: () -> Unit) {
+internal fun DesignChip(
+    label: String,
+    on: Boolean,
+    tag: String,
+    height: Dp = 32.dp,
+    /** False for a one-shot action (Export): drawn [on] for emphasis, never announced as "selected". */
+    toggle: Boolean = true,
+    onClick: () -> Unit,
+) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
+            // A 48dp touch target around the mockup's 32dp chip.
+            .minimumInteractiveComponentSize()
             .height(height)
             .clip(RoundedCornerShape(height / 2))
             .then(
                 if (on) Modifier.background(DesignInk.Ink) else Modifier.border(1.dp, DesignInk.Line, RoundedCornerShape(height / 2)),
             )
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { selected = on }
+            .then(if (toggle) Modifier.semantics { selected = on } else Modifier)
             .padding(horizontal = if (height > 32.dp) 14.dp else 10.dp)
             .testTag(tag),
     ) {

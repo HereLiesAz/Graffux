@@ -4,7 +4,7 @@ package com.hereliesaz.graffitixr.design.theme
 
 import androidx.compose.ui.graphics.Color
 
-val HotPink = Color(0xFFFF00C8)
+val HotPink = Color(0xFFFF3EA5)
 val Cyan = Color(0xFF00FFFF)
 val NeonGreen = Color(0xFF39FF14)
 

@@ -35,7 +35,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -56,13 +55,22 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.isActive
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
@@ -169,6 +177,46 @@ internal fun droppedSiblingOrder(
 }
 
 /**
+ * [siblingsTopFirst] with [movedId] moved one place up ([delta] -1, towards the top of the stack)
+ * or down (+1); unchanged at either end. The menu's and TalkBack's Move up / Move down.
+ */
+internal fun steppedSiblingOrder(siblingsTopFirst: List<String>, movedId: String, delta: Int): List<String> {
+    val from = siblingsTopFirst.indexOf(movedId)
+    val to = from + delta
+    if (from < 0 || to !in siblingsTopFirst.indices) return siblingsTopFirst
+    return siblingsTopFirst.toMutableList().apply { add(to, removeAt(from)) }
+}
+
+/**
+ * How far to scroll the rail this frame while a layer is dragged with the finger at [fingerY]
+ * (window px) over a rail spanning [top]..[bottom]: negative near the top edge, positive near the
+ * bottom, zero elsewhere, faster the closer to the edge. [edge] is the hot band's height.
+ */
+internal fun railAutoscrollStep(fingerY: Float, top: Float, bottom: Float, edge: Float, maxStep: Float): Float = when {
+    bottom <= top || edge <= 0f -> 0f
+    fingerY < top + edge -> -maxStep * ((top + edge - fingerY) / edge).coerceIn(0f, 1f)
+    fingerY > bottom - edge -> maxStep * ((fingerY - (bottom - edge)) / edge).coerceIn(0f, 1f)
+    else -> 0f
+}
+
+/** The TalkBack label of a layer's thumbnail: its name, then every state the thumbnail draws. */
+internal fun layerThumbLabel(layer: Layer, masked: Boolean, expanded: Boolean): String =
+    layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
+        (if (masked) ", masked" else "") +
+        (if (layer.alphaLock) ", alpha locked" else "") +
+        (if (layer.isVisible) "" else ", hidden") + (if (layer.isContainer && expanded) ", open" else "")
+
+/** Places the dragged layer's ghost at a window position, above every clip. */
+private data class GhostPosition(val x: Int, val y: Int) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = IntOffset(x, y)
+}
+
+/**
  * The right layers rail (left, for the left-handed), as the mockup draws it: + new layer, then the
  * layers top-first — each its own thumbnail, the active one ringed, a hidden one dimmed and badged,
  * a locked one badged. Tap selects; a second tap or a long-press opens the layer's menu (Delete is
@@ -195,13 +243,67 @@ internal fun LayersRail(
     var overTrash by remember { mutableStateOf(false) }
     val trashRect = remember { arrayOfNulls<Rect>(1) }
     val windowOrigins = remember { HashMap<String, Offset>() }
-    if (dragging != null) LayerTrash(hot = overTrash) { trashRect[0] = it }
-    RailPill(modifier.testTag("rail.layers")) {
+    val scroll = rememberScrollState()
+    var railTop by remember { mutableFloatStateOf(0f) }
+    var railBottom by remember { mutableFloatStateOf(0f) }
+    var fingerY by remember { mutableFloatStateOf(Float.NaN) }
+    val density = LocalDensity.current
+    // Autoscroll while a layer is carried to the rail's top or bottom edge, so a reorder can reach
+    // rows scrolled out of view. Row centres are re-recorded after each scroll (onGloballyPositioned),
+    // so the drop still lands where the finger is.
+    LaunchedEffect(dragging) {
+        if (dragging == null) return@LaunchedEffect
+        val edge = with(density) { AutoscrollEdge.toPx() }
+        val maxStep = with(density) { AutoscrollMaxStep.toPx() }
+        fun step() = if (fingerY.isNaN()) 0f else railAutoscrollStep(fingerY, railTop, railBottom, edge, maxStep)
+        // Idle unless the finger is in an edge band; then scroll a step a frame until it leaves,
+        // or the rail can scroll no further.
+        snapshotFlow { step() != 0f }.collectLatest { inEdge ->
+            while (inEdge && isActive) {
+                val s = step()
+                if (s == 0f || scroll.scrollBy(s) == 0f) break
+                withFrameNanos { }
+            }
+        }
+    }
+    if (dragging != null) {
+        LayerTrash(hot = overTrash) { trashRect[0] = it }
+        // The carried layer, drawn above the rail's clip so it stays under the finger all the way
+        // to the trash (the copy in the rail stays behind, dimmed, as the placeholder).
+        val carried = layers.firstOrNull { layerRailId(it.id) == dragging }
+        val origin = windowOrigins[dragging] ?: Offset.Zero
+        if (carried != null) {
+            Popup(
+                popupPositionProvider = GhostPosition((origin.x + dragDx).toInt(), (origin.y + dragDy).toInt()),
+                properties = PopupProperties(focusable = false, clippingEnabled = false),
+            ) {
+                // Decorative: the real row (dimmed in the rail) keeps the semantics.
+                Box(Modifier.alpha(GHOST_ALPHA).clearAndSetSemantics { }) {
+                    LayerThumb(
+                        layer = carried,
+                        light = RailLight(active = carried.id == activeLayerId),
+                        nested = false,
+                        expanded = false,
+                    )
+                }
+            }
+        }
+    }
+    RailPill(
+        modifier
+            .testTag("rail.layers")
+            .onGloballyPositioned {
+                val b = it.boundsInWindow()
+                railTop = b.top
+                railBottom = b.bottom
+            },
+        scrollState = scroll,
+    ) {
         RailButton(label = "Add Layer", testTag = "rail.layer.add", onClick = callbacks.onAdd) {
             RailGlyph(RailIcons.Plus)
         }
         RailDivider()
-        visibleLayerRows(layers, expansion).forEach { row ->
+        visibleLayerRows(layers, expansion).forEach { row -> key(row.layer.id) {
             val layer = row.layer
             val id = layerRailId(layer.id)
             val isGroup = row.isGroup
@@ -220,8 +322,10 @@ internal fun LayersRail(
             }
             val latestTap by rememberUpdatedState(tap)
             Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .zIndex(if (dragging == id) 1f else 0f)
+                    .size(RailTouchSize)
+                    .alpha(if (dragging == id) PLACEHOLDER_ALPHA else 1f)
                     // Before graphicsLayer, so the gesture reads untranslated coordinates.
                     .pointerInput(id) {
                         awaitEachGesture {
@@ -244,10 +348,12 @@ internal fun LayersRail(
                             trashRect[0] = null
                             val start = centers[id] ?: 0f
                             val downInWindow = (windowOrigins[id] ?: Offset.Zero) + press.position
+                            fingerY = downInWindow.y
                             drag(press.id) { change ->
                                 val delta = change.positionChange()
                                 dragDy += delta.y
                                 dragDx += delta.x
+                                fingerY = downInWindow.y + dragDy
                                 overTrash = droppedOnTrash(downInWindow + Offset(dragDx, dragDy), trashRect[0])
                                 change.consume()
                             }
@@ -257,6 +363,7 @@ internal fun LayersRail(
                             dragging = null
                             dragDy = 0f
                             dragDx = 0f
+                            fingerY = Float.NaN
                             overTrash = false
                             if (trashed) {
                                 callbacks.onDelete(layer.id)
@@ -268,10 +375,6 @@ internal fun LayersRail(
                             }
                         }
                     }
-                    .graphicsLayer {
-                        translationY = if (dragging == id) dragDy else 0f
-                        translationX = if (dragging == id) dragDx else 0f
-                    }
                     .onGloballyPositioned {
                         if (dragging != id) {
                             centers[id] = it.boundsInRoot().center.y
@@ -282,6 +385,16 @@ internal fun LayersRail(
                         onClick(label = layer.name) { tap(); true }
                         customActions = listOf(
                             CustomAccessibilityAction("Layer menu") { callbacks.onOpenMenu(layer.id); true },
+                            CustomAccessibilityAction("Move up") {
+                                val order = steppedSiblingOrder(latestSiblings, id, -1)
+                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                true
+                            },
+                            CustomAccessibilityAction("Move down") {
+                                val order = steppedSiblingOrder(latestSiblings, id, 1)
+                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                true
+                            },
                             CustomAccessibilityAction("Delete layer") { callbacks.onDelete(layer.id); true },
                         )
                     },
@@ -294,7 +407,7 @@ internal fun LayersRail(
                     expanded = expanded,
                 )
             }
-        }
+        } }
     }
 }
 
@@ -313,9 +426,7 @@ private fun LayerThumb(
     maskThumb: android.graphics.Bitmap? = null,
 ) {
     val isGroup = layer.isContainer
-    val label = layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
-        (if (maskThumb != null) ", masked" else "") +
-        (if (layer.isVisible) "" else ", hidden") + (if (isGroup && expanded) ", open" else "")
+    val label = layerThumbLabel(layer, masked = maskThumb != null, expanded = expanded)
     Box(contentAlignment = Alignment.CenterStart) {
         Box(
             modifier = Modifier
@@ -372,10 +483,17 @@ private fun LayerThumb(
                 }
             }
             if (layer.alphaLock) {
-                Text(
-                    "🔒",
-                    fontSize = 9.sp,
-                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp),
+                Icon(
+                    painterResource(GraffuxIcons.AlphaLock),
+                    contentDescription = null,
+                    tint = EyeOffInk,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-3).dp)
+                        .size(14.dp)
+                        .background(EyeOffFill, CircleShape)
+                        .padding(2.dp)
+                        .testTag("rail.lock.${layer.id}"),
                 )
             }
             if (maskThumb != null) {
@@ -441,6 +559,10 @@ private val EyeOffInk = Color(0xFFB4B4BA)
 private val EyeOffFill = Color(0xFF161618)
 
 private const val HIDDEN_ALPHA = 0.3f
+private const val GHOST_ALPHA = 0.9f
+private const val PLACEHOLDER_ALPHA = 0.35f
+private val AutoscrollEdge = 40.dp
+private val AutoscrollMaxStep = 12.dp
 
 private val TrashSize = 56.dp
 private val TrashFill = Color(0xFF161618)

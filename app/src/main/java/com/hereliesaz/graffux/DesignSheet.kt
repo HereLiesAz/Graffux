@@ -185,7 +185,7 @@ internal fun DesignSheetBody(
                         maxLines = 1,
                         modifier = Modifier.weight(1f).testTag("design.title"),
                     )
-                    if (target == null) DesignChip("Add frame", on = false, tag = "design.addFrame", onClick = actions::addFrame)
+                    if (target == null) DesignChip("Add frame", on = false, toggle = false, tag = "design.addFrame", onClick = actions::addFrame)
                 }
                 Spacer(Modifier.height(4.dp))
                 Box(Modifier.fillMaxWidth().height(SheetBodyHeight).fadeBottom()) {
@@ -356,9 +356,9 @@ private fun FillControls(target: DesignTarget, actions: DesignActions, density: 
             modifier = Modifier.widthIn(min = 64.dp).testTag("design.fill.value"),
         )
         if (density == DesignDensity.SHEET) {
-            DesignChip("Colour", on = false, tag = "design.fill.color", onClick = actions::fillWithColorInHand)
+            DesignChip("Colour", on = false, toggle = false, tag = "design.fill.color", onClick = actions::fillWithColorInHand)
         }
-        if (target.fillArgb != null) DesignChip("None", on = false, tag = "design.fill.none", onClick = { actions.setFill(null) })
+        if (target.fillArgb != null) DesignChip("None", on = false, toggle = false, tag = "design.fill.none", onClick = { actions.setFill(null) })
     }
 }
 

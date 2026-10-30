@@ -31,6 +31,13 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.util.ColorHarmony
 import com.hereliesaz.graffitixr.common.util.HarmonyMode
@@ -57,6 +64,7 @@ enum class ColorPickerMode(val label: String) {
  * [savedPalette] and its callbacks are hoisted rather than read here so the picker stays a pure
  * composable over its inputs; persistence belongs to the view-model.
  */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 fun ColorPickerDialog(
     currentColor: Color,
@@ -70,6 +78,8 @@ fun ColorPickerDialog(
     savedPalette: List<Color> = emptyList(),
     onSavePaletteColor: (Color) -> Unit = {},
     onRemovePaletteColor: (Color) -> Unit = {},
+    /** Closing, with the colour the Foreground/Background target ended on (for the Recent row). */
+    onDismissWithColor: ((Color) -> Unit)? = null,
 ) {
     // Decompose current color into HSV
     val initHsv = FloatArray(3)
@@ -84,6 +94,7 @@ fun ColorPickerDialog(
     var saturation by remember { mutableFloatStateOf(initHsv[1]) }
     var brightness by remember { mutableFloatStateOf(initHsv[2]) }
     var target by remember { mutableStateOf(BrushColorTarget.FOREGROUND) }
+    var alpha by remember { mutableFloatStateOf(currentColor.alpha) }
 
     fun loadWorking(color: Color) {
         val hsv = FloatArray(3)
@@ -96,12 +107,12 @@ fun ColorPickerDialog(
         hue = hsv[0]
         saturation = hsv[1]
         brightness = hsv[2]
+        alpha = color.alpha
     }
 
-    val workingAlpha = if (target == BrushColorTarget.FOREGROUND) currentColor.alpha else secondaryColor.alpha
-    val selectedColor = remember(hue, saturation, brightness, workingAlpha) {
+    val selectedColor = remember(hue, saturation, brightness, alpha) {
         val argb = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, brightness))
-        Color(argb).copy(alpha = workingAlpha)
+        Color(argb).copy(alpha = alpha)
     }
     // No separate Apply step: every change to the working colour — wheel drag, brightness slider,
     // a tapped palette/recent swatch — lands on the brush immediately. `target` is a key too, not
@@ -119,24 +130,34 @@ fun ColorPickerDialog(
         if (mode == ColorPickerMode.HARMONY) ColorHarmony.partners(hue, harmony) else emptyList()
     }
 
-    FloatingWindow(title = "Color", onDismiss = onDismiss) {
+    FloatingWindow(
+        title = "Colour",
+        onDismiss = { onDismissWithColor?.invoke(selectedColor) ?: onDismiss() },
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 BrushColorTarget.entries.forEach { candidate ->
                     val swatch = if (candidate == BrushColorTarget.FOREGROUND) currentColor else secondaryColor
                     Box(
                         Modifier
-                            .size(42.dp)
+                            .size(48.dp)
                             .background(swatch, CircleShape)
                             .border(
                                 if (candidate == target) 3.dp else 1.dp,
                                 if (candidate == target) Color.White else Color.White.copy(alpha = 0.4f),
                                 CircleShape,
                             )
-                            .clickable {
+                            // Named and stateful for TalkBack: which colour this is, and whether
+                            // it's the one the picker is editing.
+                            .selectable(
+                                selected = candidate == target,
+                                role = Role.RadioButton,
+                            ) {
                                 target = candidate
                                 loadWorking(swatch)
                             }
+                            .semantics { contentDescription = "${candidate.label} colour ${hexOf(swatch)}" }
+                            .testTag("color.target.${candidate.name.lowercase()}")
                     )
                 }
                 GraffuxButton(
@@ -205,7 +226,7 @@ fun ColorPickerDialog(
                         value = brightness,
                         onValueChange = { brightness = it },
                         valueRange = 0f..1f,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().semantics { contentDescription = strings.adj.brightness }
                     )
                 }
 
@@ -222,7 +243,7 @@ fun ColorPickerDialog(
                                 (picked.blue * 255).toInt(),
                                 hsv,
                             )
-                            hue = hsv[0]; saturation = hsv[1]; brightness = hsv[2]
+                            hue = hsv[0]; saturation = hsv[1]; brightness = hsv[2]; alpha = picked.alpha
                         },
                         onSave = { onSavePaletteColor(selectedColor) },
                         onRemove = onRemovePaletteColor,
@@ -230,17 +251,82 @@ fun ColorPickerDialog(
                 }
             }
 
+            // Opacity and an exact value, under every mode: the wheel alone is drag-only.
+            Text(
+                "Opacity ${(alpha * PERCENT).roundToInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Start).padding(top = 8.dp),
+            )
+            Slider(
+                value = alpha,
+                onValueChange = { alpha = it },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Opacity" }.testTag("color.alpha"),
+            )
+            HexField(selectedColor) { loadWorking(it) }
+
         }
     }
 }
 
-private enum class BrushColorTarget { FOREGROUND, BACKGROUND }
+private enum class BrushColorTarget(val label: String) { FOREGROUND("Foreground"), BACKGROUND("Background") }
+
+/** The working colour typed as hex; applied on Done or as soon as a whole value is typed. */
+@Suppress("FunctionNaming")
+@Composable
+private fun HexField(color: Color, onColor: (Color) -> Unit) {
+    var text by remember { mutableStateOf(hexOf(color)) }
+    var editing by remember { mutableStateOf(false) }
+    // Follow the wheel, a swatch or the other target: any colour change that isn't the typed
+    // value ends the edit, so a later Done can never re-apply a stale typed value.
+    LaunchedEffect(color) {
+        val (synced, stillEditing) = hexFieldSync(text, editing, color)
+        text = synced
+        editing = stillEditing
+    }
+    val valid = parseHexColor(text) != null
+    OutlinedTextField(
+        value = text,
+        onValueChange = { typed ->
+            editing = true
+            text = typed.take(HEX_FIELD_MAX)
+            parseHexColor(text)?.let(onColor)
+        },
+        singleLine = true,
+        label = { Text("Hex") },
+        isError = !valid,
+        supportingText = if (valid) null else ({ Text("#RRGGBB or #AARRGGBB") }),
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters,
+            imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+        ),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+            editing = false
+            parseHexColor(text)?.let(onColor)
+        }),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { if (!it.isFocused) editing = false }
+            .testTag("color.hex"),
+    )
+}
+
+/**
+ * The hex field's text and editing state after the working colour became [color]: while the typed
+ * [text] is that colour the edit goes on; any other colour (wheel, swatch, the other target) ends
+ * it and shows [color].
+ */
+internal fun hexFieldSync(text: String, editing: Boolean, color: Color): Pair<String, Boolean> =
+    if (editing && parseHexColor(text)?.toArgb() == color.toArgb()) text to true else hexOf(color) to false
 
 /** A small selectable label — the picker's mode and harmony choosers. */
 @Composable
 private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
+            // A 48dp target around the drawn chip.
+            .minimumInteractiveComponentSize()
             .background(
                 if (selected) {
                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
@@ -249,7 +335,7 @@ private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
                 },
                 RoundedCornerShape(12.dp),
             )
-            .clickable(onClick = onClick)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(
@@ -267,6 +353,7 @@ private fun PickerChip(text: String, selected: Boolean, onClick: () -> Unit) {
  * swatch removes it. Recents aren't removable — they are a rolling view, not something the user
  * curates.
  */
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 private fun PalettesTab(
     savedPalette: List<Color>,
@@ -298,8 +385,8 @@ private fun PalettesTab(
             )
         } else {
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 savedPalette.forEach { swatch ->
                     Swatch(
@@ -322,11 +409,18 @@ private fun PalettesTab(
         Text("Recent", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
             history.forEach { swatch ->
                 Swatch(color = swatch, selected = false, onClick = { onPick(swatch) })
+            }
+            if (history.isEmpty()) {
+                Text(
+                    "Colours you close the picker on appear here.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -340,18 +434,34 @@ private fun Swatch(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
 ) {
+    // A 48dp target around the 36dp swatch.
     Box(
         Modifier
-            .size(32.dp)
+            .size(48.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+                onLongClickLabel = if (onLongClick != null) "Remove" else null,
+                role = Role.Button,
+            )
+            .semantics {
+                contentDescription = hexOf(color)
+                this.selected = selected
+            }
+            .padding(6.dp)
             .background(color, RoundedCornerShape(6.dp))
             .border(
                 if (selected) 2.dp else 1.dp,
                 if (selected) Color.White else Color.White.copy(alpha = 0.35f),
                 RoundedCornerShape(6.dp),
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     )
 }
+
+private const val PERCENT = 100f
+
+/** `#AARRGGBB` is the longest value the hex field takes. */
+private const val HEX_FIELD_MAX = 9
 
 /** How far off a harmony marker a pick can land and still snap to it. */
 private const val HARMONY_SNAP_DEGREES = 12f

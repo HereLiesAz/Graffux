@@ -133,7 +133,25 @@ internal data class CarouselUi(
     val showingCarousel: Boolean = true,
     /** The photo tabs instead of brushes (the rail's Adjust); [tab] is then a [PhotoTab.key]. */
     val photo: Boolean = false,
-)
+) {
+    internal companion object {
+        /** Keeps the open sheet, its tab and mode across rotation and process death. */
+        val Saver: androidx.compose.runtime.saveable.Saver<CarouselUi, Any> =
+            androidx.compose.runtime.saveable.listSaver(
+                save = { listOf(it.category.name, it.sheetOpen, it.tab, it.showingCarousel, it.photo) },
+                restore = {
+                    CarouselUi(
+                        category = CarouselCategory.entries.firstOrNull { c -> c.name == it[0] }
+                            ?: CarouselCategory.BRUSHES,
+                        sheetOpen = it[1] as Boolean,
+                        tab = it[2] as String?,
+                        showingCarousel = it[3] as Boolean,
+                        photo = it[4] as Boolean,
+                    )
+                },
+            )
+    }
+}
 
 /** What the strip draws: its items plus what the brush previews need to render them. */
 internal data class CarouselContent(

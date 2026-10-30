@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -40,29 +41,42 @@ internal fun LogoMenu(
     // button takes a fill and an ink ring and the menu drops from under it, 12 from the side too.
     Column(
         horizontalAlignment = Alignment.End,
-        modifier = modifier.padding(top = RailTopInset, end = if (open) RailSideInset else LogoShutEndInset),
+        modifier = modifier.padding(
+            top = RailTopInset,
+            end = (if (open) RailSideInset else LogoShutEndInset) - LogoTouchPad,
+        ),
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(RailButtonSize)
+                // A 48dp target around the mockup's 44dp button; the 2dp each side comes out of the
+                // corner insets so the drawn button stays where the mockup puts it.
+                .offset(y = -LogoTouchPad)
+                .size(RailTouchSize)
                 .clip(CircleShape)
-                .then(
-                    if (open) Modifier.background(LogoOpenFill).border(1.dp, RailInk, CircleShape) else Modifier,
-                )
                 .clickable(role = Role.Button, onClickLabel = if (open) "Close menu" else "Open menu") {
                     onOpenChange(!open)
                 }
                 .semantics { contentDescription = "Graffux menu" }
                 .testTag("logo.menu"),
         ) {
+            if (open) {
+                Box(
+                    Modifier.size(RailButtonSize).clip(CircleShape).background(LogoOpenFill).border(1.dp, RailInk, CircleShape),
+                )
+            }
             Image(RailIcons.LogoMark, contentDescription = null, modifier = Modifier.size(26.dp))
         }
         if (open) {
-            MenuPanel(rows = rows, onDismiss = { onOpenChange(false) }, modifier = Modifier.padding(top = RailEdgeGap))
+            MenuPanel(
+                rows = rows,
+                onDismiss = { onOpenChange(false) },
+                modifier = Modifier.offset(y = -LogoTouchPad * 2).padding(top = RailEdgeGap, end = LogoTouchPad),
+            )
         }
     }
 }
 
 private val LogoShutEndInset = 18.dp
+private val LogoTouchPad = 2.dp
 private val LogoOpenFill = Color(0xFF161618)

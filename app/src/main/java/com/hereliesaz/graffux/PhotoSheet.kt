@@ -2,6 +2,10 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -92,10 +96,10 @@ import kotlin.math.abs
 
 /** The photo sheet's tabs, in the mockup's order, with the type heading each sits under. */
 internal enum class PhotoTab(val label: String, val section: String, val tool: PhotoTool?) {
-    LIGHT("Light", "LIGHT & COLOR", PhotoTool.LIGHT),
-    COLOR("Color", "LIGHT & COLOR", PhotoTool.COLOR),
-    HSL("HSL", "LIGHT & COLOR", PhotoTool.HSL),
-    CURVES("Curves", "LIGHT & COLOR", PhotoTool.CURVES),
+    LIGHT("Light", "LIGHT & COLOUR", PhotoTool.LIGHT),
+    COLOR("Colour", "LIGHT & COLOUR", PhotoTool.COLOR),
+    HSL("HSL", "LIGHT & COLOUR", PhotoTool.HSL),
+    CURVES("Curves", "LIGHT & COLOUR", PhotoTool.CURVES),
     DETAIL("Detail", "DETAIL", PhotoTool.DETAIL),
     EFFECTS("Effects", "DETAIL", PhotoTool.EFFECTS),
     CROP("Crop", "GEOMETRY", null),
@@ -588,11 +592,14 @@ internal fun PhotoSliderRow(
     Box(
         modifier
             .fillMaxWidth()
-            .height(PhotoSheetStyle.RowHeight)
+            // heightIn, not height: at a large font scale the label grows instead of clipping.
+            .heightIn(min = PhotoSheetStyle.RowHeight)
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { e -> nudge(e, slider, latestValue, latestStart, latestChange, latestEnd) }
             .alpha(if (hidden) 0f else 1f)
+            // A row hidden behind another slider's drag is out of the TalkBack order too.
+            .then(if (hidden) Modifier.clearAndSetSemantics { } else Modifier)
             .testTag("photo.slider.${slider.id}"),
     ) {
         if (dragging) {
@@ -612,7 +619,7 @@ internal fun PhotoSliderRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight()
+                .heightIn(min = PhotoSheetStyle.RowHeight)
                 .padding(start = if (dragging) 32.dp else 20.dp, end = if (dragging) 28.dp else 20.dp),
         ) {
             Text(
@@ -629,9 +636,11 @@ internal fun PhotoSliderRow(
                 contentAlignment = Alignment.CenterStart,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
+                    .height(PhotoSheetStyle.RowHeight)
                     .semantics {
                         contentDescription = "${slider.label} ${slider.display(value)}"
+                        // The double-tap reset, without the double tap.
+                        customActions = listOf(CustomAccessibilityAction("Reset ${slider.label}") { latestReset(); true })
                         progressBarRangeInfo = ProgressBarRangeInfo(value, slider.min..slider.max)
                         setProgress { target ->
                             latestStart()
@@ -671,7 +680,8 @@ internal fun PhotoSliderRow(
                             if (dragging0) {
                                 latestEnd()
                             } else {
-                                val now = System.currentTimeMillis()
+                                // The event clock, which is monotonic (the wall clock is not).
+                                val now = down.uptimeMillis
                                 if (now - lastTapAt < DOUBLE_TAP_MS) {
                                     lastTapAt = 0L
                                     latestReset()

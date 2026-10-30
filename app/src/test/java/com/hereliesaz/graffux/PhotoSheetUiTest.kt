@@ -188,7 +188,7 @@ class PhotoSheetUiTest {
         rule.onAllNodesWithTag("carousel.tab.photo.light").onFirst().assertExists()
         rule.onAllNodesWithTag("carousel.tab.photo.color").onFirst().performClick()
         rule.waitForIdle()
-        rule.onNodeWithTag("photo.title").assertTextEquals("Color")
+        rule.onNodeWithTag("photo.title").assertTextEquals("Colour")
         rule.onNodeWithTag("photo.slider.temperature").assertExists()
         rule.onNodeWithTag("photo.value.temperature").assertTextEquals("6500 K")
     }
@@ -215,7 +215,8 @@ class PhotoSheetUiTest {
         assertEquals(344 - 48, dp(tabs.top - panel.top))
         // The tool rail gains Frame and Adjust after Transform (the Eraser the app keeps follows them).
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
-        assertEquals(488 + 50 + 50 + 50, dp(tools.height))
+        // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
+        assertEquals(488 + 50 + 50 + 50 + 1, dp(tools.height))
     }
 
     @Test

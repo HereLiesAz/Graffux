@@ -6,7 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -23,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -32,7 +35,15 @@ import kotlinx.coroutines.delay
 /** A [ChromeMessage]'s weight: a NOTICE goes by itself, a WARNING waits for OK. */
 internal enum class MessageKind { NOTICE, WARNING }
 
-internal data class ChromeMessage(val id: Long, val kind: MessageKind, val title: String?, val text: String)
+internal data class ChromeMessage(
+    val id: Long,
+    val kind: MessageKind,
+    val title: String?,
+    val text: String,
+    /** An optional second button ("Open"), which also dismisses the message. */
+    val actionLabel: String? = null,
+    val onAction: (() -> Unit)? = null,
+)
 
 /**
  * The app's transient messages: a failed save, a finished export, a store that couldn't be reached.
@@ -43,8 +54,14 @@ internal class MessageController {
     val messages = mutableStateListOf<ChromeMessage>()
     private var nextId = 0L
 
-    fun show(kind: MessageKind = MessageKind.NOTICE, title: String? = null, message: String) {
-        messages += ChromeMessage(nextId++, kind, title, message)
+    fun show(
+        kind: MessageKind = MessageKind.NOTICE,
+        title: String? = null,
+        message: String,
+        actionLabel: String? = null,
+        onAction: (() -> Unit)? = null,
+    ) {
+        messages += ChromeMessage(nextId++, kind, title, message, actionLabel, onAction)
         while (messages.size > MAX_SHOWN) messages.removeAt(0)
     }
 
@@ -61,7 +78,7 @@ private val MessageCardShape = RoundedCornerShape(12.dp)
 /** Draws [controller]'s messages, newest last. A NOTICE leaves after [NOTICE_MS]. */
 @Suppress("FunctionNaming")
 @Composable
-internal fun MessageHost(controller: MessageController, modifier: Modifier = Modifier) {
+internal fun MessageHost(controller: MessageController, modifier: Modifier = Modifier, okLabel: String = "OK") {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -74,18 +91,18 @@ internal fun MessageHost(controller: MessageController, modifier: Modifier = Mod
                     controller.dismiss(message.id)
                 }
             }
-            MessageCard(message) { controller.dismiss(message.id) }
+            MessageCard(message, okLabel) { controller.dismiss(message.id) }
         }
     }
 }
 
 @Suppress("FunctionNaming")
 @Composable
-private fun MessageCard(message: ChromeMessage, onDismiss: () -> Unit) {
+private fun MessageCard(message: ChromeMessage, okLabel: String, onDismiss: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val edge = if (message.kind == MessageKind.WARNING) Amber else RailBorder
     Row(
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .widthIn(max = 420.dp)
             .clip(MessageCardShape)
@@ -93,7 +110,7 @@ private fun MessageCard(message: ChromeMessage, onDismiss: () -> Unit) {
             .border(1.dp, edge, MessageCardShape)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("chrome.message")
-            .padding(start = 14.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = 14.dp, top = 4.dp, bottom = 4.dp),
     ) {
         Column(Modifier.weight(1f, fill = false)) {
             message.title?.let {
@@ -101,14 +118,27 @@ private fun MessageCard(message: ChromeMessage, onDismiss: () -> Unit) {
             }
             Text(message.text, style = MaterialTheme.typography.bodySmall, color = colors.onSurface)
         }
-        Text(
-            "OK",
-            style = MaterialTheme.typography.labelLarge,
-            color = colors.primary,
-            modifier = Modifier
-                .clickable(onClick = onDismiss)
-                .padding(horizontal = 14.dp, vertical = 2.dp),
-        )
+        val action = message.onAction
+        if (message.actionLabel != null && action != null) {
+            MessageButton(message.actionLabel, "chrome.message.action") { onDismiss(); action() }
+        }
+        MessageButton(okLabel, "chrome.message.ok", onDismiss)
+    }
+}
+
+/** A message's button: a 48dp target (it was ~24dp of bare text), announced as a button. */
+@Suppress("FunctionNaming")
+@Composable
+private fun MessageButton(label: String, tag: String, onClick: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp)
+            .testTag(tag),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }
 

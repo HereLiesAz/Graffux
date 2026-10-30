@@ -35,13 +35,24 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import com.hereliesaz.graffitixr.design.theme.Amber
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** One row of a chrome menu (the logo menu, a layer's menu, the brush's long-press menu). */
 internal sealed interface MenuRow {
     /** A tap that does something and closes the menu. */
-    data class Action(val text: String, val onClick: () -> Unit) : MenuRow
+    data class Action(val text: String, val onClick: () -> Unit, val destructive: Boolean = false) : MenuRow
+
+    /** An on/off property that acts and closes, read to TalkBack as a checkbox with its state. */
+    data class Check(val label: String, val checked: Boolean, val onClick: () -> Unit) : MenuRow
+
+    /** A section's heading: not tappable, read as a heading. */
+    data class Header(val text: String) : MenuRow
 
     /** A text field, applied on Done; closes the menu. */
     data class Input(val hint: String, val initialValue: String, val onSubmit: (String) -> Unit) : MenuRow
@@ -61,6 +72,21 @@ internal class MenuBuilder {
 
     fun listItem(text: String, onClick: () -> Unit) {
         rows += MenuRow.Action(text, onClick)
+    }
+
+    /** An action that removes or wipes something: drawn apart, in the warning colour. */
+    fun destructiveItem(text: String, onClick: () -> Unit) {
+        rows += MenuRow.Action(text, onClick, destructive = true)
+    }
+
+    fun check(label: String, checked: Boolean, onClick: () -> Unit) {
+        rows += MenuRow.Check(label, checked, onClick)
+    }
+
+    /** Starts a section: a divider (unless it is the first row) and a heading. */
+    fun section(title: String) {
+        if (rows.isNotEmpty()) rows += MenuRow.Divider
+        rows += MenuRow.Header(title)
     }
 
     fun inputItem(hint: String, initialValue: String, onSubmit: (String) -> Unit) {
@@ -120,7 +146,20 @@ internal fun MenuPanel(
         }
         rows.forEach { row ->
             when (row) {
-                is MenuRow.Action -> MenuText(row.text) { onDismiss(); row.onClick() }
+                is MenuRow.Action -> MenuText(
+                    row.text,
+                    color = if (row.destructive) Amber else null,
+                ) { onDismiss(); row.onClick() }
+                is MenuRow.Check -> MenuCheck(row) { onDismiss(); row.onClick() }
+                is MenuRow.Header -> Text(
+                    row.text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurface.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .semantics { heading() },
+                )
                 is MenuRow.Page -> MenuText(row.text, onClick = row.onClick)
                 is MenuRow.Toggle -> MenuText(
                     "${row.label}: ${if (row.checked) "shown" else "hidden"}",
@@ -141,18 +180,20 @@ internal fun MenuPanel(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun MenuText(text: String, trailing: String? = null, onClick: () -> Unit) {
+private fun MenuText(text: String, trailing: String? = null, color: Color? = null, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            // 48dp: the touch-target minimum, and room for the text at larger font scales.
+            .heightIn(min = MenuRowHeight)
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
             text,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = color ?: MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         if (trailing != null) {
@@ -160,6 +201,35 @@ private fun MenuText(text: String, trailing: String? = null, onClick: () -> Unit
         }
     }
 }
+
+@Suppress("FunctionNaming")
+@Composable
+private fun MenuCheck(row: MenuRow.Check, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MenuRowHeight)
+            .toggleable(value = row.checked, role = Role.Checkbox, onValueChange = { onClick() })
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(
+            row.label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        // Drawn only; TalkBack reads the checkbox state from toggleable.
+        Text(
+            if (row.checked) "On" else "Off",
+            style = MaterialTheme.typography.labelMedium,
+            color = if (row.checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            modifier = Modifier.padding(start = 8.dp).clearAndSetSemantics { },
+        )
+    }
+}
+
+private val MenuRowHeight = 48.dp
 
 @Suppress("FunctionNaming")
 @Composable
