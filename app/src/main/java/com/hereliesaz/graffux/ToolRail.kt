@@ -265,6 +265,16 @@ internal fun MenuBuilder.brushMenu(
  * (Tool Options, whose Size slider is the accessible path to the same value); drag up/down sets the
  * size and across sets the hardness; long-press opens the brush menu.
  */
+/**
+ * The brush feathering after a horizontal drag of [dx] px on the brush chip. The chip shows
+ * HARDNESS (1 - feathering), and like every slider in the app it goes up to the right, so a drag
+ * right lowers the feathering.
+ */
+internal fun featheringAfterHardnessDrag(feathering: Float, dx: Float): Float =
+    (feathering - dx * HARDNESS_PER_PX).coerceIn(0f, 1f)
+
+private const val HARDNESS_PER_PX = 0.005f
+
 @OptIn(ExperimentalFoundationApi::class)
 @Suppress("FunctionNaming")
 @Composable
@@ -313,7 +323,7 @@ private fun BrushSizeChip(state: EditorUiState, vm: ToolRailActions, onOpenOptio
                         }
                         // Hardness, always — never flow (a stamp brush's flow lives in Tool Options).
                         DragAxis.HORIZONTAL -> if (drag.x != 0f) {
-                            vm.setBrushFeathering((latest.brushFeathering + drag.x * 0.005f).coerceIn(0f, 1f))
+                            vm.setBrushFeathering(featheringAfterHardnessDrag(latest.brushFeathering, drag.x))
                         }
                     }
                 }
@@ -321,14 +331,16 @@ private fun BrushSizeChip(state: EditorUiState, vm: ToolRailActions, onOpenOptio
             .testTag("rail.adj.brush"),
     ) {
         Box(Modifier.size(RailButtonSize).clip(CircleShape).background(RailChip))
-        Text(
-            // The chip shows whichever value the drag is moving.
-            if (axis == DragAxis.HORIZONTAL) "$hardnessPercent%" else "$size",
-            color = RailInk,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
-            fontFamily = RobotoCondensedFamily,
-            maxLines = 1,
-        )
+        CappedFontScale {
+            Text(
+                // The chip shows whichever value the drag is moving.
+                if (axis == DragAxis.HORIZONTAL) "$hardnessPercent%" else "$size",
+                color = RailInk,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = RobotoCondensedFamily,
+                maxLines = 1,
+            )
+        }
     }
 }

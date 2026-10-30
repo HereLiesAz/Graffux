@@ -12,10 +12,10 @@ import kotlinx.serialization.Serializable
  *
  * A layer's [Layer.offset] is relative to the canvas centre. Constraints
  * treat a child's offset as the centre of its box and take the frame's box in the children's own
- * space (see [LayoutOps.localFrameRect]). Auto-layout predates that and positions from the frame's
- * offset, treating a child's offset as its top-left; the two never run on the same frame (auto-layout
- * wins, see [LayoutOps.applyResize]). Nothing here touches how anything renders — this produces new
- * offsets and sizes, and the existing renderers draw them.
+ * space (see [LayoutOps.localFrameRect]). Auto-layout uses the same convention: it lays children out
+ * into the frame's local rect and writes each child's CENTRE into its offset. The two never run on
+ * the same frame (auto-layout wins, see [LayoutOps.applyResize]). Nothing here touches how anything
+ * renders — this produces new offsets and sizes, and the existing renderers draw them.
  */
 
 /** How a child sticks to its frame on one axis when the frame resizes. */
@@ -38,6 +38,13 @@ enum class ConstraintAnchor {
 data class Constraints(
     val horizontal: ConstraintAnchor = ConstraintAnchor.START,
     val vertical: ConstraintAnchor = ConstraintAnchor.START,
+    /**
+     * Set while a STRETCH child is held at its minimum extent because its frame got smaller than
+     * its margins: the extent it would have had (zero or negative). Keeping it is what lets growing
+     * the frame back restore the child's original size and margins; null otherwise.
+     */
+    val collapsedWidth: Float? = null,
+    val collapsedHeight: Float? = null,
 )
 
 @Serializable
@@ -128,8 +135,10 @@ object LayoutOps {
 
     /**
      * Stacks [frameId]'s children along its auto-layout axis. Children keep their declared sizes;
-     * only their positions are computed. Invisible children are skipped and take no space, which is
-     * what makes toggling one off collapse the stack instead of leaving a hole.
+     * only their positions are computed. [frame] is the frame's box in its children's own space
+     * ([localFrameRect]: the frame's container transform already applies its offset), and each
+     * child's offset is the centre of its slot, which is how layers render. Invisible children are
+     * skipped and take no space, which is what makes toggling one off collapse the stack instead of leaving a hole.
      */
     fun applyAutoLayout(layers: List<Layer>, frameId: String, frame: Rect): List<Layer> {
         val frameLayer = layers.firstOrNull { it.id == frameId } ?: return layers
@@ -150,11 +159,11 @@ object LayoutOps {
             val size = child.layoutDeclaredSize
             if (layout.direction == LayoutDirection.HORIZONTAL) {
                 val y = innerY + crossOffset(layout.align, innerH, size.second)
-                placed[child.id] = Offset(innerX + cursor, y)
+                placed[child.id] = Offset(innerX + cursor + size.first / 2f, y + size.second / 2f)
                 cursor += size.first + layout.gap
             } else {
                 val x = innerX + crossOffset(layout.align, innerW, size.first)
-                placed[child.id] = Offset(x, innerY + cursor)
+                placed[child.id] = Offset(x + size.first / 2f, innerY + cursor + size.second / 2f)
                 cursor += size.second + layout.gap
             }
         }

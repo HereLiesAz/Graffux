@@ -2580,7 +2580,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun updateHistoryCounts() {
-        _uiState.update { it.copy(undoCount = history.undoCount, redoCount = history.redoCount) }
+        updateUi { it.copy(undoCount = history.undoCount, redoCount = history.redoCount) }
     }
 
     /** The current layer set, stripped of bitmaps — what we record so an undo can be reverted. */
@@ -2594,26 +2594,26 @@ class EditorViewModel @Inject constructor(
     /** Flash a short confirmation pill ("Undo", "Redo") over the canvas. */
     private fun showHud(message: String, durationMs: Long = HUD_MS) {
         hudJob?.cancel()
-        _uiState.update { it.copy(hudMessage = message) }
+        updateUi { it.copy(hudMessage = message) }
         hudJob = viewModelScope.launch(dispatchers.main) {
             kotlinx.coroutines.delay(hudDurationMs(message, durationMs))
-            _uiState.update { it.copy(hudMessage = null) }
+            updateUi { it.copy(hudMessage = null) }
         }
     }
 
     /** Show the brush-diameter preview circle while the size slider is moving. */
     private fun showBrushHud() {
         brushHudJob?.cancel()
-        if (!_uiState.value.brushHudVisible) _uiState.update { it.copy(brushHudVisible = true) }
+        if (!_uiState.value.brushHudVisible) updateUi { it.copy(brushHudVisible = true) }
         brushHudJob = viewModelScope.launch(dispatchers.main) {
             kotlinx.coroutines.delay(800)
-            _uiState.update { it.copy(brushHudVisible = false) }
+            updateUi { it.copy(brushHudVisible = false) }
         }
     }
 
     /** Procreate's four-finger tap: hide every panel and fold the rail for full-screen art. */
     fun toggleHideUi() {
-        _uiState.update { it.copy(hideUiForCapture = !it.hideUiForCapture) }
+        updateUi { it.copy(hideUiForCapture = !it.hideUiForCapture) }
     }
 
     override fun onUndoClicked() {
@@ -2987,7 +2987,7 @@ class EditorViewModel @Inject constructor(
                     } else {
                         layerStore.clearLiveImpastoMaterial(layerId)
                     }
-                    _uiState.update { state ->
+                    updateUi { state ->
                         state.copy(
                             layers = state.layers.map {
                                 if (it.id == layerId) it.copy(bitmap = currentBitmap, heightMap = heightWorking) else it
@@ -3055,7 +3055,7 @@ class EditorViewModel @Inject constructor(
         rebuildJobs[layerId]?.cancel()
         rebuildJobs.remove(layerId)
 
-        _uiState.update { state ->
+        updateUi { state ->
             state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(bitmap = patched) else it })
         }
         if (emitOp && opEmitter.isActive) {
@@ -5633,8 +5633,8 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun updateActiveLayer(transform: (Layer) -> Layer) {
-        _uiState.update { state ->
-            val id = state.activeLayerId ?: return@update state
+        updateUi { state ->
+            val id = state.activeLayerId ?: return@updateUi state
             state.copy(layers = LayerListOps.mapLayer(state.layers, id, transform))
         }
     }
@@ -5725,6 +5725,15 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Every state write outside [dispatch] goes through here, so an edit to a main component made
+     * by any path (a stroke commit, a text raster, a bitmap replace) reaches its instances in the
+     * same transition — and so lands in the same undo snapshot and the same co-op layer diff.
+     */
+    private inline fun updateUi(crossinline transform: (EditorUiState) -> EditorUiState) {
+        _uiState.update { before -> EditorReducer.withInstancesFollowing(before, transform(before)) }
+    }
+
+    /**
      * Records a pristine, immutable copy of [bitmap] as [layerId]'s replay base.
      *
      * Every call site used to be `layerStore.putBase(id, bmp.copy(ARGB_8888, false))`. `Bitmap.copy`
@@ -5767,7 +5776,7 @@ class EditorViewModel @Inject constructor(
             runCatching { createBitmap(width, height) }.getOrNull()?.let { blank ->
                 Breadcrumbs.record("blank bitmap for paint layer with none (${width}x$height)")
                 putLayerBase(layerId, blank)
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(
                         layers = s.layers.map {
                             if (it.id == layerId && it.bitmap == null) it.copy(bitmap = blank) else it
@@ -5815,7 +5824,7 @@ class EditorViewModel @Inject constructor(
         }
         layerStore.putBase(layerId, frozenBase)
         history.migrateLayerGrowth(layerId, frame.width, frame.height, target.left, target.top)
-        _uiState.update { s ->
+        updateUi { s ->
             s.copy(
                 layers = s.layers.map {
                     if (it.id != layerId) it else it.copy(
@@ -6049,7 +6058,7 @@ class EditorViewModel @Inject constructor(
 
     private fun updateLinkedGroup(activeId: String, transform: (Layer) -> Layer) {
         val groupIds = getLinkedGroupIds(activeId)
-        _uiState.update { state -> state.copy(layers = state.layers.map { if (it.id in groupIds) transform(it) else it }) }
+        updateUi { state -> state.copy(layers = state.layers.map { if (it.id in groupIds) transform(it) else it }) }
     }
 
     override fun onFeedbackShown() = dispatch(EditorIntent.FeedbackShown)
@@ -7607,7 +7616,7 @@ class EditorViewModel @Inject constructor(
                     withContext(dispatchers.main) {
                         wet?.let { layerStore.putLiveWetness(layerId, it) }
                         material?.let { layerStore.putLiveImpastoMaterial(layerId, it) }
-                        _uiState.update { s ->
+                        updateUi { s ->
                             s.copy(
                                 layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = resampled) else it },
                             )
@@ -7693,7 +7702,7 @@ class EditorViewModel @Inject constructor(
                     return@launchLayerCommit
                 }
                 withContext(dispatchers.main) {
-                    _uiState.update { s ->
+                    updateUi { s ->
                         s.copy(
                             layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = cloned) else it },
                         )
@@ -7757,7 +7766,7 @@ class EditorViewModel @Inject constructor(
                     return@launchLayerCommit
                 }
                 withContext(dispatchers.main) {
-                    _uiState.update { s ->
+                    updateUi { s ->
                         s.copy(
                             layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it },
                         )
@@ -7817,7 +7826,7 @@ class EditorViewModel @Inject constructor(
                     return@launchLayerCommit
                 }
                 withContext(dispatchers.main) {
-                    _uiState.update { s ->
+                    updateUi { s ->
                         s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = painted) else it })
                     }
                     _liveStroke.update { it.copy(layerId = null, bitmap = null) }
@@ -7917,7 +7926,7 @@ class EditorViewModel @Inject constructor(
                             residentChangedRect(strokeTicket, from, committed)
                         }
                         withContext(dispatchers.main) {
-                            _uiState.update { s ->
+                            updateUi { s ->
                                 s.copy(
                                     layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = committed) else it },
                                 )
@@ -7949,7 +7958,7 @@ class EditorViewModel @Inject constructor(
                 }
             } else {
                 // Commit: working bitmap becomes the displayed layer bitmap.
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(
                         layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = workBitmap) else it },
                     )
@@ -8221,7 +8230,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     layerStore.clearLiveImpastoMaterial(layerId)
                 }
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(
                         layers = s.layers.map {
                             if (it.id == layerId) it.copy(bitmap = target, heightMap = heightWorking) else it
@@ -8676,7 +8685,7 @@ class EditorViewModel @Inject constructor(
                 return@launchLayerCommit
             }
             withContext(dispatchers.main) {
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
@@ -8879,7 +8888,7 @@ class EditorViewModel @Inject constructor(
                         return@withLock
                     }
                     withContext(dispatchers.main) {
-                        _uiState.update { s ->
+                        updateUi { s ->
                             s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
                         }
                         scheduleDiskSave(layerId, target, layer.uri)
@@ -9011,7 +9020,7 @@ class EditorViewModel @Inject constructor(
                 return@launchLayerCommit
             }
             withContext(dispatchers.main) {
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
@@ -9076,7 +9085,7 @@ class EditorViewModel @Inject constructor(
             canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
             val target = SelectionMask.feather(from, work, hard, radius)
             withContext(dispatchers.main) {
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it })
                 }
                 scheduleDiskSave(layerId, target, layer.uri)
@@ -9162,7 +9171,8 @@ class EditorViewModel @Inject constructor(
                 // Re-resolve positions: the list can have changed while the composite was running.
                 val stillThere = current.any { it.id == upper.id } && current.any { it.id == lower.id }
                 if (!stillThere) {
-                    merged.recycle() // nothing adopted it; don't leave tens of MB to the GC
+                    // Nothing references the composite; free its pixels now rather than at GC.
+                    merged.recycle()
                     dispatch(EditorIntent.SetLoading(false))
                     return@withContext
                 }
@@ -9308,19 +9318,50 @@ class EditorViewModel @Inject constructor(
         }
         val tolerance = state.magicWandTolerance
         val op = state.selectionOp
-        val current = state.selection
-        viewModelScope.launch(dispatchers.default) {
-            val seed = ImageProcessor.mapScreenToBitmap(
-                listOf(at), canvasSize.width, canvasSize.height, layer.frame(bitmap.width, bitmap.height),
-                layer.scale, layer.offset, layer.rotationZ,
-            ).firstOrNull() ?: return@launch
-            val mask = MagicWand.mask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance)
-                ?: return@launch
-            val wand = traceSelection(mask, bitmap.width, bitmap.height, layer, bitmap, canvasSize)
-                ?: return@launch
-            withContext(dispatchers.main) { dispatch(EditorIntent.SetSelection(composeTraced(wand, op, current))) }
+        val tracedOn = state.canvasSize
+        // Taps run one after another, and each composes with the selection as it stands when its
+        // result lands (not when it was tapped), so two quick Add taps keep both regions.
+        val previous = wandJob
+        wandJob = viewModelScope.launch(dispatchers.default) {
+            previous?.join()
+            val wand = try {
+                val seed = ImageProcessor.mapScreenToBitmap(
+                    listOf(at), canvasSize.width, canvasSize.height, layer.frame(bitmap.width, bitmap.height),
+                    layer.scale, layer.offset, layer.rotationZ,
+                ).firstOrNull() ?: return@launch
+                val mask = wandMask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance) ?: return@launch
+                traceSelection(mask, bitmap.width, bitmap.height, layer, bitmap, canvasSize) ?: return@launch
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                // A flood buffer per pixel of a very large grown layer: report, don't crash.
+                android.util.Log.w("EditorViewModel", "Magic wand ran out of memory", e)
+                withContext(dispatchers.main) {
+                    notify("This layer is too large for Automatic selection", NoticeKind.WARNING)
+                }
+                return@launch
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                android.util.Log.w("EditorViewModel", "Magic wand failed", e)
+                withContext(dispatchers.main) { notify("Automatic selection failed", NoticeKind.WARNING) }
+                return@launch
+            }
+            withContext(dispatchers.main) {
+                // Traced against the canvas as it was; after a resize (a rotation) the coordinates
+                // no longer mean the same pixels.
+                if (_uiState.value.canvasSize != tracedOn) {
+                    notify("The canvas changed while selecting. Tap again.", NoticeKind.NOTICE)
+                } else {
+                    dispatch(EditorIntent.SetSelection(composeTraced(wand, op, _uiState.value.selection)))
+                }
+            }
         }
     }
+
+    /** The latest magic-wand tap's work; the next tap waits for it (see [onAutoSelect]). */
+    private var wandJob: Job? = null
+
+    /** The wand's flood fill; tests put a fake here. */
+    internal var wandMask: (Bitmap, Int, Int, Int) -> BooleanArray? = { b, x, y, t -> MagicWand.mask(b, x, y, t) }
 
     /**
      * A pixel [mask] of [layer]'s [bitmap], traced at [mw]×[mh] (the bitmap's own size, or a
@@ -9644,7 +9685,7 @@ class EditorViewModel @Inject constructor(
             )
             val warped = ImageWarp.warp(original, inBitmap) ?: return@launch
             withContext(dispatchers.main) {
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it })
                 }
             }
@@ -9679,7 +9720,7 @@ class EditorViewModel @Inject constructor(
                 layer.scale, layer.offset, layer.rotationZ,
             )
             ImageWarp.warp(original, inBitmap)?.also { warped ->
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = warped) else it })
                 }
             }
@@ -9729,7 +9770,7 @@ class EditorViewModel @Inject constructor(
         if (layerId != null && original != null) {
             val restored = SafeBitmap.copy(original)
             if (restored != null) {
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = restored) else it })
                 }
             }
@@ -9981,7 +10022,7 @@ class EditorViewModel @Inject constructor(
                 SelectionMask.featherRadius(selection, layer.frame(base.width, base.height), layer.scale),
             )
             withContext(dispatchers.main) {
-                _uiState.update { s ->
+                updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
                 }
                 dispatch(EditorIntent.SetSelection(selection.translated(delta)))
@@ -13302,7 +13343,7 @@ class EditorViewModel @Inject constructor(
         val groupIds = getLinkedGroupIds(layerId)
         val isPartToUnlink = groupIds.size > 1
         
-        _uiState.update { state ->
+        updateUi { state ->
             val updatedLayers = state.layers.map { layer ->
                 if (isPartToUnlink) {
                     // Dissolve the group
@@ -13365,7 +13406,7 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.AddLayer(newLayer))
                 emitMembership(Op.LayerAdd(newLayer))
                 // Signal the UI to immediately open this text layer's edit-text box.
-                _uiState.update { it.copy(autoEditTextLayerId = newLayer.id) }
+                updateUi { it.copy(autoEditTextLayerId = newLayer.id) }
                 saveProject()
             }
         }
@@ -13373,7 +13414,7 @@ class EditorViewModel @Inject constructor(
 
     /** Clear the one-shot auto-edit signal once the UI has opened the text editor. */
     fun consumeAutoEditTextLayer() {
-        _uiState.update { it.copy(autoEditTextLayerId = null) }
+        updateUi { it.copy(autoEditTextLayerId = null) }
     }
 
     private fun rerasterizeTextLayer(layerId: String, params: TextLayerParams) {
@@ -13594,7 +13635,7 @@ class EditorViewModel @Inject constructor(
             }
             is Op.TextContentChange -> {
                 // rerasterizeTextLayer launches its own coroutine and updates state itself,
-                // so it must NOT run inside _uiState.update { } — that lambda can re-run under
+                // so it must NOT run inside updateUi { } — that lambda can re-run under
                 // CAS contention and would launch duplicate rasterizations racing the same file.
                 val updatedParams = _uiState.value.layers
                     .find { it.id == op.layerId }?.textParams?.copy(text = op.text)

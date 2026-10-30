@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -174,7 +175,7 @@ internal fun DesignSheetBody(
             Column(Modifier.widthIn(max = 390.dp).fillMaxWidth().testTag("design.panel.${tab.key}")) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().height(SheetHeaderHeight).padding(start = 20.dp, end = 12.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = SheetHeaderHeight).padding(start = 20.dp, end = 12.dp),
                 ) {
                     Text(
                         target?.name ?: "Frames",
@@ -322,7 +323,7 @@ private fun FieldRow(content: @Composable androidx.compose.foundation.layout.Row
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 20.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 20.dp),
         content = content,
     )
 }
@@ -412,7 +413,7 @@ internal fun PropertiesPanel(
     ) {
         Column(
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth().height(68.dp).padding(start = 16.dp, end = logoClearance),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(start = 16.dp, end = logoClearance),
         ) {
             Text(
                 target?.kind ?: "DESIGN",

@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.common.model
 import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Constraints and auto-layout: where a child ends up when its frame changes. */
@@ -305,8 +306,9 @@ class LayoutOpsTest {
         val g1 = child("g1", "G", x = 999f, y = 999f, constraints = h(ConstraintAnchor.END))
         val out = resize(listOf(frame("F"), g, g1))
         val newG = out.byId("G")
-        // Laid out from G's (moved) origin, not constrained from g1's previous position.
-        assertEquals(newG.offset.x, out.byId("g1").offset.x, 0.01f)
+        // Laid out at the start of G's own (resized, centred) box, not constrained from g1's
+        // previous position; G's offset is applied by its container transform, not here.
+        assertEquals(-newG.layoutWidth / 2f, out.byId("g1").left, 0.01f)
     }
 
     @Test
@@ -344,8 +346,8 @@ class LayoutOpsTest {
             "F",
             Rect(0f, 0f, 400f, 200f),
         )
-        assertEquals(0f, out.first { it.id == "a" }.offset.x, 0.01f)
-        assertEquals(110f, out.first { it.id == "b" }.offset.x, 0.01f)
+        assertEquals(0f, out.first { it.id == "a" }.left, 0.01f)
+        assertEquals(110f, out.first { it.id == "b" }.left, 0.01f)
     }
 
     @Test
@@ -356,8 +358,8 @@ class LayoutOpsTest {
             "F",
             Rect(0f, 0f, 400f, 200f),
         )
-        assertEquals(0f, out.first { it.id == "a" }.offset.y, 0.01f)
-        assertEquals(58f, out.first { it.id == "b" }.offset.y, 0.01f)
+        assertEquals(0f, out.first { it.id == "a" }.top, 0.01f)
+        assertEquals(58f, out.first { it.id == "b" }.top, 0.01f)
     }
 
     @Test
@@ -368,8 +370,8 @@ class LayoutOpsTest {
             "F",
             Rect(0f, 0f, 400f, 200f),
         )
-        assertEquals(25f, out.first { it.id == "a" }.offset.x, 0.01f)
-        assertEquals(15f, out.first { it.id == "a" }.offset.y, 0.01f)
+        assertEquals(25f, out.first { it.id == "a" }.left, 0.01f)
+        assertEquals(15f, out.first { it.id == "a" }.top, 0.01f)
     }
 
     @Test
@@ -381,7 +383,7 @@ class LayoutOpsTest {
             Rect(0f, 0f, 400f, 200f),
         )
         // (200 - 50) / 2
-        assertEquals(75f, out.first { it.id == "a" }.offset.y, 0.01f)
+        assertEquals(75f, out.first { it.id == "a" }.top, 0.01f)
 
         val ended = row.copy(align = LayoutAlign.END)
         val out2 = LayoutOps.applyAutoLayout(
@@ -389,7 +391,7 @@ class LayoutOpsTest {
             "F",
             Rect(0f, 0f, 400f, 200f),
         )
-        assertEquals(150f, out2.first { it.id == "a" }.offset.y, 0.01f)
+        assertEquals(150f, out2.first { it.id == "a" }.top, 0.01f)
     }
 
     @Test
@@ -406,7 +408,7 @@ class LayoutOpsTest {
             "F",
             Rect(0f, 0f, 400f, 200f),
         )
-        assertEquals(110f, out.first { it.id == "b" }.offset.x, 0.01f)
+        assertEquals(110f, out.first { it.id == "b" }.left, 0.01f)
     }
 
     @Test
@@ -420,7 +422,7 @@ class LayoutOpsTest {
             "F", old, wider,
         )
         // Laid out from the frame origin, not constrained from its previous position.
-        assertEquals(0f, out.first { it.id == "a" }.offset.x, 0.01f)
+        assertEquals(0f, out.first { it.id == "a" }.left, 0.01f)
     }
 
     @Test
@@ -433,6 +435,38 @@ class LayoutOpsTest {
     fun `an empty frame lays out to nothing rather than crashing`() {
         val layers = listOf(frame("F", row))
         assertEquals(layers, LayoutOps.applyAutoLayout(layers, "F", Rect(0f, 0f, 400f, 200f)))
+    }
+
+    @Test
+    fun `auto-layout slots render where the stack says, inside the frame's local box`() {
+        // Audit round 2, #4: offsets are centres in the frame's centred space. A 400 x 200 frame's
+        // local box is x in [-200, 200]; a (w 100) must cover [-200, -100], b (w 60) [-90, -30].
+        val out = LayoutOps.applyAutoLayout(
+            listOf(frame("F", row), child("a", "F", 0f, 0f, w = 100f), child("b", "F", 0f, 0f, w = 60f)),
+            "F",
+            LayoutOps.localFrameRect(400f, 200f),
+        )
+        assertEquals(-150f, out.byId("a").offset.x, 0.01f)
+        assertEquals(-200f, out.byId("a").left, 0.01f)
+        assertEquals(-90f, out.byId("b").left, 0.01f)
+        assertEquals(-100f, out.byId("a").top, 0.01f)
+    }
+
+    @Test
+    fun `STRETCH held at its minimum restores its size when the frame grows back`() {
+        // Audit round 2, #14: shrinking past the margins used to zero the child for good.
+        val stretched = boxed(
+            "a", left = 50f, top = 0f, size = 300f to 50f,
+            constraints = Constraints(horizontal = ConstraintAnchor.STRETCH),
+        )
+        val start = listOf(frame("F"), stretched)
+        val tiny = Rect(0f, 0f, 40f, 200f)
+        val shrunk = resize(start, from = old, to = tiny)
+        assertTrue(shrunk.byId("a").shapes.first().width >= ConstraintSolver.MIN_STRETCH_EXTENT)
+        val back = resize(shrunk, from = tiny, to = old).byId("a")
+        assertEquals(300f, back.shapes.first().width, 0.01f)
+        assertEquals(50f, back.left, 0.01f)
+        assertNull(back.constraints.collapsedWidth)
     }
 
     // ── Hug contents ─────────────────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -132,7 +133,7 @@ internal fun CropBody(
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = hide.fillMaxWidth().height(44.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            modifier = hide.fillMaxWidth().heightIn(min = 44.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
         ) {
             CropGeometry.ASPECTS.forEach { a ->
                 AspectChip(a.label, a.id == crop.aspect) {
@@ -161,7 +162,7 @@ internal fun CropBody(
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = hide.fillMaxWidth().height(44.dp).padding(horizontal = 14.dp),
+            modifier = hide.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 14.dp),
         ) {
             CropAction("Rotate 90°", RailIcons.Rotate90, "photo.crop.rotate") {
                 actions.apply { CropGeometry.rotateQuarter(it, docW, docH) }
@@ -178,7 +179,7 @@ private fun AspectChip(label: String, picked: Boolean, onPick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .height(36.dp)
+            .heightIn(min = 36.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(if (picked) PhotoSheetStyle.Ink else Color.Transparent)
             .then(if (picked) Modifier else Modifier.border(1.dp, RailBorder, RoundedCornerShape(18.dp)))
@@ -201,7 +202,7 @@ private fun CropAction(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .height(44.dp)
+            .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClickLabel = description, onClick = onClick)
             .semantics { contentDescription = description }

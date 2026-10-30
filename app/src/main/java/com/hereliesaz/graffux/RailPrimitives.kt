@@ -24,18 +24,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.design.theme.Amber
@@ -199,21 +202,48 @@ private fun RailButtonFace(light: RailLight, accent: Color, badge: String?, cont
                 shape = ButtonShape,
             ),
     ) {
-        content()
-        if (badge != null) {
-            Text(
-                badge,
-                color = Color.White,
-                fontSize = 9.sp,
-                maxLines = 1,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 1.dp, end = 1.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black.copy(alpha = 0.7f))
-                    .padding(horizontal = 3.dp),
-            )
+        CappedFontScale {
+            content()
+            if (badge != null) {
+                Text(
+                    badge,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 1.dp, end = 1.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 3.dp),
+                )
         }
+        }
+    }
+}
+
+/**
+ * The largest text scale used inside a fixed-size rail chip. A rail button is a 44dp circle by
+ * design (its touch target is already the 48dp minimum), so text inside it cannot grow with the
+ * system font scale without spilling out of the circle; above this it is held, and the chip's
+ * content description (which TalkBack reads) carries the full value. Text everywhere else — panel
+ * rows, sheets, dialogs — still follows the system setting.
+ */
+internal const val MAX_CHIP_FONT_SCALE = 1.3f
+
+/** [fontScale] as text inside a fixed-size chip uses it; see [MAX_CHIP_FONT_SCALE]. */
+internal fun chipFontScale(fontScale: Float): Float = fontScale.coerceAtMost(MAX_CHIP_FONT_SCALE)
+
+/** Runs [content] with the font scale capped for a fixed-size chip ([MAX_CHIP_FONT_SCALE]). */
+@Suppress("FunctionNaming")
+@Composable
+internal fun CappedFontScale(content: @Composable () -> Unit) {
+    val density = LocalDensity.current
+    val capped = chipFontScale(density.fontScale)
+    if (capped == density.fontScale) {
+        content()
+    } else {
+        CompositionLocalProvider(LocalDensity provides Density(density.density, capped), content = content)
     }
 }
 

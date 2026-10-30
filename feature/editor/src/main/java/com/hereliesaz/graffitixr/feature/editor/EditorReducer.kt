@@ -11,7 +11,6 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.LayoutOps
-import com.hereliesaz.graffitixr.common.model.Rect
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.StyleOps
 import com.hereliesaz.graffitixr.common.model.TextStyle
@@ -38,7 +37,21 @@ internal object EditorReducer {
     private fun List<Layer>.firstDrawableId(): String? =
         (firstOrNull { !it.isContainer } ?: firstOrNull())?.id
 
-    fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState {
+    fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState =
+        withInstancesFollowing(state, reduceOnly(state, intent))
+
+    /**
+     * Every edit to a main component reaches its instances in the same transition, whichever
+     * intent (or, through the view model's state writes, whichever non-reducer path) made it.
+     * See [ComponentOps.propagate] for the override rule.
+     */
+    fun withInstancesFollowing(before: EditorUiState, after: EditorUiState): EditorUiState {
+        if (before.layers === after.layers) return after
+        val layers = ComponentOps.propagate(before.layers, after.layers)
+        return if (layers === after.layers) after else after.copy(layers = layers)
+    }
+
+    private fun reduceOnly(state: EditorUiState, intent: EditorIntent): EditorUiState {
         return reduceLayerProperties(state, intent)
             ?: reduceLayerTransforms(state, intent)
             ?: reduceLayerList(state, intent)
@@ -425,21 +438,18 @@ internal object EditorReducer {
         )
         is EditorIntent.SelectPathNode -> state.copy(selectedNodeIndex = intent.index)
         is EditorIntent.SetPathShape -> state.copy(
-            // Synced here rather than by the caller: editing a path IS a content edit, so if the
-            // edited layer is a main component its instances have to follow in the same transition.
-            layers = ComponentOps.syncInstances(
-                state.layers.map { layer ->
-                    if (layer.id == intent.layerId) {
-                        val current = layer.shapes
-                        val updated = if (current.any { it.kind == intent.shape.kind }) {
-                            current.map { if (it.kind == intent.shape.kind) intent.shape else it }
-                        } else {
-                            current + intent.shape
-                        }
-                        layer.copy(shapes = updated)
-                    } else layer
-                },
-            ),
+            // Instances of an edited main follow through [withInstancesFollowing].
+            layers = state.layers.map { layer ->
+                if (layer.id == intent.layerId) {
+                    val current = layer.shapes
+                    val updated = if (current.any { it.kind == intent.shape.kind }) {
+                        current.map { if (it.kind == intent.shape.kind) intent.shape else it }
+                    } else {
+                        current + intent.shape
+                    }
+                    layer.copy(shapes = updated)
+                } else layer
+            },
         )
         is EditorIntent.SetLayerShapes -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(shapes = intent.shapes) })
         is EditorIntent.RenderTextLayer -> state.copy(layers = LayerListOps.mapLayer(state.layers, intent.layerId) { it.copy(bitmap = intent.bitmap, textParams = intent.params) })
@@ -493,16 +503,16 @@ internal object EditorReducer {
     }
 
     /**
-     * Re-runs [frameId]'s auto-layout. The frame's rect comes from its own offset and declared
-     * layout size — the document is the frame of last resort, so a frame with no declared size
-     * falls back to the document bounds rather than laying out into a zero-sized box.
+     * Re-runs [frameId]'s auto-layout. The frame's rect is its declared layout size, centred — the
+     * document is the frame of last resort, so a frame with no declared size falls back to the
+     * document bounds rather than laying out into a zero-sized box.
      */
     private fun EditorUiState.relaidOut(frameId: String): EditorUiState {
         val frame = layers.firstOrNull { it.id == frameId } ?: return this
         val w = if (frame.layoutWidth > 0f) frame.layoutWidth else documentWidth.toFloat()
         val h = if (frame.layoutHeight > 0f) frame.layoutHeight else documentHeight.toFloat()
-        val rect = Rect(frame.offset.x, frame.offset.y, w, h)
-        return copy(layers = LayoutOps.applyAutoLayout(layers, frameId, rect))
+        // The children's own space: the frame's container transform already applies its offset.
+        return copy(layers = LayoutOps.applyAutoLayout(layers, frameId, LayoutOps.localFrameRect(w, h)))
     }
 
     /**

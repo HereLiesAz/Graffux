@@ -67,6 +67,50 @@ class AuditFixesTest {
     }
 
     @Test
+    fun `dragging the brush chip right raises the hardness it shows`() {
+        // Audit round 2, #19: the drag lowered hardness while the chip read it out going down.
+        val hardness = { f: Float -> 1f - f }
+        val start = 0.5f
+        assertTrue(hardness(featheringAfterHardnessDrag(start, 40f)) > hardness(start))
+        assertTrue(hardness(featheringAfterHardnessDrag(start, -40f)) < hardness(start))
+        assertEquals(0f, featheringAfterHardnessDrag(0.1f, 1000f))
+    }
+
+    private fun <T : Any> roundTrip(saver: androidx.compose.runtime.saveable.Saver<T, Any>, value: T): T {
+        val scope = object : androidx.compose.runtime.saveable.SaverScope {
+            override fun canBeSaved(value: Any) = true
+        }
+        val saved = with(saver) { scope.save(value) }!!
+        return saver.restore(saved)!!
+    }
+
+    @Test
+    fun `poster choices, photo sheet and retouch state survive a rotation`() {
+        val poster = PosterChoices(landscape = true, width = 3, cropMarks = false)
+        assertEquals(poster, roundTrip(PosterChoicesSaver, poster))
+
+        val sheet = PhotoSheetState().apply {
+            hslRange = com.hereliesaz.graffitixr.common.photo.HueRange.entries.last()
+            curveChannel = com.hereliesaz.graffitixr.common.photo.CurveChannel.entries.last()
+        }
+        val sheetBack = roundTrip(PhotoSheetState.Saver, sheet)
+        assertEquals(sheet.hslRange, sheetBack.hslRange)
+        assertEquals(sheet.curveChannel, sheetBack.curveChannel)
+
+        val retouch = RetouchState().apply { clone = true; values["heal.size"] = 42f }
+        val back = roundTrip(RetouchState.Saver, retouch)
+        assertTrue(back.clone)
+        assertEquals(42f, back.values["heal.size"])
+    }
+
+    @Test
+    fun `fixed-size chips hold large font scales but follow small ones`() {
+        assertEquals(1f, chipFontScale(1f))
+        assertEquals(0.85f, chipFontScale(0.85f))
+        assertEquals(MAX_CHIP_FONT_SCALE, chipFontScale(2f))
+    }
+
+    @Test
     fun `levels set-progress keeps black below white`() {
         assertEquals(PhotoSliders.LEVELS_BLACK to 199f, levelsTargetValue("black", 250f, 10f, 200f))
         assertEquals(PhotoSliders.LEVELS_WHITE to 11f, levelsTargetValue("white", 0f, 10f, 200f))

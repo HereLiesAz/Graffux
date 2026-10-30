@@ -563,3 +563,23 @@ fn the_outline_draws_the_rim_of_a_disc() {
         assert!(!dark(1, 1), "{name}: line in the corner");
     }
 }
+
+#[test]
+fn a_vignette_at_the_midpoint_maximum_is_defined() {
+    // Audit round 2, #7: midpoint 100 used to evaluate smoothstep(1, 1, r), undefined in WGSL.
+    // Every pixel centre has r < 1, so the vignette must leave the image untouched.
+    for (name, mut a) in adjusters() {
+        let src = source();
+        assert!(a.set_source(&src));
+        for feather in [0.0f32, 0.5, 1.0] {
+            let mut p = neutral();
+            p[20] = -1.0; // vignette amount: darken
+            p[21] = 1.0; // midpoint at its maximum
+            p[22] = feather;
+            let mut out = vec![0u8; N * 4];
+            assert!(a.render(&p, &mut out), "{name}: render failed");
+            let (d, at) = max_diff(&out, &src);
+            assert!(d <= 1, "{name} feather {feather}: byte {at} moved by {d}");
+        }
+    }
+}

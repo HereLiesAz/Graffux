@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -123,6 +124,25 @@ internal class RetouchState {
     var erase by mutableStateOf(false)
     var overlay by mutableStateOf(false)
     fun value(s: PhotoSlider): Float = values[s.id] ?: s.default
+
+    companion object {
+        /** Keeps the retouch sliders and toggles across a rotation. */
+        val Saver: androidx.compose.runtime.saveable.Saver<RetouchState, Any> =
+            androidx.compose.runtime.saveable.listSaver(
+                save = { st ->
+                    listOf<Any>(st.clone, st.erase, st.overlay) +
+                        st.values.entries.flatMap { listOf<Any>(it.key, it.value) }
+                },
+                restore = { v ->
+                    RetouchState().apply {
+                        clone = v[0] as Boolean
+                        erase = v[1] as Boolean
+                        overlay = v[2] as Boolean
+                        v.drop(3).chunked(2).forEach { (k, f) -> values[k as String] = f as Float }
+                    }
+                },
+            )
+    }
 }
 
 /** What the Retouch tabs need from the host. */
@@ -158,7 +178,7 @@ private fun ChipRow(drag: PhotoDrag, content: @Composable () -> Unit) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.alpha(if (drag.active) 0f else 1f).fillMaxWidth().height(44.dp).padding(horizontal = 20.dp),
+        modifier = Modifier.alpha(if (drag.active) 0f else 1f).fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 20.dp),
     ) { content() }
 }
 
@@ -167,7 +187,7 @@ internal fun RetouchChip(label: String, on: Boolean, tag: String, onClick: () ->
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .height(36.dp)
+            .heightIn(min = 36.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(if (on) PhotoSheetStyle.Ink else Color.Transparent)
             .then(if (on) Modifier else Modifier.border(1.dp, RailBorder, RoundedCornerShape(18.dp)))
@@ -198,7 +218,7 @@ internal fun RedEyeBody(ctx: RetouchContext, drag: PhotoDrag) {
         Text(
             "Tap each eye on the photo.",
             color = PhotoSheetStyle.Muted, fontSize = 14.sp, fontFamily = RobotoCondensedFamily,
-            modifier = Modifier.alpha(if (drag.active) 0f else 1f).height(44.dp).padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.alpha(if (drag.active) 0f else 1f).heightIn(min = 44.dp).padding(horizontal = 20.dp, vertical = 12.dp),
         )
         StateSliders(listOf(RetouchSliders.RED_EYE_SIZE), ctx.state, drag)
     }
@@ -224,7 +244,7 @@ internal fun OverlayToggle(ctx: RetouchContext) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .height(44.dp)
+            .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClickLabel = "Show mask overlay") {
                 ctx.state.overlay = !ctx.state.overlay

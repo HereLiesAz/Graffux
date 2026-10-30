@@ -370,4 +370,49 @@ class EditorReducerTest {
         assertEquals("canvas_weave", woven.canvasSubstrateId)
         assertEquals("smooth", reduce(woven, EditorIntent.SetCanvasSubstrate("velvet")).canvasSubstrateId)
     }
+
+    // ── Components follow their main through any intent (audit round 2, #3) ───────────────
+
+    private fun componentStack() = state(
+        lyr("main").copy(componentId = "C1"),
+        lyr("inst").copy(instanceOf = "C1", offset = Offset(300f, 0f)),
+        active = "main",
+    )
+
+    @Test
+    fun `an adjustment on a main reaches its instance`() {
+        val out = reduce(componentStack(), EditorIntent.SetBrightness(0.4f))
+        val inst = out.layers.first { it.id == "inst" }
+        assertEquals(0.4f, inst.brightness)
+        assertEquals(Offset(300f, 0f), inst.offset)
+    }
+
+    @Test
+    fun `an instance override survives an edit to the same field on its main`() {
+        val overridden = reduce(componentStack().copy(activeLayerId = "inst"), EditorIntent.SetContrast(2f))
+        val out = reduce(overridden.copy(activeLayerId = "main"), EditorIntent.SetContrast(0.5f))
+        assertEquals(2f, out.layers.first { it.id == "inst" }.contrast)
+        assertEquals(0.5f, out.layers.first { it.id == "main" }.contrast)
+    }
+
+    @Test
+    fun `a non-reducer write to a main's shapes reaches its instance`() {
+        val s = componentStack()
+        val shapes = listOf(
+            com.hereliesaz.graffitixr.common.model.VectorShape(
+                kind = com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE,
+                width = 40f,
+            ),
+        )
+        val after = s.copy(layers = s.layers.map { if (it.id == "main") it.copy(shapes = shapes) else it })
+        val out = EditorReducer.withInstancesFollowing(s, after)
+        assertEquals(shapes, out.layers.first { it.id == "inst" }.shapes)
+    }
+
+    @Test
+    fun `a stack with no components keeps its list identity`() {
+        val s = state(lyr("a"), active = "a")
+        val out = reduce(s, EditorIntent.SetBrightness(0.2f))
+        assertSame(out, EditorReducer.withInstancesFollowing(s, out))
+    }
 }
