@@ -268,15 +268,32 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // A save or project creation that failed (OOM included) is reported, never fatal.
     LaunchedEffect(vm) {
         vm.saveErrors.collect { message ->
-            alerts.show(kind = MessageKind.WARNING, title = "Save failed", message = message)
+            alerts.show(kind = MessageKind.WARNING, title = strings.messages.saveFailed, message = message)
         }
     }
     // Every other editor notice, confirmation or failure, takes the same road.
+    val noticeOpenContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(vm) {
         vm.notices.collect { notice ->
+            val file = notice.openUri
             alerts.show(
                 kind = if (notice.kind == NoticeKind.WARNING) MessageKind.WARNING else MessageKind.NOTICE,
                 message = notice.text,
+                // An export in Downloads: offer to open it right there.
+                actionLabel = if (file != null) strings.messages.open else null,
+                onAction = file?.let { uri ->
+                    {
+                        val view = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, notice.mimeType)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        try {
+                            noticeOpenContext.startActivity(view)
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            alerts.show(kind = MessageKind.NOTICE, message = strings.messages.noAppOpens)
+                        }
+                    }
+                },
             )
         }
     }
@@ -286,67 +303,68 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     }
 
     // The shortcuts sheet: shut, a swipe strip along the bottom edge (see EdgeSheet).
-    var shortcutsOpen by remember { mutableStateOf(false) }
+    var shortcutsOpen by rememberSaveable { mutableStateOf(false) }
     val toolUsage by vm.toolUsage.collectAsState()
     val favoriteTools by vm.favoriteTools.collectAsState()
 
-    var showSettings by remember { mutableStateOf(false) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     // The logo menu: open state, which page it shows, and a reopen request (see the menu).
-    var menuOpen by remember { mutableStateOf(false) }
-    var showViewMenu by remember { mutableStateOf(false) }
-    var showPosterMenu by remember { mutableStateOf(false) }
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
+    var showViewMenu by rememberSaveable { mutableStateOf(false) }
+    var showPosterMenu by rememberSaveable { mutableStateOf(false) }
     var posterChoices by remember { mutableStateOf(PosterChoices()) }
-    // The brush's long-press menu, a layer's menu (by layer id), and AzNavRail's About reader.
-    var brushMenuOpen by remember { mutableStateOf(false) }
-    var layerMenuFor by remember { mutableStateOf<String?>(null) }
-    var showAbout by remember { mutableStateOf(false) }
+    // The brush's long-press menu, a layer's menu (by layer id), and the About reader.
+    var brushMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
+    var showGestureHelp by rememberSaveable { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    var showDocDialog by remember { mutableStateOf(false) }
-    var showBlendDialog by remember { mutableStateOf(false) }
-    var showCurvesDialog by remember { mutableStateOf(false) }
-    var activeShapeDialog by remember { mutableStateOf<ShapeEditDialog?>(null) }
-    var showBrushGallery by remember { mutableStateOf(false) }
-    var showBrushTipsManager by remember { mutableStateOf(false) }
-    var manualEditTextId by remember { mutableStateOf<String?>(null) }
-    var showBgDialog by remember { mutableStateOf(false) }
+    var showDocDialog by rememberSaveable { mutableStateOf(false) }
+    var showBlendDialog by rememberSaveable { mutableStateOf(false) }
+    var showCurvesDialog by rememberSaveable { mutableStateOf(false) }
+    var activeShapeDialog by rememberSaveable { mutableStateOf<ShapeEditDialog?>(null) }
+    var showBrushGallery by rememberSaveable { mutableStateOf(false) }
+    var showBrushTipsManager by rememberSaveable { mutableStateOf(false) }
+    var manualEditTextId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showBgDialog by rememberSaveable { mutableStateOf(false) }
     // Procreate-style windows: things that used to be a wall of always-visible rail buttons now
     // live behind a single rail item that opens one of these instead.
-    var showAddDialog by remember { mutableStateOf(false) }
-    var showLayerOptionsDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    var showLayerOptionsDialog by rememberSaveable { mutableStateOf(false) }
     // One window, two tabs (StoreWindow's own doc comment) — showStore alone gates it; storeTab
     // says which tab it opens on, set by whichever entry point (Manage/Get Extensions, the
     // Extensions toggle, "Add-ons…") raised showStore, and freely switchable once open.
-    var showStore by remember { mutableStateOf(false) }
-    var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
-    var showStoreChooser by remember { mutableStateOf(false) }
-    var showModelDialog by remember { mutableStateOf(false) }
-    var showSaveDialog by remember { mutableStateOf(false) }
-    var showOpenDialog by remember { mutableStateOf(false) }
-    var showReferenceWindow by remember { mutableStateOf(false) }
+    var showStore by rememberSaveable { mutableStateOf(false) }
+    var storeTab by rememberSaveable { mutableStateOf(StoreTab.BROWSE) }
+    var showStoreChooser by rememberSaveable { mutableStateOf(false) }
+    var showModelDialog by rememberSaveable { mutableStateOf(false) }
+    var showSaveDialog by rememberSaveable { mutableStateOf(false) }
+    var showOpenDialog by rememberSaveable { mutableStateOf(false) }
+    var showReferenceWindow by rememberSaveable { mutableStateOf(false) }
     // A viewing aid, not project state (see ReferenceWindow's own doc comment) — held here, not
     // in the ViewModel, for the same reason.
-    var referenceImageUri by remember { mutableStateOf<Uri?>(null) }
-    var showFigmaWindow by remember { mutableStateOf(false) }
+    var referenceImageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var showFigmaWindow by rememberSaveable { mutableStateOf(false) }
     // Non-base workspaces get their own floating toolboxes (FloatingToolbox); View… in the logo
     // menu decides which are present.
-    var showAnimationRail by remember { mutableStateOf(false) }
-    var showModelRail by remember { mutableStateOf(false) }
-    var showReferenceRail by remember { mutableStateOf(false) }
-    var showFigmaRail by remember { mutableStateOf(false) }
-    var showExtensionsRail by remember { mutableStateOf(false) }
+    var showAnimationRail by rememberSaveable { mutableStateOf(false) }
+    var showModelRail by rememberSaveable { mutableStateOf(false) }
+    var showReferenceRail by rememberSaveable { mutableStateOf(false) }
+    var showFigmaRail by rememberSaveable { mutableStateOf(false) }
+    var showExtensionsRail by rememberSaveable { mutableStateOf(false) }
     // Unlike the toolboxes above, on by default: the layers panel is core, not opt-in.
-    var showLayersRail by remember { mutableStateOf(true) }
+    var showLayersRail by rememberSaveable { mutableStateOf(true) }
     // The bottom carousel (BottomCarousel.kt): additive to the Tool Options window, not a
     // replacement. Shown by default; the "Carousel" toggle in the areas dropdown removes it
     // outright, and its own chevron collapses it to a single button when the canvas needs the room.
-    var showCarousel by remember { mutableStateOf(true) }
+    var showCarousel by rememberSaveable { mutableStateOf(true) }
     // Starts shut: only the grab pill, until a swipe up brings the tab list.
-    var carouselUi by remember {
+    var carouselUi by rememberSaveable(stateSaver = CarouselUi.Saver) {
         mutableStateOf(CarouselUi(CarouselCategory.BRUSHES, sheetOpen = false, showingCarousel = false))
     }
     // The photo sheet (Adjust on the rail): which tab it showed last, reopened on the next entry.
-    var lastPhotoTab by remember { mutableStateOf<PhotoTab?>(null) }
+    var lastPhotoTab by rememberSaveable { mutableStateOf<PhotoTab?>(null) }
     val photoDrag = remember { PhotoDrag() }
     val photoSheet = remember { PhotoSheetState() }
     val photoHistogram by vm.photoHistogram.collectAsState()
@@ -397,7 +415,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // design tabs, or on a tablet / desktop docks the properties in a side panel instead (the
     // "Show properties in" setting).
     val designMode = uiState.activeTool == Tool.FRAME
-    var designTab by remember { mutableStateOf(DesignTab.FRAME) }
+    var designTab by rememberSaveable { mutableStateOf(DesignTab.FRAME) }
     val storedPlacement by settingsVm.propertiesPlacement.collectAsState()
     val propertiesPlacement =
         PropertiesPlacement.resolve(storedPlacement, LocalConfiguration.current.smallestScreenWidthDp)
@@ -433,11 +451,36 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
     // The name confirmed in the Save dialog, held while the system location picker is up — the
     // picker hands back a Uri and nothing else, so the name has to survive the round trip.
-    var pendingSaveName by remember { mutableStateOf<String?>(null) }
+    var pendingSaveName by rememberSaveable { mutableStateOf<String?>(null) }
     // "Forget a Selection" is the one delete in the app with no undo (savedSelections isn't part
     // of the layers-only history) and, before this, no confirmation either — every other delete
     // in the app is one or the other. Held here so the dialog composes with the others.
-    var pendingForgetSelectionName by remember { mutableStateOf<String?>(null) }
+    var pendingForgetSelectionName by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // System Back closes the topmost open piece of chrome instead of leaving the app. Settings,
+    // the project gate and the expanded hero card register their own handlers later in the
+    // composition, so they take precedence while they are up; AlertDialogs handle Back themselves.
+    val backLayers = listOf(
+        BackLayer(showPosterMenu) { showPosterMenu = false },
+        BackLayer(showViewMenu) { showViewMenu = false },
+        BackLayer(menuOpen) { menuOpen = false },
+        BackLayer(brushMenuOpen) { brushMenuOpen = false },
+        BackLayer(layerMenuFor != null) { layerMenuFor = null },
+        BackLayer(showAbout) { showAbout = false },
+        BackLayer(showGestureHelp) { showGestureHelp = false },
+        BackLayer(showStore) { showStore = false },
+        BackLayer(showOpenDialog) { showOpenDialog = false },
+        BackLayer(showReferenceWindow) { showReferenceWindow = false },
+        BackLayer(showFigmaWindow) { showFigmaWindow = false },
+        BackLayer(showBrushGallery) { showBrushGallery = false },
+        BackLayer(showBrushTipsManager) { showBrushTipsManager = false },
+        BackLayer(showAddDialog) { showAddDialog = false },
+        BackLayer(showLayerOptionsDialog) { showLayerOptionsDialog = false },
+        BackLayer(shortcutsOpen) { shortcutsOpen = false },
+        BackLayer(uiState.activePanel != EditorPanel.NONE) { vm.onDismissPanel() },
+        BackLayer(carouselUi.sheetOpen) { carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false) },
+    )
+    androidx.activity.compose.BackHandler(enabled = backLayers.any { it.open }) { backLayers.topmost()?.close() }
 
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     // The QuickMenu opens where its gesture landed; from the rail there is no finger, so it opens
@@ -496,7 +539,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     ) { uri -> uri?.let { vm.onAddLayer(it) } }
 
     // Images chosen in the new-project dialog; they join the project as layers once it exists.
-    var gateImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var gateImages by rememberSaveable(
+        stateSaver = androidx.compose.runtime.saveable.listSaver<List<Uri>, Uri>({ it }, { it }),
+    ) { mutableStateOf<List<Uri>>(emptyList()) }
     val gateImagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris -> gateImages = uris }
@@ -1307,35 +1352,35 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 onExport = { spec -> showPosterMenu = false; vm.exportPosterPdf(spec) },
                             )
                         } else if (showViewMenu) {
-                            page("‹ Back") { showViewMenu = false }
+                            page(strings.mainMenu.back) { showViewMenu = false }
                             // Each row says what it shows and whether it's showing, so a hidden panel
                             // can be traced back here.
-                            toggle("Layers panel", showLayersRail) { showLayersRail = it }
-                            toggle("Brush sheet", showCarousel) { showCarousel = it }
-                            toggle("Animation", showAnimationRail) { showAnimationRail = it }
-                            toggle("3D", showModelRail) { showModelRail = it }
-                            toggle("Reference", showReferenceRail) { showReferenceRail = it }
-                            toggle("Figma", showFigmaRail) { showFigmaRail = it }
+                            toggle(strings.mainMenu.viewLayers, showLayersRail) { showLayersRail = it }
+                            toggle(strings.mainMenu.viewSheet, showCarousel) { showCarousel = it }
+                            toggle(strings.mainMenu.viewAnimation, showAnimationRail) { showAnimationRail = it }
+                            toggle(strings.mainMenu.view3d, showModelRail) { showModelRail = it }
+                            toggle(strings.mainMenu.viewReference, showReferenceRail) { showReferenceRail = it }
+                            toggle(strings.mainMenu.viewFigma, showFigmaRail) { showFigmaRail = it }
                             // Turning this on also opens the Extensions window straight to Installed:
                             // "yes, show me what I have". Turning it off only hides the toolbox.
-                            toggle("Extensions", showExtensionsRail) { checked ->
+                            toggle(strings.mainMenu.viewAddOns, showExtensionsRail) { checked ->
                                 showExtensionsRail = checked
                                 if (checked) { storeTab = StoreTab.INSTALLED; showStore = true }
                             }
                         } else {
-                            page("View…") { showViewMenu = true }
+                            page(strings.mainMenu.view) { showViewMenu = true }
                             listItem(strings.nav.new) { vm.createNewProject() }
-                            listItem(strings.nav.open) { vm.refreshOpenScreen(); showOpenDialog = true }
-                            listItem("Import") { importPicker.launch(arrayOf("*/*")) }
+                            listItem(strings.mainMenu.open) { vm.refreshOpenScreen(); showOpenDialog = true }
+                            listItem(strings.mainMenu.importFile) { importPicker.launch(arrayOf("*/*")) }
                             // Opens AddContentDialog (shapes + text as a new layer).
-                            listItem("Add Shape…") { showAddDialog = true }
-                            listItem(strings.nav.save) { showSaveDialog = true }
-                            listItem(strings.nav.export) { vm.exportImage() }
-                            page("Poster PDF…") { showPosterMenu = true }
+                            listItem(strings.mainMenu.addShape) { showAddDialog = true }
+                            listItem(strings.mainMenu.save) { showSaveDialog = true }
+                            listItem(strings.mainMenu.exportPng) { vm.exportImage() }
+                            page(strings.mainMenu.posterPdf) { showPosterMenu = true }
                             // The always-visible way into the azphalt store.
-                            listItem("Add-ons…") { openAzphaltStore() }
-                            listItem("Install extension from file…") { extensionFilePicker.launch(arrayOf("*/*")) }
-                            listItem(strings.nav.share) {
+                            listItem(strings.mainMenu.addOns) { openAzphaltStore() }
+                            listItem(strings.mainMenu.installAddOn) { extensionFilePicker.launch(arrayOf("*/*")) }
+                            listItem(strings.mainMenu.share) {
                     scope.launch {
                         try {
                             val uri = vm.exportForShare() ?: return@launch
@@ -1361,15 +1406,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             android.util.Log.w("Graffux", "Share failed", t)
                             alerts.show(
                                 kind = MessageKind.WARNING,
-                                title = "Couldn't share",
-                                message = t.message ?: "No app accepted the image.",
+                                title = strings.messages.couldntShare,
+                                message = t.message ?: strings.messages.noAppAccepted,
                             )
                         }
                     }
                             }
+                            // A whole-document operation, so it lives here rather than in one layer's menu.
+                            listItem(strings.mainMenu.flattenAll) { vm.onFlattenAllLayers() }
                             divider()
-                            listItem("Settings") { showSettings = true }
-                            listItem("About") { showAbout = true }
+                            listItem(strings.mainMenu.gestures) { showGestureHelp = true }
+                            listItem(strings.mainMenu.settings) { showSettings = true }
+                            listItem(strings.mainMenu.about) { showAbout = true }
                         }
                     },
                     modifier = Modifier.align(Alignment.TopEnd),
@@ -1404,15 +1452,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             if (uiState.hideUiForCapture) {
                 FloatingActionButton(
                     onClick = { vm.toggleHideUi() },
-                    containerColor = surfaceVariantColor.copy(alpha = 0.35f),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).size(40.dp),
+                    containerColor = surfaceVariantColor.copy(alpha = 0.8f),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).size(48.dp),
                 ) {
                     Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
                 }
             }
 
             // Failures and confirmations, over the artwork, never blocking it.
-            MessageHost(alerts, Modifier.align(Alignment.TopCenter).padding(top = RailEdgeGap, start = besideRail, end = besideRail))
+            MessageHost(alerts, okLabel = strings.messages.ok, modifier = Modifier.align(Alignment.TopCenter).padding(top = RailEdgeGap, start = besideRail, end = besideRail))
         }
 
         // Windows and dialogs, over the rails.
@@ -1756,6 +1804,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     },
                     purchaseStates = purchaseStates,
                     onRestorePurchases = { vm.restorePurchases() },
+                    onCheckPurchase = { pkg -> vm.recheckPurchase(pkg.id) },
                     onOtherSources = { showStore = false; showStoreChooser = true },
                     onDismiss = { showStore = false },
                 )
@@ -1880,7 +1929,23 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 )
             }
         }
+        // Above every rail and window: a long operation's labelled, cancellable progress.
+        if (uiState.isLoading) {
+            com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay(
+                label = uiState.loadingLabel,
+                onCancel = if (uiState.loadingCancellable) vm::cancelLongOperations else null,
+            )
+        }
         if (showAbout) AboutReader(onDismiss = { showAbout = false })
+        if (showGestureHelp) {
+            GestureHelpDialog(
+                mapping = uiState.gestureMapping,
+                strings = strings.gestureHelp,
+                close = strings.common.close,
+                onOpenSettings = { showGestureHelp = false; showSettings = true },
+                onDismiss = { showGestureHelp = false },
+            )
+        }
         // The project dialog, above the rail and every window: mandatory with no project open,
         // cancellable over one (File > New). Load goes through the same picker as File > Open; a cancelled picker
         // returns null and the dialog simply stays.
@@ -1935,9 +2000,9 @@ private const val TRANSFORM_ID = "grp.transform"
 /**
  * Every rail item that is currently *active*, by item id.
  *
- * AzNavRail highlights an item when one of its `classifiers` appears in
- * `azConfig(activeClassifiers = …)`, which gives a filled container rather than only a tinted icon —
- * a much louder "you are here" than colour alone. Each stateful item tags itself with its own id and
+ * The rails light an item whose id is in this set (RailButton's `light`), which gives a filled
+ * container and a ring rather than only a tinted icon — a much louder "you are here" than colour
+ * alone. Each stateful item tags itself with its own id and
  * this decides, in one place, which of those ids are lit.
  *
  * `internal` rather than private so it can be unit-tested: it is the only substantial piece of pure
@@ -2059,8 +2124,8 @@ internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = 
  * Every rail item that is currently **secondary** — a condition that is true of it, as opposed to
  * [activeRailClassifiers]'s "this is where you are".
  *
- * AzNavRail 11.9 added a third highlight for exactly this distinction, and two pieces of editor
- * state had no way to show at all until it did:
+ * The rails draw these with a second (amber) ring, and two pieces of editor state have no other
+ * way to show:
  *
  *  * **Linked layers.** Linking makes a contiguous run of layers move, scale and rotate as one, and
  *    the machinery for it has always worked — but nothing on screen said which layers were in the

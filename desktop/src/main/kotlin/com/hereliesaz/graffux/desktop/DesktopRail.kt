@@ -2,6 +2,9 @@
 
 package com.hereliesaz.graffux.desktop
 
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -103,7 +106,7 @@ internal fun RailButton(
             .clip(ButtonShape)
             .background(if (active) accent.copy(alpha = 0.22f) else Color.Transparent)
             .border(if (active) 1.5.dp else 0.dp, if (active) accent else Color.Transparent, ButtonShape)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics {
                 contentDescription = label
                 selected = active
@@ -164,7 +167,9 @@ internal fun RailMenu(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onPick(index) }
+                    .heightIn(min = 48.dp)
+                    .selectable(selected = row == lit, role = Role.RadioButton) { onPick(index) }
+                    .wrapContentHeight(Alignment.CenterVertically)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }

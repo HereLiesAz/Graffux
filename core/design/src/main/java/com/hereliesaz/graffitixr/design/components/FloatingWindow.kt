@@ -12,7 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
@@ -149,8 +154,10 @@ fun FloatingWindow(
         modifier = modifier
             .zIndex(stackSlot.zIndex)
             .offset { IntOffset(windowState.offsetX.roundToInt(), windowState.offsetY.roundToInt()) }
-            .widthIn(min = 220.dp, max = MaxWindowWidth)
-            .heightIn(max = MaxWindowHeight)
+            // Larger on a tablet-width window (judged by the current width, so a tablet in a
+            // narrow split screen gets the phone size).
+            .widthIn(min = 220.dp, max = maxWindowWidthFor(LocalConfiguration.current.screenWidthDp))
+            .heightIn(max = maxWindowHeightFor(LocalConfiguration.current.screenWidthDp))
             .onSizeChanged { windowSize = it }
             // Semi-transparent: the panel sits over the artwork, and a canvas faintly visible through
             // it keeps the user oriented while it is up.
@@ -184,11 +191,17 @@ fun FloatingWindow(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(TitleBarHeight)
-                    .clickable(onClickLabel = "Close $title", onClick = onDismiss)
-                    .semantics { contentDescription = "Close" },
+                    // A 48dp target, wider than the bar is tall; the touch area extends past it.
+                    .size(width = CloseTargetSize, height = TitleBarHeight)
+                    .clickable(role = Role.Button, onClick = onDismiss)
+                    .semantics { contentDescription = "Close $title" },
             ) {
-                Text("✕", color = colors.onSurface, style = MaterialTheme.typography.titleSmall)
+                Icon(
+                    painterResource(GraffuxIcons.Close),
+                    contentDescription = null,
+                    tint = colors.onSurface,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
         // Scrolls rather than crushing: a plain Column capped at MaxWindowHeight hands its last
@@ -210,6 +223,15 @@ fun FloatingWindow(
 }
 
 private val TitleBarHeight = 36.dp
+private val CloseTargetSize = 48.dp
+
+/** A window's maximum width: the phone size, or larger once the window is tablet-wide (840dp+). */
+fun maxWindowWidthFor(screenWidthDp: Int): Dp = if (screenWidthDp >= TABLET_WIDTH_DP) 440.dp else MaxWindowWidth
+
+/** A window's maximum height, by the same rule as [maxWindowWidthFor]. */
+fun maxWindowHeightFor(screenWidthDp: Int): Dp = if (screenWidthDp >= TABLET_WIDTH_DP) 640.dp else MaxWindowHeight
+
+private const val TABLET_WIDTH_DP = 840
 
 /** [RailInset] as a container-space [Rect]. */
 private fun RailInset.asObstruction(containerSize: IntSize, density: Density): Rect? {

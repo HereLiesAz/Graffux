@@ -53,10 +53,11 @@ fun EditorUi(
 
         if (uiState.showColorPicker) {
             val palette by actions.savedPalette.collectAsState()
+            val recent by actions.recentColors.collectAsState()
             ColorPickerDialog(
                 currentColor = uiState.activeColor,
                 secondaryColor = uiState.secondaryColor,
-                history = emptyList(),
+                history = recent,
                 // Fires continuously now (SketchToolsDialog's own LaunchedEffect(selectedColor,
                 // target), including once immediately on mount with the picker's initial colour) —
                 // it's the live-apply path, not a user "I'm done" signal, so it must never also

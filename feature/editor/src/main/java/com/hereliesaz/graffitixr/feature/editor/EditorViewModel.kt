@@ -542,6 +542,33 @@ private const val MAX_EXPORT_DEPTH = 32
 /** PNG ignores quality; the parameter is required. */
 private const val PNG_QUALITY = 100
 
+/**
+ * How long the HUD pill shows [message]: at least [requestedMs], and long enough to read a
+ * sentence — a one-word "Undo" stays brief, "Cleared layer - Undo on the rail" gets seconds.
+ */
+internal fun hudDurationMs(message: String, requestedMs: Long): Long {
+    if (message.length <= HUD_SHORT_CHARS) return requestedMs
+    val reading = HUD_READ_BASE_MS + message.length * HUD_READ_PER_CHAR_MS
+    return maxOf(requestedMs, reading.coerceAtMost(HUD_READ_MAX_MS))
+}
+
+private const val HUD_SHORT_CHARS = 12
+private const val HUD_READ_BASE_MS = 1000L
+private const val HUD_READ_PER_CHAR_MS = 40L
+private const val HUD_READ_MAX_MS = 4000L
+
+/** How long a shared PNG is kept in the cache for the receiving app to read. */
+private const val SHARE_FILE_TTL_MS = 10L * 60 * 1000
+
+/**
+ * A shared image's file name: the project's name (made safe for a file system) and a timestamp,
+ * so every share is its own file and the receiving app shows a meaningful name.
+ */
+internal fun shareFileName(projectName: String?, nowMs: Long): String {
+    val base = projectName.orEmpty().replace(Regex("[^A-Za-z0-9 _-]"), "").trim().ifEmpty { "Graffux" }
+    return "$base-$nowMs.png"
+}
+
 /** Below this zoom the design maths clamps, so nothing divides by zero. */
 private const val MIN_DESIGN_ZOOM = 0.01f
 
@@ -681,10 +708,22 @@ class EditorViewModel @Inject constructor(
                     notify("Purchased and installed.", NoticeKind.NOTICE)
                     refreshStoreUpdates()
                 }
-                is PurchaseState.Pending -> notify(state.message, NoticeKind.NOTICE)
-                is PurchaseState.Failed -> notify(state.message, NoticeKind.WARNING)
+                // Pending and Failed are shown on the package's own card, where the Buy was tapped;
+                // a global notice as well said the same thing twice.
                 else -> Unit
             }
+        }
+    }
+
+    /**
+     * A purchase's "check again": a Stripe checkout still open is resumed now, and a pending one
+     * goes through restore, which finishes whatever has settled.
+     */
+    fun recheckPurchase(packageId: String) {
+        when (purchaseStates.value[packageId]) {
+            is PurchaseState.AwaitingCheckout -> resumeCheckouts()
+            is PurchaseState.Pending -> restorePurchases()
+            else -> Unit
         }
     }
 
@@ -2478,7 +2517,7 @@ class EditorViewModel @Inject constructor(
         hudJob?.cancel()
         _uiState.update { it.copy(hudMessage = message) }
         hudJob = viewModelScope.launch(dispatchers.main) {
-            kotlinx.coroutines.delay(durationMs)
+            kotlinx.coroutines.delay(hudDurationMs(message, durationMs))
             _uiState.update { it.copy(hudMessage = null) }
         }
     }
@@ -3048,7 +3087,7 @@ class EditorViewModel @Inject constructor(
                     ?: throw java.io.IOException("Failed to create MediaStore entry")
                 context.contentResolver.openOutputStream(uri)?.use { out -> file.inputStream().use { it.copyTo(out) } }
                 withContext(dispatchers.main) {
-                    notify(successMessage, NoticeKind.NOTICE)
+                    _notices.tryEmit(EditorNotice(NoticeKind.NOTICE, successMessage, openUri = uri, mimeType = mimeType))
                 }
             } else {
                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
@@ -4175,7 +4214,7 @@ class EditorViewModel @Inject constructor(
         invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         viewModelScope.launch(dispatchers.io) {
-            dispatch(EditorIntent.SetLoading(true))
+            dispatch(EditorIntent.SetLoading(true, "Loading background…"))
             val bitmap = ImageUtils.loadBitmapAsync(context, uri)
             if (bitmap != null) {
                 val filename = "bg_${UUID.randomUUID()}.png"
@@ -4436,7 +4475,7 @@ class EditorViewModel @Inject constructor(
      */
     fun exportImage() {
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true))
+            dispatch(EditorIntent.SetLoading(true, "Exporting PNG…", cancellable = true)); trackCancellable(coroutineContext[Job])
             try {
                 val background = exportBackgroundArgb(_uiState.value.canvasBackground)
                 val metrics = context.resources.displayMetrics
@@ -4477,20 +4516,13 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Composites the current layers to a PNG in `cacheDir/shared` and returns a FileProvider
-     * `content://` Uri suitable for `ACTION_SEND` — the two-app interop hand-off (send the edited
-     * image to GraffitiXR, or any app). Returns null if there's nothing to share. The host fires the
-     * share intent; the Uri authority is `${applicationId}.fileprovider`, which each hosting app
-     * declares in its manifest.
-     */
-    /**
      * Poster PDF: the document (cropped as set) printed at real size across pages of [spec]'s
      * paper, with margins, overlap, crop and registration marks and row/column labels, saved to
      * Downloads. One page per tile of [com.hereliesaz.graffitixr.feature.editor.export.PosterLayout].
      */
     fun exportPosterPdf(spec: com.hereliesaz.graffitixr.feature.editor.export.PosterSpec) {
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true))
+            dispatch(EditorIntent.SetLoading(true, "Making poster PDF…", cancellable = true)); trackCancellable(coroutineContext[Job])
             try {
                 val state = _uiState.value
                 val metrics = context.resources.displayMetrics
@@ -4552,9 +4584,28 @@ class EditorViewModel @Inject constructor(
         return written
     }
 
+    /**
+     * Composites the current layers to a PNG in `cacheDir/shared` and returns a FileProvider Uri
+     * for it, to hand to any app through the share sheet. Returns null if there's nothing to share.
+     * The host fires the share intent; the Uri authority is `${'$'}{applicationId}.fileprovider`,
+     * which each hosting app declares in its manifest.
+     *
+     * Shows the labelled progress overlay while it works (it is a full composite and PNG encode),
+     * and writes a fresh file each time, so two quick taps never race on one file; older shares
+     * are cleared out first.
+     */
     suspend fun exportForShare(): Uri? = withContext(dispatchers.default) {
         val layers = _uiState.value.layers
         if (layers.isEmpty()) return@withContext null
+        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(true, "Preparing to share…")) }
+        try {
+            shareComposite(layers)
+        } finally {
+            withContext(NonCancellable + dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+        }
+    }
+
+    private fun shareComposite(layers: List<Layer>): Uri {
         val metrics = context.resources.displayMetrics
         val composite = exportManager.compositeToDocument(
             layers,
@@ -4566,12 +4617,15 @@ class EditorViewModel @Inject constructor(
             crop = _uiState.value.documentCrop,
         )
         val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = java.io.File(dir, "graffixr_share.png")
+        // Earlier shares are done with once a new one starts (the receiving app has read them).
+        val cutoff = System.currentTimeMillis() - SHARE_FILE_TTL_MS
+        dir.listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+        val file = java.io.File(dir, shareFileName(projectRepository.currentProject.value?.name, System.currentTimeMillis()))
         java.io.FileOutputStream(file).use { out ->
             composite.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         composite.recycle()
-        androidx.core.content.FileProvider.getUriForFile(
+        return androidx.core.content.FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
             file,
@@ -5059,7 +5113,7 @@ class EditorViewModel @Inject constructor(
             return
         }
         pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
+        dispatch(EditorIntent.SetLoading(true, "Applying look…"))
         viewModelScope.launch(dispatchers.default) {
             val graded = gradeWithInstalledLut(extensionId, bitmap)
             if (graded == null) {
@@ -5106,7 +5160,7 @@ class EditorViewModel @Inject constructor(
             return
         }
         pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
+        dispatch(EditorIntent.SetLoading(true, "Applying curves…"))
         viewModelScope.launch(dispatchers.default) {
             val lut = CurvesUtil.calculateAdjustmentCurve(points.map { android.graphics.PointF(it.x, it.y) })
             val adjusted = bitmap.applyCurveLut(lut)
@@ -5343,7 +5397,7 @@ class EditorViewModel @Inject constructor(
         val layer = _uiState.value.layers.find { it.id == id } ?: return
         val projectId = _uiState.value.projectId ?: return
         pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
+        dispatch(EditorIntent.SetLoading(true, "Duplicating layer…"))
 
         viewModelScope.launch(dispatchers.io) {
             val currentBitmap = layer.bitmap
@@ -5485,6 +5539,23 @@ class EditorViewModel @Inject constructor(
      * effects (history, persistence, co-op op emission) are orchestrated by the caller around
      * this call — the reducer itself stays pure.
      */
+    /** Long operations the progress overlay's Cancel stops (exports, subject isolation). */
+    private val cancellableWork = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
+
+    private fun trackCancellable(job: Job?) {
+        job ?: return
+        cancellableWork += job
+        job.invokeOnCompletion { cancellableWork -= job }
+    }
+
+    /**
+     * The progress overlay's Cancel: stops every cancellable long operation. Each one's own
+     * CancellationException path takes its spinner down and writes nothing.
+     */
+    fun cancelLongOperations() {
+        synchronized(cancellableWork) { cancellableWork.toList() }.forEach { it.cancel() }
+    }
+
     private fun dispatch(intent: EditorIntent) {
         _uiState.update { EditorReducer.reduce(it, intent) }
     }
@@ -8702,7 +8773,7 @@ class EditorViewModel @Inject constructor(
             return
         }
         pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
+        dispatch(EditorIntent.SetLoading(true, "Merging layers…"))
 
         viewModelScope.launch(dispatchers.default) {
             // The merged layer takes the size every fresh layer gets (screen x render scale), not raw
@@ -8981,7 +9052,8 @@ class EditorViewModel @Inject constructor(
         val current = state.selection
         subjectJob?.cancel()
         subjectJob = viewModelScope.launch(dispatchers.default) {
-            withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(true)) }
+            trackCancellable(coroutineContext[Job])
+            withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(true, "Finding the subject…", cancellable = true)) }
             val subject = try {
                 isolateSubject(layer, bitmap, canvasSize)
             } finally {
@@ -9881,7 +9953,7 @@ class EditorViewModel @Inject constructor(
         val range = resolvedPlaybackRange(state)
         stopPlayback()
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true))
+            dispatch(EditorIntent.SetLoading(true, "Exporting animation…", cancellable = true)); trackCancellable(coroutineContext[Job])
             try {
                 val metrics = context.resources.displayMetrics
                 val dir = File(context.cacheDir, "animation").apply { mkdirs() }
@@ -11757,7 +11829,7 @@ class EditorViewModel @Inject constructor(
             return
         }
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true))
+            dispatch(EditorIntent.SetLoading(true, "Exporting…", cancellable = true)); trackCancellable(coroutineContext[Job])
             try {
                 val name = _uiState.value.layers.firstOrNull { it.id == frameId }?.name ?: "Graffux"
                 when (format) {
@@ -11798,8 +11870,9 @@ class EditorViewModel @Inject constructor(
         val page = designExportPage(frameId, name)
         val svg = com.hereliesaz.graffitixr.feature.editor.export.SvgWriter.write(page) { pngBytes(it.layer.bitmap) }
         file.writeText(svg)
-        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
+        // The spinner stays up until the copy to Downloads is done: it is part of the export.
         copyToDownloads(file, "image/svg+xml", "Saved ${file.name} to Downloads", "SVG export failed")
+        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
     }
 
     private suspend fun exportPdf(frameId: String?, name: String, allFrames: Boolean) {
@@ -11809,8 +11882,8 @@ class EditorViewModel @Inject constructor(
             .ifEmpty { listOf(designExportPage(frameId, name)) }
         val file = designExportFile(name, "pdf")
         file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
-        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
         copyToDownloads(file, "application/pdf", "Saved ${file.name} to Downloads", "PDF export failed")
+        withContext(dispatchers.main) { dispatch(EditorIntent.SetLoading(false)) }
     }
 
     private suspend fun exportFramePng(frameId: String, name: String) {
@@ -12081,7 +12154,7 @@ class EditorViewModel @Inject constructor(
         // the same set and order the PNGs composite.
         val inkStrokes = layers.filter { it.isVisible }.flatMap { inkLedger.strokes(it.id) }
         viewModelScope.launch(dispatchers.default) {
-            dispatch(EditorIntent.SetLoading(true))
+            dispatch(EditorIntent.SetLoading(true, "Preparing for Figma…", cancellable = true)); trackCancellable(coroutineContext[Job])
             try {
                 val metrics = context.resources.displayMetrics
                 val docW = state.documentWidth.coerceAtLeast(1)
@@ -12620,14 +12693,21 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onColorPickerDismissed() {
+        // The colour the picker settled on joins its Recent row (this session's, newest first).
+        _recentColors.update { pushRecentColor(it, _uiState.value.activeColor) }
         dispatch(EditorIntent.DismissColorPicker)
     }
+
+    private val _recentColors = MutableStateFlow<List<androidx.compose.ui.graphics.Color>>(emptyList())
+
+    /** The colour picker's Recent row: the colours it was closed on, newest first. */
+    val recentColors: StateFlow<List<androidx.compose.ui.graphics.Color>> = _recentColors.asStateFlow()
 
     override fun onFlattenAllLayers() {
         invalidateResident(null)
         val projectId = _uiState.value.projectId ?: return
         pushHistory()
-        dispatch(EditorIntent.SetLoading(true))
+        dispatch(EditorIntent.SetLoading(true, "Flattening layers…"))
         viewModelScope.launch(dispatchers.default) {
             val metrics = context.resources.displayMetrics
             val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080

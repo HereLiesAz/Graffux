@@ -65,8 +65,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Graffux settings — the design-relevant preferences, shown as a full-bleed overlay over the editor.
- * Handedness controls which side the nav rail docks to; units feed the canvas rulers. Also offers a
- * tutorial reset and shows the build version. Values are read from and written straight through
+ * Handedness controls which side the rails dock to; units feed the canvas rulers. Also shows the
+ * build version. Values are read from and written straight through
  * [SettingsViewModel]; there's no local editing state to commit.
  */
 @Composable

@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,9 +83,11 @@ fun ProjectGateDialog(
     onCancel: () -> Unit = {},
 ) {
     if (state.cancellable) BackHandler(onBack = onCancel)
-    var name by remember(state.defaultName) { mutableStateOf(state.defaultName) }
-    var category by remember(state.defaultName) { mutableStateOf(CATEGORY_SCREEN) }
-    val fields = remember(state.defaultName, state.defaultWidth, state.defaultHeight) {
+    // Saveable: a rotation (or process death) on first run must not lose the typed name, the
+    // document type or a custom size.
+    var name by rememberSaveable(state.defaultName) { mutableStateOf(state.defaultName) }
+    var category by rememberSaveable(state.defaultName) { mutableStateOf(CATEGORY_SCREEN) }
+    val fields = rememberSaveable(state.defaultName, state.defaultWidth, state.defaultHeight, saver = SizeFields.Saver) {
         SizeFields(
             CanvasSize(
                 state.defaultWidth,
@@ -190,6 +193,23 @@ fun ProjectGateDialog(
  * was typed into it while the others are recomputed around it.
  */
 private class SizeFields(initial: CanvasSize) {
+    companion object {
+        val Saver: androidx.compose.runtime.saveable.Saver<SizeFields, Any> =
+            androidx.compose.runtime.saveable.listSaver(
+                save = { f ->
+                    listOf(f.size.widthPx, f.size.heightPx, f.size.dpi, f.size.unit.name, f.width, f.height, f.ratio)
+                },
+                restore = { v ->
+                    val unit = LengthUnit.entries.firstOrNull { it.name == v[3] } ?: LengthUnit.INCHES
+                    SizeFields(CanvasSize(v[0] as Int, v[1] as Int, v[2] as Int, unit)).apply {
+                        width = v[4] as String
+                        height = v[5] as String
+                        ratio = v[6] as String
+                    }
+                },
+            )
+    }
+
     var size by mutableStateOf(initial)
     var width by mutableStateOf(initial.widthText())
     var height by mutableStateOf(initial.heightText())

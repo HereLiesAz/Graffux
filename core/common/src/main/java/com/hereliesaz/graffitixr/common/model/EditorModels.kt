@@ -342,6 +342,12 @@ data class EditorUiState(
     val undoCount: Int = 0,
     val redoCount: Int = 0,
     val isLoading: Boolean = false,
+    /** How many long operations are running; [isLoading] is `loadingJobs > 0`. */
+    val loadingJobs: Int = 0,
+    /** What the newest running operation is doing ("Exporting PNG…"), shown under the spinner. */
+    val loadingLabel: String? = null,
+    /** Whether the running operation offers Cancel. */
+    val loadingCancellable: Boolean = false,
     val brushSize: Float = 50f,
     // Mirrors the persisted Settings "Brush size locked to screen" toggle -- see EditorViewModel's
     // init collector. Off (default): brushSize is a document-space footprint, like Photoshop/

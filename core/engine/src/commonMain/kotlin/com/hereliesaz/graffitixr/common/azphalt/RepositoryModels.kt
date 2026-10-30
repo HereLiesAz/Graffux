@@ -43,6 +43,14 @@ value class PriceStatus(val wire: String) {
     }
 }
 
+/**
+ * A paid package's price, when the repository sends one: [amountMinor] in the currency's minor unit
+ * (cents) and an ISO-4217 [currency]. Optional on the wire — a repository that does not send it
+ * leaves the card's Buy button saying the price is shown at checkout.
+ */
+@Serializable
+data class PackagePrice(val amountMinor: Long, val currency: String)
+
 /** One row of `GET /packages` (repository-api.md § 2). */
 @Serializable
 data class PackageSummary(
@@ -58,6 +66,8 @@ data class PackageSummary(
     val kind: ExtensionKind = ExtensionKind.UNKNOWN,
     val types: List<AssetType> = emptyList(),
     val priceStatus: PriceStatus = PriceStatus.FREE,
+    /** The price of a paid package, when the repository sends one (see [PackagePrice]). */
+    val price: PackagePrice? = null,
     /** Non-empty = app-scoped (repository-api.md § App scoping); empty = visible to every host app. */
     val targetApps: List<String> = emptyList(),
     val downloads: Long = 0,

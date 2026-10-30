@@ -22,6 +22,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,7 +80,9 @@ fun main() = application {
     // window for how many tools this app now has). 1000x1100 leaves real headroom to keep adding
     // rail items without repeating this (bumped from an earlier 900 while testing a 9th item,
     // the About "?" button -- see DESKTOP.md).
-    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = DpSize(1000.dp, 1100.dp))
+    // Fits the screen it opens on: 1000x1100 was taller than a 1080p display, pushing the title bar
+    // or the bottom of the canvas off-screen.
+    val windowState = rememberWindowState(position = WindowPosition(Alignment.Center), size = initialWindowSize())
     // Hoisted here (rather than inside GraffuxDesktopApp, where every other piece of UI state
     // lives) purely so Window's own onKeyEvent below -- Ctrl+Z / Ctrl+Y, a desktop convention
     // Android's touch-only editor has no equivalent shortcut for -- can reach it directly. Same
@@ -204,7 +207,7 @@ private fun GraffuxDesktopApp(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Color")
+                    Text("Colour")
                     Row {
                         PALETTE.forEach { color ->
                             Spacer(modifier = Modifier.width(6.dp))
@@ -266,7 +269,7 @@ private fun GraffuxDesktopApp(
             }
             if (showColorWheel) {
                 FloatingWindow(
-                    title = "Color",
+                    title = "Colour",
                     onDismiss = { showColorWheel = false },
                     initialOffset = Offset(120f, 340f),
                 ) {
@@ -276,29 +279,24 @@ private fun GraffuxDesktopApp(
                     )
                 }
             }
-            lastSavedPath?.let { path ->
-                Text(
-                    text = "Saved to $path",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = Color(0xFF43A047),
-                )
-            }
-            saveError?.let { message ->
-                Text(
-                    text = "Save failed: $message",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = Color(0xFFE53935),
-                )
-            }
             Spacer(modifier = Modifier.height(12.dp))
-            CompositionLocalProvider(LocalMultipassSettings provides multipass) {
-                DesktopStampCanvas(
-                    state = canvasState,
-                    brush = selectedBrush,
-                    brushRadiusPx = brushRadius,
-                    colorArgb = selectedColor.toArgb(),
-                    flow = brushFlow,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            // The save result floats over the canvas and goes away, instead of a text row above
+            // it that pushed the canvas down for good.
+            Box(Modifier.fillMaxSize()) {
+                CompositionLocalProvider(LocalMultipassSettings provides multipass) {
+                    DesktopStampCanvas(
+                        state = canvasState,
+                        brush = selectedBrush,
+                        brushRadiusPx = brushRadius,
+                        colorArgb = selectedColor.toArgb(),
+                        flow = brushFlow,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    )
+                }
+                SaveResultToast(
+                    savedPath = lastSavedPath,
+                    error = saveError,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp),
                 )
             }
         }
@@ -358,4 +356,43 @@ private fun GraffuxDesktopApp(
 @Composable
 private fun AboutReader(onDismiss: () -> Unit) {
     AzAboutPage(onDismiss = onDismiss, repoUrl = "https://github.com/HereLiesAz/Graffux")
+}
+
+/** The window's first size: up to 1280x1000dp, never more than 90% of the screen it opens on. */
+private fun initialWindowSize(): DpSize {
+    val screen = runCatching { java.awt.Toolkit.getDefaultToolkit().screenSize }.getOrNull()
+    val w = screen?.width?.let { (it * SCREEN_FRACTION).toInt() } ?: MAX_WINDOW_W
+    val h = screen?.height?.let { (it * SCREEN_FRACTION).toInt() } ?: MAX_WINDOW_H
+    return DpSize(minOf(w, MAX_WINDOW_W).dp, minOf(h, MAX_WINDOW_H).dp)
+}
+
+private const val SCREEN_FRACTION = 0.9
+private const val MAX_WINDOW_W = 1280
+private const val MAX_WINDOW_H = 1000
+private const val SAVE_TOAST_MS = 4_000L
+
+/** Ctrl+S's result over the canvas for a few seconds: where the PNG went, or why it didn't. */
+@Composable
+private fun SaveResultToast(savedPath: String?, error: String?, modifier: Modifier = Modifier) {
+    val text = when {
+        error != null -> "Save failed: $error"
+        savedPath != null -> "Saved to $savedPath"
+        else -> null
+    }
+    var shown by remember(text) { mutableStateOf(text != null) }
+    LaunchedEffect(text) {
+        if (text != null) {
+            kotlinx.coroutines.delay(SAVE_TOAST_MS)
+            shown = false
+        }
+    }
+    if (shown && text != null) {
+        Text(
+            text = text,
+            color = if (error != null) GraffuxColors.Amber else GraffuxColors.White,
+            modifier = modifier
+                .background(Color(0xE6161618), androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+    }
 }

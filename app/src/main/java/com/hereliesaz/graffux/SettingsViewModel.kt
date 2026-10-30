@@ -18,9 +18,9 @@ import javax.inject.Inject
 
 /**
  * Backs the Graffux [SettingsScreen] with the design-relevant slice of [SettingsRepository] —
- * handedness (which side the nav rail docks to), measurement units (used by the rulers), whether
+ * handedness (which side the rails dock to), measurement units (used by the rulers), whether
  * the brush size slider is locked to a constant on-screen footprint, the two performance dials and
- * the gesture map, plus a tutorial reset. Each flow is
+ * the gesture map. Each flow is
  * cached as a [StateFlow] for the UI; writes are persisted off the main thread.
  */
 @HiltViewModel

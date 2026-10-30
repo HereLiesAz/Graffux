@@ -188,7 +188,7 @@ class PhotoSheetUiTest {
         rule.onAllNodesWithTag("carousel.tab.photo.light").onFirst().assertExists()
         rule.onAllNodesWithTag("carousel.tab.photo.color").onFirst().performClick()
         rule.waitForIdle()
-        rule.onNodeWithTag("photo.title").assertTextEquals("Color")
+        rule.onNodeWithTag("photo.title").assertTextEquals("Colour")
         rule.onNodeWithTag("photo.slider.temperature").assertExists()
         rule.onNodeWithTag("photo.value.temperature").assertTextEquals("6500 K")
     }

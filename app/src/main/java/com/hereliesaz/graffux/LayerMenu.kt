@@ -10,6 +10,7 @@ import com.hereliesaz.graffitixr.common.model.LayoutAlign
 import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.design.theme.AppStrings
+import com.hereliesaz.graffitixr.design.theme.LayerMenuStrings
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import kotlin.math.roundToInt
 
@@ -37,58 +38,76 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     // (listItem / inputItem), so the knobs stay in the panels they already live in.
     fun on(action: () -> Unit): () -> Unit = { vm.onLayerActivated(layer.id); action() }
 
+    val m = strings.layerMenu
+    section(m.sectionLayer)
     listItem(strings.nav.adjust, on { vm.onAdjustClicked() })
-    listItem("Balance", on { vm.onBalanceClicked() })
-    listItem("Blend Mode", on(onBlendMode))
-    listItem("Transform", on { vm.onTransformClicked() })
-    listItem("Layer Options", on(onEditClicked))
-
-    inputItem(hint = "Rename", initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
+    listItem(m.balance, on { vm.onBalanceClicked() })
+    listItem(m.blendMode, on(onBlendMode))
+    if (!isGroup) listItem(m.curves, on(onCurves))
+    listItem(m.transform, on { vm.onTransformClicked() })
+    listItem(m.layerOptions, on(onEditClicked))
+    inputItem(hint = m.rename, initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
     listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }
+
+    // Reordering without the drag (which cannot reach rows scrolled out of the rail, and which
+    // TalkBack cannot perform): one place up or down among the layer's siblings.
+    section(m.sectionArrange)
+    val siblings = layerSiblingsTopFirst(uiState.layers, layer)
+    val id = layerRailId(layer.id)
+    val up = steppedSiblingOrder(siblings, id, -1)
+    val down = steppedSiblingOrder(siblings, id, 1)
+    if (up != siblings) listItem(m.moveUp) { vm.onLayerRailRelocated(up, layer.parentId) }
+    if (down != siblings) listItem(m.moveDown) { vm.onLayerRailRelocated(down, layer.parentId) }
     if (isGroup) {
-        listItem("Ungroup") { vm.onUngroupLayer(layer.id) }
-        listItem(strings.editor.delete) { vm.onDeleteGroup(layer.id) }
+        listItem(m.ungroup) { vm.onUngroupLayer(layer.id) }
     } else {
-        // The one rule, shared with the quick menu. This used to allow anything that was not a
-        // group, so a vector layer offered a lock no stroke would ever consult.
-        if (layer.supportsAlphaLock) {
-            listItem(if (layer.alphaLock) "Alpha Lock ✓" else "Alpha Lock") { vm.onToggleAlphaLock(layer.id) }
-        }
-        listItem(if (layer.clipToLayerBelow) "Clip to Below ✓" else "Clip to Below") { vm.onToggleClipToLayerBelow(layer.id) }
-        listItem("Curves", on(onCurves))
         listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
-        listItem("Merge Down") { vm.onMergeDown(layer.id) }
-        listItem("Flatten All") { vm.onFlattenAllLayers() }
-        listItem("Group with Above") { vm.onGroupWithLayerAbove(layer.id) }
-        listItem("Clear", on { vm.onClearLayer() })
-        listItem(strings.editor.delete) { vm.onLayerRemoved(layer.id) }
+        listItem(m.groupWithAbove) { vm.onGroupWithLayerAbove(layer.id) }
+        listItem(m.mergeDown) { vm.onMergeDown(layer.id) }
     }
 
+    section(m.sectionProperties)
+    // The one rule, shared with the quick menu. This used to allow anything that was not a
+    // group, so a vector layer offered a lock no stroke would ever consult.
+    if (!isGroup && layer.supportsAlphaLock) check(m.alphaLock, layer.alphaLock) { vm.onToggleAlphaLock(layer.id) }
+    if (!isGroup) check(m.clipToBelow, layer.clipToLayerBelow) { vm.onToggleClipToLayerBelow(layer.id) }
     // Only a top-level layer can be a frame in the first place (see AnimationFrames' doc
     // comment) -- offered regardless of isGroup, since a GROUP frame is exactly as valid a
     // frame as a plain one, and this only makes sense for a layer that would otherwise BE one.
     if (layer.parentId == null) {
-        listItem(if (layer.isPinnedAcrossFrames) "Pinned Across Frames ✓" else "Pin Across Frames") {
-            vm.onTogglePinnedAcrossFrames(layer.id)
-        }
+        check(m.showOnEveryFrame, layer.isPinnedAcrossFrames) { vm.onTogglePinnedAcrossFrames(layer.id) }
     }
-
-    // Link to the layer below. The machinery behind this was complete — getLinkedGroupIds walks
-    // the contiguous run, and onTransformGesture already moves the whole linked group as one —
-    // but onToggleLinkLayer had no caller anywhere, so no layer could ever be linked and the
-    // group-move path was unreachable. The README advertised the feature all the same.
-    listItem(if (layer.isLinked) "Linked ✓" else "Link to Below") { vm.onToggleLinkLayer(layer.id) }
-
+    // Link to the layer below: a linked run moves as one (getLinkedGroupIds / onTransformGesture).
+    check(m.linkToBelow, layer.isLinked) { vm.onToggleLinkLayer(layer.id) }
     // Copy/paste the layer's *look* — opacity, the tone knobs, blend mode and the warp mesh —
-    // without touching its pixels. Both halves were implemented and neither had a caller.
-    listItem("Copy Adjustments") { vm.copyLayerModifications(layer.id) }
+    // without touching its pixels.
+    listItem(m.copyAdjustments) { vm.copyLayerModifications(layer.id) }
     if (vm.hasCopiedLayerModifications) {
-        listItem("Paste Adjustments") { vm.pasteLayerModifications(layer.id) }
+        listItem(m.pasteAdjustments) { vm.pasteLayerModifications(layer.id) }
     }
 
-    renderLayerStyleMenu(layer, uiState, vm, ::on)
-    renderLayerLayoutMenu(layer, uiState, vm, ::on)
-    renderLayerComponentMenu(layer, uiState, vm, ::on)
+    renderLayerStyleMenu(layer, uiState, vm, m, ::on)
+    renderLayerLayoutMenu(layer, uiState, vm, m, ::on)
+    renderLayerComponentMenu(layer, uiState, vm, m, ::on)
+
+    // Destructive actions last, apart from the rest and in the warning colour. Clear and Delete
+    // are both undoable; "Flatten All" acts on the whole document, so it lives in the main menu.
+    section(m.sectionRemove)
+    if (!isGroup) destructiveItem(m.clear, on { vm.onClearLayer() })
+    destructiveItem(strings.editor.delete) { if (isGroup) vm.onDeleteGroup(layer.id) else vm.onLayerRemoved(layer.id) }
+}
+
+/** [layer]'s siblings (itself included), top of the stack first, as rail ids. */
+internal fun layerSiblingsTopFirst(layers: List<Layer>, layer: Layer): List<String> =
+    layers.filter { it.parentId == layer.parentId }.reversed().map { layerRailId(it.id) }
+
+/** A constraint's readable name on the [horizontal] or vertical axis ("Left", "Top & bottom"...). */
+internal fun constraintLabel(anchor: ConstraintAnchor, horizontal: Boolean, m: LayerMenuStrings): String = when (anchor) {
+    ConstraintAnchor.START -> if (horizontal) m.left else m.top
+    ConstraintAnchor.END -> if (horizontal) m.right else m.bottom
+    ConstraintAnchor.CENTER -> m.centre
+    ConstraintAnchor.STRETCH -> if (horizontal) m.leftAndRight else m.topAndBottom
+    ConstraintAnchor.SCALE -> m.scale
 }
 
 /**
@@ -102,17 +121,20 @@ private fun MenuBuilder.renderLayerStyleMenu(
     layer: Layer,
     uiState: EditorUiState,
     vm: EditorViewModel,
+    m: LayerMenuStrings,
     on: (() -> Unit) -> () -> Unit,
 ) {
     val shape = layer.shapes.firstOrNull()
     val params = layer.textParams
+    if (shape == null && params == null) return
+    section(m.sectionStyles)
     if (shape != null) {
-        listItem("New Colour Style", on {
+        listItem(m.newColourStyle, on {
             vm.onCreateColorStyleFromActive("Colour ${uiState.colorStyles.size + 1}")
         })
     }
     if (params != null) {
-        listItem("New Text Style", on {
+        listItem(m.newTextStyle, on {
             vm.onCreateTextStyleFromActive("Text ${uiState.textStyles.size + 1}")
         })
     }
@@ -124,28 +146,29 @@ private fun MenuBuilder.renderLayerStyleMenu(
         // listed "Update"/"Delete" for every colour style anyone had ever made in the document —
         // exactly what this function's own doc comment says a raster layer's menu carries none of.
         if (shape != null) {
-            listItem(if (fillLinked) "Fill: ${style.name} ✓" else "Fill: ${style.name}", on {
+            check("${m.fill}: ${style.name}", fillLinked, on {
                 vm.onApplyColorStyle(if (fillLinked) null else style.id)
             })
             // The stroke half of the pair. It had an intent and a StyleOps function and no way in.
-            listItem(if (strokeLinked) "Stroke: ${style.name} ✓" else "Stroke: ${style.name}", on {
+            check("${m.stroke}: ${style.name}", strokeLinked, on {
                 vm.onApplyStrokeStyle(if (strokeLinked) null else style.id)
             })
-            listItem("Update ${style.name} to Colour", on { vm.onUpdateColorStyleToActiveColor(style.id) })
-            listItem("Delete ${style.name}") { vm.onDeleteColorStyle(style.id) }
+            listItem(m.updateColourStyle.format(style.name), on { vm.onUpdateColorStyleToActiveColor(style.id) })
+            // Undoable (pushHistory in onDeleteColorStyle), still drawn as destructive.
+            destructiveItem(m.deleteStyle.format(style.name)) { vm.onDeleteColorStyle(style.id) }
         }
     }
     uiState.textStyles.forEach { style ->
         // Same fix as the colour loop above: Delete used to run unconditionally.
         if (params != null) {
             val linked = params.styleId == style.id
-            listItem(if (linked) "Text: ${style.name} ✓" else "Text: ${style.name}", on {
+            check("${m.text}: ${style.name}", linked, on {
                 vm.onApplyTextStyle(if (linked) null else style.id)
             })
             // The text equivalent of "Update … to Colour", which until now did not exist: a text
             // token could be made and deleted but never edited.
-            listItem("Update ${style.name} from Layer", on { vm.onUpdateTextStyleToActive(style.id) })
-            listItem("Delete ${style.name}") { vm.onDeleteTextStyle(style.id) }
+            listItem(m.updateTextStyle.format(style.name), on { vm.onUpdateTextStyleToActive(style.id) })
+            destructiveItem(m.deleteStyle.format(style.name)) { vm.onDeleteTextStyle(style.id) }
         }
     }
 }
@@ -161,16 +184,21 @@ private fun MenuBuilder.renderLayerLayoutMenu(
     layer: Layer,
     uiState: EditorUiState,
     vm: EditorViewModel,
+    m: LayerMenuStrings,
     on: (() -> Unit) -> () -> Unit,
 ) {
     val hasChildren = uiState.layers.any { it.parentId == layer.id }
+    val parent = layer.parentId?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
+    val constrained = parent != null && parent.autoLayout.direction == LayoutDirection.NONE
+    if (!hasChildren && !constrained) return
+    section(m.sectionLayout)
     if (hasChildren && layer.isContainer) {
         // The frame's box, typed as "W x H". Setting it resizes the frame and runs its children's
         // constraints (or its auto-layout) — the numeric twin of the frame's resize handle. Same
         // inputItem row the Rename field above uses; an entry that doesn't parse is ignored.
         val w = if (layer.layoutWidth > 0f) layer.layoutWidth else uiState.documentWidth.toFloat()
         val h = if (layer.layoutHeight > 0f) layer.layoutHeight else uiState.documentHeight.toFloat()
-        inputItem(hint = "Frame Size (W x H)", initialValue = "${w.roundToInt()} x ${h.roundToInt()}") { text ->
+        inputItem(hint = m.frameSize, initialValue = "${w.roundToInt()} x ${h.roundToInt()}") { text ->
             val parts = text.split('x', 'X', '×', ',', ' ').mapNotNull { it.trim().toFloatOrNull() }
             if (parts.size == 2) {
                 vm.onLayerActivated(layer.id)
@@ -182,35 +210,38 @@ private fun MenuBuilder.renderLayerLayoutMenu(
         val current = layer.autoLayout
         LayoutDirection.entries.forEach { dir ->
             val label = when (dir) {
-                LayoutDirection.NONE -> "Free"
-                LayoutDirection.HORIZONTAL -> "Row"
-                LayoutDirection.VERTICAL -> "Column"
+                LayoutDirection.NONE -> m.layoutFree
+                LayoutDirection.HORIZONTAL -> m.layoutRow
+                LayoutDirection.VERTICAL -> m.layoutColumn
             }
-            listItem(if (current.direction == dir) "Layout: $label ✓" else "Layout: $label", on {
+            check("${m.autoLayout}: $label", current.direction == dir, on {
                 vm.onSetAutoLayout(current.copy(direction = dir))
             })
         }
         if (current.direction != LayoutDirection.NONE) {
-            listItem("Hug Contents", on { vm.onHugContents() })
+            listItem(m.fitToContents, on { vm.onHugContents() })
             LayoutAlign.entries.forEach { align ->
-                val name = align.name.lowercase().replaceFirstChar { c -> c.uppercase() }
-                listItem(if (current.align == align) "Align $name ✓" else "Align $name", on {
+                val name = when (align) {
+                    LayoutAlign.START -> m.alignStart
+                    LayoutAlign.CENTER -> m.centre
+                    LayoutAlign.END -> m.alignEnd
+                }
+                check("${m.align}: $name", current.align == align, on {
                     vm.onSetAutoLayout(current.copy(align = align))
                 })
             }
         }
     }
-    val parent = layer.parentId?.let { pid -> uiState.layers.firstOrNull { it.id == pid } }
-    if (parent != null && parent.autoLayout.direction == LayoutDirection.NONE) {
+    if (constrained) {
         ConstraintAnchor.entries.forEach { anchor ->
-            val name = anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }
-            listItem(if (layer.constraints.horizontal == anchor) "H: $name ✓" else "H: $name", on {
+            val name = constraintLabel(anchor, horizontal = true, m)
+            check("${m.pinHorizontal}: $name", layer.constraints.horizontal == anchor, on {
                 vm.onSetConstraints(layer.constraints.copy(horizontal = anchor))
             })
         }
         ConstraintAnchor.entries.forEach { anchor ->
-            val name = anchor.name.lowercase().replaceFirstChar { c -> c.uppercase() }
-            listItem(if (layer.constraints.vertical == anchor) "V: $name ✓" else "V: $name", on {
+            val name = constraintLabel(anchor, horizontal = false, m)
+            check("${m.pinVertical}: $name", layer.constraints.vertical == anchor, on {
                 vm.onSetConstraints(layer.constraints.copy(vertical = anchor))
             })
         }
@@ -226,15 +257,17 @@ private fun MenuBuilder.renderLayerComponentMenu(
     layer: Layer,
     uiState: EditorUiState,
     vm: EditorViewModel,
+    m: LayerMenuStrings,
     on: (() -> Unit) -> () -> Unit,
 ) {
+    section(m.sectionComponent)
     if (layer.componentId == null && layer.instanceOf == null) {
-        listItem("Make Component", on { vm.onMakeComponent() })
+        listItem(m.makeComponent, on { vm.onMakeComponent() })
     }
-    if (layer.instanceOf != null) listItem("Detach Instance", on { vm.onDetachInstance() })
-    if (layer.componentId != null) listItem("Release Component", on { vm.onReleaseComponent() })
+    if (layer.instanceOf != null) listItem(m.detachInstance, on { vm.onDetachInstance() })
+    if (layer.componentId != null) listItem(m.releaseComponent, on { vm.onReleaseComponent() })
     uiState.layers.filter { it.componentId != null }.forEach { main ->
-        listItem("Place ${main.name}") { main.componentId?.let { vm.onPlaceInstance(it) } }
+        listItem(m.placeCopy.format(main.name)) { main.componentId?.let { vm.onPlaceInstance(it) } }
     }
 }
 
