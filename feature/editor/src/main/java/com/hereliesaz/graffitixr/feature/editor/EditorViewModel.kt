@@ -1024,7 +1024,7 @@ class EditorViewModel @Inject constructor(
                 adjustment = PhotoAdjustmentModel(tool),
             )
             dispatch(EditorIntent.InsertLayerAbove(layer, _uiState.value.activeLayerId))
-            opEmitter.emit(Op.LayerAdd(layer))
+            emitMembership(Op.LayerAdd(layer))
             layer.id
         }
         photoGestureLayer = id
@@ -1223,7 +1223,7 @@ class EditorViewModel @Inject constructor(
             adjustment = PhotoAdjustmentModel(tool),
         )
         dispatch(EditorIntent.InsertLayerAbove(layer, _uiState.value.activeLayerId))
-        opEmitter.emit(Op.LayerAdd(layer))
+        emitMembership(Op.LayerAdd(layer))
         return layer.id
     }
 
@@ -1375,6 +1375,10 @@ class EditorViewModel @Inject constructor(
         maskStrokeLayer = null
         maskStrokeBytes = null
         maskStroke = null
+        // The revision went out with its props when the stroke began; its finished pixels go now.
+        if (opEmitter.isActive) {
+            _uiState.value.layers.find { it.id == id }?.adjustment?.mask?.let { sendMask(id, it.revision) }
+        }
         persistMask(id)
         saveProject()
     }
@@ -3746,7 +3750,7 @@ class EditorViewModel @Inject constructor(
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.AddLayer(newLayer))
-                    opEmitter.emit(Op.LayerAdd(newLayer))
+                    emitMembership(Op.LayerAdd(newLayer))
                     saveProject()
                 }
             } else {
@@ -3916,7 +3920,7 @@ class EditorViewModel @Inject constructor(
         withContext(dispatchers.main) {
             pushHistory()
             dispatch(EditorIntent.AddLayer(layer))
-            opEmitter.emit(Op.LayerAdd(layer))
+            emitMembership(Op.LayerAdd(layer))
             saveProject()
         }
     }
@@ -3977,7 +3981,7 @@ class EditorViewModel @Inject constructor(
             dispatch(EditorIntent.SetDocumentSize(doc.width, doc.height))
             created.forEach { layer ->
                 dispatch(EditorIntent.AddLayer(layer))
-                opEmitter.emit(Op.LayerAdd(layer))
+                emitMembership(Op.LayerAdd(layer))
             }
             saveProject()
         }
@@ -4094,7 +4098,7 @@ class EditorViewModel @Inject constructor(
                 layerStore.initStrokes(newLayer.id)
 
                 dispatch(EditorIntent.AddLayer(newLayer, activeToolOverride = activeToolOverride))
-                opEmitter.emit(Op.LayerAdd(newLayer))
+                emitMembership(Op.LayerAdd(newLayer))
                 saveProject()
             }
         }
@@ -4127,7 +4131,7 @@ class EditorViewModel @Inject constructor(
             shapes = listOf(shape),
         )
         dispatch(EditorIntent.AddLayer(newLayer))
-        opEmitter.emit(Op.LayerAdd(newLayer))
+        emitMembership(Op.LayerAdd(newLayer))
         saveProject()
     }
 
@@ -4153,7 +4157,7 @@ class EditorViewModel @Inject constructor(
             shapes = listOf(shape),
         )
         dispatch(EditorIntent.AddLayer(newLayer))
-        opEmitter.emit(Op.LayerAdd(newLayer))
+        emitMembership(Op.LayerAdd(newLayer))
         saveProject()
     }
 
@@ -4210,7 +4214,7 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.AddLayer(newLayer))
         // AddLayer resets the tool to NONE; keep the pen active so strokes can be drawn continuously.
         dispatch(EditorIntent.SetActiveTool(Tool.PEN))
-        opEmitter.emit(Op.LayerAdd(newLayer))
+        emitMembership(Op.LayerAdd(newLayer))
         saveProject()
     }
 
@@ -4860,7 +4864,7 @@ class EditorViewModel @Inject constructor(
         // on undo. retainOnly (called from the next pushHistory()) evicts it automatically once it
         // ages out of undo/redo history — the same mechanism the flatten path already relies on.
         evictJobsFor(id)
-        opEmitter.emit(Op.LayerRemove(id))
+        emitMembership(Op.LayerRemove(id))
         saveProject()
     }
 
@@ -5480,7 +5484,7 @@ class EditorViewModel @Inject constructor(
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
-                opEmitter.emit(Op.LayerAdd(duplicated))
+                emitMembership(Op.LayerAdd(duplicated))
                 // Queue the duplicate's material sidecar through the same retryable persistence
                 // unit as ordinary painting; a duplicate must survive reopen with identical relief.
                 if (newBitmap != null) scheduleDiskSave(duplicated.id, newBitmap, newUri)
@@ -5498,6 +5502,8 @@ class EditorViewModel @Inject constructor(
 
     /** Re-pushes layer order, props and transforms to guests after a non-draw undo/redo. */
     private fun emitLayerStateResync(layers: List<Layer>) {
+        // Layers the undo/redo brought back or took away, before the ops below name them.
+        syncLayersToPeers(layers)
         opEmitter.emit(Op.LayerReorder(layers.map { it.id }))
         layers.forEach { l ->
             emitLayerProps(l.id, l.toLayerProps())
@@ -5758,15 +5764,20 @@ class EditorViewModel @Inject constructor(
     )
 
     /**
-     * What peers last saw of each layer, and the layer order. [syncLayersToPeers] diffs the layer
-     * list against it, so a change to a layer's props (adjustment, mask, constraints, auto-layout,
-     * components, name, ...), transform, geometry, parent or order reaches peers from whichever
-     * mutation made it, whether or not its call site emits. A peer's applied op is recorded, not
-     * sent back. Main thread only.
+     * What peers last saw of each layer, the layer order, and which mask revisions they hold.
+     * [syncLayersToPeers] diffs the layer list against it, so a change to a layer's membership,
+     * props (adjustment, mask, constraints, auto-layout, components, name, text formatting, ...),
+     * transform, geometry, parent or order reaches peers from whichever mutation made it, whether or
+     * not its call site emits. A peer's applied op is recorded, not sent back. Main thread only.
      */
     private class CoopSeen {
         val layers = HashMap<String, CoopLayerState>()
         var order: List<String> = emptyList()
+        /** False until the first sync of a session, which takes its baseline from [beforeSession]. */
+        var started = false
+        /** The layer list as it stood with no session: what a session's project load gave peers. */
+        var beforeSession: List<Layer> = emptyList()
+        val sentMasks = HashMap<String, HashSet<Int>>()
     }
 
     private val coopSeen get() = coopSeenState.layers
@@ -5777,38 +5788,138 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Sends the ops that bring peers from what they last saw to [layers]. A layer seen for the first
-     * time is recorded, not sent: it arrived by LayerAdd or the session's project load, which carry it
-     * whole. With [send] false it only records (after applying a peer's op). Costs nothing without a
-     * live session ([OpEmitter.isActive]). Pixels travel in their own ops (strokes, bitmap replaces).
+     * A LayerAdd or LayerRemove from a call site, recorded so [syncLayersToPeers] doesn't send it
+     * again. Anything else goes straight out.
      */
+    private fun emitMembership(op: Op) {
+        if (opEmitter.isActive) {
+            startCoopBaseline()
+            val seen = coopSeenState
+            when (op) {
+                is Op.LayerAdd -> {
+                    sendMaskIfUnsent(op.layer)
+                    seen.layers[op.layer.id] = op.layer.coopState()
+                    if (op.layer.id !in seen.order) seen.order = seen.order + op.layer.id
+                }
+                is Op.LayerRemove -> {
+                    seen.layers.remove(op.layerId)
+                    seen.order = seen.order - op.layerId
+                    seen.sentMasks.remove(op.layerId)
+                }
+                else -> Unit
+            }
+        }
+        opEmitter.emit(op)
+    }
+
+    /**
+     * A session's first sync: what peers have is the project as it stood before it began (they got
+     * it whole, by the session's project load), not whatever this first change made of it.
+     */
+    private fun startCoopBaseline() {
+        val seen = coopSeenState
+        if (seen.started) return
+        seen.started = true
+        seen.layers.clear()
+        seen.beforeSession.forEach { seen.layers[it.id] = it.coopState() }
+        seen.order = seen.beforeSession.map { it.id }
+        seen.beforeSession = emptyList()
+    }
+
+    /**
+     * Sends the ops that bring peers from what they last saw to [layers]: LayerRemove for a layer
+     * gone, LayerAdd for one new (an undo bringing it back, a mutation with no emit of its own), then
+     * each changed field, then the order. With [send] false it only records (after applying a peer's
+     * op). Costs nothing without a live session ([OpEmitter.isActive]) beyond keeping a reference to
+     * the list. Pixels travel in their own ops (strokes, bitmap replaces, mask data).
+     */
+    @Suppress("CyclomaticComplexMethod", "NestedBlockDepth")
     internal fun syncLayersToPeers(layers: List<Layer>, send: Boolean = true) {
+        val seen = coopSeenState
         if (!opEmitter.isActive) {
-            coopSeen.clear()
-            coopSeenState.order = emptyList()
+            seen.started = false
+            seen.layers.clear()
+            seen.order = emptyList()
+            seen.sentMasks.clear()
+            seen.beforeSession = layers
             return
         }
+        startCoopBaseline()
         val ids = ArrayList<String>(layers.size)
-        val known = coopSeenState.order.toHashSet()
+        layers.mapTo(ids) { it.id }
+        val present = ids.toHashSet()
+        val gone = seen.layers.keys.filter { it !in present }
+        for (id in gone) {
+            seen.layers.remove(id)
+            seen.sentMasks.remove(id)
+            if (send) opEmitter.emit(Op.LayerRemove(id))
+        }
+        // The order peers hold once the removes and adds land (a LayerAdd appends).
+        val peerOrder = seen.order.filterTo(ArrayList()) { it in present }
         for (layer in layers) {
-            ids += layer.id
             val now = layer.coopState()
-            val was = coopSeen.put(layer.id, now)
-            if (!send || was == null || was == now) continue
+            val was = seen.layers.put(layer.id, now)
+            if (was == now) continue
+            if (!send) {
+                recordMaskSent(layer)
+                continue
+            }
+            if (was == null) {
+                sendMaskIfUnsent(layer)
+                opEmitter.emit(Op.LayerAdd(layer))
+                peerOrder += layer.id
+                continue
+            }
             if (was.parentId != now.parentId) opEmitter.emit(Op.LayerParent(layer.id, now.parentId))
             if (was.geometry != now.geometry) {
                 opEmitter.emit(Op.LayerGeometry(layer.id, now.geometry.first, now.geometry.second, now.geometry.third))
             }
             if (was.transform != now.transform) opEmitter.emit(Op.LayerTransform(layer.id, now.transform))
-            if (was.props != now.props) opEmitter.emit(Op.LayerPropsChange(layer.id, now.props))
+            if (was.props != now.props) {
+                sendMaskIfUnsent(layer)
+                opEmitter.emit(Op.LayerPropsChange(layer.id, now.props))
+            }
         }
-        // Reordered, not merely added or removed (those have their own ops).
-        val present = ids.toHashSet()
-        if (send && ids.filter { it in known } != coopSeenState.order.filter { it in present }) {
-            opEmitter.emit(Op.LayerReorder(ids))
-        }
-        coopSeenState.order = ids
-        coopSeen.keys.retainAll(present)
+        if (send && peerOrder != ids) opEmitter.emit(Op.LayerReorder(ids))
+        seen.order = ids
+        seen.sentMasks.keys.retainAll(present)
+    }
+
+    /** Notes that peers hold [layer]'s current mask revision (a peer's op named it). */
+    private fun recordMaskSent(layer: Layer) {
+        val mask = layer.adjustment?.mask?.takeIf { it.enabled } ?: return
+        coopSeenState.sentMasks.getOrPut(layer.id) { HashSet() } += mask.revision
+    }
+
+    /** Sends [layer]'s mask pixels at its current revision, unless peers already hold them. */
+    private fun sendMaskIfUnsent(layer: Layer) {
+        val mask = layer.adjustment?.mask?.takeIf { it.enabled } ?: return
+        // A mask stroke in progress sends its finished pixels once, from onMaskStrokeEnd.
+        val held = coopSeenState.sentMasks[layer.id]?.contains(mask.revision) == true
+        if (layer.id != maskStrokeLayer && !held) sendMask(layer.id, mask.revision)
+    }
+
+    /** Sends [layerId]'s mask pixels at [revision], deflated (masks are mostly flat), if they're held. */
+    private fun sendMask(layerId: String, revision: Int) {
+        val bytes = adjustmentMasks.get(layerId, revision) ?: return
+        val (w, h) = adjustmentWorldSize()
+        if (bytes.size != w * h) return
+        coopSeenState.sentMasks.getOrPut(layerId) { HashSet() } += revision
+        opEmitter.emit(Op.AdjustmentMaskData(layerId, revision, w, h, CoopMaskCodec.deflate(bytes)))
+    }
+
+    /** A peer's mask pixels into the store, scaled to this screen's world size, then redrawn. */
+    private fun installPeerMask(op: Op.AdjustmentMaskData) {
+        val raw = CoopMaskCodec.inflate(op.deflated, op.width * op.height) ?: return
+        val (w, h) = adjustmentWorldSize()
+        val bytes = if (op.width == w && op.height == h) raw else runCatching {
+            val bitmap = AdjustmentMasks.toBitmap(raw, op.width, op.height)
+            AdjustmentMasks.fromBitmap(bitmap, w, h).also { bitmap.recycle() }
+        }.getOrNull() ?: return
+        adjustmentMasks.put(op.layerId, op.revision, bytes)
+        coopSeenState.sentMasks.getOrPut(op.layerId) { HashSet() } += op.revision
+        refreshMaskViews(op.layerId, bytes, w, h)
+        adjustmentRenderer.sync(_uiState.value.layers, w, h)
     }
 
     /** Emits a co-op LayerPropsChange for the active layer, if any. */
@@ -8946,9 +9057,9 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.ReplaceLayers(next, mergedLayer.id))
                 evictJobsFor(upper.id)
                 evictJobsFor(lower.id)
-                opEmitter.emit(Op.LayerRemove(upper.id))
-                opEmitter.emit(Op.LayerRemove(lower.id))
-                opEmitter.emit(Op.LayerAdd(mergedLayer))
+                emitMembership(Op.LayerRemove(upper.id))
+                emitMembership(Op.LayerRemove(lower.id))
+                emitMembership(Op.LayerAdd(mergedLayer))
                 saveProject()
                 showHud("Merged down")
                 dispatch(EditorIntent.SetLoading(false))
@@ -8997,7 +9108,7 @@ class EditorViewModel @Inject constructor(
         // Peers: the children's new parent and offsets, then the container's removal.
         if (_uiState.value.layers.none { it.id == groupId }) {
             emitGeometryChanges(before, _uiState.value.layers)
-            opEmitter.emit(Op.LayerRemove(groupId))
+            emitMembership(Op.LayerRemove(groupId))
         }
     }
 
@@ -9010,8 +9121,8 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetLayers(layers.filterNot { it.id in toRemove }))
         toRemove.forEach(::evictJobsFor)
         // Peers drop the same layers: the contents first, then the container.
-        (toRemove - groupId).forEach { opEmitter.emit(Op.LayerRemove(it)) }
-        opEmitter.emit(Op.LayerRemove(groupId))
+        (toRemove - groupId).forEach { emitMembership(Op.LayerRemove(it)) }
+        emitMembership(Op.LayerRemove(groupId))
         saveProject()
     }
 
@@ -9590,7 +9701,7 @@ class EditorViewModel @Inject constructor(
             layerStore.initStrokes(pasted.id)
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(pasted, resetActivePanel = false))
-                opEmitter.emit(Op.LayerAdd(pasted))
+                emitMembership(Op.LayerAdd(pasted))
                 showHud("Pasted as a new layer")
                 saveProject()
             }
@@ -10178,7 +10289,7 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.AddLayer(newLayer))
         // Keep the pen active for the next stroke, matching onCommitPenPath.
         dispatch(EditorIntent.SetActiveTool(Tool.PEN))
-        opEmitter.emit(Op.LayerAdd(newLayer))
+        emitMembership(Op.LayerAdd(newLayer))
         saveProject()
     }
 
@@ -11872,7 +11983,7 @@ class EditorViewModel @Inject constructor(
         val frame = ops.create(UUID.randomUUID().toString(), ops.nextName(layers), box)
         pushHistory()
         applyDesign(ops.adoptContents(layers + frame, frame.id), frame.id)
-        opEmitter.emit(Op.LayerAdd(frame))
+        emitMembership(Op.LayerAdd(frame))
         // What the new frame adopted moved under it: peers get the parent and the local offset.
         emitGeometryChanges(layers, _uiState.value.layers)
         saveProject()
@@ -13026,8 +13137,8 @@ class EditorViewModel @Inject constructor(
                 // Without this a spectator's layer list silently diverges from the host's until some
                 // unrelated action forces a full resync — flatten replaced every layer wholesale, so
                 // guests need the removes and the add, not just a props/transform resync.
-                oldLayerIds.forEach { opEmitter.emit(Op.LayerRemove(it)) }
-                opEmitter.emit(Op.LayerAdd(flatLayer))
+                oldLayerIds.forEach { emitMembership(Op.LayerRemove(it)) }
+                emitMembership(Op.LayerAdd(flatLayer))
                 saveProject()
                 dispatch(EditorIntent.SetLoading(false))
             }
@@ -13110,7 +13221,7 @@ class EditorViewModel @Inject constructor(
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(newLayer))
-                opEmitter.emit(Op.LayerAdd(newLayer))
+                emitMembership(Op.LayerAdd(newLayer))
                 // Signal the UI to immediately open this text layer's edit-text box.
                 _uiState.update { it.copy(autoEditTextLayerId = newLayer.id) }
                 saveProject()
@@ -13226,12 +13337,17 @@ class EditorViewModel @Inject constructor(
         // Geometry is drawn from shapes/layout size at composite time, like a transform.
         is Op.LayerAdd, is Op.LayerReorder, is Op.LayerTransform, is Op.LayerPropsChange,
         is Op.LayerGeometry, is Op.LayerParent -> null
+        // A mask is not the layer's pixels; installing it redraws the adjustment.
+        is Op.AdjustmentMaskData -> null
     }
 
     /** Applies a remote Op received from a peer, without echoing it back through opEmitter. Main thread. */
     fun applySpectatorOp(op: Op) {
         // A peer's op changes layer content outside this device's strokes.
         spectatorOpContentLayer(op)?.let(::invalidateResident)
+        // Local edits the collector hasn't sent yet go first, or recording the peer's op below
+        // would mark them as already sent.
+        syncLayersToPeers(_uiState.value.layers)
         applySpectatorOpToState(op)
         // What the op changed is what the peer already has: record it so it isn't sent back.
         syncLayersToPeers(_uiState.value.layers, send = false)
@@ -13255,7 +13371,14 @@ class EditorViewModel @Inject constructor(
                     ))
                 }
             }
-            is Op.LayerPropsChange -> dispatch(EditorIntent.SetLayerProps(op.layerId, op.props))
+            is Op.LayerPropsChange -> {
+                val before = _uiState.value.layers.find { it.id == op.layerId }?.textParams
+                dispatch(EditorIntent.SetLayerProps(op.layerId, op.props))
+                // New text formatting needs new pixels.
+                val after = _uiState.value.layers.find { it.id == op.layerId }?.textParams
+                if (after != null && after != before) rerasterizeTextLayer(op.layerId, after)
+            }
+            is Op.AdjustmentMaskData -> installPeerMask(op)
             is Op.LayerGeometry -> dispatch(
                 EditorIntent.SetLayerGeometry(op.layerId, op.shapes, op.layoutWidth, op.layoutHeight),
             )

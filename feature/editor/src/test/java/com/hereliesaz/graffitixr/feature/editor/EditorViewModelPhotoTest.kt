@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.Op
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.toLayerProps
 import com.hereliesaz.graffitixr.data.ProjectManager
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
@@ -329,5 +330,51 @@ class EditorViewModelPhotoTest {
         viewModel.onRedoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(1, layers().single { it.id == id }.adjustment!!.mask.revision)
+    }
+
+    @Test
+    fun `a Local stroke sends its mask pixels to peers, and a peer's mask is installed`() {
+        twoLayers()
+        viewModel.onPhotoGestureStart(light)
+        viewModel.onPhotoSlider(light, exposure, 0.5f)
+        viewModel.onPhotoGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        every { opEmitter.isActive } returns true
+        val id = layers().single { it.adjustment != null }.id
+        viewModel.onMaskStrokeStart(100f, 100f, 20f, 0.5f, 1f, erase = false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onMaskStrokeTo(140f, 100f, 20f, 0.5f, 1f, erase = false)
+        viewModel.onMaskStrokeEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val sent = mutableListOf<Op>()
+        io.mockk.verify { opEmitter.emit(capture(sent)) }
+        val data = sent.filterIsInstance<Op.AdjustmentMaskData>().last { it.layerId == id }
+        assertEquals(1, data.revision)
+        val painted = CoopMaskCodec.inflate(data.deflated, data.width * data.height)!!
+        assertTrue(painted.contentEquals(viewModel.adjustmentMasks.get(id, 1)!!))
+
+        // The other side: a peer's revision 7 lands in this device's store.
+        val theirs = ByteArray(data.width * data.height) { 9 }
+        viewModel.applySpectatorOp(
+            Op.AdjustmentMaskData(id, 7, data.width, data.height, CoopMaskCodec.deflate(theirs)),
+        )
+        assertTrue(theirs.contentEquals(viewModel.adjustmentMasks.get(id, 7)!!))
+    }
+
+    @Test
+    fun `a peer's text formatting reaches the text layer and redraws it`() {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.dispatchForTest(
+            EditorIntent.AppendLayer(Layer(id = "t", name = "t", textParams = TextLayerParams(text = "hi"))),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        val styled = TextLayerParams(text = "hi", fontName = "Lobster", fontSizeDp = 90f, isItalic = true)
+        val peerLayer = layers().single { it.id == "t" }.copy(textParams = styled)
+        viewModel.applySpectatorOp(
+            Op.LayerPropsChange("t", peerLayer.toLayerProps()),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(styled, layers().single { it.id == "t" }.textParams)
+        io.mockk.verify { TextRasterizer.rasterize(styled, any(), any(), any(), any()) }
     }
 }

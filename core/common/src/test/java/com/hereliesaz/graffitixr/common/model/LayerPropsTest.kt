@@ -58,4 +58,23 @@ class LayerPropsTest {
         val op: Op = Op.LayerPropsChange("L", rich.toLayerProps())
         assertEquals(op, Cbor.decodeFromByteArray<Op>(Cbor.encodeToByteArray(op)))
     }
+
+    @Test
+    fun `text formatting reaches a peer, and props without it leave the peer's text alone`() {
+        val styled = TextLayerParams(
+            text = "hi", fontName = "Lobster", fontSizeDp = 90f,
+            colorArgb = 0xFF00FF00.toInt(), letterSpacingEm = 0.2f, isBold = true,
+        )
+        val sender = Layer(id = "T", name = "T", textParams = styled)
+        val peer = Layer(id = "T", name = "T", textParams = TextLayerParams(text = "hi"))
+        assertEquals(styled, peer.withLayerProps(sender.toLayerProps()).textParams)
+        val olderPeer = sender.toLayerProps().let { it.copy(extended = it.extended?.copy(textParams = null)) }
+        assertEquals(styled, sender.withLayerProps(olderPeer).textParams)
+    }
+
+    @Test
+    fun `a mask's pixels round-trip on the wire`() {
+        val op: Op = Op.AdjustmentMaskData("L", 3, 2, 2, byteArrayOf(1, 2, 3))
+        assertEquals(op, Cbor.decodeFromByteArray<Op>(Cbor.encodeToByteArray(op)))
+    }
 }
