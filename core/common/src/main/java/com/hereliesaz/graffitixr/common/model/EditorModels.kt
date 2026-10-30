@@ -244,7 +244,106 @@ data class LayerProps(
     val blendMode: BlendMode = BlendMode.SrcOver,
     val clipToLayerBelow: Boolean = false,
     val isPinnedAcrossFrames: Boolean = false,
+    /**
+     * The rest of a layer's non-pixel state. Null from a peer that predates it, which then updates
+     * only the fields above; present, it replaces every field it holds.
+     */
+    val extended: LayerExtProps? = null,
 )
+
+/**
+ * The layer state [LayerProps] didn't originally carry: the photo adjustment (with its mask, heal
+ * and red-eye spots), design constraints and auto-layout, component links, frame styling, the warp
+ * mesh and the name. Every field is the layer's actual value (a null adjustment is no adjustment).
+ */
+@Serializable
+data class LayerExtProps(
+    val name: String,
+    val type: LayerType = LayerType.RASTER,
+    val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment? = null,
+    val constraints: Constraints = Constraints(),
+    val autoLayout: AutoLayout = AutoLayout(),
+    val componentId: String? = null,
+    val instanceOf: String? = null,
+    val warpMesh: List<Float> = emptyList(),
+    val frameFillArgb: Long? = null,
+    val clipsContent: Boolean = false,
+    val frameRadius: Float = 0f,
+    val frameHoldCount: Int = 1,
+    val isSketch: Boolean = false,
+    val isLinked: Boolean = false,
+)
+
+/** Everything [LayerProps] carries, read from this layer. */
+fun Layer.toLayerProps(): LayerProps = LayerProps(
+    isVisible = isVisible,
+    opacity = opacity,
+    brightness = brightness,
+    contrast = contrast,
+    saturation = saturation,
+    colorBalanceR = colorBalanceR,
+    colorBalanceG = colorBalanceG,
+    colorBalanceB = colorBalanceB,
+    isImageLocked = isImageLocked,
+    alphaLock = alphaLock,
+    isInverted = isInverted,
+    blendMode = blendMode,
+    clipToLayerBelow = clipToLayerBelow,
+    isPinnedAcrossFrames = isPinnedAcrossFrames,
+    extended = LayerExtProps(
+        name = name,
+        type = type,
+        adjustment = adjustment,
+        constraints = constraints,
+        autoLayout = autoLayout,
+        componentId = componentId,
+        instanceOf = instanceOf,
+        warpMesh = warpMesh,
+        frameFillArgb = frameFillArgb,
+        clipsContent = clipsContent,
+        frameRadius = frameRadius,
+        frameHoldCount = frameHoldCount,
+        isSketch = isSketch,
+        isLinked = isLinked,
+    ),
+)
+
+/** This layer with [props] applied: what a peer's [Op.LayerPropsChange] does to it. */
+fun Layer.withLayerProps(props: LayerProps): Layer {
+    val base = copy(
+        isVisible = props.isVisible,
+        opacity = props.opacity,
+        brightness = props.brightness,
+        contrast = props.contrast,
+        saturation = props.saturation,
+        colorBalanceR = props.colorBalanceR,
+        colorBalanceG = props.colorBalanceG,
+        colorBalanceB = props.colorBalanceB,
+        isImageLocked = props.isImageLocked,
+        alphaLock = props.alphaLock,
+        isInverted = props.isInverted,
+        blendMode = props.blendMode,
+        clipToLayerBelow = props.clipToLayerBelow,
+        isPinnedAcrossFrames = props.isPinnedAcrossFrames,
+    )
+    val x = props.extended ?: return base
+    return base.copy(
+        name = x.name,
+        type = x.type,
+        adjustment = x.adjustment,
+        constraints = x.constraints,
+        autoLayout = x.autoLayout,
+        componentId = x.componentId,
+        instanceOf = x.instanceOf,
+        warpMesh = x.warpMesh,
+        frameFillArgb = x.frameFillArgb,
+        clipsContent = x.clipsContent,
+        frameRadius = x.frameRadius,
+        frameHoldCount = x.frameHoldCount,
+        isSketch = x.isSketch,
+        isLinked = x.isLinked,
+    )
+}
 
 /**
  * A completed brush stroke, coarse-grained: only emitted once the user lifts their finger.
