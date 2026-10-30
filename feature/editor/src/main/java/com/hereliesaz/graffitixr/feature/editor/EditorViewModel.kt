@@ -65,6 +65,7 @@ import com.hereliesaz.graffitixr.nativebridge.SecondaryBrushDab
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.ResidentStroke
 import com.hereliesaz.graffitixr.common.util.saveBitmapToGallery
+import com.hereliesaz.graffitixr.domain.repository.ProjectNotSavedException
 import com.hereliesaz.graffitixr.domain.repository.ProjectRepository
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
@@ -846,6 +847,8 @@ class EditorViewModel @Inject constructor(
         // Guard by the project open when the toggle happened: the update runs on io, so a project
         // switch in between must not receive the previous project's rail state.
         val projectId = projectRepository.currentProject.value?.id ?: return
+        // A read-only project records nothing, rail state included.
+        if (openProjectIsReadOnly()) return
         viewModelScope.launch(dispatchers.io) {
             projectRepository.updateProject {
                 if (it.id != projectId) it
@@ -2363,14 +2366,19 @@ class EditorViewModel @Inject constructor(
                     val projectIdChanged = _uiState.value.projectId != project.id
 
                     if (projectIdChanged) {
-                        if (com.hereliesaz.graffitixr.common.model.isNewerFormat(project.formatVersion)) {
-                            // ProjectManager.saveProject refuses to write over it; say so up front.
-                            notify(
-                                "“${project.name}” was saved by a newer version of Graffux. It's open " +
-                                    "read-only: changes won't be saved. Update the app to edit it.",
-                                NoticeKind.WARNING,
-                            )
-                        }
+                        // ProjectManager refuses to write over a newer-format project; say so up front.
+                        // Retained, not a notices emission: on a cold-start auto-reopen this runs
+                        // before the host collects, and a SharedFlow without replay would drop it.
+                        _readOnlyNotice.value =
+                            if (com.hereliesaz.graffitixr.common.model.isNewerFormat(project.formatVersion)) {
+                                EditorNotice(
+                                    NoticeKind.WARNING,
+                                    "“${project.name}” was saved by a newer version of Graffux. It's open " +
+                                        "read-only: changes won't be saved. Update the app to edit it.",
+                                )
+                            } else {
+                                null
+                            }
                         inkLedger.clear()
                         val currentLayers = _uiState.value.layers
                         val layers = project.layers.map { overlayLayer ->
@@ -3536,7 +3544,11 @@ class EditorViewModel @Inject constructor(
         projectId: String?,
         snapshot: MaterialStateCodec.Snapshot?,
     ): Boolean {
-        if (projectId == null) return true
+        // Null id: nothing to write. Read-only (newer-format) project: its sidecars stay as the newer
+        // build wrote them.
+        if (projectId == null || (openProjectIsReadOnly() && projectRepository.currentProject.value?.id == projectId)) {
+            return true
+        }
         val filename = MaterialStateCodec.fileNameForLayer(layerId)
         return try {
             if (snapshot == null || !snapshot.hasMaterial) {
@@ -3627,6 +3639,11 @@ class EditorViewModel @Inject constructor(
      * loses the whole layer rather than the last stroke.
      */
     private suspend fun writeLayerBitmap(layerId: String, path: String, bitmap: Bitmap): Boolean {
+        if (isInReadOnlyProject(path)) {
+            // Read-only (newer-format) project: its layer files stay as the newer build wrote them.
+            // Nothing is owed to the disk, so report success and let the pending entry go.
+            return true
+        }
         try {
             if (bitmap.isRecycled) {
                 // A recycled bitmap can never be written, now or on retry: reporting failure would
@@ -4006,6 +4023,41 @@ class EditorViewModel @Inject constructor(
      */
     val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
 
+    private val _readOnlyNotice = MutableStateFlow<EditorNotice?>(null)
+
+    /**
+     * The "opened read-only" warning for a newer-format project, held until the host shows it and
+     * calls [consumeReadOnlyNotice] — unlike [notices], it survives having no collector yet.
+     */
+    val readOnlyNotice: StateFlow<EditorNotice?> = _readOnlyNotice.asStateFlow()
+
+    /** The host has shown [readOnlyNotice]; clears it (only if it is still [shown]). */
+    fun consumeReadOnlyNotice(shown: EditorNotice) {
+        _readOnlyNotice.compareAndSet(shown, null)
+    }
+
+    /**
+     * Whether the open project is from a newer format, which this build opens read-only: nothing it
+     * does may be written into `projects/<id>/` (ProjectManager refuses, and the editor's own direct
+     * writes and persistence jobs stand down too).
+     */
+    private fun openProjectIsReadOnly(): Boolean =
+        projectRepository.currentProject.value?.let {
+            com.hereliesaz.graffitixr.common.model.isNewerFormat(it.formatVersion)
+        } == true
+
+    /** Whether [path] is inside the open project's folder while that project is read-only. */
+    private fun isInReadOnlyProject(path: String): Boolean {
+        val id = projectRepository.currentProject.value?.id
+        if (id == null || !openProjectIsReadOnly()) return false
+        // A path that can't be resolved is treated as inside: refusing a write is the safe side.
+        return runCatching {
+            val dir = File(File(context.filesDir, "projects"), id).canonicalPath
+            val target = File(path).canonicalPath
+            target == dir || target.startsWith(dir + File.separator)
+        }.getOrDefault(true)
+    }
+
     private fun figmaImportNoticeKind(imported: Int) =
         if (imported == 0) NoticeKind.WARNING else NoticeKind.NOTICE
 
@@ -4265,7 +4317,12 @@ class EditorViewModel @Inject constructor(
                 // debounced autosave that lands after every stroke. The transform overload applies
                 // against whatever the live project actually is at write time and is mutex-protected
                 // against a concurrent delete, the same guarantee the editor's own layer save relies on.
-                projectRepository.updateProject { current -> current.copy(backgroundImageUri = localUri) }
+                try {
+                    projectRepository.updateProject { current -> current.copy(backgroundImageUri = localUri) }
+                } catch (e: ProjectNotSavedException) {
+                    // Read-only project: shown for this session, not recorded on the manifest.
+                    android.util.Log.w("EditorViewModel", "Background not recorded: ${e.message}")
+                }
 
                 withContext(dispatchers.main) {
                     dispatch(EditorIntent.SetBackgroundBitmap(bitmap)); dispatch(EditorIntent.SetLoading(false))
@@ -4279,6 +4336,9 @@ class EditorViewModel @Inject constructor(
     }
 
     fun saveProject(name: String? = null) {
+        // Autosave of a read-only project: nothing to write, and nothing to report as a failure
+        // (the read-only notice already said so). Save As still reports its refusal.
+        if (openProjectIsReadOnly()) return
         viewModelScope.launch(dispatchers.io) {
             // Throwable, not Exception: an OutOfMemoryError or a native-bridge error here used to
             // take the whole app down on the first save. Don't let a failed save die silently
@@ -4385,7 +4445,8 @@ class EditorViewModel @Inject constructor(
             }
             pendingWrites.remove(layerId, write)
         }
-        persistProject(null)
+        // Leaving a read-only project writes nothing (and must not fail on the refusal).
+        if (!openProjectIsReadOnly()) persistProject(null)
     }
 
     /**
@@ -4459,6 +4520,7 @@ class EditorViewModel @Inject constructor(
      */
     private fun scheduleThumbnailUpdate() {
         val projectId = _uiState.value.projectId ?: return
+        if (openProjectIsReadOnly()) return
         // Confine the job cancel/assign to the main thread so concurrent saveProject() calls (which
         // run on the multi-threaded IO dispatcher) can't race on thumbnailJob and leak coroutines.
         viewModelScope.launch(dispatchers.main) {
@@ -12209,7 +12271,8 @@ class EditorViewModel @Inject constructor(
             nodes: List<com.hereliesaz.graffitixr.common.model.LayerNode>,
             backgroundArgb: Int,
             container: Layer?,
-        ): Layer = keep(exportManager.compositeNodes(nodes, size.first, size.second, backgroundArgb, container))
+            region: com.hereliesaz.graffitixr.feature.editor.export.RasterRegion,
+        ): Layer = keep(exportManager.compositeNodes(nodes, size.first, size.second, backgroundArgb, container, region))
 
         override fun document(): Layer {
             val st = _uiState.value
@@ -12260,14 +12323,27 @@ class EditorViewModel @Inject constructor(
         val file = designExportFile(name, "pdf")
         val rasters = mutableListOf<DesignRasterizer>()
         try {
-            val frames = if (allFrames) {
-                val raster = DesignRasterizer(designCanvas = true).also(rasters::add)
-                scene.allFramePages(_uiState.value.layers, cw, ch, raster)
-            } else {
-                emptyList()
+            val layers = _uiState.value.layers
+            val frameIds = if (allFrames) scene.allFrameIds(layers) else emptyList()
+            file.outputStream().use { out ->
+                if (frameIds.isEmpty()) {
+                    com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(
+                        listOf(designExportPage(frameId, name, rasters)), out,
+                    )
+                } else {
+                    // Page by page: each frame's raster fallbacks are freed once its page is written,
+                    // so a many-frame PDF holds one page's bitmaps at a time, not all of them.
+                    val perFrame = HashMap<String, DesignRasterizer>()
+                    com.hereliesaz.graffitixr.feature.editor.export.PdfExport.writeEach(
+                        frameIds, out,
+                        page = { id ->
+                            val raster = DesignRasterizer(designCanvas = true).also { perFrame[id] = it }
+                            scene.framePage(layers, id, cw, ch, raster)
+                        },
+                        release = { id -> perFrame.remove(id)?.recycle() },
+                    )
+                }
             }
-            val pages = frames.ifEmpty { listOf(designExportPage(frameId, name, rasters)) }
-            file.outputStream().use { com.hereliesaz.graffitixr.feature.editor.export.PdfExport.write(pages, it) }
         } finally {
             rasters.forEach { it.recycle() }
         }

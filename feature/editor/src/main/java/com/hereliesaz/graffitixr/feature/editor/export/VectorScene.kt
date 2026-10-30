@@ -36,13 +36,33 @@ import kotlin.math.sin
  */
 interface VectorRasterizer {
     /**
-     * [nodes] composited in a full canvas, in canvas pixels: over [backgroundArgb] (only the
+     * [nodes] composited as in a full canvas, in canvas pixels: over [backgroundArgb] (only the
      * document's top level has one), and inside [container]'s frame box (fill and clip) when given.
+     * Only [region] of that canvas is rendered (one pixel per unit): the returned bitmap is
+     * [RasterRegion.width] x [RasterRegion.height], its pixel (0, 0) at ([RasterRegion.left],
+     * [RasterRegion.top]) — which may lie outside the canvas, for a frame bigger than it.
      */
-    fun composite(nodes: List<LayerNode>, backgroundArgb: Int, container: Layer?): Layer?
+    fun composite(nodes: List<LayerNode>, backgroundArgb: Int, container: Layer?, region: RasterRegion): Layer?
 
     /** The whole document page as the PNG export renders it, in page pixels: for a perspective crop. */
     fun document(): Layer?
+}
+
+/** The part of a parent's canvas space a raster fallback renders, in whole units. */
+data class RasterRegion(val left: Int, val top: Int, val width: Int, val height: Int) {
+    companion object {
+        /** No side over this many pixels: a runaway transform must not ask for a gigapixel bitmap. */
+        const val MAX_SIDE = 8192
+
+        /** The whole-unit rectangle covering [l], [t], [r], [b], each side capped at [MAX_SIDE]. */
+        fun covering(l: Float, t: Float, r: Float, b: Float): RasterRegion {
+            val left = kotlin.math.floor(l).toInt()
+            val top = kotlin.math.floor(t).toInt()
+            val w = (kotlin.math.ceil(r).toInt() - left).coerceIn(1, MAX_SIDE)
+            val h = (kotlin.math.ceil(b).toInt() - top).coerceIn(1, MAX_SIDE)
+            return RasterRegion(left, top, w, h)
+        }
+    }
 }
 
 /** A 2D affine map: x' = a·x + c·y + e, y' = b·x + d·y + f (SVG's `matrix(a b c d e f)`). */
@@ -55,6 +75,19 @@ data class Affine(val a: Float, val b: Float, val c: Float, val d: Float, val e:
     )
 
     fun map(x: Float, y: Float): Pair<Float, Float> = (a * x + c * y + e) to (b * x + d * y + f)
+
+    /** The inverse map, or null when this one collapses the plane (a zero scale). */
+    fun inverse(): Affine? {
+        val det = a * d - b * c
+        if (det == 0f || !det.isFinite()) return null
+        return Affine(d / det, -b / det, -c / det, a / det, (c * f - d * e) / det, (b * e - a * f) / det)
+    }
+
+    /** The axis-aligned bounds of the rectangle [l], [t], [w], [h] under this map, as l, t, r, b. */
+    fun bounds(l: Float, t: Float, w: Float, h: Float): FloatArray {
+        val pts = listOf(map(l, t), map(l + w, t), map(l, t + h), map(l + w, t + h))
+        return floatArrayOf(pts.minOf { it.first }, pts.minOf { it.second }, pts.maxOf { it.first }, pts.maxOf { it.second })
+    }
 
     val isIdentity: Boolean get() = this == IDENTITY
 
@@ -141,12 +174,17 @@ object VectorScene {
             ?.let { FrameOps.worldTransform(layers, it) }
         val parentMap = parentT?.let { containerTransform(it.offset.x, it.offset.y, it.scale, it.rotation, canvasW, canvasH) } ?: Affine.IDENTITY
         val root = parentMap.then(Affine.translate(-(canvasW / 2f + box.x), -(canvasH / 2f + box.y)))
-        return VectorPage(frame.name, box.width, box.height, root, listOfNotNull(build(node, canvasW, canvasH, raster)))
+        val region = pageRegion(root, box.width, box.height, canvasW, canvasH)
+        return VectorPage(frame.name, box.width, box.height, root, listOfNotNull(build(node, canvasW, canvasH, raster, region)))
     }
 
     /** Every top-level frame as a page, in stack order (the PDF's "All frames"). */
     fun allFramePages(layers: List<Layer>, canvasW: Float, canvasH: Float, raster: VectorRasterizer? = null): List<VectorPage> =
-        layers.filter { it.isFrame && it.parentId == null && it.isVisible }.mapNotNull { framePage(layers, it.id, canvasW, canvasH, raster) }
+        allFrameIds(layers).mapNotNull { framePage(layers, it, canvasW, canvasH, raster) }
+
+    /** The frames [allFramePages] makes pages of, in order: for building those pages one at a time. */
+    fun allFrameIds(layers: List<Layer>): List<String> =
+        layers.filter { it.isFrame && it.parentId == null && it.isVisible }.map { it.id }
 
     /**
      * The page for the document's artboard: [docW] x [docH], the artboard cut from the canvas the
@@ -175,13 +213,10 @@ object VectorScene {
                 return VectorPage(name, b.width.toFloat(), b.height.toFloat(), Affine.IDENTITY, listOf(image(img, b.width, b.height)))
             }
         }
-        val nodes = buildSiblings(buildLayerTree(layers), canvasW, canvasH, raster, backgroundArgb, null)
-        val background = backgroundArgb.takeIf { it != 0 && !nodes.flattenedBackground }
-            ?.let { listOf(backgroundRect(it, canvasW, canvasH)) }.orEmpty()
         if (activeCrop == null) {
             val s = if (rect[2] > 0f) docW / rect[2] else 1f
             val root = Affine.translate(-rect[0], -rect[1]).then(Affine.scale(s))
-            return VectorPage(name, docW.toFloat(), docH.toFloat(), root, background + nodes.nodes)
+            return VectorPage(name, docW.toFloat(), docH.toFloat(), root, documentNodes(layers, canvasW, canvasH, raster, backgroundArgb))
         }
         // DocumentCropRender.render: through the crop's matrix, cut to its rectangle, scaled to its
         // share of the document's resolution.
@@ -195,7 +230,36 @@ object VectorScene {
         val root = Affine(m[0], m[3], m[1], m[4], m[2], m[5])
             .then(Affine.translate(-left, -top))
             .then(Affine.scale(if (cropW > 0f) outW / cropW else 1f, if (cropH > 0f) outH / cropH else 1f))
-        return VectorPage(name, outW.toFloat(), outH.toFloat(), root, background + nodes.nodes)
+        return VectorPage(name, outW.toFloat(), outH.toFloat(), root, documentNodes(layers, canvasW, canvasH, raster, backgroundArgb))
+    }
+
+    /**
+     * The document's top level, over its background. The artboard is cut from the canvas
+     * (ExportManager.compositeToDocument renders the canvas, then crops), so a raster fallback here
+     * renders the canvas, like the PNG.
+     */
+    private fun documentNodes(layers: List<Layer>, canvasW: Float, canvasH: Float, raster: VectorRasterizer?, backgroundArgb: Int): List<VectorNode> {
+        val region = RasterRegion.covering(0f, 0f, canvasW, canvasH)
+        val nodes = buildSiblings(buildLayerTree(layers), canvasW, canvasH, raster, backgroundArgb, null, region)
+        val background = backgroundArgb.takeIf { it != 0 && !nodes.flattenedBackground }
+            ?.let { listOf(backgroundRect(it, canvasW, canvasH)) }.orEmpty()
+        return background + nodes.nodes
+    }
+
+    /**
+     * What a page of [pageW] x [pageH] shows, in the space [root] maps onto it: where a raster
+     * fallback must render, so content outside the canvas (a frame bigger than it) isn't cut off.
+     */
+    private fun pageRegion(root: Affine, pageW: Float, pageH: Float, canvasW: Float, canvasH: Float): RasterRegion {
+        val b = root.inverse()?.bounds(0f, 0f, pageW, pageH) ?: return RasterRegion.covering(0f, 0f, canvasW, canvasH)
+        return RasterRegion.covering(b[0], b[1], b[2], b[3])
+    }
+
+    /** [region] (in a container's parent space) in the container's own space, through [t] (own to parent). */
+    private fun regionInside(region: RasterRegion, t: Affine): RasterRegion {
+        val b = t.inverse()?.bounds(region.left.toFloat(), region.top.toFloat(), region.width.toFloat(), region.height.toFloat())
+            ?: return region
+        return RasterRegion.covering(b[0], b[1], b[2], b[3])
     }
 
     private fun backgroundRect(argb: Int, w: Float, h: Float) = VectorNode.Shape(
@@ -233,28 +297,32 @@ object VectorScene {
         raster: VectorRasterizer?,
         backgroundArgb: Int,
         container: Layer?,
+        region: RasterRegion,
     ): Siblings {
         val visible = children.filter { it.layer.isVisible }
         val cut = if (raster == null) -1 else visible.indexOfLast { it.layer.actsOnBelow }
         val out = ArrayList<VectorNode>()
         var flattened = false
         if (cut >= 0) {
-            raster?.composite(visible.subList(0, cut + 1), backgroundArgb, container)?.let { img ->
+            raster?.composite(visible.subList(0, cut + 1), backgroundArgb, container, region)?.let { img ->
                 img.bitmap?.let { b ->
-                    out += image(img, b.width, b.height)
+                    out += image(img, b.width, b.height, region)
                     flattened = true
                 }
             }
         }
-        visible.drop(if (flattened) cut + 1 else 0).mapNotNullTo(out) { build(it, w, h, raster) }
+        visible.drop(if (flattened) cut + 1 else 0).mapNotNullTo(out) { build(it, w, h, raster, region) }
         return Siblings(out, flattened)
     }
 
-    /** An image already in its parent's (canvas) pixels. */
-    private fun image(img: Layer, bw: Int, bh: Int) =
-        VectorNode.Image(Affine.IDENTITY, 1f, androidx.compose.ui.graphics.BlendMode.SrcOver, img.name, img, bw, bh)
+    /** An image in its parent's (canvas) pixels, its pixel (0, 0) at [region]'s top-left (identity without one). */
+    private fun image(img: Layer, bw: Int, bh: Int, region: RasterRegion? = null) = VectorNode.Image(
+        region?.let { Affine.translate(it.left.toFloat(), it.top.toFloat()) } ?: Affine.IDENTITY,
+        1f, androidx.compose.ui.graphics.BlendMode.SrcOver, img.name, img, bw, bh,
+    )
 
-    private fun build(node: LayerNode, w: Float, h: Float, raster: VectorRasterizer? = null): VectorNode? {
+    /** [region]: what of this node's parent space reaches the page, where a raster fallback renders. */
+    private fun build(node: LayerNode, w: Float, h: Float, raster: VectorRasterizer?, region: RasterRegion): VectorNode? {
         val l = node.layer
         if (!l.isVisible) return null
         val cx = w / 2f
@@ -263,16 +331,17 @@ object VectorScene {
             // Colour filters have no vector form: embed the layer as the PNG export renders it,
             // unblended at full strength, and keep its opacity and blend on the image.
             val solo = node.copy(layer = l.copy(opacity = 1f, blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver))
-            raster.composite(listOf(solo), 0, null)?.let { img ->
+            raster.composite(listOf(solo), 0, null, region)?.let { img ->
                 val b = img.bitmap ?: return@let null
-                return VectorNode.Image(Affine.IDENTITY, l.opacity, l.blendMode, l.name, img, b.width, b.height)
+                return image(img, b.width, b.height, region).copy(opacity = l.opacity, blendMode = l.blendMode, name = l.name)
             }
         }
         return when {
             l.isContainer -> {
-                val kids = buildSiblings(node.children, w, h, raster, 0, l.takeIf { it.isFrame })
+                val t = containerTransform(l.offset.x, l.offset.y, l.scale, l.rotationZ, w, h)
+                val kids = buildSiblings(node.children, w, h, raster, 0, l.takeIf { it.isFrame }, regionInside(region, t))
                 VectorNode.Group(
-                    transform = containerTransform(l.offset.x, l.offset.y, l.scale, l.rotationZ, w, h),
+                    transform = t,
                     opacity = l.opacity,
                     blendMode = l.blendMode,
                     name = l.name,

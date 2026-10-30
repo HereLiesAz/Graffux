@@ -98,6 +98,9 @@ class ProjectRepositoryImplTest {
         val mockManager = mockk<ProjectManager>(relaxed = true)
         every { mockManager.isSafeProjectId(any()) } returns true
         every { mockManager.resolveInside(any(), any()) } answers { File(firstArg<File>(), secondArg<String>()) }
+        coEvery { mockManager.writeIfWritable<String>(any(), any(), any()) } answers {
+            thirdArg<() -> String>().invoke()
+        }
         val repo = ProjectRepositoryImpl(context, mockManager)
 
         repo.deleteProject("gone")
@@ -109,5 +112,42 @@ class ProjectRepositoryImplTest {
         val path = repo.saveArtifact("gone", "layer.png", byteArrayOf(2))
         assertTrue(File(path).exists())
         assertEquals(listOf("layer.png"), File(files, "projects/gone").list()!!.toList())
+    }
+
+    @Test
+    fun `a refused save throws and leaves the in-memory project as it was`() = runTest(testDispatcher) {
+        val mockManager = mockk<ProjectManager>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { mockManager.isSafeProjectId(any()) } returns true
+        val repo = ProjectRepositoryImpl(context, mockManager)
+        repo.createProject(GraffitiProject(id = "A", name = "A"))
+        coEvery { mockManager.saveProject(any(), any(), any(), any()) } returns false
+
+        val transform = runCatching { repo.updateProject { it.copy(name = "Renamed") } }.exceptionOrNull()
+        assertTrue(transform is com.hereliesaz.graffitixr.domain.repository.ProjectNotSavedException)
+        assertEquals("A", repo.currentProject.value?.name)
+
+        val plain = runCatching { repo.updateProject(GraffitiProject(id = "A", name = "Plain")) }.exceptionOrNull()
+        assertTrue(plain is com.hereliesaz.graffitixr.domain.repository.ProjectNotSavedException)
+        assertEquals("A", repo.currentProject.value?.name)
+    }
+
+    @Test
+    fun `an artifact for a read-only project never lands in the project folder`() = runTest(testDispatcher) {
+        val files = tmp.newFolder("files")
+        val cache = tmp.newFolder("cache")
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns files
+        every { context.cacheDir } returns cache
+        val mockManager = mockk<ProjectManager>(relaxed = true)
+        every { mockManager.isSafeProjectId(any()) } returns true
+        every { mockManager.resolveInside(any(), any()) } answers { File(firstArg<File>(), secondArg<String>()) }
+        coEvery { mockManager.writeIfWritable<String>(any(), any(), any()) } returns null
+        val repo = ProjectRepositoryImpl(context, mockManager)
+
+        val path = repo.saveArtifact("future", "thumbnail.png", byteArrayOf(7))
+        assertFalse(File(files, "projects/future/thumbnail.png").exists())
+        assertTrue(File(path).exists())
+        assertTrue(File(path).canonicalPath.startsWith(cache.canonicalPath))
     }
 }

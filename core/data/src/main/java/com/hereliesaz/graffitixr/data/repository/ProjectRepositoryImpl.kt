@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.updateAndGet
+import com.hereliesaz.graffitixr.domain.repository.ProjectNotSavedException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -110,7 +110,8 @@ class ProjectRepositoryImpl @Inject constructor(
 
     override suspend fun updateProject(project: GraffitiProject) {
         saveMutex.withLock {
-            projectManager.saveProject(context, project)
+            // A refused write must not look like a save: memory stays as it was and the caller hears.
+            if (!projectManager.saveProject(context, project)) throw ProjectNotSavedException(project.id)
             if (_currentProject.value?.id == project.id) {
                 _currentProject.value = project
             }
@@ -124,8 +125,10 @@ class ProjectRepositoryImpl @Inject constructor(
         // concurrent deleteProject can't be followed by a save that resurrects its directory
         // (after a delete `_currentProject` is null, so there is nothing to transform or save).
         saveMutex.withLock {
-            val updated = _currentProject.updateAndGet { current -> current?.let(transform) } ?: return@withLock
-            projectManager.saveProject(context, updated)
+            val updated = _currentProject.value?.let(transform) ?: return@withLock
+            // Publish only what reached disk (every writer holds saveMutex, so nothing moved meanwhile).
+            if (!projectManager.saveProject(context, updated)) throw ProjectNotSavedException(updated.id)
+            _currentProject.value = updated
             refreshProject(updated.id)
         }
     }
@@ -154,20 +157,34 @@ class ProjectRepositoryImpl @Inject constructor(
                 // invisible, never-reclaimed orphan.
                 return@withLock file.absolutePath
             }
-            file.parentFile?.mkdirs()
-            // Atomic write: a half-written artifact can be read back as truncated data. A unique
-            // temp name so concurrent writers to one filename can't share (and truncate) it.
-            val tmp = File(file.parentFile, "${file.name}.${UUID.randomUUID()}.tmp")
-            try {
-                tmp.writeBytes(data)
-                if (!tmp.renameTo(file)) {
-                    tmp.copyTo(file, overwrite = true)
-                }
-            } finally {
-                if (tmp.exists()) tmp.delete()
-            }
-            file.absolutePath
+            // A read-only (newer-format) project keeps every file the newer build wrote: the check
+            // and the write share ProjectManager's per-project lock, like saveProject's. Its session
+            // edits still need somewhere to live, so they go to a scratch copy outside the project.
+            projectManager.writeIfWritable(context, projectId) { writeAtomically(file, data) }
+                ?: writeAtomically(readOnlyScratchFile(projectId, filename), data)
         }
+    }
+
+    /** Where a read-only project's session artifacts go: the cache, never `projects/<id>/`. */
+    private fun readOnlyScratchFile(projectId: String, filename: String): File {
+        val root = File(context.cacheDir, "readonly_artifacts/$projectId")
+        return requireNotNull(projectManager.resolveInside(root, filename)) { "Unsafe artifact filename: $filename" }
+    }
+
+    // Atomic write: a half-written artifact can be read back as truncated data. A unique temp name so
+    // concurrent writers to one filename can't share (and truncate) it.
+    private fun writeAtomically(file: File, data: ByteArray): String {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.parentFile, "${file.name}.${UUID.randomUUID()}.tmp")
+        try {
+            tmp.writeBytes(data)
+            if (!tmp.renameTo(file)) {
+                tmp.copyTo(file, overwrite = true)
+            }
+        } finally {
+            if (tmp.exists()) tmp.delete()
+        }
+        return file.absolutePath
     }
 
     override suspend fun importProject(uri: android.net.Uri): Result<GraffitiProject> {

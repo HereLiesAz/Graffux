@@ -112,17 +112,24 @@ class ExportManager @Inject constructor() {
      * [nodes] (one parent's children, or a run of them) composited into a [w] x [h] canvas exactly
      * as [compositeLayers] composites them: over [backgroundColor] and, for a frame's children,
      * inside [container]'s box. What the vector export embeds where vectors can't express a layer.
+     *
+     * The layers are laid out in the [w] x [h] canvas, but only [region] of it is rendered — the
+     * bitmap is [region]-sized, its pixel (0, 0) at the region's top-left — so content outside the
+     * canvas (a frame bigger than it) is kept rather than cut off. Null renders the canvas itself.
      */
+    @Suppress("LongParameterList")
     fun compositeNodes(
         nodes: List<LayerNode>,
         w: Int,
         h: Int,
         backgroundColor: Int = android.graphics.Color.TRANSPARENT,
         container: Layer? = null,
+        region: RasterRegion? = null,
     ): Bitmap {
-        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val result = Bitmap.createBitmap(region?.width ?: w, region?.height ?: h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         if (backgroundColor != android.graphics.Color.TRANSPARENT) canvas.drawColor(backgroundColor)
+        region?.let { canvas.translate(-it.left.toFloat(), -it.top.toFloat()) }
         container?.let { drawFrameBox(canvas, it, w, h) }
         drawNodes(canvas, nodes, w, h, result)
         return result
@@ -144,7 +151,7 @@ class ExportManager @Inject constructor() {
                     alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
                     blendMode = layer.blendMode.toNativeBlendMode()
                 }
-                canvas.drawBitmap(adjusted, null, android.graphics.Rect(0, 0, w, h), paint)
+                drawInDevicePixels(canvas, adjusted, target, paint)
                 adjusted.recycle()
                 return
             }
@@ -579,6 +586,17 @@ class ExportManager @Inject constructor() {
 }
 
 /** A frame's fill, then (when it clips) its box as [canvas]'s clip for the children after it. */
+/**
+ * Draws [image], which is in [target]'s pixels ([target] being [canvas]'s own bitmap), pixel for
+ * pixel onto it, whatever translation [canvas] carries (a region render's).
+ */
+private fun drawInDevicePixels(canvas: Canvas, image: Bitmap, target: Bitmap, paint: Paint) {
+    canvas.save()
+    canvas.setMatrix(Matrix())
+    canvas.drawBitmap(image, null, android.graphics.Rect(0, 0, target.width, target.height), paint)
+    canvas.restore()
+}
+
 private fun drawFrameBox(canvas: Canvas, layer: Layer, w: Int, h: Int) {
     if (layer.type != LayerType.FRAME || layer.layoutWidth <= 0f || layer.layoutHeight <= 0f) return
     val box = android.graphics.RectF(
