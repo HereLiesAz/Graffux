@@ -347,7 +347,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var menuOpen by rememberSaveable { mutableStateOf(false) }
     var showViewMenu by rememberSaveable { mutableStateOf(false) }
     var showPosterMenu by rememberSaveable { mutableStateOf(false) }
-    var posterChoices by remember { mutableStateOf(PosterChoices()) }
+    var posterChoices by rememberSaveable(stateSaver = PosterChoicesSaver) { mutableStateOf(PosterChoices()) }
     // The brush's long-press menu, a layer's menu (by layer id), and the About reader.
     var brushMenuOpen by rememberSaveable { mutableStateOf(false) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }

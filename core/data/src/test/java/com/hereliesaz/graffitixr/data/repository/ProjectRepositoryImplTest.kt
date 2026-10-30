@@ -150,4 +150,44 @@ class ProjectRepositoryImplTest {
         assertTrue(File(path).exists())
         assertTrue(File(path).canonicalPath.startsWith(cache.canonicalPath))
     }
+
+    private fun scratchRepo(files: File, cache: File): Pair<ProjectRepositoryImpl, ProjectManager> {
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns files
+        every { context.cacheDir } returns cache
+        val mockManager = mockk<ProjectManager>(relaxed = true)
+        every { mockManager.isSafeProjectId(any()) } returns true
+        every { mockManager.resolveInside(any(), any()) } answers { File(firstArg<File>(), secondArg<String>()) }
+        coEvery { mockManager.writeIfWritable<String>(any(), any(), any()) } returns null
+        coEvery { mockManager.loadProjectMetadata(any(), any()) } answers {
+            GraffitiProject(id = secondArg(), name = "p")
+        }
+        return ProjectRepositoryImpl(context, mockManager) to mockManager
+    }
+
+    @Test
+    fun `stale read-only scratch from an earlier process is swept on first use`() = runTest(testDispatcher) {
+        val cache = tmp.newFolder("cache")
+        val stale = File(cache, "readonly_artifacts/old/layer.png").also { it.parentFile!!.mkdirs(); it.writeText("x") }
+        val (repo, _) = scratchRepo(tmp.newFolder("files"), cache)
+        repo.loadProject("future")
+        assertFalse(stale.exists())
+    }
+
+    @Test
+    fun `read-only scratch is dropped when its project is closed or deleted`() = runTest(testDispatcher) {
+        val cache = tmp.newFolder("cache")
+        val (repo, _) = scratchRepo(tmp.newFolder("files"), cache)
+        repo.loadProject("A")
+        val a = File(repo.saveArtifact("A", "layer.png", byteArrayOf(1)))
+        assertTrue(a.exists())
+        repo.loadProject("A") // reopening the same project keeps its session edits
+        assertTrue(a.exists())
+        repo.loadProject("B") // closing A
+        assertFalse(a.exists())
+
+        val b = File(repo.saveArtifact("B", "layer.png", byteArrayOf(2)))
+        repo.deleteProject("B")
+        assertFalse(b.exists())
+    }
 }
