@@ -404,6 +404,29 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `guide transforms persist in format six and old sketches keep a view plane`() {
+        val storedGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(
+            kind = com.hereliesaz.graffitixr.common.mesh.SpatialGuideKind.CYLINDER,
+            center = com.hereliesaz.graffitixr.common.mesh.SpatialPoint(0.5f, 1f, -0.5f),
+            radius = 1.4f, height = 3f, yaw = 0.6f, pitch = -0.25f, visible = false,
+        )
+        val project = GraffitiProject(id = "guide-scene", spatialGuide = storedGuide)
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val restored = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
+        assertEquals(6, restored.formatVersion)
+        assertEquals(storedGuide, restored.spatialGuide)
+
+        // Independent historical format-5 fixture: no guide key was ever written in that format.
+        val legacy = """{"formatVersion":5,"id":"old-sketch","spatialStrokes":[
+            {"id":"old-line","points":[{"x":1.0,"y":0.0,"z":0.0}],
+             "colorArgb":-1,"width":0.2}]}"""
+        val reopened = manager.decodeProject(legacy)
+        assertEquals(6, reopened.formatVersion)
+        assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), reopened.spatialGuide)
+        assertEquals(1f, reopened.spatialStrokes.single().points.single().x, 0f)
+    }
+
+    @Test
     fun `a newer format is never lowered`() {
         assertEquals(7, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 7), 7).formatVersion)
     }
