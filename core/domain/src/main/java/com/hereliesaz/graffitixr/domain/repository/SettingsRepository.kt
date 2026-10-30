@@ -91,26 +91,11 @@ interface SettingsRepository {
     suspend fun setGestureAction(slot: GestureSlot, action: GestureAction)
 
     /**
-     * How often and how recently each tool has been picked, for the shortcuts sheet's Recent and
-     * Frequent strips. Written on every tool selection, so the implementation must be cheap.
-     */
-    val toolUsage: Flow<com.hereliesaz.graffitixr.common.model.ToolUsage>
-    suspend fun recordToolUse(tool: com.hereliesaz.graffitixr.common.model.Tool, atMs: Long)
-
-    /**
-     * The tools the user pinned, in the order they pinned them — the sheet's Favourites strip.
-     *
-     * A list rather than a set, because the order *is* the arrangement: a favourites strip you have
-     * put in an order and the app then re-sorts is a strip you have to read every time instead of
-     * reaching for the position you remember.
-     */
-    val favoriteTools: Flow<List<String>>
-    suspend fun toggleFavoriteTool(tool: com.hereliesaz.graffitixr.common.model.Tool)
-
-    /**
      * The bottom carousel's starred entries, as the entries' stable keys (`builtin.<name>`,
      * `custom.<id>`, `ink.<id>`, a tool id, `stabilizer.<level>`, ...), in the order they were
-     * starred. Same list-not-set reasoning as [favoriteTools].
+     * starred. A list rather than a set, because the order *is* the arrangement: a favourites
+     * page the app re-sorts is one you have to read every time instead of reaching for the position
+     * you remember.
      */
     val carouselFavorites: Flow<List<String>>
 

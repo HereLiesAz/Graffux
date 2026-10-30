@@ -241,7 +241,8 @@ class ChromeUiTest {
         rule.onNodeWithTag("rail.layer.c").performTouchInput {
             down(center)
             advanceEventTime(viewConfiguration.longPressTimeoutMillis + 100)
-            repeat(10) { moveBy(androidx.compose.ui.geometry.Offset(0f, 40f)) }
+            // Past a's centre but short of the trash at the rail's foot, which would delete it.
+            repeat(9) { moveBy(androidx.compose.ui.geometry.Offset(0f, 40f)) }
             up()
         }
         rule.waitForIdle()

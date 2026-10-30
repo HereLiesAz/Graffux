@@ -92,7 +92,7 @@ class PhotoCropUiTest {
                     }
                     CropOverlay(crop, docW, docH, zoom = 1f, offset = Offset.Zero, rotation = 0f, actions = actions)
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = EdgeStripHeight + 4.dp, chromeHidden = { drag.active }) {
+                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = CarouselBottomInset, chromeHidden = { drag.active }) {
                             PhotoSheetBody(
                                 tab = PhotoTab.CROP, showingControls = true, adjustment = null, actions = photoActions,
                                 drag = drag, onSelectTab = {}, crop = CropContext(crop, docW, docH, actions),

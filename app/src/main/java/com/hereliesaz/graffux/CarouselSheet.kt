@@ -48,6 +48,12 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
+ * Empty space kept under the carousel's content, above the navigation bar, so its grab pill stays
+ * clear of the bottom edge's system gestures.
+ */
+internal val CarouselBottomInset = 20.dp
+
+/**
  * Whether the sheet is actually drawn open: the user's choice, overridden shut while the UI is
  * hidden for drawing (a stroke, plus [DRAWING_UI_RETURN_DELAY_MS] after it). [userOpen] is never
  * changed by a stroke, so the sheet comes back on its own after the hold — and one the user had shut
@@ -73,8 +79,9 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
 
 /**
  * A bottom sheet with no surface of its own: [content] and a small grab pill above it, over a
- * full-width dark, mostly transparent scrim ([CarouselScrimBrush]). Drag it down to shut it (the
- * pill stays, to pull it back up), drag or fling it up to open it, or tap the pill. It settles open
+ * full-width dark, mostly transparent scrim ([CarouselScrimBrush]). Drag it down to shut it, drag
+ * or fling it up to open it, or tap the pill. The editor composes it only while it is open (it is
+ * opened from the rail), so a shut sheet leaves nothing behind there. It settles open
  * or shut by [carouselSheetSettlesOpen]; [onOpenChange] reports where.
  *
  * The sheet has stages above shut (tab list, then carousel). While it is open, an upward swipe past
@@ -94,8 +101,7 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
  *
  * Why not AzNavRail's own `azBottomSheet` (guide §10): at PEEK that shell lays a full-screen
  * transparent tap catcher over the app (§10.4), which would stop the canvas taking a single stroke
- * while the carousel is open; its detents step on to HALF/FULL with a scrim; and it would compete for
- * the bottom edge with the shortcuts sheet that already uses it. So this lives in the carousel's own
+ * while the carousel is open; and its detents step on to HALF/FULL with a scrim. So this lives in the carousel's own
  * `background()` page and only the sheet's own pixels take touches.
  */
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList")

@@ -10,7 +10,7 @@ import kotlin.math.abs
  * Opacity, Softness (and, for Smudge, Strength). The live editor fields (`EditorUiState.brushSize`
  * and friends) are only ever the settings of the item in hand:
  *
- *  - selecting an item — from the carousel, the rail, the shortcuts sheet, anywhere — applies that
+ *  - selecting an item — from the carousel, the rail, anywhere — applies that
  *    item's saved settings ([CarouselItemSettingsSync] watches the active item's key);
  *  - any edit to the live fields while an item is in hand (a hero slider, Tool Options, the size
  *    HUD) is saved back to that item and no other;

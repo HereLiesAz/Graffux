@@ -118,7 +118,7 @@ class DesignMockupShotTest {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F))) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = EdgeStripHeight + 4.dp) {
+                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = CarouselBottomInset) {
                             DesignSheetBody(
                                 DesignTab.FRAME, showingControls = true, target = target, actions = design, onSelectTab = {},
                                 library = library, libraryActions = libraryActions,
@@ -166,7 +166,7 @@ class DesignMockupShotTest {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F))) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = EdgeStripHeight + 4.dp) {
+                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = CarouselBottomInset) {
                             DesignSheetBody(DesignTab.EXPORT, showingControls = true, target = null, actions = design, onSelectTab = {}, export = export)
                         }
                     }

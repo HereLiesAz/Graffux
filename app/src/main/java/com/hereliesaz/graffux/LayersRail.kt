@@ -91,7 +91,7 @@ internal class LayersRailCallbacks(
      */
     val onRelocate: (List<String>, String?) -> Unit,
     val onAdd: () -> Unit,
-    /** A layer dragged onto the trash that appears while dragging: delete it (undoable). */
+    /** A layer dragged onto the trash at the bottom of the rail: delete it (undoable). */
     val onDelete: (String) -> Unit = {},
 )
 
@@ -100,45 +100,31 @@ internal fun droppedOnTrash(finger: Offset, trash: Rect?): Boolean =
     trash != null && !trash.isEmpty && trash.inflate(TRASH_SLOP_PX).contains(finger)
 
 /**
- * Where the trash shows while a layer is dragged: centred at the bottom of the window, clear of
- * the rails. Records the rectangle it placed so the drop can be hit-tested in the same space.
+ * The trash at the bottom of the layers rail that a dragged layer is dropped on; lit while the
+ * finger is over it. Reports where it sits (window px) so the drop is hit-tested in the same space
+ * as the finger.
  */
-private class TrashPosition(private val onPlaced: (Rect) -> Unit) : PopupPositionProvider {
-    override fun calculatePosition(
-        anchorBounds: IntRect,
-        windowSize: IntSize,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        popupContentSize: IntSize,
-    ): IntOffset {
-        val x = (windowSize.width - popupContentSize.width) / 2
-        val y = windowSize.height - popupContentSize.height - (windowSize.height / TRASH_BOTTOM_FRACTION)
-        onPlaced(Rect(x.toFloat(), y.toFloat(), (x + popupContentSize.width).toFloat(), (y + popupContentSize.height).toFloat()))
-        return IntOffset(x, y)
-    }
-}
-
-/** The trash a dragged layer is dropped on; lit while the finger is over it. */
+@Suppress("FunctionNaming")
 @Composable
 private fun LayerTrash(hot: Boolean, onPlaced: (Rect) -> Unit) {
-    val provider = remember { TrashPosition(onPlaced) }
-    Popup(popupPositionProvider = provider, properties = PopupProperties(focusable = false, clippingEnabled = false)) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(TrashSize)
-                .clip(CircleShape)
-                .background(if (hot) RailInk else TrashFill)
-                .border(1.dp, if (hot) RailInk else RailBorder, CircleShape)
-                .semantics { contentDescription = "Delete layer" }
-                .testTag("rail.layer.trash"),
-        ) {
-            Icon(
-                painterResource(GraffuxIcons.LayerDelete),
-                contentDescription = null,
-                tint = if (hot) TrashFill else RailInk,
-                modifier = Modifier.size(24.dp),
-            )
-        }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(RailTouchSize)
+            .onGloballyPositioned { onPlaced(it.boundsInWindow()) }
+            .padding(TrashInset)
+            .clip(CircleShape)
+            .background(if (hot) RailInk else TrashFill)
+            .border(1.dp, if (hot) RailInk else RailBorder, CircleShape)
+            .semantics { contentDescription = "Delete layer: drag a layer here" }
+            .testTag("rail.layer.trash"),
+    ) {
+        Icon(
+            painterResource(GraffuxIcons.LayerDelete),
+            contentDescription = null,
+            tint = if (hot) TrashFill else RailInk,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -221,7 +207,7 @@ private data class GhostPosition(val x: Int, val y: Int) : PopupPositionProvider
  * layers top-first — each its own thumbnail, the active one ringed, a hidden one dimmed and badged,
  * a locked one badged. Tap selects; a second tap or a long-press opens the layer's menu (Delete is
  * there); long-press and drag reorders a layer among its siblings (a group carries its children),
- * and dropping it on the trash that appears while dragging deletes it (undoable).
+ * and dropping it on the trash at the bottom of the rail deletes it (undoable).
  * The whole rail is hidden from View… → Layers panel.
  */
 @Suppress("FunctionNaming", "LongMethod")
@@ -267,9 +253,8 @@ internal fun LayersRail(
         }
     }
     if (dragging != null) {
-        LayerTrash(hot = overTrash) { trashRect[0] = it }
         // The carried layer, drawn above the rail's clip so it stays under the finger all the way
-        // to the trash (the copy in the rail stays behind, dimmed, as the placeholder).
+        // to the trash at the rail's foot (the copy in the rail stays behind, dimmed, as the placeholder).
         val carried = layers.firstOrNull { layerRailId(it.id) == dragging }
         val origin = windowOrigins[dragging] ?: Offset.Zero
         if (carried != null) {
@@ -345,7 +330,6 @@ internal fun LayersRail(
                             dragDy = 0f
                             dragDx = 0f
                             overTrash = false
-                            trashRect[0] = null
                             val start = centers[id] ?: 0f
                             val downInWindow = (windowOrigins[id] ?: Offset.Zero) + press.position
                             fingerY = downInWindow.y
@@ -408,6 +392,9 @@ internal fun LayersRail(
                 )
             }
         } }
+        // The trash, always at the foot of the rail: drag a layer onto it to delete it.
+        RailDivider()
+        LayerTrash(hot = overTrash) { trashRect[0] = it }
     }
 }
 
@@ -564,7 +551,6 @@ private const val PLACEHOLDER_ALPHA = 0.35f
 private val AutoscrollEdge = 40.dp
 private val AutoscrollMaxStep = 12.dp
 
-private val TrashSize = 56.dp
+private val TrashInset = 4.dp
 private val TrashFill = Color(0xFF161618)
 private const val TRASH_SLOP_PX = 24f
-private const val TRASH_BOTTOM_FRACTION = 8

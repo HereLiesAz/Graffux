@@ -337,11 +337,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         HardwareFloorNotice.takeOnce(noticeContext)?.let { alerts.show(kind = MessageKind.NOTICE, message = it) }
     }
 
-    // The shortcuts sheet: shut, a swipe strip along the bottom edge (see EdgeSheet).
-    var shortcutsOpen by rememberSaveable { mutableStateOf(false) }
-    val toolUsage by vm.toolUsage.collectAsState()
-    val favoriteTools by vm.favoriteTools.collectAsState()
-
     var showSettings by rememberSaveable { mutableStateOf(false) }
     // The logo menu: open state, which page it shows, and a reopen request (see the menu).
     var menuOpen by rememberSaveable { mutableStateOf(false) }
@@ -521,7 +516,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         BackLayer(showAbout) { showAbout = false },
         BackLayer(showGestureHelp) { showGestureHelp = false },
     ) + windowLayers + listOf(
-        BackLayer(shortcutsOpen) { shortcutsOpen = false },
         BackLayer(uiState.activePanel != EditorPanel.NONE) { vm.onDismissPanel() },
         BackLayer(carouselUi.sheetOpen) { carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false) },
     )
@@ -832,7 +826,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // Lit already: a second tap leaves, back to brushes.
             carouselUi = carouselUi.copy(photo = false, tab = null, showingCarousel = false)
         } else {
-            shortcutsOpen = false
             showCarousel = true
             if (uiState.activeTool != Tool.NONE) vm.setActiveTool(Tool.NONE)
             // Straight to the last tab used; the first time, the tab list.
@@ -850,7 +843,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         showPosterMenu = false
         brushMenuOpen = false
         layerMenuFor = null
-        shortcutsOpen = false
         if (carouselUi.sheetOpen) carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
         heroExpansion.collapse()
         TOOLBOX_IDS.filter { railExpansion[it] == true }.forEach { vm.onRailHostExpansionChanged(it, false) }
@@ -943,18 +935,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             )
         }
 
-        // The bottom carousel, centred on the whole screen and over the canvas.
-        // Not while the shortcuts sheet is up: both hang from the bottom edge, and drawn together
-        // they stacked two handles and two tab rows on top of each other.
-        if (carouselOnScreen && !shortcutsOpen) {
+        // The bottom carousel, centred on the whole screen and over the canvas. Only while it is
+        // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
+        // lying along the bottom edge as a pill to swipe up.
+        if (carouselOnScreen && carouselUi.sheetOpen) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 CarouselSheet(
                     open = carouselUi.sheetOpen,
-                    // Swiped up from shut, the sheet shows its tab list only; a tab, or a
-                    // second swipe up, brings the carousel back where it was.
+                    // Shut, it leaves the screen; a tab, or a swipe up from the tab list,
+                    // brings the carousel back where it was.
                     onOpenChange = { open ->
                         carouselUi = carouselUi.copy(sheetOpen = open, showingCarousel = false)
                     },
@@ -974,10 +966,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // it lifts (read in the sheet, so this screen does not recompose).
                     hiddenForDrawing = { chrome.hidden && !chrome.forcedOnly },
                     chromeHidden = { photoDrag.active },
-                    // Clears the nav bar itself, plus the shortcuts sheet's swipe strip,
-                    // which sits along the bottom edge and would otherwise take the grab
-                    // pill's touches.
-                    bottomInset = EdgeStripHeight + 4.dp,
+                    // Clears the nav bar itself and keeps the grab pill off the screen's
+                    // bottom edge, where system gestures would take its touches.
+                    bottomInset = CarouselBottomInset,
                 ) {
                     val carouselInputs = CarouselInputs(
                         groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
@@ -1230,7 +1221,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     callbacks = ToolRailCallbacks(
                         onToolOptions = openToolOptionsCard,
                         onToolGroup = { category ->
-                            shortcutsOpen = false
                             showCarousel = true
                             heroExpansion.collapse()
                             carouselUi = carouselUi.copy(
@@ -1477,34 +1467,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     },
                     modifier = Modifier.align(Alignment.TopEnd),
                 )
-
-                // The tools you actually reach for, one swipe from the bottom edge: the flat row of
-                // the ones that matter to you, where the rail holds every tool the app has.
-                EdgeSheet(
-                    open = shortcutsOpen,
-                    onOpenChange = { open ->
-                        shortcutsOpen = open
-                        // One bottom sheet at a time: opening the shortcuts shuts the carousel.
-                        if (open && carouselUi.sheetOpen) {
-                            carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
-                        }
-                    },
-                    label = "Shortcuts",
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                ) {
-                    ShortcutsSheet(
-                        activeTool = uiState.activeTool,
-                        usage = toolUsage,
-                        favorites = favoriteTools,
-                        onPickTool = { tool ->
-                            // Same rule as the rail's own tool items: tapping the tool already in
-                            // hand puts it down.
-                            vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
-                        },
-                        onToggleFavorite = { tool -> vm.onToggleFavoriteTool(tool) },
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
             }
 
             // The way back out of full-screen art mode (four-finger tap): the gesture is documented

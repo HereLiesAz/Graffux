@@ -242,17 +242,18 @@ codebase is deferred scope or a real gap in the install-report flow.
   in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
   by the rail's width, so `background()` is the only page laid out across the whole window, and that
   is what centres the carousel on the screen. `CarouselSheet` keeps a `bottomInset` (nav bar plus
-  the shortcuts sheet's 28dp HIDDEN strip) below its content, because background pages aren't inset
+  `CarouselBottomInset`) below its content, because background pages aren't inset
   and `LocalAzSafeZones` isn't provided to them.
   **Sheet.** `CarouselSheet` is a draggable sheet with no surface of its own. Behind it sits a
   full-width scrim (`CarouselScrimBrush`): black, transparent at its top edge, 40% by 22% of its
   height and 45% at the screen's bottom edge. It runs down behind `bottomInset`, fades out as the
   sheet shuts, and is a sibling with no pointer input, so it never takes a canvas touch. Drag it
-  down to hide it (a grab pill stays), and drag, fling or tap the pill to bring it back.
+  down to shut it. It is composed only while open: it opens from the rail (Brush, the Retouch group,
+  Adjust, Tool Options), never from a pill or strip left along the bottom edge.
   `carouselSheetSettlesOpen` decides where it settles. The sheet's open state lives in `CarouselUi`,
   held by `remember` as the old collapse state was. It does not use `azBottomSheet` (guide §10), for
-  three reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
-  painting. Its detents step on to HALF/FULL. And the shortcuts sheet already owns the bottom edge.
+  two reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
+  painting. And its detents step on to HALF/FULL.
   The areas dropdown's "Carousel" toggle still removes it entirely.
   **More grows the hero (`CarouselHeroExpanded.kt`).** "More" grows the card; there is no Tool Options window. The
   hero card grows in place (M3 Expressive `defaultSpatialSpec`), from its own size to 1.5x as wide
@@ -294,7 +295,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   `carousel_item_settings`, tab/newline records). `EditorViewModel` holds them in memory, loads them
   lazily, and writes them back after a 300ms debounce. The live `EditorUiState` fields are only the
   settings of the item in hand. `activeCarouselSettingsKey` derives that item from editor state, so a
-  pick from the rail or the shortcuts sheet counts too. `CarouselItemSettingsSync` (pure) then does
+  pick from the rail counts too. `CarouselItemSettingsSync` (pure) then does
   two things. When the key changes it *applies* the item's saved settings, or its preset from
   `carouselItemDefaults`; `applyCarouselItemSettings` shows no size HUD. When the live values change
   under the same key (a hero slider, Tool Options, the size HUD) it *saves* them as that item's.

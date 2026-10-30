@@ -111,7 +111,7 @@ class PhotoRetouchUiTest {
                     if (bg != null) Image(bg.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                     overlay()
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = EdgeStripHeight + 4.dp) {
+                        CarouselSheet(open = true, onOpenChange = {}, bottomInset = CarouselBottomInset) {
                             PhotoSheetBody(
                                 tab = tab, showingControls = tab != null, adjustment = null, actions = photoActions, drag = drag,
                                 onSelectTab = {}, retouch = RetouchContext(state, actions, maskTarget),

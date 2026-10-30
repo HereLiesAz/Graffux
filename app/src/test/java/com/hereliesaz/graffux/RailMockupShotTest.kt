@@ -112,8 +112,9 @@ class RailMockupShotTest {
         // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
         // The Brush and the Retouch group, back on the rail (44 + 6 each).
         assertEquals(listOf(12, 16, 56, 488 + 50 + 50 + 50 + 1 + 50 + 50), listOf(dp(tools.left), dp(tools.top), dp(tools.width), dp(tools.height)))
-        // 2 + 12 + 5 × 44 + 5 gaps × 6 + 9, exactly the mockup's.
-        assertEquals(listOf(390 - 12 - 56, 72, 56, 273), listOf(dp(layers.left), dp(layers.top), dp(layers.width), dp(layers.height)))
+        // 2 + 12 + 5 × 44 + 5 gaps × 6 + 9, exactly the mockup's, plus the trash at its foot (a
+        // divider and one 48dp target, with their gaps): 65.
+        assertEquals(listOf(390 - 12 - 56, 72, 56, 273 + 65), listOf(dp(layers.left), dp(layers.top), dp(layers.width), dp(layers.height)))
         // The 48dp target is 2dp outside the drawn 44dp button on every side.
         assertEquals(listOf(390 - 18 - 44, 16, 44), listOf(dp(logo.left) + 2, dp(logo.top) + 2, dp(logo.width) - 4))
     }

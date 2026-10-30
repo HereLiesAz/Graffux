@@ -416,7 +416,7 @@ private fun CarouselStrip(
         if (carouselSettleSelects(entry, byTap)) click(entry)
     }
     // The hero slot follows the current selection, whichever surface changed it (this strip, the
-    // rail, the shortcuts sheet or the Tool Options window). A settle selects the item it already
+    // rail or the Tool Options window). A settle selects the item it already
     // rests on, so this animates nowhere and nothing loops.
     LaunchedEffect(selected, entries.size) {
         if (selected != null && selected != state.currentItem) programmatic.centre(state, selected)
