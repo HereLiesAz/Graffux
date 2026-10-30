@@ -1,6 +1,9 @@
 package com.hereliesaz.graffux
 
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -91,7 +94,9 @@ internal fun ShortcutsSheet(
 
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            // Scrolls rather than squeezes: with a large font scale the three labels can outgrow a
+            // phone's width, and a squeezed label wraps one letter per line.
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             ShortcutTab.entries.forEach { entry ->
@@ -138,10 +143,17 @@ internal fun ShortcutsSheet(
  */
 @Composable
 private fun TabLabel(text: String, selected: Boolean, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // As wide as its label and no wider. The underline's fillMaxWidth used to size the whole column
+    // to the row, so the first tab took every pixel and the others were squeezed to nothing.
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(IntrinsicSize.Max).testTag("shortcuts.tab.${text}"),
+    ) {
         Text(
             text,
             style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            softWrap = false,
             color = if (selected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.clickable(onClick = onClick).heightIn(min = 48.dp).padding(vertical = 14.dp),

@@ -82,12 +82,12 @@ internal class ToolRailCallbacks(
 
 /**
  * The left tool rail (right, for the left-handed), laid out as the approved mockup draws it: the
- * brush-size chip and the colour; then Fill, Text, Vector, Selection and Crop & Transform; then Undo
- * and Redo. Two items the mockup does not draw stay, after Transform, because nothing else reaches
- * them as directly: the Eraser, and Fit (only while the view has moved).
+ * brush-size chip and the colour; then Brush, Fill, Text, Vector, Selection, Crop & Transform and
+ * Retouch; then Undo and Redo. Items the mockup does not draw stay because nothing else reaches them
+ * as directly: the Brush and Retouch (every drawing and retouching tool must be on the rail, not only
+ * in the sheet), the Eraser, and Fit (only while the view has moved).
  *
- * The brush itself is picked from the sheet, so it has no button here; its long-press menu (Brush
- * Studio, My Brushes, Brush Tips) is on the size chip.
+ * The brush's long-press menu (Brush Studio, My Brushes, Brush Tips) is on the size chip.
  *
  * [lit] is [activeRailClassifiers] (plus the tool group whose sheet is open) and [secondary] is
  * [secondaryRailClassifiers]: an item is lit by its own id, so the rail and those functions read one
@@ -153,6 +153,9 @@ internal fun ToolRail(
             )
         }
         RailDivider()
+        // The brush, back on the rail: the sheet is shut while drawing, and picking the brush up
+        // again must not need it. Its long-press menu stays on the size chip above.
+        tool(Tool.BRUSH, "Brush") { RailGlyph(TOOL_CATALOG.getValue(Tool.BRUSH).icon, active = it) }
         tool(Tool.FILL, "Fill") { RailGlyph(RailIcons.Fill, active = it) }
         tool(Tool.TEXT, "Text") { active ->
             Text(
@@ -169,6 +172,14 @@ internal fun ToolRail(
             badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString(),
         )
         group("grp.transform", "Crop & Transform", RailIcons.Transform, CarouselCategory.TRANSFORM)
+        // Retouch: Heal, Clone, Blur, Sharpen, Smudge, Liquify, Dodge, Burn and Colorize, as one
+        // group that puts the sheet on the Effects page (lit while one of them is in hand).
+        RailButton(
+            label = "Retouch",
+            light = light(RETOUCH_RAIL_ID),
+            testTag = "rail.$RETOUCH_RAIL_ID",
+            onClick = { callbacks.onToolGroup(CarouselCategory.EFFECTS) },
+        ) { RailGlyph(TOOL_CATALOG.getValue(Tool.HEAL).icon, active = RETOUCH_RAIL_ID in lit) }
         // The design tools: frames, the properties and the panels that act on them.
         ModeButton(
             label = "Frame",
@@ -216,6 +227,9 @@ internal enum class DragAxis { VERTICAL, HORIZONTAL }
 /** The axis a drag that has moved [total] so far is locked to: whichever it moved further along. */
 internal fun dominantAxis(total: Offset): DragAxis =
     if (abs(total.x) > abs(total.y)) DragAxis.HORIZONTAL else DragAxis.VERTICAL
+
+/** The Retouch group's rail id: lit while an [EFFECT_TOOLS] tool is in hand or its page is open. */
+internal const val RETOUCH_RAIL_ID = "grp.effects"
 
 /** The Adjust circle's rail id: lit while the sheet shows the photo tabs. */
 internal const val PHOTO_RAIL_ID = "area.photo"

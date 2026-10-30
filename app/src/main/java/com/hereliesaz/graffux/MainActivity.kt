@@ -832,6 +832,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // Lit already: a second tap leaves, back to brushes.
             carouselUi = carouselUi.copy(photo = false, tab = null, showingCarousel = false)
         } else {
+            shortcutsOpen = false
             showCarousel = true
             if (uiState.activeTool != Tool.NONE) vm.setActiveTool(Tool.NONE)
             // Straight to the last tab used; the first time, the tab list.
@@ -943,7 +944,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         }
 
         // The bottom carousel, centred on the whole screen and over the canvas.
-        if (carouselOnScreen) {
+        // Not while the shortcuts sheet is up: both hang from the bottom edge, and drawn together
+        // they stacked two handles and two tab rows on top of each other.
+        if (carouselOnScreen && !shortcutsOpen) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter,
@@ -1227,6 +1230,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     callbacks = ToolRailCallbacks(
                         onToolOptions = openToolOptionsCard,
                         onToolGroup = { category ->
+                            shortcutsOpen = false
                             showCarousel = true
                             heroExpansion.collapse()
                             carouselUi = carouselUi.copy(
@@ -1478,7 +1482,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 // the ones that matter to you, where the rail holds every tool the app has.
                 EdgeSheet(
                     open = shortcutsOpen,
-                    onOpenChange = { shortcutsOpen = it },
+                    onOpenChange = { open ->
+                        shortcutsOpen = open
+                        // One bottom sheet at a time: opening the shortcuts shuts the carousel.
+                        if (open && carouselUi.sheetOpen) {
+                            carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
+                        }
+                    },
                     label = "Shortcuts",
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) {
@@ -2158,6 +2168,7 @@ internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = 
     // show no armed tool at all while one is armed.
     if (uiState.activeTool in VECTOR_TOOLS) add(VECTOR_ID)
     if (uiState.activeTool in SELECT_TOOLS) add(SELECT_ID)
+    if (uiState.activeTool in EFFECT_TOOLS) add(RETOUCH_RAIL_ID)
     // Node editing is a vector mode rather than a Tool, so it lights its host separately.
     if (uiState.pathEditLayerId != null) add(VECTOR_ID)
     // Clone's second step. It lights once the tool is aimed, which is the state that decides whether

@@ -15,6 +15,7 @@ internal fun carouselGroupRailId(category: CarouselCategory): String? = when (ca
     CarouselCategory.TRANSFORM -> "grp.transform"
     CarouselCategory.SELECTION -> "grp.select"
     CarouselCategory.VECTOR -> "grp.vector"
+    CarouselCategory.EFFECTS -> RETOUCH_RAIL_ID
     else -> null
 }
 
