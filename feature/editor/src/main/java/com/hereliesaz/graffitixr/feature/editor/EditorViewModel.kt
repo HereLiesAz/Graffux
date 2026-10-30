@@ -2345,6 +2345,9 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModel(project)
+                        _spatialStrokes.value = project.spatialStrokes
+                        spatialUndoHistory.clear()
+                        spatialRedoHistory.clear()
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -4350,6 +4353,7 @@ class EditorViewModel @Inject constructor(
                 canvasSubstrateId = _uiState.value.canvasSubstrateId,
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
+                spatialStrokes = _spatialStrokes.value,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4367,6 +4371,7 @@ class EditorViewModel @Inject constructor(
                     canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
                     documentCrop = _uiState.value.documentCrop,
+                    spatialStrokes = _spatialStrokes.value,
                     formatVersion = maxOf(
                         current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
                     ),
@@ -11119,6 +11124,72 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // ── Editable world-space ink ──────────────────────────────────────────────────────────────
+
+    private val _spatialStrokes =
+        MutableStateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>(emptyList())
+    val spatialStrokes: StateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>> =
+        _spatialStrokes.asStateFlow()
+
+    // Snapshot once per committed curve, not per input sample. This history never mixes 2D layers
+    // with 3D curves or travels to a different project.
+    private val spatialUndoHistory =
+        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
+    private val spatialRedoHistory =
+        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
+
+    private fun recordSpatialEdit() {
+        if (spatialUndoHistory.size >= SPATIAL_UNDO_LIMIT) spatialUndoHistory.removeFirst()
+        spatialUndoHistory.addLast(_spatialStrokes.value)
+        spatialRedoHistory.clear()
+    }
+
+    fun onSpatialStroke(stroke: com.hereliesaz.graffitixr.common.mesh.SpatialStroke) {
+        if (stroke.points.isEmpty()) return
+        recordSpatialEdit()
+        _spatialStrokes.update { it + stroke }
+        saveProject()
+    }
+
+    fun onSpatialErase(id: String) {
+        if (_spatialStrokes.value.none { it.id == id }) return
+        recordSpatialEdit()
+        _spatialStrokes.update { list -> list.filterNot { it.id == id } }
+        saveProject()
+    }
+
+    fun onSpatialUndo() {
+        if (spatialUndoHistory.isEmpty()) return
+        spatialRedoHistory.addLast(_spatialStrokes.value)
+        _spatialStrokes.value = spatialUndoHistory.removeLast()
+        saveProject()
+    }
+
+    /** Writes a self-contained glTF with real stroke tube geometry, not a flattened render. */
+    fun exportSpatialGltf(uri: Uri) {
+        val snapshot = _spatialStrokes.value
+        viewModelScope.launch(dispatchers.io) {
+            runCatching {
+                val gltf = com.hereliesaz.graffitixr.common.mesh.SpatialGltfExporter.encode(snapshot)
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(gltf.toByteArray(Charsets.UTF_8))
+                    stream.flush()
+                } ?: throw java.io.IOException("Couldn't open export destination")
+            }.onSuccess {
+                notify("Exported spatial sketch as glTF", NoticeKind.NOTICE)
+            }.onFailure { error ->
+                notify("3D export failed: ${error.message ?: "Unknown error"}", NoticeKind.WARNING)
+            }
+        }
+    }
+
+    fun onSpatialRedo() {
+        if (spatialRedoHistory.isEmpty()) return
+        spatialUndoHistory.addLast(_spatialStrokes.value)
+        _spatialStrokes.value = spatialRedoHistory.removeLast()
+        saveProject()
+    }
+
     // ── 3D model viewport ────────────────────────────────────────────────────────────────────
 
     private val _modelState = MutableStateFlow(com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState())
@@ -13017,3 +13088,6 @@ class EditorViewModel @Inject constructor(
     // dead code from Task 14 — never called — and implied a second, unimplemented load path.
 
 }
+
+/** A spatial edit is one complete curve, not one input sample. */
+private const val SPATIAL_UNDO_LIMIT = 64

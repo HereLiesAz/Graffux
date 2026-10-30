@@ -208,7 +208,8 @@ class ProjectManager @Inject constructor(
      * default, so this step too only records the version. 3 -> 4 (design frames): a group with a
      * declared box (given a Frame Size before frames existed) was a frame in all but name, so it
      * becomes one, with no fill and no clip so that nothing about how it looks changes; any frame
-     * keys a version 3 file could not have written are cleared. Never lowers a newer version.
+     * keys a version 3 file could not have written are cleared. 4 -> 5 introduces spatial ink,
+     * defaulting to an empty list for older projects. Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
         var version = fromVersion

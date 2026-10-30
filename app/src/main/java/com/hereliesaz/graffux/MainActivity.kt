@@ -12,6 +12,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
@@ -33,10 +35,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.unit.IntOffset
 import com.hereliesaz.graffitixr.feature.editor.LocalChromeHidden
@@ -84,6 +83,9 @@ import androidx.compose.ui.res.painterResource
 
 import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.hereliesaz.graffitixr.feature.editor.NoticeKind
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
@@ -131,6 +133,7 @@ import com.hereliesaz.graffitixr.feature.editor.performGestureAction
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
+import com.hereliesaz.graffitixr.feature.editor.threed.SpatialSketchWorkspace
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
@@ -165,6 +168,13 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The editor is immersive: system bars must never cover the rulers or brush carousel.
+        // They can still be revealed temporarily by swiping from a screen edge.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
+        enterImmersiveMode()
         // Launch intents are acted on once. A recreation (rotation, dark-mode or locale change)
         // hands back the same original intent with a non-null savedInstanceState; replaying it would
         // add the shared image to the project a second time and re-raise an install prompt the user
@@ -183,6 +193,19 @@ class MainActivity : ComponentActivity() {
                 GraffuxApp(sharedImageUri = sharedImage, azphaltInstallUrl = azpInstallUrl)
                 LaunchUpdatePrompt()
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enterImmersiveMode()
+    }
+
+    /** Restore immersive drawing after an external picker or other window takes focus. */
+    private fun enterImmersiveMode() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -257,6 +280,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val modelState by vm.modelState.collectAsState()
+    val spatialStrokes by vm.spatialStrokes.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
@@ -321,6 +345,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var storeTab by remember { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showSpatialSketch by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showOpenDialog by remember { mutableStateOf(false) }
     var showReferenceWindow by remember { mutableStateOf(false) }
@@ -591,6 +616,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val modelPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
+
+    // 3D ink exports geometry rather than a screenshot; the SAF picker owns the destination.
+    val spatialGltfExporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("model/gltf+json")
+    ) { uri -> uri?.let { vm.exportSpatialGltf(it) } }
 
     val brushes by vm.installedBrushes.collectAsState()
     val brushPreviews by vm.installedBrushPreviews.collectAsState()
@@ -1115,12 +1145,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ExpandedHeroLayer(heroExpansion)
         }
 
-        // The onscreen chrome, inside the system bars and the display cutout.
+        // The onscreen chrome stays inside the safe drawing area; the canvas remains full bleed.
         Box(
             Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(
-                    WindowInsets.statusBars.union(WindowInsets.navigationBars).union(WindowInsets.displayCutout),
+                    WindowInsets.safeDrawing,
                 ),
         ) {
             if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome) {
@@ -1223,6 +1253,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ToolboxSpec(
                         "area.model", "3D", GraffuxIcons.GuideIsometric, "area.model" in activeClassifiers,
                         listOf(
+                            ToolboxAction("Sketch in 3D", lit = showSpatialSketch) { showSpatialSketch = true },
                             ToolboxAction("3D Model", lit = showModelDialog) { showModelDialog = true },
                             ToolboxAction("Choose Model") { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
                         ),
@@ -1879,6 +1910,21 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onDismiss = { showBrushTipsManager = false },
                 )
             }
+        }
+        // Unlike the imported-OBJ texture painter, spatial ink needs a full-screen 3D scene.
+        if (showSpatialSketch) {
+            SpatialSketchWorkspace(
+                strokes = spatialStrokes,
+                color = uiState.activeColor,
+                brushRadiusPx = uiState.brushSize / 2f,
+                onStroke = vm::onSpatialStroke,
+                onErase = vm::onSpatialErase,
+                onUndo = vm::onSpatialUndo,
+                onRedo = vm::onSpatialRedo,
+                onExport = { spatialGltfExporter.launch("Graffux-Spatial-Sketch.gltf") },
+                onClose = { showSpatialSketch = false },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         if (showAbout) AboutReader(onDismiss = { showAbout = false })
         // The project dialog, above the rail and every window: mandatory with no project open,

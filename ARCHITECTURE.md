@@ -480,3 +480,32 @@ codebase is deferred scope or a real gap in the install-report flow.
   `Bitmap.generationId`) drops its overlay; `onTrimMemory` drops them all until the view zooms out. A GPU
   failure keeps the base path and is logged once. Switch the whole feature off with
   `HighResOverlayConfig.ENABLED = false`.
+
+
+## Spatial Sketch: editable 3D ink (project format v5)
+
+The spatial sketch is a **separate full-screen scene** at View → 3D → Sketch in 3D, not a 2D
+snapshot of the imported model's UV texture. `SpatialSketchGeometry` intersects the input ray
+(`MeshPicker.unproject` + `OrbitCamera`) with the camera-facing guide, adjustable in depth.
+Each resulting point stores real XYZ plus stylus pressure. Colour and world-space width belong to
+the complete `SpatialStroke`; orbiting the camera does not move an existing stroke.
+
+`EditorViewModel.spatialStrokes` owns a scene-wide list and a bounded, independent history;
+changes save through the existing project persistence flow. `GraffitiProject.spatialStrokes` is
+written to project.json, so .fux backups and project reopening preserve its geometry. Imported
+OBJ UV-paint remains unchanged.
+
+The spatial workspace now uses `SpatialStrokeRenderer` (GLES 3.0) to draw the exact triangle
+tubes produced by `SpatialGltfExporter.buildMesh`. The same camera matrices drive the GL scene
+and the Compose drawing guide. GLES depth testing makes nearer ink occlude farther ink per
+fragment, rather than approximating depth with a per-stroke sort. GL resource creation, context-loss
+re-upload and tessellation happen on the GL thread. Render-on-demand avoids a busy 60 Hz loop
+when neither camera nor strokes change. The host resumes and pauses the surface with lifecycle.
+
+**Still incomplete relative to Feather:** transparent strokes use conventional alpha blending
+and depth writes, not order-independent transparency. The tubes remain unlit with open end
+caps; material lighting and sophisticated brush texture are not implemented. Guides are
+camera-facing planes, not curved or lofted surfaces. Shape editing, selection/transforms, true
+mesh-guided curves, scene OBJ export and AR view remain unimplemented. The existing OBJ
+UV-paint tool is intentionally separate, preserving its original workflow. Do not call
+this Feather parity.

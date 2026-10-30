@@ -5,7 +5,11 @@ import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
@@ -13,6 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -59,6 +65,31 @@ class BottomCarouselUiTest {
     val rule = createAndroidComposeRule<ComponentActivity>()
 
     private val selectedName = BuiltInBrushes.presets[2].name
+
+    @Test
+    fun `closed sheet never paints its content into the reserved bottom inset`() {
+        var sampleFromBottomPx = 0
+        rule.setContent {
+            val density = LocalDensity.current
+            // Sample inside the otherwise empty bottom spacer, accounting for gesture or
+            // three-button navigation. This is where the closed sheet previously leaked tabs.
+            sampleFromBottomPx = WindowInsets.navigationBars.getBottom(density) +
+                with(density) { 32.dp.roundToPx() }
+            Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.BottomCenter) {
+                CarouselSheet(open = false, onOpenChange = {}, bottomInset = 64.dp) {
+                    Box(Modifier.fillMaxWidth().height(120.dp).background(Color.Red))
+                }
+            }
+        }
+        rule.waitForIdle()
+        val image = rule.onRoot().captureToImage().asAndroidBitmap()
+        assertTrue(sampleFromBottomPx > 0 && sampleFromBottomPx < image.height)
+        assertEquals(
+            "collapsed content must be clipped rather than drawn over the navigation area",
+            android.graphics.Color.BLACK,
+            image.getPixel(image.width / 2, image.height - sampleFromBottomPx),
+        )
+    }
 
     private fun inputs(favorites: List<String>) = CarouselInputs(
         activeTool = Tool.BRUSH,

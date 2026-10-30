@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 4
+const val CURRENT_FORMAT_VERSION = 5
 
 /** What a project.json without a `formatVersion` key is. */
 const val LEGACY_FORMAT_VERSION = 1
@@ -50,6 +50,7 @@ data class GraffitiProject(
      * the key before decoding and migrates (see its `migrateFormat`). Each bump lists what changed:
      * - 2: `OverlayLayer.adjustment`, photo adjustment layers. Nothing in a version 1 file changes.
      * - 3: [documentCrop], the Crop tab's whole-document geometry. Absent before: no crop.
+     * - 5: [spatialStrokes], editable 3D ink. Old projects default to an empty sketch.
      * - 4: design frames (`OverlayLayer.isFrame`, its fill, radius and clip). A sized group from an
      *   older file (a group given a Frame Size) becomes a frame with no fill and no clip, so it
      *   looks exactly as it did.
@@ -130,6 +131,10 @@ data class GraffitiProject(
     val modelPath: String? = null,
     val modelName: String? = null,
     val modelTexturePath: String? = null,
+
+    // True 3D artwork, independent of imported model textures and 2D layer snapshots.
+    // Saved in project.json and consequently included in the .fux archive.
+    val spatialStrokes: List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke> = emptyList(),
 
     // The Crop tab's crop and geometry (format version 3). Non-destructive: the layers keep every
     // pixel; the canvas and the export draw them through this.

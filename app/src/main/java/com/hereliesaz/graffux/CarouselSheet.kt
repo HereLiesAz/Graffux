@@ -188,17 +188,21 @@ internal fun CarouselSheet(
                 .testTag("carousel.scrim"),
         )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Column(
-                modifier = Modifier
-                    .offset { IntOffset(0, offset.value.roundToInt()) }
-                    .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
-                    .nestedScroll(nested),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) {
-                    GrabHandle(open = shownOpen) { onOpenChange(!open) }
+            // Only the handle may remain when closed. Clip the translating content before the
+            // reserved bottom inset: otherwise the hidden tabs slide INTO the navigation area.
+            Box(Modifier.clipToBounds()) {
+                Column(
+                    modifier = Modifier
+                        .offset { IntOffset(0, offset.value.roundToInt()) }
+                        .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
+                        .nestedScroll(nested),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) {
+                        GrabHandle(open = shownOpen) { onOpenChange(!open) }
+                    }
+                    Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
                 }
-                Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
             }
             Box(Modifier.navigationBarsPadding().height(bottomInset))
         }
