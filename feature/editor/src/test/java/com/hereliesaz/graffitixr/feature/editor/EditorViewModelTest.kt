@@ -749,6 +749,46 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a freshly placed instance re-inherits when its first stroke is undone`() = runTest {
+        // Codex on #681: placement recorded no inherited base, so place -> stroke -> undo never relinked.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainFile = java.io.File(dir, "main.png").apply { writeText("MAIN") }
+            val mainBmp = pngWriting("MAIN")
+            viewModel.dispatchForTest(
+                EditorIntent.SetLayers(
+                    listOf(
+                        Layer(
+                            id = "m", name = "m", componentId = "C1",
+                            uri = Uri.parse("file://${mainFile.path}"), bitmap = mainBmp,
+                        ),
+                    ),
+                ),
+            )
+            viewModel.onPlaceInstance("C1")
+            testDispatcher.scheduler.advanceUntilIdle()
+            val id = viewModel.uiState.value.layers.first { it.instanceOf == "C1" }.id
+
+            // The stroke: the instance shows pixels of its own, and saving them forks its file.
+            val painted = pngWriting("INST")
+            viewModel.dispatchForTest(
+                EditorIntent.RenderTextLayer(id, painted, com.hereliesaz.graffitixr.common.model.TextLayerParams()),
+            )
+            viewModel.scheduleDiskSaveForTest(id, painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertNotEquals(mainFile.path, viewModel.uiState.value.layers.first { it.id == id }.uri?.path)
+
+            assertTrue(viewModel.reinheritOnUndoForTest(id))
+            val inst = viewModel.uiState.value.layers.first { it.id == id }
+            assertSame(mainBmp, inst.bitmap)
+            assertEquals(mainFile.path, inst.uri?.path)
+            assertEquals("MAIN", mainFile.readText())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `reinheriting on undo drops the stroke's material and its sidecar`() = runTest {
         // Codex on #681: live wetness/impasto and the on-disk sidecar survived the relink.
         val dir = kotlin.io.path.createTempDirectory("instpix").toFile()

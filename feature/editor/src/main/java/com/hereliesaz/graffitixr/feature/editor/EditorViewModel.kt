@@ -12457,6 +12457,8 @@ class EditorViewModel @Inject constructor(
         // or painting on it would be replayed against the main's base.
         instance.bitmap?.let { bmp ->
             putLayerBase(instance.id, bmp)
+            // Its base is the main's pixels: undoing its first stroke can relink it (reinheritOnUndo).
+            layerStore.base(instance.id)?.let { inheritedBases[instance.id] = it to bmp }
             layerStore.initStrokes(instance.id)
         }
         dispatch(EditorIntent.PlaceInstance(instance))
