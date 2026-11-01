@@ -956,6 +956,14 @@ class EditorViewModel @Inject constructor(
 
     // Per-layer base-bitmap and stroke caches (thread-safe; see LayerStore). Content resets and
     // undo there invalidate the layer's GPU-resident copy.
+    /**
+     * Instance id -> (the replay base it was given from its main, the main's bitmap it copied).
+     * An undo that takes the instance back to exactly that base, with no strokes left and the main
+     * unchanged since, means it shows its main's pixels again: [reinheritOnUndo] relinks it. Declared
+     * ahead of every init block, which can clear it on the first project load.
+     */
+    private val inheritedBases = java.util.concurrent.ConcurrentHashMap<String, Pair<Bitmap, Bitmap>>()
+
     private val layerStore = LayerStore().also { store ->
         store.contentChanged = { id ->
             if (id == null) layerResidency.invalidateAll() else layerResidency.invalidate(id)
@@ -2457,7 +2465,7 @@ class EditorViewModel @Inject constructor(
                         rebuildJobs.values.forEach { it.cancel() }
                         rebuildJobs.clear()
                         history.clear()
-                        layerStore.retainOnly(layers.filter { it.bitmap != null }.map { it.id }.toSet())
+                        retainLayerCaches(layers.filter { it.bitmap != null }.map { it.id }.toSet())
                         updateHistoryCounts()
 
                         dispatch(
@@ -2576,6 +2584,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     dispatch(EditorIntent.ClearProject)
                     layerStore.clear()
+                    inheritedBases.clear()
                     history.clear()
                     inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
@@ -2596,7 +2605,13 @@ class EditorViewModel @Inject constructor(
         )
         updateHistoryCounts()
         val liveIds = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
+        retainLayerCaches(liveIds)
+    }
+
+    /** Drops every per-layer cache — [layerStore]'s and [inheritedBases] — for layers not in [liveIds]. */
+    private fun retainLayerCaches(liveIds: Set<String>) {
         layerStore.retainOnly(liveIds)
+        inheritedBases.keys.retainAll(liveIds)
     }
 
     private fun updateHistoryCounts() {
@@ -3726,13 +3741,6 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Instance id -> (the replay base it was given from its main, the main's bitmap it copied).
-     * An undo that takes the instance back to exactly that base, with no strokes left and the main
-     * unchanged since, means it shows its main's pixels again: [reinheritOnUndo] relinks it.
-     */
-    private val inheritedBases = java.util.concurrent.ConcurrentHashMap<String, Pair<Bitmap, Bitmap>>()
-
-    /**
      * After an undo of [layerId]'s stroke: if that leaves an instance showing exactly its main's
      * pixels, it inherits them again (the main's bitmap and pixel file) instead of keeping a
      * private copy that has stopped following the main. Returns true when it did, and the caller
@@ -3745,8 +3753,42 @@ class EditorViewModel @Inject constructor(
         rebuildJobs.remove(layerId)?.cancel()
         invalidateResident(layerId)
         updateUi { it.copy(layers = com.hereliesaz.graffitixr.common.model.reinheritPixels(it.layers, layerId)) }
+        // The undone stroke's wetness and impasto stay in the instance's live caches otherwise:
+        // take the main's material back with its pixels, and rewrite (or delete) the sidecar to match.
+        val instance = _uiState.value.layers.firstOrNull { it.id == layerId }
+        val mainId = instance?.instanceOf?.let { c -> _uiState.value.layers.firstOrNull { it.componentId == c }?.id }
+        adoptMainMaterial(layerId, mainId, instance?.heightMap?.copyOf())
+        val bmp = instance?.bitmap
+        // Peers saw the stroke; the skipped rebuild was what told them it was undone.
+        if (bmp != null && opEmitter.isActive) {
+            viewModelScope.launch(dispatchers.default) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bmp)))
+            }
+        }
+        val projectId = _uiState.value.projectId
+        val material = bmp?.let { captureMaterialState(layerId, it.width, it.height) }
+        viewModelScope.launch(dispatchers.io) { writeMaterialState(layerId, projectId, material) }
         saveProject()
         return true
+    }
+
+    /**
+     * Gives instance [instanceId] its main's material (height, wetness, impasto) as both base and
+     * live state, dropping whatever material of its own it had.
+     */
+    private fun adoptMainMaterial(instanceId: String, mainId: String?, height: FloatArray?) {
+        val wetness = mainId?.let { layerStore.wetnessStateCopyOrNull(it) }
+        val impasto = mainId?.let { layerStore.impastoMaterialStateCopyOrNull(it) }
+        layerStore.clearCanonicalMaterial(instanceId)
+        height?.let { layerStore.putHeightBase(instanceId, it) }
+        wetness?.let {
+            layerStore.putWetnessBase(instanceId, it)
+            layerStore.putLiveWetness(instanceId, it)
+        }
+        impasto?.let {
+            layerStore.putImpastoMaterialBase(instanceId, it)
+            layerStore.putLiveImpastoMaterial(instanceId, it)
+        }
     }
 
     /** True when [layerId] is an instance back on exactly the base it inherited, its main unchanged. */
@@ -3769,6 +3811,20 @@ class EditorViewModel @Inject constructor(
 
     @androidx.annotation.VisibleForTesting
     internal fun reinheritOnUndoForTest(layerId: String): Boolean = reinheritOnUndo(layerId)
+
+    @androidx.annotation.VisibleForTesting
+    internal fun seedLiveWetnessForTest(layerId: String, width: Int, height: Int) {
+        layerStore.liveWetnessCopy(layerId, width, height)
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun hasLiveWetnessForTest(layerId: String): Boolean = layerStore.wetnessStateCopyOrNull(layerId) != null
+
+    @androidx.annotation.VisibleForTesting
+    internal fun inheritedBaseIdsForTest(): Set<String> = inheritedBases.keys.toSet()
+
+    @androidx.annotation.VisibleForTesting
+    internal fun pushHistoryForTest() = pushHistory()
 
     @androidx.annotation.VisibleForTesting
     internal fun recordInheritedBaseForTest(layerId: String, base: Bitmap, mainBitmap: Bitmap) {
@@ -13809,6 +13865,9 @@ class EditorViewModel @Inject constructor(
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.RenderTextLayer(layerId, bitmap, params))
+                // A first own raster of an instance moved it to a file of its own: the manifest
+                // must record that URI, or a reopen points it back at the main's file.
+                if (uri != null && uri != layer.uri) saveProject()
             }
         }
     }

@@ -721,6 +721,7 @@ class EditorViewModelTest {
 
     @Test
     fun `undoing an instance's only stroke makes it inherit its main again`() = runTest {
+        every { opEmitter.isActive } returns true
         val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
         try {
             val mainBmp = pngWriting("MAIN")
@@ -737,8 +738,99 @@ class EditorViewModelTest {
             val inst = viewModel.uiState.value.layers.first { it.id == "i" }
             assertSame(mainBmp, inst.bitmap)
             assertEquals(mainFile.path, inst.uri?.path)
+            testDispatcher.scheduler.advanceUntilIdle()
+            // Co-op peers get the restored pixels too (Codex on #681).
+            verify { opEmitter.emit(match { it is Op.LayerBitmapReplace && it.layerId == "i" }) }
             // Nothing left to undo back to: a second call is a no-op.
             assertFalse(viewModel.reinheritOnUndoForTest("i"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `reinheriting on undo drops the stroke's material and its sidecar`() = runTest {
+        // Codex on #681: live wetness/impasto and the on-disk sidecar survived the relink.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            every { context.filesDir } returns dir
+            val projectId = viewModel.uiState.value.projectId!!
+            val sidecar = java.io.File(
+                java.io.File(dir, "projects/$projectId"), MaterialStateCodec.fileNameForLayer("i"),
+            )
+            sidecar.parentFile!!.mkdirs()
+            sidecar.writeText("stale")
+            val mainBmp = pngWriting("MAIN")
+            instanceProject(dir, mainBmp, pngWriting("INST"))
+            viewModel.putLayerBaseForTest("i", mockk(relaxed = true))
+            viewModel.recordInheritedBaseForTest("i", viewModel.layerBaseForTest("i")!!, mainBmp)
+            viewModel.seedLiveWetnessForTest("i", 4, 4)
+            assertTrue(viewModel.hasLiveWetnessForTest("i"))
+
+            assertTrue(viewModel.reinheritOnUndoForTest("i"))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertFalse(viewModel.hasLiveWetnessForTest("i"))
+            assertFalse(sidecar.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `inherited-base bookkeeping is pruned with the layer caches`() = runTest {
+        // Codex on #681: the map was never pruned, holding bitmaps of deleted layers and old projects.
+        val bmp = mockk<Bitmap>(relaxed = true)
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(Layer(id = "live", name = "live"))))
+        viewModel.recordInheritedBaseForTest("live", bmp, bmp)
+        viewModel.recordInheritedBaseForTest("gone", bmp, bmp)
+        viewModel.pushHistoryForTest()
+        assertEquals(setOf("live"), viewModel.inheritedBaseIdsForTest())
+    }
+
+    @Test
+    fun `an instance's first own text raster saves the manifest with its new file`() = runTest {
+        // Codex on #681: the fork happened after the edit's own save, so the manifest kept the main's URI.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainFile = java.io.File(dir, "main.png").apply { writeText("MAIN") }
+            val shared = Uri.parse("file://${mainFile.path}")
+            val params = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "a")
+            viewModel.dispatchForTest(
+                EditorIntent.SetLayers(
+                    listOf(
+                        Layer(id = "m", name = "m", componentId = "C1", uri = shared,
+                            bitmap = pngWriting("MAIN"), textParams = params,
+                        ),
+                        Layer(id = "i", name = "i", instanceOf = "C1", uri = shared,
+                            bitmap = pngWriting("MAIN"), textParams = params,
+                        ),
+                    ),
+                ),
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+            // Each manifest as it was written: the transform reads live state, so apply it at call time.
+            val saved = mutableListOf<GraffitiProject>()
+            io.mockk.coEvery { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                val transform = firstArg<Any>() as (GraffitiProject) -> GraffitiProject
+                saved += transform(GraffitiProject(id = "test-project"))
+            }
+
+            // The font load takes a moment, as on a device: the edit's own save lands before the raster.
+            io.mockk.coEvery { GoogleFontCache.getTypeface(any(), any(), any(), any()) } coAnswers {
+                kotlinx.coroutines.delay(100)
+                mockk(relaxed = true)
+            }
+            viewModel.onTextContentChanged("i", "ab")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("MAIN", mainFile.readText())
+            val forked = viewModel.uiState.value.layers.first { it.id == "i" }.uri
+            assertNotEquals(mainFile.path, forked?.path)
+            // A manifest written after the fork records the instance's own file, not the main's.
+            assertTrue(
+                saved.any { project -> project.layers.any { it.id == "i" && it.uri.toString() == forked.toString() } },
+            )
         } finally {
             dir.deleteRecursively()
         }
