@@ -25,14 +25,20 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.
 - **Text** — parametric text layers with Google Fonts.
 - **Vector shapes** — rectangle, ellipse, line, and regular polygons as their own editable layers.
-- **3D spatial sketch** — draw real XYZ pressure-sensitive curves against adjustable camera-facing
-  planes, anchored planes, cylinders, and spheres. Reposition guides in XYZ, rotate, resize, adjust
-  cylinder height, and toggle the wireframe. The stylus ray intersects the actual selected surface;
-  missing a bounded guide ends that segment rather than bridging through empty space. Guides persist
-  with the sketch in `.fux` (project format v6) and leave existing curves unmoved when edited.
-  Orbit, pan, zoom, erase, undo/redo, and export world-space ink as glTF 2.0 tube geometry. The
-  GLES 3.0 renderer depth-tests the geometry. Open View → 3D → Sketch in 3D. Curve transforms,
-  brush materials, lofted/freeform guides, mesh-guided paint, and scene OBJ export remain outstanding.
+- **One 3D space** — every layer is a plane that can be moved, pushed back and tilted in XYZ,
+  seen through one perspective camera. The rail's **3D** button turns canvas gestures into camera
+  and plane controls (one finger orbits, or moves / pushes / tilts / spins the active layer; two
+  fingers pan and dolly); off again, every brush and tool paints on the tilted plane where the
+  finger touches it, and the view stays where it was. A document never moved in 3D draws exactly as
+  before. See `spec/3d-space.md`.
+- **3D strokes layers** — draw real XYZ pressure-sensitive curves against adjustable camera-facing
+  planes, anchored planes, cylinders and spheres, in a layer of the stack composited with the paint
+  layers (View → 3D → New 3D strokes layer). Missing a bounded guide ends that segment rather than
+  bridging empty space; editing a guide never moves existing curves. Erase and undo/redo with the
+  editor's history. Projects with the old Spatial Sketch open with it as a 3D strokes layer
+  (project format v7).
+- **glTF scene export** — File → Export 3D scene (glTF): each paint layer as a textured quad at its
+  placement, each 3D strokes layer as tube geometry, and the camera.
 - **3D model texture painting** — load an `.obj`, paint directly on its UV surface, and add the
   painted view as a flattened 2D layer. This remains independent of spatial strokes.
 - **Animation Assist** — each top-level layer as one frame, with onion skinning, playback, and

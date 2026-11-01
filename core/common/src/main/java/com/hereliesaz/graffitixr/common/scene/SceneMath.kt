@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "TooManyFunctions", "LongParameterList", "ReturnCount")
+@file:Suppress("MagicNumber", "TooManyFunctions", "LongParameterList", "ReturnCount", "MaxLineLength")
 
 package com.hereliesaz.graffitixr.common.scene
 

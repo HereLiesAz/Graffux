@@ -18,6 +18,7 @@ import com.hereliesaz.graffitixr.common.scene.planePose
  * What the layer stack needs to draw the 3D space (spec/3d-space.md, "Render path"): the camera
  * resolved for the canvas box, which layers take the scene path, and the enclosing group's plane.
  */
+@Suppress("LongParameterList")
 internal class SceneContext(
     val camera: SceneCamera,
     val frame: CameraFrame,

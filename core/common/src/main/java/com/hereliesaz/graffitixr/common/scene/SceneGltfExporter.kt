@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "LongMethod", "LongParameterList")
+@file:Suppress("MagicNumber", "LongMethod", "LongParameterList", "MaxLineLength", "CyclomaticComplexMethod")
 
 package com.hereliesaz.graffitixr.common.scene
 

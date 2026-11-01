@@ -1,6 +1,14 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorViewModel.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.SceneCamera
+import com.hereliesaz.graffitixr.common.scene.Scene3DTool
+import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
+import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
+import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
+import com.hereliesaz.graffitixr.common.scene.planeChain
+
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.common.model.isAdjustment
@@ -11551,7 +11559,7 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // ── One 3D space: camera, planes, 3D strokes layers (spec/3d-space.md) ──────────────────
+    // ── One 3D space: camera, planes, 3D strokes layers (spec/3d-space.md) ──
 
     /** The rail's 3D button. Leaving 3D moves nothing: the camera and every plane stay put. */
     fun toggleScene3D() {
@@ -11560,13 +11568,15 @@ class EditorViewModel @Inject constructor(
         if (leaving) saveProject()
     }
 
-    fun setScene3DTool(tool: com.hereliesaz.graffitixr.common.scene.Scene3DTool) {
+    fun setScene3DTool(tool: Scene3DTool) {
         updateUi { it.copy(scene3DTool = tool) }
     }
 
     /** One-finger orbit, a [delta] in screen pixels. */
     fun onSceneOrbit(delta: Offset) {
-        updateUi { it.copy(sceneCamera = it.sceneCamera.orbit(delta.x * ORBIT_RADIANS_PER_PX, delta.y * ORBIT_RADIANS_PER_PX)) }
+        updateUi {
+            it.copy(sceneCamera = it.sceneCamera.orbit(delta.x * ORBIT_RADIANS_PER_PX, delta.y * ORBIT_RADIANS_PER_PX))
+        }
     }
 
     /**
@@ -11578,7 +11588,7 @@ class EditorViewModel @Inject constructor(
         if (size.width <= 0 || size.height <= 0) return
         updateUi { state ->
             val camera = state.sceneCamera
-            val frame = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(camera, size.width.toFloat(), size.height.toFloat())
+            val frame = SceneMath.frame(camera, size.width.toFloat(), size.height.toFloat())
             val k = camera.distanceScale
             val move = FloatArray(3) { -(frame.right[it] * pan.x + frame.down[it] * pan.y) * k }
             state.copy(
@@ -11593,7 +11603,7 @@ class EditorViewModel @Inject constructor(
     fun onSceneCameraSettled() = saveProject()
 
     fun resetSceneCamera() {
-        updateUi { it.copy(sceneCamera = com.hereliesaz.graffitixr.common.scene.SceneCamera()) }
+        updateUi { it.copy(sceneCamera = SceneCamera()) }
         saveProject()
     }
 
@@ -11607,6 +11617,7 @@ class EditorViewModel @Inject constructor(
      * finger's movement in world pixels. Moves are scaled by the plane's depth so the plane keeps
      * up with the finger, and expressed in the parent group's space.
      */
+    @Suppress("ReturnCount", "LongMethod")
     fun onPlaneDrag(delta: Offset) {
         val state = _uiState.value
         val id = state.activeLayerId ?: return
@@ -11615,34 +11626,37 @@ class EditorViewModel @Inject constructor(
         val w = size.width.toFloat()
         val h = size.height.toFloat()
         val tool = state.scene3DTool
-        val chain = com.hereliesaz.graffitixr.common.scene.planeChain(state.layers, id)
+        val chain = planeChain(state.layers, id)
         if (chain.isEmpty()) return
-        val frame = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(state.sceneCamera, w, h)
-        val centre = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(chain, w, h).apply(w / 2f, h / 2f, 0f)
+        val frame = SceneMath.frame(state.sceneCamera, w, h)
+        val centre = SceneMath.chainModel(chain, w, h).apply(w / 2f, h / 2f, 0f)
         val depth = frame.toCamera(centre)[2].coerceAtLeast(frame.focal * 0.05f)
         val perPx = depth / frame.focal
         val sceneMove: FloatArray? = when (tool) {
-            com.hereliesaz.graffitixr.common.scene.Scene3DTool.MOVE ->
+            Scene3DTool.MOVE ->
                 FloatArray(3) { (frame.right[it] * delta.x + frame.down[it] * delta.y) * perPx }
-            com.hereliesaz.graffitixr.common.scene.Scene3DTool.DEPTH ->
+            Scene3DTool.DEPTH ->
                 FloatArray(3) { frame.forward[it] * -delta.y * perPx * DEPTH_PER_PX }
             else -> null
         }
-        val parentInverse = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(chain.dropLast(1), w, h).inverse()
+        val parentInverse = SceneMath.chainModel(chain.dropLast(1), w, h).inverse()
         updateUi { s ->
             s.copy(layers = LayerListOps.mapLayer(s.layers, id) { layer ->
                 when (tool) {
-                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.MOVE,
-                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.DEPTH -> {
+                    Scene3DTool.MOVE,
+                    Scene3DTool.DEPTH -> {
                         val m = sceneMove ?: return@mapLayer layer
                         val local = parentInverse?.applyVector(m[0], m[1], m[2]) ?: return@mapLayer layer
-                        layer.copy(offset = layer.offset + Offset(local[0], local[1]), positionZ = layer.positionZ + local[2])
+                        layer.copy(
+                            offset = layer.offset + Offset(local[0], local[1]),
+                            positionZ = layer.positionZ + local[2],
+                        )
                     }
-                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.TILT -> layer.copy(
+                    Scene3DTool.TILT -> layer.copy(
                         rotationY = layer.rotationY + delta.x * TILT_DEGREES_PER_PX,
                         rotationX = layer.rotationX - delta.y * TILT_DEGREES_PER_PX,
                     )
-                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.SPIN ->
+                    Scene3DTool.SPIN ->
                         layer.copy(rotationZ = layer.rotationZ + delta.x * TILT_DEGREES_PER_PX)
                     else -> layer
                 }
@@ -11651,13 +11665,18 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The active layer back to the identity plane (depth 0, no tilt), as one undo step. */
+    @Suppress("ReturnCount")
     fun resetActivePlane() {
         val id = _uiState.value.activeLayerId ?: return
         val layer = _uiState.value.layers.firstOrNull { it.id == id } ?: return
         if (!layer.isPlacedIn3D) return
         pushHistory()
         updateUi { s ->
-            s.copy(layers = LayerListOps.mapLayer(s.layers, id) { it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f) })
+            s.copy(
+                layers = LayerListOps.mapLayer(s.layers, id) {
+                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f)
+                },
+            )
         }
         saveProject()
     }
@@ -11669,11 +11688,11 @@ class EditorViewModel @Inject constructor(
         val layer = Layer(
             id = UUID.randomUUID().toString(),
             name = if (count == 0) "3D strokes" else "3D strokes ${count + 1}",
-            spatial = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent(),
+            spatial = SpatialLayerContent(),
         )
         dispatch(EditorIntent.AddLayer(layer))
         updateUi {
-            it.copy(is3DMode = true, scene3DTool = com.hereliesaz.graffitixr.common.scene.Scene3DTool.DRAW)
+            it.copy(is3DMode = true, scene3DTool = Scene3DTool.DRAW)
         }
         emitMembership(Op.LayerAdd(layer))
         saveProject()
@@ -11681,10 +11700,14 @@ class EditorViewModel @Inject constructor(
 
     private fun updateSpatial(
         layerId: String,
-        transform: (com.hereliesaz.graffitixr.common.scene.SpatialLayerContent) -> com.hereliesaz.graffitixr.common.scene.SpatialLayerContent,
+        transform: (SpatialLayerContent) -> SpatialLayerContent,
     ) {
         updateUi { s ->
-            s.copy(layers = LayerListOps.mapLayer(s.layers, layerId) { l -> l.spatial?.let { l.copy(spatial = transform(it)) } ?: l })
+            s.copy(
+                layers = LayerListOps.mapLayer(s.layers, layerId) { l ->
+                    l.spatial?.let { l.copy(spatial = transform(it)) } ?: l
+                },
+            )
         }
     }
 
@@ -11728,7 +11751,7 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             runCatching {
                 val scene = buildExportScene(state, size.width.toFloat(), size.height.toFloat(), includeCamera)
-                val gltf = com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.encode(scene)
+                val gltf = SceneGltfExporter.encode(scene)
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(gltf.toByteArray(Charsets.UTF_8))
                     stream.flush()
@@ -11743,12 +11766,13 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     private fun buildExportScene(
         state: EditorUiState,
         w: Float,
         h: Float,
         includeCamera: Boolean,
-    ): com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Scene {
+    ): SceneGltfExporter.Scene {
         val byId = state.layers.associateBy { it.id }
         fun chainVisible(layer: Layer): Boolean {
             var current: Layer? = layer
@@ -11769,19 +11793,19 @@ class EditorViewModel @Inject constructor(
             }
             return alpha
         }
-        val quads = ArrayList<com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Quad>()
-        val strokes = ArrayList<com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Strokes>()
+        val quads = ArrayList<SceneGltfExporter.Quad>()
+        val strokes = ArrayList<SceneGltfExporter.Strokes>()
         for (layer in state.layers) {
             if (layer.isContainer || !chainVisible(layer)) continue
-            val model = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(
-                com.hereliesaz.graffitixr.common.scene.planeChain(state.layers, layer.id), w, h,
+            val model = SceneMath.chainModel(
+                planeChain(state.layers, layer.id), w, h,
             )
             val spatial = layer.spatial
             if (spatial != null) {
                 if (spatial.strokes.isNotEmpty()) {
-                    strokes += com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Strokes(
+                    strokes += SceneGltfExporter.Strokes(
                         layer.name, spatial.strokes,
-                        model * com.hereliesaz.graffitixr.common.scene.SceneMath.strokeToLocal(w, h),
+                        model * SceneMath.strokeToLocal(w, h),
                     )
                 }
                 continue
@@ -11799,13 +11823,16 @@ class EditorViewModel @Inject constructor(
             val png = java.io.ByteArrayOutputStream().also {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
             }.toByteArray()
-            quads += com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Quad(
+            quads += SceneGltfExporter.Quad(
                 layer.name, png,
-                listOf(model.apply(left, top, 0f), model.apply(right, top, 0f), model.apply(right, bottom, 0f), model.apply(left, bottom, 0f)),
+                listOf(
+                    model.apply(left, top, 0f), model.apply(right, top, 0f),
+                    model.apply(right, bottom, 0f), model.apply(left, bottom, 0f),
+                ),
                 chainOpacity(layer),
             )
         }
-        return com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Scene(
+        return SceneGltfExporter.Scene(
             w, h, quads, strokes, state.sceneCamera.takeIf { includeCamera },
         )
     }
@@ -13094,7 +13121,7 @@ class EditorViewModel @Inject constructor(
         val composited = parentId == null && opacity >= 1f && !clipToLayerBelow &&
             blendMode == androidx.compose.ui.graphics.BlendMode.SrcOver
         // Flat: drawn through the 2D fast path, so the flat overlay window lands on its pixels.
-        val flat = !isPlacedIn3D && com.hereliesaz.graffitixr.common.scene.SceneRenderPath
+        val flat = !isPlacedIn3D && SceneRenderPath
             .isLayerFlat(_uiState.value.layers, id, _uiState.value.sceneCamera)
         val unadjusted = brightness == 0f && contrast == 1f && saturation == 1f && !isInverted &&
             colorBalanceR == 1f && colorBalanceG == 1f && colorBalanceB == 1f

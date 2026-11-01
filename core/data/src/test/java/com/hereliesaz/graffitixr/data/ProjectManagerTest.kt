@@ -461,15 +461,20 @@ class ProjectManagerTest {
 
     @Test
     fun `plane placement, strokes layers and the camera survive a save and a load`() {
-        val camera = com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 0.4f, pitch = -0.2f, distanceScale = 1.7f, panX = 12f, panZ = -30f)
+        val camera = com.hereliesaz.graffitixr.common.scene.SceneCamera(
+            yaw = 0.4f, pitch = -0.2f, distanceScale = 1.7f, panX = 12f, panZ = -30f,
+        )
+        val point = com.hereliesaz.graffitixr.common.mesh.SpatialPoint(1f, 2f, 3f)
         val content = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent(
-            listOf(com.hereliesaz.graffitixr.common.mesh.SpatialStroke("s", listOf(com.hereliesaz.graffitixr.common.mesh.SpatialPoint(1f, 2f, 3f)), -1, 0.2f)),
+            listOf(com.hereliesaz.graffitixr.common.mesh.SpatialStroke("s", listOf(point), -1, 0.2f)),
         )
         val project = GraffitiProject(
             id = "scene",
             sceneCamera = camera,
             layers = listOf(
-                OverlayLayer(id = "tilted", uri = mockk(relaxed = true), positionZ = -250f, rotationX = 20f, rotationY = -35f),
+                OverlayLayer(
+                    id = "tilted", uri = mockk(relaxed = true), positionZ = -250f, rotationX = 20f, rotationY = -35f,
+                ),
                 OverlayLayer(id = "ink", uri = mockk(relaxed = true), spatial = content),
             ),
         )

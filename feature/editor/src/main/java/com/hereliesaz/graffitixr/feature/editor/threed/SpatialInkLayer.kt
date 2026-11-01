@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "FunctionNaming", "TooGenericExceptionCaught")
+@file:Suppress("MagicNumber", "FunctionNaming", "TooGenericExceptionCaught", "MaxLineLength")
 
 package com.hereliesaz.graffitixr.feature.editor.threed
 

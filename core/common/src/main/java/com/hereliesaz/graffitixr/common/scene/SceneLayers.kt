@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount")
+
 package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.model.Layer

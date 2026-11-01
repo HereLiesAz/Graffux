@@ -1,7 +1,6 @@
 @file:Suppress(
     "MagicNumber", "FunctionNaming", "LongMethod", "CyclomaticComplexMethod", "LongParameterList",
-    "TooManyFunctions",
-)
+    "TooManyFunctions", "MaxLineLength", "LoopWithTooManyJumpStatements", "ComplexCondition")
 
 package com.hereliesaz.graffitixr.feature.editor
 

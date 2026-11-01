@@ -70,8 +70,9 @@ picture plane.
 `SceneRenderPath.sceneLayerIds(layers, camera)` decides per top-level subtree:
 
 - **Fast path (identity).** Camera at default and nothing in the subtree placed in 3D: the layer
-  draws through the existing `graphicsLayer` code, untouched. Zero extra cost: one boolean check
-  per layer per recomposition, no matrix work.
+  draws through the existing `graphicsLayer` code, untouched. No matrix work and nothing on the GPU
+  changes: the only addition is one scan of the layer list for a 3D placement when the layers
+  change, and a set lookup per layer that returns the 2D path.
 - **Scene path.** Otherwise every node of the subtree draws with its plane-to-canvas homography.
   The `graphicsLayer` keeps alpha, blend mode and offscreen compositing but drops its geometric
   fields; a `drawWithContent` concatenates the node's 3x3 homography (relative to its parent's,
@@ -143,5 +144,6 @@ pixels), origin at the canvas centre on the picture plane, so the strokes keep t
 - Vector shapes are not exported to glTF (no pixels to texture); rasterize first.
 - Selection (lasso) and tap-to-select still work in flat 2D space on a tilted layer.
 - PNG/PDF export still renders layers flat, as before.
+- A frame's clip and a blend-mode layer's offscreen buffer stay in flat canvas space.
 - A 3D strokes layer inside a group placed in 3D draws with the group's placement ignored.
 - Co-op transform ops carry no depth.

@@ -1,6 +1,11 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/EditorScreen.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.Scene3DTool
+import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
+import com.hereliesaz.graffitixr.common.scene.planeChain
+
 import com.hereliesaz.graffitixr.design.theme.CheckerDark
 import com.hereliesaz.graffitixr.design.theme.CheckerLight
 import com.hereliesaz.graffitixr.design.theme.Workspace
@@ -162,7 +167,9 @@ fun EditorScreen(
     }
 
     // The 3D curve being drawn (its layer id and stroke so far), shown live by that layer.
-    val spatialDraft = remember { mutableStateOf<Pair<String, com.hereliesaz.graffitixr.common.mesh.SpatialStroke>?>(null) }
+    val spatialDraft = remember {
+        mutableStateOf<Pair<String, com.hereliesaz.graffitixr.common.mesh.SpatialStroke>?>(null)
+    }
     val nib = rememberSaveable(saver = NibAngleSaver) { NibAngleState() }
     val penAngleBrush = uiState.activeTool in BRUSH_TOOLS && vm.activeBrushForPreview()?.usesPenAngle() == true
     TrackNibTwist(nib, LocalView.current, enabled = penAngleBrush)
@@ -290,12 +297,12 @@ fun EditorScreen(
                             } else {
                                 SceneContext(
                                     uiState.sceneCamera,
-                                    com.hereliesaz.graffitixr.common.scene.SceneMath.frame(uiState.sceneCamera, boxWidth, boxHeight),
-                                    com.hereliesaz.graffitixr.common.scene.SceneRenderPath.sceneLayerIds(uiState.layers, uiState.sceneCamera),
+                                    SceneMath.frame(uiState.sceneCamera, boxWidth, boxHeight),
+                                    SceneRenderPath.sceneLayerIds(uiState.layers, uiState.sceneCamera),
                                     draft = spatialDraft.value?.second,
                                     draftLayerId = spatialDraft.value?.first,
                                     showGuideFor = uiState.activeLayerId.takeIf {
-                                        uiState.is3DMode && uiState.scene3DTool == com.hereliesaz.graffitixr.common.scene.Scene3DTool.DRAW
+                                        uiState.is3DMode && uiState.scene3DTool == Scene3DTool.DRAW
                                     },
                                 )
                             }
@@ -548,10 +555,10 @@ fun EditorScreen(
             // the point a flat layer would have received (spec/3d-space.md, "Painting on a tilted
             // plane"); a ray that misses the plane falls back to the plain world point.
             val sceneChain = remember(uiState.layers, uiState.sceneCamera, activeLayer.id) {
-                if (com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isLayerFlat(uiState.layers, activeLayer.id, uiState.sceneCamera)) {
+                if (SceneRenderPath.isLayerFlat(uiState.layers, activeLayer.id, uiState.sceneCamera)) {
                     null
                 } else {
-                    com.hereliesaz.graffitixr.common.scene.planeChain(uiState.layers, activeLayer.id)
+                    planeChain(uiState.layers, activeLayer.id)
                 }
             }
             fun toWorld(screen: Offset): Offset {
@@ -560,7 +567,7 @@ fun EditorScreen(
                 )
                 val chain = sceneChain ?: return world
                 val size = uiState.canvasSize
-                return com.hereliesaz.graffitixr.common.scene.SceneMath.worldToLayerFlat(
+                return SceneMath.worldToLayerFlat(
                     world.x, world.y, chain, uiState.sceneCamera, size.width.toFloat(), size.height.toFloat(),
                 )?.let { Offset(it.first, it.second) } ?: world
             }
@@ -939,6 +946,8 @@ fun EditorScreen(
     }
 }
 
+// The 3D scene path added one branch per node kind; splitting the node would split its keys.
+@Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming")
 @Composable
 private fun LayerStackNode(
     node: LayerNode,
@@ -965,7 +974,7 @@ private fun LayerStackNode(
     key(layer.id) {
         if (layer.isContainer) {
             ContainerLayerBox(layer, modifier, frameAlpha, placement) {
-                val inner = if (placement != null && scene != null) scene.inside(placement) else scene
+                val inner = placement?.let { scene?.inside(it) } ?: scene
                 androidx.compose.runtime.CompositionLocalProvider(LocalScene provides inner) {
                     node.children.forEach { child ->
                         LayerStackNode(child, liveStroke, overlayGeometry = overlayGeometry)
@@ -978,7 +987,9 @@ private fun LayerStackNode(
             // Vector layer: drawn from its shapes via Canvas. (A raster layer's bitmap path below
             // no-ops for it, since a vector layer carries no bitmap.)
             if (layer.shapes.isNotEmpty()) {
-                VectorLayerContent(layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha, placement = placement)
+                VectorLayerContent(
+                    layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha, placement = placement,
+                )
             }
             // Derived rather than a direct `liveStroke.value` read: the underlying State changes on
             // every stroke sample regardless of which layer is being painted, but this derived value

@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.mesh.SpatialGuide
