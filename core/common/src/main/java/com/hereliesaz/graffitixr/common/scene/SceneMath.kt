@@ -316,6 +316,44 @@ object SceneMath {
     }
 
     /**
+     * The inverse of [worldToLayerFlat]: where a flat-space point of [chain]'s leaf (a selection
+     * vertex, say) shows on the canvas. Null when it is behind the eye.
+     */
+    fun layerFlatToWorld(
+        x: Float,
+        y: Float,
+        chain: List<PlanePose>,
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+    ): Pair<Float, Float>? {
+        if (chain.isEmpty() || width <= 0f || height <= 0f) return null
+        val leaf = chain.last()
+        val flat = model(leaf.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f), width, height).inverse() ?: return null
+        val local = flat.apply(x, y, 0f)
+        val cam = frame(camera, width, height)
+        val h = homography(chainModel(chain, width, height), cam)
+        if (h[6] * local[0] + h[7] * local[1] + h[8] <= nearPlane(cam.focal)) return null
+        return applyHomography(h, local[0], local[1])
+    }
+
+    /** Camera depth of the ray-plane hit for ([x], [y]) on [chain]'s leaf plane; null on a miss. */
+    fun hitDepth(
+        x: Float,
+        y: Float,
+        chain: List<PlanePose>,
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+    ): Float? {
+        if (chain.isEmpty() || width <= 0f || height <= 0f) return null
+        val cam = frame(camera, width, height)
+        val model = chainModel(chain, width, height)
+        val local = canvasToLocal(x, y, model, cam) ?: return null
+        return cam.toCamera(model.apply(local.first, local.second, 0f))[2]
+    }
+
+    /**
      * Column-major 4x4 clip-space matrix for GL: [model] (box-local 3D, e.g. [strokeToLocal] then a
      * layer's chain) through the camera into clip space for a [cam]-sized viewport.
      */

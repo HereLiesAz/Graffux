@@ -47,12 +47,13 @@ internal fun ContainerLayerBox(
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer {
-                if (isFrame && layer.clipsContent) {
-                    clip = true
-                    shape = frameShape
-                }
-                // On the 3D scene path the group's homography (scenePlane) is its geometry.
+                // On the 3D scene path the group's homography is its geometry, and its clip, opacity
+                // and blend are applied after it (scenePlane), so they follow the plane.
                 if (placement == null) {
+                    if (isFrame && layer.clipsContent) {
+                        clip = true
+                        shape = frameShape
+                    }
                     translationX = layer.offset.x
                     translationY = layer.offset.y
                     scaleX = layer.scale
@@ -61,16 +62,23 @@ internal fun ContainerLayerBox(
                     rotationY = layer.rotationY
                     rotationZ = layer.rotationZ
                     transformOrigin = TransformOrigin.Center
-                }
-                alpha = layer.opacity * frameAlpha
-                blendMode = layer.blendMode
-                compositingStrategy = if (layer.blendMode != BlendMode.SrcOver) {
-                    CompositingStrategy.Offscreen
-                } else {
-                    CompositingStrategy.Auto
+                    alpha = layer.opacity * frameAlpha
+                    blendMode = layer.blendMode
+                    compositingStrategy = if (layer.blendMode != BlendMode.SrcOver) {
+                        CompositingStrategy.Offscreen
+                    } else {
+                        CompositingStrategy.Auto
+                    }
                 }
             }
-            .scenePlane(placement)
+            .scenePlane(
+                placement,
+                ScenePaint(
+                    alpha = layer.opacity * frameAlpha,
+                    blendMode = layer.blendMode,
+                    clip = if (isFrame && layer.clipsContent) frameShape::clipPath else null,
+                ),
+            )
             .then(
                 if (fill != null) {
                     Modifier.drawBehind {
@@ -90,6 +98,13 @@ internal fun ContainerLayerBox(
  * is asked for (the full-canvas container the frame draws in).
  */
 private class FrameBoxShape(val width: Float, val height: Float, val radius: Float) : Shape {
+    /** The box as a clip path in the container's own coordinates. */
+    fun clipPath(size: Size): androidx.compose.ui.graphics.Path? = boxIn(size)?.let { box ->
+        androidx.compose.ui.graphics.Path().apply {
+            if (radius <= 0f) addRect(box) else addRoundRect(RoundRect(box, CornerRadius(radius)))
+        }
+    }
+
     fun boxIn(size: Size): Rect? =
         if (width <= 0f || height <= 0f) {
             null

@@ -49,7 +49,6 @@ import com.hereliesaz.graffitixr.common.scene.CameraFrame
 import com.hereliesaz.graffitixr.common.scene.Scene3DTool
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.planeChain
-import com.hereliesaz.graffitixr.feature.editor.threed.SpatialInkLayer
 import java.util.UUID
 
 /** What a one-finger touch on the canvas does: the tool in hand, or the 3D camera and planes. */
@@ -241,26 +240,52 @@ internal fun Scene3DCanvas(
 private val PLANE_TOOLS = setOf(Scene3DTool.MOVE, Scene3DTool.DEPTH, Scene3DTool.TILT, Scene3DTool.SPIN)
 
 /**
- * A 3D strokes layer in the stack: its tubes through the GLES renderer at the layer's placement,
- * with the live curve and, while drawing with 3D on, the guide's wireframe.
+ * The GPU depth pass in the stack (spec/3d-space.md, "Per-pixel depth"): every member of
+ * [SceneContext.depth] in one depth-tested draw, with the live stroke's pixels and the curve being
+ * drawn, plus, while drawing on a 3D strokes layer, its guide's wireframe.
  */
 @Composable
-internal fun SpatialLayerNode(layer: Layer, scene: SceneContext?, frameAlpha: Float) {
-    val content = layer.spatial ?: return
-    if (scene == null) return
+internal fun DepthPass(
+    uiState: EditorUiState,
+    scene: SceneContext,
+    liveStroke: androidx.compose.runtime.State<com.hereliesaz.graffitixr.common.model.LiveStroke>,
+    modifier: Modifier = Modifier,
+) {
     val frame = scene.frame
-    val toScene = scene.modelFor(layer) * SceneMath.strokeToLocal(frame.width, frame.height)
-    val strokes = remember(content.strokes, scene.draft, scene.draftLayerId) {
-        val draft = scene.draft?.takeIf { scene.draftLayerId == layer.id }
-        if (draft == null) content.strokes else content.strokes + draft
+    val live = liveStroke.value
+    // Rasterized once per shape list, not per frame.
+    val vectorCache = remember { HashMap<String, Pair<Any, VectorRaster.Image?>>() }
+    val depthScene = remember(uiState.layers, scene, live.layerId, live.version, live.bitmap) {
+        DepthScene.build(
+            uiState.layers, scene.depth, scene.camera, frame.width, frame.height,
+            pixels = { layer ->
+                if (live.layerId == layer.id && live.bitmap != null) {
+                    live.bitmap!! to live.version.toLong()
+                } else {
+                    layer.bitmap?.let { it to 0L }
+                }
+            },
+            vectors = { layer ->
+                val cached = vectorCache[layer.id]
+                if (cached != null && cached.first == layer.shapes) {
+                    cached.second
+                } else {
+                    VectorRaster.rasterize(layer, frame.width, frame.height).also { vectorCache[layer.id] = layer.shapes to it }
+                }
+            },
+            draft = scene.draft?.let { d -> scene.draftLayerId?.let { it to d } },
+        )
     }
-    val clip = SceneMath.clipMatrix(toScene, frame)
-    Box(Modifier.fillMaxSize().graphicsLayer { alpha = layer.opacity * frameAlpha }) {
-        SpatialInkLayer(strokes, clip, Modifier.fillMaxSize())
-        if (content.guide.visible && scene.showGuideFor == layer.id) {
+    Box(modifier) {
+        com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositeLayer(depthScene, Modifier.fillMaxSize())
+        val guideLayer = uiState.layers.firstOrNull { it.id == scene.showGuideFor && it.spatial != null }
+        val guide = guideLayer?.spatial?.guide?.takeIf { it.visible }
+        if (guideLayer != null && guide != null) {
+            val toScene = SceneMath.chainModel(planeChain(uiState.layers, guideLayer.id), frame.width, frame.height) *
+                SceneMath.strokeToLocal(frame.width, frame.height)
             val space = StrokeSpace(toScene, frame)
-            val lines = remember(content.guide, scene.camera, toScene.m.contentHashCode()) {
-                SpatialGuideSurface.wireframe(content.guide, space.view()).mapNotNull { (a, b) ->
+            val lines = remember(guide, scene.camera, toScene.m.contentHashCode()) {
+                SpatialGuideSurface.wireframe(guide, space.view()).mapNotNull { (a, b) ->
                     val p = space.project(a) ?: return@mapNotNull null
                     val q = space.project(b) ?: return@mapNotNull null
                     Offset(p.first, p.second) to Offset(q.first, q.second)

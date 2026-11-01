@@ -4598,6 +4598,7 @@ class EditorViewModel @Inject constructor(
                         _uiState.value.layers, w, h,
                         _uiState.value.documentWidth, _uiState.value.documentHeight,
                         crop = _uiState.value.documentCrop,
+                        camera = _uiState.value.sceneCamera,
                     )
                     // Downscale to a small preview so the file stays tiny and decodes fast.
                     val maxDim = 512
@@ -4649,6 +4650,7 @@ class EditorViewModel @Inject constructor(
                     backgroundBitmap = null,
                     backgroundColor = background,
                     crop = _uiState.value.documentCrop,
+                    camera = _uiState.value.sceneCamera,
                 )
                 // Cancel stops here, before anything is published to the gallery.
                 val success = try {
@@ -4697,6 +4699,7 @@ class EditorViewModel @Inject constructor(
                     backgroundBitmap = null,
                     backgroundColor = exportBackgroundArgb(state.canvasBackground),
                     crop = state.documentCrop,
+                    camera = state.sceneCamera,
                 )
                 val plan = com.hereliesaz.graffitixr.feature.editor.export.PosterLayout
                     .plan(spec, art.width, art.height)
@@ -4782,6 +4785,7 @@ class EditorViewModel @Inject constructor(
             _uiState.value.documentHeight,
             backgroundColor = android.graphics.Color.TRANSPARENT,
             crop = _uiState.value.documentCrop,
+            camera = _uiState.value.sceneCamera,
         )
         val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
         // Earlier shares are done with once a new one starts (the receiving app has read them).
@@ -4923,7 +4927,9 @@ class EditorViewModel @Inject constructor(
      * silent, unexplained mode change for ordinary flat editing.
      */
     fun onCanvasDoubleTap(offset: Offset, screenWidth: Float, screenHeight: Float) {
-        val hits = CanvasHitTest.allHits(_uiState.value.layers, offset, screenWidth, screenHeight)
+        val hits = CanvasHitTest.allHits(
+            _uiState.value.layers, offset, screenWidth, screenHeight, camera = _uiState.value.sceneCamera,
+        )
         if (hits.size < 2) {
             val active = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }
             if (active?.isPlacedIn3D == true) onCycleRotationAxis()
@@ -5014,6 +5020,7 @@ class EditorViewModel @Inject constructor(
         val st = _uiState.value
         val hitId = CanvasHitTest.topHit(
             st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
+            st.sceneCamera,
         )
         if (hitId != null) {
             if (hitId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(hitId))
@@ -11728,7 +11735,7 @@ class EditorViewModel @Inject constructor(
         }
         viewModelScope.launch(dispatchers.io) {
             runCatching {
-                val scene = buildExportScene(state, size.width.toFloat(), size.height.toFloat(), includeCamera)
+                val scene = buildSceneGltf(state, size.width.toFloat(), size.height.toFloat(), includeCamera)
                 val gltf = SceneGltfExporter.encode(scene)
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(gltf.toByteArray(Charsets.UTF_8))
@@ -11742,77 +11749,6 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    @Suppress("CyclomaticComplexMethod", "LongMethod")
-    private fun buildExportScene(
-        state: EditorUiState,
-        w: Float,
-        h: Float,
-        includeCamera: Boolean,
-    ): SceneGltfExporter.Scene {
-        val byId = state.layers.associateBy { it.id }
-        fun chainVisible(layer: Layer): Boolean {
-            var current: Layer? = layer
-            val seen = HashSet<String>()
-            while (current != null && seen.add(current.id)) {
-                if (!current.isVisible) return false
-                current = current.parentId?.let(byId::get)
-            }
-            return true
-        }
-        fun chainOpacity(layer: Layer): Float {
-            var current: Layer? = layer
-            var alpha = 1f
-            val seen = HashSet<String>()
-            while (current != null && seen.add(current.id)) {
-                alpha *= current.opacity
-                current = current.parentId?.let(byId::get)
-            }
-            return alpha
-        }
-        val quads = ArrayList<SceneGltfExporter.Quad>()
-        val strokes = ArrayList<SceneGltfExporter.Strokes>()
-        for (layer in state.layers) {
-            if (layer.isContainer || !chainVisible(layer)) continue
-            val model = SceneMath.chainModel(
-                planeChain(state.layers, layer.id), w, h,
-            )
-            val spatial = layer.spatial
-            if (spatial != null) {
-                if (spatial.strokes.isNotEmpty()) {
-                    strokes += SceneGltfExporter.Strokes(
-                        layer.name, spatial.strokes,
-                        model * SceneMath.strokeToLocal(w, h),
-                    )
-                }
-                continue
-            }
-            val bitmap = layer.bitmap?.takeUnless { it.isRecycled } ?: continue
-            if (layer.isAdjustment) continue
-            // Where drawLayerBitmap draws the bitmap in the layer's full-canvas box.
-            val frame = layer.frame(bitmap.width, bitmap.height)
-            if (frame.width <= 0 || frame.height <= 0) continue
-            val fit = minOf(w / frame.width, h / frame.height)
-            val left = (w - frame.width * fit) / 2f + frame.originX * fit
-            val top = (h - frame.height * fit) / 2f + frame.originY * fit
-            val right = left + bitmap.width * fit
-            val bottom = top + bitmap.height * fit
-            val png = java.io.ByteArrayOutputStream().also {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
-            }.toByteArray()
-            quads += SceneGltfExporter.Quad(
-                layer.name, png,
-                listOf(
-                    model.apply(left, top, 0f), model.apply(right, top, 0f),
-                    model.apply(right, bottom, 0f), model.apply(left, bottom, 0f),
-                ),
-                chainOpacity(layer),
-            )
-        }
-        return SceneGltfExporter.Scene(
-            w, h, quads, strokes, state.sceneCamera.takeIf { includeCamera },
-        )
     }
 
     // ── 3D model viewport ────────────────────────────────────────────────────────────────────

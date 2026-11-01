@@ -203,6 +203,8 @@ fun SelectionMarquee(
     viewportZoom: Float = 1f,
     viewportRotation: Float = 0f,
     modifier: Modifier = Modifier,
+    /** For a layer drawn in 3D: a selection point (flat space) to where it shows in world space. */
+    flatToWorld: ((Offset) -> Offset?)? = null,
 ) {
     // Stepped, not a continuous animation. An infiniteRepeatable drives this at the display's
     // refresh rate, which repainted a full-screen canvas 60-120 times a second for the entire life
@@ -223,7 +225,8 @@ fun SelectionMarquee(
         // The merged silhouette, not one outline per ring: after an Add the user has one region and
         // expects one boundary, and drawing each ring separately would leave the seam where two
         // added shapes overlap showing as an interior line that clips nothing.
-        val region = selectionOutline(selection, viewportOffset, viewportZoom, viewportRotation) ?: return@Canvas
+        val region = selectionOutline(selection, viewportOffset, viewportZoom, viewportRotation, flatToWorld)
+            ?: return@Canvas
         // Black underlay then white ants on top: legible over light and dark artwork alike.
         drawAnts(region, Color.Black.copy(alpha = 0.6f), width, null, 0f)
         drawAnts(region, Color.White, width, dash, phase)
@@ -256,14 +259,19 @@ private fun selectionOutline(
     viewportOffset: Offset,
     viewportZoom: Float,
     viewportRotation: Float,
+    flatToWorld: ((Offset) -> Offset?)? = null,
 ): Path? {
     val region = Path()
     var any = false
     for (ring in selection.rings) {
         if (!ring.isUsable) continue
-        val screenPoints = ring.path.map {
-            CanvasHitTest.worldToScreen(it, viewportOffset, viewportZoom, viewportRotation)
+        // A homography maps straight segments to straight segments, so mapping the vertices maps
+        // the outline exactly.
+        val screenPoints = ring.path.mapNotNull { p ->
+            (if (flatToWorld == null) p else flatToWorld(p))
+                ?.let { CanvasHitTest.worldToScreen(it, viewportOffset, viewportZoom, viewportRotation) }
         }
+        if (screenPoints.size < 3) continue
         val ringPath = Path().apply {
             // Even-odd, matching SelectionMask.bitmapPath and SelectionGeometry — so the ants
             // outline exactly the region the paint is confined to, including where a lasso
