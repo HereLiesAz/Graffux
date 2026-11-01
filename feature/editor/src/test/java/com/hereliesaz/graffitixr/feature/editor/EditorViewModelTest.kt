@@ -606,6 +606,35 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `an older instance rebase that finishes last does not overwrite the newer one`() = runTest {
+        // Codex on #680: two main edits close together; the older rebase's copy finished last.
+        val seed = mockk<Bitmap>(relaxed = true)
+        val first = mockk<Bitmap>(relaxed = true)
+        val firstBase = mockk<Bitmap>(relaxed = true)
+        val second = mockk<Bitmap>(relaxed = true)
+        val secondBase = mockk<Bitmap>(relaxed = true)
+        every { second.copy(any(), any()) } returns secondBase
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                listOf(
+                    Layer(id = "m", name = "m", componentId = "C1", bitmap = seed),
+                    Layer(id = "i", name = "i", instanceOf = "C1", bitmap = seed),
+                ),
+            ),
+        )
+        val params = com.hereliesaz.graffitixr.common.model.TextLayerParams()
+        viewModel.dispatchForTest(EditorIntent.RenderTextLayer("m", first, params))
+        // While the older rebase is still copying, the main paints again and that rebase completes.
+        every { first.copy(any(), any()) } answers {
+            viewModel.dispatchForTest(EditorIntent.RenderTextLayer("m", second, params))
+            kotlinx.coroutines.runBlocking { viewModel.rebaseInstanceForTest("i", "m", second) }
+            firstBase
+        }
+        viewModel.rebaseInstanceForTest("i", "m", first)
+        assertSame(secondBase, viewModel.layerBaseForTest("i"))
+    }
+
+    @Test
     fun `local edits not yet sent still reach peers when a peer's op lands first`() = runTest {
         every { opEmitter.isActive } returns true
         viewModel.dispatchForTest(EditorIntent.AppendLayer(Layer(id = "c", name = "c")))

@@ -5753,24 +5753,46 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    private fun rebaseInstance(instanceId: String, mainId: String?, bitmap: Bitmap) {
-        // Superseded (the main painted again, or the instance itself did): the newer write rebases.
-        val current = _uiState.value.layers.firstOrNull { it.id == instanceId }
-        if (current?.bitmap !== bitmap) return
-        putLayerBase(instanceId, bitmap)
-        layerStore.clearCanonicalMaterial(instanceId)
-        current.heightMap?.let { layerStore.putHeightBase(instanceId, it.copyOf()) }
-        if (mainId != null) {
-            layerStore.wetnessStateCopyOrNull(mainId)?.let {
+    /** Serialises [rebaseInstance] per instance, so publishes for one instance never interleave. */
+    private val rebaseLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    /**
+     * Makes [bitmap] [instanceId]'s replay base, with its main's material. The copies are made
+     * first, unlocked; then, under the instance's lock, freshness is checked again and base and
+     * material are published together. Two main edits close together each launch one of these,
+     * and the older one's copy can finish last: re-checking under the lock right before publishing
+     * means it finds itself superseded and publishes nothing.
+     */
+    private suspend fun rebaseInstance(instanceId: String, mainId: String?, bitmap: Bitmap) {
+        val base = if (showsBitmap(instanceId, bitmap)) SafeBitmap.copy(bitmap, mutable = false) else null
+        if (base == null) return // Superseded already, or out of memory: either way, nothing to publish.
+        rebaseLocks.getOrPut(instanceId) { Mutex() }.withLock {
+            // Superseded (the main painted again, or the instance itself did): the newer one wins.
+            if (!showsBitmap(instanceId, bitmap)) return@withLock
+            // Material is read here, with the bitmap known current, so it matches the pixels.
+            val height = _uiState.value.layers.firstOrNull { it.id == instanceId }?.heightMap?.copyOf()
+            val wetness = mainId?.let { layerStore.wetnessStateCopyOrNull(it) }
+            val impasto = mainId?.let { layerStore.impastoMaterialStateCopyOrNull(it) }
+            layerStore.putBase(instanceId, base)
+            layerStore.clearCanonicalMaterial(instanceId)
+            height?.let { layerStore.putHeightBase(instanceId, it) }
+            wetness?.let {
                 layerStore.putWetnessBase(instanceId, it)
                 layerStore.putLiveWetness(instanceId, it)
             }
-            layerStore.impastoMaterialStateCopyOrNull(mainId)?.let {
+            impasto?.let {
                 layerStore.putImpastoMaterialBase(instanceId, it)
                 layerStore.putLiveImpastoMaterial(instanceId, it)
             }
         }
     }
+
+    private fun showsBitmap(layerId: String, bitmap: Bitmap): Boolean =
+        _uiState.value.layers.firstOrNull { it.id == layerId }?.bitmap === bitmap
+
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun rebaseInstanceForTest(instanceId: String, mainId: String?, bitmap: Bitmap) =
+        rebaseInstance(instanceId, mainId, bitmap)
 
     /**
      * Records a pristine, immutable copy of [bitmap] as [layerId]'s replay base.
