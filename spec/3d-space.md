@@ -188,6 +188,8 @@ camera depth of the ray hit, nearest first, among depth-pass members only
 (`CanvasHitTest.stackOrder`). The pass's members rank together just under the anchor's subtree;
 every other hit (a blend-mode or clipped layer, on the scene path or not) keeps its stack
 position, so a Screen layer above the pass wins over a nearer member, as it does on screen.
+Ranks come from the renderer's own draw order, a pre-order walk of `buildLayerTree`, not flat
+list positions (a reorder can leave a child away from its parent in the list).
 
 ## Co-op
 

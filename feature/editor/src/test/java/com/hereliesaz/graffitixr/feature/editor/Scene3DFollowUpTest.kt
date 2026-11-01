@@ -191,4 +191,16 @@ class Scene3DFollowUpTest {
         val plan2 = DepthComposite.plan(withBase, camera)
         assertEquals(listOf("screen", "near", "far", "base"), CanvasHitTest.stackOrder(withBase, listOf("screen", "far", "near", "base"), plan2, depths, 1000f))
     }
+
+    @Test
+    fun `hit ranks follow the layer tree, not flat list positions`() {
+        // After a reorder the child C sits after B in the list, but renders inside G, below B's pass.
+        val layers = listOf(
+            Layer("G", "G", type = LayerType.GROUP),
+            rect("B", 0xFF00FF00L).copy(positionZ = 200f),
+            rect("C", 0xFFFFFFFFL).copy(parentId = "G", blendMode = BlendMode.Screen),
+        )
+        val plan = DepthComposite(listOf("B"), "B")
+        assertEquals(listOf("B", "C"), CanvasHitTest.stackOrder(layers, listOf("C", "B"), plan, mapOf("B" to 1200f), 1000f))
+    }
 }

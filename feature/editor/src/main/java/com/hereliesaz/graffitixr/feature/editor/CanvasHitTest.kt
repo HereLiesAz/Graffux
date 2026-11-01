@@ -166,18 +166,19 @@ internal object CanvasHitTest {
         flatDepth: Float,
     ): List<String> {
         if (plan.isEmpty) return hits
-        val byId = layers.associateBy { it.id }
-        fun topLevel(id: String): String {
-            var cur = byId[id] ?: return id
-            val seen = HashSet<String>()
-            while (seen.add(cur.id)) cur = cur.parentId?.let(byId::get) ?: break
-            return cur.id
-        }
+        // Draw order is the renderer's: a pre-order walk of buildLayerTree (a container, then its
+        // children bottom-first), not the flat list, where reordering can separate a child from
+        // its parent. The pass draws just before the anchor's root node.
         val index = HashMap<String, Int>(layers.size)
-        layers.forEachIndexed { i, l -> index[l.id] = i }
-        val anchor = plan.anchorTopLevelId
-        val firstOfAnchor = layers.indices.firstOrNull { topLevel(layers[it].id) == anchor } ?: 0
-        val passRank = firstOfAnchor - HALF_RANK
+        var passRank = -HALF_RANK
+        fun walk(nodes: List<com.hereliesaz.graffitixr.common.model.LayerNode>, root: Boolean) {
+            for (n in nodes) {
+                if (root && n.layer.id == plan.anchorTopLevelId) passRank = index.size - HALF_RANK
+                index[n.layer.id] = index.size
+                walk(n.children, false)
+            }
+        }
+        walk(com.hereliesaz.graffitixr.common.model.buildLayerTree(layers), true)
         // Stable sort: rank descending (topmost first); within the pass, nearest first.
         return hits.sortedWith(
             compareByDescending<String> { if (it in plan) passRank else (index[it] ?: 0).toDouble() }
