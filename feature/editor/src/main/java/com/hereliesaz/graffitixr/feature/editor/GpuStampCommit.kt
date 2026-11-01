@@ -139,11 +139,18 @@ internal object GpuStampCommit {
         // commit, not the stroke on screen.
         GpuTuningController.stopCalibrationForCanvas()
         val engine = runCatching { GpuStampEngine() }.getOrNull()
+        if (engine == null) Log.w(TAG, "GPU stamp commit failed at engine creation")
         return engine != null && try {
-            engine.init(target.width, target.height) &&
-                engine.upload(target) &&
-                stampOnto(engine, batches, paint) &&
-                engine.readback(target)
+            // The stage that failed is named in the log, so a dropped stroke is diagnosable.
+            val stage = when {
+                !engine.init(target.width, target.height) -> "init"
+                !engine.upload(target) -> "upload"
+                !stampOnto(engine, batches, paint) -> "stamp"
+                !engine.readback(target) -> "readback"
+                else -> null
+            }
+            stage?.let { Log.w(TAG, "GPU stamp commit failed at $it (${target.width}x${target.height})") }
+            stage == null
         } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
             Log.w(TAG, "GPU stamp commit failed; the stroke is not painted", e)
             false
@@ -247,7 +254,10 @@ private class MaskedStamper(
     /** Null when a dual-tip brush's dabs lost their secondary geometry: not drawable faithfully. */
     private fun secondary(dabs: List<Dab>): List<SecondaryBrushDab>? = when {
         secondaryMask == null -> emptyList()
-        dabs.any { it.mask == null } -> null
+        dabs.any { it.mask == null } -> null.also {
+            val missing = dabs.count { d -> d.mask == null }
+            Log.w("GpuStampCommit", "Dual-tip batch refused: $missing of ${dabs.size} dabs lack a secondary")
+        }
         else -> dabs.mapNotNull { it.mask }.map { m ->
             SecondaryBrushDab(m.x, m.y, m.radius, m.tipRatio, m.alpha, m.angleDeg, m.flowMultiplier, m.keepInside)
         }
