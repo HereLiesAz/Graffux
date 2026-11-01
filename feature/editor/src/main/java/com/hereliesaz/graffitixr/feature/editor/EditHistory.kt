@@ -66,16 +66,18 @@ internal class EditHistory(
         command: StrokeCommand,
         chunkable: Boolean = false,
         nowMs: Long = System.nanoTime() / NANOS_PER_MS,
+        /** A view plane the layer adopted for this stroke; it never joins an earlier chunk. */
+        plane: PlaneSwap? = null,
     ): Boolean {
         val top = undoStack.lastOrNull()
-        val joined = chunkable && top is EditCommand.Draw && joinsChunk(top, layerId, command, nowMs)
+        val joined = plane == null && chunkable && top is EditCommand.Draw && joinsChunk(top, layerId, command, nowMs)
         if (joined && top is EditCommand.Draw) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
                 earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
             )
         } else {
-            undoStack.addLast(EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs))
+            undoStack.addLast(EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane))
             trim()
         }
         clearRedo()
@@ -313,3 +315,9 @@ private fun ArrayDeque<EditCommand>.discardAll(
     forEach { it.gpuUndo()?.let(discard) }
     clear()
 }
+
+/** A layer's plane before and after view-plane adoption, undone and redone with its stroke. */
+data class PlaneSwap(
+    val before: com.hereliesaz.graffitixr.common.scene.PlanePose,
+    val after: com.hereliesaz.graffitixr.common.scene.PlanePose,
+)

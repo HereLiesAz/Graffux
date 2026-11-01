@@ -657,6 +657,11 @@ sealed class EditCommand {
         val lastPushMs: Long = 0L,
         /** The strokes (by identity) whose tile deltas are merged into [tileDeltas]. */
         val attached: List<StrokeCommand> = emptyList(),
+        /**
+         * The plane the layer adopted from the view on this entry's first stroke (spec/3d-space.md,
+         * "Adopting the view plane"): undo puts the old one back with the pixels, redo the new one.
+         */
+        val plane: PlaneSwap? = null,
     ) : EditCommand() {
         /** Every stroke this entry undoes, oldest first. */
         val strokes: List<StrokeCommand> get() = earlier + command
@@ -2652,6 +2657,7 @@ class EditorViewModel @Inject constructor(
                 repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
                 command.strokes.asReversed().forEach { inkLedger.onUndo(command.layerId, it) }
                 restoreUndoneStrokePixels(command)
+                command.plane?.let { applyPlane(command.layerId, it.before) }
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -2716,6 +2722,7 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 reapplyRedoneStroke(command)
+                command.plane?.let { applyPlane(command.layerId, it.after) }
             }
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
@@ -8541,6 +8548,9 @@ class EditorViewModel @Inject constructor(
      * recorded on finger-up), so dropping the live preview is the whole cancel.
      */
     fun onStrokeCancel() {
+        // A cancelled first stroke leaves no paint, so the layer keeps the plane it had.
+        pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+        pendingPlaneAdoption = null
         stampFrameRequestedFor = -1L
         endOverlayStroke(afterFrames = 0)
         liquifyJob?.cancel()
@@ -8770,7 +8780,10 @@ class EditorViewModel @Inject constructor(
         chunkable: Boolean = false,
     ): Boolean {
         if (command.tool != Tool.BRUSH) inkLedger.taint(layerId)
-        return history.pushDraw(layerId, command, chunkable)
+        // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
+        val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
+        pendingPlaneAdoption = null
+        return history.pushDraw(layerId, command, chunkable, plane = plane)
     }
 
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
@@ -11648,6 +11661,66 @@ class EditorViewModel @Inject constructor(
             })
         }
     }
+
+    /** A view plane adopted at a stroke's start, waiting for that stroke's undo entry. */
+    private var pendingPlaneAdoption: Pair<String, PlaneSwap>? = null
+
+    private fun applyPlane(layerId: String, pose: com.hereliesaz.graffitixr.common.scene.PlanePose) {
+        updateUi { s ->
+            s.copy(layers = LayerListOps.mapLayer(s.layers, layerId) {
+                it.copy(
+                    offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
+                    rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
+                    scale = pose.scale,
+                )
+            })
+        }
+        saveProject()
+    }
+
+    /**
+     * View-plane adoption (spec/3d-space.md, "Adopting the view plane"), called as a stroke starts,
+     * before its first point is mapped onto the layer: an empty paint layer under a moved camera
+     * takes the plane facing the camera through its orbit target. A layer with paint, one already
+     * placed in 3D, or any layer at the default view keeps its plane (the 2D fast path stays). The
+     * change rides on the stroke's own undo entry. Returns whether the plane changed.
+     */
+    fun adoptViewPlaneForStroke(): Boolean {
+        val state = _uiState.value
+        val id = state.activeLayerId ?: return false
+        val size = state.canvasSize
+        val layer = state.layers.firstOrNull { it.id == id }
+        val eligible = layer != null && !state.sceneCamera.isDefault && size.width > 0 && size.height > 0 &&
+            !layer.isPlacedIn3D && layer.isEmptyPaintLayer()
+        if (!eligible || layer == null) return false
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val parents = planeChain(state.layers, id).dropLast(1)
+        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, parents) ?: return false
+        pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
+        applyPlane(id, pose)
+        return true
+    }
+
+    /**
+     * Paint, not yet painted: no source image, text, shapes, adjustment or 3D ink, no stroke on
+     * record, and (checked last, once) no pixel set in its bitmap.
+     */
+    private fun Layer.isEmptyPaintLayer(): Boolean {
+        if (uri != null || textParams != null || shapes.isNotEmpty() || isAdjustment || isSpatial || isContainer) return false
+        if (layerStore.strokes(id).isNotEmpty()) return false
+        val b = bitmap?.takeUnless { it.isRecycled } ?: return true
+        val row = IntArray(b.width)
+        for (y in 0 until b.height) {
+            b.getPixels(row, 0, b.width, 0, y, b.width, 1)
+            if (row.any { it ushr 24 != 0 }) return false
+        }
+        return true
+    }
+
+    private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(
+        offset.x, offset.y, positionZ, rotationX, rotationY, rotationZ, scale,
+    )
 
     /** The active layer back to the identity plane (depth 0, no tilt), as one undo step. */
     @Suppress("ReturnCount")

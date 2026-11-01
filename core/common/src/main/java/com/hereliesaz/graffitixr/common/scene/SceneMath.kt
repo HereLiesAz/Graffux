@@ -337,6 +337,70 @@ object SceneMath {
         return applyHomography(h, local[0], local[1])
     }
 
+    /**
+     * View-plane adoption (spec/3d-space.md, "Adopting the view plane"): the pose that puts a
+     * layer's plane facing the camera through its orbit target. The layer's box centre lands on the
+     * target, its x and y run along the view's right and down, and its scale is the camera's
+     * distance factor, so its pixels show at the same size on screen as a flat layer's at the
+     * default view. [parentChain] is the layer's enclosing groups, outermost first; the pose is in
+     * their space. Null when that space is degenerate.
+     */
+    fun viewPlanePose(
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+        parentChain: List<PlanePose> = emptyList(),
+    ): PlanePose? {
+        val cam = frame(camera, width, height)
+        val s = camera.distanceScale
+        val cx = width / 2f
+        val cy = height / 2f
+        val m = FloatArray(12)
+        val axes = arrayOf(cam.right, cam.down, cam.forward)
+        for (row in 0..2) for (col in 0..2) m[row * 4 + col] = axes[col][row] * s
+        for (row in 0..2) m[row * 4 + 3] = cam.target[row] - (m[row * 4] * cx + m[row * 4 + 1] * cy)
+        val world = Affine3(m)
+        val local = (chainModel(parentChain, width, height).inverse() ?: return null) * world
+        return poseOf(local, width, height)
+    }
+
+    /**
+     * The pose whose [model] is [affine] (a rotation times a uniform scale, plus a translation):
+     * the inverse of [model]. Angles in degrees, Rz * Ry * Rx.
+     */
+    fun poseOf(affine: Affine3, width: Float, height: Float): PlanePose? {
+        val c0 = affine.column(0)
+        val scale = sqrt(dot(c0, c0))
+        if (scale < 1e-9f || !scale.isFinite()) return null
+        val r = FloatArray(9) { i -> affine.m[(i / 3) * 4 + i % 3] / scale }
+        val sy = (-r[6]).coerceIn(-1f, 1f)
+        val ry = kotlin.math.asin(sy)
+        val rx: Float
+        val rz: Float
+        if (abs(kotlin.math.cos(ry)) > 1e-5f) {
+            rx = kotlin.math.atan2(r[7], r[8])
+            rz = kotlin.math.atan2(r[3], r[0])
+        } else {
+            // Gimbal: Y at +-90 degrees; fold the Z turn into X.
+            rx = kotlin.math.atan2(-r[5], r[4])
+            rz = 0f
+        }
+        val cx = width / 2f
+        val cy = height / 2f
+        val t = affine.column(3)
+        val mc = affine.applyVector(cx, cy, 0f)
+        val deg = 180f / PI.toFloat()
+        return PlanePose(
+            offsetX = t[0] + mc[0] - cx,
+            offsetY = t[1] + mc[1] - cy,
+            positionZ = t[2] + mc[2],
+            rotationX = rx * deg,
+            rotationY = ry * deg,
+            rotationZ = rz * deg,
+            scale = scale,
+        )
+    }
+
     /** Camera depth of the ray-plane hit for ([x], [y]) on [chain]'s leaf plane; null on a miss. */
     fun hitDepth(
         x: Float,

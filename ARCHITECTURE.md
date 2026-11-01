@@ -531,6 +531,9 @@ Full design: `spec/3d-space.md`. In short:
 - **Export.** PNG/PDF/share/thumbnail render from the current camera (`SceneExport`, with the
   depth pass rendered off screen by `OffscreenDepthRender`); a flat document renders exactly as
   before. glTF includes vector layers, rasterized by the canvas's shape code (`VectorRaster`).
+- **View-plane adoption.** An empty paint layer's first stroke under a moved camera gives it the
+  plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
+  entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part

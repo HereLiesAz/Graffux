@@ -150,6 +150,8 @@ fun EditorScreen(
     val transforming = uiState.activePanel == EditorPanel.TRANSFORM
     // Touches meant for the active layer's pixels go through its plane when it is drawn in 3D
     // (spec/3d-space.md, "Painting on a tilted plane" and "Tilted layers").
+    // Set for the duration of a stroke whose layer just adopted the view plane (see onStrokeStart).
+    val strokePlane = remember { object { var value: ActivePlaneMapping? = null } }
     val activePlane = remember(
         uiState.layers, uiState.sceneCamera, uiState.activeLayerId, uiState.canvasSize,
         uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
@@ -565,7 +567,10 @@ fun EditorScreen(
             )
         } else if (canPaintActiveLayer && uiState.activeTool !in NON_RASTER_TOOLS) {
             // A ray that misses the plane keeps the plain world point, so a stroke never breaks.
-            fun toWorld(screen: Offset): Offset = activePlane.toFlat(screen) ?: activePlane.world(screen)
+            fun toWorld(screen: Offset): Offset {
+                val plane = strokePlane.value ?: activePlane
+                return plane.toFlat(screen) ?: plane.world(screen)
+            }
             fun toWorldSample(sample: BrushSample): BrushSample {
                 val world = toWorld(Offset(sample.x, sample.y))
                 // The nib was recorded as seen on screen; the layer sees it through the view's rotation.
@@ -583,10 +588,16 @@ fun EditorScreen(
                 gate = strokeGate,
                 activeBrushPreview = vm.activeBrushForPreview(),
                 modifier = Modifier.fillMaxSize(),
-                onStrokeStart = { sample, size -> vm.onStrokeStart(toWorldSample(sample), size) },
+                onStrokeStart = { sample, size ->
+                    // An empty layer under a moved camera takes the view plane first, so the very
+                    // first point already lands on it; the stroke's points then map through the
+                    // plane as it is now, not as of the last recomposition.
+                    strokePlane.value = if (vm.adoptViewPlaneForStroke()) ActivePlaneMapping.of(vm.uiState.value) else null
+                    vm.onStrokeStart(toWorldSample(sample), size)
+                },
                 onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },
-                onStrokeEnd = { vm.onStrokeEnd() },
-                onStrokeCancel = { vm.onStrokeCancel() },
+                onStrokeEnd = { vm.onStrokeEnd(); strokePlane.value = null },
+                onStrokeCancel = { vm.onStrokeCancel(); strokePlane.value = null },
                 onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
                 onPickCloneSource = { at -> vm.onSetCloneSource(toWorld(at)) },

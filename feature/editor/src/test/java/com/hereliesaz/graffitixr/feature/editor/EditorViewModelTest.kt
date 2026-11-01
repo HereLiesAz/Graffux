@@ -899,6 +899,28 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `an empty layer adopts the view plane on its first stroke, only under a moved camera`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        // Default view: nothing changes, the 2D fast path stays.
+        assertFalse(viewModel.adoptViewPlaneForStroke())
+        assertFalse(viewModel.uiState.value.layers.single().isPlacedIn3D)
+        viewModel.onSceneOrbit(Offset((Math.PI / 2 / 0.006).toFloat(), 0f))
+        assertTrue(viewModel.adoptViewPlaneForStroke())
+        val adopted = viewModel.uiState.value.layers.single()
+        assertEquals(90f, kotlin.math.abs(adopted.rotationY), 0.5f)
+        // A cancelled first stroke leaves no paint, so the plane goes back.
+        viewModel.onStrokeCancel()
+        assertFalse(viewModel.uiState.value.layers.single().isPlacedIn3D)
+        // A layer placed in 3D by hand, or one with a source image, keeps its plane.
+        viewModel.setLayers(listOf(lyr("a").copy(positionZ = 30f)))
+        assertFalse(viewModel.adoptViewPlaneForStroke())
+        assertEquals(30f, viewModel.uiState.value.layers.single().positionZ)
+    }
+
+    @Test
     fun `3D mode toggles without moving the camera or any plane`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("a").copy(positionZ = 40f)))

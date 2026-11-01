@@ -137,6 +137,33 @@ unchanged (`mapScreenToBitmap` undoes exactly the 2D part). A ray that misses th
 or the plane behind the eye) yields no point. The brush then keeps the plain world point, so a
 stroke never breaks.
 
+## Adopting the view plane
+
+An empty paint layer takes its plane from the view on its first stroke
+(`EditorViewModel.adoptViewPlaneForStroke`, `SceneMath.viewPlanePose`), so drawing under an
+orbited camera puts the paint where it is drawn rather than on the far-off picture plane:
+
+- The plane's normal is the camera's view direction and it passes through the camera's orbit
+  target (the pivot). The layer's box centre lands on the target, its x and y run along the view's
+  right and down, and its scale is the camera's distance factor. Its pixels therefore show at the
+  same size as a flat layer's at the default view, and the first stroke lands under the finger.
+- Inside groups, the pose is expressed in the groups' space, so the group chain gives exactly
+  that plane in the scene.
+- "Empty" means no source image, text, shapes, adjustment or 3D ink, no recorded stroke, and no
+  set pixel (checked once, only when everything else already says empty and the camera has moved).
+  A layer with paint keeps its plane. So does a layer already placed in 3D by hand.
+- At the default view nothing changes: the adopted pose would be the identity, so the layer stays
+  on the 2D fast path.
+- It happens as the stroke starts, before the first point is mapped, and joins that stroke's undo
+  entry (`EditCommand.Draw.plane`; never merged into an earlier stroke chunk). Undo restores the
+  old plane with the pixels and redo re-applies it. A cancelled stroke puts the plane back at once.
+- A 3D strokes layer's default guide (VIEW_PLANE at depth 0) is the same rule already: it faces the
+  camera through the orbit target.
+
+Example (a unit test): draw a square at the default view; orbit 90 degrees, so it is edge-on;
+draw a second square on a new layer starting at the edge-on line; tilt the view up 90 degrees.
+The two squares share that edge, at right angles: an L.
+
 ## Tilted layers: selection and tap-select
 
 `ActivePlaneMapping` (EditorScreen) carries the same mapping for the lasso, the magic wand and
