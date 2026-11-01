@@ -111,4 +111,22 @@ class BrushOpensSheetUiTest {
         rule.waitForIdle()
         assertBrushSheetShown()
     }
+
+    @Test
+    fun aStrokeLeavesTheBrushSheetOpen() {
+        setUp()
+        rule.onNodeWithTag("rail.tool.brush").performClick()
+        rule.waitForIdle()
+        // What MainActivity's chrome hook does on every canvas touch and stroke.
+        ui = ui.afterCanvasTouch(tool)
+        assertBrushSheetShown()
+    }
+
+    @Test
+    fun aStrokeStillClosesOtherSheets() {
+        val effects = CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true)
+        assertFalse(effects.afterCanvasTouch(Tool.BRUSH).sheetOpen)
+        val brushes = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, showingCarousel = true)
+        assertFalse(brushes.afterCanvasTouch(Tool.FILL).sheetOpen)
+    }
 }

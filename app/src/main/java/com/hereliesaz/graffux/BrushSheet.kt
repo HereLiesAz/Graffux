@@ -33,3 +33,13 @@ internal fun brushOpensSheet(activeTool: Tool, onOpen: () -> Unit) {
         lastTool = activeTool
     }
 }
+
+/**
+ * What a finger on the canvas does to the sheet. Any other sheet closes; the brush's own sheet
+ * stays open, because it only hides while the finger is down (`hiddenForDrawing`) and comes back
+ * after the stroke. Closing it here left the brush in hand with no sheet until it was re-picked.
+ */
+internal fun CarouselUi.afterCanvasTouch(activeTool: Tool): CarouselUi {
+    val brushSheet = activeTool == Tool.BRUSH && !photo && category == CarouselCategory.BRUSHES
+    return if (sheetOpen && !brushSheet) copy(sheetOpen = false, showingCarousel = false) else this
+}

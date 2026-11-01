@@ -846,7 +846,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         showPosterMenu = false
         brushMenuOpen = false
         layerMenuFor = null
-        if (carouselUi.sheetOpen) carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false)
+        carouselUi = carouselUi.afterCanvasTouch(uiState.activeTool)
         heroExpansion.collapse()
         TOOLBOX_IDS.filter { railExpansion[it] == true }.forEach { vm.onRailHostExpansionChanged(it, false) }
     }

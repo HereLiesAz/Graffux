@@ -214,7 +214,8 @@ internal fun ToolRail(
         ModeButton(
             label = "3D",
             tag = "rail.$SCENE_3D_RAIL_ID",
-            icon = RailIcons.Cube,
+            icon = null,
+            text = "3D",
             on = uiState.is3DMode,
             onClick = { vm.toggleScene3D() },
         )
@@ -263,22 +264,30 @@ internal const val PHOTO_RAIL_ID = "area.photo"
 /**
  * Frame, Adjust photo and 3D, after Transform. Lit as the mockup draws them: a filled ink circle with
  * the glyph in the canvas's near-black, not the accent ring of the other tools, because each turns
- * the sheet (and, on a tablet, the side panel) into a mode of its own.
+ * the sheet (and, on a tablet, the side panel) into a mode of its own. With no [icon], [text] is
+ * drawn as the glyph instead (3D is the literal "3D").
  */
 @Composable
-private fun ModeButton(label: String, tag: String, icon: ImageVector, on: Boolean, onClick: () -> Unit) {
+private fun ModeButton(
+    label: String,
+    tag: String,
+    icon: ImageVector?,
+    on: Boolean,
+    text: String? = null,
+    onClick: () -> Unit,
+) {
     RailButton(
         label = label,
         testTag = tag,
         onClick = onClick,
     ) {
         if (on) Box(Modifier.fillMaxSize().background(RailInk, CircleShape))
-        androidx.compose.material3.Icon(
-            icon,
-            contentDescription = null,
-            tint = if (on) AdjustOnInk else RailInk,
-            modifier = Modifier.size(22.dp),
-        )
+        val tint = if (on) AdjustOnInk else RailInk
+        if (icon != null) {
+            androidx.compose.material3.Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        } else if (text != null) {
+            Text(text, color = tint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 

@@ -84,11 +84,6 @@ object RailIcons {
     /** Frame (the design tools' rail circle and a frame's layer tile): Figma's # frame glyph. */
     val Frame: ImageVector by lazy { stroked("rail.frame", "M7 3v18M17 3v18M3 7h18M3 17h18") }
 
-    /** 3D: an isometric cube (the rail's 3D mode button). */
-    val Cube: ImageVector by lazy {
-        stroked("rail.cube", "M12 3l8 4.5v9L12 21l-8-4.5v-9z", "M4 7.5l8 4.5 8-4.5M12 12v9")
-    }
-
     /** A main component (Figma's four-diamond glyph): the components panel and a main's layer tile. */
     val Component: ImageVector by lazy {
         stroked("rail.component", "M12 3l4 4-4 4-4-4zM12 13l4 4-4 4-4-4zM7 8l4 4-4 4-4-4zM17 8l4 4-4 4-4-4z")
