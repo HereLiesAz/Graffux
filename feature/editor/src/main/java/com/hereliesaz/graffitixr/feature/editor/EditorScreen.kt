@@ -592,7 +592,8 @@ fun EditorScreen(
                     // An empty layer under a moved camera takes the view plane first, so the very
                     // first point already lands on it; the stroke's points then map through the
                     // plane as it is now, not as of the last recomposition.
-                    strokePlane.value = if (vm.adoptViewPlaneForStroke()) ActivePlaneMapping.of(vm.uiState.value) else null
+                    val adopted = vm.adoptViewPlaneForStroke()
+                    strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
                     vm.onStrokeStart(toWorldSample(sample), size)
                 },
                 onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },

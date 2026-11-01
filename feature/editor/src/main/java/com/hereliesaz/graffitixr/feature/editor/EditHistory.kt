@@ -70,14 +70,17 @@ internal class EditHistory(
         plane: PlaneSwap? = null,
     ): Boolean {
         val top = undoStack.lastOrNull()
-        val joined = plane == null && chunkable && top is EditCommand.Draw && joinsChunk(top, layerId, command, nowMs)
+        val joined = plane == null && chunkable && top is EditCommand.Draw &&
+            joinsChunk(top, layerId, command, nowMs)
         if (joined && top is EditCommand.Draw) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
                 earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
             )
         } else {
-            undoStack.addLast(EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane))
+            undoStack.addLast(
+                EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane),
+            )
             trim()
         }
         clearRedo()

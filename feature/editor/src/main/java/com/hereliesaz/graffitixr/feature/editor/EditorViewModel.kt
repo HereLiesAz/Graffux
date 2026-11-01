@@ -11685,6 +11685,7 @@ class EditorViewModel @Inject constructor(
      * placed in 3D, or any layer at the default view keeps its plane (the 2D fast path stays). The
      * change rides on the stroke's own undo entry. Returns whether the plane changed.
      */
+    @Suppress("ReturnCount")
     fun adoptViewPlaneForStroke(): Boolean {
         val state = _uiState.value
         val id = state.activeLayerId ?: return false
@@ -11706,14 +11707,16 @@ class EditorViewModel @Inject constructor(
      * Paint, not yet painted: no source image, text, shapes, adjustment or 3D ink, no stroke on
      * record, and (checked last, once) no pixel set in its bitmap.
      */
+    @Suppress("ReturnCount")
     private fun Layer.isEmptyPaintLayer(): Boolean {
-        if (uri != null || textParams != null || shapes.isNotEmpty() || isAdjustment || isSpatial || isContainer) return false
-        if (layerStore.strokes(id).isNotEmpty()) return false
+        val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
+        val notPaint = isAdjustment || isSpatial || isContainer
+        if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
         val b = bitmap?.takeUnless { it.isRecycled } ?: return true
         val row = IntArray(b.width)
         for (y in 0 until b.height) {
             b.getPixels(row, 0, b.width, 0, y, b.width, 1)
-            if (row.any { it ushr 24 != 0 }) return false
+            if (row.any { android.graphics.Color.alpha(it) != 0 }) return false
         }
         return true
     }
