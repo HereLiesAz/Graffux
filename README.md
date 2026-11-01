@@ -37,8 +37,12 @@ consumes the same modules for its 2D work and adds AR on top.
   bridging empty space; editing a guide never moves existing curves. Erase and undo/redo with the
   editor's history. Projects with the old Spatial Sketch open with it as a 3D strokes layer
   (project format v7).
-- **glTF scene export** — File → Export 3D scene (glTF): each paint layer as a textured quad at its
-  placement, each 3D strokes layer as tube geometry, and the camera.
+- **glTF scene export** — File → Export 3D scene (glTF): each paint, text and vector layer as a
+  textured quad at its placement, each 3D strokes layer as tube geometry, and the camera. PNG, PDF
+  and Share render the 3D placement as seen from the current camera; a flat document exports as
+  before.
+- **Per-pixel depth** — planes that cross in space, and 3D strokes among them, hide each other
+  pixel by pixel on the GPU.
 - **3D model texture painting** — load an `.obj`, paint directly on its UV surface, and add the
   painted view as a flattened 2D layer. This remains independent of spatial strokes.
 - **Animation Assist** — each top-level layer as one frame, with onion skinning, playback, and

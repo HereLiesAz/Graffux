@@ -35,8 +35,9 @@ ray-plane intersection (below), so brushes and tools work unchanged on the tilte
 fingers pan and zoom the 2D view on top of the 3D projection, as before.
 
 There is no per-layer "3D" toggle. A layer is "in 3D" exactly when it has a depth or an X/Y tilt
-(`Layer.isPlacedIn3D`); the old `is3D` switch in the Transform panel is gone (the field is still
-read from old files, and ignored). The Transform panel shows the X, Y and depth fields whenever
+(`Layer.isPlacedIn3D`). The old `is3D` field, its Transform-panel switch and its reducer intent
+are deleted. Projects never saved it; a co-op peer or snapshot from an older build that still
+sends the key decodes cleanly, because `Layer` skips unknown keys. The Transform panel shows the X, Y and depth fields whenever
 the layer is placed in 3D or 3D mode is on.
 
 ## Data model
@@ -74,11 +75,14 @@ picture plane.
   changes: the only addition is one scan of the layer list for a 3D placement when the layers
   change, and a set lookup per layer that returns the 2D path.
 - **Scene path.** Otherwise every node of the subtree draws with its plane-to-canvas homography.
-  The `graphicsLayer` keeps alpha, blend mode and offscreen compositing but drops its geometric
-  fields; a `drawWithContent` concatenates the node's 3x3 homography (relative to its parent's,
+  The `graphicsLayer` keeps only the RenderNode; `Modifier.scenePlane` concatenates the node's 3x3 homography (relative to its parent's,
   `H_parent^-1 * H_self`, so nested groups compose exactly) onto the canvas, after clipping to the
   half-plane in front of the near plane (a plane crossing the eye cannot be drawn as one
-  homography, so the part behind the eye is clipped away in the layer's own coordinates).
+  homography, so the part behind the eye is clipped away in the layer's own coordinates). After
+  the homography it applies the node's opacity and blend mode (a `saveLayer` in the plane's own
+  coordinates, reaching four box sizes past it, instead of the `graphicsLayer`'s offscreen buffer,
+  which is the flat box) and a frame's clip box. So a blend-mode layer, a clipping mask and a
+  clipped frame follow their 3D placement.
 
 **Why HWUI, not a wgpu pass.** Layers are composited by Compose's RenderNodes (HWUI, on the GPU)
 today; the wgpu engine paints strokes into layers and presents the live stroke, it does not
@@ -93,13 +97,34 @@ The wgpu **direct display** overlay presents the live stroke into a flat Surface
 only for a layer on the fast path; a stroke on a scene-path layer previews through Compose (the
 live bitmap drawn in perspective). The crisp zoom overlay is likewise fast-path only.
 
-**3D strokes layers** render with the existing depth-tested GLES 3 `SpatialStrokeRenderer` (the
-same tube mesh as the glTF export) into a transparent `TextureView` at the layer's place in the
-stack. A TextureView composites in view order, unlike a SurfaceView, so the strokes sit between
-the paint layers above and below. Its MVP is `clip * camera * layerModel * strokeToLocal`.
-Within the layer, tubes are depth-tested; between layers, order is the layer stack (painter's
-order), as in 2D, so blend modes and clipping keep their meaning. Planes that intersect each other
-in space do not occlude per pixel; the upper layer wins.
+## Per-pixel depth
+
+`DepthComposite.plan(layers, camera)` picks the layers drawn by one GPU depth pass
+(`DepthCompositor`, GLES 3, in a transparent `TextureView`):
+
+- every visible 3D strokes layer, at its whole chain's placement, so a group placed in 3D moves
+  the ink, and its opacity multiplies in;
+- every scene-path paint, text or vector layer that composites normally (SrcOver, no clip to
+  below, not an adjustment) inside groups that do too (normal blend, no frame clip).
+
+Layers that need a blend mode, a clipping mask, an adjustment or a frame clip cannot take part in
+a depth buffer, so they stay in the HWUI stack through their homographies (above). The pass draws
+at the stack position of the first top-level subtree holding a member; LayerStackNode skips the
+members. A non-member stacked between two members therefore draws above or below the whole pass,
+by where its subtree sits relative to the anchor.
+
+Inside the pass the ink is drawn first, then the planes farthest centre first, with depth test and
+depth writes. The test makes crossings exact for opaque pixels; the order lets translucent pixels
+blend over what is behind them. Texels with no alpha are discarded, so a layer's empty area hides
+nothing. Where two planes cross inside a semi-transparent edge, the nearer edge occludes rather
+than blends. A layer's colour adjustment runs in the fragment shader as the same 4x5 matrix the
+canvas uses. Vector layers are rasterized once per shape list (`VectorRaster`).
+
+Cost: a member's bitmap is uploaded to its texture only when its identity, `generationId` or live
+stroke version changes. While a stroke is painted on a member, the pass uploads the live bitmap
+each frame in place of HWUI uploading it for the Compose draw, which no longer happens for that
+layer. The wgpu direct display stays fast-path only, as before. The pass does not exist for a flat
+document without 3D ink.
 
 ## Painting on a tilted plane
 
@@ -109,7 +134,28 @@ first casts the ray from the eye through that point, intersects the layer's plan
 in the layer's box coordinates `L`, and returns `C + (ox, oy) + Rz * scale * (L - C)`: the point
 the existing pipeline would have received had the layer been flat. Every brush and tool then runs
 unchanged (`mapScreenToBitmap` undoes exactly the 2D part). A ray that misses the plane (parallel,
-or the plane behind the eye) yields no point; the sample is dropped.
+or the plane behind the eye) yields no point. The brush then keeps the plain world point, so a
+stroke never breaks.
+
+## Tilted layers: selection and tap-select
+
+`ActivePlaneMapping` (EditorScreen) carries the same mapping for the lasso, the magic wand and
+selection moves. Each lasso point is the flat point of its ray-plane hit (a point off the plane is
+dropped), so the selection and its clip live in the flat space the paint pipeline already uses.
+`SceneMath.layerFlatToWorld` maps the ants back through the plane; a homography maps straight
+segments to straight segments, so mapping the vertices is exact. A selection drag is converted at
+the selection's centroid, the point that stays under the finger.
+
+Tap-select (`CanvasHitTest.topHit`/`allHits`, given the camera) casts the tap onto every
+scene-path layer's plane, tests the flat point against the layer's box, and orders hits by the
+camera depth of the ray hit, nearest first, matching what the depth pass shows.
+
+## Co-op
+
+`Op.LayerTransform` keeps its 16 floats (`LayerTransformCodec`): slots 0-5 are scale, offset and
+the three rotations, as always, and slot 6 is now the depth. Older builds always wrote 0 there,
+which is exactly their layers' depth, and ignore it when reading. Every transform message carries
+the whole plane placement, and a peer's diff now notices depth and rotation changes.
 
 ## Migration and persistence (format 6 -> 7)
 
@@ -132,18 +178,30 @@ File menu, **Export 3D scene (glTF)**: one self-contained glTF 2.0 JSON (`SceneG
 
 - Each visible paint layer with pixels becomes a textured quad: its bitmap as an embedded PNG,
   the quad's corners at the layer's scene placement, unlit, alpha-blended, with the layer opacity.
+- Each vector layer is rasterized by the canvas's own `drawVectorShape` (`VectorRaster`) onto a
+  quad covering its shapes. That is chosen over tessellating: tessellation would re-implement
+  stroking, joins, corner radii and curves, and would still differ from the canvas at the edges.
+  The texture is at canvas resolution (up to 4096 a side).
 - Each 3D strokes layer becomes its tube mesh (`SpatialGltfExporter.buildMesh`), transformed by
   the layer's placement.
 - Optionally the scene camera, as a perspective camera node.
 
+**PNG, PDF, share and thumbnail** (`ExportManager.compositeLayers(..., camera)`, `SceneExport`):
+a flat document takes the old composite unchanged. Otherwise the export draws what the canvas
+shows from the current camera, at canvas size, before the artboard crop. The depth-pass members
+come from the same `DepthCompositor`, rendered off screen on a pbuffer
+(`OffscreenDepthRender`) and read back once. Every other layer draws through its homography
+(Skia renders perspective bitmaps), groups with their opacity and blend, and a frame's fill and
+clip through the frame's own plane. Where GLES cannot start (unit tests), the members are drawn
+farthest-first through their homographies and 3D ink is omitted.
+
 glTF axes are y-up, z toward the viewer, metres. One metre is one spatial unit (`F / 3` scene
 pixels), origin at the canvas centre on the picture plane, so the strokes keep their coordinates.
 
-## Not done here
+## Limits
 
-- Vector shapes are not exported to glTF (no pixels to texture); rasterize first.
-- Selection (lasso) and tap-to-select still work in flat 2D space on a tilted layer.
-- PNG/PDF export still renders layers flat, as before.
-- A frame's clip and a blend-mode layer's offscreen buffer stay in flat canvas space.
-- A 3D strokes layer inside a group placed in 3D draws with the group's placement ignored.
-- Co-op transform ops carry no depth.
+- Per-pixel depth covers layers that composite normally. Blend-mode, clipping-mask, adjustment
+  and frame-clipped layers keep stack order among themselves and against the depth pass.
+- Crossing semi-transparent edges occlude rather than blend (no order-independent transparency).
+- A 3D strokes layer in a group with a non-normal blend mode is composited normally, in the pass.
+- Animation Assist's onion-skin fading does not apply to depth-pass members.
