@@ -77,6 +77,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
@@ -160,6 +161,8 @@ fun EditorScreen(
         Modifier
     }
 
+    // The 3D curve being drawn (its layer id and stroke so far), shown live by that layer.
+    val spatialDraft = remember { mutableStateOf<Pair<String, com.hereliesaz.graffitixr.common.mesh.SpatialStroke>?>(null) }
     val nib = rememberSaveable(saver = NibAngleSaver) { NibAngleState() }
     val penAngleBrush = uiState.activeTool in BRUSH_TOOLS && vm.activeBrushForPreview()?.usesPenAngle() == true
     TrackNibTwist(nib, LocalView.current, enabled = penAngleBrush)
@@ -185,7 +188,15 @@ fun EditorScreen(
             .then(
                 if (uiState.quickMenuAt == null) {
                     Modifier.canvasNavigation { pan, zoom, centroid, rotation ->
-                        vm.onViewportPanZoom(pan, zoom, centroid, rotation)
+                        // In 3D two fingers drive the scene camera; otherwise the 2D view.
+                        val st = vm.uiState.value
+                        if (st.is3DMode) {
+                            vm.onScenePanDolly(
+                                CanvasHitTest.screenDeltaToWorld(pan, st.viewportZoom, st.viewportRotation), zoom,
+                            )
+                        } else {
+                            vm.onViewportPanZoom(pan, zoom, centroid, rotation)
+                        }
                     }
                 } else Modifier
             )
@@ -204,6 +215,9 @@ fun EditorScreen(
                     transformOrigin = TransformOrigin(0f, 0f)
                 }
         ) {
+            // The canvas box in pixels: the frame of the one 3D space (spec/3d-space.md).
+            val boxWidth = constraints.maxWidth.toFloat()
+            val boxHeight = constraints.maxHeight.toFloat()
             val imageAspect = uiState.documentWidth.toFloat() / uiState.documentHeight.toFloat()
             val screenAspect = maxWidth.value / maxHeight.value
             val renderWidth = if (imageAspect > screenAspect) maxWidth.value else maxHeight.value * imageAspect
@@ -263,8 +277,28 @@ fun EditorScreen(
                                 uiState.onionSkinFutureCount,
                             )
                         }
-                        val hasPerspectiveTilt = uiState.layers.any {
-                            it.rotationX != 0f || it.rotationY != 0f
+                        val hasPerspectiveTilt = uiState.layers.any { it.isPlacedIn3D } ||
+                            !uiState.sceneCamera.isDefault
+                        // The one 3D space, resolved for this canvas box. Its sceneIds is empty for
+                        // a flat document, which keeps every layer on the original 2D path.
+                        val sceneContext = remember(
+                            uiState.layers, uiState.sceneCamera, boxWidth, boxHeight, spatialDraft.value,
+                            uiState.is3DMode, uiState.scene3DTool, uiState.activeLayerId,
+                        ) {
+                            if (boxWidth <= 0f || boxHeight <= 0f) {
+                                null
+                            } else {
+                                SceneContext(
+                                    uiState.sceneCamera,
+                                    com.hereliesaz.graffitixr.common.scene.SceneMath.frame(uiState.sceneCamera, boxWidth, boxHeight),
+                                    com.hereliesaz.graffitixr.common.scene.SceneRenderPath.sceneLayerIds(uiState.layers, uiState.sceneCamera),
+                                    draft = spatialDraft.value?.second,
+                                    draftLayerId = spatialDraft.value?.first,
+                                    showGuideFor = uiState.activeLayerId.takeIf {
+                                        uiState.is3DMode && uiState.scene3DTool == com.hereliesaz.graffitixr.common.scene.Scene3DTool.DRAW
+                                    },
+                                )
+                            }
                         }
                         val bufferedAnimationFrame =
                             if (
@@ -297,6 +331,7 @@ fun EditorScreen(
                             } else {
                                 androidx.compose.runtime.CompositionLocalProvider(
                                     LocalHighResOverlays provides highResOverlays,
+                                    LocalScene provides sceneContext,
                                 ) { layerTree.forEach { node ->
                                     LayerStackNode(
                                         node,
@@ -477,7 +512,9 @@ fun EditorScreen(
         if (vm.directDisplayAllowed(uiState)) {
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
-        val canPaintActiveLayer = activeLayer != null && !activeLayerLocked
+        val canPaintActiveLayer = activeLayer != null && !activeLayerLocked &&
+            uiState.canvasGestureMode == CanvasGestureMode.PAINT &&
+            activeLayer.spatial == null
         if (canPaintActiveLayer && inkUtensil != null && vm.usesJetpackInk(uiState)) {
             com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
                 screenToWorld = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.screenToWorld(
@@ -507,9 +544,26 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         } else if (canPaintActiveLayer && uiState.activeTool !in NON_RASTER_TOOLS) {
-            fun toWorld(screen: Offset) = CanvasHitTest.screenToWorld(
-                screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
-            )
+            // On the scene path, each touch is cast onto the active layer's plane and handed on as
+            // the point a flat layer would have received (spec/3d-space.md, "Painting on a tilted
+            // plane"); a ray that misses the plane falls back to the plain world point.
+            val sceneChain = remember(uiState.layers, uiState.sceneCamera, activeLayer.id) {
+                if (com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isLayerFlat(uiState.layers, activeLayer.id, uiState.sceneCamera)) {
+                    null
+                } else {
+                    com.hereliesaz.graffitixr.common.scene.planeChain(uiState.layers, activeLayer.id)
+                }
+            }
+            fun toWorld(screen: Offset): Offset {
+                val world = CanvasHitTest.screenToWorld(
+                    screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+                )
+                val chain = sceneChain ?: return world
+                val size = uiState.canvasSize
+                return com.hereliesaz.graffitixr.common.scene.SceneMath.worldToLayerFlat(
+                    world.x, world.y, chain, uiState.sceneCamera, size.width.toFloat(), size.height.toFloat(),
+                )?.let { Offset(it.first, it.second) } ?: world
+            }
             fun toWorldSample(sample: BrushSample): BrushSample {
                 val world = toWorld(Offset(sample.x, sample.y))
                 // The nib was recorded as seen on screen; the layer sees it through the view's rotation.
@@ -721,6 +775,14 @@ fun EditorScreen(
             }
         }
 
+        // 3b-quater. 3D on: canvas gestures drive the camera and the active plane (spec/3d-space.md).
+        // Above every tool surface, so a one-finger drag never also paints; the root's two-finger
+        // navigation, an ancestor, still sees everything.
+        if (uiState.canvasGestureMode == CanvasGestureMode.SCENE_3D) {
+            Scene3DCanvas(uiState, vm.scene3DActions(), spatialDraft, Modifier.fillMaxSize())
+            Scene3DToolbar(uiState, vm.scene3DActions(), Modifier.align(Alignment.TopCenter).padding(top = 72.dp))
+        }
+
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
         // with the colour currently under it; screen-space overlay, purely visual.
         if (uiState.isEyedropping) {
@@ -897,18 +959,26 @@ private fun LayerStackNode(
     if (!layer.isVisible) return
     if (frameAlpha <= 0f) return
 
+    // The 3D scene path (spec/3d-space.md); null = the 2D fast path, exactly as before.
+    val scene = LocalScene.current
+    val placement = scene?.placementFor(layer)
     key(layer.id) {
         if (layer.isContainer) {
-            ContainerLayerBox(layer, modifier, frameAlpha) {
-                node.children.forEach { child ->
-                    LayerStackNode(child, liveStroke, overlayGeometry = overlayGeometry)
+            ContainerLayerBox(layer, modifier, frameAlpha, placement) {
+                val inner = if (placement != null && scene != null) scene.inside(placement) else scene
+                androidx.compose.runtime.CompositionLocalProvider(LocalScene provides inner) {
+                    node.children.forEach { child ->
+                        LayerStackNode(child, liveStroke, overlayGeometry = overlayGeometry)
+                    }
                 }
             }
+        } else if (layer.spatial != null) {
+            SpatialLayerNode(layer, scene, frameAlpha)
         } else {
             // Vector layer: drawn from its shapes via Canvas. (A raster layer's bitmap path below
             // no-ops for it, since a vector layer carries no bitmap.)
             if (layer.shapes.isNotEmpty()) {
-                VectorLayerContent(layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha)
+                VectorLayerContent(layer, modifier = Modifier.fillMaxSize(), frameAlpha = frameAlpha, placement = placement)
             }
             // Derived rather than a direct `liveStroke.value` read: the underlying State changes on
             // every stroke sample regardless of which layer is being painted, but this derived value
@@ -970,24 +1040,29 @@ private fun LayerStackNode(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            translationX = layer.offset.x
-                            translationY = layer.offset.y
-                            scaleX = layer.scale
-                            scaleY = layer.scale
-                            rotationX = layer.rotationX
-                            rotationY = layer.rotationY
-                            rotationZ = layer.rotationZ
+                            // On the scene path the plane's homography (scenePlane) is the geometry.
+                            if (placement == null) {
+                                translationX = layer.offset.x
+                                translationY = layer.offset.y
+                                scaleX = layer.scale
+                                scaleY = layer.scale
+                                rotationX = layer.rotationX
+                                rotationY = layer.rotationY
+                                rotationZ = layer.rotationZ
+                                transformOrigin = TransformOrigin.Center
+                            }
                             alpha = layer.opacity * frameAlpha
-                            transformOrigin = TransformOrigin.Center
                             blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
                             compositingStrategy = if (needsOffscreen)
                                 CompositingStrategy.Offscreen
                             else
                                 CompositingStrategy.Auto
                         }
+                        .scenePlane(placement)
                         .drawBehind { drawLayerBitmap(imageBitmap, frame, colorFilter, crisp) }
-                        // After graphicsLayer, so the recorded screen mapping includes it.
-                        .recordOverlayPlacement(overlayGeometry, layer.id, frame),
+                        // After graphicsLayer, so the recorded screen mapping includes it. The flat
+                        // direct-display overlay never shows a scene-path layer.
+                        .recordOverlayPlacement(overlayGeometry.takeIf { placement == null }, layer.id, frame),
                 )
             }
         }
@@ -1549,23 +1624,30 @@ private fun ArtboardFrame(
  * bitmap. Shapes are defined in the layer's local pixel space centered on the origin.
  */
 @Composable
-private fun VectorLayerContent(layer: Layer, modifier: Modifier = Modifier, frameAlpha: Float = 1f) {
+private fun VectorLayerContent(
+    layer: Layer,
+    modifier: Modifier = Modifier,
+    frameAlpha: Float = 1f,
+    placement: ScenePlacement? = null,
+) {
     Canvas(
         modifier = modifier.graphicsLayer {
-            translationX = layer.offset.x
-            translationY = layer.offset.y
-            scaleX = layer.scale
-            scaleY = layer.scale
-            rotationX = layer.rotationX
-            rotationY = layer.rotationY
-            rotationZ = layer.rotationZ
+            if (placement == null) {
+                translationX = layer.offset.x
+                translationY = layer.offset.y
+                scaleX = layer.scale
+                scaleY = layer.scale
+                rotationX = layer.rotationX
+                rotationY = layer.rotationY
+                rotationZ = layer.rotationZ
+                transformOrigin = TransformOrigin.Center
+            }
             alpha = layer.opacity * frameAlpha
-            transformOrigin = TransformOrigin.Center
             // SrcAtop, not SrcIn — see the raster path's note above: SrcIn erases the layer below
             // wherever the clipped layer is transparent, which inverts what a clipping mask means.
             blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
             if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
-        }
+        }.scenePlane(placement)
     ) {
         val cx = size.width / 2f
         val cy = size.height / 2f

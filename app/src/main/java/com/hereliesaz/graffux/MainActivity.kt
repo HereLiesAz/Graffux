@@ -133,7 +133,6 @@ import com.hereliesaz.graffitixr.feature.editor.performGestureAction
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
 import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
-import com.hereliesaz.graffitixr.feature.editor.threed.SpatialSketchWorkspace
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
@@ -280,8 +279,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
     val modelState by vm.modelState.collectAsState()
-    val spatialStrokes by vm.spatialStrokes.collectAsState()
-    val spatialGuide by vm.spatialGuide.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
@@ -369,7 +366,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var storeTab by rememberSaveable { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by rememberSaveable { mutableStateOf(false) }
     var showModelDialog by rememberSaveable { mutableStateOf(false) }
-    var showSpatialSketch by rememberSaveable { mutableStateOf(false) }
     var showSaveDialog by rememberSaveable { mutableStateOf(false) }
     var showOpenDialog by rememberSaveable { mutableStateOf(false) }
     var showReferenceWindow by rememberSaveable { mutableStateOf(false) }
@@ -502,7 +498,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // them latest-opened first, not in a fixed order.
     val windowLayers = windowOrder.topFirst(
         listOf(
-            "spatial" to BackLayer(showSpatialSketch) { showSpatialSketch = false },
+            // Back leaves 3D (the camera and planes stay where they are).
+            "scene3d" to BackLayer(uiState.is3DMode) { vm.toggleScene3D() },
             "store" to BackLayer(showStore) { showStore = false },
             "open" to BackLayer(showOpenDialog) { showOpenDialog = false },
             "reference" to BackLayer(showReferenceWindow) { showReferenceWindow = false },
@@ -682,10 +679,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
 
-    // 3D ink exports geometry rather than a screenshot; the SAF picker owns the destination.
-    val spatialGltfExporter = rememberLauncherForActivityResult(
+    // The 3D scene exports geometry rather than a screenshot; the SAF picker owns the destination.
+    val sceneGltfExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("model/gltf+json")
-    ) { uri -> uri?.let { vm.exportSpatialGltf(it) } }
+    ) { uri -> uri?.let { vm.exportSceneGltf(it) } }
 
     val brushes by vm.installedBrushes.collectAsState()
     val brushPreviews by vm.installedBrushPreviews.collectAsState()
@@ -1319,7 +1316,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ToolboxSpec(
                         "area.model", "3D", GraffuxIcons.GuideIsometric, "area.model" in activeClassifiers,
                         listOf(
-                            ToolboxAction("Sketch in 3D", lit = showSpatialSketch) { showSpatialSketch = true },
+                            // The old full-screen Spatial Sketch is a layer type now (spec/3d-space.md).
+                            ToolboxAction("New 3D strokes layer") { vm.addSpatialLayer() },
                             ToolboxAction("3D Model", lit = showModelDialog) { showModelDialog = true },
                             ToolboxAction("Choose Model") { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
                         ),
@@ -1428,6 +1426,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             listItem(strings.mainMenu.addShape) { showAddDialog = true }
                             listItem(strings.mainMenu.save) { showSaveDialog = true }
                             listItem(strings.mainMenu.exportPng) { vm.exportImage() }
+                            listItem(strings.mainMenu.exportScene) { sceneGltfExporter.launch("Graffux-3D-Scene.gltf") }
                             page(strings.mainMenu.posterPdf) { showPosterMenu = true }
                             // The always-visible way into the azphalt store.
                             listItem(strings.mainMenu.addOns) { openAzphaltStore() }
@@ -1968,23 +1967,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onDismiss = { showBrushTipsManager = false },
                 )
             }
-        }
-        // Unlike the imported-OBJ texture painter, spatial ink needs a full-screen 3D scene.
-        if (showSpatialSketch) {
-            SpatialSketchWorkspace(
-                strokes = spatialStrokes,
-                guide = spatialGuide,
-                onGuideChange = vm::onSpatialGuideChanged,
-                color = uiState.activeColor,
-                brushRadiusPx = uiState.brushSize / 2f,
-                onStroke = vm::onSpatialStroke,
-                onErase = vm::onSpatialErase,
-                onUndo = vm::onSpatialUndo,
-                onRedo = vm::onSpatialRedo,
-                onExport = { spatialGltfExporter.launch("Graffux-Spatial-Sketch.gltf") },
-                onClose = { showSpatialSketch = false },
-                modifier = Modifier.fillMaxSize(),
-            )
         }
         // Above every rail and window: a long operation's labelled, cancellable progress.
         if (uiState.isLoading) {

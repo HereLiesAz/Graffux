@@ -1,5 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
+import com.hereliesaz.graffitixr.common.model.isSpatial
+
 import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
@@ -876,6 +879,78 @@ class EditorViewModelTest {
 
     private fun lyr(id: String, name: String = id) = Layer(id = id, name = name)
 
+    // ── One 3D space (spec/3d-space.md) ──
+
+    @Test
+    fun `3D mode toggles without moving the camera or any plane`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(positionZ = 40f)))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.toggleScene3D()
+        assertTrue(viewModel.uiState.value.is3DMode)
+        viewModel.onSceneOrbit(Offset(50f, 20f))
+        val camera = viewModel.uiState.value.sceneCamera
+        assertFalse(camera.isDefault)
+        viewModel.toggleScene3D()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.is3DMode)
+        assertEquals(camera, viewModel.uiState.value.sceneCamera)
+        assertEquals(40f, viewModel.uiState.value.layers.single().positionZ)
+    }
+
+    @Test
+    fun `a plane drag is one undo step and makes the layer 3D with no toggle`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.setScene3DTool(com.hereliesaz.graffitixr.common.scene.Scene3DTool.TILT)
+        viewModel.onPlaneGestureStart()
+        viewModel.onPlaneDrag(Offset(30f, 0f))
+        viewModel.onPlaneDrag(Offset(30f, -10f))
+        viewModel.onPlaneGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val tilted = viewModel.uiState.value.layers.single()
+        assertTrue(tilted.isPlacedIn3D)
+        assertEquals(60f * 0.35f, tilted.rotationY, 1e-3f)
+        viewModel.setScene3DTool(com.hereliesaz.graffitixr.common.scene.Scene3DTool.DEPTH)
+        viewModel.onPlaneGestureStart()
+        viewModel.onPlaneDrag(Offset(0f, -20f))
+        viewModel.onPlaneGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.single().positionZ > 0f)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.layers.single().positionZ)
+        assertEquals(tilted.rotationY, viewModel.uiState.value.layers.single().rotationY, 1e-4f)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.layers.single().isPlacedIn3D)
+    }
+
+    @Test
+    fun `a 3D strokes layer takes curves and erasures as undoable steps`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.addSpatialLayer()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layer = viewModel.uiState.value.layers.single()
+        assertTrue(layer.isSpatial)
+        assertTrue(viewModel.uiState.value.is3DMode)
+        val stroke = com.hereliesaz.graffitixr.common.mesh.SpatialStroke(
+            "s1", listOf(com.hereliesaz.graffitixr.common.mesh.SpatialPoint(0f, 0f, 0f)), -1, 0.1f,
+        )
+        viewModel.onSpatialStroke(layer.id, stroke)
+        assertEquals(listOf(stroke), viewModel.uiState.value.layers.single().spatial!!.strokes)
+        viewModel.onSpatialErase(layer.id, "s1")
+        assertTrue(viewModel.uiState.value.layers.single().spatial!!.strokes.isEmpty())
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(stroke), viewModel.uiState.value.layers.single().spatial!!.strokes)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.single().spatial!!.strokes.isEmpty())
+    }
+
     @Test
     fun `characterize onLayerReordered reorders layers by the given id order`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
@@ -974,7 +1049,8 @@ class EditorViewModelTest {
     @Test
     fun `onCanvasDoubleTap cycles the rotation axis when the active layer is 3D and nothing else is under it`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        val layer = lyr("a").copy(is3D = true)
+        // In 3D by placement: no per-layer toggle exists any more.
+        val layer = lyr("a").copy(rotationX = 10f)
         viewModel.setLayers(listOf(layer))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()
@@ -990,7 +1066,7 @@ class EditorViewModelTest {
     @Test
     fun `onCanvasDoubleTap stays a no-op when the active layer is not 3D`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        val layer = lyr("a") // is3D defaults to false
+        val layer = lyr("a") // flat: not placed in 3D
         viewModel.setLayers(listOf(layer))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()

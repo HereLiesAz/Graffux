@@ -98,6 +98,7 @@ class PhotoSheetUiTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
+        override fun toggleScene3D() = Unit
     }
 
     private fun solid(argb: Int): Bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(argb) }
@@ -216,7 +217,7 @@ class PhotoSheetUiTest {
         // The tool rail gains Frame and Adjust after Transform (the Eraser the app keeps follows them).
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
         // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        assertEquals(488 + 50 + 50 + 50 + 1 + 50 + 50, dp(tools.height)) // + Brush, Retouch
+        assertEquals(488 + 50 + 50 + 50 + 1 + 50 + 50 + 50, dp(tools.height)) // + Brush, Retouch, 3D
     }
 
     @Test

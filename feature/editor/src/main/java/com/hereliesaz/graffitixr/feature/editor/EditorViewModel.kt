@@ -2458,10 +2458,7 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModel(project)
-                        _spatialStrokes.value = project.spatialStrokes
-                        _spatialGuide.value = project.spatialGuide
-                        spatialUndoHistory.clear()
-                        spatialRedoHistory.clear()
+                        updateUi { it.copy(sceneCamera = project.sceneCamera) }
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -4529,8 +4526,7 @@ class EditorViewModel @Inject constructor(
                 canvasSubstrateId = _uiState.value.canvasSubstrateId,
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
-                spatialStrokes = _spatialStrokes.value,
-                spatialGuide = _spatialGuide.value,
+                sceneCamera = _uiState.value.sceneCamera,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4548,8 +4544,10 @@ class EditorViewModel @Inject constructor(
                     canvasSubstrateId = _uiState.value.canvasSubstrateId,
                     savedSelections = _uiState.value.savedSelections,
                     documentCrop = _uiState.value.documentCrop,
-                    spatialStrokes = _spatialStrokes.value,
-                    spatialGuide = _spatialGuide.value,
+                    // Format 7: the ink lives in 3D strokes layers; the project-level lists stay empty.
+                    spatialStrokes = emptyList(),
+                    spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
+                    sceneCamera = _uiState.value.sceneCamera,
                     formatVersion = maxOf(
                         current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
                     ),
@@ -4909,7 +4907,7 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Two jobs, picked by what's actually under the tap and whether the active layer has opted into
-     * 3D controls ([Layer.is3D]): with two or more overlapping layers there, cycling which one is
+     * 3D ([isPlacedIn3D]): with two or more overlapping layers there, cycling which one is
      * active is the useful thing a double-tap can do; with one or none AND a 3D active layer, the
      * gesture is free for its other job -- stepping which axis (X/Y/Z) the next drag rotates around,
      * the natural "what am I rotating right now" toggle for 3D work. Outside that, a double-tap over
@@ -4920,7 +4918,7 @@ class EditorViewModel @Inject constructor(
         val hits = CanvasHitTest.allHits(_uiState.value.layers, offset, screenWidth, screenHeight)
         if (hits.size < 2) {
             val active = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }
-            if (active?.is3D == true) onCycleRotationAxis()
+            if (active?.isPlacedIn3D == true) onCycleRotationAxis()
             return
         }
         val currentId = _uiState.value.activeLayerId
@@ -5331,6 +5329,14 @@ class EditorViewModel @Inject constructor(
     override fun onRotationXChanged(d: Float) {
         pushHistory()
         dispatch(EditorIntent.SetRotationX(d))
+        saveProject()
+    }
+    /** Typed depth for the active layer's plane (Transform panel), one undo step. */
+    fun onPositionZChanged(z: Float) {
+        val id = _uiState.value.activeLayerId ?: return
+        if (!z.isFinite()) return
+        pushHistory()
+        updateUi { s -> s.copy(layers = LayerListOps.mapLayer(s.layers, id) { it.copy(positionZ = z) }) }
         saveProject()
     }
     override fun onRotationYChanged(d: Float) {
@@ -6049,6 +6055,8 @@ class EditorViewModel @Inject constructor(
             feelFirstLatencyId = -1L
         }
         val layerId = state.activeLayerId ?: return
+        // A 3D strokes layer has no pixels: it is drawn on with 3D on, never painted.
+        if (state.layers.any { it.id == layerId && it.isSpatial }) return
         strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
         ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         // The layer reaches as far as the screen does: grown (once, before anything binds or copies
@@ -11543,82 +11551,263 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // ── Editable world-space ink and guides ──────────────────────────────────────────────────
+    // ── One 3D space: camera, planes, 3D strokes layers (spec/3d-space.md) ──────────────────
 
-    private val _spatialGuide = MutableStateFlow(com.hereliesaz.graffitixr.common.mesh.SpatialGuide())
-    val spatialGuide: StateFlow<com.hereliesaz.graffitixr.common.mesh.SpatialGuide> =
-        _spatialGuide.asStateFlow()
+    /** The rail's 3D button. Leaving 3D moves nothing: the camera and every plane stay put. */
+    fun toggleScene3D() {
+        val leaving = _uiState.value.is3DMode
+        updateUi { it.copy(is3DMode = !it.is3DMode) }
+        if (leaving) saveProject()
+    }
 
-    /** Persist guide edits without moving already committed world-space ink. */
-    fun onSpatialGuideChanged(guide: com.hereliesaz.graffitixr.common.mesh.SpatialGuide) {
-        if (guide == _spatialGuide.value) return
-        _spatialGuide.value = guide
+    fun setScene3DTool(tool: com.hereliesaz.graffitixr.common.scene.Scene3DTool) {
+        updateUi { it.copy(scene3DTool = tool) }
+    }
+
+    /** One-finger orbit, a [delta] in screen pixels. */
+    fun onSceneOrbit(delta: Offset) {
+        updateUi { it.copy(sceneCamera = it.sceneCamera.orbit(delta.x * ORBIT_RADIANS_PER_PX, delta.y * ORBIT_RADIANS_PER_PX)) }
+    }
+
+    /**
+     * Two fingers in 3D: [pan] (world pixels, the 2D view undone) slides the camera target across
+     * the view so the scene follows the fingers at the target's depth; [zoom] above 1 dollies in.
+     */
+    fun onScenePanDolly(pan: Offset, zoom: Float) {
+        val size = _uiState.value.canvasSize
+        if (size.width <= 0 || size.height <= 0) return
+        updateUi { state ->
+            val camera = state.sceneCamera
+            val frame = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(camera, size.width.toFloat(), size.height.toFloat())
+            val k = camera.distanceScale
+            val move = FloatArray(3) { -(frame.right[it] * pan.x + frame.down[it] * pan.y) * k }
+            state.copy(
+                sceneCamera = camera.copy(
+                    panX = camera.panX + move[0], panY = camera.panY + move[1], panZ = camera.panZ + move[2],
+                ).dolly(if (zoom.isFinite() && zoom > 0f) zoom else 1f),
+            )
+        }
+    }
+
+    /** A camera gesture ended: the view is part of the project, so it is saved (never history). */
+    fun onSceneCameraSettled() = saveProject()
+
+    fun resetSceneCamera() {
+        updateUi { it.copy(sceneCamera = com.hereliesaz.graffitixr.common.scene.SceneCamera()) }
         saveProject()
     }
 
+    /** A plane drag starts: one undo step for the whole drag, as for the 2D transform. */
+    fun onPlaneGestureStart() = onGestureStart()
 
-    private val _spatialStrokes =
-        MutableStateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>(emptyList())
-    val spatialStrokes: StateFlow<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>> =
-        _spatialStrokes.asStateFlow()
+    fun onPlaneGestureEnd() = onGestureEnd()
 
-    // Snapshot once per committed curve, not per input sample. This history never mixes 2D layers
-    // with 3D curves or travels to a different project.
-    private val spatialUndoHistory =
-        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
-    private val spatialRedoHistory =
-        ArrayDeque<List<com.hereliesaz.graffitixr.common.mesh.SpatialStroke>>()
-
-    private fun recordSpatialEdit() {
-        if (spatialUndoHistory.size >= SPATIAL_UNDO_LIMIT) spatialUndoHistory.removeFirst()
-        spatialUndoHistory.addLast(_spatialStrokes.value)
-        spatialRedoHistory.clear()
+    /**
+     * One step of a Move, Depth, Tilt or Spin drag on the active layer's plane; [delta] is the
+     * finger's movement in world pixels. Moves are scaled by the plane's depth so the plane keeps
+     * up with the finger, and expressed in the parent group's space.
+     */
+    fun onPlaneDrag(delta: Offset) {
+        val state = _uiState.value
+        val id = state.activeLayerId ?: return
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val tool = state.scene3DTool
+        val chain = com.hereliesaz.graffitixr.common.scene.planeChain(state.layers, id)
+        if (chain.isEmpty()) return
+        val frame = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(state.sceneCamera, w, h)
+        val centre = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(chain, w, h).apply(w / 2f, h / 2f, 0f)
+        val depth = frame.toCamera(centre)[2].coerceAtLeast(frame.focal * 0.05f)
+        val perPx = depth / frame.focal
+        val sceneMove: FloatArray? = when (tool) {
+            com.hereliesaz.graffitixr.common.scene.Scene3DTool.MOVE ->
+                FloatArray(3) { (frame.right[it] * delta.x + frame.down[it] * delta.y) * perPx }
+            com.hereliesaz.graffitixr.common.scene.Scene3DTool.DEPTH ->
+                FloatArray(3) { frame.forward[it] * -delta.y * perPx * DEPTH_PER_PX }
+            else -> null
+        }
+        val parentInverse = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(chain.dropLast(1), w, h).inverse()
+        updateUi { s ->
+            s.copy(layers = LayerListOps.mapLayer(s.layers, id) { layer ->
+                when (tool) {
+                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.MOVE,
+                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.DEPTH -> {
+                        val m = sceneMove ?: return@mapLayer layer
+                        val local = parentInverse?.applyVector(m[0], m[1], m[2]) ?: return@mapLayer layer
+                        layer.copy(offset = layer.offset + Offset(local[0], local[1]), positionZ = layer.positionZ + local[2])
+                    }
+                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.TILT -> layer.copy(
+                        rotationY = layer.rotationY + delta.x * TILT_DEGREES_PER_PX,
+                        rotationX = layer.rotationX - delta.y * TILT_DEGREES_PER_PX,
+                    )
+                    com.hereliesaz.graffitixr.common.scene.Scene3DTool.SPIN ->
+                        layer.copy(rotationZ = layer.rotationZ + delta.x * TILT_DEGREES_PER_PX)
+                    else -> layer
+                }
+            })
+        }
     }
 
-    fun onSpatialStroke(stroke: com.hereliesaz.graffitixr.common.mesh.SpatialStroke) {
+    /** The active layer back to the identity plane (depth 0, no tilt), as one undo step. */
+    fun resetActivePlane() {
+        val id = _uiState.value.activeLayerId ?: return
+        val layer = _uiState.value.layers.firstOrNull { it.id == id } ?: return
+        if (!layer.isPlacedIn3D) return
+        pushHistory()
+        updateUi { s ->
+            s.copy(layers = LayerListOps.mapLayer(s.layers, id) { it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f) })
+        }
+        saveProject()
+    }
+
+    /** Adds an empty 3D strokes layer on top and puts 3D on, ready to draw. */
+    fun addSpatialLayer() {
+        pushHistory()
+        val count = _uiState.value.layers.count { it.isSpatial }
+        val layer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = if (count == 0) "3D strokes" else "3D strokes ${count + 1}",
+            spatial = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent(),
+        )
+        dispatch(EditorIntent.AddLayer(layer))
+        updateUi {
+            it.copy(is3DMode = true, scene3DTool = com.hereliesaz.graffitixr.common.scene.Scene3DTool.DRAW)
+        }
+        emitMembership(Op.LayerAdd(layer))
+        saveProject()
+    }
+
+    private fun updateSpatial(
+        layerId: String,
+        transform: (com.hereliesaz.graffitixr.common.scene.SpatialLayerContent) -> com.hereliesaz.graffitixr.common.scene.SpatialLayerContent,
+    ) {
+        updateUi { s ->
+            s.copy(layers = LayerListOps.mapLayer(s.layers, layerId) { l -> l.spatial?.let { l.copy(spatial = transform(it)) } ?: l })
+        }
+    }
+
+    /** A finished 3D curve on the 3D strokes layer [layerId]: one undo step. */
+    fun onSpatialStroke(layerId: String, stroke: com.hereliesaz.graffitixr.common.mesh.SpatialStroke) {
         if (stroke.points.isEmpty()) return
-        recordSpatialEdit()
-        _spatialStrokes.update { it + stroke }
+        if (_uiState.value.layers.none { it.id == layerId && it.isSpatial }) return
+        pushHistory()
+        updateSpatial(layerId) { it.copy(strokes = it.strokes + stroke) }
         saveProject()
     }
 
-    fun onSpatialErase(id: String) {
-        if (_spatialStrokes.value.none { it.id == id }) return
-        recordSpatialEdit()
-        _spatialStrokes.update { list -> list.filterNot { it.id == id } }
+    fun onSpatialErase(layerId: String, strokeId: String) {
+        val layer = _uiState.value.layers.firstOrNull { it.id == layerId } ?: return
+        if (layer.spatial?.strokes?.none { it.id == strokeId } != false) return
+        pushHistory()
+        updateSpatial(layerId) { c -> c.copy(strokes = c.strokes.filterNot { it.id == strokeId }) }
         saveProject()
     }
 
-    fun onSpatialUndo() {
-        if (spatialUndoHistory.isEmpty()) return
-        spatialRedoHistory.addLast(_spatialStrokes.value)
-        _spatialStrokes.value = spatialUndoHistory.removeLast()
+    /** Guide edits change only future samples; committed ink never moves. */
+    fun onSpatialGuideChanged(layerId: String, guide: com.hereliesaz.graffitixr.common.mesh.SpatialGuide) {
+        val layer = _uiState.value.layers.firstOrNull { it.id == layerId } ?: return
+        if (layer.spatial?.guide?.let { it == guide } != false) return
+        updateSpatial(layerId) { it.copy(guide = guide) }
         saveProject()
     }
 
-    /** Writes a self-contained glTF with real stroke tube geometry, not a flattened render. */
-    fun exportSpatialGltf(uri: Uri) {
-        val snapshot = _spatialStrokes.value
+    /**
+     * The whole 3D space as glTF (spec/3d-space.md, "Export"): every visible paint layer with
+     * pixels as a textured quad at its placement, every 3D strokes layer as its tube mesh, and the
+     * camera when [includeCamera].
+     */
+    fun exportSceneGltf(uri: Uri, includeCamera: Boolean = true) {
+        val state = _uiState.value
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) {
+            notify("Nothing to export yet", NoticeKind.WARNING)
+            return
+        }
         viewModelScope.launch(dispatchers.io) {
             runCatching {
-                val gltf = com.hereliesaz.graffitixr.common.mesh.SpatialGltfExporter.encode(snapshot)
+                val scene = buildExportScene(state, size.width.toFloat(), size.height.toFloat(), includeCamera)
+                val gltf = com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.encode(scene)
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(gltf.toByteArray(Charsets.UTF_8))
                     stream.flush()
                 } ?: throw java.io.IOException("Couldn't open export destination")
             }.onSuccess {
-                notify("Exported spatial sketch as glTF", NoticeKind.NOTICE)
+                withContext(dispatchers.main) { notify("Exported the 3D scene as glTF", NoticeKind.NOTICE) }
             }.onFailure { error ->
-                notify("3D export failed: ${error.message ?: "Unknown error"}", NoticeKind.WARNING)
+                withContext(dispatchers.main) {
+                    notify("3D export failed: ${error.message ?: "Unknown error"}", NoticeKind.WARNING)
+                }
             }
         }
     }
 
-    fun onSpatialRedo() {
-        if (spatialRedoHistory.isEmpty()) return
-        spatialUndoHistory.addLast(_spatialStrokes.value)
-        _spatialStrokes.value = spatialRedoHistory.removeLast()
-        saveProject()
+    private fun buildExportScene(
+        state: EditorUiState,
+        w: Float,
+        h: Float,
+        includeCamera: Boolean,
+    ): com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Scene {
+        val byId = state.layers.associateBy { it.id }
+        fun chainVisible(layer: Layer): Boolean {
+            var current: Layer? = layer
+            val seen = HashSet<String>()
+            while (current != null && seen.add(current.id)) {
+                if (!current.isVisible) return false
+                current = current.parentId?.let(byId::get)
+            }
+            return true
+        }
+        fun chainOpacity(layer: Layer): Float {
+            var current: Layer? = layer
+            var alpha = 1f
+            val seen = HashSet<String>()
+            while (current != null && seen.add(current.id)) {
+                alpha *= current.opacity
+                current = current.parentId?.let(byId::get)
+            }
+            return alpha
+        }
+        val quads = ArrayList<com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Quad>()
+        val strokes = ArrayList<com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Strokes>()
+        for (layer in state.layers) {
+            if (layer.isContainer || !chainVisible(layer)) continue
+            val model = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(
+                com.hereliesaz.graffitixr.common.scene.planeChain(state.layers, layer.id), w, h,
+            )
+            val spatial = layer.spatial
+            if (spatial != null) {
+                if (spatial.strokes.isNotEmpty()) {
+                    strokes += com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Strokes(
+                        layer.name, spatial.strokes,
+                        model * com.hereliesaz.graffitixr.common.scene.SceneMath.strokeToLocal(w, h),
+                    )
+                }
+                continue
+            }
+            val bitmap = layer.bitmap?.takeUnless { it.isRecycled } ?: continue
+            if (layer.isAdjustment) continue
+            // Where drawLayerBitmap draws the bitmap in the layer's full-canvas box.
+            val frame = layer.frame(bitmap.width, bitmap.height)
+            if (frame.width <= 0 || frame.height <= 0) continue
+            val fit = minOf(w / frame.width, h / frame.height)
+            val left = (w - frame.width * fit) / 2f + frame.originX * fit
+            val top = (h - frame.height * fit) / 2f + frame.originY * fit
+            val right = left + bitmap.width * fit
+            val bottom = top + bitmap.height * fit
+            val png = java.io.ByteArrayOutputStream().also {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }.toByteArray()
+            quads += com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Quad(
+                layer.name, png,
+                listOf(model.apply(left, top, 0f), model.apply(right, top, 0f), model.apply(right, bottom, 0f), model.apply(left, bottom, 0f)),
+                chainOpacity(layer),
+            )
+        }
+        return com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.Scene(
+            w, h, quads, strokes, state.sceneCamera.takeIf { includeCamera },
+        )
     }
 
     // ── 3D model viewport ────────────────────────────────────────────────────────────────────
@@ -12904,7 +13093,9 @@ class EditorViewModel @Inject constructor(
     private fun Layer.showsExactlyUnderOverlay(): Boolean {
         val composited = parentId == null && opacity >= 1f && !clipToLayerBelow &&
             blendMode == androidx.compose.ui.graphics.BlendMode.SrcOver
-        val flat = rotationX == 0f && rotationY == 0f
+        // Flat: drawn through the 2D fast path, so the flat overlay window lands on its pixels.
+        val flat = !isPlacedIn3D && com.hereliesaz.graffitixr.common.scene.SceneRenderPath
+            .isLayerFlat(_uiState.value.layers, id, _uiState.value.sceneCamera)
         val unadjusted = brightness == 0f && contrast == 1f && saturation == 1f && !isInverted &&
             colorBalanceR == 1f && colorBalanceG == 1f && colorBalanceB == 1f
         return composited && flat && unadjusted
@@ -13653,5 +13844,11 @@ class EditorViewModel @Inject constructor(
 
 }
 
-/** A spatial edit is one complete curve, not one input sample. */
-private const val SPATIAL_UNDO_LIMIT = 64
+/** One-finger orbit in 3D: radians of turn per screen pixel. */
+private const val ORBIT_RADIANS_PER_PX = 0.006f
+
+/** Tilt and Spin drags: degrees per screen pixel. */
+private const val TILT_DEGREES_PER_PX = 0.35f
+
+/** Depth drags move faster than Move drags: a plane's depth range is larger than its width. */
+private const val DEPTH_PER_PX = 2f

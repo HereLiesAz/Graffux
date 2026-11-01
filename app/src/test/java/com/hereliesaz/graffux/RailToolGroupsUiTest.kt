@@ -45,6 +45,7 @@ class RailToolGroupsUiTest {
             override fun onRedoClicked() = Unit
             override fun setBrushSize(size: Float) = Unit
             override fun setBrushFeathering(feathering: Float) = Unit
+            override fun toggleScene3D() = Unit
         }
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -123,5 +124,6 @@ class RailToolGroupsUiTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
+        override fun toggleScene3D() = Unit
     }
 }

@@ -25,9 +25,18 @@ import javax.microedition.khronos.opengles.GL10
  * Transparent ink still uses conventional alpha blending with depth writes; order-independent
  * translucency and physically shaded paint are separate features.
  */
-class SpatialStrokeRenderer : GLSurfaceView.Renderer {
+class SpatialStrokeRenderer(
+    /** RGBA the frame clears to; transparent when the ink is one layer of the canvas stack. */
+    private val clearColor: FloatArray = floatArrayOf(0.125f, 0.125f, 0.145f, 1f),
+) : GLSurfaceView.Renderer {
     @Volatile private var scene: List<SpatialStroke> = emptyList()
     @Volatile var camera: OrbitCamera = OrbitCamera(pitch = 0f)
+
+    /**
+     * A full column-major clip matrix (the 3D strokes layer's `SceneMath.clipMatrix`). When set it
+     * replaces [camera]'s.
+     */
+    @Volatile var mvp: FloatArray? = null
 
     private var uploadedScene: List<SpatialStroke>? = null
     private var program = 0
@@ -39,6 +48,8 @@ class SpatialStrokeRenderer : GLSurfaceView.Renderer {
     private var aPosition = -1
     private var aColor = -1
     private var uMvp = -1
+    private var uPremultiply = -1
+    private val premultiplied: Boolean get() = clearColor[3] < 1f
 
     /** A new immutable snapshot is uploaded at most once, even across multiple camera frames. */
     fun setStrokes(strokes: List<SpatialStroke>) {
@@ -61,7 +72,14 @@ class SpatialStrokeRenderer : GLSurfaceView.Renderer {
         GLES30.glDepthFunc(GLES30.GL_LESS)
         GLES30.glDisable(GLES30.GL_CULL_FACE) // Curved ink must be visible from either side.
         GLES30.glEnable(GLES30.GL_BLEND)
-        GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        // Into a transparent layer the output must be premultiplied, which is what a TextureView
+        // composites; the shader premultiplies and the blend adds onto premultiplied paint.
+        if (premultiplied) {
+            GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        } else {
+            GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        }
+        uPremultiply = GLES30.glGetUniformLocation(program, "uPremultiply")
         GLES30.glClearDepthf(1f)
     }
 
@@ -77,14 +95,15 @@ class SpatialStrokeRenderer : GLSurfaceView.Renderer {
             uploadedScene = current
         }
 
-        GLES30.glClearColor(0.125f, 0.125f, 0.145f, 1f)
+        GLES30.glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3])
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         if (indexCount == 0 || program == 0) return
 
         val snapshot = camera
-        val mvp = MeshPicker.multiply(snapshot.projectionMatrix(aspect), snapshot.viewMatrix())
+        val mvp = this.mvp ?: MeshPicker.multiply(snapshot.projectionMatrix(aspect), snapshot.viewMatrix())
         GLES30.glUseProgram(program)
         GLES30.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES30.glUniform1f(uPremultiply, if (premultiplied) 1f else 0f)
 
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vertexBuffer)
         GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, indexBuffer)
@@ -186,10 +205,11 @@ class SpatialStrokeRenderer : GLSurfaceView.Renderer {
         const val FRAGMENT_SHADER = """
             #version 300 es
             precision mediump float;
+            uniform float uPremultiply;
             in vec4 vColor;
             out vec4 fragColor;
             void main() {
-                fragColor = vColor;
+                fragColor = mix(vColor, vec4(vColor.rgb * vColor.a, vColor.a), uPremultiply);
             }
         """
     }

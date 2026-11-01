@@ -90,6 +90,7 @@ class PhotoRetouchUiTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
+        override fun toggleScene3D() = Unit
     }
     private val state = RetouchState()
     private val drag = PhotoDrag()

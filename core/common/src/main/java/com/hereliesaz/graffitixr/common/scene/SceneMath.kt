@@ -343,13 +343,13 @@ object SceneMath {
         return FloatArray(16) { i -> rows[i % 4][i / 4] }
     }
 
-    internal fun dot(a: FloatArray, b: FloatArray): Float = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    fun dot(a: FloatArray, b: FloatArray): Float = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
-    internal fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
+    fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
         a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0],
     )
 
-    internal fun normalize(v: FloatArray): FloatArray {
+    fun normalize(v: FloatArray): FloatArray {
         val l = sqrt(dot(v, v))
         return if (l < 1e-12f) floatArrayOf(0f, 0f, 1f) else FloatArray(3) { v[it] / l }
     }

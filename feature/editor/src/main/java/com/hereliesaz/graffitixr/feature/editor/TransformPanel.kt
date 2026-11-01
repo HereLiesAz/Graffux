@@ -11,8 +11,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import kotlin.math.roundToInt
 
 /**
@@ -39,6 +38,7 @@ fun TransformPanel(
     activeLayer: Layer?,
     actions: EditorViewModel,
     modifier: Modifier = Modifier,
+    is3DMode: Boolean = false,
 ) {
     if (activeLayer == null) return
     val id = activeLayer.id
@@ -54,17 +54,11 @@ fun TransformPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text("Transform", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-            Row {
-                Text("3D", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
-                Switch(
-                    checked = activeLayer.is3D,
-                    onCheckedChange = { actions.onToggleLayer3D(id) },
-                    colors = SwitchDefaults.colors(),
-                )
-            }
         }
 
-        if (activeLayer.is3D) {
+        // No per-layer 3D switch: a layer is in 3D once it is placed there (spec/3d-space.md), and
+        // these fields show then, or while 3D mode is on and it can be placed.
+        if (activeLayer.isPlacedIn3D || is3DMode) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField(
                     label = "Rotate X°",
@@ -77,6 +71,13 @@ fun TransformPanel(
                     label = "Rotate Y°",
                     initial = remember(id) { activeLayer.rotationY.roundToInt().toString() },
                     onValue = { v -> actions.onRotationYChanged(v) },
+                    allowNegative = true,
+                    modifier = Modifier.weight(1f),
+                )
+                NumberField(
+                    label = "Depth",
+                    initial = remember(id) { activeLayer.positionZ.roundToInt().toString() },
+                    onValue = { v -> actions.onPositionZChanged(v) },
                     allowNegative = true,
                     modifier = Modifier.weight(1f),
                 )
