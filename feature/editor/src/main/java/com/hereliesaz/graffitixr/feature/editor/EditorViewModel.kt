@@ -8345,9 +8345,17 @@ class EditorViewModel @Inject constructor(
             // The selection confines the stroke on the GPU before the one readback. A selection the
             // stroke couldn't prepare on its engine leaves the commit to the replay path, which masks.
             work?.takeIf {
-                GpuStampCommit.stampOnto(engine, listOf(handoff.leftover), StampPaint.of(command, brush)) &&
-                    confinedOnGpu(engine, command, handoff.selection) &&
-                    engine.readback(it).also { handoff.paintedRect = paintedRect(engine) }
+                val stage = when {
+                    !GpuStampCommit.stampOnto(
+                        engine, listOf(handoff.leftover), StampPaint.of(command, brush),
+                    ) -> "stamp"
+                    !confinedOnGpu(engine, command, handoff.selection) -> "selection"
+                    !engine.readback(it).also { handoff.paintedRect = paintedRect(engine) } -> "readback"
+                    else -> null
+                }
+                // Not fatal (the stroke is painted again from its dabs), but named for logcat.
+                stage?.let { s -> strokeLog("commit: live GPU stroke not kept ($s); replaying its dabs") }
+                stage == null
             }
             // The live work bitmap itself becomes the layer: the stroke is over (its worker joined,
             // stampLiveBitmap released by clearTransientStrokeState), nothing paints it again, and

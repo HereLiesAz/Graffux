@@ -114,7 +114,7 @@ class IncrementalDynamicDabGenerator(
         nowMs: Long,
         dtMs: Float,
         phase: Int,
-    ): List<Dab> = runner.apply(
+    ): List<Dab> = withSecondary(runner.apply(
         StrokeProgramFrame(
             x = sample.x,
             y = sample.y,
@@ -137,7 +137,7 @@ class IncrementalDynamicDabGenerator(
             penAngleDeg = sample.telemetry.penAngleDegrees,
         ),
         emptyList(),
-    ).dabs
+    ).dabs, lastHeadingDeg, travelled)
 
     private fun appendMovement(sampleIn: BrushSample, predictedTotal: Float): List<Dab> {
         if (predictedTotal > 0f) predictedStrokeTotal = predictedTotal
@@ -306,9 +306,11 @@ class IncrementalDynamicDabGenerator(
                     val jitterAngle = (blotRng.nextFloat() * 2f - 1f) * blot.angleJitterDeg
                     val jitterMag = blot.positionJitter * contactDiameter * blotRng.nextFloat()
                     val jitterDir = blotRng.nextFloat() * 360f * DEG_TO_RAD
+                    val jitterX = jitterMag * cos(jitterDir)
+                    val jitterY = jitterMag * sin(jitterDir)
                     val blotParent = Dab(
-                        x = x + jitterMag * cos(jitterDir),
-                        y = y + jitterMag * sin(jitterDir),
+                        x = x + jitterX,
+                        y = y + jitterY,
                         radius = radius.coerceAtLeast(0f),
                         alpha = (alpha * fade).coerceIn(0f, 1f),
                         angleDeg = angle + jitterAngle,
@@ -321,7 +323,12 @@ class IncrementalDynamicDabGenerator(
                         valueMultiplier = dynamic.valueMultiplier,
                         colorMix = (dynamic.mixValue ?: brush.colorMix).coerceIn(0f, 1f),
                         sourceRandom = colorRng.nextFloat(),
-                        mask = null,
+                        // A copy of the same dual tip: its secondary moves and turns with it, as a
+                        // tuft's does. Every dab of a dual-tip stroke carries one (the GPU stamps
+                        // secondaries parallel to the primaries), and this draws no extra random.
+                        mask = mask?.let {
+                            it.copy(x = it.x + jitterX, y = it.y + jitterY, angleDeg = it.angleDeg + jitterAngle)
+                        },
                     )
                     out.addAll(
                         BrushTuftDabExpander.expandIfEnabled(
@@ -369,7 +376,7 @@ class IncrementalDynamicDabGenerator(
                 out,
             )
             gap = result.gapMultiplier
-            result.dabs
+            withSecondary(result.dabs, headingDeg, at)
         } ?: out
         lastHeadingDeg = headingDeg
         lastStepTime = sample.uptimeMillis
@@ -433,6 +440,36 @@ class IncrementalDynamicDabGenerator(
             invert = cfg.invert,
             blendMode = cfg.blendMode,
         )
+    }
+
+    /**
+     * [dabs] with a secondary tip on each one a stroke program emitted without one. A dual-tip
+     * stroke stamps a secondary for every primary dab (the GPU takes them as parallel arrays) or
+     * none, so a program's `emit` and its tick steps get the brush's second tip at their own centre:
+     * the configured size ratio, shape, opacity, flow and angle, without the scatter or sensor
+     * dynamics whose random draws belong to the brush's own dabs. Draws no random, so the live
+     * stroke and its replay stay identical. Nothing to do (no allocation) for a single-tip brush.
+     */
+    private fun withSecondary(dabs: List<Dab>, headingDeg: Float, at: Float): List<Dab> {
+        val config = brush.maskedBrush ?: return dabs
+        if (dabs.all { it.mask != null }) return dabs
+        val cfg = config.sanitized()
+        val angle = cfg.angle + (if (cfg.followStroke) headingDeg else 0f) + cfg.rotationPerPx * at
+        return dabs.map { dab ->
+            if (dab.mask != null) dab else dab.copy(
+                mask = MaskDab(
+                    x = dab.x,
+                    y = dab.y,
+                    radius = dab.radius * cfg.sizeRatio,
+                    tipRatio = cfg.tipRatio,
+                    alpha = cfg.opacity.coerceIn(0f, 1f),
+                    angleDeg = angle,
+                    flowMultiplier = cfg.flow.coerceAtLeast(0f),
+                    invert = cfg.invert,
+                    blendMode = cfg.blendMode,
+                ),
+            )
+        }
     }
 
     private fun interpolate(a: BrushSample, b: BrushSample, t: Float): BrushSample {
