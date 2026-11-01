@@ -223,6 +223,40 @@ class ComponentOpsTest {
     }
 
     @Test
+    fun `only an instance still on its main's file is reported as sharing it`() {
+        val shared = io.mockk.mockk<android.net.Uri>()
+        val own = io.mockk.mockk<android.net.Uri>()
+        val layers = listOf(
+            layer("main").copy(componentId = "C1", uri = shared),
+            layer("inherits").copy(instanceOf = "C1", uri = shared),
+            layer("painted").copy(instanceOf = "C1", uri = own),
+            layer("loose").copy(uri = shared),
+        )
+        assertEquals("main", mainSharingPixelFile(layers, "inherits")?.id)
+        assertNull(mainSharingPixelFile(layers, "painted"))
+        assertNull(mainSharingPixelFile(layers, "loose"))
+        assertNull(mainSharingPixelFile(layers, "main"))
+        // A stale capture of the shared URI is still recognised as the main's file.
+        assertEquals("main", mainSharingPixelFile(layers, "painted", shared)?.id)
+    }
+
+    @Test
+    fun `reinheriting takes the main's pixels and file back and nothing else`() {
+        val shared = io.mockk.mockk<android.net.Uri>()
+        val own = io.mockk.mockk<android.net.Uri>()
+        val mainBmp = io.mockk.mockk<android.graphics.Bitmap>()
+        val instBmp = io.mockk.mockk<android.graphics.Bitmap>()
+        val layers = listOf(
+            layer("main").copy(componentId = "C1", uri = shared, bitmap = mainBmp),
+            layer("inst").copy(instanceOf = "C1", uri = own, bitmap = instBmp, opacity = 0.5f),
+        )
+        val out = reinheritPixels(layers, "inst").first { it.id == "inst" }
+        assertTrue(out.bitmap === mainBmp)
+        assertTrue(out.uri === shared)
+        assertEquals(0.5f, out.opacity)
+    }
+
+    @Test
     fun `an instance sharing its main's decoded bitmap follows the main's next paint`() {
         val decoded = io.mockk.mockk<android.graphics.Bitmap>()
         val painted = io.mockk.mockk<android.graphics.Bitmap>()

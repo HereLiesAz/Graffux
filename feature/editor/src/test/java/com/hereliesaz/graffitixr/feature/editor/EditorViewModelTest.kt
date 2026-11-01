@@ -634,6 +634,296 @@ class EditorViewModelTest {
         assertSame(secondBase, viewModel.layerBaseForTest("i"))
     }
 
+    // ── Instance pixel files are copy-on-write ──────────────────────────────────────────────
+
+    private fun pngWriting(text: String): Bitmap = mockk<Bitmap>(relaxed = true).also { bmp ->
+        every { bmp.width } returns 4
+        every { bmp.height } returns 4
+        every { bmp.compress(any(), any(), any()) } answers {
+            (it.invocation.args[2] as java.io.OutputStream).write(text.toByteArray())
+            true
+        }
+    }
+
+    private fun instanceProject(dir: java.io.File, mainBmp: Bitmap, instBmp: Bitmap): java.io.File {
+        val mainFile = java.io.File(dir, "main.png").apply { writeText("MAIN") }
+        val shared = Uri.parse("file://${mainFile.path}")
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                listOf(
+                    Layer(id = "m", name = "m", componentId = "C1", uri = shared, bitmap = mainBmp),
+                    Layer(id = "i", name = "i", instanceOf = "C1", uri = shared, bitmap = instBmp),
+                    Layer(id = "f", name = "f", instanceOf = "C1", uri = shared, bitmap = mainBmp),
+                ),
+            ),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        return mainFile
+    }
+
+    @Test
+    fun `saving an instance's own paint leaves its main's pixel file intact`() = runTest {
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainBmp = pngWriting("MAIN")
+            val painted = pngWriting("INST")
+            val mainFile = instanceProject(dir, mainBmp, painted)
+
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("MAIN", mainFile.readText())
+            val layers = viewModel.uiState.value.layers
+            val inst = layers.first { it.id == "i" }
+            assertNotEquals(mainFile.path, inst.uri?.path)
+            assertEquals("INST", java.io.File(inst.uri!!.path!!).readText())
+            // A second save stays on the instance's own file rather than forking again.
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(inst.uri, viewModel.uiState.value.layers.first { it.id == "i" }.uri)
+
+            // Reopening: the main keeps its file and pixels, the painted instance its own file,
+            // and the instance that never painted still inherits the main's.
+            assertEquals(
+                mapOf("f" to "m"),
+                com.hereliesaz.graffitixr.common.model.pixelInheritorsOnLoad(layers),
+            )
+            assertEquals(mainFile.path, layers.first { it.id == "m" }.uri?.path)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an instance's own file is published only once it has been written`() = runTest {
+        // Codex on #681: a manifest saved during the save debounce named a file not yet on disk.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val painted = pngWriting("INST")
+            val mainFile = instanceProject(dir, pngWriting("MAIN"), painted)
+
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceTimeBy(1000)
+            testDispatcher.scheduler.runCurrent()
+            assertEquals(mainFile.path, viewModel.uiState.value.layers.first { it.id == "i" }.uri?.path)
+            // A second save inside the window reuses the same pending file.
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val own = viewModel.uiState.value.layers.first { it.id == "i" }.uri!!
+            assertNotEquals(mainFile.path, own.path)
+            assertTrue(java.io.File(own.path!!).isFile)
+            assertEquals(1, dir.listFiles()!!.count { it.name.startsWith("layer_inst_") && it.name.endsWith(".png") })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `property undo keeps each layer's live pixel file`() = runTest {
+        // Codex on #681: a property snapshot restored a stale URI beside the live bitmap.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val painted = pngWriting("INST")
+            val mainFile = instanceProject(dir, pngWriting("MAIN"), painted)
+            viewModel.pushHistoryForTest() // snapshot: the instance on the main's file
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val own = viewModel.uiState.value.layers.first { it.id == "i" }.uri
+            assertNotEquals(mainFile.path, own?.path)
+
+            viewModel.onUndoClicked()
+            testDispatcher.scheduler.advanceUntilIdle()
+            val inst = viewModel.uiState.value.layers.first { it.id == "i" }
+            assertSame(painted, inst.bitmap)
+            assertEquals(own?.path, inst.uri?.path)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an inheriting instance writes nothing and keeps following its main`() = runTest {
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainBmp = pngWriting("MAIN")
+            val mainFile = instanceProject(dir, mainBmp, pngWriting("INST"))
+            val shared = viewModel.uiState.value.layers.first { it.id == "m" }.uri
+
+            assertNull(viewModel.ownPixelFileForTest("f", mainBmp))
+            viewModel.scheduleDiskSaveForTest("f", mainBmp)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals("MAIN", mainFile.readText())
+            assertSame(shared, viewModel.uiState.value.layers.first { it.id == "f" }.uri)
+
+            val repainted = pngWriting("MAIN2")
+            viewModel.dispatchForTest(
+                EditorIntent.RenderTextLayer("m", repainted, com.hereliesaz.graffitixr.common.model.TextLayerParams()),
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertSame(repainted, viewModel.uiState.value.layers.first { it.id == "f" }.bitmap)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `undoing an instance's only stroke makes it inherit its main again`() = runTest {
+        every { opEmitter.isActive } returns true
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainBmp = pngWriting("MAIN")
+            val painted = pngWriting("INST")
+            val mainFile = instanceProject(dir, mainBmp, painted)
+            val base = mockk<Bitmap>(relaxed = true)
+            viewModel.putLayerBaseForTest("i", base)
+            val recorded = viewModel.layerBaseForTest("i")!!
+            viewModel.recordInheritedBaseForTest("i", recorded, mainBmp)
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.reinheritOnUndoForTest("i"))
+            val inst = viewModel.uiState.value.layers.first { it.id == "i" }
+            assertSame(mainBmp, inst.bitmap)
+            assertEquals(mainFile.path, inst.uri?.path)
+            testDispatcher.scheduler.advanceUntilIdle()
+            // Co-op peers get the restored pixels too (Codex on #681).
+            verify { opEmitter.emit(match { it is Op.LayerBitmapReplace && it.layerId == "i" }) }
+            // Nothing left to undo back to: a second call is a no-op.
+            assertFalse(viewModel.reinheritOnUndoForTest("i"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a freshly placed instance re-inherits when its first stroke is undone`() = runTest {
+        // Codex on #681: placement recorded no inherited base, so place -> stroke -> undo never relinked.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainFile = java.io.File(dir, "main.png").apply { writeText("MAIN") }
+            val mainBmp = pngWriting("MAIN")
+            viewModel.dispatchForTest(
+                EditorIntent.SetLayers(
+                    listOf(
+                        Layer(
+                            id = "m", name = "m", componentId = "C1",
+                            uri = Uri.parse("file://${mainFile.path}"), bitmap = mainBmp,
+                        ),
+                    ),
+                ),
+            )
+            viewModel.onPlaceInstance("C1")
+            testDispatcher.scheduler.advanceUntilIdle()
+            val id = viewModel.uiState.value.layers.first { it.instanceOf == "C1" }.id
+
+            // The stroke: the instance shows pixels of its own, and saving them forks its file.
+            val painted = pngWriting("INST")
+            viewModel.dispatchForTest(
+                EditorIntent.RenderTextLayer(id, painted, com.hereliesaz.graffitixr.common.model.TextLayerParams()),
+            )
+            viewModel.scheduleDiskSaveForTest(id, painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertNotEquals(mainFile.path, viewModel.uiState.value.layers.first { it.id == id }.uri?.path)
+
+            assertTrue(viewModel.reinheritOnUndoForTest(id))
+            val inst = viewModel.uiState.value.layers.first { it.id == id }
+            assertSame(mainBmp, inst.bitmap)
+            assertEquals(mainFile.path, inst.uri?.path)
+            assertEquals("MAIN", mainFile.readText())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `reinheriting on undo drops the stroke's material and its sidecar`() = runTest {
+        // Codex on #681: live wetness/impasto and the on-disk sidecar survived the relink.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            every { context.filesDir } returns dir
+            val projectId = viewModel.uiState.value.projectId!!
+            val sidecar = java.io.File(
+                java.io.File(dir, "projects/$projectId"), MaterialStateCodec.fileNameForLayer("i"),
+            )
+            sidecar.parentFile!!.mkdirs()
+            sidecar.writeText("stale")
+            val mainBmp = pngWriting("MAIN")
+            instanceProject(dir, mainBmp, pngWriting("INST"))
+            viewModel.putLayerBaseForTest("i", mockk(relaxed = true))
+            viewModel.recordInheritedBaseForTest("i", viewModel.layerBaseForTest("i")!!, mainBmp)
+            viewModel.seedLiveWetnessForTest("i", 4, 4)
+            assertTrue(viewModel.hasLiveWetnessForTest("i"))
+
+            assertTrue(viewModel.reinheritOnUndoForTest("i"))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertFalse(viewModel.hasLiveWetnessForTest("i"))
+            assertFalse(sidecar.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `inherited-base bookkeeping is pruned with the layer caches`() = runTest {
+        // Codex on #681: the map was never pruned, holding bitmaps of deleted layers and old projects.
+        val bmp = mockk<Bitmap>(relaxed = true)
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(Layer(id = "live", name = "live"))))
+        viewModel.recordInheritedBaseForTest("live", bmp, bmp)
+        viewModel.recordInheritedBaseForTest("gone", bmp, bmp)
+        viewModel.pushHistoryForTest()
+        assertEquals(setOf("live"), viewModel.inheritedBaseIdsForTest())
+    }
+
+    @Test
+    fun `an instance's first own text raster saves the manifest with its new file`() = runTest {
+        // Codex on #681: the fork happened after the edit's own save, so the manifest kept the main's URI.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val mainFile = java.io.File(dir, "main.png").apply { writeText("MAIN") }
+            val shared = Uri.parse("file://${mainFile.path}")
+            val params = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "a")
+            viewModel.dispatchForTest(
+                EditorIntent.SetLayers(
+                    listOf(
+                        Layer(id = "m", name = "m", componentId = "C1", uri = shared,
+                            bitmap = pngWriting("MAIN"), textParams = params,
+                        ),
+                        Layer(id = "i", name = "i", instanceOf = "C1", uri = shared,
+                            bitmap = pngWriting("MAIN"), textParams = params,
+                        ),
+                    ),
+                ),
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+            // Each manifest as it was written: the transform reads live state, so apply it at call time.
+            val saved = mutableListOf<GraffitiProject>()
+            io.mockk.coEvery { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                val transform = firstArg<Any>() as (GraffitiProject) -> GraffitiProject
+                saved += transform(GraffitiProject(id = "test-project"))
+            }
+
+            // The font load takes a moment, as on a device: the edit's own save lands before the raster.
+            io.mockk.coEvery { GoogleFontCache.getTypeface(any(), any(), any(), any()) } coAnswers {
+                kotlinx.coroutines.delay(100)
+                mockk(relaxed = true)
+            }
+            viewModel.onTextContentChanged("i", "ab")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("MAIN", mainFile.readText())
+            val forked = viewModel.uiState.value.layers.first { it.id == "i" }.uri
+            assertNotEquals(mainFile.path, forked?.path)
+            // A manifest written after the fork records the instance's own file, not the main's.
+            assertTrue(
+                saved.any { project -> project.layers.any { it.id == "i" && it.uri.toString() == forked.toString() } },
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     @Test
     fun `local edits not yet sent still reach peers when a peer's op lands first`() = runTest {
         every { opEmitter.isActive } returns true

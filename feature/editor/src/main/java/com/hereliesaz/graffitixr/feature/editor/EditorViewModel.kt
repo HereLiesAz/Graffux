@@ -956,6 +956,17 @@ class EditorViewModel @Inject constructor(
 
     // Per-layer base-bitmap and stroke caches (thread-safe; see LayerStore). Content resets and
     // undo there invalidate the layer's GPU-resident copy.
+    /**
+     * Instance id -> (the replay base it was given from its main, the main's bitmap it copied).
+     * An undo that takes the instance back to exactly that base, with no strokes left and the main
+     * unchanged since, means it shows its main's pixels again: [reinheritOnUndo] relinks it. Declared
+     * ahead of every init block, which can clear it on the first project load.
+     */
+    private val inheritedBases = java.util.concurrent.ConcurrentHashMap<String, Pair<Bitmap, Bitmap>>()
+
+    /** Instance id -> (main's shared URI, the instance's own URI not yet written). */
+    private val pendingForks = java.util.concurrent.ConcurrentHashMap<String, Pair<Uri, Uri>>()
+
     private val layerStore = LayerStore().also { store ->
         store.contentChanged = { id ->
             if (id == null) layerResidency.invalidateAll() else layerResidency.invalidate(id)
@@ -2457,7 +2468,7 @@ class EditorViewModel @Inject constructor(
                         rebuildJobs.values.forEach { it.cancel() }
                         rebuildJobs.clear()
                         history.clear()
-                        layerStore.retainOnly(layers.filter { it.bitmap != null }.map { it.id }.toSet())
+                        retainLayerCaches(layers.filter { it.bitmap != null }.map { it.id }.toSet())
                         updateHistoryCounts()
 
                         dispatch(
@@ -2501,6 +2512,9 @@ class EditorViewModel @Inject constructor(
                                     val loadedBmp = inheritors[layer.id]?.let { decoded[it]?.bitmap }
                                         ?: ImageUtils.loadBitmapAsync(context, layerUri) ?: return@forEach
                                     putLayerBase(layer.id, loadedBmp)
+                                    if (layer.id in inheritors) {
+                                        layerStore.base(layer.id)?.let { inheritedBases[layer.id] = it to loadedBmp }
+                                    }
                                     layerStore.initStrokes(layer.id)
                                     // Fail closed. A reused layer id must never inherit/retain
                                     // canonical material from the previously open project/session
@@ -2573,6 +2587,8 @@ class EditorViewModel @Inject constructor(
                 } else {
                     dispatch(EditorIntent.ClearProject)
                     layerStore.clear()
+                    inheritedBases.clear()
+                    pendingForks.clear()
                     history.clear()
                     inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
@@ -2593,11 +2609,32 @@ class EditorViewModel @Inject constructor(
         )
         updateHistoryCounts()
         val liveIds = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
+        retainLayerCaches(liveIds)
+    }
+
+    /** Drops every per-layer cache ([layerStore], [inheritedBases], [pendingForks]) for layers not in [liveIds]. */
+    private fun retainLayerCaches(liveIds: Set<String>) {
         layerStore.retainOnly(liveIds)
+        inheritedBases.keys.retainAll(liveIds)
+        pendingForks.keys.retainAll(liveIds)
     }
 
     private fun updateHistoryCounts() {
         updateUi { it.copy(undoCount = history.undoCount, redoCount = history.redoCount) }
+    }
+
+    /**
+     * [snapshot] (a property-history entry) with each surviving layer's live bitmap and the pixel
+     * file that goes with it. Property snapshots never move pixels, so they must not move the URI
+     * either: restoring a stale one beside the live bitmap re-pointed an instance that had since
+     * re-inherited (or forked) at the wrong file.
+     */
+    private fun withLivePixels(snapshot: List<Layer>): List<Layer> {
+        val live = _uiState.value.layers.associateBy { it.id }
+        return snapshot.map { layer ->
+            val current = live[layer.id]
+            if (current == null) layer.copy(bitmap = null) else layer.copy(bitmap = current.bitmap, uri = current.uri)
+        }
     }
 
     /** The current layer set, stripped of bitmaps — what we record so an undo can be reverted. */
@@ -2663,7 +2700,11 @@ class EditorViewModel @Inject constructor(
                 // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
                 repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
                 command.strokes.asReversed().forEach { inkLedger.onUndo(command.layerId, it) }
-                restoreUndoneStrokePixels(command)
+                if (reinheritOnUndo(command.layerId)) {
+                    command.gpuUndo?.let(history::forgetGpuUndo)
+                } else {
+                    restoreUndoneStrokePixels(command)
+                }
                 command.plane?.let { applyPlane(command.layerId, it.before) }
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
@@ -2674,8 +2715,7 @@ class EditorViewModel @Inject constructor(
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
                 invalidateResident(null)
-                val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
-                val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
+                val restoredLayers = withLivePixels(command.oldLayers)
                 dispatch(EditorIntent.SetLayers(restoredLayers))
                 command.crop?.let { dispatch(EditorIntent.SetDocumentCrop(it)) }
                 saveProject()
@@ -2734,8 +2774,7 @@ class EditorViewModel @Inject constructor(
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
                 invalidateResident(null)
-                val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
-                val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
+                val restoredLayers = withLivePixels(command.oldLayers)
                 dispatch(EditorIntent.SetLayers(restoredLayers))
                 command.crop?.let { dispatch(EditorIntent.SetDocumentCrop(it)) }
                 saveProject()
@@ -3655,7 +3694,7 @@ class EditorViewModel @Inject constructor(
 
     private fun scheduleDiskSave(layerId: String, bitmap: Bitmap, uri: Uri?) {
         captureTimeLapseFrameIfRecording()
-        val path = uri?.path ?: return
+        val path = ownPixelFile(layerId, bitmap, uri)?.path ?: return
         val projectId = _uiState.value.projectId
         val pending = PendingLayerWrite(
             path = path,
@@ -3681,6 +3720,146 @@ class EditorViewModel @Inject constructor(
             pendingSaveJobs.remove(layerId, coroutineContext[kotlinx.coroutines.Job])
         }
         pendingSaveJobs[layerId] = job
+    }
+
+    /**
+     * The file [layerId]'s [bitmap] may be written to: [uri], unless that is a main component's
+     * pixel file the instance [layerId] still shares. Copy-on-write: an instance showing its main's
+     * own bitmap has nothing of its own to save (the main's save covers it), so this returns null;
+     * one showing pixels of its own is first given a file of its own, next to the main's, and its
+     * layer is repointed at it. The main's file is never written through an instance. Runs at save
+     * time — once per instance, the first time it has pixels of its own — never per dab.
+     */
+    private fun ownPixelFile(layerId: String, bitmap: Bitmap, uri: Uri?): Uri? {
+        val layers = _uiState.value.layers
+        // [uri] can be a caller's stale capture: matched against the main's file, not the layer's.
+        val main = com.hereliesaz.graffitixr.common.model.mainSharingPixelFile(layers, layerId, uri)
+        val current = layers.firstOrNull { it.id == layerId }?.uri
+        val dir = uri?.path?.let { java.io.File(it).parentFile }
+        return when {
+            main == null -> uri
+            main.bitmap === bitmap -> null
+            // Already moved to a file of its own since the caller read [uri].
+            current != null && current != uri -> current
+            dir == null -> null
+            else -> forkPixelFile(layerId, uri, dir)
+        }
+    }
+
+    /**
+     * A new pixel file for [layerId] in [dir], in place of the main's [shared] one. It is not
+     * published yet: the layer keeps pointing at [shared] until the first write to the new file
+     * succeeds ([publishForkIfWritten]), so a manifest saved in between never names a file that
+     * does not exist. A second save before then reuses the same file.
+     */
+    private fun forkPixelFile(layerId: String, shared: Uri, dir: java.io.File): Uri {
+        pendingForks[layerId]?.takeIf { it.first == shared }?.let { return it.second }
+        val own = "file://${java.io.File(dir, "layer_inst_${UUID.randomUUID()}.png").path}".toUri()
+        pendingForks[layerId] = shared to own
+        return own
+    }
+
+    /** After [path] was written for [layerId]: if it is that layer's pending fork, the layer moves to it. */
+    private fun publishForkIfWritten(layerId: String, path: String) {
+        val (shared, own) = pendingForks[layerId]?.takeIf { it.second.path == path } ?: return
+        pendingForks.remove(layerId)
+        updateUi { state ->
+            state.copy(
+                layers = state.layers.map { if (it.id == layerId && it.uri == shared) it.copy(uri = own) else it },
+            )
+        }
+    }
+
+    /**
+     * After an undo of [layerId]'s stroke: if that leaves an instance showing exactly its main's
+     * pixels, it inherits them again (the main's bitmap and pixel file) instead of keeping a
+     * private copy that has stopped following the main. Returns true when it did, and the caller
+     * then skips restoring the instance's pixels on its own.
+     */
+    private fun reinheritOnUndo(layerId: String): Boolean {
+        if (!undoneToMain(layerId)) return false
+        pendingSaveJobs.remove(layerId)?.cancel()
+        pendingWrites.remove(layerId)
+        pendingForks.remove(layerId)
+        rebuildJobs.remove(layerId)?.cancel()
+        invalidateResident(layerId)
+        updateUi { it.copy(layers = com.hereliesaz.graffitixr.common.model.reinheritPixels(it.layers, layerId)) }
+        // The undone stroke's wetness and impasto stay in the instance's live caches otherwise:
+        // take the main's material back with its pixels, and rewrite (or delete) the sidecar to match.
+        val instance = _uiState.value.layers.firstOrNull { it.id == layerId }
+        val mainId = instance?.instanceOf?.let { c -> _uiState.value.layers.firstOrNull { it.componentId == c }?.id }
+        adoptMainMaterial(layerId, mainId, instance?.heightMap?.copyOf())
+        val bmp = instance?.bitmap
+        // Peers saw the stroke; the skipped rebuild was what told them it was undone.
+        if (bmp != null && opEmitter.isActive) {
+            viewModelScope.launch(dispatchers.default) {
+                opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(bmp)))
+            }
+        }
+        val projectId = _uiState.value.projectId
+        val material = bmp?.let { captureMaterialState(layerId, it.width, it.height) }
+        viewModelScope.launch(dispatchers.io) { writeMaterialState(layerId, projectId, material) }
+        saveProject()
+        return true
+    }
+
+    /**
+     * Gives instance [instanceId] its main's material (height, wetness, impasto) as both base and
+     * live state, dropping whatever material of its own it had.
+     */
+    private fun adoptMainMaterial(instanceId: String, mainId: String?, height: FloatArray?) {
+        val wetness = mainId?.let { layerStore.wetnessStateCopyOrNull(it) }
+        val impasto = mainId?.let { layerStore.impastoMaterialStateCopyOrNull(it) }
+        layerStore.clearCanonicalMaterial(instanceId)
+        height?.let { layerStore.putHeightBase(instanceId, it) }
+        wetness?.let {
+            layerStore.putWetnessBase(instanceId, it)
+            layerStore.putLiveWetness(instanceId, it)
+        }
+        impasto?.let {
+            layerStore.putImpastoMaterialBase(instanceId, it)
+            layerStore.putLiveImpastoMaterial(instanceId, it)
+        }
+    }
+
+    /** True when [layerId] is an instance back on exactly the base it inherited, its main unchanged. */
+    private fun undoneToMain(layerId: String): Boolean {
+        val (base, mainBitmap) = inheritedBases[layerId] ?: return false
+        val layers = _uiState.value.layers
+        val layer = layers.firstOrNull { it.id == layerId }
+        val main = layer?.instanceOf?.let { c -> layers.firstOrNull { it.componentId == c } }
+        return main != null && layerStore.strokeCount(layerId) == 0 && layerStore.base(layerId) === base &&
+            main.bitmap === mainBitmap && layer.bitmap !== mainBitmap
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun ownPixelFileForTest(layerId: String, bitmap: Bitmap): Uri? =
+        ownPixelFile(layerId, bitmap, _uiState.value.layers.firstOrNull { it.id == layerId }?.uri)
+
+    @androidx.annotation.VisibleForTesting
+    internal fun scheduleDiskSaveForTest(layerId: String, bitmap: Bitmap) =
+        scheduleDiskSave(layerId, bitmap, _uiState.value.layers.firstOrNull { it.id == layerId }?.uri)
+
+    @androidx.annotation.VisibleForTesting
+    internal fun reinheritOnUndoForTest(layerId: String): Boolean = reinheritOnUndo(layerId)
+
+    @androidx.annotation.VisibleForTesting
+    internal fun seedLiveWetnessForTest(layerId: String, width: Int, height: Int) {
+        layerStore.liveWetnessCopy(layerId, width, height)
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun hasLiveWetnessForTest(layerId: String): Boolean = layerStore.wetnessStateCopyOrNull(layerId) != null
+
+    @androidx.annotation.VisibleForTesting
+    internal fun inheritedBaseIdsForTest(): Set<String> = inheritedBases.keys.toSet()
+
+    @androidx.annotation.VisibleForTesting
+    internal fun pushHistoryForTest() = pushHistory()
+
+    @androidx.annotation.VisibleForTesting
+    internal fun recordInheritedBaseForTest(layerId: String, base: Bitmap, mainBitmap: Bitmap) {
+        inheritedBases[layerId] = base to mainBitmap
     }
 
     /**
@@ -3726,6 +3905,7 @@ class EditorViewModel @Inject constructor(
                     if (!tmp.delete()) tmp.deleteOnExit()
                 }
             }
+            publishForkIfWritten(layerId, path)
             return true
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Normal: a newer stroke superseded this debounced save. Not a failure — and the entry
@@ -5774,6 +5954,7 @@ class EditorViewModel @Inject constructor(
             val wetness = mainId?.let { layerStore.wetnessStateCopyOrNull(it) }
             val impasto = mainId?.let { layerStore.impastoMaterialStateCopyOrNull(it) }
             layerStore.putBase(instanceId, base)
+            inheritedBases[instanceId] = base to bitmap
             layerStore.clearCanonicalMaterial(instanceId)
             height?.let { layerStore.putHeightBase(instanceId, it) }
             wetness?.let {
@@ -12308,6 +12489,8 @@ class EditorViewModel @Inject constructor(
         // or painting on it would be replayed against the main's base.
         instance.bitmap?.let { bmp ->
             putLayerBase(instance.id, bmp)
+            // Its base is the main's pixels: undoing its first stroke can relink it (reinheritOnUndo).
+            layerStore.base(instance.id)?.let { inheritedBases[instance.id] = it to bmp }
             layerStore.initStrokes(instance.id)
         }
         dispatch(EditorIntent.PlaceInstance(instance))
@@ -13700,11 +13883,12 @@ class EditorViewModel @Inject constructor(
             val bitmap = TextRasterizer.rasterize(params, widthPx, heightPx, density, typeface)
 
             val layer = _uiState.value.layers.find { it.id == layerId } ?: return@launch
-            val uri = layer.uri
+            val uri = ownPixelFile(layerId, bitmap, layer.uri)
             if (uri != null) {
                 try {
                     val file = java.io.File(uri.path ?: return@launch)
                     java.io.FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                    publishForkIfWritten(layerId, file.path)
                 } catch (e: Exception) {
                     // Don't swallow silently — the layer bitmap is still updated in memory, but a
                     // failed disk write means the text edit won't survive reload.
@@ -13716,6 +13900,9 @@ class EditorViewModel @Inject constructor(
 
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.RenderTextLayer(layerId, bitmap, params))
+                // A first own raster of an instance moved it to a file of its own: the manifest
+                // must record that URI, or a reopen points it back at the main's file.
+                if (uri != null && uri != layer.uri) saveProject()
             }
         }
     }
