@@ -38,7 +38,6 @@ interface EditorActions {
     fun onRotationYChanged(d: Float)
     fun onRotationZChanged(d: Float)
     fun onCycleRotationAxis()
-    fun onToggleLayer3D(layerId: String)
 
     fun onGestureStart()
     fun onGestureEnd()

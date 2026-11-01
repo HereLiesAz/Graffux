@@ -882,6 +882,22 @@ class EditorViewModelTest {
     // ── One 3D space (spec/3d-space.md) ──
 
     @Test
+    fun `a co-op transform carries depth, and an older peer's means depth 0`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(positionZ = 12f)))
+        val moved = lyr("a").copy(scale = 2f, rotationY = 30f, positionZ = -80f)
+        viewModel.applySpectatorOp(Op.LayerTransform("a", com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(moved)))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val got = viewModel.uiState.value.layers.single()
+        assertEquals(-80f, got.positionZ)
+        assertEquals(30f, got.rotationY)
+        // A six-slot message from a build without depth.
+        viewModel.applySpectatorOp(Op.LayerTransform("a", listOf(1f, 0f, 0f, 0f, 0f, 0f)))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.layers.single().positionZ)
+    }
+
+    @Test
     fun `3D mode toggles without moving the camera or any plane`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("a").copy(positionZ = 40f)))

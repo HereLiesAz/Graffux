@@ -5128,11 +5128,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val activeId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == activeId } ?: return
-        val encodedMatrix = listOf(
-            layer.scale, layer.offset.x, layer.offset.y,
-            layer.rotationX, layer.rotationY, layer.rotationZ,
-            0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
-        )
+        val encodedMatrix = com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(layer)
         opEmitter.emit(Op.LayerTransform(activeId, encodedMatrix))
         // A frame resized by its handle also moved/resized its children, which the op above does
         // not cover.
@@ -5359,18 +5355,6 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCycleRotationAxis() = dispatch(EditorIntent.CycleRotationAxis)
-
-    // No opEmitter.emit here, unlike onToggleVisibility/onToggleAlphaLock: LayerProps (what
-    // Op.LayerPropsChange carries) has no room for is3D, and there's no precedent for a rotation-
-    // related field going through it -- rotation itself syncs as a computed matrix via
-    // Op.LayerTransform, never as individual fields. is3D only gates local UI affordances (the
-    // TransformPanel's X/Y fields, double-tap's axis-cycle), so a collaborator not seeing it change
-    // is a minor UX inconsistency, not a rendering desync -- the resulting pixels still sync fine.
-    override fun onToggleLayer3D(layerId: String) {
-        pushHistory()
-        dispatch(EditorIntent.ToggleLayer3D(layerId))
-        saveProject()
-    }
 
     override fun onAdjustmentStart() { pushHistory(); dispatch(EditorIntent.SetGestureInProgress(true)) }
 
@@ -5600,10 +5584,7 @@ class EditorViewModel @Inject constructor(
         opEmitter.emit(Op.LayerReorder(layers.map { it.id }))
         layers.forEach { l ->
             emitLayerProps(l.id, l.toLayerProps())
-            opEmitter.emit(Op.LayerTransform(l.id, listOf(
-                l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
-                0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
-            )))
+            opEmitter.emit(Op.LayerTransform(l.id, com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)))
             // Frame/shape geometry too: undoing a frame resize restores its box and its children's
             // shapes, and without this a peer keeps the resized geometry. Sent for every layer,
             // like the ops above — a resync has no "before" to diff against, unlike emitGeometryChanges.
@@ -5859,11 +5840,8 @@ class EditorViewModel @Inject constructor(
         parentId,
     )
 
-    /** The LayerTransform encoding: [scale, offsetX, offsetY, rotX, rotY, rotZ], zero-padded to 16. */
-    private fun Layer.coopTransform(): List<Float> = listOf(
-        scale, offset.x, offset.y, rotationX, rotationY, rotationZ,
-        0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
-    )
+    /** The LayerTransform encoding ([com.hereliesaz.graffitixr.common.coop.LayerTransformCodec]). */
+    private fun Layer.coopTransform(): List<Float> = com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(this)
 
     /**
      * What peers last saw of each layer, the layer order, and which mask revisions they hold.
@@ -12077,11 +12055,10 @@ class EditorViewModel @Inject constructor(
             if (prev.shapes != l.shapes || prev.layoutWidth != l.layoutWidth || prev.layoutHeight != l.layoutHeight) {
                 opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
             }
-            if (prev.offset != l.offset || prev.scale != l.scale) {
-                opEmitter.emit(Op.LayerTransform(l.id, listOf(
-                    l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
-                    0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
-                )))
+            if (prev.offset != l.offset || prev.scale != l.scale || prev.positionZ != l.positionZ ||
+                prev.rotationX != l.rotationX || prev.rotationY != l.rotationY || prev.rotationZ != l.rotationZ
+            ) {
+                opEmitter.emit(Op.LayerTransform(l.id, com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)))
             }
         }
     }
@@ -13726,14 +13703,14 @@ class EditorViewModel @Inject constructor(
             is Op.LayerRemove -> dispatch(EditorIntent.RemoveLayerById(op.layerId))
             is Op.LayerReorder -> dispatch(EditorIntent.ReorderLayers(op.newOrder))
             is Op.LayerTransform -> {
-                // The host encodes transform as [scale, offsetX, offsetY, rotX, rotY, rotZ, 0...0].
-                // Apply the first 6 slots back to the matching layer.
-                if (op.matrix.size >= 6) {
+                // The whole plane placement (LayerTransformCodec): depth too, 0 from an older peer.
+                com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.decode(op.matrix)?.let { t ->
                     dispatch(EditorIntent.SetLayerTransformById(
                         op.layerId,
-                        scale = op.matrix[0],
-                        offset = androidx.compose.ui.geometry.Offset(op.matrix[1], op.matrix[2]),
-                        rx = op.matrix[3], ry = op.matrix[4], rz = op.matrix[5],
+                        scale = t.scale,
+                        offset = androidx.compose.ui.geometry.Offset(t.offsetX, t.offsetY),
+                        rx = t.rotationX, ry = t.rotationY, rz = t.rotationZ,
+                        positionZ = t.positionZ,
                     ))
                 }
             }

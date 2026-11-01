@@ -40,7 +40,16 @@ class SceneRenderPathTest {
     fun `becoming 3D needs no toggle, only a placement`() {
         val tilted = Layer("t", "T", rotationX = 5f)
         assertTrue(tilted.isPlacedIn3D)
-        assertFalse(Layer("t", "T", is3D = true).isPlacedIn3D)
+        assertFalse(Layer("t", "T").isPlacedIn3D)
+    }
+
+    @Test
+    fun `a layer from an older build that still carries the retired is3D key decodes, flat`() {
+        val json = kotlinx.serialization.json.Json
+        val old = """{"id":"x","name":"X","is3D":true}"""
+        val layer = json.decodeFromString(Layer.serializer(), old)
+        assertEquals("x", layer.id)
+        assertFalse(layer.isPlacedIn3D)
     }
 
     @Test

@@ -42,7 +42,6 @@ internal sealed interface EditorIntent {
     data class ToggleAlphaLock(val id: String) : EditorIntent
     data object CycleRotationAxis : EditorIntent
     /** Toggles layer [id]'s 3D-specific controls (X/Y rotation, double-tap axis cycling). */
-    data class ToggleLayer3D(val id: String) : EditorIntent
 
     // ── Layer list ────────────────────────────────────────────────────────────
     data class ReorderLayers(val order: List<String>) : EditorIntent
@@ -281,7 +280,16 @@ internal sealed interface EditorIntent {
     // ── Spectator / remote-op application (by id; no active-layer side effects) ────
     data class AppendLayer(val layer: Layer) : EditorIntent
     data class RemoveLayerById(val id: String) : EditorIntent
-    data class SetLayerTransformById(val id: String, val scale: Float, val offset: Offset, val rx: Float, val ry: Float, val rz: Float) : EditorIntent
+    data class SetLayerTransformById(
+        val id: String,
+        val scale: Float,
+        val offset: Offset,
+        val rx: Float,
+        val ry: Float,
+        val rz: Float,
+        /** The plane's depth; null leaves it as it is. */
+        val positionZ: Float? = null,
+    ) : EditorIntent
     data class SetLayerProps(val id: String, val props: LayerProps) : EditorIntent
 
     /** Groups [aId] and [bId] under a new group layer — see LayerListOps.group. */
