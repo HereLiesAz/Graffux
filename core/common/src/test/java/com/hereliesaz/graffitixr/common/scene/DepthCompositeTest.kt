@@ -64,6 +64,20 @@ class DepthCompositeTest {
     }
 
     @Test
+    fun `children of translucent groups and filled frames stay in the stack`() {
+        val camera = SceneCamera(yaw = 0.3f)
+        val layers = listOf(
+            Layer("half", "H", type = LayerType.GROUP, opacity = 0.5f),
+            paint("inHalf", parent = "half"),
+            Layer("filled", "F", type = LayerType.FRAME, clipsContent = false, frameFillArgb = 0xFFFFFFFFL, layoutWidth = 10f, layoutHeight = 10f),
+            paint("inFilled", parent = "filled"),
+            Layer("clear", "C", type = LayerType.FRAME, clipsContent = false, frameFillArgb = 0x00FFFFFFL, layoutWidth = 10f, layoutHeight = 10f),
+            paint("inClear", parent = "clear"),
+        )
+        assertEquals(listOf("inClear"), DepthComposite.plan(layers, camera).memberIds)
+    }
+
+    @Test
     fun `hidden layers are not drawn`() {
         val layers = listOf(paint("a").copy(rotationX = 5f, isVisible = false), ink.copy(isVisible = false))
         assertTrue(DepthComposite.plan(layers, SceneCamera()).isEmpty)

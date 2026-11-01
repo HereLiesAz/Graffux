@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -59,6 +60,7 @@ private const val ANT_STEP_MS = 80L
  * A second finger cancels either gesture, matching [DrawingCanvas] — two fingers mean navigate or
  * undo, and [gate] keeps that cancelling tap from also firing the undo.
  */
+@Suppress("LongParameterList", "LongMethod", "CyclomaticComplexMethod", "FunctionNaming")
 @Composable
 fun SelectionCanvas(
     selection: Selection?,
@@ -70,7 +72,10 @@ fun SelectionCanvas(
     onSelectionMove: (Offset) -> Unit,
     onAutoSelect: (Offset, IntSize) -> Unit,
     onClearSelection: () -> Unit,
+    /** Screen to the space the selection's rings are stored in (world, or a tilted plane's flat). */
+    toSelectionSpace: (Offset) -> Offset? = { it },
 ) {
+    val toSelection by rememberUpdatedState(toSelectionSpace)
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var lasso by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var moveDelta by remember { mutableStateOf<Offset?>(null) }
@@ -107,7 +112,7 @@ fun SelectionCanvas(
                     // move gesture, which would otherwise swallow every tap landing on the region
                     // the user is trying to extend.
                     val moving = op == SelectionOp.NEW && !shape.isTap &&
-                        selection != null && SelectionGeometry.contains(selection, down.position)
+                        selection != null && selectionHit(selection, down.position, toSelection)
                     var began = false
                     lasso = if (moving) emptyList() else listOf(down.position)
                     moveDelta = if (moving) Offset.Zero else null
@@ -339,3 +344,7 @@ private fun DrawScope.drawPolygon(
 
 /** A ring with fewer corners than a triangle encloses nothing. */
 private const val MIN_RING_POINTS = 3
+
+/** Whether a screen [point] lands inside [selection], tested in the space its rings live in. */
+internal fun selectionHit(selection: Selection, point: Offset, toSelectionSpace: (Offset) -> Offset?): Boolean =
+    toSelectionSpace(point)?.let { SelectionGeometry.contains(selection, it) } ?: false

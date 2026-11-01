@@ -639,6 +639,9 @@ fun EditorScreen(
                 },
                 onAutoSelect = { at, size -> activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) } },
                 onClearSelection = { vm.onClearSelection() },
+                // The rings are stored in the same space onSelectionEnd maps into, so the
+                // move-or-new decision tests the press there too.
+                toSelectionSpace = activePlane::toFlat,
             )
         }
 

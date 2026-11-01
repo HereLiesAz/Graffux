@@ -9,6 +9,10 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionRing
+import com.hereliesaz.graffitixr.common.util.SelectionGeometry
+import com.hereliesaz.graffitixr.common.scene.DepthComposite
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
@@ -18,6 +22,8 @@ import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.feature.editor.export.ExportManager
 import com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -132,5 +138,69 @@ class Scene3DFollowUpTest {
         assertNull(ActivePlaneMapping.of(flatState).flatToWorldOrNull())
         assertEquals(ActivePlaneMapping.of(flatState).world(screen), ActivePlaneMapping.of(flatState).toFlat(screen))
         assertTrue(planeChain(state.layers, "t").isNotEmpty())
+    }
+
+    @Test
+    fun `curve raster bounds use node plus handle, not the handle offset alone`() {
+        // A cubic from (100,-100) to (100,100), both control points offset +200 in x: it reaches x=250.
+        val curve = VectorShape(
+            ShapeKind.PATH, width = 0f, height = 200f, strokeWidth = 2f, points = listOf(100f, -100f, 100f, 100f),
+            handlesIn = listOf(0f, 0f, 200f, 0f), handlesOut = listOf(200f, 0f, 0f, 0f),
+        )
+        val half = VectorRaster.halfExtent(Layer("c", "c", type = LayerType.VECTOR, shapes = listOf(curve)))
+        assertTrue("half extent $half must hold x=250", half >= 252f)
+    }
+
+    @Test
+    fun `the vector raster cache re-places the image when the canvas is resized`() {
+        var calls = 0
+        val cache = VectorRasterCache { l, cw, ch -> calls++; VectorRaster.rasterize(l, cw, ch) }
+        val layer = rect("v", 0xFFFF0000L)
+        val a = cache.get(layer, 1000f, 1000f)!!
+        assertSame(a, cache.get(layer, 1000f, 1000f))
+        assertEquals(1, calls)
+        val b = cache.get(layer, 600f, 600f)!!
+        assertEquals(2, calls)
+        assertEquals(listOf(200f, 200f, 400f, 400f), b.rect.toList())
+    }
+
+    @Test
+    fun `a press on a selection is tested in the space its rings are stored in`() {
+        // Rings stored at flat 300..350; under the plane mapping the visible centre is screen 262.
+        val sel = Selection(listOf(SelectionRing(SelectionGeometry.rectangle(Offset(300f, 300f), Offset(350f, 350f)))), IntSize(w, h))
+        val toFlat: (Offset) -> Offset? = { Offset(it.x * 2f - 200f, it.y * 2f - 200f) }
+        assertTrue(selectionHit(sel, Offset(262f, 262f), toFlat))
+        assertFalse(selectionHit(sel, Offset(262f, 262f)) { it })
+        assertFalse(selectionHit(sel, Offset(262f, 262f)) { null })
+    }
+
+    @Test
+    fun `a blend-mode layer above the depth pass wins the hit over a nearer pass member`() {
+        val camera = SceneCamera(yaw = 0.2f)
+        val layers = listOf(
+            rect("near", 0xFFFF0000L).copy(positionZ = -200f),
+            rect("far", 0xFF00FF00L).copy(positionZ = 200f),
+            rect("screen", 0xFFFFFFFFL).copy(positionZ = 300f, blendMode = BlendMode.Screen),
+        )
+        val plan = DepthComposite.plan(layers, camera)
+        assertEquals(listOf("near", "far"), plan.memberIds)
+        val depths = mapOf("near" to 800f, "far" to 1200f, "screen" to 1300f)
+        assertEquals(listOf("screen", "near", "far"), CanvasHitTest.stackOrder(layers, listOf("screen", "far", "near"), plan, depths, 1000f))
+        // A flat layer below the pass's anchor stays below it.
+        val withBase = listOf(rect("base", 0xFF0000FFL).copy(blendMode = BlendMode.Multiply)) + layers
+        val plan2 = DepthComposite.plan(withBase, camera)
+        assertEquals(listOf("screen", "near", "far", "base"), CanvasHitTest.stackOrder(withBase, listOf("screen", "far", "near", "base"), plan2, depths, 1000f))
+    }
+
+    @Test
+    fun `hit ranks follow the layer tree, not flat list positions`() {
+        // After a reorder the child C sits after B in the list, but renders inside G, below B's pass.
+        val layers = listOf(
+            Layer("G", "G", type = LayerType.GROUP),
+            rect("B", 0xFF00FF00L).copy(positionZ = 200f),
+            rect("C", 0xFFFFFFFFL).copy(parentId = "G", blendMode = BlendMode.Screen),
+        )
+        val plan = DepthComposite(listOf("B"), "B")
+        assertEquals(listOf("B", "C"), CanvasHitTest.stackOrder(layers, listOf("C", "B"), plan, mapOf("B" to 1200f), 1000f))
     }
 }

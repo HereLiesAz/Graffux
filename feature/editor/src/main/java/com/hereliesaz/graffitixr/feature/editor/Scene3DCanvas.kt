@@ -253,8 +253,8 @@ internal fun DepthPass(
 ) {
     val frame = scene.frame
     val live = liveStroke.value
-    // Rasterized once per shape list, not per frame.
-    val vectorCache = remember { HashMap<String, Pair<Any, VectorRaster.Image?>>() }
+    // Rasterized once per shape list and canvas size, not per frame.
+    val vectorCache = remember { VectorRasterCache() }
     val depthScene = remember(uiState.layers, scene, live.layerId, live.version, live.bitmap) {
         DepthScene.build(
             uiState.layers, scene.depth, scene.camera, frame.width, frame.height,
@@ -265,14 +265,7 @@ internal fun DepthPass(
                     layer.bitmap?.let { it to 0L }
                 }
             },
-            vectors = { layer ->
-                val cached = vectorCache[layer.id]
-                if (cached != null && cached.first == layer.shapes) {
-                    cached.second
-                } else {
-                    VectorRaster.rasterize(layer, frame.width, frame.height).also { vectorCache[layer.id] = layer.shapes to it }
-                }
-            },
+            vectors = { layer -> vectorCache.get(layer, frame.width, frame.height) },
             draft = scene.draft?.let { d -> scene.draftLayerId?.let { it to d } },
         )
     }
