@@ -37,8 +37,19 @@ internal object EditorReducer {
     private fun List<Layer>.firstDrawableId(): String? =
         (firstOrNull { !it.isContainer } ?: firstOrNull())?.id
 
-    fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState =
-        withInstancesFollowing(state, reduceOnly(state, intent))
+    fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState {
+        val next = reduceOnly(state, intent)
+        return if (followsComponents(intent)) withInstancesFollowing(state, next) else next
+    }
+
+    /**
+     * Whether [intent] is an edit whose changes to a main component should reach its instances.
+     * [EditorIntent.SetLayers] replaces the whole stack with one that is already complete — an
+     * undo/redo snapshot, a project load, a deletion — in which every instance already holds the
+     * value it should. Treating that replace as a fresh edit of each main would overwrite an
+     * instance's recorded override wherever it happens to equal the main's outgoing value.
+     */
+    fun followsComponents(intent: EditorIntent): Boolean = intent !is EditorIntent.SetLayers
 
     /**
      * Every edit to a main component reaches its instances in the same transition, whichever
@@ -51,7 +62,8 @@ internal object EditorReducer {
         return if (layers === after.layers) after else after.copy(layers = layers)
     }
 
-    private fun reduceOnly(state: EditorUiState, intent: EditorIntent): EditorUiState {
+    /** [reduce] without carrying main edits to instances; the view model applies that itself. */
+    fun reduceOnly(state: EditorUiState, intent: EditorIntent): EditorUiState {
         return reduceLayerProperties(state, intent)
             ?: reduceLayerTransforms(state, intent)
             ?: reduceLayerList(state, intent)

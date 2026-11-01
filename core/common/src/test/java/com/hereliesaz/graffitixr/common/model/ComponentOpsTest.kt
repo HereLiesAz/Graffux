@@ -206,4 +206,31 @@ class ComponentOpsTest {
         assertNotNull(ComponentOps.mainFor(layers, "C1"))
         assertNull(ComponentOps.mainFor(layers, "nope"))
     }
+
+    // ── Reopening a project (Codex on #669) ──────────────────────────────────────────────────
+
+    @Test
+    fun `an instance pointing at its main's pixel file inherits on load, an overridden one does not`() {
+        val shared = io.mockk.mockk<android.net.Uri>()
+        val own = io.mockk.mockk<android.net.Uri>()
+        val layers = listOf(
+            layer("main").copy(componentId = "C1", uri = shared),
+            layer("inherits").copy(instanceOf = "C1", uri = shared),
+            layer("painted").copy(instanceOf = "C1", uri = own),
+            layer("loose").copy(uri = shared),
+        )
+        assertEquals(mapOf("inherits" to "main"), pixelInheritorsOnLoad(layers))
+    }
+
+    @Test
+    fun `an instance sharing its main's decoded bitmap follows the main's next paint`() {
+        val decoded = io.mockk.mockk<android.graphics.Bitmap>()
+        val painted = io.mockk.mockk<android.graphics.Bitmap>()
+        val before = listOf(
+            layer("main").copy(componentId = "C1", bitmap = decoded),
+            layer("inst").copy(instanceOf = "C1", bitmap = decoded),
+        )
+        val after = before.map { if (it.id == "main") it.copy(bitmap = painted) else it }
+        assertTrue(ComponentOps.propagate(before, after).first { it.id == "inst" }.bitmap === painted)
+    }
 }

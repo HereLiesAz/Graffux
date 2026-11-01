@@ -2490,9 +2490,16 @@ class EditorViewModel @Inject constructor(
                                     val heightMap: FloatArray?,
                                 )
                                 val decoded = mutableMapOf<String, LoadedLayerMaterial>()
-                                layersToLoad.forEach { layer ->
+                                // An instance still showing its main's pixels shares the main's
+                                // decoded bitmap: propagation keys inherited pixels on bitmap
+                                // identity, so two separate decodes of one file would read as an
+                                // override and the instance would stop following its main.
+                                val inheritors = com.hereliesaz.graffitixr.common.model
+                                    .pixelInheritorsOnLoad(layers)
+                                layersToLoad.sortedBy { it.id in inheritors }.forEach { layer ->
                                     val layerUri = layer.uri ?: return@forEach
-                                    val loadedBmp = ImageUtils.loadBitmapAsync(context, layerUri) ?: return@forEach
+                                    val loadedBmp = inheritors[layer.id]?.let { decoded[it]?.bitmap }
+                                        ?: ImageUtils.loadBitmapAsync(context, layerUri) ?: return@forEach
                                     putLayerBase(layer.id, loadedBmp)
                                     layerStore.initStrokes(layer.id)
                                     // Fail closed. A reused layer id must never inherit/retain
@@ -5640,6 +5647,10 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun putLayerBaseForTest(layerId: String, bitmap: Bitmap) = putLayerBase(layerId, bitmap)
 
+    /** [layerId]'s replay base, what a full-replay undo rebuilds from. */
+    @androidx.annotation.VisibleForTesting
+    internal fun layerBaseForTest(layerId: String): Bitmap? = layerStore.base(layerId)
+
     /** The job currently registered in [rebuildJobs] for [layerId], if any -- see its own doc. */
     @androidx.annotation.VisibleForTesting
     internal fun rebuildJobForTest(layerId: String): kotlinx.coroutines.Job? = rebuildJobs[layerId]
@@ -5695,7 +5706,7 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun dispatch(intent: EditorIntent) {
-        _uiState.update { EditorReducer.reduce(it, intent) }
+        writeState(EditorReducer.followsComponents(intent)) { EditorReducer.reduceOnly(it, intent) }
     }
 
     /**
@@ -5704,8 +5715,84 @@ class EditorViewModel @Inject constructor(
      * same transition — and so lands in the same undo snapshot and the same co-op layer diff.
      */
     private inline fun updateUi(crossinline transform: (EditorUiState) -> EditorUiState) {
-        _uiState.update { before -> EditorReducer.withInstancesFollowing(before, transform(before)) }
+        writeState(follow = true, transform)
     }
+
+    /** The one state writer behind [dispatch] and [updateUi]; see [rebaseInheritedPixels]. */
+    private inline fun writeState(follow: Boolean, crossinline transform: (EditorUiState) -> EditorUiState) {
+        var raw: List<Layer>? = null
+        var out: List<Layer>? = null
+        _uiState.update { before ->
+            val next = transform(before)
+            val followed = if (follow) EditorReducer.withInstancesFollowing(before, next) else next
+            raw = next.layers
+            out = followed.layers
+            followed
+        }
+        val unfollowed = raw
+        val followed = out
+        if (unfollowed != null && followed != null && unfollowed !== followed) {
+            rebaseInheritedPixels(unfollowed, followed)
+        }
+    }
+
+    /**
+     * An instance that just inherited its main's pixels gets them as its replay base too. Without
+     * this its [LayerStore] base stayed whatever it was when it was placed, so a later full-replay
+     * undo of the instance's own stroke rebuilt from that stale base and dropped the inherited main
+     * edits along with the stroke. Runs only when propagation actually moved pixels (a main's
+     * commit, never a live stroke), and the copy is made off the main thread.
+     */
+    private fun rebaseInheritedPixels(unfollowed: List<Layer>, followed: List<Layer>) {
+        followed.forEachIndexed { i, layer ->
+            val bmp = layer.bitmap ?: return@forEachIndexed
+            val mainId = layer.instanceOf ?: return@forEachIndexed
+            if (unfollowed.getOrNull(i)?.bitmap === bmp) return@forEachIndexed
+            val main = followed.firstOrNull { it.componentId == mainId }
+            viewModelScope.launch(dispatchers.default) { rebaseInstance(layer.id, main?.id, bmp) }
+        }
+    }
+
+    /** Serialises [rebaseInstance] per instance, so publishes for one instance never interleave. */
+    private val rebaseLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    /**
+     * Makes [bitmap] [instanceId]'s replay base, with its main's material. The copies are made
+     * first, unlocked; then, under the instance's lock, freshness is checked again and base and
+     * material are published together. Two main edits close together each launch one of these,
+     * and the older one's copy can finish last: re-checking under the lock right before publishing
+     * means it finds itself superseded and publishes nothing.
+     */
+    private suspend fun rebaseInstance(instanceId: String, mainId: String?, bitmap: Bitmap) {
+        val base = if (showsBitmap(instanceId, bitmap)) SafeBitmap.copy(bitmap, mutable = false) else null
+        if (base == null) return // Superseded already, or out of memory: either way, nothing to publish.
+        rebaseLocks.getOrPut(instanceId) { Mutex() }.withLock {
+            // Superseded (the main painted again, or the instance itself did): the newer one wins.
+            if (!showsBitmap(instanceId, bitmap)) return@withLock
+            // Material is read here, with the bitmap known current, so it matches the pixels.
+            val height = _uiState.value.layers.firstOrNull { it.id == instanceId }?.heightMap?.copyOf()
+            val wetness = mainId?.let { layerStore.wetnessStateCopyOrNull(it) }
+            val impasto = mainId?.let { layerStore.impastoMaterialStateCopyOrNull(it) }
+            layerStore.putBase(instanceId, base)
+            layerStore.clearCanonicalMaterial(instanceId)
+            height?.let { layerStore.putHeightBase(instanceId, it) }
+            wetness?.let {
+                layerStore.putWetnessBase(instanceId, it)
+                layerStore.putLiveWetness(instanceId, it)
+            }
+            impasto?.let {
+                layerStore.putImpastoMaterialBase(instanceId, it)
+                layerStore.putLiveImpastoMaterial(instanceId, it)
+            }
+        }
+    }
+
+    private fun showsBitmap(layerId: String, bitmap: Bitmap): Boolean =
+        _uiState.value.layers.firstOrNull { it.id == layerId }?.bitmap === bitmap
+
+    @androidx.annotation.VisibleForTesting
+    internal suspend fun rebaseInstanceForTest(instanceId: String, mainId: String?, bitmap: Bitmap) =
+        rebaseInstance(instanceId, mainId, bitmap)
 
     /**
      * Records a pristine, immutable copy of [bitmap] as [layerId]'s replay base.

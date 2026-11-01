@@ -40,6 +40,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -573,6 +574,64 @@ class EditorViewModelTest {
         verify {
             opEmitter.emit(match { it is Op.LayerPropsChange && it.layerId == "i" && it.props.saturation == 0.25f })
         }
+    }
+
+    @Test
+    fun `an instance that inherits its main's new pixels replays from them`() = runTest {
+        // Codex on #669: the instance's replay base stayed the one recorded when it was placed.
+        val old = mockk<Bitmap>(relaxed = true)
+        val oldBase = mockk<Bitmap>(relaxed = true)
+        every { old.copy(any(), any()) } returns oldBase
+        val painted = mockk<Bitmap>(relaxed = true)
+        val paintedBase = mockk<Bitmap>(relaxed = true)
+        every { painted.copy(any(), any()) } returns paintedBase
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                listOf(
+                    Layer(id = "m", name = "m", componentId = "C1", bitmap = old),
+                    Layer(id = "i", name = "i", instanceOf = "C1", bitmap = old),
+                ),
+            ),
+        )
+        viewModel.putLayerBaseForTest("i", old)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertSame(oldBase, viewModel.layerBaseForTest("i"))
+
+        viewModel.dispatchForTest(
+            EditorIntent.RenderTextLayer("m", painted, com.hereliesaz.graffitixr.common.model.TextLayerParams()),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertSame(painted, viewModel.uiState.value.layers.first { it.id == "i" }.bitmap)
+        assertSame(paintedBase, viewModel.layerBaseForTest("i"))
+    }
+
+    @Test
+    fun `an older instance rebase that finishes last does not overwrite the newer one`() = runTest {
+        // Codex on #680: two main edits close together; the older rebase's copy finished last.
+        val seed = mockk<Bitmap>(relaxed = true)
+        val first = mockk<Bitmap>(relaxed = true)
+        val firstBase = mockk<Bitmap>(relaxed = true)
+        val second = mockk<Bitmap>(relaxed = true)
+        val secondBase = mockk<Bitmap>(relaxed = true)
+        every { second.copy(any(), any()) } returns secondBase
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                listOf(
+                    Layer(id = "m", name = "m", componentId = "C1", bitmap = seed),
+                    Layer(id = "i", name = "i", instanceOf = "C1", bitmap = seed),
+                ),
+            ),
+        )
+        val params = com.hereliesaz.graffitixr.common.model.TextLayerParams()
+        viewModel.dispatchForTest(EditorIntent.RenderTextLayer("m", first, params))
+        // While the older rebase is still copying, the main paints again and that rebase completes.
+        every { first.copy(any(), any()) } answers {
+            viewModel.dispatchForTest(EditorIntent.RenderTextLayer("m", second, params))
+            kotlinx.coroutines.runBlocking { viewModel.rebaseInstanceForTest("i", "m", second) }
+            firstBase
+        }
+        viewModel.rebaseInstanceForTest("i", "m", first)
+        assertSame(secondBase, viewModel.layerBaseForTest("i"))
     }
 
     @Test
