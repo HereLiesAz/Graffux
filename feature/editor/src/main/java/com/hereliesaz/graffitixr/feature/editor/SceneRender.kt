@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber")
+@file:Suppress("MagicNumber", "ReturnCount", "MaxLineLength")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -138,6 +138,7 @@ private const val LAYER_REACH = 4f
  * transform maps to, exactly what a flat layer would have received. With the layer on the 2D path
  * every map is the plain screen-to-world conversion.
  */
+@Suppress("LongParameterList", "ComplexCondition")
 internal class ActivePlaneMapping private constructor(
     private val viewportOffset: Offset,
     private val viewportZoom: Float,

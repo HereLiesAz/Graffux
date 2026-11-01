@@ -196,6 +196,7 @@ fun SelectionCanvas(
  * An inverted selection also outlines the viewport edge, because the selected region is then the
  * ring between the two and an inner outline alone would read as a normal selection.
  */
+@Suppress("LongParameterList", "FunctionNaming")
 @Composable
 fun SelectionMarquee(
     selection: Selection,
@@ -254,6 +255,7 @@ fun SelectionMarquee(
  * overlay sits outside the viewport's `graphicsLayer` like every other touch surface, so each point
  * is pushed back through the camera here, on the way to the screen rather than off it.
  */
+@Suppress("CyclomaticComplexMethod")
 private fun selectionOutline(
     selection: Selection,
     viewportOffset: Offset,
@@ -271,7 +273,7 @@ private fun selectionOutline(
             (if (flatToWorld == null) p else flatToWorld(p))
                 ?.let { CanvasHitTest.worldToScreen(it, viewportOffset, viewportZoom, viewportRotation) }
         }
-        if (screenPoints.size < 3) continue
+        if (screenPoints.size < MIN_RING_POINTS) continue
         val ringPath = Path().apply {
             // Even-odd, matching SelectionMask.bitmapPath and SelectionGeometry — so the ants
             // outline exactly the region the paint is confined to, including where a lasso
@@ -334,3 +336,6 @@ private fun DrawScope.drawPolygon(
         ),
     )
 }
+
+/** A ring with fewer corners than a triangle encloses nothing. */
+private const val MIN_RING_POINTS = 3

@@ -1,3 +1,5 @@
+@file:Suppress("CyclomaticComplexMethod", "ReturnCount", "MaxLineLength")
+
 package com.hereliesaz.graffitixr.common.scene
 
 import androidx.compose.ui.graphics.BlendMode

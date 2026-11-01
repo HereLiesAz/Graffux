@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "TooManyFunctions", "LongMethod", "MaxLineLength")
+@file:Suppress("MagicNumber", "TooManyFunctions", "LongMethod", "MaxLineLength", "LongParameterList", "ComplexCondition", "ReturnCount", "DestructuringDeclarationWithTooManyEntries")
 
 package com.hereliesaz.graffitixr.feature.editor.threed
 

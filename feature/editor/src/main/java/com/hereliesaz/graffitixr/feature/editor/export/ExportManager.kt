@@ -21,6 +21,8 @@ import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.common.model.buildLayerTree
 import com.hereliesaz.graffitixr.feature.editor.createColorMatrix
+import com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor
+import com.hereliesaz.graffitixr.feature.editor.threed.OffscreenDepthRender
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -66,8 +68,7 @@ class ExportManager @Inject constructor() {
      * Renders the 3D space's GPU depth pass off screen (spec/3d-space.md, "Export"); null where GLES
      * cannot start, and [SceneExport] then draws the members farthest-first instead.
      */
-    @Volatile var depthRenderer: (com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor.Scene, Int, Int) -> Bitmap? =
-        com.hereliesaz.graffitixr.feature.editor.threed.OffscreenDepthRender::render
+    @Volatile var depthRenderer: (DepthCompositor.Scene, Int, Int) -> Bitmap? = OffscreenDepthRender::render
 
     @Suppress("LongParameterList")
     fun compositeLayers(
@@ -115,7 +116,8 @@ class ExportManager @Inject constructor() {
         // painting individually at full strength straight onto the export — the flat forEach this
         // replaced didn't know groups existed at all.
         if (camera != null && SceneExport.needed(layers, camera)) {
-            SceneExport(this).draw(canvas, layers, screenWidth, screenHeight, camera, result.takeIf { renderAdjustments })
+            val target = result.takeIf { renderAdjustments }
+            SceneExport(this).draw(canvas, layers, screenWidth, screenHeight, camera, target)
         } else {
             drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight, result.takeIf { renderAdjustments })
         }

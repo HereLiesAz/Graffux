@@ -307,7 +307,8 @@ fun EditorScreen(
                                     SceneRenderPath.sceneLayerIds(uiState.layers, uiState.sceneCamera),
                                     draft = spatialDraft.value?.second,
                                     draftLayerId = spatialDraft.value?.first,
-                                    depth = com.hereliesaz.graffitixr.common.scene.DepthComposite.plan(uiState.layers, uiState.sceneCamera),
+                                    depth = com.hereliesaz.graffitixr.common.scene.DepthComposite
+                                        .plan(uiState.layers, uiState.sceneCamera),
                                     showGuideFor = uiState.activeLayerId.takeIf {
                                         uiState.is3DMode && uiState.scene3DTool == Scene3DTool.DRAW
                                     },
@@ -928,7 +929,7 @@ fun EditorScreen(
 }
 
 // The 3D scene path added one branch per node kind; splitting the node would split its keys.
-@Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming")
+@Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming", "ReturnCount")
 @Composable
 private fun LayerStackNode(
     node: LayerNode,

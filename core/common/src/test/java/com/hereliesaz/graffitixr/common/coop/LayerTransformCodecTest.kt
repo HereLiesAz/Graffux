@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.common.coop
 
 import androidx.compose.ui.geometry.Offset

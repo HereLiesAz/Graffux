@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.common.scene
 
 import androidx.compose.ui.graphics.BlendMode

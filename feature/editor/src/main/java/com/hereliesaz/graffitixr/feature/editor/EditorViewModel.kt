@@ -11991,10 +11991,13 @@ class EditorViewModel @Inject constructor(
             if (prev.shapes != l.shapes || prev.layoutWidth != l.layoutWidth || prev.layoutHeight != l.layoutHeight) {
                 opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
             }
-            if (prev.offset != l.offset || prev.scale != l.scale || prev.positionZ != l.positionZ ||
-                prev.rotationX != l.rotationX || prev.rotationY != l.rotationY || prev.rotationZ != l.rotationZ
+            // Any part of the plane placement (LayerTransformCodec), depth and rotations included.
+            if (com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(prev) !=
+                com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)
             ) {
-                opEmitter.emit(Op.LayerTransform(l.id, com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)))
+                opEmitter.emit(
+                    Op.LayerTransform(l.id, com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)),
+                )
             }
         }
     }

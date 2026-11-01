@@ -1,3 +1,5 @@
+@file:Suppress("ReturnCount", "MaxLineLength")
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap

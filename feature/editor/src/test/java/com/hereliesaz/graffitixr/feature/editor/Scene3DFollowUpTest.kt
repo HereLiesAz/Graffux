@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap

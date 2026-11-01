@@ -1,3 +1,5 @@
+@file:Suppress("MagicNumber")
+
 package com.hereliesaz.graffitixr.common.coop
 
 import com.hereliesaz.graffitixr.common.model.Layer

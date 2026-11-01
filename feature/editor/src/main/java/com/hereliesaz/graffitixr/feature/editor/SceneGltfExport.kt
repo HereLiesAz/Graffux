@@ -1,4 +1,4 @@
-@file:Suppress("CyclomaticComplexMethod", "LongMethod")
+@file:Suppress("CyclomaticComplexMethod", "LongMethod", "LoopWithTooManyJumpStatements", "MagicNumber")
 
 package com.hereliesaz.graffitixr.feature.editor
 

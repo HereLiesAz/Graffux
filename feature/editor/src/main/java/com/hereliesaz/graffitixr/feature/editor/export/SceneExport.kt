@@ -1,3 +1,5 @@
+@file:Suppress("LongParameterList", "CyclomaticComplexMethod", "ReturnCount", "MaxLineLength", "LoopWithTooManyJumpStatements", "MagicNumber")
+
 package com.hereliesaz.graffitixr.feature.editor.export
 
 import android.graphics.Bitmap
