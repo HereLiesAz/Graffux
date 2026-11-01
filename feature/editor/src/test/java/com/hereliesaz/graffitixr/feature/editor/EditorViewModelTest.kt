@@ -695,6 +695,54 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `an instance's own file is published only once it has been written`() = runTest {
+        // Codex on #681: a manifest saved during the save debounce named a file not yet on disk.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val painted = pngWriting("INST")
+            val mainFile = instanceProject(dir, pngWriting("MAIN"), painted)
+
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceTimeBy(1000)
+            testDispatcher.scheduler.runCurrent()
+            assertEquals(mainFile.path, viewModel.uiState.value.layers.first { it.id == "i" }.uri?.path)
+            // A second save inside the window reuses the same pending file.
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val own = viewModel.uiState.value.layers.first { it.id == "i" }.uri!!
+            assertNotEquals(mainFile.path, own.path)
+            assertTrue(java.io.File(own.path!!).isFile)
+            assertEquals(1, dir.listFiles()!!.count { it.name.startsWith("layer_inst_") && it.name.endsWith(".png") })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `property undo keeps each layer's live pixel file`() = runTest {
+        // Codex on #681: a property snapshot restored a stale URI beside the live bitmap.
+        val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
+        try {
+            val painted = pngWriting("INST")
+            val mainFile = instanceProject(dir, pngWriting("MAIN"), painted)
+            viewModel.pushHistoryForTest() // snapshot: the instance on the main's file
+            viewModel.scheduleDiskSaveForTest("i", painted)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val own = viewModel.uiState.value.layers.first { it.id == "i" }.uri
+            assertNotEquals(mainFile.path, own?.path)
+
+            viewModel.onUndoClicked()
+            testDispatcher.scheduler.advanceUntilIdle()
+            val inst = viewModel.uiState.value.layers.first { it.id == "i" }
+            assertSame(painted, inst.bitmap)
+            assertEquals(own?.path, inst.uri?.path)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `an inheriting instance writes nothing and keeps following its main`() = runTest {
         val dir = kotlin.io.path.createTempDirectory("instpix").toFile()
         try {

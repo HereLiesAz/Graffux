@@ -964,6 +964,9 @@ class EditorViewModel @Inject constructor(
      */
     private val inheritedBases = java.util.concurrent.ConcurrentHashMap<String, Pair<Bitmap, Bitmap>>()
 
+    /** Instance id -> (main's shared URI, the instance's own URI not yet written). */
+    private val pendingForks = java.util.concurrent.ConcurrentHashMap<String, Pair<Uri, Uri>>()
+
     private val layerStore = LayerStore().also { store ->
         store.contentChanged = { id ->
             if (id == null) layerResidency.invalidateAll() else layerResidency.invalidate(id)
@@ -2585,6 +2588,7 @@ class EditorViewModel @Inject constructor(
                     dispatch(EditorIntent.ClearProject)
                     layerStore.clear()
                     inheritedBases.clear()
+                    pendingForks.clear()
                     history.clear()
                     inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
@@ -2608,14 +2612,29 @@ class EditorViewModel @Inject constructor(
         retainLayerCaches(liveIds)
     }
 
-    /** Drops every per-layer cache — [layerStore]'s and [inheritedBases] — for layers not in [liveIds]. */
+    /** Drops every per-layer cache ([layerStore], [inheritedBases], [pendingForks]) for layers not in [liveIds]. */
     private fun retainLayerCaches(liveIds: Set<String>) {
         layerStore.retainOnly(liveIds)
         inheritedBases.keys.retainAll(liveIds)
+        pendingForks.keys.retainAll(liveIds)
     }
 
     private fun updateHistoryCounts() {
         updateUi { it.copy(undoCount = history.undoCount, redoCount = history.redoCount) }
+    }
+
+    /**
+     * [snapshot] (a property-history entry) with each surviving layer's live bitmap and the pixel
+     * file that goes with it. Property snapshots never move pixels, so they must not move the URI
+     * either: restoring a stale one beside the live bitmap re-pointed an instance that had since
+     * re-inherited (or forked) at the wrong file.
+     */
+    private fun withLivePixels(snapshot: List<Layer>): List<Layer> {
+        val live = _uiState.value.layers.associateBy { it.id }
+        return snapshot.map { layer ->
+            val current = live[layer.id]
+            if (current == null) layer.copy(bitmap = null) else layer.copy(bitmap = current.bitmap, uri = current.uri)
+        }
     }
 
     /** The current layer set, stripped of bitmaps — what we record so an undo can be reverted. */
@@ -2696,8 +2715,7 @@ class EditorViewModel @Inject constructor(
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
                 invalidateResident(null)
-                val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
-                val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
+                val restoredLayers = withLivePixels(command.oldLayers)
                 dispatch(EditorIntent.SetLayers(restoredLayers))
                 command.crop?.let { dispatch(EditorIntent.SetDocumentCrop(it)) }
                 saveProject()
@@ -2756,8 +2774,7 @@ class EditorViewModel @Inject constructor(
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
                 invalidateResident(null)
-                val currentBitmaps = _uiState.value.layers.associate { it.id to it.bitmap }
-                val restoredLayers = command.oldLayers.map { it.copy(bitmap = currentBitmaps[it.id]) }
+                val restoredLayers = withLivePixels(command.oldLayers)
                 dispatch(EditorIntent.SetLayers(restoredLayers))
                 command.crop?.let { dispatch(EditorIntent.SetDocumentCrop(it)) }
                 saveProject()
@@ -3729,15 +3746,28 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** Points [layerId] at a new pixel file in [dir], in place of the main's [shared] one. */
+    /**
+     * A new pixel file for [layerId] in [dir], in place of the main's [shared] one. It is not
+     * published yet: the layer keeps pointing at [shared] until the first write to the new file
+     * succeeds ([publishForkIfWritten]), so a manifest saved in between never names a file that
+     * does not exist. A second save before then reuses the same file.
+     */
     private fun forkPixelFile(layerId: String, shared: Uri, dir: java.io.File): Uri {
+        pendingForks[layerId]?.takeIf { it.first == shared }?.let { return it.second }
         val own = "file://${java.io.File(dir, "layer_inst_${UUID.randomUUID()}.png").path}".toUri()
+        pendingForks[layerId] = shared to own
+        return own
+    }
+
+    /** After [path] was written for [layerId]: if it is that layer's pending fork, the layer moves to it. */
+    private fun publishForkIfWritten(layerId: String, path: String) {
+        val (shared, own) = pendingForks[layerId]?.takeIf { it.second.path == path } ?: return
+        pendingForks.remove(layerId)
         updateUi { state ->
             state.copy(
                 layers = state.layers.map { if (it.id == layerId && it.uri == shared) it.copy(uri = own) else it },
             )
         }
-        return own
     }
 
     /**
@@ -3750,6 +3780,7 @@ class EditorViewModel @Inject constructor(
         if (!undoneToMain(layerId)) return false
         pendingSaveJobs.remove(layerId)?.cancel()
         pendingWrites.remove(layerId)
+        pendingForks.remove(layerId)
         rebuildJobs.remove(layerId)?.cancel()
         invalidateResident(layerId)
         updateUi { it.copy(layers = com.hereliesaz.graffitixr.common.model.reinheritPixels(it.layers, layerId)) }
@@ -3874,6 +3905,7 @@ class EditorViewModel @Inject constructor(
                     if (!tmp.delete()) tmp.deleteOnExit()
                 }
             }
+            publishForkIfWritten(layerId, path)
             return true
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Normal: a newer stroke superseded this debounced save. Not a failure — and the entry
@@ -13856,6 +13888,7 @@ class EditorViewModel @Inject constructor(
                 try {
                     val file = java.io.File(uri.path ?: return@launch)
                     java.io.FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                    publishForkIfWritten(layerId, file.path)
                 } catch (e: Exception) {
                     // Don't swallow silently — the layer bitmap is still updated in memory, but a
                     // failed disk write means the text edit won't survive reload.
