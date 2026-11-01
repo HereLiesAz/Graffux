@@ -105,7 +105,11 @@ live bitmap drawn in perspective). The crisp zoom overlay is likewise fast-path 
 - every visible 3D strokes layer, at its whole chain's placement, so a group placed in 3D moves
   the ink, and its opacity multiplies in;
 - every scene-path paint, text or vector layer that composites normally (SrcOver, no clip to
-  below, not an adjustment) inside groups that do too (normal blend, no frame clip).
+  below, not an adjustment) inside groups that do too: normal blend, full opacity, and for a
+  frame neither a clip nor a visible fill. A translucent group composites its children as one
+  isolated image (overlaps at the group's opacity, not compounded per member), and a filled
+  frame paints its fill over anything pulled out of its subtree, so their descendants stay in the
+  stack.
 
 Layers that need a blend mode, a clipping mask, an adjustment or a frame clip cannot take part in
 a depth buffer, so they stay in the HWUI stack through their homographies (above). The pass draws
@@ -118,7 +122,10 @@ depth writes. The test makes crossings exact for opaque pixels; the order lets t
 blend over what is behind them. Texels with no alpha are discarded, so a layer's empty area hides
 nothing. Where two planes cross inside a semi-transparent edge, the nearer edge occludes rather
 than blends. A layer's colour adjustment runs in the fragment shader as the same 4x5 matrix the
-canvas uses. Vector layers are rasterized once per shape list (`VectorRaster`).
+canvas uses. Vector layers are rasterized once per shape list and canvas size
+(`VectorRasterCache`; the image's placement is centred on the canvas, so a resize re-rasterizes).
+The raster's bounds take each path node plus its Bézier handles (handles are node-relative
+offsets); a cubic stays inside its control hull, so no curve is clipped.
 
 Cost: a member's bitmap is uploaded to its texture only when its identity, `generationId` or live
 stroke version changes. While a stroke is painted on a member, the pass uploads the live bitmap
@@ -171,11 +178,18 @@ selection moves. Each lasso point is the flat point of its ray-plane hit (a poin
 dropped), so the selection and its clip live in the flat space the paint pipeline already uses.
 `SceneMath.layerFlatToWorld` maps the ants back through the plane; a homography maps straight
 segments to straight segments, so mapping the vertices is exact. A selection drag is converted at
-the selection's centroid, the point that stays under the finger.
+the selection's centroid, the point that stays under the finger. The press that decides between
+moving the selection and starting a new lasso is mapped the same way before the containment test,
+so it lands on the rings where they are stored.
 
 Tap-select (`CanvasHitTest.topHit`/`allHits`, given the camera) casts the tap onto every
 scene-path layer's plane, tests the flat point against the layer's box, and orders hits by the
-camera depth of the ray hit, nearest first, matching what the depth pass shows.
+camera depth of the ray hit, nearest first, among depth-pass members only
+(`CanvasHitTest.stackOrder`). The pass's members rank together just under the anchor's subtree;
+every other hit (a blend-mode or clipped layer, on the scene path or not) keeps its stack
+position, so a Screen layer above the pass wins over a nearer member, as it does on screen.
+Ranks come from the renderer's own draw order, a pre-order walk of `buildLayerTree`, not flat
+list positions (a reorder can leave a child away from its parent in the list).
 
 ## Co-op
 
@@ -228,7 +242,8 @@ pixels), origin at the canvas centre on the picture plane, so the strokes keep t
 ## Limits
 
 - Per-pixel depth covers layers that composite normally. Blend-mode, clipping-mask, adjustment
-  and frame-clipped layers keep stack order among themselves and against the depth pass.
+  and frame-clipped layers, and descendants of translucent groups or filled frames, keep stack
+  order among themselves and against the depth pass.
 - Crossing semi-transparent edges occlude rather than blend (no order-independent transparency).
 - A 3D strokes layer in a group with a non-normal blend mode is composited normally, in the pass.
 - Animation Assist's onion-skin fading does not apply to depth-pass members.

@@ -146,9 +146,44 @@ internal object CanvasHitTest {
             }
         }
         if (sceneIds.isEmpty()) return hits
-        // Stable: equal depths (a flat layer and its flat neighbours) keep the stack order.
-        val flatDepth = SceneMath.focalLength(canvasHeight) * camera.distanceScale
-        return hits.sortedBy { depths[it] ?: flatDepth }
+        val plan = com.hereliesaz.graffitixr.common.scene.DepthComposite.plan(layers, camera)
+        return stackOrder(layers, hits, plan, depths, SceneMath.focalLength(canvasHeight) * camera.distanceScale)
+    }
+
+    /**
+     * Front-to-back order of [hits] (given topmost first) as the canvas composites them: the depth
+     * pass draws all its members together, just under the anchor's subtree, ordered among
+     * themselves by depth; every other layer (a blend-mode or clipped layer included, even on the
+     * scene path) keeps its stack position around the pass.
+     */
+    private const val HALF_RANK = 0.5
+
+    internal fun stackOrder(
+        layers: List<Layer>,
+        hits: List<String>,
+        plan: com.hereliesaz.graffitixr.common.scene.DepthComposite,
+        depths: Map<String, Float>,
+        flatDepth: Float,
+    ): List<String> {
+        if (plan.isEmpty) return hits
+        // Draw order is the renderer's: a pre-order walk of buildLayerTree (a container, then its
+        // children bottom-first), not the flat list, where reordering can separate a child from
+        // its parent. The pass draws just before the anchor's root node.
+        val index = HashMap<String, Int>(layers.size)
+        var passRank = -HALF_RANK
+        fun walk(nodes: List<com.hereliesaz.graffitixr.common.model.LayerNode>, root: Boolean) {
+            for (n in nodes) {
+                if (root && n.layer.id == plan.anchorTopLevelId) passRank = index.size - HALF_RANK
+                index[n.layer.id] = index.size
+                walk(n.children, false)
+            }
+        }
+        walk(com.hereliesaz.graffitixr.common.model.buildLayerTree(layers), true)
+        // Stable sort: rank descending (topmost first); within the pass, nearest first.
+        return hits.sortedWith(
+            compareByDescending<String> { if (it in plan) passRank else (index[it] ?: 0).toDouble() }
+                .thenBy { if (it in plan) depths[it] ?: flatDepth else 0f },
+        )
     }
 
     /**

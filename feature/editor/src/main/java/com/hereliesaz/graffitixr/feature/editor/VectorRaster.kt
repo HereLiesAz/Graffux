@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.VectorShape
 import kotlin.math.abs
 import kotlin.math.ceil
 
@@ -26,9 +27,22 @@ internal object VectorRaster {
 
     /** Half the side of the square around the box centre that holds every shape. */
     fun halfExtent(layer: Layer): Float = layer.shapes.maxOfOrNull { s ->
-        val coords = (s.points + s.handlesIn + s.handlesOut).maxOfOrNull { abs(it) } ?: 0f
-        maxOf(abs(s.width) / 2f, abs(s.height) / 2f, coords) + s.strokeWidth
+        maxOf(abs(s.width) / 2f, abs(s.height) / 2f, controlExtent(s)) + s.strokeWidth
     } ?: 0f
+
+    /**
+     * The largest |coordinate| of a path's nodes and their control points. Handles are offsets
+     * relative to their node, so a control point is node + handle; a cubic stays inside the hull
+     * of its control points, so this bounds every curve.
+     */
+    private fun controlExtent(s: VectorShape): Float {
+        var m = 0f
+        for (i in s.points.indices) {
+            val p = s.points[i]
+            m = maxOf(m, abs(p), abs(p + s.handlesIn.getOrElse(i) { 0f }), abs(p + s.handlesOut.getOrElse(i) { 0f }))
+        }
+        return m
+    }
 
     /** Null for a layer without shapes or one too large to hold ([maxSide] pixels a side). */
     fun rasterize(layer: Layer, boxWidth: Float, boxHeight: Float, maxSide: Int = MAX_SIDE): Image? {
@@ -49,4 +63,24 @@ internal object VectorRaster {
     }
 
     private const val MAX_SIDE = 4096
+}
+
+/**
+ * Rasters kept per layer between scene rebuilds. Keyed on the shapes and the canvas size together:
+ * [VectorRaster.Image.rect] is centred on the box it was rasterized for, so a resized canvas must not
+ * reuse the old placement.
+ */
+internal class VectorRasterCache(
+    private val raster: (Layer, Float, Float) -> VectorRaster.Image? = { l, w, h -> VectorRaster.rasterize(l, w, h) },
+) {
+    private class Entry(val shapes: List<VectorShape>, val width: Float, val height: Float, val image: VectorRaster.Image?) {
+        fun matches(s: List<VectorShape>, w: Float, h: Float) = shapes == s && width == w && height == h
+    }
+    private val entries = HashMap<String, Entry>()
+
+    fun get(layer: Layer, width: Float, height: Float): VectorRaster.Image? {
+        val e = entries[layer.id]
+        if (e != null && e.matches(layer.shapes, width, height)) return e.image
+        return raster(layer, width, height).also { entries[layer.id] = Entry(layer.shapes, width, height, it) }
+    }
 }

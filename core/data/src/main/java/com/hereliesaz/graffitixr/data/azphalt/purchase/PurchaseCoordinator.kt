@@ -176,11 +176,20 @@ class PurchaseCoordinator(
         val route = guardedCall { tuning.io { api.route(appId, "play", country, packageId) } }
         return when (route?.route) {
             // Under the US programme a Play build may still fall back to Play Billing: no number.
-            "stripe" -> if (route.clientApi == "alternative_billing_only") null else BuyPrice.Repository
-            "play", "choice" -> route.productId?.let { guardedCall { gateway.formattedPrice(it) } }?.let(BuyPrice::Play)
+            // Mirrors playBuildStripe: Stripe only under a live programme (and even then the token may
+            // fail and fall back to Play: no number); otherwise checkout is Play Billing at Play's price.
+            "stripe" -> {
+                val programme = route.reportToGoogle && route.clientApi == "alternative_billing_only" &&
+                    gateway.isProgrammeAvailable("alternative_billing_only")
+                if (programme) null else playPrice(route)
+            }
+            "play", "choice" -> playPrice(route)
             else -> null
         }
     }
+
+    private suspend fun playPrice(route: BillingRoute): BuyPrice? =
+        route.productId?.let { guardedCall { gateway.formattedPrice(it) } }?.let(BuyPrice::Play)
 
     private fun set(packageId: String, state: PurchaseState): PurchaseState {
         _states.update { it + (packageId to state) }
@@ -336,8 +345,10 @@ class PurchaseCoordinator(
      */
     private suspend fun resumeCheckout(sessionId: String, attempts: Int, quiet: Boolean): PurchaseState {
         val packageId = runCatching { store.pending.checkouts()[sessionId] }.getOrNull() ?: return PurchaseState.Idle
-        return locks.locked(packageId) {
-            guarded(packageId) { resumeLocked(sessionId, packageId, attempts, quiet) }
+        return if (packageId == CODE_PACKAGE_UNKNOWN) {
+            resumeCode(sessionId)
+        } else {
+            locks.locked(packageId) { guarded(packageId) { resumeLocked(sessionId, packageId, attempts, quiet) } }
         }
     }
 
@@ -421,8 +432,36 @@ class PurchaseCoordinator(
             is CheckoutStatus.Ready -> status.packageId?.let { acceptRestored(it, status) }
                 ?: PurchaseState.Failed(CODE_UNREADABLE)
             CheckoutStatus.Revoked -> PurchaseState.Failed("That purchase was refunded or disputed.")
-            CheckoutStatus.Pending -> PurchaseState.Pending(CODE_NOT_PAID)
+            CheckoutStatus.Pending -> {
+                // The only reference this device has to the purchase: kept, so restore finishes it once
+                // the payment clears. Its package is unknown until the repository answers Ready.
+                if (sessionId !in store.pending.checkouts()) {
+                    store.pending.addCheckout(sessionId, CODE_PACKAGE_UNKNOWN, tuning.now().toEpochMilli())
+                }
+                PurchaseState.Pending(CODE_NOT_PAID)
+            }
             is CheckoutStatus.Unavailable, null -> PurchaseState.Failed(CODE_UNREACHABLE)
+        }
+    }
+
+    /** A purchase code that was unpaid when entered (see [restoreFromCode]), checked again quietly. */
+    private suspend fun resumeCode(sessionId: String): PurchaseState {
+        val expired = isExpired(sessionId)
+        return when (val s = guardedCall { tuning.io { api.checkoutStatus(sessionId, store.buyerCookie) } }) {
+            is CheckoutStatus.Ready -> {
+                val packageId = s.packageId ?: return PurchaseState.Idle
+                val state = acceptRestored(packageId, s)
+                if (licences.entitlementFor(packageId) != null) store.pending.removeCheckout(sessionId)
+                state
+            }
+            CheckoutStatus.Revoked -> {
+                store.pending.removeCheckout(sessionId)
+                PurchaseState.Idle
+            }
+            else -> {
+                if (expired) store.pending.removeCheckout(sessionId)
+                PurchaseState.Idle
+            }
         }
     }
 
@@ -460,6 +499,9 @@ class PurchaseCoordinator(
     companion object {
         /** The Play product id a package is sold as (same rule as the repository's `playSkuFor`). */
         fun playSkuFor(packageId: String): String = packageId.lowercase().replace(Regex("[^a-z0-9_.]"), "_")
+
+        /** The package recorded for a pending code restore, whose package the repository names only once paid. */
+        private const val CODE_PACKAGE_UNKNOWN = ""
 
         private val SESSION_ID = Regex("""\bcs_(?:test_|live_)?[A-Za-z0-9]{8,200}""")
 

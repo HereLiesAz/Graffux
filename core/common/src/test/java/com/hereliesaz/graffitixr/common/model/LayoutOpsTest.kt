@@ -469,6 +469,22 @@ class LayoutOpsTest {
         assertNull(back.constraints.collapsedWidth)
     }
 
+    @Test
+    fun `an explicit resize of a collapsed STRETCH child sets its new margins`() {
+        // Review of #669: the recorded collapsed extent outlived a manual size edit.
+        val stretched = boxed(
+            "a", left = 50f, top = 0f, size = 300f to 50f,
+            constraints = Constraints(horizontal = ConstraintAnchor.STRETCH),
+        )
+        val tiny = Rect(0f, 0f, 40f, 200f)
+        val shrunk = resize(listOf(frame("F"), stretched), from = old, to = tiny)
+        val held = shrunk.byId("a")
+        val manual = LayoutOps.resizeLayer(held, 20f / held.shapes.first().width, 1f)
+        assertNull(manual.constraints.collapsedWidth)
+        val grown = resize(shrunk.map { if (it.id == "a") manual else it }, from = tiny, to = Rect(0f, 0f, 41f, 200f))
+        assertEquals(21f, grown.byId("a").shapes.first().width, 0.01f)
+    }
+
     // ── Hug contents ─────────────────────────────────────────────────────────────────────────
 
     @Test
