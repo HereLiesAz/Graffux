@@ -306,7 +306,8 @@ class ProjectManager @Inject constructor(
      * becomes one, with no fill and no clip so that nothing about how it looks changes; any frame
      * keys a version 3 file could not have written are cleared. 4 -> 5 introduces spatial ink,
      * defaulting to an empty list for older projects. 5 -> 6 adds transformable sketch guides,
-     * defaulting to the original view plane. Neither step moves existing XYZ ink.
+     * defaulting to the original view plane. Neither step moves existing XYZ ink. 6 -> 7 moves the
+     * project-level spatial ink into a 3D strokes layer ([migrateSpatialSketchToLayer]).
      * Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
@@ -324,7 +325,33 @@ class ProjectManager @Inject constructor(
             migrated = migrated.copy(layers = migrated.layers.map(::migrateSizedGroupToFrame))
             version = FORMAT_FRAMES
         }
+        if (version < FORMAT_SCENE) {
+            migrated = migrateSpatialSketchToLayer(migrated)
+            version = FORMAT_SCENE
+        }
         return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
+    }
+
+    /**
+     * 6 -> 7 (spec/3d-space.md): the project-level Spatial Sketch becomes a "3D strokes" layer on
+     * top of the stack, carrying the strokes and guide exactly as saved. A project without strokes
+     * gains nothing. Every existing layer keeps depth 0, as its missing key already decoded.
+     */
+    internal fun migrateSpatialSketchToLayer(project: GraffitiProject): GraffitiProject {
+        if (project.spatialStrokes.isEmpty()) return project
+        val layer = com.hereliesaz.graffitixr.common.model.OverlayLayer(
+            name = "3D strokes",
+            // No pixels, like a vector layer's. Equal to Uri.EMPTY (Uri compares its string).
+            uri = android.net.Uri.parse(""),
+            spatial = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent(
+                project.spatialStrokes, project.spatialGuide,
+            ),
+        )
+        return project.copy(
+            layers = project.layers + layer,
+            spatialStrokes = emptyList(),
+            spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
+        )
     }
 
     private fun migrateSizedGroupToFrame(layer: com.hereliesaz.graffitixr.common.model.OverlayLayer) =
@@ -807,3 +834,4 @@ private const val FORMAT_DOCUMENT_CROP = 3
 
 /** Design frames: `OverlayLayer.isFrame` and its fill, radius and clip. */
 private const val FORMAT_FRAMES = 4
+private const val FORMAT_SCENE = 7

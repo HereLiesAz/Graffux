@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 6
+const val CURRENT_FORMAT_VERSION = 7
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
@@ -62,6 +62,9 @@ data class GraffitiProject(
      * - 5: [spatialStrokes], editable 3D ink. Old projects default to an empty sketch.
      * - 6: [spatialGuide], persistent guide geometry and transforms. Existing XYZ strokes
      *   remain untouched; older projects get the original camera-facing guide.
+     * - 7: the one 3D space (spec/3d-space.md): `OverlayLayer.positionZ`, `OverlayLayer.spatial`
+     *   and [sceneCamera]. A version 6 file's [spatialStrokes] and [spatialGuide] move into a
+     *   "3D strokes" layer on top; the project-level fields are written empty from then on.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),
@@ -147,6 +150,10 @@ data class GraffitiProject(
     // Guide geometry affects only FUTURE stylus samples. Editing a guide never moves stored ink.
     val spatialGuide: com.hereliesaz.graffitixr.common.mesh.SpatialGuide =
         com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
+
+    // The canvas's 3D camera (format 7). Absent = the default, which is the flat 2D view.
+    val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =
+        com.hereliesaz.graffitixr.common.scene.SceneCamera(),
 
     // The Crop tab's crop and geometry (format version 3). Non-destructive: the layers keep every
     // pixel; the canvas and the export draw them through this.

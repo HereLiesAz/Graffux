@@ -66,16 +66,32 @@ object SpatialGuideSurface {
             screenX, screenY, viewportWidth, viewportHeight,
             camera.viewMatrix(), camera.projectionMatrix(viewportWidth / viewportHeight),
         ) ?: return null
-        val basis = basis(guide, camera)
-        val localOrigin = FloatArray(3) { dot(basis.axes[it], subtract(ray.origin, basis.origin)) }
-        val localDir = FloatArray(3) { dot(basis.axes[it], ray.direction) }
+        return intersectRay(guide, SpatialView.of(camera), ray.origin, ray.direction, pressure)
+    }
+
+    /**
+     * [intersect] for a ray already in the guide's own space (the 3D strokes layer casts the scene
+     * camera's ray into its stroke coordinates). [view] places a VIEW_PLANE guide.
+     */
+    fun intersectRay(
+        guide: SpatialGuide,
+        view: SpatialView,
+        origin: FloatArray,
+        direction: FloatArray,
+        pressure: Float = 1f,
+    ): SpatialPoint? {
+        if (!valid(guide)) return null
+        if (origin.any { !it.isFinite() } || direction.any { !it.isFinite() }) return null
+        val basis = basis(guide, view)
+        val localOrigin = FloatArray(3) { dot(basis.axes[it], subtract(origin, basis.origin)) }
+        val localDir = FloatArray(3) { dot(basis.axes[it], direction) }
         val hit = when (guide.kind) {
             SpatialGuideKind.VIEW_PLANE -> planeHit(localOrigin, localDir, Float.POSITIVE_INFINITY)
             SpatialGuideKind.PLANE -> planeHit(localOrigin, localDir, guide.radius)
             SpatialGuideKind.SPHERE -> sphereHit(localOrigin, localDir, guide.radius)
             SpatialGuideKind.CYLINDER -> cylinderHit(localOrigin, localDir, guide.radius, guide.height)
         } ?: return null
-        val world = FloatArray(3) { i -> ray.origin[i] + ray.direction[i] * hit }
+        val world = FloatArray(3) { i -> origin[i] + direction[i] * hit }
         if (world.any { !it.isFinite() }) return null
         return SpatialPoint(world[0], world[1], world[2], pressure.coerceIn(0.05f, 1f))
     }
@@ -84,9 +100,13 @@ object SpatialGuideSurface {
      * World-space wireframe segments for a translucent 3D guide overlay. A fixed guide stays
      * anchored as the camera moves. Only VIEW_PLANE intentionally rotates with the camera.
      */
-    fun wireframe(guide: SpatialGuide, camera: OrbitCamera): List<Pair<SpatialPoint, SpatialPoint>> {
+    fun wireframe(guide: SpatialGuide, camera: OrbitCamera): List<Pair<SpatialPoint, SpatialPoint>> =
+        wireframe(guide, SpatialView.of(camera))
+
+    /** [wireframe] for a guide seen from [view] (any camera, already in the guide's space). */
+    fun wireframe(guide: SpatialGuide, view: SpatialView): List<Pair<SpatialPoint, SpatialPoint>> {
         if (!valid(guide) || !guide.visible) return emptyList()
-        val frame = basis(guide, camera)
+        val frame = basis(guide, view)
         fun point(x: Float, y: Float, z: Float): SpatialPoint {
             val p = FloatArray(3) { i ->
                 frame.origin[i] + frame.axes[0][i] * x + frame.axes[1][i] * y + frame.axes[2][i] * z
@@ -151,18 +171,15 @@ object SpatialGuideSurface {
 
     private data class Basis(val origin: FloatArray, val axes: Array<FloatArray>)
 
-    private fun basis(guide: SpatialGuide, camera: OrbitCamera): Basis {
+    private fun basis(guide: SpatialGuide, view: SpatialView): Basis {
         if (guide.kind == SpatialGuideKind.VIEW_PLANE) {
-            val eye = camera.eye()
-            val forward = normalized(subtract(camera.target, eye))
-            val right = normalized(cross(forward, floatArrayOf(0f, 1f, 0f)))
-            val up = cross(right, forward)
+            val forward = view.forward
             val center = floatArrayOf(
-                camera.target[0] + guide.center.x + forward[0] * guide.depth,
-                camera.target[1] + guide.center.y + forward[1] * guide.depth,
-                camera.target[2] + guide.center.z + forward[2] * guide.depth,
+                view.target[0] + guide.center.x + forward[0] * guide.depth,
+                view.target[1] + guide.center.y + forward[1] * guide.depth,
+                view.target[2] + guide.center.z + forward[2] * guide.depth,
             )
-            return Basis(center, arrayOf(right, up, forward))
+            return Basis(center, arrayOf(view.right, view.up, forward))
         }
         val cy = cos(guide.yaw); val sy = sin(guide.yaw)
         val cp = cos(guide.pitch); val sp = sin(guide.pitch)
@@ -215,12 +232,36 @@ object SpatialGuideSurface {
     private fun dot(a: FloatArray, b: FloatArray): Float =
         a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
-    private fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
+    internal fun cross(a: FloatArray, b: FloatArray): FloatArray = floatArrayOf(
         a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0],
     )
 
-    private fun normalized(a: FloatArray): FloatArray {
+    internal fun normalized(a: FloatArray): FloatArray {
         val length = sqrt(dot(a, a))
         return if (length < EPS) floatArrayOf(0f, 0f, -1f) else FloatArray(3) { a[it] / length }
+    }
+}
+
+/**
+ * The viewer, in the guide's own coordinates: the point a VIEW_PLANE guide is centred on and the
+ * view's right, up and forward axes (unit vectors). Any camera reduces to this, including one with
+ * roll, which an [OrbitCamera] cannot express.
+ */
+class SpatialView(
+    val target: FloatArray,
+    val right: FloatArray,
+    val up: FloatArray,
+    val forward: FloatArray,
+) {
+    companion object {
+        /** The original orbit camera's frame: right and up from the world's Y up. */
+        fun of(camera: OrbitCamera): SpatialView {
+            val forward = SpatialGuideSurface.normalized(
+                FloatArray(3) { camera.target[it] - camera.eye()[it] },
+            )
+            val right = SpatialGuideSurface.normalized(SpatialGuideSurface.cross(forward, floatArrayOf(0f, 1f, 0f)))
+            val up = SpatialGuideSurface.cross(right, forward)
+            return SpatialView(camera.target.copyOf(), right, up, forward)
+        }
     }
 }

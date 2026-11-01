@@ -55,6 +55,8 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         isInverted = isInverted,
         shapes = shapes,
         adjustment = adjustment,
+        positionZ = positionZ,
+        spatial = spatial,
     )
 }
 
@@ -102,6 +104,8 @@ fun OverlayLayer.toLayer(): Layer {
         isInverted = isInverted,
         shapes = shapes,
         adjustment = adjustment,
+        positionZ = positionZ,
+        spatial = spatial,
     )
 }
 
