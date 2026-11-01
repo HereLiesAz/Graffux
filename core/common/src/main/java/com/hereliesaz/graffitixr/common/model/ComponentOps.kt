@@ -162,6 +162,12 @@ object ComponentOps {
  * identity, and a project load decodes every layer on its own, so the loader hands each of these
  * instances its main's decoded bitmap instead of decoding a second, unrelated copy. An instance
  * with a pixel file of its own is not listed.
+ *
+ * This is exact because the pixel file is copy-on-write: the first save of an instance's own
+ * pixels moves it to a file of its own (see [mainSharingPixelFile]), so a shared URI only ever
+ * means "inherits". Projects saved before that rule could have an instance's paint written over
+ * the shared file; the main's original pixels are gone from disk and cannot be recovered. Such a
+ * project still loads: main and instance both show what the file holds, the instance inheriting.
  */
 fun pixelInheritorsOnLoad(layers: List<Layer>): Map<String, String> {
     if (layers.none { it.instanceOf != null }) return emptyMap()
@@ -172,6 +178,42 @@ fun pixelInheritorsOnLoad(layers: List<Layer>): Map<String, String> {
         if (layer.uri != null && layer.uri == main.uri) out[layer.id] = main.id
     }
     return out
+}
+
+/**
+ * The main of instance [layerId] whose pixel file is [uri] (by default the instance's own URI), or
+ * null when [layerId] is not an instance or [uri] is not its main's file. Saving pixels of the
+ * instance's own through that URI would overwrite the main's file, so the writer must first give
+ * the instance a file of its own.
+ */
+fun mainSharingPixelFile(
+    layers: List<Layer>,
+    layerId: String,
+    uri: android.net.Uri? = layers.firstOrNull { it.id == layerId }?.uri,
+): Layer? {
+    val componentId = layers.firstOrNull { it.id == layerId }?.instanceOf
+    if (uri == null || componentId == null) return null
+    return layers.firstOrNull { it.componentId == componentId && it.id != layerId && it.uri == uri }
+}
+
+/**
+ * [instanceId] taking its main's pixels back (bitmap, file, frame and height): an undo that left the
+ * instance showing exactly what its main shows again. Everything else stays as the instance has it.
+ */
+fun reinheritPixels(layers: List<Layer>, instanceId: String): List<Layer> {
+    val instance = layers.firstOrNull { it.id == instanceId }
+    val main = instance?.instanceOf?.let { id -> layers.firstOrNull { it.componentId == id } }
+    return if (main == null) layers else layers.map {
+        if (it.id != instanceId) {
+            it
+        } else {
+            it.copy(
+                uri = main.uri, bitmap = main.bitmap, frameWidth = main.frameWidth,
+                frameHeight = main.frameHeight, originX = main.originX, originY = main.originY,
+                heightMap = main.heightMap,
+            )
+        }
+    }
 }
 
 /** [ComponentOps.propagate]'s workings: which mains changed, and how each instance follows. */
