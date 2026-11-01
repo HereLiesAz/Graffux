@@ -19,7 +19,8 @@ import com.hereliesaz.graffitixr.common.model.isFrame
  * - a 3D strokes layer, always, at its full placement through any groups (its tubes need depth
  *   against the planes, and a group's 3D placement moves them);
  * - a paint, text or vector layer that is on the scene path, composites normally (SrcOver, no clip
- *   to below, no adjustment) and sits only in groups that do too (normal blend, no frame clip).
+ *   to below, no adjustment) and sits only in groups that do too (normal blend, full opacity, and
+ *   for a frame neither a clip nor a visible fill, which would otherwise paint over the child).
  *
  * With nothing on the scene path and no 3D strokes layer the plan is empty: the 2D fast path is
  * untouched. The pass is drawn once, at the stack position of the first top-level subtree holding a
@@ -39,6 +40,7 @@ data class DepthComposite(
 
     companion object {
         val EMPTY = DepthComposite(emptyList(), null)
+        private const val ALPHA_SHIFT = 24
 
         fun plan(layers: List<Layer>, camera: SceneCamera): DepthComposite {
             val sceneIds = SceneRenderPath.sceneLayerIds(layers, camera)
@@ -55,7 +57,11 @@ data class DepthComposite(
                 return out
             }
             fun visible(layer: Layer) = layer.isVisible && ancestors(layer).all { it.isVisible }
-            fun plainGroup(g: Layer) = g.blendMode == BlendMode.SrcOver && !(g.isFrame && g.clipsContent)
+            // A translucent group composites its children as one isolated image, which per-member
+            // alpha cannot reproduce where they overlap; a filled frame draws its fill over any
+            // child taken out of its subtree. Their descendants stay in the stack.
+            fun plainGroup(g: Layer) = g.blendMode == BlendMode.SrcOver && g.opacity >= 1f &&
+                !(g.isFrame && (g.clipsContent || ((g.frameFillArgb ?: 0L) ushr ALPHA_SHIFT) != 0L))
             val members = layers.filter { layer ->
                 when {
                     layer.isContainer || !visible(layer) -> false

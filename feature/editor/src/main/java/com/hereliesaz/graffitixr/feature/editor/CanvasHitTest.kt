@@ -146,9 +146,43 @@ internal object CanvasHitTest {
             }
         }
         if (sceneIds.isEmpty()) return hits
-        // Stable: equal depths (a flat layer and its flat neighbours) keep the stack order.
-        val flatDepth = SceneMath.focalLength(canvasHeight) * camera.distanceScale
-        return hits.sortedBy { depths[it] ?: flatDepth }
+        val plan = com.hereliesaz.graffitixr.common.scene.DepthComposite.plan(layers, camera)
+        return stackOrder(layers, hits, plan, depths, SceneMath.focalLength(canvasHeight) * camera.distanceScale)
+    }
+
+    /**
+     * Front-to-back order of [hits] (given topmost first) as the canvas composites them: the depth
+     * pass draws all its members together, just under the anchor's subtree, ordered among
+     * themselves by depth; every other layer (a blend-mode or clipped layer included, even on the
+     * scene path) keeps its stack position around the pass.
+     */
+    private const val HALF_RANK = 0.5
+
+    internal fun stackOrder(
+        layers: List<Layer>,
+        hits: List<String>,
+        plan: com.hereliesaz.graffitixr.common.scene.DepthComposite,
+        depths: Map<String, Float>,
+        flatDepth: Float,
+    ): List<String> {
+        if (plan.isEmpty) return hits
+        val byId = layers.associateBy { it.id }
+        fun topLevel(id: String): String {
+            var cur = byId[id] ?: return id
+            val seen = HashSet<String>()
+            while (seen.add(cur.id)) cur = cur.parentId?.let(byId::get) ?: break
+            return cur.id
+        }
+        val index = HashMap<String, Int>(layers.size)
+        layers.forEachIndexed { i, l -> index[l.id] = i }
+        val anchor = plan.anchorTopLevelId
+        val firstOfAnchor = layers.indices.firstOrNull { topLevel(layers[it].id) == anchor } ?: 0
+        val passRank = firstOfAnchor - HALF_RANK
+        // Stable sort: rank descending (topmost first); within the pass, nearest first.
+        return hits.sortedWith(
+            compareByDescending<String> { if (it in plan) passRank else (index[it] ?: 0).toDouble() }
+                .thenBy { if (it in plan) depths[it] ?: flatDepth else 0f },
+        )
     }
 
     /**
