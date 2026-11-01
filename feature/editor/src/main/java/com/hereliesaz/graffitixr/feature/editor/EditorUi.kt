@@ -95,6 +95,7 @@ fun EditorUi(
                     activeLayer = uiState.layers.find { it.id == uiState.activeLayerId },
                     actions = actions,
                     modifier = Modifier.padding(horizontal = 16.dp),
+                    is3DMode = uiState.is3DMode,
                 )
             }
 

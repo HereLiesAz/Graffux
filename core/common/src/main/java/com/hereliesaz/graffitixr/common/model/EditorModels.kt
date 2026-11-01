@@ -126,6 +126,20 @@ data class Layer(
     @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val rotationZ: Float = 0f,
     /**
+     * The plane's depth in the canvas's 3D space (spec/3d-space.md), scene pixels, positive away
+     * from the viewer. With [rotationX] and [rotationY] it is what places a layer in 3D
+     * ([isPlacedIn3D]); 0 for every layer saved before format 7.
+     */
+    @Serializable(with = FiniteFloatOrZeroSerializer::class)
+    val positionZ: Float = 0f,
+    /**
+     * A 3D strokes layer's ink and guide (spec/3d-space.md). Null for every other layer. Like an
+     * adjustment layer it is RASTER with no bitmap, so an older build shows it as an empty layer.
+     */
+    val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
+    /**
+     * Retired: the old per-layer "3D" switch. A layer is in 3D exactly when it is placed there
+     * ([isPlacedIn3D]); this is still read from old files and otherwise ignored.
      * Opts this layer into 3D-specific controls: X/Y rotation fields in [TransformPanel] and
      * double-tap-to-cycle-rotation-axis on the canvas, on top of the Z-axis rotation every layer
      * already has. Off by default -- an ordinary flat layer only ever needs Z, and surfacing X/Y
@@ -204,6 +218,14 @@ data class Layer(
 )
 
 /** Whether this is a photo adjustment layer (see [Layer.adjustment]). */
+/** Placed in the 3D space: a depth or an X/Y tilt (spec/3d-space.md). No toggle sets this. */
+val Layer.isPlacedIn3D: Boolean
+    get() = positionZ != 0f || rotationX != 0f || rotationY != 0f
+
+/** A 3D strokes layer (spec/3d-space.md). */
+val Layer.isSpatial: Boolean
+    get() = spatial != null
+
 val Layer.isAdjustment: Boolean
     get() = adjustment != null
 
@@ -630,6 +652,15 @@ data class EditorUiState(
     // True while the Crop tab is open: the canvas shows the whole transformed photo with the crop
     // frame over it instead of only what the crop keeps. Transient UI state.
     val cropEditing: Boolean = false,
+    // The canvas's 3D camera (spec/3d-space.md). Saved with the project; the default projects the
+    // scene onto the canvas exactly as the 2D canvas draws. View state, not history.
+    val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =
+        com.hereliesaz.graffitixr.common.scene.SceneCamera(),
+    // The rail's 3D button: canvas gestures drive the camera and the active plane instead of the
+    // tool in hand. Transient; leaving it never moves the camera or a layer.
+    val is3DMode: Boolean = false,
+    val scene3DTool: com.hereliesaz.graffitixr.common.scene.Scene3DTool =
+        com.hereliesaz.graffitixr.common.scene.Scene3DTool.ORBIT,
 )
 
 

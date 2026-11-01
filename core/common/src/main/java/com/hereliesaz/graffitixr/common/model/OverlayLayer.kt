@@ -96,4 +96,8 @@ data class OverlayLayer(
     val frameFillArgb: Long? = null,
     val clipsContent: Boolean = false,
     val frameRadius: Float = 0f,
+    // Format 7 (spec/3d-space.md): the plane's depth in the 3D space, and a 3D strokes layer's
+    // ink. Absent from older saves: depth 0, not a strokes layer.
+    val positionZ: Float = 0f,
+    val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
 )

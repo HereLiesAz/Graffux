@@ -66,6 +66,7 @@
     <string name="main_menu_add_shape">Add shape…</string>
     <string name="main_menu_save">Save…</string>
     <string name="main_menu_export_png">Export PNG</string>
+    <string name="main_menu_export_scene">Export 3D scene (glTF)</string>
     <string name="main_menu_poster_pdf">Poster PDF…</string>
     <string name="main_menu_add_ons">Add-ons…</string>
     <string name="main_menu_install_add_on">Install add-on from file…</string>

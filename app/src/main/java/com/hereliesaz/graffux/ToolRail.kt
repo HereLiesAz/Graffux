@@ -55,6 +55,8 @@ internal interface ToolRailActions {
     fun onRedoClicked()
     fun setBrushSize(size: Float)
     fun setBrushFeathering(feathering: Float)
+    /** The 3D button: canvas gestures drive the 3D camera and planes (spec/3d-space.md). */
+    fun toggleScene3D()
 }
 
 /** [ToolRailActions] on the real view-model. */
@@ -66,6 +68,7 @@ internal fun EditorViewModel.toolRailActions(): ToolRailActions = object : ToolR
     override fun onRedoClicked() = this@toolRailActions.onRedoClicked()
     override fun setBrushSize(size: Float) = this@toolRailActions.setBrushSize(size)
     override fun setBrushFeathering(feathering: Float) = this@toolRailActions.setBrushFeathering(feathering)
+    override fun toggleScene3D() = this@toolRailActions.toggleScene3D()
 }
 
 /** What the tool rail asks of the screen around it. */
@@ -206,6 +209,15 @@ internal fun ToolRail(
             on = PHOTO_RAIL_ID in lit,
             onClick = callbacks.onAdjust,
         )
+        // 3D: while lit, one finger orbits the camera or moves the active plane and two fingers
+        // pan and dolly; off, the tools paint again, with the view left where it was.
+        ModeButton(
+            label = "3D",
+            tag = "rail.$SCENE_3D_RAIL_ID",
+            icon = RailIcons.Cube,
+            on = uiState.is3DMode,
+            onClick = { vm.toggleScene3D() },
+        )
         // Not in the mockup; kept because the rail is the eraser's only always-there button.
         tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
         val viewMoved = uiState.viewportZoom != 1f ||
@@ -242,11 +254,14 @@ internal fun dominantAxis(total: Offset): DragAxis =
 /** The Retouch group's rail id: lit while an [EFFECT_TOOLS] tool is in hand or its page is open. */
 internal const val RETOUCH_RAIL_ID = "grp.effects"
 
+/** The 3D button's rail id: lit while 3D mode is on. */
+internal const val SCENE_3D_RAIL_ID = "view.3d"
+
 /** The Adjust circle's rail id: lit while the sheet shows the photo tabs. */
 internal const val PHOTO_RAIL_ID = "area.photo"
 
 /**
- * Frame and Adjust photo, after Transform. Lit as the mockup draws them: a filled ink circle with
+ * Frame, Adjust photo and 3D, after Transform. Lit as the mockup draws them: a filled ink circle with
  * the glyph in the canvas's near-black, not the accent ring of the other tools, because each turns
  * the sheet (and, on a tablet, the side panel) into a mode of its own.
  */

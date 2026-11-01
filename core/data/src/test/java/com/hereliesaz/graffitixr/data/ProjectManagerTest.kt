@@ -381,10 +381,10 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":6"))
+        assertTrue(text.contains("\"formatVersion\":7"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(6, back.formatVersion)
+        assertEquals(7, back.formatVersion)
     }
 
     @Test
@@ -415,7 +415,7 @@ class ProjectManagerTest {
         val project = GraffitiProject(id = "guide-scene", spatialGuide = storedGuide)
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val restored = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
-        assertEquals(6, restored.formatVersion)
+        assertEquals(7, restored.formatVersion)
         assertEquals(storedGuide, restored.spatialGuide)
 
         // Independent historical format-5 fixture: no guide key was ever written in that format.
@@ -423,9 +423,68 @@ class ProjectManagerTest {
             {"id":"old-line","points":[{"x":1.0,"y":0.0,"z":0.0}],
              "colorArgb":-1,"width":0.2}]}"""
         val reopened = manager.decodeProject(legacy)
-        assertEquals(6, reopened.formatVersion)
-        assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), reopened.spatialGuide)
-        assertEquals(1f, reopened.spatialStrokes.single().points.single().x, 0f)
+        assertEquals(7, reopened.formatVersion)
+        // Format 7 moves the sketch into a 3D strokes layer, with the original view-plane guide.
+        val content = reopened.layers.single().spatial!!
+        assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), content.guide)
+        assertEquals(1f, content.strokes.single().points.single().x, 0f)
+        assertTrue(reopened.spatialStrokes.isEmpty())
+    }
+
+    @Test
+    fun `a format six spatial sketch loads into a 3D strokes layer on top, untouched`() {
+        // Independent historical fixture: a v6 project with a photo layer, ink and a fixed guide.
+        val v6 = """{"formatVersion":6,"id":"s","layers":[{"id":"photo","name":"Photo","uri":"file:///p.png"}],
+            "spatialStrokes":[{"id":"ink","points":[{"x":0.5,"y":-1.0,"z":2.0,"pressure":0.4}],"colorArgb":-65536,"width":0.1}],
+            "spatialGuide":{"kind":"SPHERE","radius":1.5}}"""
+        val project = manager.decodeProject(v6)
+        assertEquals(7, project.formatVersion)
+        assertEquals(listOf("photo", project.layers[1].id), project.layers.map { it.id })
+        val photo = project.layers[0]
+        assertEquals(0f, photo.positionZ)
+        assertNull(photo.spatial)
+        val ink = project.layers[1]
+        assertEquals("3D strokes", ink.name)
+        val point = ink.spatial!!.strokes.single().points.single()
+        assertEquals(listOf(0.5f, -1.0f, 2.0f, 0.4f), listOf(point.x, point.y, point.z, point.pressure))
+        assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuideKind.SPHERE, ink.spatial!!.guide.kind)
+        assertEquals(1.5f, ink.spatial!!.guide.radius)
+        assertTrue(project.spatialStrokes.isEmpty())
+        assertEquals(com.hereliesaz.graffitixr.common.scene.SceneCamera(), project.sceneCamera)
+    }
+
+    @Test
+    fun `a format six project without ink gains no layer`() {
+        val v6 = """{"formatVersion":6,"id":"s","layers":[{"id":"a","name":"A","uri":""}]}"""
+        assertEquals(listOf("a"), manager.decodeProject(v6).layers.map { it.id })
+    }
+
+    @Test
+    fun `plane placement, strokes layers and the camera survive a save and a load`() {
+        val camera = com.hereliesaz.graffitixr.common.scene.SceneCamera(
+            yaw = 0.4f, pitch = -0.2f, distanceScale = 1.7f, panX = 12f, panZ = -30f,
+        )
+        val point = com.hereliesaz.graffitixr.common.mesh.SpatialPoint(1f, 2f, 3f)
+        val content = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent(
+            listOf(com.hereliesaz.graffitixr.common.mesh.SpatialStroke("s", listOf(point), -1, 0.2f)),
+        )
+        val project = GraffitiProject(
+            id = "scene",
+            sceneCamera = camera,
+            layers = listOf(
+                OverlayLayer(
+                    id = "tilted", uri = mockk(relaxed = true), positionZ = -250f, rotationX = 20f, rotationY = -35f,
+                ),
+                OverlayLayer(id = "ink", uri = mockk(relaxed = true), spatial = content),
+            ),
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
+        assertEquals(camera, back.sceneCamera)
+        assertEquals(-250f, back.layers[0].positionZ)
+        assertEquals(20f, back.layers[0].rotationX)
+        assertEquals(-35f, back.layers[0].rotationY)
+        assertEquals(content, back.layers[1].spatial)
     }
 
     @Test

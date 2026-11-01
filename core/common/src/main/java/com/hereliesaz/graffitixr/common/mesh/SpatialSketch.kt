@@ -126,11 +126,22 @@ object SpatialSketchGeometry {
         viewportWidth: Float,
         viewportHeight: Float,
         tolerancePx: Float = 24f,
+    ): String? = nearestStrokeId(strokes, screenX, screenY, tolerancePx) {
+        project(camera, it, viewportWidth, viewportHeight)
+    }
+
+    /** [nearestStrokeId] through any [projector] (null = the point is not on screen). */
+    fun nearestStrokeId(
+        strokes: List<SpatialStroke>,
+        screenX: Float,
+        screenY: Float,
+        tolerancePx: Float = 24f,
+        projector: (SpatialPoint) -> Pair<Float, Float>?,
     ): String? {
         var chosen: String? = null
         var best = tolerancePx * tolerancePx
         for (stroke in strokes.asReversed()) {
-            val points = stroke.points.map { project(camera, it, viewportWidth, viewportHeight) }
+            val points = stroke.points.map(projector)
             for (i in points.indices) {
                 val a = points[i] ?: continue
                 val b = points.getOrNull(i + 1) ?: a

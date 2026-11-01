@@ -483,32 +483,47 @@ codebase is deferred scope or a real gap in the install-report flow.
   `HighResOverlayConfig.ENABLED = false`.
 
 
-## Spatial Sketch: editable 3D ink and guides (project format v6)
+## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)
 
-The full-screen workspace at View → 3D → Sketch in 3D remains independent of the imported-OBJ
-texture painter. `SpatialGuideSurface.intersect` uses `MeshPicker.unproject` and an `OrbitCamera`
-world ray; a bounded plane, sphere, or finite cylinder then finds the *nearest positive hit* in
-guide-local space. Fixed guides have a persistent XYZ centre and yaw/pitch axes, independent of
-the orbit camera. A camera-facing view plane remains the default for version-5 and earlier
-projects; it moves with the view, preserving the original workflow. The same local-to-world
-transform generates the wireframe segments. A ray miss ends the current stroke segment, avoiding
-phantom straight bridges across off-surface gaps.
+Full design: `spec/3d-space.md`. In short:
 
-`GraffitiProject.spatialGuide` is serializable guide metadata (kind, centre, radius, height, yaw,
-pitch, view depth and visibility). `EditorViewModel.spatialGuide` publishes edits and saves them
-through the same project repository used for the independent world-space
-`GraffitiProject.spatialStrokes`. A guide change affects only FUTURE input points; previous XYZ
-strokes retain their positions, and 2D layers/history are untouched. The format-6 upgrade
-defaults absent guide metadata without changing a saved format-5 stroke.
+- **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
+  plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
+  3D" exactly when it has a depth or an X/Y tilt (`Layer.isPlacedIn3D`); there is no toggle, and
+  the old `is3D` flag is ignored. `EditorUiState.sceneCamera` (`SceneCamera`, saved with the
+  project) is the one camera; its default projects depth 0 onto the canvas pixel for pixel.
+  `SceneMath` (`:core:common`, pure, unit-tested) holds the camera, plane, homography and ray-plane
+  maths.
+- **Render path, and why it is not a wgpu pass.** `SceneRenderPath.sceneLayerIds` picks the layers
+  that draw through the scene; for a flat document it is empty and every layer takes the original
+  `graphicsLayer` path with no extra work. A scene-path layer keeps its `graphicsLayer` for alpha,
+  blend and offscreen compositing and draws through its 3x3 homography (`Modifier.scenePlane`,
+  relative to its parent's so groups nest exactly), clipped to the part in front of the near plane.
+  That is a GPU perspective draw by HWUI of the texture it already holds for the layer bitmap.
+  The wgpu engine paints into layers but does not composite the stack, so a wgpu compositor would
+  mean uploading every layer and re-implementing blend modes, clipping, colour filters and groups,
+  and adding cost to the identity path. The wgpu direct-display overlay and the crisp zoom overlay
+  stay fast-path only.
+- **Gestures.** The rail's 3D button (`EditorUiState.is3DMode`) mounts `Scene3DCanvas` above every
+  tool surface: one finger does the 3D strip's tool (Orbit, Move, Depth, Tilt, Spin; Draw and Erase
+  on a 3D strokes layer); the root's two-finger navigation drives the camera instead of the 2D
+  view. Each plane drag is one undo step (`onGestureStart`/`onGestureEnd`). With 3D off, the brush,
+  fill and clone surfaces map each touch through `SceneMath.worldToLayerFlat` (ray-plane hit, then
+  the layer's own flat 2D transform), so every tool works unchanged on a tilted plane.
+- **3D strokes layers.** `Layer.spatial` (`SpatialLayerContent`: strokes + guide) on a RASTER layer
+  with no bitmap. Drawn by the depth-tested GLES `SpatialStrokeRenderer` (the glTF tube mesh) into a
+  transparent `TextureView` at the layer's place in the stack (`SpatialInkLayer`), with the clip
+  matrix `SceneMath.clipMatrix`. One stroke unit is `focal / 3` px, so the old sketch's default
+  view is the scene's default view. Guide hits use `SpatialGuideSurface.intersectRay` with the scene
+  camera's ray cast into stroke units. Strokes are layer data, so the editor's undo covers them.
+  The full-screen Spatial Sketch workspace and its separate history are gone; format 6 -> 7 moves a
+  project's `spatialStrokes`/`spatialGuide` into a "3D strokes" layer on top.
+- **Export.** `SceneGltfExporter`: paint layers as unlit textured quads (PNG), strokes layers as
+  tube meshes, optionally the camera; y up, metres = stroke units, origin at the canvas centre.
 
-`SpatialStrokeRenderer` (GLES 3.0) draws the exact triangle tubes produced by
-`SpatialGltfExporter.buildMesh`. Depth testing occludes farther ink; changing camera matrices
-does not rebuild unchanged meshes. Compose continues to draw lightweight wireframe guides and
-own touch input. The surface is resumed and paused with its lifecycle; GL handles and mesh uploads
-are refreshed after context recreation.
-
-**Remaining limitations:** wireframe guides are a visual overlay, not a depth-occluded shaded
-surface. The cylinder deliberately paints only its curved side, not its caps; sphere and cylinder
-are analytic primitives rather than deformable lofted guides. Transparent ink uses ordinary alpha
-blending with depth writes, not order-independent transparency. Stroke handles/transforms, textured
-paint materials, arbitrary mesh-guided 3D strokes, and OBJ scene export are still pending.
+**Limitations:** layers composite in stack order, so planes that cross in space do not occlude per
+pixel. Lasso selection and tap-to-select stay flat on a tilted layer. PNG/PDF export still renders
+layers flat. A frame's clip and a blend-mode layer's offscreen buffer stay in flat canvas space.
+A 3D strokes layer inside a group placed in 3D ignores the group's placement. Co-op transform ops
+carry no depth. Vector shapes are not exported to glTF. Transparent 3D ink is alpha-blended with
+depth writes, not order-independent.

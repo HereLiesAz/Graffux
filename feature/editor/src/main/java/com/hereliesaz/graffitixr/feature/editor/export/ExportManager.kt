@@ -534,13 +534,10 @@ class ExportManager @Inject constructor() {
 
         // 3. User Transforms (Scale, Rotate, Offset)
         matrix.postScale(layer.scale, layer.scale)
-        // Z only, deliberately — and this is a KNOWN divergence from the screen, not an oversight.
-        // EditorScreen's graphicsLayer applies rotationX/rotationY as a perspective transform, so a
-        // layer tilted in 3D renders tilted and exports flat. Matching it here needs a camera
-        // distance identical to the one Compose uses, and guessing at that would replace a mismatch
-        // we understand with one we don't. 3D tilt is GraffitiXR's (its AR composite is what
-        // produces it); nothing in Graffux can set a non-zero X or Y rotation, so the divergence is
-        // reachable only by opening a project made over there.
+        // Z only, deliberately — a KNOWN divergence from the screen. The canvas draws a layer placed
+        // in 3D (depth, X/Y tilt) and everything under a moved camera through the scene projection
+        // (spec/3d-space.md); this flat image export still renders every layer flat. The 3D scene
+        // goes out as glTF (File > Export 3D scene) instead.
         matrix.postRotate(layer.rotationZ)
 
         // 4. Move to center of screen + apply pan

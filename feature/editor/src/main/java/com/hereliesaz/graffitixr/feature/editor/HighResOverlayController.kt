@@ -199,7 +199,7 @@ internal fun overlayInputsOf(state: EditorUiState, live: LiveStroke): OverlayInp
         canvasHeight = state.canvasSize.height,
         layers = layers,
         liveLayerId = live.layerId.takeIf { live.bitmap != null },
-        unsupportedMode = state.wrapAroundMode || state.isAnimationMode,
+        unsupportedMode = state.wrapAroundMode || state.isAnimationMode || !state.sceneCamera.isDefault,
     )
 }
 
@@ -222,7 +222,8 @@ internal fun Map<String, HighResOverlay>.matching(
 internal val LocalHighResOverlays = staticCompositionLocalOf<Map<String, HighResOverlay>> { emptyMap() }
 
 private fun Layer.isEligibleForOverlay(): Boolean =
-    type == LayerType.RASTER && isVisible && parentId == null && rotationX == 0f && rotationY == 0f &&
+    type == LayerType.RASTER && isVisible && parentId == null &&
+        rotationX == 0f && rotationY == 0f && positionZ == 0f &&
         shapes.isEmpty() && warpMesh.isEmpty() && textParams == null
 
 /**

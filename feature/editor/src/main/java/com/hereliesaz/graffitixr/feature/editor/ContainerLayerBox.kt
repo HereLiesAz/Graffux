@@ -31,7 +31,13 @@ import com.hereliesaz.graffitixr.common.model.isFrame
  * frame beyond itself.
  */
 @Composable
-internal fun ContainerLayerBox(layer: Layer, modifier: Modifier, frameAlpha: Float, content: @Composable () -> Unit) {
+internal fun ContainerLayerBox(
+    layer: Layer,
+    modifier: Modifier,
+    frameAlpha: Float,
+    placement: ScenePlacement? = null,
+    content: @Composable () -> Unit,
+) {
     val isFrame = layer.isFrame
     val frameShape = remember(layer.layoutWidth, layer.layoutHeight, layer.frameRadius) {
         FrameBoxShape(layer.layoutWidth, layer.layoutHeight, layer.frameRadius)
@@ -45,15 +51,18 @@ internal fun ContainerLayerBox(layer: Layer, modifier: Modifier, frameAlpha: Flo
                     clip = true
                     shape = frameShape
                 }
-                translationX = layer.offset.x
-                translationY = layer.offset.y
-                scaleX = layer.scale
-                scaleY = layer.scale
-                rotationX = layer.rotationX
-                rotationY = layer.rotationY
-                rotationZ = layer.rotationZ
+                // On the 3D scene path the group's homography (scenePlane) is its geometry.
+                if (placement == null) {
+                    translationX = layer.offset.x
+                    translationY = layer.offset.y
+                    scaleX = layer.scale
+                    scaleY = layer.scale
+                    rotationX = layer.rotationX
+                    rotationY = layer.rotationY
+                    rotationZ = layer.rotationZ
+                    transformOrigin = TransformOrigin.Center
+                }
                 alpha = layer.opacity * frameAlpha
-                transformOrigin = TransformOrigin.Center
                 blendMode = layer.blendMode
                 compositingStrategy = if (layer.blendMode != BlendMode.SrcOver) {
                     CompositingStrategy.Offscreen
@@ -61,6 +70,7 @@ internal fun ContainerLayerBox(layer: Layer, modifier: Modifier, frameAlpha: Flo
                     CompositingStrategy.Auto
                 }
             }
+            .scenePlane(placement)
             .then(
                 if (fill != null) {
                     Modifier.drawBehind {

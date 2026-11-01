@@ -102,6 +102,7 @@ class PhotoTabletKeysTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
+        override fun toggleScene3D() = Unit
     }
 
     private fun solid(argb: Int): Bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(argb) }
