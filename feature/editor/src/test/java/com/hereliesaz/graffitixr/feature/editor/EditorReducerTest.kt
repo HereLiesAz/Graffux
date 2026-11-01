@@ -400,6 +400,17 @@ class EditorReducerTest {
     }
 
     @Test
+    fun `restoring an undo snapshot keeps an instance override equal to the main's undone value`() {
+        // Codex on #669: SetLayers re-ran propagation over an already-complete snapshot.
+        val overridden = reduce(componentStack().copy(activeLayerId = "inst"), EditorIntent.SetBrightness(0.4f))
+        val snapshot = overridden.layers
+        val edited = reduce(overridden.copy(activeLayerId = "main"), EditorIntent.SetBrightness(0.4f))
+        val undone = reduce(edited, EditorIntent.SetLayers(snapshot))
+        assertEquals(0f, undone.layers.first { it.id == "main" }.brightness)
+        assertEquals(0.4f, undone.layers.first { it.id == "inst" }.brightness)
+    }
+
+    @Test
     fun `a stack with no components keeps its list identity`() {
         val s = state(lyr("a"), active = "a")
         val out = reduce(s, EditorIntent.SetBrightness(0.2f))

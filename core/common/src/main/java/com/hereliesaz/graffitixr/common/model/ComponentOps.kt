@@ -156,6 +156,24 @@ object ComponentOps {
     )
 }
 
+/**
+ * Instance id -> main id, for each instance in [layers] that still shows its main's saved pixels:
+ * the two point at the same pixel file. Propagation recognises inherited pixels by bitmap
+ * identity, and a project load decodes every layer on its own, so the loader hands each of these
+ * instances its main's decoded bitmap instead of decoding a second, unrelated copy. An instance
+ * with a pixel file of its own is not listed.
+ */
+fun pixelInheritorsOnLoad(layers: List<Layer>): Map<String, String> {
+    if (layers.none { it.instanceOf != null }) return emptyMap()
+    val mains = layers.filter { it.componentId != null }.associateBy { it.componentId!! }
+    val out = HashMap<String, String>()
+    for (layer in layers) {
+        val main = layer.instanceOf?.let { mains[it] } ?: continue
+        if (layer.uri != null && layer.uri == main.uri) out[layer.id] = main.id
+    }
+    return out
+}
+
 /** [ComponentOps.propagate]'s workings: which mains changed, and how each instance follows. */
 private object InstanceFollow {
 

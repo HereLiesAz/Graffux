@@ -40,6 +40,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -573,6 +574,35 @@ class EditorViewModelTest {
         verify {
             opEmitter.emit(match { it is Op.LayerPropsChange && it.layerId == "i" && it.props.saturation == 0.25f })
         }
+    }
+
+    @Test
+    fun `an instance that inherits its main's new pixels replays from them`() = runTest {
+        // Codex on #669: the instance's replay base stayed the one recorded when it was placed.
+        val old = mockk<Bitmap>(relaxed = true)
+        val oldBase = mockk<Bitmap>(relaxed = true)
+        every { old.copy(any(), any()) } returns oldBase
+        val painted = mockk<Bitmap>(relaxed = true)
+        val paintedBase = mockk<Bitmap>(relaxed = true)
+        every { painted.copy(any(), any()) } returns paintedBase
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(
+                listOf(
+                    Layer(id = "m", name = "m", componentId = "C1", bitmap = old),
+                    Layer(id = "i", name = "i", instanceOf = "C1", bitmap = old),
+                ),
+            ),
+        )
+        viewModel.putLayerBaseForTest("i", old)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertSame(oldBase, viewModel.layerBaseForTest("i"))
+
+        viewModel.dispatchForTest(
+            EditorIntent.RenderTextLayer("m", painted, com.hereliesaz.graffitixr.common.model.TextLayerParams()),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertSame(painted, viewModel.uiState.value.layers.first { it.id == "i" }.bitmap)
+        assertSame(paintedBase, viewModel.layerBaseForTest("i"))
     }
 
     @Test
