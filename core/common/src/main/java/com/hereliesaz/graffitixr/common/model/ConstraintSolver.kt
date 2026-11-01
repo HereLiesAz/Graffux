@@ -56,8 +56,23 @@ internal object ConstraintSolver {
      *    exists, so the smaller of the axis factors that changed is applied. The layer keeps its
      *    aspect and sits centred in the box its constraints asked for.
      */
-    /** [resize], for [LayoutOps.resizeLayer]. */
-    fun resized(layer: Layer, fx: Float, fy: Float): Layer = resize(layer, fx, fy)
+    /**
+     * [resize], for [LayoutOps.resizeLayer]: an explicit size edit. The size chosen on an axis sets
+     * new margins there, so any collapsed STRETCH extent recorded for that axis no longer applies.
+     */
+    fun resized(layer: Layer, fx: Float, fy: Float): Layer {
+        val out = resize(layer, fx, fy)
+        val c = out.constraints
+        val clearWidth = fx != 1f && c.collapsedWidth != null
+        val clearHeight = fy != 1f && c.collapsedHeight != null
+        if (!clearWidth && !clearHeight) return out
+        return out.copy(
+            constraints = c.copy(
+                collapsedWidth = if (fx != 1f) null else c.collapsedWidth,
+                collapsedHeight = if (fy != 1f) null else c.collapsedHeight,
+            ),
+        )
+    }
 
     private fun resize(layer: Layer, fx: Float, fy: Float): Layer = when {
         fx == 1f && fy == 1f -> layer

@@ -173,7 +173,7 @@ class PurchaseRound2Test {
 
     // #16 ───────────────────────────────────────────────────────────────────────────────────────
 
-    @Test fun `a Play route shows Play's price, a Stripe route the repository's`() = runTest {
+    @Test fun `a Play route shows Play's price, and so does a Stripe route that will fall back to Play`() = runTest {
         billing.price = "R$ 24,90"
         api.routes = mapOf(
             PAID to BillingRoute(route = "play", productId = PAID),
@@ -182,7 +182,38 @@ class PurchaseRound2Test {
         val c = coordinator()
         c.loadPrices(listOf(PAID, "com.example.web"))
         assertEquals(BuyPrice.Play("R$ 24,90"), c.prices.value[PAID])
-        assertEquals(BuyPrice.Repository, c.prices.value["com.example.web"])
+        // No programme: buyLocked sends this through Play Billing, so Play's number is the one charged.
+        assertEquals(BuyPrice.Play("R$ 24,90"), c.prices.value["com.example.web"])
+    }
+
+    @Test fun `a Stripe route under a live programme shows no number, as checkout may still fall back`() = runTest {
+        billing.price = "R$ 24,90"
+        billing.available += "alternative_billing_only"
+        api.route = BillingRoute(
+            route = "stripe", clientApi = "alternative_billing_only", reportToGoogle = true, productId = PAID,
+        )
+        val c = coordinator()
+        c.loadPrices(listOf(PAID))
+        assertNull(c.prices.value[PAID])
+    }
+
+    @Test fun `an unpaid purchase code is kept, and restore installs it once paid`() = runTest {
+        api.checkout = CheckoutStatus.Pending
+        val c = coordinator()
+        assertTrue(c.restoreFromCode("cs_test_a1B2c3D4e5") is PurchaseState.Pending)
+        assertTrue("cs_test_a1B2c3D4e5" in store.pending.checkouts())
+        api.checkout = CheckoutStatus.Ready(registry.token(PAID), PAID, "azphalt_buyer_session=xyz")
+        coordinator().restore()
+        assertEquals(EntitlementSource.STRIPE, store.get(PAID)!!.source)
+        assertTrue(PAID in installed)
+        assertFalse("cs_test_a1B2c3D4e5" in store.pending.checkouts())
+    }
+
+    @Test fun `an unpaid purchase code is dropped once Stripe would have expired it`() = runTest {
+        api.checkout = CheckoutStatus.Pending
+        coordinator().restoreFromCode("cs_test_a1B2c3D4e5")
+        coordinator(now = start.plus(Duration.ofDays(2))).restore()
+        assertFalse("cs_test_a1B2c3D4e5" in store.pending.checkouts())
     }
 
     @Test fun `no Play price means no number, and a non-Play build uses the repository's`() = runTest {
