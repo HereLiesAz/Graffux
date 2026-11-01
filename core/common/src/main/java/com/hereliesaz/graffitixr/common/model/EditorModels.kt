@@ -54,6 +54,10 @@ val Layer.isFrame: Boolean
  * Represents a single graphical layer in the editor with all aesthetic and spatial parameters.
  * Serializable fields cover all wire-transferable state. Bitmap is runtime-only and excluded.
  */
+// The retired per-layer `is3D` switch was removed (spec/3d-space.md): a co-op peer or snapshot from
+// an older build may still carry the key, so unknown keys are skipped rather than rejected.
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@kotlinx.serialization.json.JsonIgnoreUnknownKeys
 @Serializable
 data class Layer(
     val id: String,
@@ -137,16 +141,6 @@ data class Layer(
      * adjustment layer it is RASTER with no bitmap, so an older build shows it as an empty layer.
      */
     val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
-    /**
-     * Retired: the old per-layer "3D" switch. A layer is in 3D exactly when it is placed there
-     * ([isPlacedIn3D]); this is still read from old files and otherwise ignored.
-     * Opts this layer into 3D-specific controls: X/Y rotation fields in [TransformPanel] and
-     * double-tap-to-cycle-rotation-axis on the canvas, on top of the Z-axis rotation every layer
-     * already has. Off by default -- an ordinary flat layer only ever needs Z, and surfacing X/Y
-     * controls for every layer regardless of whether anything reads them would be UI noise most of
-     * the time this app is used for plain 2D editing.
-     */
-    val is3D: Boolean = false,
     @Serializable(with = FiniteFloatOrOneSerializer::class)
     val scale: Float = 1.0f,
     /**

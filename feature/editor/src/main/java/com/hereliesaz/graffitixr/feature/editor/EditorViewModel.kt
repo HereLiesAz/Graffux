@@ -657,6 +657,11 @@ sealed class EditCommand {
         val lastPushMs: Long = 0L,
         /** The strokes (by identity) whose tile deltas are merged into [tileDeltas]. */
         val attached: List<StrokeCommand> = emptyList(),
+        /**
+         * The plane the layer adopted from the view on this entry's first stroke (spec/3d-space.md,
+         * "Adopting the view plane"): undo puts the old one back with the pixels, redo the new one.
+         */
+        val plane: PlaneSwap? = null,
     ) : EditCommand() {
         /** Every stroke this entry undoes, oldest first. */
         val strokes: List<StrokeCommand> get() = earlier + command
@@ -2652,6 +2657,7 @@ class EditorViewModel @Inject constructor(
                 repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
                 command.strokes.asReversed().forEach { inkLedger.onUndo(command.layerId, it) }
                 restoreUndoneStrokePixels(command)
+                command.plane?.let { applyPlane(command.layerId, it.before) }
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -2716,6 +2722,7 @@ class EditorViewModel @Inject constructor(
                     return
                 }
                 reapplyRedoneStroke(command)
+                command.plane?.let { applyPlane(command.layerId, it.after) }
             }
             is EditCommand.PropertyChange -> {
                 // Layer-list undo/redo (delete, merge, flatten, add...): every layer may differ.
@@ -4598,6 +4605,7 @@ class EditorViewModel @Inject constructor(
                         _uiState.value.layers, w, h,
                         _uiState.value.documentWidth, _uiState.value.documentHeight,
                         crop = _uiState.value.documentCrop,
+                        camera = _uiState.value.sceneCamera,
                     )
                     // Downscale to a small preview so the file stays tiny and decodes fast.
                     val maxDim = 512
@@ -4649,6 +4657,7 @@ class EditorViewModel @Inject constructor(
                     backgroundBitmap = null,
                     backgroundColor = background,
                     crop = _uiState.value.documentCrop,
+                    camera = _uiState.value.sceneCamera,
                 )
                 // Cancel stops here, before anything is published to the gallery.
                 val success = try {
@@ -4697,6 +4706,7 @@ class EditorViewModel @Inject constructor(
                     backgroundBitmap = null,
                     backgroundColor = exportBackgroundArgb(state.canvasBackground),
                     crop = state.documentCrop,
+                    camera = state.sceneCamera,
                 )
                 val plan = com.hereliesaz.graffitixr.feature.editor.export.PosterLayout
                     .plan(spec, art.width, art.height)
@@ -4782,6 +4792,7 @@ class EditorViewModel @Inject constructor(
             _uiState.value.documentHeight,
             backgroundColor = android.graphics.Color.TRANSPARENT,
             crop = _uiState.value.documentCrop,
+            camera = _uiState.value.sceneCamera,
         )
         val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
         // Earlier shares are done with once a new one starts (the receiving app has read them).
@@ -4923,7 +4934,9 @@ class EditorViewModel @Inject constructor(
      * silent, unexplained mode change for ordinary flat editing.
      */
     fun onCanvasDoubleTap(offset: Offset, screenWidth: Float, screenHeight: Float) {
-        val hits = CanvasHitTest.allHits(_uiState.value.layers, offset, screenWidth, screenHeight)
+        val hits = CanvasHitTest.allHits(
+            _uiState.value.layers, offset, screenWidth, screenHeight, camera = _uiState.value.sceneCamera,
+        )
         if (hits.size < 2) {
             val active = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }
             if (active?.isPlacedIn3D == true) onCycleRotationAxis()
@@ -5014,6 +5027,7 @@ class EditorViewModel @Inject constructor(
         val st = _uiState.value
         val hitId = CanvasHitTest.topHit(
             st.layers, tap, canvasWidth, canvasHeight, st.viewportOffset, st.viewportZoom, st.viewportRotation,
+            st.sceneCamera,
         )
         if (hitId != null) {
             if (hitId != _uiState.value.activeLayerId) dispatch(EditorIntent.ActivateLayer(hitId))
@@ -5128,11 +5142,7 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val activeId = state.activeLayerId ?: return
         val layer = state.layers.find { it.id == activeId } ?: return
-        val encodedMatrix = listOf(
-            layer.scale, layer.offset.x, layer.offset.y,
-            layer.rotationX, layer.rotationY, layer.rotationZ,
-            0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
-        )
+        val encodedMatrix = com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(layer)
         opEmitter.emit(Op.LayerTransform(activeId, encodedMatrix))
         // A frame resized by its handle also moved/resized its children, which the op above does
         // not cover.
@@ -5359,18 +5369,6 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCycleRotationAxis() = dispatch(EditorIntent.CycleRotationAxis)
-
-    // No opEmitter.emit here, unlike onToggleVisibility/onToggleAlphaLock: LayerProps (what
-    // Op.LayerPropsChange carries) has no room for is3D, and there's no precedent for a rotation-
-    // related field going through it -- rotation itself syncs as a computed matrix via
-    // Op.LayerTransform, never as individual fields. is3D only gates local UI affordances (the
-    // TransformPanel's X/Y fields, double-tap's axis-cycle), so a collaborator not seeing it change
-    // is a minor UX inconsistency, not a rendering desync -- the resulting pixels still sync fine.
-    override fun onToggleLayer3D(layerId: String) {
-        pushHistory()
-        dispatch(EditorIntent.ToggleLayer3D(layerId))
-        saveProject()
-    }
 
     override fun onAdjustmentStart() { pushHistory(); dispatch(EditorIntent.SetGestureInProgress(true)) }
 
@@ -5600,10 +5598,7 @@ class EditorViewModel @Inject constructor(
         opEmitter.emit(Op.LayerReorder(layers.map { it.id }))
         layers.forEach { l ->
             emitLayerProps(l.id, l.toLayerProps())
-            opEmitter.emit(Op.LayerTransform(l.id, listOf(
-                l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
-                0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
-            )))
+            opEmitter.emit(Op.LayerTransform(l.id, com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)))
             // Frame/shape geometry too: undoing a frame resize restores its box and its children's
             // shapes, and without this a peer keeps the resized geometry. Sent for every layer,
             // like the ops above — a resync has no "before" to diff against, unlike emitGeometryChanges.
@@ -5859,11 +5854,8 @@ class EditorViewModel @Inject constructor(
         parentId,
     )
 
-    /** The LayerTransform encoding: [scale, offsetX, offsetY, rotX, rotY, rotZ], zero-padded to 16. */
-    private fun Layer.coopTransform(): List<Float> = listOf(
-        scale, offset.x, offset.y, rotationX, rotationY, rotationZ,
-        0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f,
-    )
+    /** The LayerTransform encoding ([com.hereliesaz.graffitixr.common.coop.LayerTransformCodec]). */
+    private fun Layer.coopTransform(): List<Float> = com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(this)
 
     /**
      * What peers last saw of each layer, the layer order, and which mask revisions they hold.
@@ -8564,6 +8556,9 @@ class EditorViewModel @Inject constructor(
      * recorded on finger-up), so dropping the live preview is the whole cancel.
      */
     fun onStrokeCancel() {
+        // A cancelled first stroke leaves no paint, so the layer keeps the plane it had.
+        pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+        pendingPlaneAdoption = null
         stampFrameRequestedFor = -1L
         endOverlayStroke(afterFrames = 0)
         liquifyJob?.cancel()
@@ -8793,7 +8788,10 @@ class EditorViewModel @Inject constructor(
         chunkable: Boolean = false,
     ): Boolean {
         if (command.tool != Tool.BRUSH) inkLedger.taint(layerId)
-        return history.pushDraw(layerId, command, chunkable)
+        // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
+        val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
+        pendingPlaneAdoption = null
+        return history.pushDraw(layerId, command, chunkable, plane = plane)
     }
 
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
@@ -11672,6 +11670,69 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** A view plane adopted at a stroke's start, waiting for that stroke's undo entry. */
+    private var pendingPlaneAdoption: Pair<String, PlaneSwap>? = null
+
+    private fun applyPlane(layerId: String, pose: com.hereliesaz.graffitixr.common.scene.PlanePose) {
+        updateUi { s ->
+            s.copy(layers = LayerListOps.mapLayer(s.layers, layerId) {
+                it.copy(
+                    offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
+                    rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
+                    scale = pose.scale,
+                )
+            })
+        }
+        saveProject()
+    }
+
+    /**
+     * View-plane adoption (spec/3d-space.md, "Adopting the view plane"), called as a stroke starts,
+     * before its first point is mapped onto the layer: an empty paint layer under a moved camera
+     * takes the plane facing the camera through its orbit target. A layer with paint, one already
+     * placed in 3D, or any layer at the default view keeps its plane (the 2D fast path stays). The
+     * change rides on the stroke's own undo entry. Returns whether the plane changed.
+     */
+    @Suppress("ReturnCount")
+    fun adoptViewPlaneForStroke(): Boolean {
+        val state = _uiState.value
+        val id = state.activeLayerId ?: return false
+        val size = state.canvasSize
+        val layer = state.layers.firstOrNull { it.id == id }
+        val eligible = layer != null && !state.sceneCamera.isDefault && size.width > 0 && size.height > 0 &&
+            !layer.isPlacedIn3D && layer.isEmptyPaintLayer()
+        if (!eligible || layer == null) return false
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val parents = planeChain(state.layers, id).dropLast(1)
+        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, parents) ?: return false
+        pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
+        applyPlane(id, pose)
+        return true
+    }
+
+    /**
+     * Paint, not yet painted: no source image, text, shapes, adjustment or 3D ink, no stroke on
+     * record, and (checked last, once) no pixel set in its bitmap.
+     */
+    @Suppress("ReturnCount")
+    private fun Layer.isEmptyPaintLayer(): Boolean {
+        val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
+        val notPaint = isAdjustment || isSpatial || isContainer
+        if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
+        val b = bitmap?.takeUnless { it.isRecycled } ?: return true
+        val row = IntArray(b.width)
+        for (y in 0 until b.height) {
+            b.getPixels(row, 0, b.width, 0, y, b.width, 1)
+            if (row.any { android.graphics.Color.alpha(it) != 0 }) return false
+        }
+        return true
+    }
+
+    private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(
+        offset.x, offset.y, positionZ, rotationX, rotationY, rotationZ, scale,
+    )
+
     /** The active layer back to the identity plane (depth 0, no tilt), as one undo step. */
     @Suppress("ReturnCount")
     fun resetActivePlane() {
@@ -11758,7 +11819,7 @@ class EditorViewModel @Inject constructor(
         }
         viewModelScope.launch(dispatchers.io) {
             runCatching {
-                val scene = buildExportScene(state, size.width.toFloat(), size.height.toFloat(), includeCamera)
+                val scene = buildSceneGltf(state, size.width.toFloat(), size.height.toFloat(), includeCamera)
                 val gltf = SceneGltfExporter.encode(scene)
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(gltf.toByteArray(Charsets.UTF_8))
@@ -11772,77 +11833,6 @@ class EditorViewModel @Inject constructor(
                 }
             }
         }
-    }
-
-    @Suppress("CyclomaticComplexMethod", "LongMethod")
-    private fun buildExportScene(
-        state: EditorUiState,
-        w: Float,
-        h: Float,
-        includeCamera: Boolean,
-    ): SceneGltfExporter.Scene {
-        val byId = state.layers.associateBy { it.id }
-        fun chainVisible(layer: Layer): Boolean {
-            var current: Layer? = layer
-            val seen = HashSet<String>()
-            while (current != null && seen.add(current.id)) {
-                if (!current.isVisible) return false
-                current = current.parentId?.let(byId::get)
-            }
-            return true
-        }
-        fun chainOpacity(layer: Layer): Float {
-            var current: Layer? = layer
-            var alpha = 1f
-            val seen = HashSet<String>()
-            while (current != null && seen.add(current.id)) {
-                alpha *= current.opacity
-                current = current.parentId?.let(byId::get)
-            }
-            return alpha
-        }
-        val quads = ArrayList<SceneGltfExporter.Quad>()
-        val strokes = ArrayList<SceneGltfExporter.Strokes>()
-        for (layer in state.layers) {
-            if (layer.isContainer || !chainVisible(layer)) continue
-            val model = SceneMath.chainModel(
-                planeChain(state.layers, layer.id), w, h,
-            )
-            val spatial = layer.spatial
-            if (spatial != null) {
-                if (spatial.strokes.isNotEmpty()) {
-                    strokes += SceneGltfExporter.Strokes(
-                        layer.name, spatial.strokes,
-                        model * SceneMath.strokeToLocal(w, h),
-                    )
-                }
-                continue
-            }
-            val bitmap = layer.bitmap?.takeUnless { it.isRecycled } ?: continue
-            if (layer.isAdjustment) continue
-            // Where drawLayerBitmap draws the bitmap in the layer's full-canvas box.
-            val frame = layer.frame(bitmap.width, bitmap.height)
-            if (frame.width <= 0 || frame.height <= 0) continue
-            val fit = minOf(w / frame.width, h / frame.height)
-            val left = (w - frame.width * fit) / 2f + frame.originX * fit
-            val top = (h - frame.height * fit) / 2f + frame.originY * fit
-            val right = left + bitmap.width * fit
-            val bottom = top + bitmap.height * fit
-            val png = java.io.ByteArrayOutputStream().also {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
-            }.toByteArray()
-            quads += SceneGltfExporter.Quad(
-                layer.name, png,
-                listOf(
-                    model.apply(left, top, 0f), model.apply(right, top, 0f),
-                    model.apply(right, bottom, 0f), model.apply(left, bottom, 0f),
-                ),
-                chainOpacity(layer),
-            )
-        }
-        return SceneGltfExporter.Scene(
-            w, h, quads, strokes, state.sceneCamera.takeIf { includeCamera },
-        )
     }
 
     // ── 3D model viewport ────────────────────────────────────────────────────────────────────
@@ -12085,11 +12075,13 @@ class EditorViewModel @Inject constructor(
             if (prev.shapes != l.shapes || prev.layoutWidth != l.layoutWidth || prev.layoutHeight != l.layoutHeight) {
                 opEmitter.emit(Op.LayerGeometry(l.id, l.shapes, l.layoutWidth, l.layoutHeight))
             }
-            if (prev.offset != l.offset || prev.scale != l.scale) {
-                opEmitter.emit(Op.LayerTransform(l.id, listOf(
-                    l.scale, l.offset.x, l.offset.y, l.rotationX, l.rotationY, l.rotationZ,
-                    0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
-                )))
+            // Any part of the plane placement (LayerTransformCodec), depth and rotations included.
+            if (com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(prev) !=
+                com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)
+            ) {
+                opEmitter.emit(
+                    Op.LayerTransform(l.id, com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(l)),
+                )
             }
         }
     }
@@ -13734,14 +13726,14 @@ class EditorViewModel @Inject constructor(
             is Op.LayerRemove -> dispatch(EditorIntent.RemoveLayerById(op.layerId))
             is Op.LayerReorder -> dispatch(EditorIntent.ReorderLayers(op.newOrder))
             is Op.LayerTransform -> {
-                // The host encodes transform as [scale, offsetX, offsetY, rotX, rotY, rotZ, 0...0].
-                // Apply the first 6 slots back to the matching layer.
-                if (op.matrix.size >= 6) {
+                // The whole plane placement (LayerTransformCodec): depth too, 0 from an older peer.
+                com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.decode(op.matrix)?.let { t ->
                     dispatch(EditorIntent.SetLayerTransformById(
                         op.layerId,
-                        scale = op.matrix[0],
-                        offset = androidx.compose.ui.geometry.Offset(op.matrix[1], op.matrix[2]),
-                        rx = op.matrix[3], ry = op.matrix[4], rz = op.matrix[5],
+                        scale = t.scale,
+                        offset = androidx.compose.ui.geometry.Offset(t.offsetX, t.offsetY),
+                        rx = t.rotationX, ry = t.rotationY, rz = t.rotationZ,
+                        positionZ = t.positionZ,
                     ))
                 }
             }

@@ -148,6 +148,14 @@ fun EditorScreen(
     // The layer's frame (outline and handles) belongs to the transform tool alone: under any other
     // tool a layer shows no bounds at all.
     val transforming = uiState.activePanel == EditorPanel.TRANSFORM
+    // Touches meant for the active layer's pixels go through its plane when it is drawn in 3D
+    // (spec/3d-space.md, "Painting on a tilted plane" and "Tilted layers").
+    // Set for the duration of a stroke whose layer just adopted the view plane (see onStrokeStart).
+    val strokePlane = remember { object { var value: ActivePlaneMapping? = null } }
+    val activePlane = remember(
+        uiState.layers, uiState.sceneCamera, uiState.activeLayerId, uiState.canvasSize,
+        uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
+    ) { ActivePlaneMapping.of(uiState) }
 
     // Coordinates the drawing surfaces with the multi-finger tap observer, so a two-finger tap that
     // cancelled an in-flight stroke doesn't also undo the previous action.
@@ -301,6 +309,8 @@ fun EditorScreen(
                                     SceneRenderPath.sceneLayerIds(uiState.layers, uiState.sceneCamera),
                                     draft = spatialDraft.value?.second,
                                     draftLayerId = spatialDraft.value?.first,
+                                    depth = com.hereliesaz.graffitixr.common.scene.DepthComposite
+                                        .plan(uiState.layers, uiState.sceneCamera),
                                     showGuideFor = uiState.activeLayerId.takeIf {
                                         uiState.is3DMode && uiState.scene3DTool == Scene3DTool.DRAW
                                     },
@@ -340,6 +350,11 @@ fun EditorScreen(
                                     LocalHighResOverlays provides highResOverlays,
                                     LocalScene provides sceneContext,
                                 ) { layerTree.forEach { node ->
+                                    // The GPU depth pass sits where its first member's top-level
+                                    // subtree does; the layers it draws are skipped below.
+                                    if (sceneContext != null && node.layer.id == sceneContext.depth.anchorTopLevelId) {
+                                        DepthPass(uiState, sceneContext, liveStrokeState, Modifier.fillMaxSize())
+                                    }
                                     LayerStackNode(
                                         node,
                                         liveStrokeState,
@@ -406,7 +421,7 @@ fun EditorScreen(
                             val startOnActiveLayer = active != null && !active.isImageLocked &&
                                 CanvasHitTest.topHit(
                                     st.layers, down.position, w, h,
-                                    st.viewportOffset, st.viewportZoom, st.viewportRotation,
+                                    st.viewportOffset, st.viewportZoom, st.viewportRotation, st.sceneCamera,
                                 ) == st.activeLayerId
                             var movingObject = false
                             while (true) {
@@ -551,25 +566,10 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         } else if (canPaintActiveLayer && uiState.activeTool !in NON_RASTER_TOOLS) {
-            // On the scene path, each touch is cast onto the active layer's plane and handed on as
-            // the point a flat layer would have received (spec/3d-space.md, "Painting on a tilted
-            // plane"); a ray that misses the plane falls back to the plain world point.
-            val sceneChain = remember(uiState.layers, uiState.sceneCamera, activeLayer.id) {
-                if (SceneRenderPath.isLayerFlat(uiState.layers, activeLayer.id, uiState.sceneCamera)) {
-                    null
-                } else {
-                    planeChain(uiState.layers, activeLayer.id)
-                }
-            }
+            // A ray that misses the plane keeps the plain world point, so a stroke never breaks.
             fun toWorld(screen: Offset): Offset {
-                val world = CanvasHitTest.screenToWorld(
-                    screen, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
-                )
-                val chain = sceneChain ?: return world
-                val size = uiState.canvasSize
-                return SceneMath.worldToLayerFlat(
-                    world.x, world.y, chain, uiState.sceneCamera, size.width.toFloat(), size.height.toFloat(),
-                )?.let { Offset(it.first, it.second) } ?: world
+                val plane = strokePlane.value ?: activePlane
+                return plane.toFlat(screen) ?: plane.world(screen)
             }
             fun toWorldSample(sample: BrushSample): BrushSample {
                 val world = toWorld(Offset(sample.x, sample.y))
@@ -588,10 +588,17 @@ fun EditorScreen(
                 gate = strokeGate,
                 activeBrushPreview = vm.activeBrushForPreview(),
                 modifier = Modifier.fillMaxSize(),
-                onStrokeStart = { sample, size -> vm.onStrokeStart(toWorldSample(sample), size) },
+                onStrokeStart = { sample, size ->
+                    // An empty layer under a moved camera takes the view plane first, so the very
+                    // first point already lands on it; the stroke's points then map through the
+                    // plane as it is now, not as of the last recomposition.
+                    val adopted = vm.adoptViewPlaneForStroke()
+                    strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
+                    vm.onStrokeStart(toWorldSample(sample), size)
+                },
                 onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },
-                onStrokeEnd = { vm.onStrokeEnd() },
-                onStrokeCancel = { vm.onStrokeCancel() },
+                onStrokeEnd = { vm.onStrokeEnd(); strokePlane.value = null },
+                onStrokeCancel = { vm.onStrokeCancel(); strokePlane.value = null },
                 onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
                 onPickCloneSource = { at -> vm.onSetCloneSource(toWorld(at)) },
@@ -623,29 +630,14 @@ fun EditorScreen(
                 op = uiState.selectionOp,
                 gate = strokeGate,
                 modifier = Modifier.fillMaxSize(),
-                onSelectionEnd = { pts, size ->
-                    vm.onSelectionEnd(
-                        pts.map {
-                            CanvasHitTest.screenToWorld(
-                                it, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
-                            )
-                        },
-                        size,
-                    )
-                },
+                // Through the active layer's plane: on a tilted layer each lasso point is where the
+                // ray meets it (a point off the plane is dropped), in the flat space the selection
+                // and its clip live in.
+                onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts.mapNotNull(activePlane::toFlat), size) },
                 onSelectionMove = { delta ->
-                    vm.onSelectionMove(
-                        CanvasHitTest.screenDeltaToWorld(delta, uiState.viewportZoom, uiState.viewportRotation)
-                    )
+                    vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
                 },
-                onAutoSelect = { at, size ->
-                    vm.onAutoSelect(
-                        CanvasHitTest.screenToWorld(
-                            at, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
-                        ),
-                        size,
-                    )
-                },
+                onAutoSelect = { at, size -> activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) } },
                 onClearSelection = { vm.onClearSelection() },
             )
         }
@@ -665,6 +657,8 @@ fun EditorScreen(
                 viewportZoom = uiState.viewportZoom,
                 viewportRotation = uiState.viewportRotation,
                 modifier = Modifier.fillMaxSize(),
+                // The ants follow the tilted plane the selection clips (identity when flat).
+                flatToWorld = activePlane.flatToWorldOrNull(),
             )
         }
 
@@ -947,7 +941,7 @@ fun EditorScreen(
 }
 
 // The 3D scene path added one branch per node kind; splitting the node would split its keys.
-@Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming")
+@Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming", "ReturnCount")
 @Composable
 private fun LayerStackNode(
     node: LayerNode,
@@ -967,6 +961,8 @@ private fun LayerStackNode(
     val layer = node.layer
     if (!layer.isVisible) return
     if (frameAlpha <= 0f) return
+    // Drawn by the GPU depth pass instead (DepthPass), with the other planes it can cross.
+    if (LocalScene.current?.depth?.contains(layer.id) == true) return
 
     // The 3D scene path (spec/3d-space.md); null = the 2D fast path, exactly as before.
     val scene = LocalScene.current
@@ -982,7 +978,7 @@ private fun LayerStackNode(
                 }
             }
         } else if (layer.spatial != null) {
-            SpatialLayerNode(layer, scene, frameAlpha)
+            // Every visible 3D strokes layer is a depth-pass member; nothing more to draw here.
         } else {
             // Vector layer: drawn from its shapes via Canvas. (A raster layer's bitmap path below
             // no-ops for it, since a vector layer carries no bitmap.)
@@ -1061,15 +1057,22 @@ private fun LayerStackNode(
                                 rotationY = layer.rotationY
                                 rotationZ = layer.rotationZ
                                 transformOrigin = TransformOrigin.Center
+                                alpha = layer.opacity * frameAlpha
+                                blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
+                                compositingStrategy = if (needsOffscreen)
+                                    CompositingStrategy.Offscreen
+                                else
+                                    CompositingStrategy.Auto
                             }
-                            alpha = layer.opacity * frameAlpha
-                            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
-                            compositingStrategy = if (needsOffscreen)
-                                CompositingStrategy.Offscreen
-                            else
-                                CompositingStrategy.Auto
                         }
-                        .scenePlane(placement)
+                        // Scene path: opacity, blend and clip-to-below after the homography.
+                        .scenePlane(
+                            placement,
+                            ScenePaint(
+                                layer.opacity * frameAlpha,
+                                if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode,
+                            ),
+                        )
                         .drawBehind { drawLayerBitmap(imageBitmap, frame, colorFilter, crisp) }
                         // After graphicsLayer, so the recorded screen mapping includes it. The flat
                         // direct-display overlay never shows a scene-path layer.
@@ -1652,13 +1655,16 @@ private fun VectorLayerContent(
                 rotationY = layer.rotationY
                 rotationZ = layer.rotationZ
                 transformOrigin = TransformOrigin.Center
+                alpha = layer.opacity * frameAlpha
+                // SrcAtop, not SrcIn — see the raster path's note above: SrcIn erases the layer below
+                // wherever the clipped layer is transparent, which inverts what a clipping mask means.
+                blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
+                if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
             }
-            alpha = layer.opacity * frameAlpha
-            // SrcAtop, not SrcIn — see the raster path's note above: SrcIn erases the layer below
-            // wherever the clipped layer is transparent, which inverts what a clipping mask means.
-            blendMode = if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode
-            if (layer.clipToLayerBelow) compositingStrategy = CompositingStrategy.Offscreen
-        }.scenePlane(placement)
+        }.scenePlane(
+            placement,
+            ScenePaint(layer.opacity * frameAlpha, if (layer.clipToLayerBelow) BlendMode.SrcAtop else layer.blendMode),
+        )
     ) {
         val cx = size.width / 2f
         val cy = size.height / 2f
@@ -1667,7 +1673,7 @@ private fun VectorLayerContent(
 }
 
 /** Draws a single [shape] centered at ([cx], [cy]) in the current [DrawScope]. */
-private fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float) {
+internal fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float) {
     val w = shape.width
     val h = shape.height
     when (shape.kind) {

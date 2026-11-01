@@ -511,19 +511,31 @@ Full design: `spec/3d-space.md`. In short:
   fill and clone surfaces map each touch through `SceneMath.worldToLayerFlat` (ray-plane hit, then
   the layer's own flat 2D transform), so every tool works unchanged on a tilted plane.
 - **3D strokes layers.** `Layer.spatial` (`SpatialLayerContent`: strokes + guide) on a RASTER layer
-  with no bitmap. Drawn by the depth-tested GLES `SpatialStrokeRenderer` (the glTF tube mesh) into a
-  transparent `TextureView` at the layer's place in the stack (`SpatialInkLayer`), with the clip
-  matrix `SceneMath.clipMatrix`. One stroke unit is `focal / 3` px, so the old sketch's default
-  view is the scene's default view. Guide hits use `SpatialGuideSurface.intersectRay` with the scene
+  with no bitmap. Drawn as the glTF tube mesh in the GPU depth pass (below), with the clip matrix
+  `SceneMath.clipMatrix`. One stroke unit is `focal / 3` px, so the old sketch's default view is the
+  scene's default view. Guide hits use `SpatialGuideSurface.intersectRay` with the scene
   camera's ray cast into stroke units. Strokes are layer data, so the editor's undo covers them.
   The full-screen Spatial Sketch workspace and its separate history are gone; format 6 -> 7 moves a
   project's `spatialStrokes`/`spatialGuide` into a "3D strokes" layer on top.
 - **Export.** `SceneGltfExporter`: paint layers as unlit textured quads (PNG), strokes layers as
   tube meshes, optionally the camera; y up, metres = stroke units, origin at the canvas centre.
 
-**Limitations:** layers composite in stack order, so planes that cross in space do not occlude per
-pixel. Lasso selection and tap-to-select stay flat on a tilted layer. PNG/PDF export still renders
-layers flat. A frame's clip and a blend-mode layer's offscreen buffer stay in flat canvas space.
-A 3D strokes layer inside a group placed in 3D ignores the group's placement. Co-op transform ops
-carry no depth. Vector shapes are not exported to glTF. Transparent 3D ink is alpha-blended with
-depth writes, not order-independent.
+- **Per-pixel depth.** `DepthComposite.plan` puts every 3D strokes layer, and every scene-path
+  layer that composites normally, into one GLES depth pass (`DepthCompositor` in a TextureView at
+  the first member's stack position; `DepthPass` in `Scene3DCanvas.kt`). Crossing planes and ink
+  occlude per pixel there. Blend-mode, clipping-mask, adjustment and frame-clipped layers stay in
+  the HWUI stack, with opacity, blend and frame clip applied after the homography
+  (`ScenePaint`), so they follow the plane. Textures upload only when a layer's pixels change.
+- **Tilted layers.** Lasso, magic wand, selection moves (`ActivePlaneMapping`) and tap-select
+  (`CanvasHitTest` with the camera, nearest hit first) go through the planes.
+- **Export.** PNG/PDF/share/thumbnail render from the current camera (`SceneExport`, with the
+  depth pass rendered off screen by `OffscreenDepthRender`); a flat document renders exactly as
+  before. glTF includes vector layers, rasterized by the canvas's shape code (`VectorRaster`).
+- **View-plane adoption.** An empty paint layer's first stroke under a moved camera gives it the
+  plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
+  entry as the stroke (`EditCommand.Draw.plane`).
+- **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+
+**Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
+in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading
+does not apply to depth-pass members. Full detail: `spec/3d-space.md`, "Limits".

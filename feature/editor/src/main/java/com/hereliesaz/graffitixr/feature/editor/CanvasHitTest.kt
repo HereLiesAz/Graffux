@@ -1,6 +1,9 @@
 // FILE: feature/editor/src/main/java/com/hereliesaz/graffitixr/feature/editor/CanvasHitTest.kt
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.scene.SceneCamera
+import com.hereliesaz.graffitixr.common.scene.SceneMath
+
 import com.hereliesaz.graffitixr.common.model.isContainer
 import androidx.compose.ui.unit.IntRect
 import com.hereliesaz.graffitixr.common.model.frame
@@ -22,8 +25,9 @@ import kotlin.math.sin
  * on a layer we invert that: subtract the offset and centre, un-rotate, un-scale, then test against
  * the layer's local content half-extents.
  *
- * Limitations (call out for on-device tuning): 3D X/Y rotation is ignored (≈0 in the 2D editor), and
- * raster bounds assume the `ContentScale.Fit` rect of the bitmap in the full canvas.
+ * Layers placed in the 3D space are hit through their plane ([com.hereliesaz.graffitixr.common
+ * .scene.SceneMath.worldToLayerFlat]), nearest first. Raster bounds assume the `ContentScale.Fit`
+ * rect of the bitmap in the full canvas.
  */
 internal object CanvasHitTest {
 
@@ -32,6 +36,7 @@ internal object CanvasHitTest {
      * (canvas pixels), or null if the tap misses every layer. Layers are tested front-to-back so
      * the visually topmost one wins.
      */
+    @Suppress("LongParameterList", "ReturnCount")
     fun topHit(
         layers: List<Layer>,
         tap: Offset,
@@ -40,6 +45,7 @@ internal object CanvasHitTest {
         viewportOffset: Offset = Offset.Zero,
         viewportZoom: Float = 1f,
         viewportRotation: Float = 0f,
+        camera: SceneCamera = SceneCamera(),
     ): String? {
         if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return null
         // Undo the camera first: screen → world (container) space, where the per-layer math lives.
@@ -54,6 +60,13 @@ internal object CanvasHitTest {
         )
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
+        // In the 3D space the visually topmost layer is the nearest plane under the tap, so a scene
+        // hits all candidates and takes the nearest (spec/3d-space.md, "Tilted layers").
+        if (com.hereliesaz.graffitixr.common.scene.SceneRenderPath.sceneLayerIds(layers, camera).isNotEmpty()) {
+            return allHits(
+                layers, tap, canvasWidth, canvasHeight, viewportOffset, viewportZoom, viewportRotation, camera,
+            ).firstOrNull()
+        }
         // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
@@ -78,6 +91,7 @@ internal object CanvasHitTest {
      * Returns the ids of all visible layers whose transformed content contains [tap] (canvas pixels),
      * ordered front-to-back (topmost layer first).
      */
+    @Suppress("LongParameterList", "ReturnCount", "CyclomaticComplexMethod")
     fun allHits(
         layers: List<Layer>,
         tap: Offset,
@@ -86,6 +100,7 @@ internal object CanvasHitTest {
         viewportOffset: Offset = Offset.Zero,
         viewportZoom: Float = 1f,
         viewportRotation: Float = 0f,
+        camera: SceneCamera = SceneCamera(),
     ): List<String> {
         if (canvasWidth <= 0f || canvasHeight <= 0f || viewportZoom <= 0f) return emptyList()
         val d = (tap - viewportOffset) / viewportZoom
@@ -99,13 +114,27 @@ internal object CanvasHitTest {
         val cx = canvasWidth / 2f
         val cy = canvasHeight / 2f
         val hits = mutableListOf<String>()
+        // Layers drawn through the 3D scene: the tap is cast onto each one's plane and tested at
+        // the flat point the layer's own 2D transform maps it to; hits sort nearest-first.
+        val sceneIds = com.hereliesaz.graffitixr.common.scene.SceneRenderPath.sceneLayerIds(layers, camera)
+        val depths = HashMap<String, Float>()
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
             val box = localBox(layer, canvasWidth, canvasHeight) ?: continue
             if (box.isEmpty) continue
-
-            val dx = worldTap.x - layer.offset.x - cx
-            val dy = worldTap.y - layer.offset.y - cy
+            val at = if (layer.id in sceneIds) {
+                val chain = com.hereliesaz.graffitixr.common.scene.planeChain(layers, layer.id)
+                val scene = SceneMath
+                val flat = scene.worldToLayerFlat(worldTap.x, worldTap.y, chain, camera, canvasWidth, canvasHeight)
+                    ?: continue
+                scene.hitDepth(worldTap.x, worldTap.y, chain, camera, canvasWidth, canvasHeight)
+                    ?.let { depths[layer.id] = it }
+                Offset(flat.first, flat.second)
+            } else {
+                worldTap
+            }
+            val dx = at.x - layer.offset.x - cx
+            val dy = at.y - layer.offset.y - cy
             val rad = Math.toRadians(layer.rotationZ.toDouble())
             val c = cos(rad)
             val s = sin(rad)
@@ -116,7 +145,10 @@ internal object CanvasHitTest {
                 hits.add(layer.id)
             }
         }
-        return hits
+        if (sceneIds.isEmpty()) return hits
+        // Stable: equal depths (a flat layer and its flat neighbours) keep the stack order.
+        val flatDepth = SceneMath.focalLength(canvasHeight) * camera.distanceScale
+        return hits.sortedBy { depths[it] ?: flatDepth }
     }
 
     /**

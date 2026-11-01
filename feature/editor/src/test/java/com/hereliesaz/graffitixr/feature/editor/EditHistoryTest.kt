@@ -449,4 +449,17 @@ class EditHistoryTest {
         assertEquals(1, h.undoCount)
         assertEquals(0, h.redoCount)
     }
+
+    @Test
+    fun `a view plane adopted for a stroke rides on that stroke's own undo entry`() {
+        val h = EditHistory()
+        val swap = PlaneSwap(
+            com.hereliesaz.graffitixr.common.scene.PlanePose(),
+            com.hereliesaz.graffitixr.common.scene.PlanePose(rotationY = 90f),
+        )
+        h.pushDraw("l", stroke(), chunkable = true, nowMs = 0L)
+        // It never joins the earlier chunk: undoing it must not undo the stroke before it.
+        assertFalse(h.pushDraw("l", stroke(), chunkable = true, nowMs = 10L, plane = swap))
+        assertEquals(swap, (h.undoStackTopForTest() as EditCommand.Draw).plane)
+    }
 }

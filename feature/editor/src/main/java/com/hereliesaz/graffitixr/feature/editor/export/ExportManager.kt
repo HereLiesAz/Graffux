@@ -21,6 +21,8 @@ import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.VectorShape
 import com.hereliesaz.graffitixr.common.model.buildLayerTree
 import com.hereliesaz.graffitixr.feature.editor.createColorMatrix
+import com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor
+import com.hereliesaz.graffitixr.feature.editor.threed.OffscreenDepthRender
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -62,6 +64,12 @@ class ExportManager @Inject constructor() {
      */
     @Volatile var adjustmentRenderer: ((Bitmap, Layer) -> Bitmap?)? = null
 
+    /**
+     * Renders the 3D space's GPU depth pass off screen (spec/3d-space.md, "Export"); null where GLES
+     * cannot start, and [SceneExport] then draws the members farthest-first instead.
+     */
+    @Volatile var depthRenderer: (DepthCompositor.Scene, Int, Int) -> Bitmap? = OffscreenDepthRender::render
+
     @Suppress("LongParameterList")
     fun compositeLayers(
         layers: List<Layer>,
@@ -72,6 +80,9 @@ class ExportManager @Inject constructor() {
         // False draws adjustment layers from their live renders rather than rendering them anew:
         // what the live renderer itself wants when compositing the layers under one.
         renderAdjustments: Boolean = true,
+        // The 3D camera: layers placed in 3D (or any, under a moved camera) render as seen from it.
+        // Null, or a flat document, is the 2D composite exactly as before.
+        camera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
     ): Bitmap {
         val result = Bitmap.createBitmap(screenWidth, screenHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
@@ -104,9 +115,53 @@ class ExportManager @Inject constructor() {
         // to the whole child stack, matching the live Compose LayerStackNode) rather than each child
         // painting individually at full strength straight onto the export — the flat forEach this
         // replaced didn't know groups existed at all.
-        drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight, result.takeIf { renderAdjustments })
+        if (camera != null && SceneExport.needed(layers, camera)) {
+            val target = result.takeIf { renderAdjustments }
+            SceneExport(this).draw(canvas, layers, screenWidth, screenHeight, camera, target)
+        } else {
+            drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight, result.takeIf { renderAdjustments })
+        }
         return result
     }
+
+    /** An adjustment layer drawn from what [target] holds so far; false when it drew nothing. */
+    internal fun drawAdjustment(canvas: Canvas, layer: Layer, target: Bitmap): Boolean {
+        val adjusted = adjustmentRenderer?.invoke(target, layer) ?: return false
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+            alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+            blendMode = layer.blendMode.toNativeBlendMode()
+        }
+        drawInDevicePixels(canvas, adjusted, target, paint)
+        adjusted.recycle()
+        return true
+    }
+
+    /** The layer's colour adjustment, opacity and blend (clip-to-below wins), as drawNode applies them. */
+    internal fun layerPaint(layer: Layer, opacity: Float = layer.opacity): Paint {
+        val cm = createColorMatrix(
+            saturation = layer.saturation,
+            contrast = layer.contrast,
+            brightness = layer.brightness,
+            colorBalanceR = layer.colorBalanceR,
+            colorBalanceG = layer.colorBalanceG,
+            colorBalanceB = layer.colorBalanceB,
+            isInverted = layer.isInverted,
+        )
+        return Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            alpha = (opacity * 255).toInt().coerceIn(0, 255)
+            colorFilter = android.graphics.ColorMatrixColorFilter(android.graphics.ColorMatrix(cm.values))
+            xfermode = if (layer.clipToLayerBelow) PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) else null
+            if (!layer.clipToLayerBelow) blendMode = layer.blendMode.toNativeBlendMode()
+        }
+    }
+
+    /** A group's opacity and blend. */
+    internal fun groupPaint(layer: Layer): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        alpha = (layer.opacity * 255).toInt().coerceIn(0, 255)
+        blendMode = layer.blendMode.toNativeBlendMode()
+    }
+
+    internal fun frameBox(canvas: Canvas, layer: Layer, w: Int, h: Int) = drawFrameBox(canvas, layer, w, h)
 
     /**
      * [nodes] (one parent's children, or a run of them) composited into a [w] x [h] canvas exactly
@@ -233,8 +288,10 @@ class ExportManager @Inject constructor() {
         backgroundColor: Int = android.graphics.Color.TRANSPARENT,
         // The Crop tab's crop and geometry; null or identity exports the artboard as it is.
         crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop? = null,
+        // The 3D camera (see compositeLayers); null renders flat.
+        camera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
     ): Bitmap {
-        val full = compositeLayers(layers, canvasW, canvasH, backgroundBitmap, backgroundColor)
+        val full = compositeLayers(layers, canvasW, canvasH, backgroundBitmap, backgroundColor, camera = camera)
         val cropToApply = crop?.takeIf { !it.isIdentity && docW > 0 && docH > 0 }
         if (cropToApply != null) {
             val out = com.hereliesaz.graffitixr.feature.editor.DocumentCropRender.render(full, cropToApply, docW, docH)
