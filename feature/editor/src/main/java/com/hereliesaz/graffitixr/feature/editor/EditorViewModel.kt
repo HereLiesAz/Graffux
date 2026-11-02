@@ -11862,6 +11862,22 @@ class EditorViewModel @Inject constructor(
     private var twoFingerTarget: TwoFingerTarget? = null
     private var twoFingerCameraBefore: SceneCamera? = null
 
+    /** Whether the current Move-tool two-finger gesture has changed the layer (and so has history). */
+    private var twoFingerLayerEdited = false
+
+    /**
+     * Opens the Move tool's undo step on its first real change: onGestureStart's history and
+     * transform record, without its panel dismissal (the Move tool is the open Transform panel,
+     * and its own gesture must not put it down).
+     */
+    private fun beginLayerTwoFingerEdit() {
+        if (twoFingerLayerEdited) return
+        twoFingerLayerEdited = true
+        pushHistory()
+        gestureStartLayers = _uiState.value.layers
+        dispatch(EditorIntent.SetGestureInProgress(true))
+    }
+
     /** Whether the Move / Transform tool is in hand on a 3D layer: two fingers then act on the layer. */
     private fun EditorUiState.moveToolActive(): Boolean {
         val active = layers.firstOrNull { it.id == activeLayerId }
@@ -11876,11 +11892,10 @@ class EditorViewModel @Inject constructor(
         val st = _uiState.value
         if (st.moveToolActive()) {
             twoFingerTarget = TwoFingerTarget.LAYER
-            // onGestureStart's history and transform record, without its panel dismissal: the
-            // Move tool is the open Transform panel, and its own gesture must not put it down.
-            pushHistory()
-            gestureStartLayers = st.layers
-            dispatch(EditorIntent.SetGestureInProgress(true))
+            // The undo step waits for the first real change (beginLayerTwoFingerEdit): a second
+            // finger landing is also how the two- and three-finger Undo / Redo taps start, and an
+            // eager snapshot would make Undo undo nothing and wipe the redo stack.
+            twoFingerLayerEdited = false
         } else {
             twoFingerTarget = TwoFingerTarget.VIEW
             twoFingerCameraBefore = st.sceneCamera
@@ -11899,7 +11914,11 @@ class EditorViewModel @Inject constructor(
         val safeZoom = if (zoom.isFinite() && zoom > 0f) zoom else 1f
         val safeRotation = if (rotation.isFinite()) rotation else 0f
         when (twoFingerTarget) {
-            TwoFingerTarget.LAYER -> onLayerTwoFinger(pan, safeZoom, safeRotation)
+            // A still step (a multi-finger tap) changes nothing and opens no undo step.
+            TwoFingerTarget.LAYER -> if (pan != Offset.Zero || safeZoom != 1f || safeRotation != 0f) {
+                beginLayerTwoFingerEdit()
+                onLayerTwoFinger(pan, safeZoom, safeRotation)
+            }
             else -> onViewTwoFinger(pan, safeZoom, centroid, safeRotation)
         }
     }
@@ -11907,13 +11926,15 @@ class EditorViewModel @Inject constructor(
     /** The last finger of a two-finger gesture lifted. */
     fun onTwoFingerEnd() {
         when (twoFingerTarget) {
-            TwoFingerTarget.LAYER -> onGestureEnd()
+            // Nothing changed (a multi-finger tap, say): no history, no save, no co-op op.
+            TwoFingerTarget.LAYER -> if (twoFingerLayerEdited) onGestureEnd()
             TwoFingerTarget.VIEW ->
                 if (twoFingerCameraBefore != _uiState.value.sceneCamera) onSceneCameraSettled()
             null -> Unit
         }
         twoFingerTarget = null
         twoFingerCameraBefore = null
+        twoFingerLayerEdited = false
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
@@ -11932,6 +11953,14 @@ class EditorViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * How much nearer a Move-tool pinch of [zoom] brings a layer at [actualDepth]: to depth / zoom, so
+     * its apparent size follows the fingers. The clamp is on the destination, so pinching out again and
+     * again stops at [minDepth], short of the near plane, instead of stepping through it.
+     */
+    private fun pinchNearer(actualDepth: Float, zoom: Float, minDepth: Float): Float =
+        if (zoom == 1f) 0f else actualDepth - (actualDepth / zoom).coerceAtLeast(minDepth)
 
     /** Turns the 3D camera about its target by [yaw] and [pitch] radians. */
     fun onSceneOrbit(yaw: Float, pitch: Float) {
@@ -11968,10 +11997,10 @@ class EditorViewModel @Inject constructor(
         }
         val frame = SceneMath.frame(state.sceneCamera, w, h)
         val centre = SceneMath.chainModel(chain, w, h).apply(w / 2f, h / 2f, 0f)
-        val depth = frame.toCamera(centre)[2].coerceAtLeast(frame.focal * 0.05f)
-        val perPx = depth / frame.focal
-        // Pinch: the new depth is depth / zoom, so the layer's apparent size follows the fingers.
-        val nearer = depth - depth / zoom
+        val minDepth = frame.focal * MIN_LAYER_DEPTH_FRACTION
+        val actualDepth = frame.toCamera(centre)[2]
+        val perPx = actualDepth.coerceAtLeast(minDepth) / frame.focal
+        val nearer = pinchNearer(actualDepth, zoom, minDepth)
         val sceneMove = FloatArray(3) {
             val slide = if (flat) 0f else (frame.right[it] * worldPan.x + frame.down[it] * worldPan.y) * perPx
             // Nearer is against the view direction, toward the eye.
@@ -14197,3 +14226,5 @@ class EditorViewModel @Inject constructor(
 
 }
 
+/** The nearest a Move-tool pinch brings a layer: this fraction of the focal length from the eye. */
+private const val MIN_LAYER_DEPTH_FRACTION = 0.05f

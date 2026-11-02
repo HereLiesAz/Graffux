@@ -1,6 +1,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.model.EditorPanel
+import com.hereliesaz.graffitixr.common.scene.SceneCamera
+import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.is3DLayer
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
@@ -1368,6 +1370,44 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(0f, viewModel.uiState.value.layers.single().positionZ)
         assertEquals(8f, viewModel.uiState.value.layers.single().rotationY, 0.01f)
+    }
+
+    @Test
+    fun `a still second finger under the Move tool leaves undo and redo alone`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onTransformClicked()
+        twoFinger(pan = Offset(10f, 0f))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        val redo = viewModel.uiState.value.redoCount
+        assertEquals(1, redo)
+        // Two fingers down and up without moving: how the Undo / Redo taps begin.
+        viewModel.onTwoFingerStart()
+        viewModel.onTwoFingerGesture(Offset.Zero, 1f, Offset(500f, 800f), 0f)
+        viewModel.onTwoFingerEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(redo, viewModel.uiState.value.redoCount)
+        assertFalse(viewModel.uiState.value.gestureInProgress)
+    }
+
+    @Test
+    fun `repeated pinch-outs stop short of the near plane`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onTransformClicked()
+        val frame = SceneMath.frame(SceneCamera(), 1000f, 1600f)
+        repeat(30) { twoFinger(zoom = 2f) }
+        val z = viewModel.uiState.value.layers.single().positionZ
+        val depth = frame.toCamera(floatArrayOf(500f, 800f, z))[2]
+        assertTrue("depth $depth must stay in front of the near limit", depth >= frame.focal * 0.05f - 1e-2f)
+        assertTrue("it did come nearer", depth < frame.focal * 0.5f)
     }
 
     @Test
