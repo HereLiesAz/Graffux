@@ -123,15 +123,30 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         for (ink in s.inks) drawInk(ink, s.camera)
-        // Models are opaque surfaces: drawn with the ink, before the planes blend over them.
-        for (model in s.models) drawModel(model, s.camera)
+        // Opaque geometry first, writing depth: the ink, opaque models, then opaque planes farthest
+        // first. Translucent planes and models follow in one back-to-front pass without depth
+        // writes, so each blends over whatever is behind it, translucent or not.
+        val (opaque, translucent) = s.models.partition { it.alpha >= 1f }
+        for (model in opaque) drawModel(model, s.camera)
         val depths = s.planes.associate { p ->
             val cx = (p.rect[0] + p.rect[2]) / 2f
             val cy = (p.rect[1] + p.rect[3]) / 2f
             p.id to s.camera.toCamera(p.model.apply(cx, cy, 0f))[2]
         }
         val byId = s.planes.associateBy { it.id }
-        for (id in DepthComposite.backToFront(depths, s.planes.map { it.id })) drawPlane(byId.getValue(id), s.camera)
+        val (solidPlanes, clearPlanes) = s.planes.partition { it.alpha >= 1f }
+        for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) drawPlane(byId.getValue(id), s.camera)
+        val blended = translucentOrder(clearPlanes, translucent, s.camera)
+        if (blended.isNotEmpty()) {
+            GLES30.glDepthMask(false)
+            for (item in blended) {
+                when (item) {
+                    is Plane -> drawPlane(item, s.camera)
+                    is Model -> drawModel(item, s.camera)
+                }
+            }
+            GLES30.glDepthMask(true)
+        }
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
@@ -383,6 +398,24 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     companion object {
         private const val TAG = "DepthCompositor"
+
+        /**
+         * The order translucent planes and models draw in, together: farthest first, by the camera
+         * depth of each plane's image centre and each mesh's bounding centre. Returns [Plane]s and
+         * [Model]s.
+         */
+        fun translucentOrder(planes: List<Plane>, models: List<Model>, cam: CameraFrame): List<Any> {
+            val items = ArrayList<Pair<Any, Float>>(planes.size + models.size)
+            planes.forEach { p ->
+                val centre = p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f)
+                items += p to cam.toCamera(centre)[2]
+            }
+            models.forEach { m ->
+                val c = m.mesh.center()
+                items += m to cam.toCamera(m.toScene.apply(c[0], c[1], c[2]))[2]
+            }
+            return items.sortedByDescending { it.second }.map { it.first }
+        }
 
         /**
          * The canvas's 4x5 colour matrix as GL uniforms: a column-major mat4 and an offset in 0..1.
