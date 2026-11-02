@@ -3,7 +3,6 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
-import com.hereliesaz.graffitixr.common.scene.Scene3DTool
 import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
@@ -5111,28 +5110,46 @@ class EditorViewModel @Inject constructor(
 
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
+    /** Whether the active layer is a 3D layer ([is3DLayer]); only one has a rotation axis. */
+    private fun EditorUiState.active3D(): Boolean =
+        layers.firstOrNull { it.id == activeLayerId }?.is3DLayer == true
+
     /**
-     * Two jobs, picked by what's actually under the tap and whether the active layer has opted into
-     * 3D ([isPlacedIn3D]): with two or more overlapping layers there, cycling which one is
-     * active is the useful thing a double-tap can do; with one or none AND a 3D active layer, the
-     * gesture is free for its other job -- stepping which axis (X/Y/Z) the next drag rotates around,
-     * the natural "what am I rotating right now" toggle for 3D work. Outside that, a double-tap over
-     * one-or-no layers stays a no-op, same as before: cycling an axis nothing reads yet would be a
-     * silent, unexplained mode change for ordinary flat editing.
+     * A double-tap on the canvas: steps the rotation axis X -> Y -> Z on a 3D layer, and does
+     * nothing on a 2D one. It never changes the active layer; buried layers are picked from the
+     * layers rail.
      */
-    fun onCanvasDoubleTap(offset: Offset, screenWidth: Float, screenHeight: Float) {
-        val hits = CanvasHitTest.allHits(
-            _uiState.value.layers, offset, screenWidth, screenHeight, camera = _uiState.value.sceneCamera,
-        )
-        if (hits.size < 2) {
-            val active = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }
-            if (active?.isPlacedIn3D == true) onCycleRotationAxis()
-            return
+    fun onCanvasDoubleTap() {
+        if (_uiState.value.active3D()) onCycleRotationAxis()
+    }
+
+    /**
+     * The rail's axis slot: on a 3D layer it steps the axis; on a 2D layer (where it reads "3D")
+     * it makes that layer 3D.
+     */
+    fun onAxisSlotTapped() {
+        if (_uiState.value.active3D()) onCycleRotationAxis() else makeActiveLayer3D()
+    }
+
+    /**
+     * The active 2D layer becomes a 3D layer (spec/3d-space.md, "2D and 3D layers"), as one undo
+     * step, starting on axis Z. Its plane is untouched; there is no way back to 2D by design.
+     */
+    @Suppress("ReturnCount")
+    fun makeActiveLayer3D() {
+        val st = _uiState.value
+        val id = st.activeLayerId ?: return
+        val layer = st.layers.firstOrNull { it.id == id } ?: return
+        if (layer.is3DLayer) return
+        pushHistory()
+        updateUi { s ->
+            s.copy(
+                layers = LayerListOps.mapLayer(s.layers, id) { it.copy(plane3D = true) },
+                activeRotationAxis = RotationAxis.Z,
+            )
         }
-        val currentId = _uiState.value.activeLayerId
-        val currentIdx = hits.indexOf(currentId)
-        val nextId = if (currentIdx >= 0) hits[(currentIdx + 1) % hits.size] else hits.first()
-        onLayerActivated(nextId)
+        emitActiveLayerProps()
+        saveProject()
     }
 
     fun onRotateLayerHandle(degreesDelta: Float) {
@@ -5308,9 +5325,14 @@ class EditorViewModel @Inject constructor(
     }
 
     /** Resets the camera to identity (100%, centred, unrotated). */
+    /** Fit: the 2D view and the 3D camera back to the identity, the plain 2D canvas. */
     fun resetViewport() {
         val changedZoom = _uiState.value.viewportZoom != 1f
         dispatch(EditorIntent.SetViewport(CanvasViewport.DEFAULT_OFFSET, 1f, 0f))
+        if (!_uiState.value.sceneCamera.isDefault) {
+            updateUi { it.copy(sceneCamera = SceneCamera()) }
+            saveProject()
+        }
         if (changedZoom) showBrushHud()
     }
 
@@ -11835,105 +11857,168 @@ class EditorViewModel @Inject constructor(
 
     // ── One 3D space: camera, planes, 3D strokes layers (spec/3d-space.md) ──
 
-    /** The rail's 3D button. Leaving 3D moves nothing: the camera and every plane stay put. */
-    fun toggleScene3D() {
-        val leaving = _uiState.value.is3DMode
-        updateUi { it.copy(is3DMode = !it.is3DMode) }
-        if (leaving) saveProject()
+    /** What the current two-finger gesture drives, decided as its second finger lands. */
+    private enum class TwoFingerTarget { VIEW, LAYER }
+
+    private var twoFingerTarget: TwoFingerTarget? = null
+    private var twoFingerCameraBefore: SceneCamera? = null
+
+    /** Whether the current Move-tool two-finger gesture has changed the layer (and so has history). */
+    private var twoFingerLayerEdited = false
+
+    /**
+     * Opens the Move tool's undo step on its first real change: onGestureStart's history and
+     * transform record, without its panel dismissal (the Move tool is the open Transform panel,
+     * and its own gesture must not put it down).
+     */
+    private fun beginLayerTwoFingerEdit() {
+        if (twoFingerLayerEdited) return
+        twoFingerLayerEdited = true
+        pushHistory()
+        gestureStartLayers = _uiState.value.layers
+        dispatch(EditorIntent.SetGestureInProgress(true))
     }
 
-    fun setScene3DTool(tool: Scene3DTool) {
-        updateUi { it.copy(scene3DTool = tool) }
+    /** Whether the Move / Transform tool is in hand on a 3D layer: two fingers then act on the layer. */
+    private fun EditorUiState.moveToolActive(): Boolean {
+        val active = layers.firstOrNull { it.id == activeLayerId }
+        return activePanel == EditorPanel.TRANSFORM && active != null && !active.isImageLocked && active.is3DLayer
     }
 
-    /** One-finger orbit, a [delta] in screen pixels. */
-    fun onSceneOrbit(delta: Offset) {
-        updateUi {
-            it.copy(sceneCamera = it.sceneCamera.orbit(delta.x * ORBIT_RADIANS_PER_PX, delta.y * ORBIT_RADIANS_PER_PX))
+    /**
+     * Two fingers landed (spec/3d-space.md, "Gestures"). With the Move tool in hand they act on the
+     * active layer, as one undo step; otherwise on the view, which is never history.
+     */
+    fun onTwoFingerStart() {
+        val st = _uiState.value
+        if (st.moveToolActive()) {
+            twoFingerTarget = TwoFingerTarget.LAYER
+            // The undo step waits for the first real change (beginLayerTwoFingerEdit): a second
+            // finger landing is also how the two- and three-finger Undo / Redo taps start, and an
+            // eager snapshot would make Undo undo nothing and wipe the redo stack.
+            twoFingerLayerEdited = false
+        } else {
+            twoFingerTarget = TwoFingerTarget.VIEW
+            twoFingerCameraBefore = st.sceneCamera
         }
     }
 
     /**
-     * Two fingers in 3D: [pan] (world pixels, the 2D view undone) slides the camera target across
-     * the view so the scene follows the fingers at the target's depth; [zoom] above 1 dollies in.
+     * One step of a two-finger gesture: [pan] and [centroid] in screen pixels, [zoom] the pinch
+     * factor, [rotation] the twist in degrees. On the view, pan and pinch move the 2D view and a
+     * twist turns it about the current axis: Z is the canvas rotation, X and Y orbit the camera in
+     * depth. On the layer (Move tool), pan slides it, pinch moves it in depth and a twist rotates it
+     * about the current axis.
      */
-    fun onScenePanDolly(pan: Offset, zoom: Float) {
-        val size = _uiState.value.canvasSize
-        if (size.width <= 0 || size.height <= 0) return
-        updateUi { state ->
-            val camera = state.sceneCamera
-            val frame = SceneMath.frame(camera, size.width.toFloat(), size.height.toFloat())
-            val k = camera.distanceScale
-            val move = FloatArray(3) { -(frame.right[it] * pan.x + frame.down[it] * pan.y) * k }
-            state.copy(
-                sceneCamera = camera.copy(
-                    panX = camera.panX + move[0], panY = camera.panY + move[1], panZ = camera.panZ + move[2],
-                ).dolly(if (zoom.isFinite() && zoom > 0f) zoom else 1f),
-            )
+    fun onTwoFingerGesture(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
+        if (twoFingerTarget == null) onTwoFingerStart()
+        val safeZoom = if (zoom.isFinite() && zoom > 0f) zoom else 1f
+        val safeRotation = if (rotation.isFinite()) rotation else 0f
+        when (twoFingerTarget) {
+            // A still step (a multi-finger tap) changes nothing and opens no undo step.
+            TwoFingerTarget.LAYER -> if (pan != Offset.Zero || safeZoom != 1f || safeRotation != 0f) {
+                beginLayerTwoFingerEdit()
+                onLayerTwoFinger(pan, safeZoom, safeRotation)
+            }
+            else -> onViewTwoFinger(pan, safeZoom, centroid, safeRotation)
         }
+    }
+
+    /** The last finger of a two-finger gesture lifted. */
+    fun onTwoFingerEnd() {
+        when (twoFingerTarget) {
+            // Nothing changed (a multi-finger tap, say): no history, no save, no co-op op.
+            TwoFingerTarget.LAYER -> if (twoFingerLayerEdited) onGestureEnd()
+            TwoFingerTarget.VIEW ->
+                if (twoFingerCameraBefore != _uiState.value.sceneCamera) onSceneCameraSettled()
+            null -> Unit
+        }
+        twoFingerTarget = null
+        twoFingerCameraBefore = null
+        twoFingerLayerEdited = false
+    }
+
+    private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
+        // A 2D layer has no axis: a twist only rotates the canvas, as in 2D.
+        val axis = if (_uiState.value.active3D()) _uiState.value.activeRotationAxis else RotationAxis.Z
+        when (axis) {
+            // Today's canvas rotation: the identity camera stays put and flat documents stay 2D.
+            RotationAxis.Z -> onViewportPanZoom(pan, zoom, centroid, rotation)
+            RotationAxis.X -> {
+                onViewportPanZoom(pan, zoom, centroid)
+                onSceneOrbit(0f, Math.toRadians(rotation.toDouble()).toFloat())
+            }
+            RotationAxis.Y -> {
+                onViewportPanZoom(pan, zoom, centroid)
+                onSceneOrbit(Math.toRadians(rotation.toDouble()).toFloat(), 0f)
+            }
+        }
+    }
+
+    /**
+     * How much nearer a Move-tool pinch of [zoom] brings a layer at [actualDepth]: to depth / zoom, so
+     * its apparent size follows the fingers. The clamp is on the destination, so pinching out again and
+     * again stops at [minDepth], short of the near plane, instead of stepping through it.
+     */
+    private fun pinchNearer(actualDepth: Float, zoom: Float, minDepth: Float): Float =
+        if (zoom == 1f) 0f else actualDepth - (actualDepth / zoom).coerceAtLeast(minDepth)
+
+    /** Turns the 3D camera about its target by [yaw] and [pitch] radians. */
+    fun onSceneOrbit(yaw: Float, pitch: Float) {
+        updateUi { it.copy(sceneCamera = it.sceneCamera.orbit(yaw, pitch)) }
     }
 
     /** A camera gesture ended: the view is part of the project, so it is saved (never history). */
     fun onSceneCameraSettled() = saveProject()
 
-    fun resetSceneCamera() {
-        updateUi { it.copy(sceneCamera = SceneCamera()) }
-        saveProject()
-    }
-
-    /** A plane drag starts: one undo step for the whole drag, as for the 2D transform. */
-    fun onPlaneGestureStart() = onGestureStart()
-
-    fun onPlaneGestureEnd() = onGestureEnd()
-
     /**
-     * One step of a Move, Depth, Tilt or Spin drag on the active layer's plane; [delta] is the
-     * finger's movement in world pixels. Moves are scaled by the plane's depth so the plane keeps
-     * up with the finger, and expressed in the parent group's space.
+     * The Move tool's two fingers on the active layer: [pan] (screen pixels) slides it so it keeps
+     * up with the fingers, [zoom] above 1 brings it nearer (it grows as a pinch-out should) and
+     * [rotation] degrees turn it about the current axis. At the identity camera, on a flat layer,
+     * the slide is exactly the 2D move (linked layers and snapping included).
      */
-    @Suppress("ReturnCount", "LongMethod")
-    fun onPlaneDrag(delta: Offset) {
+    @Suppress("ReturnCount")
+    private fun onLayerTwoFinger(pan: Offset, zoom: Float, rotation: Float) {
         val state = _uiState.value
         val id = state.activeLayerId ?: return
         val size = state.canvasSize
-        if (size.width <= 0 || size.height <= 0) return
+        val worldPan = CanvasHitTest.screenDeltaToWorld(pan, state.viewportZoom, state.viewportRotation)
+        if (rotation != 0f) onTransformGesture(Offset.Zero, 1f, rotation)
+        if (size.width <= 0 || size.height <= 0) {
+            if (worldPan != Offset.Zero) onTransformGesture(worldPan, 1f, 0f)
+            return
+        }
         val w = size.width.toFloat()
         val h = size.height.toFloat()
-        val tool = state.scene3DTool
         val chain = planeChain(state.layers, id)
         if (chain.isEmpty()) return
+        // The 2D move, for a top-level layer only: onTransformGesture adds the world delta to the
+        // offset as is, which for a child of a scaled or rotated group is in the wrong space. A
+        // nested layer takes the plane move below, which goes through the parent's inverse.
+        val flat = chain.size == 1 && state.sceneCamera.isDefault && state.layers.none { it.isPlacedIn3D }
+        if (flat && worldPan != Offset.Zero) {
+            onTransformGesture(worldPan, 1f, 0f, w, h)
+        }
         val frame = SceneMath.frame(state.sceneCamera, w, h)
         val centre = SceneMath.chainModel(chain, w, h).apply(w / 2f, h / 2f, 0f)
-        val depth = frame.toCamera(centre)[2].coerceAtLeast(frame.focal * 0.05f)
-        val perPx = depth / frame.focal
-        val sceneMove: FloatArray? = when (tool) {
-            Scene3DTool.MOVE ->
-                FloatArray(3) { (frame.right[it] * delta.x + frame.down[it] * delta.y) * perPx }
-            Scene3DTool.DEPTH ->
-                FloatArray(3) { frame.forward[it] * -delta.y * perPx * DEPTH_PER_PX }
-            else -> null
+        val minDepth = frame.focal * MIN_LAYER_DEPTH_FRACTION
+        val actualDepth = frame.toCamera(centre)[2]
+        val perPx = actualDepth.coerceAtLeast(minDepth) / frame.focal
+        val nearer = pinchNearer(actualDepth, zoom, minDepth)
+        val sceneMove = FloatArray(3) {
+            val slide = if (flat) 0f else (frame.right[it] * worldPan.x + frame.down[it] * worldPan.y) * perPx
+            // Nearer is against the view direction, toward the eye.
+            slide - frame.forward[it] * nearer
         }
-        val parentInverse = SceneMath.chainModel(chain.dropLast(1), w, h).inverse()
+        if (sceneMove.all { it == 0f }) return
+        val parentInverse = SceneMath.chainModel(chain.dropLast(1), w, h).inverse() ?: return
+        val local = parentInverse.applyVector(sceneMove[0], sceneMove[1], sceneMove[2])
         updateUi { s ->
             s.copy(layers = LayerListOps.mapLayer(s.layers, id) { layer ->
-                when (tool) {
-                    Scene3DTool.MOVE,
-                    Scene3DTool.DEPTH -> {
-                        val m = sceneMove ?: return@mapLayer layer
-                        val local = parentInverse?.applyVector(m[0], m[1], m[2]) ?: return@mapLayer layer
-                        layer.copy(
-                            offset = layer.offset + Offset(local[0], local[1]),
-                            positionZ = layer.positionZ + local[2],
-                        )
-                    }
-                    Scene3DTool.TILT -> layer.copy(
-                        rotationY = layer.rotationY + delta.x * TILT_DEGREES_PER_PX,
-                        rotationX = layer.rotationX - delta.y * TILT_DEGREES_PER_PX,
-                    )
-                    Scene3DTool.SPIN ->
-                        layer.copy(rotationZ = layer.rotationZ + delta.x * TILT_DEGREES_PER_PX)
-                    else -> layer
-                }
+                layer.copy(
+                    offset = layer.offset + Offset(local[0], local[1]),
+                    positionZ = layer.positionZ + local[2],
+                )
             })
         }
     }
@@ -12001,7 +12086,7 @@ class EditorViewModel @Inject constructor(
         offset.x, offset.y, positionZ, rotationX, rotationY, rotationZ, scale,
     )
 
-    /** The active layer back to the identity plane (depth 0, no tilt), as one undo step. */
+    /** The active layer back to the identity plane (depth 0, no tilt), as one undo step; it stays 3D. */
     @Suppress("ReturnCount")
     fun resetActivePlane() {
         val id = _uiState.value.activeLayerId ?: return
@@ -12011,10 +12096,12 @@ class EditorViewModel @Inject constructor(
         updateUi { s ->
             s.copy(
                 layers = LayerListOps.mapLayer(s.layers, id) {
-                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f)
+                    // Flat again, but still a 3D layer: there is no way back to 2D.
+                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f, plane3D = true)
                 },
             )
         }
+        emitActiveLayerProps()
         saveProject()
     }
 
@@ -12028,9 +12115,8 @@ class EditorViewModel @Inject constructor(
             spatial = SpatialLayerContent(),
         )
         dispatch(EditorIntent.AddLayer(layer))
-        updateUi {
-            it.copy(is3DMode = true, scene3DTool = Scene3DTool.DRAW)
-        }
+        // Ready to draw: the brush on a 3D strokes layer draws its curves.
+        setActiveTool(Tool.BRUSH)
         emitMembership(Op.LayerAdd(layer))
         saveProject()
     }
@@ -14145,11 +14231,5 @@ class EditorViewModel @Inject constructor(
 
 }
 
-/** One-finger orbit in 3D: radians of turn per screen pixel. */
-private const val ORBIT_RADIANS_PER_PX = 0.006f
-
-/** Tilt and Spin drags: degrees per screen pixel. */
-private const val TILT_DEGREES_PER_PX = 0.35f
-
-/** Depth drags move faster than Move drags: a plane's depth range is larger than its width. */
-private const val DEPTH_PER_PX = 2f
+/** The nearest a Move-tool pinch brings a layer: this fraction of the focal length from the eye. */
+private const val MIN_LAYER_DEPTH_FRACTION = 0.05f

@@ -68,7 +68,6 @@ class ChromeUiTest {
         override fun onRedoClicked() { calls += "redo" }
         override fun setBrushSize(size: Float) { calls += "size" }
         override fun setBrushFeathering(feathering: Float) { calls += "feather" }
-        override fun toggleScene3D() { calls += "3d" }
     }
 
     private val layers = listOf(

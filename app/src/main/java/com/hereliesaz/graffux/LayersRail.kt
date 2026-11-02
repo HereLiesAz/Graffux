@@ -72,9 +72,14 @@ import kotlinx.coroutines.isActive
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.is3DLayer
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.Amber
+import com.hereliesaz.graffitixr.design.theme.Cyan
+import com.hereliesaz.graffitixr.design.theme.White
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.unit.Dp
 import kotlin.math.abs
 
 /** What the layers rail asks of the screen around it. */
@@ -185,9 +190,22 @@ internal fun railAutoscrollStep(fingerY: Float, top: Float, bottom: Float, edge:
     else -> 0f
 }
 
+/**
+ * A layer tile's outline (spec/3d-space.md, "2D and 3D layers"): the active 2D layer wears the
+ * rail's selected-tool [accent], the active 3D layer the X-axis cyan, any other 3D layer white, and
+ * any other 2D layer none. A secondary (multi-selected) tile keeps its amber ring. Null: no outline.
+ */
+internal fun layerOutline(is3D: Boolean, light: RailLight, accent: Color): Pair<Dp, Color>? = when {
+    light.active -> 2.dp to (if (is3D) Cyan else accent)
+    light.secondary -> 1.dp to Amber
+    is3D -> 1.dp to White
+    else -> null
+}
+
 /** The TalkBack label of a layer's thumbnail: its name, then every state the thumbnail draws. */
 internal fun layerThumbLabel(layer: Layer, masked: Boolean, expanded: Boolean): String =
     layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
+        (if (layer.is3DLayer) ", 3D" else "") +
         (if (masked) ", masked" else "") +
         (if (layer.alphaLock) ", alpha locked" else "") +
         (if (layer.isVisible) "" else ", hidden") + (if (layer.isContainer && expanded) ", open" else "")
@@ -399,8 +417,8 @@ internal fun LayersRail(
 }
 
 /**
- * One layer's button, as the mockup draws it: a 44dp rounded square with a hairline border (2dp
- * and ink for the active layer), the layer's content inset 3dp inside it, dimmed with an eye-off
+ * One layer's button, as the mockup draws it: a 44dp rounded square outlined by [layerOutline]
+ * (2D or 3D, active or not), the layer's content inset 3dp inside it, dimmed with an eye-off
  * badge at the corner while hidden.
  */
 @Suppress("FunctionNaming")
@@ -418,14 +436,9 @@ private fun LayerThumb(
         Box(
             modifier = Modifier
                 .size(RailButtonSize)
-                .border(
-                    width = if (light.active) 2.dp else 1.dp,
-                    color = when {
-                        light.active -> RailInk
-                        light.secondary -> Amber
-                        else -> RailBorder
-                    },
-                    shape = ThumbShape,
+                .then(
+                    layerOutline(layer.is3DLayer, light, MaterialTheme.colorScheme.primary)
+                        ?.let { (width, color) -> Modifier.border(width, color, ThumbShape) } ?: Modifier,
                 )
                 // The row around this handles the touch: tap, long-press and drag are one gesture.
                 .semantics {

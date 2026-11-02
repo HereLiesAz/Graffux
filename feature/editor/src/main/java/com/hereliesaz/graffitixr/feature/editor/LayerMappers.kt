@@ -56,6 +56,7 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         shapes = shapes,
         adjustment = adjustment,
         positionZ = positionZ,
+        plane3D = plane3D,
         spatial = spatial,
     )
 }
@@ -105,6 +106,7 @@ fun OverlayLayer.toLayer(): Layer {
         shapes = shapes,
         adjustment = adjustment,
         positionZ = positionZ,
+        plane3D = plane3D,
         spatial = spatial,
     )
 }

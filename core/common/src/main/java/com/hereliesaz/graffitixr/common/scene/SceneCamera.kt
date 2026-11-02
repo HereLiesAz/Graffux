@@ -55,7 +55,3 @@ data class SpatialLayerContent(
     val strokes: List<SpatialStroke> = emptyList(),
     val guide: SpatialGuide = SpatialGuide(),
 )
-
-/** What a one-finger drag does while 3D is on. */
-@Serializable
-enum class Scene3DTool { ORBIT, MOVE, DEPTH, TILT, SPIN, DRAW, ERASE }

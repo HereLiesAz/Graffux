@@ -36,6 +36,14 @@ class LayerMappersTest {
     }
 
     @Test
+    fun `a layer made 3D by hand stays 3D through the round trip`() {
+        val made = Layer(id = "p", name = "p", uri = uri, plane3D = true)
+        val restored = made.toOverlayLayer().toLayer()
+        assertEquals(true, restored.plane3D)
+        assertEquals(false, Layer(id = "q", name = "q", uri = uri).toOverlayLayer().toLayer().plane3D)
+    }
+
+    @Test
     fun `hierarchy fields survive the round trip`() {
         // The regression this file exists to prevent.
         val child = Layer(id = "c", name = "child", uri = uri, parentId = "g", type = LayerType.VECTOR)

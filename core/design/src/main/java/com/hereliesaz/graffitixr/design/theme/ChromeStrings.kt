@@ -17,6 +17,8 @@ data class LayerMenuStrings(
     val blendMode: String,
     val curves: String,
     val transform: String,
+    /** Back to the flat plane: depth 0, no X/Y tilt. Only on a layer placed in 3D. */
+    val resetPlane: String,
     val layerOptions: String,
     val rename: String,
     val moveUp: String,
@@ -77,6 +79,7 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     blendMode = stringResource(R.string.layer_menu_blend_mode),
     curves = stringResource(R.string.layer_menu_curves),
     transform = stringResource(R.string.layer_menu_transform),
+    resetPlane = stringResource(R.string.layer_menu_reset_plane),
     layerOptions = stringResource(R.string.layer_menu_layer_options),
     rename = stringResource(R.string.layer_menu_rename),
     moveUp = stringResource(R.string.layer_menu_move_up),

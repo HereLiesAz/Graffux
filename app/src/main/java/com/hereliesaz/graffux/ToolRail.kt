@@ -32,9 +32,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.common.model.CanvasViewport
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
+import com.hereliesaz.graffitixr.common.model.is3DLayer
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
+import com.hereliesaz.graffitixr.design.theme.Cyan
+import com.hereliesaz.graffitixr.design.theme.HotPink
+import com.hereliesaz.graffitixr.design.theme.NeonGreen
 import com.hereliesaz.graffitixr.design.theme.RobotoCondensedFamily
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import kotlin.math.abs
@@ -55,8 +60,11 @@ internal interface ToolRailActions {
     fun onRedoClicked()
     fun setBrushSize(size: Float)
     fun setBrushFeathering(feathering: Float)
-    /** The 3D button: canvas gestures drive the 3D camera and planes (spec/3d-space.md). */
-    fun toggleScene3D()
+    /**
+     * The axis slot (spec/3d-space.md): on a 3D layer it steps X -> Y -> Z, the axis a two-finger
+     * twist turns about; on a 2D layer, where it reads "3D", it makes the layer 3D.
+     */
+    fun onAxisSlotTapped() = Unit
 }
 
 /** [ToolRailActions] on the real view-model. */
@@ -68,7 +76,7 @@ internal fun EditorViewModel.toolRailActions(): ToolRailActions = object : ToolR
     override fun onRedoClicked() = this@toolRailActions.onRedoClicked()
     override fun setBrushSize(size: Float) = this@toolRailActions.setBrushSize(size)
     override fun setBrushFeathering(feathering: Float) = this@toolRailActions.setBrushFeathering(feathering)
-    override fun toggleScene3D() = this@toolRailActions.toggleScene3D()
+    override fun onAxisSlotTapped() = this@toolRailActions.onAxisSlotTapped()
 }
 
 /** What the tool rail asks of the screen around it. */
@@ -209,21 +217,19 @@ internal fun ToolRail(
             on = PHOTO_RAIL_ID in lit,
             onClick = callbacks.onAdjust,
         )
-        // 3D: while lit, one finger orbits the camera or moves the active plane and two fingers
-        // pan and dolly; off, the tools paint again, with the view left where it was.
-        ModeButton(
-            label = "3D",
-            tag = "rail.$SCENE_3D_RAIL_ID",
-            icon = null,
-            text = "3D",
-            on = uiState.is3DMode,
-            onClick = { vm.toggleScene3D() },
-        )
+        // The axis slot, always there. On a 3D layer: the current rotation axis as its letter in
+        // the axis's colour, so which axis a twist turns about is always on screen; a tap steps
+        // X -> Y -> Z, the same state a double-tap on the canvas steps. On a 2D layer: "3D", and a
+        // tap makes the layer 3D.
+        val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DLayer == true
+        AxisButton(uiState.activeRotationAxis.takeIf { active3D }) { vm.onAxisSlotTapped() }
         // Not in the mockup; kept because the rail is the eraser's only always-there button.
         tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
-            uiState.viewportRotation != 0f
+            uiState.viewportRotation != 0f ||
+            // A twist on X or Y orbits the 3D camera (spec/3d-space.md); Fit puts it back too.
+            !uiState.sceneCamera.isDefault
         // Only there while there is something to reset.
         if (viewMoved) {
             RailButton(label = "Fit the canvas to the screen", testTag = "rail.view.fit", onClick = { vm.resetViewport() }) {
@@ -255,17 +261,15 @@ internal fun dominantAxis(total: Offset): DragAxis =
 /** The Retouch group's rail id: lit while an [EFFECT_TOOLS] tool is in hand or its page is open. */
 internal const val RETOUCH_RAIL_ID = "grp.effects"
 
-/** The 3D button's rail id: lit while 3D mode is on. */
-internal const val SCENE_3D_RAIL_ID = "view.3d"
 
 /** The Adjust circle's rail id: lit while the sheet shows the photo tabs. */
 internal const val PHOTO_RAIL_ID = "area.photo"
 
 /**
- * Frame, Adjust photo and 3D, after Transform. Lit as the mockup draws them: a filled ink circle with
+ * Frame and Adjust photo, after Transform. Lit as the mockup draws them: a filled ink circle with
  * the glyph in the canvas's near-black, not the accent ring of the other tools, because each turns
  * the sheet (and, on a tablet, the side panel) into a mode of its own. With no [icon], [text] is
- * drawn as the glyph instead (3D is the literal "3D").
+ * drawn as the glyph instead.
  */
 @Composable
 private fun ModeButton(
@@ -292,6 +296,29 @@ private fun ModeButton(
 }
 
 private val AdjustOnInk = androidx.compose.ui.graphics.Color(0xFF0E0E0F)
+
+/** The axis cycler's rail id. */
+internal const val AXIS_RAIL_ID = "view.axis"
+
+/** Each rotation axis's colour, as the "Axis:" chip names them: X cyan, Y pink, Z green. */
+internal fun RotationAxis.railColor() = when (this) {
+    RotationAxis.X -> Cyan
+    RotationAxis.Y -> HotPink
+    RotationAxis.Z -> NeonGreen
+}
+
+/** The axis slot: [axis] on a 3D layer, or null on a 2D one, which reads "3D". */
+@Composable
+private fun AxisButton(axis: RotationAxis?, onClick: () -> Unit) {
+    RailButton(
+        label = if (axis != null) "Rotation axis ${axis.name}. Tap to change" else "Make this layer 3D",
+        testTag = "rail.$AXIS_RAIL_ID",
+        onClick = onClick,
+    ) {
+        Text(axis?.name ?: "3D", color = axis?.railColor() ?: RailInk, fontSize = if (axis != null) 18.sp else 16.sp,
+            fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
+    }
+}
 
 /** The brush's long-press menu. */
 internal fun MenuBuilder.brushMenu(

@@ -59,7 +59,6 @@ class DesignMockupShotTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
-        override fun toggleScene3D() = Unit
     }
 
     private val design = object : DesignActions {
@@ -147,7 +146,7 @@ class DesignMockupShotTest {
         // The Frame circle sits after Transform: the rail grows by one 44dp button and a 6dp gap.
         val tools = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
         // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        assertEquals(488 + 50 + 50 + 50 + 1 + 50 + 50 + 50, dp(tools.height)) // + Brush, Retouch, 3D
+        assertEquals(488 + 50 + 50 + 50 + 1 + 50 + 50 + 50, dp(tools.height)) // + Brush, Retouch, axis cycler
         val frame = rule.onNodeWithTag("rail.tool.frame").fetchSemanticsNode().boundsInRoot
         // A 48dp target around the drawn 44dp circle.
         assertEquals(48, dp(frame.width))

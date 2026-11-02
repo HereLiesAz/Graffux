@@ -42,7 +42,6 @@ class BrushOpensSheetUiTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
-        override fun toggleScene3D() = Unit
     }
 
     /** The same wiring MainActivity has: the rail's onBrush and the active-tool effect. */

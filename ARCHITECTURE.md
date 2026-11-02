@@ -504,10 +504,15 @@ Full design: `spec/3d-space.md`. In short:
   mean uploading every layer and re-implementing blend modes, clipping, colour filters and groups,
   and adding cost to the identity path. The wgpu direct-display overlay and the crisp zoom overlay
   stay fast-path only.
-- **Gestures.** The rail's 3D button (`EditorUiState.is3DMode`) mounts `Scene3DCanvas` above every
-  tool surface: one finger does the 3D strip's tool (Orbit, Move, Depth, Tilt, Spin; Draw and Erase
-  on a 3D strokes layer); the root's two-finger navigation drives the camera instead of the 2D
-  view. Each plane drag is one undo step (`onGestureStart`/`onGestureEnd`). With 3D off, the brush,
+- **Gestures.** No 3D mode (map in `spec/3d-space.md`). The root's two-finger navigation
+  (`Modifier.canvasNavigation`, keyed on `Unit` so it never restarts mid-gesture) calls
+  `EditorViewModel.onTwoFingerStart`/`onTwoFingerGesture`/`onTwoFingerEnd`: on the view, pan/pinch
+  move the 2D view and a twist rotates it about `activeRotationAxis` (Z: the 2D rotation; X/Y: the
+  camera's orbit); with the Transform panel open, the same gestures move, push and rotate the active
+  layer as one undo step. Only on a 3D layer (`Layer.is3DLayer`: the stored `plane3D` flag, a 3D
+  placement, or 3D strokes); on a 2D layer a twist only rotates the canvas. The rail's axis slot
+  reads "3D" on a 2D layer and converts it; on a 3D layer it and a double-tap step the axis.
+  `Scene3DCanvas` is mounted only for the brush or eraser on a 3D strokes layer. The brush,
   fill and clone surfaces map each touch through `SceneMath.worldToLayerFlat` (ray-plane hit, then
   the layer's own flat 2D transform), so every tool works unchanged on a tilted plane.
 - **3D strokes layers.** `Layer.spatial` (`SpatialLayerContent`: strokes + guide) on a RASTER layer

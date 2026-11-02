@@ -38,7 +38,7 @@ fun TransformPanel(
     activeLayer: Layer?,
     actions: EditorViewModel,
     modifier: Modifier = Modifier,
-    is3DMode: Boolean = false,
+    cameraMoved: Boolean = false,
 ) {
     if (activeLayer == null) return
     val id = activeLayer.id
@@ -58,7 +58,7 @@ fun TransformPanel(
 
         // No per-layer 3D switch: a layer is in 3D once it is placed there (spec/3d-space.md), and
         // these fields show then, or while 3D mode is on and it can be placed.
-        if (activeLayer.isPlacedIn3D || is3DMode) {
+        if (activeLayer.isPlacedIn3D || cameraMoved) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField(
                     label = "Rotate X°",

@@ -2,7 +2,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
-import com.hereliesaz.graffitixr.common.scene.Scene3DTool
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.planeChain
 
@@ -202,16 +201,12 @@ fun EditorScreen(
             // swing the canvas behind it.
             .then(
                 if (uiState.quickMenuAt == null) {
-                    Modifier.canvasNavigation { pan, zoom, centroid, rotation ->
-                        // In 3D two fingers drive the scene camera; otherwise the 2D view.
-                        val st = vm.uiState.value
-                        if (st.is3DMode) {
-                            vm.onScenePanDolly(
-                                CanvasHitTest.screenDeltaToWorld(pan, st.viewportZoom, st.viewportRotation), zoom,
-                            )
-                        } else {
-                            vm.onViewportPanZoom(pan, zoom, centroid, rotation)
-                        }
+                    // The view, or the active layer with the Move tool in hand (spec/3d-space.md).
+                    Modifier.canvasNavigation(
+                        onStart = { vm.onTwoFingerStart() },
+                        onEnd = { vm.onTwoFingerEnd() },
+                    ) { pan, zoom, centroid, rotation ->
+                        vm.onTwoFingerGesture(pan, zoom, centroid, rotation)
                     }
                 } else Modifier
             )
@@ -298,7 +293,7 @@ fun EditorScreen(
                         // a flat document, which keeps every layer on the original 2D path.
                         val sceneContext = remember(
                             uiState.layers, uiState.sceneCamera, boxWidth, boxHeight, spatialDraft.value,
-                            uiState.is3DMode, uiState.scene3DTool, uiState.activeLayerId,
+                            uiState.activeTool, uiState.activeLayerId,
                         ) {
                             if (boxWidth <= 0f || boxHeight <= 0f) {
                                 null
@@ -312,7 +307,7 @@ fun EditorScreen(
                                     depth = com.hereliesaz.graffitixr.common.scene.DepthComposite
                                         .plan(uiState.layers, uiState.sceneCamera),
                                     showGuideFor = uiState.activeLayerId.takeIf {
-                                        uiState.is3DMode && uiState.scene3DTool == Scene3DTool.DRAW
+                                        uiState.spatialStrokeTool == SpatialStrokeTool.DRAW
                                     },
                                 )
                             }
@@ -401,9 +396,9 @@ fun EditorScreen(
                     .fillMaxSize()
                     .pointerInput(uiState.activeLayerId, activeLayerLocked) {
                         detectTapGestures(
-                            onDoubleTap = { offset ->
-                                vm.onCanvasDoubleTap(offset, size.width.toFloat(), size.height.toFloat())
-                            },
+                            // Steps the rotation axis X -> Y -> Z on a 3D layer; nothing on a 2D
+                            // one (spec/3d-space.md).
+                            onDoubleTap = { vm.onCanvasDoubleTap() },
                             // Tap selects the layer under the finger (or dismisses panels on a miss).
                             onTap = { offset ->
                                 vm.onCanvasTap(offset, size.width.toFloat(), size.height.toFloat())
@@ -535,7 +530,6 @@ fun EditorScreen(
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
         val canPaintActiveLayer = activeLayer != null && !activeLayerLocked &&
-            uiState.canvasGestureMode == CanvasGestureMode.PAINT &&
             activeLayer.spatial == null
         if (canPaintActiveLayer && inkUtensil != null && vm.usesJetpackInk(uiState)) {
             com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
@@ -779,12 +773,13 @@ fun EditorScreen(
             }
         }
 
-        // 3b-quater. 3D on: canvas gestures drive the camera and the active plane (spec/3d-space.md).
-        // Above every tool surface, so a one-finger drag never also paints; the root's two-finger
-        // navigation, an ancestor, still sees everything.
-        if (uiState.canvasGestureMode == CanvasGestureMode.SCENE_3D) {
-            Scene3DCanvas(uiState, vm.scene3DActions(), spatialDraft, Modifier.fillMaxSize())
-            Scene3DToolbar(uiState, vm.scene3DActions(), Modifier.align(Alignment.TopCenter).padding(top = 72.dp))
+        // 3b-quater. A 3D strokes layer under the brush or eraser: one finger draws or erases its
+        // curves (spec/3d-space.md). Above every tool surface, so it never also paints; the root's
+        // two-finger navigation, an ancestor, still sees everything.
+        if (uiState.spatialStrokeTool != null) {
+            val scene3DActions = remember(vm) { vm.scene3DActions() }
+            Scene3DCanvas(uiState, scene3DActions, spatialDraft, Modifier.fillMaxSize())
+            Scene3DToolbar(uiState, scene3DActions, Modifier.align(Alignment.TopCenter).padding(top = 72.dp))
         }
 
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
@@ -1127,6 +1122,8 @@ private fun LayerStackNode(
  * active, and there is no other way to move the canvas while painting on it.
  */
 internal fun Modifier.canvasNavigation(
+    onStart: () -> Unit = {},
+    onEnd: () -> Unit = {},
     onPanZoom: (pan: Offset, zoom: Float, centroid: Offset, rotation: Float) -> Unit,
 ): Modifier = this.pointerInput(Unit) {
     // Keyed on Unit so it never restarts: keying on the viewport would cancel and relaunch this
@@ -1137,22 +1134,30 @@ internal fun Modifier.canvasNavigation(
         // down (the Transform layer's tap detector consumes it outright); waiting for an unconsumed
         // one would mean never starting to track, and the pinch that follows would be missed.
         awaitFirstDown(requireUnconsumed = false)
-        while (true) {
-            val event = awaitPointerEvent()
-            val pressed = event.changes.count { it.pressed }
-            if (pressed == 0) break
-            // One finger is never the camera's — leave it entirely unclaimed.
-            if (pressed < 2) continue
-            val centroid = event.calculateCentroid()
-            if (centroid != Offset.Unspecified) {
-                onPanZoom(
-                    event.calculatePan(),
-                    event.calculateZoom(),
-                    centroid,
-                    event.calculateRotation(),
-                )
+        var started = false
+        try {
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressed = event.changes.count { it.pressed }
+                if (pressed == 0) break
+                // One finger is never the camera's — leave it entirely unclaimed.
+                if (pressed < 2) continue
+                // One start and one end per gesture, so a two-finger drag is one undo step.
+                if (!started) { started = true; onStart() }
+                val centroid = event.calculateCentroid()
+                if (centroid != Offset.Unspecified) {
+                    onPanZoom(
+                        event.calculatePan(),
+                        event.calculateZoom(),
+                        centroid,
+                        event.calculateRotation(),
+                    )
+                }
+                event.changes.forEach { it.consume() }
             }
-            event.changes.forEach { it.consume() }
+        } finally {
+            // Also on cancellation, so an interrupted gesture never leaves its undo step open.
+            if (started) onEnd()
         }
     }
 }

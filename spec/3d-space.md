@@ -9,36 +9,70 @@ The canvas is one 3D space. Every layer is a flat plane. A layer that was never 
 where it always has: at depth 0, facing the camera. A document never touched in 3D looks and
 behaves exactly as before, through exactly the same render path.
 
-The **3D** button on the left tool rail (cube glyph, lit while on) switches the canvas gestures:
+There is no 3D mode. "2D" is simply the identity camera. What two fingers and a double-tap do
+depends on whether the **active layer** is a 2D or a 3D layer (below):
 
-| 3D | One finger | Two fingers |
-|---|---|---|
-| Off | the tool in hand paints, fills, selects... | pan / pinch-zoom / twist the 2D view (unchanged) |
-| On, Orbit | orbit the camera about its target | pan the camera target, pinch to dolly |
-| On, Move | slide the active layer's plane across the view | (camera, as above) |
-| On, Depth | drag up/down: push the plane away / pull it closer along the view direction | (camera) |
-| On, Tilt | drag across: turn about the plane's Y axis; up/down: about its X axis | (camera) |
-| On, Spin | drag across: turn about the plane's Z axis | (camera) |
-| On, Draw (3D strokes layer) | draw a tube on the layer's guide | (camera) |
-| On, Erase (3D strokes layer) | erase the stroke under the finger | (camera) |
+| Gesture | 2D layer | 3D layer, no Move tool | 3D layer, Move / Transform tool (Transform panel open) |
+|---|---|---|---|
+| One finger | the tool in hand (unchanged) | the tool in hand, on the layer's plane | drag the active layer (as before) |
+| Two-finger drag | pan the view | pan the view | slide the layer so it follows the fingers |
+| Pinch | zoom the view | zoom the view | move the layer in depth (out = nearer) |
+| Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn) | rotate the layer about the current axis |
+| Double-tap | nothing | step the axis X -> Y -> Z | step the axis X -> Y -> Z |
+| Brush / Eraser on a 3D strokes layer | | draw a tube on its guide / erase the curve under the finger | |
 
-The modes are a strip of chips over the top of the canvas while 3D is on, with **Reset view**
-(camera back to the default) and **Reset plane** (active layer back to the identity plane). Two
-fingers always drive the camera in 3D, so no mode can strand the user. Move, Depth, Tilt and Spin
-act on the active layer wherever the finger lands; that keeps them predictable on a tilted or
-off-screen plane, where hit-testing would be ambiguous. Each drag is one undo step.
+A double-tap never changes the active layer; a buried layer is picked from the layers rail. (The
+old double-tap that cycled through the layers under the finger is gone.)
 
-Turning 3D off does not snap anything back. The camera stays where it was left and every layer
-keeps its placement, still rendered in perspective. One finger paints with every tool; when the
-active layer is tilted or the camera has moved, each touch is mapped onto the layer through a
-ray-plane intersection (below), so brushes and tools work unchanged on the tilted plane. Two
-fingers pan and zoom the 2D view on top of the 3D projection, as before.
+## 2D and 3D layers
 
-There is no per-layer "3D" toggle. A layer is "in 3D" exactly when it has a depth or an X/Y tilt
-(`Layer.isPlacedIn3D`). The old `is3D` field, its Transform-panel switch and its reducer intent
-are deleted. Projects never saved it; a co-op peer or snapshot from an older build that still
-sends the key decodes cleanly, because `Layer` skips unknown keys. The Transform panel shows the X, Y and depth fields whenever
-the layer is placed in 3D or 3D mode is on.
+The two stay distinct. A layer is a **3D layer** (`Layer.is3DLayer`) when any of these holds:
+
+- it was made 3D by hand: `Layer.plane3D`, a stored flag, saved with the project
+  (`OverlayLayer.plane3D`; absent from older saves, which load every layer as 2D unless placed);
+- it is placed in 3D (`Layer.isPlacedIn3D`: a depth or an X/Y tilt), by any means: view-plane
+  adoption, the Move tool's depth or tilt, the Transform panel, an older project;
+- it is a 3D strokes layer.
+
+A dedicated flag is needed because `isPlacedIn3D` is derived from the transform alone: a layer made
+3D by hand still sits on the identity plane until it is moved, and must stay 3D. There is no way
+back to 2D by design: Reset plane flattens the plane and sets `plane3D`, so the layer stays 3D.
+
+On the layers rail the tile outline tells them apart: the active 2D layer wears the rail's
+selected-tool accent (pink), the active 3D layer cyan (the X-axis colour), any other 3D layer white,
+and any other 2D layer no outline. A 3D tile's TalkBack label also says "3D".
+
+The rail's **axis slot** (the slot the old 3D button had) is always there:
+
+- on a 2D layer it reads **3D**; a tap makes the layer 3D as one undo step, on axis Z, and the
+  slot then reads **Z**;
+- on a 3D layer it shows the current axis as its letter in the axis colour (X cyan, Y pink, Z
+  green), so the user can always see which axis a twist turns about; a tap steps X -> Y -> Z,
+  the same state a double-tap steps. An "Axis:" chip confirms a change briefly, then clears.
+
+On a 2D layer the camera can still have been moved by 3D work elsewhere; the document renders
+through it as always, but a twist only ever rotates the canvas.
+
+Two fingers act on the view unless the Move / Transform tool is in hand on a 3D layer, so no tool
+can strand the user. The Move tool acts on the active layer wherever the fingers land; that keeps it
+predictable on a tilted or off-screen plane, where hit-testing would be ambiguous. Each completed
+two-finger gesture on a layer is one undo step; view gestures are never history (the camera is
+saved with the project when the gesture ends). Every gesture follows the fingers continuously: the
+canvas gesture handlers are keyed so a state write on every step never restarts them.
+
+**Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
+the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,
+no X/Y tilt) as one undo step.
+
+Nothing snaps back on its own. The camera stays where it was left and every layer keeps its
+placement, rendered in perspective. When the active layer is tilted or the camera has moved, each
+touch is mapped onto the layer through a ray-plane intersection (below), so brushes and tools work
+unchanged on the tilted plane.
+
+The old `Layer.is3D` field, its Transform-panel switch and its reducer intent are deleted; `plane3D`
+is a different key, so a co-op peer or snapshot from an older build that still sends `is3D` decodes
+cleanly, because `Layer` skips unknown keys. The Transform panel shows the X, Y and depth fields
+whenever the layer is placed in 3D or the camera has moved.
 
 ## Data model
 
@@ -63,7 +97,7 @@ picture plane.
   it as an empty layer. Stroke coordinates keep the old spatial units; one unit is `F / 3` scene
   pixels, with y up and z toward the viewer, so the old sketch's default orbit camera (distance 3,
   pitch 0) is exactly the new default scene camera.
-- **UI state.** `EditorUiState.sceneCamera`, `is3DMode`, `scene3DTool`. Written only through
+- **UI state.** `EditorUiState.sceneCamera` and `activeRotationAxis`. Written only through
   `updateUi` / the reducer. Camera moves are view state, not history, like the 2D viewport.
 
 ## Render path

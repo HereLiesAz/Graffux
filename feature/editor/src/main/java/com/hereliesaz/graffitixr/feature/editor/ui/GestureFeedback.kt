@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,13 +17,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import kotlinx.coroutines.delay
 
 /**
- * Renders visual feedback when a transformation gesture is active.
+ * A brief "Axis:" confirmation after the rotation axis changes (double-tap or the rail's cycler).
  */
 @Composable
-fun GestureFeedback(state: EditorUiState, modifier: Modifier = Modifier) {
-    val showFeedback = state.gestureInProgress || state.showRotationAxisFeedback
+fun GestureFeedback(state: EditorUiState, modifier: Modifier = Modifier, onFeedbackShown: () -> Unit = {}) {
+    // A double-tap's axis change shows briefly, then clears itself.
+    LaunchedEffect(state.showRotationAxisFeedback, state.activeRotationAxis) {
+        if (state.showRotationAxisFeedback) {
+            delay(AXIS_FEEDBACK_MS)
+            onFeedbackShown()
+        }
+    }
+    // Only a brief confirmation of an axis change: the rail's axis cycler is the persistent cue.
+    val showFeedback = state.showRotationAxisFeedback
     val activeLayer = state.layers.find { it.id == state.activeLayerId }
     val isLocked = activeLayer?.isImageLocked ?: false
 
@@ -53,3 +63,6 @@ fun GestureFeedback(state: EditorUiState, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** How long a double-tap's axis change stays on screen. */
+private const val AXIS_FEEDBACK_MS = 1200L
