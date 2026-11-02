@@ -137,6 +137,12 @@ data class Layer(
     @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val positionZ: Float = 0f,
     /**
+     * Made a 3D layer by hand (the rail's "3D" button) before anything moved it in depth: a layer
+     * stays 3D ([is3DLayer]) even while its plane is still the identity, which [isPlacedIn3D],
+     * derived from the transform alone, cannot say. Never cleared. Saved with the project.
+     */
+    val plane3D: Boolean = false,
+    /**
      * A 3D strokes layer's ink and guide (spec/3d-space.md). Null for every other layer. Like an
      * adjustment layer it is RASTER with no bitmap, so an older build shows it as an empty layer.
      */
@@ -215,6 +221,14 @@ data class Layer(
 /** Placed in the 3D space: a depth or an X/Y tilt (spec/3d-space.md). No toggle sets this. */
 val Layer.isPlacedIn3D: Boolean
     get() = positionZ != 0f || rotationX != 0f || rotationY != 0f
+
+/**
+ * A 3D layer, as opposed to a 2D one (spec/3d-space.md, "2D and 3D layers"): made 3D by hand,
+ * placed in 3D by any means (view-plane adoption, the Move tool's depth or tilt), or a 3D strokes
+ * layer. Only a 3D layer has a rotation axis: X/Y twists and the axis cycler need one.
+ */
+val Layer.is3DLayer: Boolean
+    get() = plane3D || isPlacedIn3D || spatial != null
 
 /** A 3D strokes layer (spec/3d-space.md). */
 val Layer.isSpatial: Boolean

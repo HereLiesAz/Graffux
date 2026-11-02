@@ -28,8 +28,9 @@ consumes the same modules for its 2D work and adds AR on top.
 - **One 3D space** — every layer is a plane that can be moved, pushed back and tilted in XYZ,
   seen through one perspective camera, with no separate 3D mode. Two fingers pan, zoom and twist
   the view about the current axis (Z rotates the canvas; X and Y orbit the camera in depth); with
-  the Move / Transform tool they move, push and rotate the active layer instead. The rail's axis
-  cycler (or a double-tap) steps X / Y / Z and always shows the current one. Every brush and tool
+  the Move / Transform tool they move, push and rotate the active layer instead. Layers stay 2D or
+  3D: the rail's axis slot reads "3D" on a 2D layer and makes it 3D; on a 3D layer it (or a
+  double-tap) steps X / Y / Z and always shows the current one. Every brush and tool
   paints on the tilted plane where the finger touches it. A document never moved in 3D draws exactly
   as before. See `spec/3d-space.md`.
 - **3D strokes layers** — draw real XYZ pressure-sensitive curves against adjustable camera-facing

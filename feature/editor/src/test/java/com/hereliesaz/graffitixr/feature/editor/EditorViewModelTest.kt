@@ -2,6 +2,7 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import com.hereliesaz.graffitixr.common.model.is3DLayer
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import com.hereliesaz.graffitixr.common.model.isSpatial
 
@@ -1312,7 +1313,8 @@ class EditorViewModelTest {
     @Test
     fun `a twist on X or Y orbits the camera progressively, and Fit resets it`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.onLayerActivated("a")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         setAxis(RotationAxis.Y)
         viewModel.onTwoFingerStart()
@@ -1337,9 +1339,9 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `with the Move tool two fingers act on the layer, one undo step per gesture`() = runTest {
+    fun `with the Move tool two fingers act on a 3D layer, one undo step per gesture`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
         viewModel.onLayerActivated("a")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         viewModel.onTransformClicked()
@@ -1376,6 +1378,7 @@ class EditorViewModelTest {
         viewModel.resetActivePlane()
         testDispatcher.scheduler.advanceUntilIdle()
         assertFalse(viewModel.uiState.value.layers.single().isPlacedIn3D)
+        assertTrue(viewModel.uiState.value.layers.single().is3DLayer)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(30f, viewModel.uiState.value.layers.single().positionZ)
@@ -1476,58 +1479,84 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `onCanvasDoubleTap cycles selection to next layer at tap location`() = runTest {
+    fun `double-tap never changes the active layer, even over overlapping layers`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        // Two overlapping vector layers at center (500, 500)
         val l1 = VectorShape(kind = ShapeKind.RECTANGLE, width = 400f, height = 400f)
-        val layer1 = Layer(id = "layer1", name = "1", shapes = listOf(l1))
-        val layer2 = Layer(id = "layer2", name = "2", shapes = listOf(l1))
-        viewModel.setLayers(listOf(layer1, layer2))
-        viewModel.onLayerActivated("layer2") // layer2 is topmost (last in list)
+        viewModel.setLayers(
+            listOf(
+                Layer(id = "layer1", name = "1", shapes = listOf(l1)),
+                Layer(id = "layer2", name = "2", shapes = listOf(l1)),
+            ),
+        )
+        viewModel.onLayerActivated("layer2")
         testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals("layer2", viewModel.uiState.value.activeLayerId)
-
-        // Double tap at center: hits = [layer2, layer1]. Active is index 0 (layer2). Next is layer1.
-        viewModel.onCanvasDoubleTap(Offset(500f, 500f), 1000f, 1000f)
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals("layer1", viewModel.uiState.value.activeLayerId)
-
-        // Double tap again at center: Active is index 1 (layer1). Next wraps to layer2.
-        viewModel.onCanvasDoubleTap(Offset(500f, 500f), 1000f, 1000f)
+        viewModel.onCanvasDoubleTap()
+        viewModel.onCanvasDoubleTap()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("layer2", viewModel.uiState.value.activeLayerId)
     }
 
     @Test
-    fun `onCanvasDoubleTap cycles the rotation axis when the active layer is 3D and nothing else is under it`() = runTest {
+    fun `double-tap cycles the axis on a 3D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        // In 3D by placement: no per-layer toggle exists any more.
-        val layer = lyr("a").copy(rotationX = 10f)
-        viewModel.setLayers(listOf(layer))
+        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()
-
         val before = viewModel.uiState.value.activeRotationAxis
-        // Off in empty space: hits.size < 2, so this must fall through to axis-cycling rather than
-        // staying a no-op, since the active layer opted into 3D controls.
-        viewModel.onCanvasDoubleTap(Offset(-1000f, -1000f), 1000f, 1000f)
+        viewModel.onCanvasDoubleTap()
         testDispatcher.scheduler.advanceUntilIdle()
         assertNotEquals(before, viewModel.uiState.value.activeRotationAxis)
     }
 
     @Test
-    fun `onCanvasDoubleTap stays a no-op when the active layer is not 3D`() = runTest {
+    fun `double-tap is a no-op on a 2D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        val layer = lyr("a") // flat: not placed in 3D
-        viewModel.setLayers(listOf(layer))
+        viewModel.setLayers(listOf(lyr("a")))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()
-
-        val before = viewModel.uiState.value.activeRotationAxis
-        viewModel.onCanvasDoubleTap(Offset(-1000f, -1000f), 1000f, 1000f)
+        val before = viewModel.uiState.value
+        viewModel.onCanvasDoubleTap()
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(before, viewModel.uiState.value.activeRotationAxis)
+        assertEquals(before.activeRotationAxis, viewModel.uiState.value.activeRotationAxis)
+        assertEquals(before.layers, viewModel.uiState.value.layers)
+    }
+
+    @Test
+    fun `the axis slot makes a 2D layer 3D on Z as one undo step, then cycles the axis`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onCycleRotationAxis() // somewhere other than Z beforehand
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onAxisSlotTapped()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layer = viewModel.uiState.value.layers.single()
+        assertTrue(layer.is3DLayer)
+        assertFalse(layer.isPlacedIn3D)
+        assertEquals(RotationAxis.Z, viewModel.uiState.value.activeRotationAxis)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onAxisSlotTapped()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(RotationAxis.X, viewModel.uiState.value.activeRotationAxis)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.layers.single().is3DLayer)
+    }
+
+    @Test
+    fun `on a 2D layer a twist only rotates the canvas, on any axis`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        setAxis(RotationAxis.Y)
+        viewModel.onTransformClicked()
+        twoFinger(rotation = 5f, steps = 2)
+        assertEquals(10f, viewModel.uiState.value.viewportRotation, 0.01f)
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+        assertEquals(0f, viewModel.uiState.value.layers.single().rotationY)
     }
 
     @Test

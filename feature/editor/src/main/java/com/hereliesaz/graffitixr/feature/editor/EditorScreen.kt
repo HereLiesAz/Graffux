@@ -396,16 +396,9 @@ fun EditorScreen(
                     .fillMaxSize()
                     .pointerInput(uiState.activeLayerId, activeLayerLocked) {
                         detectTapGestures(
-                            // With the Move tool in hand, a double-tap on a layer keeps its job
-                            // (cycling overlapping layers); with no tool it steps the rotation
-                            // axis X -> Y -> Z (spec/3d-space.md).
-                            onDoubleTap = { offset ->
-                                if (vm.uiState.value.activePanel == EditorPanel.TRANSFORM) {
-                                    vm.onCanvasDoubleTap(offset, size.width.toFloat(), size.height.toFloat())
-                                } else {
-                                    vm.onCycleRotationAxis()
-                                }
-                            },
+                            // Steps the rotation axis X -> Y -> Z on a 3D layer; nothing on a 2D
+                            // one (spec/3d-space.md).
+                            onDoubleTap = { vm.onCanvasDoubleTap() },
                             // Tap selects the layer under the finger (or dismisses panels on a miss).
                             onTap = { offset ->
                                 vm.onCanvasTap(offset, size.width.toFloat(), size.height.toFloat())

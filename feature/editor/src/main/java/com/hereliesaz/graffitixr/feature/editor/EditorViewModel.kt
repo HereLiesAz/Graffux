@@ -5110,28 +5110,45 @@ class EditorViewModel @Inject constructor(
 
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
+    /** Whether the active layer is a 3D layer ([is3DLayer]); only one has a rotation axis. */
+    private fun EditorUiState.active3D(): Boolean =
+        layers.firstOrNull { it.id == activeLayerId }?.is3DLayer == true
+
     /**
-     * Two jobs, picked by what's actually under the tap and whether the active layer has opted into
-     * 3D ([isPlacedIn3D]): with two or more overlapping layers there, cycling which one is
-     * active is the useful thing a double-tap can do; with one or none AND a 3D active layer, the
-     * gesture is free for its other job -- stepping which axis (X/Y/Z) the next drag rotates around,
-     * the natural "what am I rotating right now" toggle for 3D work. Outside that, a double-tap over
-     * one-or-no layers stays a no-op, same as before: cycling an axis nothing reads yet would be a
-     * silent, unexplained mode change for ordinary flat editing.
+     * A double-tap on the canvas: steps the rotation axis X -> Y -> Z on a 3D layer, and does
+     * nothing on a 2D one. It never changes the active layer; buried layers are picked from the
+     * layers rail.
      */
-    fun onCanvasDoubleTap(offset: Offset, screenWidth: Float, screenHeight: Float) {
-        val hits = CanvasHitTest.allHits(
-            _uiState.value.layers, offset, screenWidth, screenHeight, camera = _uiState.value.sceneCamera,
-        )
-        if (hits.size < 2) {
-            val active = _uiState.value.layers.find { it.id == _uiState.value.activeLayerId }
-            if (active?.isPlacedIn3D == true) onCycleRotationAxis()
-            return
+    fun onCanvasDoubleTap() {
+        if (_uiState.value.active3D()) onCycleRotationAxis()
+    }
+
+    /**
+     * The rail's axis slot: on a 3D layer it steps the axis; on a 2D layer (where it reads "3D")
+     * it makes that layer 3D.
+     */
+    fun onAxisSlotTapped() {
+        if (_uiState.value.active3D()) onCycleRotationAxis() else makeActiveLayer3D()
+    }
+
+    /**
+     * The active 2D layer becomes a 3D layer (spec/3d-space.md, "2D and 3D layers"), as one undo
+     * step, starting on axis Z. Its plane is untouched; there is no way back to 2D by design.
+     */
+    @Suppress("ReturnCount")
+    fun makeActiveLayer3D() {
+        val st = _uiState.value
+        val id = st.activeLayerId ?: return
+        val layer = st.layers.firstOrNull { it.id == id } ?: return
+        if (layer.is3DLayer) return
+        pushHistory()
+        updateUi { s ->
+            s.copy(
+                layers = LayerListOps.mapLayer(s.layers, id) { it.copy(plane3D = true) },
+                activeRotationAxis = RotationAxis.Z,
+            )
         }
-        val currentId = _uiState.value.activeLayerId
-        val currentIdx = hits.indexOf(currentId)
-        val nextId = if (currentIdx >= 0) hits[(currentIdx + 1) % hits.size] else hits.first()
-        onLayerActivated(nextId)
+        saveProject()
     }
 
     fun onRotateLayerHandle(degreesDelta: Float) {
@@ -11845,10 +11862,10 @@ class EditorViewModel @Inject constructor(
     private var twoFingerTarget: TwoFingerTarget? = null
     private var twoFingerCameraBefore: SceneCamera? = null
 
-    /** Whether the rail's Move / Transform tool is in hand: two fingers then act on the layer. */
+    /** Whether the Move / Transform tool is in hand on a 3D layer: two fingers then act on the layer. */
     private fun EditorUiState.moveToolActive(): Boolean {
         val active = layers.firstOrNull { it.id == activeLayerId }
-        return activePanel == EditorPanel.TRANSFORM && active != null && !active.isImageLocked
+        return activePanel == EditorPanel.TRANSFORM && active != null && !active.isImageLocked && active.is3DLayer
     }
 
     /**
@@ -11900,7 +11917,9 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
-        when (_uiState.value.activeRotationAxis) {
+        // A 2D layer has no axis: a twist only rotates the canvas, as in 2D.
+        val axis = if (_uiState.value.active3D()) _uiState.value.activeRotationAxis else RotationAxis.Z
+        when (axis) {
             // Today's canvas rotation: the identity camera stays put and flat documents stay 2D.
             RotationAxis.Z -> onViewportPanZoom(pan, zoom, centroid, rotation)
             RotationAxis.X -> {
@@ -12034,7 +12053,7 @@ class EditorViewModel @Inject constructor(
         offset.x, offset.y, positionZ, rotationX, rotationY, rotationZ, scale,
     )
 
-    /** The active layer back to the identity plane (depth 0, no tilt), as one undo step. */
+    /** The active layer back to the identity plane (depth 0, no tilt), as one undo step; it stays 3D. */
     @Suppress("ReturnCount")
     fun resetActivePlane() {
         val id = _uiState.value.activeLayerId ?: return
@@ -12044,7 +12063,8 @@ class EditorViewModel @Inject constructor(
         updateUi { s ->
             s.copy(
                 layers = LayerListOps.mapLayer(s.layers, id) {
-                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f)
+                    // Flat again, but still a 3D layer: there is no way back to 2D.
+                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f, plane3D = true)
                 },
             )
         }

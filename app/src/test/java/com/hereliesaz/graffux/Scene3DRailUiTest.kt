@@ -12,10 +12,13 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.is3DLayer
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,7 +26,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * No 3D mode (spec/3d-space.md): the rail's old 3D slot is the axis cycler, and Fit is there whenever the 3D camera
+ * No 3D mode (spec/3d-space.md): the rail's old 3D slot is the axis slot ("3D" on a 2D layer,
+ * the axis on a 3D one), and Fit is there whenever the 3D camera
  * has moved, even with the 2D view untouched, and puts it back.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -43,29 +47,40 @@ class Scene3DRailUiTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
-        // What the reducer's CycleRotationAxis writes.
-        override fun onCycleRotationAxis() {
-            val next = RotationAxis.entries[(state.activeRotationAxis.ordinal + 1) % RotationAxis.entries.size]
-            state = state.copy(activeRotationAxis = next)
+        // What EditorViewModel.onAxisSlotTapped writes: a 2D layer becomes 3D on Z; a 3D one cycles.
+        override fun onAxisSlotTapped() {
+            val layer = state.layers.single()
+            state = if (!layer.is3DLayer) {
+                state.copy(layers = listOf(layer.copy(plane3D = true)), activeRotationAxis = RotationAxis.Z)
+            } else {
+                val next = RotationAxis.entries[(state.activeRotationAxis.ordinal + 1) % RotationAxis.entries.size]
+                state.copy(activeRotationAxis = next)
+            }
         }
     }
 
     @Test
-    fun `the axis cycler is always on the rail, shows the axis and steps X Y Z`() {
+    fun `the axis slot reads 3D on a 2D layer, converts it to Z, then cycles the axis`() {
+        state = state.copy(layers = listOf(Layer("a", "A")), activeLayerId = "a", activeRotationAxis = RotationAxis.Y)
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 ToolRail(actions, state, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}))
             }
         }
+        val slot = rule.onNodeWithTag("rail.$AXIS_RAIL_ID")
+        rule.onNodeWithText("3D", useUnmergedTree = true).assertExists()
+        slot.performClick()
+        rule.waitForIdle()
+        assertTrue(state.layers.single().is3DLayer)
+        rule.onNodeWithText("Z", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("3D", useUnmergedTree = true).assertDoesNotExist()
         val seen = (0 until 3).map {
-            val axis = state.activeRotationAxis
-            rule.onNodeWithTag("rail.$AXIS_RAIL_ID").assertExists()
-            rule.onNodeWithText(axis.name, useUnmergedTree = true).assertExists()
-            rule.onNodeWithTag("rail.$AXIS_RAIL_ID").performClick()
+            slot.performClick()
             rule.waitForIdle()
-            axis
+            rule.onNodeWithText(state.activeRotationAxis.name, useUnmergedTree = true).assertExists()
+            state.activeRotationAxis
         }
-        assertEquals(RotationAxis.entries.toSet(), seen.toSet())
+        assertEquals(listOf(RotationAxis.X, RotationAxis.Y, RotationAxis.Z), seen)
         assertEquals(androidx.compose.ui.graphics.Color(0xFF39FF14), RotationAxis.Z.railColor())
     }
 
