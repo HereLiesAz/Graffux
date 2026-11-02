@@ -498,8 +498,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // them latest-opened first, not in a fixed order.
     val windowLayers = windowOrder.topFirst(
         listOf(
-            // Back leaves 3D (the camera and planes stay where they are).
-            "scene3d" to BackLayer(uiState.is3DMode) { vm.toggleScene3D() },
             "store" to BackLayer(showStore) { showStore = false },
             "open" to BackLayer(showOpenDialog) { showOpenDialog = false },
             "reference" to BackLayer(showReferenceWindow) { showReferenceWindow = false },

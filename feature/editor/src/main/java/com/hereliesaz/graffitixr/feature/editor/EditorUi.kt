@@ -77,7 +77,8 @@ fun EditorUi(
 
         GestureFeedback(
             state = uiState,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp)
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp),
+            onFeedbackShown = { actions.onFeedbackShown() },
         )
 
         Column(
@@ -95,7 +96,7 @@ fun EditorUi(
                     activeLayer = uiState.layers.find { it.id == uiState.activeLayerId },
                     actions = actions,
                     modifier = Modifier.padding(horizontal = 16.dp),
-                    is3DMode = uiState.is3DMode,
+                    cameraMoved = !uiState.sceneCamera.isDefault,
                 )
             }
 

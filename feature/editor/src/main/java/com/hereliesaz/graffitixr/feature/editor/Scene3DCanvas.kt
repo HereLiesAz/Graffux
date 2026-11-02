@@ -46,42 +46,37 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.scene.Affine3
 import com.hereliesaz.graffitixr.common.scene.CameraFrame
-import com.hereliesaz.graffitixr.common.scene.Scene3DTool
+import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.planeChain
 import java.util.UUID
 
-/** What a one-finger touch on the canvas does: the tool in hand, or the 3D camera and planes. */
-enum class CanvasGestureMode { PAINT, SCENE_3D }
+/** What one finger does on a 3D strokes layer: the brush draws curves, the eraser removes them. */
+enum class SpatialStrokeTool { DRAW, ERASE }
 
-/** The rail's 3D button decides it; EditorScreen mounts the tool surfaces or [Scene3DCanvas] by it. */
-val EditorUiState.canvasGestureMode: CanvasGestureMode
-    get() = if (is3DMode) CanvasGestureMode.SCENE_3D else CanvasGestureMode.PAINT
+/**
+ * The 3D strokes tool in hand, or null when one finger belongs to the ordinary tool surfaces:
+ * the active layer is a 3D strokes layer and the brush or eraser is picked up (spec/3d-space.md).
+ */
+val EditorUiState.spatialStrokeTool: SpatialStrokeTool?
+    get() {
+        val active = layers.firstOrNull { it.id == activeLayerId } ?: return null
+        if (active.spatial == null) return null
+        return when (activeTool) {
+            Tool.BRUSH -> SpatialStrokeTool.DRAW
+            Tool.ERASER -> SpatialStrokeTool.ERASE
+            else -> null
+        }
+    }
 
-/** The view-model calls 3D mode makes, as an interface tests can fake. */
+/** The view-model calls a 3D strokes layer makes, as an interface tests can fake. */
 interface Scene3DActions {
-    fun setTool(tool: Scene3DTool)
-    fun orbit(delta: Offset)
-    fun cameraSettled()
-    fun resetCamera()
-    fun planeStart()
-    fun planeDrag(delta: Offset)
-    fun planeEnd()
-    fun resetPlane()
     fun spatialStroke(layerId: String, stroke: SpatialStroke)
     fun spatialErase(layerId: String, strokeId: String)
     fun guideChanged(layerId: String, guide: SpatialGuide)
 }
 
 fun EditorViewModel.scene3DActions(): Scene3DActions = object : Scene3DActions {
-    override fun setTool(tool: Scene3DTool) = setScene3DTool(tool)
-    override fun orbit(delta: Offset) = onSceneOrbit(delta)
-    override fun cameraSettled() = onSceneCameraSettled()
-    override fun resetCamera() = resetSceneCamera()
-    override fun planeStart() = onPlaneGestureStart()
-    override fun planeDrag(delta: Offset) = onPlaneDrag(delta)
-    override fun planeEnd() = onPlaneGestureEnd()
-    override fun resetPlane() = resetActivePlane()
     override fun spatialStroke(layerId: String, stroke: SpatialStroke) = onSpatialStroke(layerId, stroke)
     override fun spatialErase(layerId: String, strokeId: String) = onSpatialErase(layerId, strokeId)
     override fun guideChanged(layerId: String, guide: SpatialGuide) = onSpatialGuideChanged(layerId, guide)
@@ -136,9 +131,9 @@ internal class StrokeSpace(val toScene: Affine3, val frame: CameraFrame) {
 }
 
 /**
- * The canvas while 3D is on (gesture map in spec/3d-space.md): one finger orbits, moves, pushes,
- * tilts or spins the active plane, or draws/erases on a 3D strokes layer. Two fingers belong to
- * the root's navigation, which drives the scene camera in 3D, so this never consumes them.
+ * One finger on a 3D strokes layer (spec/3d-space.md): the brush draws a curve on its guide, the
+ * eraser removes the curve under the finger. Two fingers belong to the root's navigation, so this
+ * never consumes them.
  */
 @Composable
 internal fun Scene3DCanvas(
@@ -148,22 +143,24 @@ internal fun Scene3DCanvas(
     modifier: Modifier = Modifier,
 ) {
     val state by rememberUpdatedState(uiState)
+    // Keyed on Unit, with the actions read through updated state: keying the gesture on anything
+    // that changes while it runs cancels it after its first step (the bug that made 3D drags move
+    // in one fixed nudge per touch).
+    val currentActions by rememberUpdatedState(actions)
     Box(
         modifier
             .testTag("scene3d.canvas")
-            .pointerInput(actions) {
-                val slop = viewConfiguration.touchSlop
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    val actions = currentActions
                     val st = state
-                    val tool = st.scene3DTool
-                    val active = st.layers.firstOrNull { it.id == st.activeLayerId }
-                    val spatial = active?.takeIf { it.spatial != null }
+                    val tool = st.spatialStrokeTool
+                    val spatial = st.layers.firstOrNull { it.id == st.activeLayerId }?.takeIf { it.spatial != null }
                     fun world(p: Offset) = CanvasHitTest.screenToWorld(p, st.viewportOffset, st.viewportZoom, st.viewportRotation)
                     val space = spatial?.let { StrokeSpace.of(st, it) }
-                    val drawing = tool == Scene3DTool.DRAW && space != null
-                    val erasing = tool == Scene3DTool.ERASE && space != null
-                    val planeTool = tool in PLANE_TOOLS && active != null && !active.isImageLocked
+                    val drawing = tool == SpatialStrokeTool.DRAW && space != null
+                    val erasing = tool == SpatialStrokeTool.ERASE && space != null
                     val guide = spatial?.spatial?.guide
                     val width = space?.widthFor(st.brushSize / st.viewportZoom.coerceAtLeast(0.01f)) ?: 0f
                     val color = st.activeColor.toArgb()
@@ -195,49 +192,29 @@ internal fun Scene3DCanvas(
                     }
                     if (drawing) sample(down.position, down.pressure)
                     if (erasing) erase(down.position)
-                    var dragging = false
                     var navigated = false
-                    var last = down.position
                     while (true) {
                         val event = awaitPointerEvent()
                         val pressed = event.changes.filter { it.pressed }
                         if (pressed.isEmpty()) break
                         if (pressed.size >= 2) {
-                            // Two fingers: the camera (root navigation). A curve in progress ends.
-                            if (drawing) commit()
-                            if (dragging && planeTool) actions.planeEnd()
-                            dragging = false
+                            // Two fingers: the view (root navigation). A curve in progress ends.
+                            if (drawing && !navigated) commit()
                             navigated = true
                             continue
                         }
                         if (navigated) continue
                         val change = pressed.first()
-                        val delta = change.position - last
-                        last = change.position
                         when {
                             drawing -> { sample(change.position, change.pressure); change.consume() }
                             erasing -> { erase(change.position); change.consume() }
-                            else -> {
-                                if (!dragging) {
-                                    if ((change.position - down.position).getDistance() < slop) continue
-                                    dragging = true
-                                    if (planeTool) actions.planeStart()
-                                }
-                                val worldDelta = CanvasHitTest.screenDeltaToWorld(delta, st.viewportZoom, st.viewportRotation)
-                                if (planeTool) actions.planeDrag(worldDelta) else if (tool == Scene3DTool.ORBIT) actions.orbit(delta)
-                                change.consume()
-                            }
                         }
                     }
                     if (drawing) commit()
-                    if (dragging && planeTool) actions.planeEnd()
-                    if ((dragging && tool == Scene3DTool.ORBIT) || navigated) actions.cameraSettled()
                 }
             },
     )
 }
-
-private val PLANE_TOOLS = setOf(Scene3DTool.MOVE, Scene3DTool.DEPTH, Scene3DTool.TILT, Scene3DTool.SPIN)
 
 /**
  * The GPU depth pass in the stack (spec/3d-space.md, "Per-pixel depth"): every member of
@@ -291,58 +268,22 @@ internal fun DepthPass(
     }
 }
 
-/**
- * The 3D mode strip: what one finger does, Reset view and Reset plane, and on a 3D strokes layer
- * Draw, Erase and its guide (kind, and one parameter stepped at a time).
- */
+/** While the brush is on a 3D strokes layer: its drawing guide (kind, and one parameter at a time). */
 @Composable
 internal fun Scene3DToolbar(uiState: EditorUiState, actions: Scene3DActions, modifier: Modifier = Modifier) {
-    val active = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }
-    val spatial = active?.takeIf { it.spatial != null }
-    val tools = buildList {
-        add(Scene3DTool.ORBIT)
-        if (active != null) addAll(listOf(Scene3DTool.MOVE, Scene3DTool.DEPTH, Scene3DTool.TILT, Scene3DTool.SPIN))
-        if (spatial != null) addAll(listOf(Scene3DTool.DRAW, Scene3DTool.ERASE))
-    }
+    val spatial = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.takeIf { it.spatial != null }
+    val content = spatial?.spatial
+    if (content == null || uiState.spatialStrokeTool != SpatialStrokeTool.DRAW) return
     Column(
         modifier
             .background(Color(0xE6101015), RoundedCornerShape(14.dp))
             .padding(horizontal = 4.dp)
-            .testTag("scene3d.toolbar"),
+            .testTag("scene3d.guide"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            for (tool in tools) {
-                val on = uiState.scene3DTool == tool
-                TextButton(onClick = { actions.setTool(tool) }, modifier = Modifier.testTag("scene3d.tool.${tool.name.lowercase()}")) {
-                    Text(TOOL_LABELS.getValue(tool), color = if (on) Color.White else Color(0xFF9A9AA2))
-                }
-            }
-            TextButton(onClick = actions::resetCamera, modifier = Modifier.testTag("scene3d.resetView")) {
-                Text("Reset view", color = Color(0xFF9A9AA2))
-            }
-            if (active?.let { it.positionZ != 0f || it.rotationX != 0f || it.rotationY != 0f } == true) {
-                TextButton(onClick = actions::resetPlane, modifier = Modifier.testTag("scene3d.resetPlane")) {
-                    Text("Reset plane", color = Color(0xFF9A9AA2))
-                }
-            }
-        }
-        val content = spatial?.spatial
-        if (content != null && uiState.scene3DTool == Scene3DTool.DRAW) {
-            GuideControls(content.guide) { actions.guideChanged(spatial.id, it) }
-        }
+        GuideControls(content.guide) { actions.guideChanged(spatial.id, it) }
     }
 }
-
-private val TOOL_LABELS = mapOf(
-    Scene3DTool.ORBIT to "Orbit",
-    Scene3DTool.MOVE to "Move",
-    Scene3DTool.DEPTH to "Depth",
-    Scene3DTool.TILT to "Tilt",
-    Scene3DTool.SPIN to "Spin",
-    Scene3DTool.DRAW to "Draw",
-    Scene3DTool.ERASE to "Erase",
-)
 
 /** The edited guide parameter; the others are kept during a step. */
 internal enum class GuideParameter { DEPTH, X, Y, Z, RADIUS, HEIGHT, YAW, PITCH }

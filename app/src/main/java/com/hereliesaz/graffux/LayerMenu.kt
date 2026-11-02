@@ -8,6 +8,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayoutAlign
 import com.hereliesaz.graffitixr.common.model.LayoutDirection
+import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.LayerMenuStrings
@@ -45,6 +46,7 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     listItem(m.blendMode, on(onBlendMode))
     if (!isGroup) listItem(m.curves, on(onCurves))
     listItem(m.transform, on { vm.onTransformClicked() })
+    if (layer.isPlacedIn3D) listItem(m.resetPlane, on { vm.resetActivePlane() })
     listItem(m.layerOptions, on(onEditClicked))
     inputItem(hint = m.rename, initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
     listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }

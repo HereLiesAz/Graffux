@@ -52,7 +52,6 @@ class RailMockupShotTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
-        override fun toggleScene3D() = Unit
     }
 
     private fun solid(argb: Int): Bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(argb) }
@@ -111,7 +110,7 @@ class RailMockupShotTest {
         // Eraser the app keeps (44 + 6), the photo boards' Adjust circle after Transform (44 + 6) and
         // the design boards' Frame circle before it (44 + 6).
         // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
-        // The Brush and the Retouch group, back on the rail, and the 3D button (44 + 6 each).
+        // The Brush and the Retouch group, back on the rail, and the axis cycler in the old 3D slot (44 + 6 each).
         assertEquals(listOf(12, 16, 56, 488 + 50 + 50 + 50 + 1 + 50 + 50 + 50), listOf(dp(tools.left), dp(tools.top), dp(tools.width), dp(tools.height)))
         // 2 + 12 + 5 × 44 + 5 gaps × 6 + 9, exactly the mockup's, plus the trash at its foot (a
         // divider and one 48dp target, with their gaps): 65.

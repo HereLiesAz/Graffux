@@ -650,11 +650,6 @@ data class EditorUiState(
     // scene onto the canvas exactly as the 2D canvas draws. View state, not history.
     val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =
         com.hereliesaz.graffitixr.common.scene.SceneCamera(),
-    // The rail's 3D button: canvas gestures drive the camera and the active plane instead of the
-    // tool in hand. Transient; leaving it never moves the camera or a layer.
-    val is3DMode: Boolean = false,
-    val scene3DTool: com.hereliesaz.graffitixr.common.scene.Scene3DTool =
-        com.hereliesaz.graffitixr.common.scene.Scene3DTool.ORBIT,
 )
 
 
