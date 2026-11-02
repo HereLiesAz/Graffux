@@ -1618,6 +1618,63 @@ class EditorViewModelTest {
         assertFalse(viewModel.uiState.value.layers.single().is3DLayer)
     }
 
+    private fun sliderDrag(vararg degrees: Float) {
+        viewModel.onRotationSliderStart()
+        degrees.forEach { viewModel.onRotationSliderChange(it) }
+        viewModel.onRotationSliderEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `the rotation slider turns a 2D layer about Z, live, as one undo step`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        setAxis(RotationAxis.X) // ignored on a 2D layer
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        val viewRotation = viewModel.uiState.value.viewportRotation
+        sliderDrag(10f, 25f, 40f)
+        val layer = viewModel.uiState.value.layers.single()
+        assertEquals(40f, layer.rotationZ, 0.01f)
+        assertEquals(0f, layer.rotationX, 0.01f)
+        assertEquals(viewRotation, viewModel.uiState.value.viewportRotation, 0.0001f)
+        assertEquals(40f, viewModel.rotationSliderValue()!!, 0.01f)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.layers.single().rotationZ, 0.01f)
+    }
+
+    @Test
+    fun `the rotation slider uses the cycler axis on a 3D layer`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
+        viewModel.onLayerActivated("a")
+        setAxis(RotationAxis.Y)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(RotationAxis.Y, viewModel.rotationSliderAxis())
+        sliderDrag(-60f)
+        val layer = viewModel.uiState.value.layers.single()
+        assertEquals(-60f, layer.rotationY, 0.01f)
+        assertEquals(10f, layer.rotationX, 0.01f)
+        assertEquals(0f, layer.rotationZ, 0.01f)
+    }
+
+    @Test
+    fun `a double-tap on the rotation slider resets to 0 as one undo step`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(rotationZ = 370f)))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(10f, viewModel.rotationSliderValue()!!, 0.01f)
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onRotationSliderReset()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.rotationSliderValue()!!, 0.01f)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+    }
+
     @Test
     fun `on a 2D layer a twist only rotates the canvas, on any axis`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
