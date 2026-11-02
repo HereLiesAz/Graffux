@@ -1394,6 +1394,30 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `the surface grid toggle shows only the active layer's group's grid`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
+            listOf(com.hereliesaz.graffitixr.common.scene.PlanePose()),
+        )
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = floor)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("x")))
+        viewModel.onLayerActivated("c")
+        fun grid() = viewModel.uiState.value.let {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                .gridGroupId(it.layers, it.activeLayerId, it.surfaceGridVisible)
+        }
+        assertEquals(null, grid())
+        viewModel.onToggleSurfaceGrid()
+        assertEquals("g", grid())
+        viewModel.onLayerActivated("x")
+        assertEquals(null, grid())
+        viewModel.onLayerActivated("c")
+        viewModel.onToggleSurfaceGrid()
+        assertEquals(null, grid())
+    }
+
+    @Test
     fun `on a group surface the Move tool and the rotation slider move the group, not the layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(

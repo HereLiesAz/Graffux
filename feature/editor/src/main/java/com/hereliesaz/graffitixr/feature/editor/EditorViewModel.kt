@@ -12210,6 +12210,9 @@ class EditorViewModel @Inject constructor(
         setSurface(groupId, profile)
     }
 
+    /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
+    fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
+
     /** "Flatten surface": the group's profile is cleared and its layers are flat 2D again. */
     fun onFlattenSurface(groupId: String) {
         if (_uiState.value.layers.firstOrNull { it.id == groupId }?.surface == null) return

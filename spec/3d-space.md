@@ -326,6 +326,14 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
 - **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
   active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
   the group's space, so all its layers move with it.
+- **Guide grid.** Lines along the profile (at sweep distances 0, 64, 128... box units) and lines
+  along the sweep (every 64 units of arc length, and at the profile's end), projected through the
+  scene camera and clipped to the near plane (`SurfaceMath.gridLines`), so they curve and
+  foreshorten with the view and the user can trace strokes along them in more than 2D without
+  moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on
+  one, toggles `EditorUiState.surfaceGridVisible` (view state, not history). Only the active
+  layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
+  overlay UI in the canvas's world space, never part of an export.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.
 - **Nesting.** A layer's surface is its nearest enclosing group with a profile; groups between
   it and that group compose flat (their 2D transforms, in unrolled space).

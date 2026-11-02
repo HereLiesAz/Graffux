@@ -35,7 +35,8 @@ consumes the same modules for its 2D work and adds AR on top.
   paints on the tilted plane where the finger touches it. A document never moved in 3D draws exactly
   as before. A layer group can own a surface: "Draw surface" in its menu turns the next stroke
   into a profile curve swept into depth, and the group's layers are painted on that shape
-  ("Flatten surface" makes it flat again). See `spec/3d-space.md`.
+  ("Flatten surface" makes it flat again). Its guide grid follows the shape in perspective, so
+  strokes can be traced in depth without moving the view. See `spec/3d-space.md`.
 - **3D strokes layers** — draw real XYZ pressure-sensitive curves against adjustable camera-facing
   planes, anchored planes, cylinders and spheres, in a layer of the stack composited with the paint
   layers (View → 3D → New 3D strokes layer). Missing a bounded guide ends that segment rather than

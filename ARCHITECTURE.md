@@ -601,6 +601,7 @@ Full design: `spec/3d-space.md`. In short:
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
   misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
   rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
+  A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

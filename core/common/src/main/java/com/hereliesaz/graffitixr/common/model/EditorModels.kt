@@ -505,6 +505,11 @@ data class EditorUiState(
      * its profile instead of paint. Null = not armed.
      */
     val surfaceDrawGroupId: String? = null,
+    /**
+     * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Only the active layer's
+     * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).
+     */
+    val surfaceGridVisible: Boolean = false,
     val undoCount: Int = 0,
     val redoCount: Int = 0,
     val isLoading: Boolean = false,

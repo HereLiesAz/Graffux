@@ -439,6 +439,16 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        // 1d. The surface guide grid (spec/3d-space.md, "Guide grid"): the active layer's group's
+        // surface in perspective, overlay only (never exported). World space, like the guides.
+        val gridGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId(
+            uiState.layers, uiState.activeLayerId, uiState.surfaceGridVisible,
+        )
+        if (gridGroup != null && boxWidth > 0f && boxHeight > 0f) {
+            SurfaceGuideGrid(
+                uiState, gridGroup, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.surfaceGrid"),
+            )
+        }
         } // end infinite-canvas camera container
 
         // (Camera navigation is a modifier on the root Box above — see `Modifier.canvasNavigation`.
@@ -1950,5 +1960,31 @@ private fun SurfaceProfileCapture(
         },
     ) {
         for (i in 1 until screen.size) drawLine(Color.Cyan, screen[i - 1], screen[i], strokeWidth = 3f)
+    }
+}
+
+/** The guide grid of [groupId]'s surface, projected through the scene camera onto the canvas box. */
+@Suppress("FunctionNaming", "MaxLineLength", "MagicNumber")
+@Composable
+private fun SurfaceGuideGrid(
+    uiState: EditorUiState,
+    groupId: String,
+    width: Float,
+    height: Float,
+    modifier: Modifier = Modifier,
+) {
+    val lines = remember(uiState.layers, uiState.sceneCamera, groupId, width, height) {
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, groupId)
+        if (owner == null) {
+            emptyList()
+        } else {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridLines(
+                owner.profile, SceneMath.chainModel(owner.ownerChain, width, height), SceneMath.frame(uiState.sceneCamera, width, height),
+            )
+        }
+    }
+    val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
+    Canvas(modifier) {
+        lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.45f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
     }
 }
