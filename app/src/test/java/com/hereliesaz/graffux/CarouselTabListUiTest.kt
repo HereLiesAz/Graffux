@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
@@ -44,7 +45,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * The sheet's stages, wired the way MainActivity wires them: open shows only the set picker; a set
- * picked in the roller opens its carousel; a swipe down steps back to the tab list and a
+ * picked on the set wheel opens its carousel; a swipe down steps back to the tab list and a
  * swipe up from there brings the same carousel back. Set TAB_LIST_SCREENSHOTS to a directory to save
  * a render of each stage.
  */
@@ -132,9 +133,8 @@ class CarouselTabListUiTest {
         assertTrue(tabsShown())
         assertFalse("brushes stay hidden at the tab list", carouselShown())
 
-        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
-        rule.waitForIdle()
-        rule.onAllNodesWithText("Spray Caps", useUnmergedTree = true).onLast().performClick()
+        rule.onAllNodesWithText("Spray Caps", useUnmergedTree = true).onLast()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         rule.waitForIdle()
         screenshot("3-carousel")
         assertEquals("pack.caps", ui.tab)
@@ -160,8 +160,6 @@ class CarouselTabListUiTest {
     fun `the brush tab list offers only brushes`() {
         compose()
         ui = ui.copy(sheetOpen = true)
-        rule.waitForIdle()
-        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
         rule.waitForIdle()
         fun shown(label: String) =
             rule.onAllNodesWithText(label, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
