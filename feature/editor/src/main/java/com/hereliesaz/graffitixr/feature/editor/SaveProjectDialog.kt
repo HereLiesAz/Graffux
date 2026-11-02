@@ -19,7 +19,8 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.ProjectFile
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * Save: name the project, then choose where the `.fux` goes.
@@ -41,7 +42,7 @@ fun SaveProjectDialog(
     var name by remember { mutableStateOf(currentName) }
     val fileName = ProjectFile.suggestedFileName(name)
 
-    FloatingWindow(title = "Save project", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.FORM, title = "Save project", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),

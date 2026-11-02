@@ -34,7 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.data.figma.FigmaFrame
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
 
 /**
@@ -57,10 +58,10 @@ fun FigmaWindow(
     onImport: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    FloatingWindow(title = "Figma", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.BROWSER, title = "Figma", onDismiss = onDismiss) {
         if (!state.isConnected) {
             ConnectSection(isLoading = state.isLoading, error = state.error, onTokenSubmit = onTokenSubmit)
-            return@FloatingWindow
+            return@ToolSurface
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -107,7 +108,7 @@ fun FigmaWindow(
                     Spacer(Modifier.height(6.dp))
                 }
                 // Plain Column, not LazyColumn: this window's content already sits inside
-                // FloatingWindow's own scrollable Column, and a lazy list nested there is built
+                // ToolSurface's own scrollable Column, and a lazy list nested there is built
                 // on SubcomposeLayout -- AzWindow's sizing asks its content for an intrinsic
                 // measurement, which Compose refuses to do across a SubcomposeLayout boundary,
                 // crashing the instant this window opened. One Figma file's frame list is short

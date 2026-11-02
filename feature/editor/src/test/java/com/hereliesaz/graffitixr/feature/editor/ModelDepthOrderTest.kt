@@ -36,8 +36,17 @@ class ModelDepthOrderTest {
         fun at(id: String, z: Float) = DepthCompositor.Model(
             id, quad.mesh, ModelSpace.meshToScene(listOf(PlanePose(positionZ = z)), quad, w, h), null, 0L, 0.5f,
         )
-        val order = DepthCompositor.translucentOrder(listOf(at("near", -100f), at("far", 300f), at("mid", 50f)), cam)
-        assertEquals(listOf("far", "mid", "near"), order.map { it.id })
+        val bitmap = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
+        val plane = DepthCompositor.Plane(
+            "plane", bitmap, 0L, SceneMath.model(PlanePose(positionZ = 0f), w, h), floatArrayOf(0f, 0f, w, h), null, 0.5f,
+        )
+        // A translucent plane sorts among the translucent models (Codex #686): a model behind it
+        // draws before it, so it shows through the plane instead of failing the depth test.
+        val order = DepthCompositor.translucentOrder(listOf(plane), listOf(at("near", -100f), at("far", 300f), at("mid", 50f)), cam)
+        assertEquals(
+            listOf("far", "mid", "plane", "near"),
+            order.map { (it as? DepthCompositor.Model)?.id ?: (it as DepthCompositor.Plane).id },
+        )
     }
 
     @Test

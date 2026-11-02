@@ -13,9 +13,8 @@ internal class BackLayer(val open: Boolean, val close: () -> Unit)
 internal fun List<BackLayer>.topmost(): BackLayer? = firstOrNull { it.open }
 
 /**
- * When each floating window opened, so Back can close them in the order they are stacked:
- * FloatingWindow gives every newly opened window a z-index above all the open ones, so the most
- * recently opened window is the one on top. Plain (non-state) bookkeeping, updated during
+ * When each window flag opened, so Back can close them latest-opened first (the most recently
+ * opened is the one on top). Plain (non-state) bookkeeping, updated during
  * composition by [track].
  */
 internal class WindowOpenOrder {

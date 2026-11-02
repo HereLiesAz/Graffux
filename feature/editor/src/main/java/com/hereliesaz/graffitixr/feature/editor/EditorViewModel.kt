@@ -5580,6 +5580,59 @@ class EditorViewModel @Inject constructor(
 
     override fun onCycleRotationAxis() = dispatch(EditorIntent.CycleRotationAxis)
 
+    /**
+     * The axis the rotation slider above the sheet turns: Z (in-plane) on a 2D layer, the rail's
+     * axis cycler ([EditorUiState.activeRotationAxis]) on a 3D one.
+     */
+    fun rotationSliderAxis(state: EditorUiState = _uiState.value): RotationAxis =
+        if (state.active3D()) state.activeRotationAxis else RotationAxis.Z
+
+    /** The active layer's angle on [rotationSliderAxis], wrapped to -180..180, or null with no layer. */
+    fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
+        val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return null
+        val raw = when (rotationSliderAxis(state)) {
+            RotationAxis.X -> layer.rotationX
+            RotationAxis.Y -> layer.rotationY
+            RotationAxis.Z -> layer.rotationZ
+        }
+        return wrapDegrees(raw)
+    }
+
+    /** A rotation-slider drag begins: one undo step for the whole drag, like a transform gesture. */
+    fun onRotationSliderStart() = onGestureStart()
+
+    /** Live: turns the active layer (and its linked group) so its slider angle reads [degrees]. */
+    fun onRotationSliderChange(degrees: Float) {
+        val activeId = _uiState.value.activeLayerId
+        val current = rotationSliderValue()
+        val delta = if (current == null) 0f else degrees.coerceIn(-HALF_TURN_DEG, HALF_TURN_DEG) - current
+        if (activeId == null || delta == 0f || !delta.isFinite()) return
+        val axis = rotationSliderAxis()
+        updateLinkedGroup(activeId) { layer ->
+            when (axis) {
+                RotationAxis.X -> layer.copy(rotationX = layer.rotationX + delta)
+                RotationAxis.Y -> layer.copy(rotationY = layer.rotationY + delta)
+                RotationAxis.Z -> layer.copy(rotationZ = layer.rotationZ + delta)
+            }
+        }
+    }
+
+    /** The drag ends: saves and emits the co-op transform, as a transform gesture's end does. */
+    fun onRotationSliderEnd() = onGestureEnd()
+
+    /** A double-tap on the slider's thumb: back to 0° on its axis, as one undo step. */
+    fun onRotationSliderReset() {
+        if (rotationSliderValue() == null) return
+        onRotationSliderStart()
+        onRotationSliderChange(0f)
+        onRotationSliderEnd()
+    }
+
+    private fun wrapDegrees(d: Float): Float {
+        val m = ((d + HALF_TURN_DEG) % FULL_TURN_DEG + FULL_TURN_DEG) % FULL_TURN_DEG - HALF_TURN_DEG
+        return if (m == -HALF_TURN_DEG && d > 0f) HALF_TURN_DEG else m
+    }
+
     override fun onAdjustmentStart() { pushHistory(); dispatch(EditorIntent.SetGestureInProgress(true)) }
 
     override fun onAdjustmentEnd() {
@@ -13934,7 +13987,8 @@ class EditorViewModel @Inject constructor(
      *  extension may now bundle more than one brush. A malformed id (missing the separator, or a
      *  non-numeric index) is treated as "not found", same as an id for an extension that was
      *  uninstalled since the picker was drawn. */
-    fun selectBrushExtension(compositeId: String?) {
+    /** [onLoaded] runs on the main thread once the brush is in hand (not when the load fails). */
+    fun selectBrushExtension(compositeId: String?, onLoaded: (() -> Unit)? = null) {
         if (compositeId == null) {
             _activeInkUtensil.value = null
             activeStampBrush = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
@@ -13944,6 +13998,7 @@ class EditorViewModel @Inject constructor(
             dispatch(
                 EditorIntent.SetActiveBrush(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.DEFAULT_NAME),
             )
+            onLoaded?.invoke()
             return
         }
         val separatorIndex = compositeId.lastIndexOf(BRUSH_ASSET_ID_SEPARATOR)
@@ -13967,6 +14022,7 @@ class EditorViewModel @Inject constructor(
                     activeStampMaskShape = runtime.maskShape
                     dispatch(EditorIntent.SetActiveBrush(runtime.brush.name))
                     setActiveTool(Tool.BRUSH)
+                    onLoaded?.invoke()
                 }
             }
         }
@@ -14018,12 +14074,19 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetLoading(true, "Flattening layers…"))
         viewModelScope.launch(dispatchers.default) {
             val metrics = context.resources.displayMetrics
-            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            val camera = _uiState.value.sceneCamera
+            val canvas = _uiState.value.canvasSize
+            // Under a moved camera the image is the view as seen, so it is rendered at the canvas's
+            // own size and placed on the view plane below; a default camera flattens as it always did.
+            val seen = !camera.isDefault && canvas.width > 0 && canvas.height > 0
+            val w = if (seen) canvas.width else metrics.widthPixels.takeIf { it > 0 } ?: 1080
+            val h = if (seen) canvas.height else metrics.heightPixels.takeIf { it > 0 } ?: 1920
             // Through the scene camera: 3D layers flatten as they are seen, models and 3D ink included.
-            val composite = exportManager.compositeLayers(
-                _uiState.value.layers, w, h, camera = _uiState.value.sceneCamera,
-            )
+            val composite = exportManager.compositeLayers(_uiState.value.layers, w, h, camera = camera)
+            // The view plane (facing the camera through its orbit target, at its distance scale)
+            // projects its box onto the canvas pixel for pixel, so the flattened image shows exactly
+            // as the layers did instead of being projected through the camera a second time.
+            val pose = if (seen) SceneMath.viewPlanePose(camera, w.toFloat(), h.toFloat()) else null
 
             val filename = "flattened_${UUID.randomUUID()}.png"
             val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(composite))
@@ -14033,8 +14096,18 @@ class EditorViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 name = "Flattened",
                 uri = localUri,
-                bitmap = composite
-            )
+                bitmap = composite,
+            ).let { flat ->
+                if (pose == null) {
+                    flat
+                } else {
+                    flat.copy(
+                        offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
+                        rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
+                        scale = pose.scale, plane3D = true,
+                    )
+                }
+            }
 
             withContext(dispatchers.main) {
                 // Deliberately NOT layerStore.remove() on the pre-flatten layers: pushHistory()
@@ -14430,3 +14503,6 @@ private const val MIN_LAYER_DEPTH_FRACTION = 0.05f
 
 /** The largest dab radius a model brush paints, in texels. */
 private const val MAX_MODEL_BRUSH_TEXELS = 512f
+
+private const val HALF_TURN_DEG = 180f
+private const val FULL_TURN_DEG = 360f

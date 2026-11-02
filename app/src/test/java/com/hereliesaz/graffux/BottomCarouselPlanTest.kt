@@ -285,8 +285,9 @@ class BottomCarouselPlanTest {
             CarouselContext.BRUSHES, CarouselCategory.BRUSHES, input,
             packNames = mapOf("kinetic" to "Spray Caps", "gravity" to "Gravity"),
         )
-        // No favourites starred, so that type is left out rather than offering an empty tab.
-        assertEquals(listOf("BASIC", "INK", "STUDIO", "INSTALLED"), sections.map { it.type })
+        // Favorites stays, empty, so its quick button always has a set to go to; other empty
+        // types are left out.
+        assertEquals(listOf("FAVORITES", "BASIC", "INK", "STUDIO", "INSTALLED"), sections.map { it.type })
         val installed = sections.single { it.type == "INSTALLED" }.groups
         assertEquals(listOf("Gravity", "Spray Caps"), installed.map { it.label })
         val caps = installed.single { it.label == "Spray Caps" }
@@ -329,14 +330,70 @@ class BottomCarouselPlanTest {
     }
 
     @Test
-    fun `tab list items are each heading followed by its tabs`() {
-        val sections = listOf(
-            CarouselTabSection("A", listOf(CarouselTabGroup("a1", "A1", CarouselCategory.BRUSHES, emptyList()))),
-            CarouselTabSection("B", listOf(CarouselTabGroup("b1", "B1", CarouselCategory.BRUSHES, emptyList()))),
+    fun `the picker offers each set once, with one Favorites and no headings`() {
+        val input = base.copy(
+            favorites = listOf("builtin.${builtIn.first().name}"),
+            extensionBrushes = listOf("kinetic::0" to "Fat Cap", "gravity::0" to "Drop"),
         )
-        val items = carouselTabListItems(sections)
-        assertEquals(4, items.size)
-        assertEquals(CarouselTabListItem.Heading("A"), items[0])
-        assertEquals("b1", (items[3] as CarouselTabListItem.Tab).group.key)
+        val sections = carouselTabSections(
+            CarouselContext.BRUSHES, CarouselCategory.BRUSHES, input,
+            packNames = mapOf("kinetic" to "Ink", "gravity" to "Gravity"),
+        )
+        val sets = carouselSets(sections)
+        val labels = carouselSetLabels(sections)
+        assertEquals(sets.size, sets.map { it.key }.toSet().size)
+        assertEquals(sets.size, labels.values.toSet().size)
+        assertEquals(1, sets.count { it.category == CarouselCategory.FAVORITES })
+        assertEquals("Favorites", labels[FAVORITES_SET_KEY])
+        assertTrue(labels.values.none { it == "FAVORITES" || it == "Starred" || it == "BASIC" })
+        // A pack named like a built-in set is told apart, not merged or listed twice.
+        assertTrue(labels.values.count { it.startsWith("Ink") } == 2)
+    }
+
+    @Test
+    fun `the previous set is the one showing before the pick`() {
+        assertEquals("a", previousSetAfter("b", current = "a", previous = null))
+        assertEquals("x", previousSetAfter("a", current = "a", previous = "x"))
+    }
+
+    @Test
+    fun `detents step tab list, carousel, half grid, full grid and back`() {
+        var ui = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, showingCarousel = false)
+        ui = ui.steppedUp(gridAllowed = true)
+        assertTrue(ui.showingCarousel && ui.detent == CarouselDetent.SHORT)
+        ui = ui.steppedUp(true)
+        assertEquals(CarouselDetent.HALF, ui.detent)
+        ui = ui.steppedUp(true)
+        assertEquals(CarouselDetent.FULL, ui.detent)
+        assertEquals(CarouselDetent.HALF, ui.steppedDown()!!.detent)
+        assertEquals(ui.copy(detent = CarouselDetent.SHORT), ui.steppedUp(false).copy(detent = CarouselDetent.SHORT))
+        val short = ui.copy(detent = CarouselDetent.SHORT)
+        assertEquals(short, short.steppedUp(gridAllowed = false))
+        assertTrue(!short.steppedDown()!!.showingCarousel)
+        assertEquals(null, short.copy(showingCarousel = false).steppedDown())
+    }
+
+    @Test
+    fun `the gear waits for an installed brush to load, and Ink has none`() {
+        val ext = CarouselEntry("ext.caps::0", "Fat Cap", CarouselAction.ExtensionBrush("caps::0"), selected = false)
+        assertEquals(BrushEdit.AfterLoad("caps::0"), brushEditPlan(ext))
+        assertEquals(BrushEdit.InHand, brushEditPlan(ext.copy(selected = true)))
+        val ink = CarouselEntry(
+            "ink.pen", "Pressure Pen",
+            CarouselAction.InkUtensilPick(com.hereliesaz.graffitixr.common.model.InkUtensil.PEN), selected = false,
+        )
+        assertEquals(null, brushEditPlan(ink))
+        val saved = CarouselEntry("custom.c1", "Mine", CarouselAction.CustomBrush("c1"), selected = false)
+        assertEquals(BrushEdit.Saved("c1"), brushEditPlan(saved))
+    }
+
+    @Test
+    fun `Tool Options brings the sheet back to the short detent`() {
+        val grid = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, tab = "ink", detent = CarouselDetent.FULL)
+        val opened = grid.forToolOptions(CarouselCategory.INK)
+        assertEquals(CarouselDetent.SHORT, opened.detent)
+        assertTrue(opened.sheetOpen && opened.showingCarousel)
+        assertEquals(CarouselCategory.INK, opened.category)
+        assertEquals(null, opened.tab)
     }
 }

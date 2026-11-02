@@ -46,7 +46,8 @@ import com.hereliesaz.graffitixr.common.azphalt.GrainBlendMode
 import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushBlendMode
 import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushConfig
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -110,7 +111,7 @@ fun BrushStudioWindow(
         )
     }
 
-    FloatingWindow(title = "Brush Studio", onDismiss = guardedDismiss) {
+    ToolSurface(kind = SurfaceKind.EDITOR, title = "Brush Studio", onDismiss = guardedDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -615,6 +616,9 @@ private fun previewStamps(
 ): List<PreviewStamp> {
     val canvasWidth = canvasSize.width
     val canvasHeight = canvasSize.height
+    // Too small to hold the smallest dab (a card squeezed by large fonts): draw nothing rather
+    // than hand coerceIn an empty range, which throws.
+    if (canvasWidth <= 0f || canvasHeight * 0.9f < 4f) return emptyList()
     val diameter = (sizeOverridePx ?: (canvasHeight / 3f)).coerceIn(4f, canvasHeight * 0.9f)
     // Always route through dynamicDabs(), which itself falls back to the plain dabs() path
     // when nothing dynamic is configured (see its own doc comment) -- picking between the two

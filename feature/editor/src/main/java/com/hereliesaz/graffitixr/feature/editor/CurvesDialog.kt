@@ -12,7 +12,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * No separate Apply step: dragging a curve point pushes the tone curve to the view model as soon
@@ -29,7 +30,7 @@ fun CurvesDialog(
         mutableStateOf(listOf(Offset(0f, 0f), Offset(1f, 1f)))
     }
 
-    FloatingWindow(title = "Curves", onDismiss = onDismissRequest) {
+    ToolSurface(kind = SurfaceKind.EDITOR, title = "Curves", onDismiss = onDismissRequest) {
         Column {
             Box(
                 modifier = Modifier

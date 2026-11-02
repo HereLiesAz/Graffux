@@ -39,7 +39,8 @@ import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.data.DiscoveredProjectFile
 import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -111,7 +112,7 @@ fun OpenProjectWindow(
         )
     }
 
-    FloatingWindow(title = "Open", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.BROWSER, title = "Open", onDismiss = onDismiss) {
         if (state.isEmpty) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -140,11 +141,11 @@ fun OpenProjectWindow(
                     modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
             }
-            return@FloatingWindow
+            return@ToolSurface
         }
 
         // Plain Column of Rows, not LazyVerticalGrid: this window's content already sits inside
-        // FloatingWindow's own scrollable Column, and a lazy grid nested there is built on
+        // ToolSurface's own scrollable Column, and a lazy grid nested there is built on
         // SubcomposeLayout -- AzWindow's sizing asks its content for an intrinsic measurement,
         // which Compose refuses to do across a SubcomposeLayout boundary, crashing the instant
         // this window opened. Chunking by 2 reproduces the fixed-2-column layout by hand; a

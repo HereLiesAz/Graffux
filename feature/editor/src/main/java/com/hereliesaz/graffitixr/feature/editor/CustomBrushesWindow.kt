@@ -28,7 +28,8 @@ import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.data.brush.CustomBrush
 import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * A gallery/manager over every brush the user has saved in Brush Studio — [BrushStudioWindow]
@@ -62,7 +63,7 @@ fun CustomBrushesWindow(
         )
     }
 
-    FloatingWindow(title = "My Brushes", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.EDITOR, title = "My Brushes", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),

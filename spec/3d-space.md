@@ -61,6 +61,17 @@ two-finger gesture on a layer is one undo step; view gestures are never history 
 saved with the project when the gesture ends). Every gesture follows the fingers continuously: the
 canvas gesture handlers are keyed so a state write on every step never restarts them.
 
+### Rotation slider
+
+While the bottom sheet is open, a hairline slider (`RotationSlider`, the sheet's `topAccessory`)
+rides just above its top edge and follows it between detents. It rotates the **active layer**, not
+the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer
+(`EditorViewModel.rotationSliderAxis`). It reads the layer's angle on that axis wrapped to
+-180..180°, with a centre tick at 0°, light haptic detents at 0 / ±45 / ±90 / ±180, a soft snap at
+0 only, and a degree readout only while dragging. A double-tap on the thumb resets to 0°. One drag
+(or reset) is one undo step, through the same gesture start/end as a transform gesture. It hides
+with the rest of the chrome while drawing.
+
 **Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
 the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,
 no X/Y tilt) as one undo step.
@@ -133,7 +144,10 @@ used to open the window, now imports into a layer.
   surface (the same ray as painting), ranked by the depth of the surface hit; the selection outline
   is the mesh's framed x/y bounds on the layer's plane.
 - **Flatten and composites.** A composite with no camera still uses the scene renderer, at the
-  default camera, when a model or 3D strokes layer is present; Flatten All passes the scene camera.
+  default camera, when a model or 3D strokes layer is present; Flatten All passes the scene camera;
+  under a moved camera it renders at the canvas size and puts the flattened layer on the view plane
+  (`SceneMath.viewPlanePose`), whose box projects onto the canvas pixel for pixel, so the result
+  shows exactly as the layers did rather than projected a second time.
 - **Paint revisions and undo.** The paint is `ModelLayerContent.texture`, a `ModelTexture`: one
   immutable revision, compared by identity. A stroke paints a copy (`EditorUiState.modelDraft`,
   which the depth pass draws in its place), and on lift that copy becomes the next revision. The
@@ -152,9 +166,9 @@ above or below the whole pass. The shader is the old renderer's (paint over a ba
 headlight so no side is lost in shadow), ported to GLES 3 and fed the scene camera's clip matrix.
 The mesh is uploaded once per mesh, the texture once per revision (or per dab while painting, under
 the bitmap's lock so an upload never tears). Opaque models are drawn with the ink, before the
-planes, so translucent plane pixels blend over them. A model whose layer opacity is below 1 is drawn
-after the planes, depth-tested but without depth writes, farthest first, so what is behind it shows
-through. A flat document without models still has no
+planes, so translucent plane pixels blend over them. Translucent members, a model or a plane whose
+opacity is below 1, are drawn last in one pass, farthest first, depth-tested but without depth
+writes, so each blends over whatever is behind it, translucent or not. A flat document without models still has no
 depth pass.
 
 ## Render path
@@ -232,8 +246,12 @@ first casts the ray from the eye through that point, intersects the layer's plan
 in the layer's box coordinates `L`, and returns `C + (ox, oy) + Rz * scale * (L - C)`: the point
 the existing pipeline would have received had the layer been flat. Every brush and tool then runs
 unchanged (`mapScreenToBitmap` undoes exactly the 2D part). A ray that misses the plane (parallel,
-or the plane behind the eye) yields no point. The brush then keeps the plain world point, so a
-stroke never breaks.
+the plane behind the eye, or a hit nearer than the near plane, which is the eye lying in an edge-on
+plane) yields no point. The brush skips that sample (`PlaneStrokeFeed`): there is nothing of the
+layer under the finger, and painting the plain world point would put the paint where the layer sat
+before it was turned. The stroke starts at its first sample that hits, and a stroke that never hits
+is cancelled, so a layer seen edge-on takes no paint. A fill or clone tap that misses still uses the
+plain world point.
 
 ## Adopting the view plane
 
