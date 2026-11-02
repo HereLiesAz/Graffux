@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -261,25 +263,33 @@ internal fun CarouselTabList(
         onSelect(group)
     }
     val onRight = LocalSetWheelOnRight.current
-    BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = PickerGap).testTag("carousel.tabs")) {
-        val radius = setWheelRadius(maxWidth, maxHeight)
+    // The strip takes exactly the height the picker had before the wheel (StripHeight), so the cards
+    // above sit where they always did. The wheel and the quick buttons are drawn over it, anchored
+    // in its bottom corner and reaching down into the sheet's gesture-free bottom inset (above the
+    // nav bar's), never up into the cards.
+    BoxWithConstraints(
+        modifier.fillMaxWidth().height(StripHeight).padding(horizontal = PickerGap).testTag("carousel.tabs"),
+    ) {
+        val radius = setWheelRadius(maxWidth - QuickColumnWidth - PickerGap, StripHeight + PickerOverhang)
         val quick: @Composable () -> Unit = {
-            Column(
-                Modifier.width(QuickColumnWidth),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (favorites != null) {
+            if (favorites != null) {
+                Box(Modifier.width(QuickColumnWidth)) {
                     QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
                         pick(favorites)
                     }
                 }
-                if (previous != null) {
+            }
+            if (previous != null) {
+                Box(Modifier.width(QuickColumnWidth)) {
                     QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") { pick(previous) }
                 }
             }
         }
         Row(
-            Modifier.fillMaxWidth().height(radius),
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(Alignment.Top, unbounded = true)
+                .requiredHeight(radius),
             verticalAlignment = Alignment.Bottom,
             // The quick buttons sit right beside the wheel, on its rail side.
             horizontalArrangement = Arrangement.spacedBy(PickerGap, if (onRight) Alignment.End else Alignment.Start),
@@ -290,6 +300,12 @@ internal fun CarouselTabList(
         }
     }
 }
+
+/** The picker strip's layout height: what it was before the wheel, so the cards never move. */
+internal val StripHeight = 56.dp
+
+/** How far the wheel reaches below the strip: into the sheet's bottom inset ([CarouselBottomInset]). */
+internal val PickerOverhang = CarouselBottomInset
 
 @Suppress("FunctionNaming")
 @Composable

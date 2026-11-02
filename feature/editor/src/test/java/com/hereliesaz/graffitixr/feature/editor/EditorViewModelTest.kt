@@ -1715,6 +1715,34 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `undoing the axis slot's auto-wrap disarms Draw surface, so the next stroke paints`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val groupId = viewModel.uiState.value.surfaceDrawGroupId
+        assertNotNull(groupId)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.none { it.id == groupId })
+        // Armed over a group that no longer exists, the capture swallowed the next stroke.
+        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
+        // Redo brings the group back but not the arming: the capture is a one-shot tool, not state.
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
+        // A delete of the armed group disarms it too.
+        viewModel.onArmSurfaceDraw(viewModel.uiState.value.layers.first { it.id == "lone" }.parentId!!)
+        assertNotNull(viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onLayerRemoved(viewModel.uiState.value.surfaceDrawGroupId!!)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
+    }
+
+    @Test
     fun `the rotation slider leaves the open panel open`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("a")))

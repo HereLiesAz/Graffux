@@ -317,6 +317,8 @@ fun EditorScreen(
                                     showGuideFor = uiState.activeLayerId.takeIf {
                                         uiState.spatialStrokeTool == SpatialStrokeTool.DRAW
                                     },
+                                    flatSurfaceModels = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                        .flatSurfaceModels(uiState.layers, boxWidth, boxHeight),
                                 )
                             }
                         }
@@ -653,6 +655,7 @@ fun EditorScreen(
                     point = { vm.onStrokePoint(it) },
                     end = { vm.onStrokeEnd() },
                     cancel = { vm.onStrokeCancel() },
+                    segmentEnd = { vm.onStrokeSegmentEnd() },
                 )
             }
             DrawingCanvas(

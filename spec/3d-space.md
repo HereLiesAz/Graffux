@@ -65,14 +65,17 @@ canvas gesture handlers are keyed so a state write on every step never restarts 
 
 ### Rotation slider
 
-While the bottom sheet is open, a hairline slider (`RotationSlider`, the sheet's `topAccessory`)
-rides just above its top edge and follows it between detents. It rotates the **active layer**, not
+Whenever the bottom sheet is closed, or hidden for drawing, a hairline slider (`RotationSlider`, in
+`RotationSliderDock`) is docked at the bottom of the screen: above the nav bar's inset and the
+bottom gesture strip, and in from both sides by a rail's width, so it is clear of the tool and layers
+rails on either hand. Opening the sheet takes it away. It rotates the **active layer**, not
 the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer
 (`EditorViewModel.rotationSliderAxis`). It reads the layer's angle on that axis wrapped to
 -180..180°, with a centre tick at 0°, light haptic detents at 0 / ±45 / ±90 / ±180, a soft snap at
 0 only, and a degree readout only while dragging. A double-tap on the thumb resets to 0°. One drag
-(or reset) is one undo step, through the same gesture start/end as a transform gesture. It hides
-with the rest of the chrome while drawing.
+(or reset) is one undo step, through the same gesture start/end as a transform gesture. It is the one
+control that stays live while drawing: it is never ghosted with the chrome, it is used between
+strokes, and its touches never reach the canvas (they cannot start a stroke).
 
 **Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
 the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,

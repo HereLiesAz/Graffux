@@ -278,6 +278,38 @@ object SurfaceMath {
     private fun flatPose(p: PlanePose) = p.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f)
 
     /**
+     * Box-local to scene for a leaf of [owner] when its surface is FLAT: the one plane the surface
+     * is, with the leaf's paint unrolled onto it exactly as the depth pass maps it (origin the
+     * profile's first vertex, box x along the profile, box y along the sweep). A layer the depth pass
+     * cannot draw (a blend mode or a clip) draws through this in the stack instead, so it stays on
+     * the surface rather than jumping to its group's picture plane. Null when the surface bends.
+     */
+    fun flatSurfaceModel(owner: SurfaceOwner, width: Float, height: Float): Affine3? {
+        val profile = owner.profile
+        if (!profile.isFlat || !profile.isValid) return null
+        val a = profile.point(0)
+        val b = profile.point(profile.count - 1)
+        val e = FloatArray(3) { (b[it] - a[it]) / profile.length }
+        val d = profile.sweep
+        val n = SceneMath.normalize(SceneMath.cross(e, d))
+        val surface = Affine3(floatArrayOf(e[0], d[0], n[0], a[0], e[1], d[1], n[1], a[1], e[2], d[2], n[2], a[2]))
+        return SceneMath.chainModel(owner.ownerChain, width, height) * surface * boxToUnrolled(owner.innerChain, width, height)
+    }
+
+    /** [flatSurfaceModel] for every layer painted on a flat surface, by id; empty when there is none. */
+    fun flatSurfaceModels(layers: List<Layer>, width: Float, height: Float): Map<String, Affine3> {
+        if (width <= 0f || height <= 0f || layers.none { it.isContainer && it.surface?.isFlat == true }) return emptyMap()
+        val byId = layers.associateBy { it.id }
+        val out = HashMap<String, Affine3>()
+        for (layer in layers) {
+            if (layer.isContainer) continue
+            val owner = ownerOf(byId, layer.id) ?: continue
+            flatSurfaceModel(owner, width, height)?.let { out[layer.id] = it }
+        }
+        return out
+    }
+
+    /**
      * Painting on a surface (spec/3d-space.md, "Group surfaces"): the flat point for a touch at
      * canvas point ([x], [y]) on [owner]'s leaf, or null when the ray misses the surface.
      */

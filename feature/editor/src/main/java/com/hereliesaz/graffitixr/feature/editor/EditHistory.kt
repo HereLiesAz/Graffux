@@ -61,6 +61,7 @@ internal class EditHistory(
      * Returns whether the stroke joined an existing chunk, so its commit can skip capturing a GPU
      * undo snapshot the chunk would only free again.
      */
+    @Suppress("LongParameterList")
     fun pushDraw(
         layerId: String,
         command: StrokeCommand,
@@ -68,10 +69,19 @@ internal class EditHistory(
         nowMs: Long = System.nanoTime() / NANOS_PER_MS,
         /** A view plane the layer adopted for this stroke; it never joins an earlier chunk. */
         plane: PlaneSwap? = null,
+        /**
+         * A later segment of the same physical gesture (a stroke the plane broke at a gap): it
+         * always joins the newest entry when that is a stroke on [layerId], so one gesture is one
+         * undo step whatever the chunk rules say.
+         */
+        continuesGesture: Boolean = false,
     ): Boolean {
         val top = undoStack.lastOrNull()
-        val joined = plane == null && chunkable && top is EditCommand.Draw &&
-            joinsChunk(top, layerId, command, nowMs)
+        val joined = top is EditCommand.Draw && if (continuesGesture) {
+            top.layerId == layerId
+        } else {
+            plane == null && chunkable && joinsChunk(top, layerId, command, nowMs)
+        }
         if (joined && top is EditCommand.Draw) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
@@ -90,6 +100,10 @@ internal class EditHistory(
     private fun joinsChunk(top: EditCommand.Draw, layerId: String, command: StrokeCommand, nowMs: Long) =
         top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
             top.strokes.size < chunkMaxStrokes && nowMs - top.lastPushMs <= chunkPauseMs
+
+    /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */
+    fun topDrawHolds(command: StrokeCommand): Boolean =
+        (undoStack.lastOrNull() as? EditCommand.Draw)?.strokes?.any { it === command } == true
 
     /** How many strokes on [layerId] undo can still take back: what a bake must leave unbaked. */
     fun undoableStrokeCount(layerId: String): Int =

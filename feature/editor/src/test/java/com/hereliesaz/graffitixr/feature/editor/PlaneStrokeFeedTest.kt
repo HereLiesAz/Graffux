@@ -39,12 +39,14 @@ class PlaneStrokeFeedTest {
         val points = mutableListOf<Offset>()
         var ended = 0
         var cancelled = 0
+        var segments = 0
         fun feed(map: (Offset) -> Offset?) = PlaneStrokeFeed(
             toLayer = map,
             start = { started += it },
             point = { points += it },
             end = { ended++ },
             cancel = { cancelled++ },
+            segmentEnd = { segments++ },
         )
     }
 
@@ -137,7 +139,9 @@ class PlaneStrokeFeedTest {
         feed.onEnd()
         assertEquals(listOf(Offset(1f, 1f), Offset(9f, 9f)), r.started)
         assertEquals(listOf(Offset(10f, 10f)), r.points)
-        assertEquals(2, r.ended)
+        // The gap ends a segment, not the gesture: finger-up ends it once.
+        assertEquals(1, r.segments)
+        assertEquals(1, r.ended)
         assertEquals(0, r.cancelled)
     }
 }

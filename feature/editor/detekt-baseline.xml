@@ -30,7 +30,7 @@
     <ID>CyclomaticComplexMethod:EditorScreen.kt$internal fun DrawScope.drawVectorShape(shape: VectorShape, cx: Float, cy: Float)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun applySpectatorOp(op: Op)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onImportDocument(uri: Uri)</ID>
-    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$private fun endStroke()</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
     <ID>CyclomaticComplexMethod:EditorViewModel.kt$EditorViewModel$fun renderAnimationPreview()</ID>
@@ -143,7 +143,7 @@
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$@Suppress("LongParameterList") internal fun commitInkStroke( stroke: androidx.ink.strokes.Stroke, path: List&lt;Offset&gt;, pressures: List&lt;Float&gt;, utensil: com.hereliesaz.graffitixr.common.model.InkUtensil, canvasSize: IntSize, onCommitted: () -&gt; Unit, )</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun applySpectatorOp(op: Op)</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onMergeDown(layerId: String)</ID>
-    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>LongMethod:EditorViewModel.kt$EditorViewModel$private fun endStroke()</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
     <ID>LongMethod:EditorViewModel.kt$EditorViewModel$fun renderAnimationPreview()</ID>
@@ -700,7 +700,7 @@
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onMergeDown(layerId: String)</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onSelectionMove(delta: Offset)</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onSetTransformMode(mode: TransformMode)</ID>
-    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$private fun endStroke()</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokePoint(currentPoint: Offset, pressure: Float = 1f)</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f)</ID>
     <ID>ReturnCount:EditorViewModel.kt$EditorViewModel$fun onUpdateTextStyleToActive(styleId: String)</ID>
@@ -747,7 +747,7 @@
     <ID>SwallowedException:GoogleFontCache.kt$GoogleFontCache$e: Exception</ID>
     <ID>SwallowedException:KritaPresetParser.kt$KritaPresetParser$e: Exception</ID>
     <ID>SwallowedException:TimeLapseRecorder.kt$TimeLapseRecorder$e: IOException</ID>
-    <ID>ThrowsCount:EditorViewModel.kt$EditorViewModel$fun onStrokeEnd()</ID>
+    <ID>ThrowsCount:EditorViewModel.kt$EditorViewModel$private fun endStroke()</ID>
     <ID>ThrowsCount:KritaPresetParser.kt$KritaPresetParser$internal fun parsePresetXml(xml: String): Preset</ID>
     <ID>ThrowsCount:KritaPresetParser.kt$KritaPresetParser$private fun readCompressedTextChunk(data: ByteArray, keyword: String): String?</ID>
     <ID>TooGenericExceptionCaught:EditorViewModel.kt$EditorViewModel$e: Exception</ID>
