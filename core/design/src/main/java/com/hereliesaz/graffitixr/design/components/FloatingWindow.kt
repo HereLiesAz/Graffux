@@ -57,20 +57,6 @@ import androidx.compose.ui.zIndex
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
-/**
- * The horizontal strip of the screen the tool rail currently occupies. Every [FloatingWindow]
- * keeps clear of it — both where it first appears and wherever it settles after being dragged —
- * since a panel spawning under, or later dragged under, the rail is unreachable there: the rail
- * always draws on top.
- *
- * Provide the real value once near the editor's root, where the rail is docked (see `MainActivity`).
- * The default assumes no rail is docked, so a host that never provides one still gets ordinary
- * onscreen clamping.
- */
-data class RailInset(val dockedOnLeft: Boolean, val width: Dp)
-
-val LocalRailInset = compositionLocalOf { RailInset(dockedOnLeft = false, width = 0.dp) }
-
 private val MaxWindowWidth = 320.dp
 private val MaxWindowHeight = 480.dp
 
