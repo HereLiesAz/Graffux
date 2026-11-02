@@ -695,16 +695,6 @@ fun EditorScreen(
             )
         }
 
-        // 3a-surface. "Draw surface" armed on a group (spec/3d-space.md, "Group surfaces"): the next
-        // one-finger stroke is the group's profile, over every tool, and paints nothing.
-        if (uiState.surfaceDrawGroupId != null) {
-            SurfaceProfileCapture(
-                toWorld = activePlane::world,
-                onDrawn = { vm.onSurfaceProfileDrawn(it) },
-                modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
-            )
-        }
-
         // 3a-bis. Lasso capture layer — traces a new selection, or moves the pixels of the current
         // one when the drag starts inside it. Raw screen coordinates, like the brush layer above,
         // and for the same reason converted to world space before the view-model ever sees them:
@@ -880,6 +870,17 @@ fun EditorScreen(
         if (uiState.modelPaintTool != null) {
             val modelActions = remember(vm) { vm.modelPaintActions() }
             ModelPaintCanvas(modelActions, uiState, Modifier.fillMaxSize())
+        }
+
+        // 3a-surface. "Draw surface" armed on a group (spec/3d-space.md, "Group surfaces"): the next
+        // one-finger stroke is the group's profile, over every tool, and paints nothing.
+        // Composed after every tool's input overlay, so it gets the pointer first.
+        if (uiState.surfaceDrawGroupId != null) {
+            SurfaceProfileCapture(
+                toWorld = activePlane::world,
+                onDrawn = { vm.onSurfaceProfileDrawn(it) },
+                modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
+            )
         }
 
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled

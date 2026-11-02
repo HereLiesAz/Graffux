@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.scene.DepthComposite
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
+import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
 import com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -56,6 +57,18 @@ class DepthSceneCacheKeyTest {
             pixels = { l -> l.bitmap?.let { it to 0L } }, vectors = { null }, activeId = "active",
         )
         assertNotEquals(scene(layers, 1000f, 800f).viewKey, orbited.viewKey)
+    }
+
+    @Test
+    fun `a change to the owning group's surface changes its children's keys`() {
+        val bmpChild = Layer("child", "child", bitmap = bmp, parentId = "wall")
+        val group = Layer(
+            "wall", "wall", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            surface = SurfaceProfile(listOf(0f, 0f, 0f, 1000f, 0f, 0f)),
+        )
+        val reshaped = group.copy(surface = SurfaceProfile(listOf(0f, 0f, 0f, 1000f, 0f, 400f)))
+        fun key(g: Layer) = scene(listOf(g, bmpChild) + layers, 1000f, 800f).planes.first { it.id == "child" }.key
+        assertNotEquals(key(group), key(reshaped))
     }
 
     @Test
