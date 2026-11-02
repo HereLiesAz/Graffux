@@ -295,4 +295,35 @@ class CarouselSetWheelUiTest {
             assertEquals("$name is cut", false, node.config[WheelNameEllipsized])
         }
     }
+
+    private fun bothButtonsFit(onRight: Boolean) {
+        compose(onRight = onRight, start = "studio")
+        // Leaving My Brushes for Favorites makes it the previous set: both quick buttons show.
+        rule.onNodeWithTag("carousel.quick.favorites").performClick()
+        rule.waitForIdle()
+        val fav = rule.onNodeWithTag("carousel.quick.favorites").fetchSemanticsNode().boundsInRoot
+        val prev = rule.onNode(hasTestTag("carousel.quick.previous") and hasText("My Brushes"))
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("favorites $fav", fav.width > 0f)
+        assertTrue("previous $prev", prev.width > 0f)
+        val node = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode()
+        // The geometry is built for the width the wheel really has.
+        assertEquals(node.boundsInRoot.width, node.config[WheelGeometryWidth], 1f)
+        assertTrue(node.boundsInRoot.width >= WheelMinWidth.value * rule.density.density - 1f)
+        // Nothing overlaps: buttons and wheel each keep their own room.
+        val w = node.boundsInRoot
+        listOf(fav, prev).forEach { b ->
+            assertTrue("$b overlaps $w", b.right <= w.left + 1f || b.left >= w.right - 1f)
+        }
+        assertTrue(fav.right <= prev.left + 1f || prev.right <= fav.left + 1f)
+        // The narrower wheel still shows a typical name in full.
+        assertEquals(false, item("My Brushes").fetchSemanticsNode().config[WheelNameEllipsized])
+        assertEquals(270f, angleOf("Favorites", onRight), 1f)
+    }
+
+    @Test
+    fun `both quick buttons and the wheel fit side by side, right-handed`() = bothButtonsFit(onRight = true)
+
+    @Test
+    fun `both quick buttons and the wheel fit side by side, left-handed`() = bothButtonsFit(onRight = false)
 }

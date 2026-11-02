@@ -125,8 +125,13 @@ class SheetDeviceRegressionUiTest {
         assertTrue("previous left of the wheel", near.right <= wheel.left + 1f)
         val nearGap = wheel.left - near.right
         assertTrue("previous beside the wheel (gap ${nearGap}px)", nearGap <= gapPx + 1f)
-        val farGap = near.left - far.right
-        assertTrue("favorites beside previous (gap ${farGap}px)", farGap in -1f..gapPx + 1f)
+        // At 360dp two buttons side by side would leave the wheel too narrow for a name, so they
+        // stack in one column beside it: Favorites on top, the previous set under it.
+        val farGap = wheel.left - far.right
+        assertTrue("favorites beside the wheel (gap ${farGap}px)", farGap in -1f..gapPx + 1f)
+        val stackGap = near.top - far.bottom
+        assertTrue("favorites stacked on previous (gap ${stackGap}px)", stackGap in -1f..gapPx + 1f)
+        assertTrue(wheel.width >= WheelMinWidth.value * rule.density.density - 1f)
     }
 
     @Test
