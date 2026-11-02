@@ -121,6 +121,9 @@ internal fun CarouselSheet(
     // The name for the small pill above the content, or null for none. The sheet has no drag
     // handle: the pill is a label, and the sheet drags from anywhere on it, pill included.
     nameLabel: () -> String? = { null },
+    // Rides just above the sheet's top edge, moving with it between detents (the rotation slider).
+    // Shown only while the sheet shows open.
+    topAccessory: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val hideChrome by rememberUpdatedState(chromeHidden)
@@ -209,6 +212,9 @@ internal fun CarouselSheet(
                         .nestedScroll(nested),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    if (topAccessory != null && shownOpen) {
+                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { topAccessory() }
+                    }
                     nameLabel()?.let { name ->
                         Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
                     }

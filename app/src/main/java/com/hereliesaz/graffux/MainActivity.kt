@@ -988,6 +988,20 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Clears the nav bar itself and keeps the grab pill off the screen's
                     // bottom edge, where system gestures would take its touches.
                     bottomInset = CarouselBottomInset,
+                    topAccessory = {
+                        ShownWhenNotDrawing(chrome) {
+                            vm.rotationSliderValue(uiState)?.let { angle ->
+                                RotationSlider(
+                                    value = angle,
+                                    onStart = vm::onRotationSliderStart,
+                                    onChange = vm::onRotationSliderChange,
+                                    onEnd = vm::onRotationSliderEnd,
+                                    onReset = vm::onRotationSliderReset,
+                                    label = strings.nav.rotateLayer,
+                                )
+                            }
+                        }
+                    },
                 ) {
                     val carouselInputs = CarouselInputs(
                         groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
