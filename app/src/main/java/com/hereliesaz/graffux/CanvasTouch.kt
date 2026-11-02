@@ -16,14 +16,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import com.hereliesaz.graffitixr.feature.editor.GhostWhileDrawing
 import com.hereliesaz.graffitixr.feature.editor.StrokeGate
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 
 /**
  * A finger on the canvas. The chrome (both rails, every menu, the floating toolboxes, the brush
- * sheet) gets out of the way the instant one lands and comes back [DRAWING_UI_RETURN_DELAY_MS]
- * after the last one lifts.
+ * sheet) gets out of the way the instant one lands — the rails fade to a ghost that takes no touches,
+ * the sheet snaps shut — and comes back [DRAWING_UI_RETURN_DELAY_MS] after the last one lifts.
  *
  * Two signals say a finger is on the canvas: a stroke ([StrokeGate.strokeActive], set by every
  * drawing surface on its first point), and a touch nothing on the canvas claimed (a tap with no
@@ -70,8 +71,8 @@ internal fun Modifier.observeCanvasTouch(touch: CanvasTouch): Modifier = pointer
 
 /**
  * Whether the chrome is hidden, read lazily so only the composables that hide recompose. Hidden at
- * once on a canvas touch or a stroke — no animation, no frame of delay beyond the touch itself — and
- * for [DRAWING_UI_RETURN_DELAY_MS] after.
+ * once on a canvas touch or a stroke — no frame of delay beyond the touch itself; the fade that shows
+ * it is only a layer alpha — and for [DRAWING_UI_RETURN_DELAY_MS] after.
  */
 @Stable
 internal class ChromeVisibility(
@@ -111,9 +112,12 @@ internal fun rememberChromeVisibility(
     return remember(touch, gate, held) { ChromeVisibility(touch, gate, held) { latestForce() } }
 }
 
-/** Composes [content] only while the chrome is shown. Gone, not faded: nothing to touch by accident. */
+/**
+ * [content] at full alpha while the chrome is shown; while it is hidden, a faint silhouette that
+ * takes no touches, so a stroke over it reaches the canvas (see [GhostWhileDrawing]).
+ */
 @Suppress("FunctionNaming")
 @Composable
 internal fun ShownWhenNotDrawing(visibility: ChromeVisibility, content: @Composable () -> Unit) {
-    if (!visibility.hidden) content()
+    GhostWhileDrawing(hidden = { visibility.hidden }, content = content)
 }
