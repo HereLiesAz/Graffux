@@ -20,7 +20,8 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * Picks the artboard / document size. Tapping a preset applies it and closes the dialog in one
@@ -56,8 +57,8 @@ fun DocumentSizeDialog(
         onDismiss()
     }
 
-    FloatingWindow(title = "Document size", onDismiss = ::confirmAndDismiss) {
-        // FloatingWindow already scrolls its content; a second vertical scroller receives
+    ToolSurface(kind = SurfaceKind.FORM, title = "Document size", onDismiss = ::confirmAndDismiss) {
+        // ToolSurface already scrolls its content; a second vertical scroller receives
         // unbounded height from the outer one and crashes during measurement.
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             DOCUMENT_PRESETS.forEach { preset ->

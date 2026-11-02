@@ -11,7 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * Where to get extensions from.
@@ -38,14 +39,12 @@ fun StoreChooserDialog(
     onAndroid: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    // FloatingWindow, not AlertDialog: this is a non-destructive "where do you want to browse
-    // from" choice, not a gate on an irreversible action -- every other panel in the app (see
-    // AddContentDialog, CornerRadiusDialog, etc.) is this same non-modal, draggable window that
-    // keeps the canvas visible and interactive underneath; a full-scrim blocking modal here was
-    // the one place in the whole tool surface that broke that contract for no reason tied to what
-    // this dialog actually asks. Contrast ConfirmDialog, which stays a real AlertDialog on
+    // A ToolSurface quick form, not AlertDialog: this is a non-destructive "where do you want to
+    // browse from" choice, not a gate on an irreversible action, so it opens like the other quick
+    // forms (AddContentDialog, SaveProjectDialog): a bottom sheet on a phone, a centred sheet on a
+    // tablet. Contrast ConfirmDialog, which stays a real AlertDialog on
     // purpose: it gates an action that can't be undone, and needs the canvas actually blocked.
-    FloatingWindow(title = "Azphalt Store", onDismiss = onCancel) {
+    ToolSurface(kind = SurfaceKind.FORM, title = "Azphalt Store", onDismiss = onCancel) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 if (storeAppInstalled) {

@@ -13,7 +13,8 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * Window listing everything that can be added as a new layer — text and the basic shapes.
@@ -40,9 +41,9 @@ fun AddContentDialog(
         "Pentagon" to onAddPentagon,
         "Hexagon" to onAddHexagon,
     )
-    FloatingWindow(title = "Add", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.FORM, title = "Add", onDismiss = onDismiss) {
         // Plain Column of Rows, not LazyVerticalGrid: this window's content already sits inside
-        // FloatingWindow's own scrollable Column, and a lazy grid nested there is built on
+        // ToolSurface's own scrollable Column, and a lazy grid nested there is built on
         // SubcomposeLayout -- AzWindow's sizing asks its content for an intrinsic measurement,
         // which Compose refuses to do across a SubcomposeLayout boundary, crashing the instant
         // this window opened. Seven fixed choices have nothing to virtualize anyway.
