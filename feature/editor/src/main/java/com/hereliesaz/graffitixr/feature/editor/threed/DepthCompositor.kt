@@ -123,8 +123,9 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         for (ink in s.inks) drawInk(ink, s.camera)
-        // Models are opaque surfaces: drawn with the ink, before the planes blend over them.
-        for (model in s.models) drawModel(model, s.camera)
+        // Opaque models are drawn with the ink, before the planes blend over them.
+        val (opaque, translucent) = s.models.partition { it.alpha >= 1f }
+        for (model in opaque) drawModel(model, s.camera)
         val depths = s.planes.associate { p ->
             val cx = (p.rect[0] + p.rect[2]) / 2f
             val cy = (p.rect[1] + p.rect[3]) / 2f
@@ -132,6 +133,13 @@ class DepthCompositor : GLSurfaceView.Renderer {
         }
         val byId = s.planes.associateBy { it.id }
         for (id in DepthComposite.backToFront(depths, s.planes.map { it.id })) drawPlane(byId.getValue(id), s.camera)
+        // A translucent model is tested against everything but writes no depth, so what is behind
+        // it (planes included) still shows through; several blend farthest first.
+        if (translucent.isNotEmpty()) {
+            GLES30.glDepthMask(false)
+            for (model in translucentOrder(translucent, s.camera)) drawModel(model, s.camera)
+            GLES30.glDepthMask(true)
+        }
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
     }
 
@@ -383,6 +391,16 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     companion object {
         private const val TAG = "DepthCompositor"
+
+        /**
+         * The order translucent models draw in: farthest first, by the camera depth of each mesh's
+         * bounding centre.
+         */
+        fun translucentOrder(models: List<Model>, cam: CameraFrame): List<Model> =
+            models.sortedByDescending { m ->
+                val c = m.mesh.center()
+                cam.toCamera(m.toScene.apply(c[0], c[1], c[2]))[2]
+            }
 
         /**
          * The canvas's 4x5 colour matrix as GL uniforms: a column-major mat4 and an offset in 0..1.

@@ -115,9 +115,13 @@ class ExportManager @Inject constructor() {
         // to the whole child stack, matching the live Compose LayerStackNode) rather than each child
         // painting individually at full strength straight onto the export — the flat forEach this
         // replaced didn't know groups existed at all.
-        if (camera != null && SceneExport.needed(layers, camera)) {
+        // 3D model and 3D strokes layers have no pixels of their own: only the scene renderer draws
+        // them, so a caller without a camera still gets them, from the default camera.
+        val sceneCamera = camera ?: com.hereliesaz.graffitixr.common.scene.SceneCamera()
+            .takeIf { layers.any { it.model != null || it.spatial != null } }
+        if (sceneCamera != null && SceneExport.needed(layers, sceneCamera)) {
             val target = result.takeIf { renderAdjustments }
-            SceneExport(this).draw(canvas, layers, screenWidth, screenHeight, camera, target)
+            SceneExport(this).draw(canvas, layers, screenWidth, screenHeight, sceneCamera, target)
         } else {
             drawNodes(canvas, buildLayerTree(layers), screenWidth, screenHeight, result.takeIf { renderAdjustments })
         }

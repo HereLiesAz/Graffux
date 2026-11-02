@@ -62,6 +62,7 @@ class ModelLayerTest {
     private val artifacts = HashMap<String, ByteArray>()
     private lateinit var projects: ProjectRepository
     private val emitted = ArrayList<Op>()
+    private val exportManager = mockk<com.hereliesaz.graffitixr.feature.editor.export.ExportManager>(relaxed = true)
     private var coopActive = false
 
     private val objText = """
@@ -113,7 +114,7 @@ class ModelLayerTest {
             projectRepository = projects,
             settingsRepository = settings,
             projectManager = mockk(relaxed = true),
-            exportManager = mockk(relaxed = true),
+            exportManager = exportManager,
             context = RuntimeEnvironment.getApplication(),
             liquifyEngine = mockk(relaxed = true),
             dispatchers = dispatchers,
@@ -305,6 +306,43 @@ class ModelLayerTest {
         assertNotNull(content.mesh)
         assertEquals(Color.GREEN, content.texture!!.pixels()!!.getPixel(10, 10))
         assertTrue(layers.last().is3DLayer)
+        // An unchanged save keeps the texture under the name it was migrated with (Codex #684).
+        artifacts.clear()
+        vm.saveProject()
+        idle()
+        val transforms = mutableListOf<(GraffitiProject) -> GraffitiProject>()
+        io.mockk.coVerify(atLeast = 1) { projects.updateProject(capture(transforms)) }
+        val saved = transforms.last()(project(emptyList())).layers.single { it.id == "old" }.model!!
+        assertEquals("model_texture.png", saved.textureFile)
+        assertTrue(artifacts.keys.toString(), artifacts.isEmpty())
+    }
+
+    @Test
+    fun `flattening renders through the scene camera, so model layers are kept`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        addModel()
+        vm.onSceneOrbit(0.3f, 0f)
+        vm.onFlattenAllLayers()
+        idle()
+        io.mockk.verify { exportManager.compositeLayers(any(), any(), any(), camera = vm.uiState.value.sceneCamera) }
+    }
+
+    @Test
+    fun `a tap on a model's surface selects it, and its outline has corners`() = runTest(dispatcher) {
+        addModel()
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val layers = listOf(com.hereliesaz.graffitixr.common.model.Layer("under", "U"), model())
+        assertEquals("m", CanvasHitTest.topHit(layers, Offset(w / 2f, h / 2f), w, h))
+        assertNull(CanvasHitTest.topHit(layers, Offset(3f, 3f), w, h))
+        // Under an orbit, through the same ray as painting.
+        val camera = com.hereliesaz.graffitixr.common.scene.SceneCamera().orbit(0.5f, 0.2f)
+        val pose = SceneMath.viewPlanePose(camera, w, h)!!
+        val placed = model().copy(offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
+            rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ, scale = pose.scale)
+        assertEquals("m", CanvasHitTest.topHit(listOf(placed), Offset(w / 2f, h / 2f), w, h, camera = camera))
+        assertNotNull(CanvasHitTest.layerScreenCorners(model(), w, h))
     }
 
     @Test

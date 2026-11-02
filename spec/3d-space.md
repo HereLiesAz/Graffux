@@ -129,6 +129,11 @@ used to open the window, now imports into a layer.
   the texture (`PaintableTexture`). The brush's on-screen size is converted to texels at the hit
   (`ModelSpace.texelsPerPixel`: the triangle's texel area over its projected area). A miss ends the
   run. A second finger ends the stroke. The 2D paint pipeline is not touched.
+- **Selection.** Tap-select and the one-finger move's hit check cast the tap onto the model's
+  surface (the same ray as painting), ranked by the depth of the surface hit; the selection outline
+  is the mesh's framed x/y bounds on the layer's plane.
+- **Flatten and composites.** A composite with no camera still uses the scene renderer, at the
+  default camera, when a model or 3D strokes layer is present; Flatten All passes the scene camera.
 - **Paint revisions and undo.** The paint is `ModelLayerContent.texture`, a `ModelTexture`: one
   immutable revision, compared by identity. A stroke paints a copy (`EditorUiState.modelDraft`,
   which the depth pass draws in its place), and on lift that copy becomes the next revision. The
@@ -146,8 +151,10 @@ occluded per pixel with no second buffer to reconcile; a separate GL surface cou
 above or below the whole pass. The shader is the old renderer's (paint over a base colour, a
 headlight so no side is lost in shadow), ported to GLES 3 and fed the scene camera's clip matrix.
 The mesh is uploaded once per mesh, the texture once per revision (or per dab while painting, under
-the bitmap's lock so an upload never tears). Models are drawn opaque with the ink, before the
-planes, so translucent plane pixels blend over them. A flat document without models still has no
+the bitmap's lock so an upload never tears). Opaque models are drawn with the ink, before the
+planes, so translucent plane pixels blend over them. A model whose layer opacity is below 1 is drawn
+after the planes, depth-tested but without depth writes, farthest first, so what is behind it shows
+through. A flat document without models still has no
 depth pass.
 
 ## Render path
