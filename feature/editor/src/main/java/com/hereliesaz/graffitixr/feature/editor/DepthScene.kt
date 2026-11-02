@@ -44,9 +44,11 @@ internal object DepthScene {
             val layer = byId[id] ?: continue
             val model = SceneMath.chainModel(planeChain(layers, id), width, height)
             val alpha = DepthComposite.effectiveOpacity(layers, id)
-            // What the inactive-layer cache compares: the layer and its placement chain, never the
-            // canvas size (a resize scales the renders instead of rebuilding them).
-            val key = if (activeId == null) null else listOf(layer, planeChain(layers, id), alpha)
+            val owner = if (id in plan.surfaceIds) com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) else null
+            // What the inactive-layer cache compares: the layer, its placement chain and the surface
+            // it is painted on, never the canvas size (a resize scales the renders instead of
+            // rebuilding them).
+            val key = if (activeId == null) null else listOf(layer, planeChain(layers, id), alpha, owner?.profile)
             val content = layer.model
             if (content != null) {
                 val mesh = content.mesh ?: continue
@@ -76,7 +78,6 @@ internal object DepthScene {
                 val r = DepthComposite.imageRect(layer, bmp.width, bmp.height, width, height) ?: continue
                 Triple(bmp, tok, r)
             }
-            val owner = if (id in plan.surfaceIds) com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) else null
             if (owner != null) {
                 val mesh = surfaceMesh(owner, rect, width, height) ?: continue
                 val siblings = plan.memberIds.filter { it in plan.surfaceIds && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, it)?.group?.id == owner.group.id }
