@@ -119,11 +119,14 @@ class SheetDeviceRegressionUiTest {
         pickOnWheel("Round")
         val wheel = bounds("carousel.wheel")
         val gapPx = PickerGap.value * rule.density.density
-        for (tag in listOf("carousel.quick.favorites", "carousel.quick.previous")) {
-            val b = bounds(tag)
-            assertTrue("$tag left of the wheel", b.right <= wheel.left + 1f)
-            assertTrue("$tag beside the wheel (gap ${wheel.left - b.right}px)", wheel.left - b.right <= gapPx + 1f)
-        }
+        // In a row on the wheel's rail side, the nearer one right beside it, the other beside that.
+        val near = bounds("carousel.quick.previous")
+        val far = bounds("carousel.quick.favorites")
+        assertTrue("previous left of the wheel", near.right <= wheel.left + 1f)
+        val nearGap = wheel.left - near.right
+        assertTrue("previous beside the wheel (gap ${nearGap}px)", nearGap <= gapPx + 1f)
+        val farGap = near.left - far.right
+        assertTrue("favorites beside previous (gap ${farGap}px)", farGap in -1f..gapPx + 1f)
     }
 
     @Test

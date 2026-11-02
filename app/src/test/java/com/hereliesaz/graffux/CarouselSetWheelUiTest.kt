@@ -250,7 +250,8 @@ class CarouselSetWheelUiTest {
         val fav = rule.onNodeWithTag("carousel.quick.favorites").fetchSemanticsNode().boundsInRoot
         assertTrue(fav.right <= wheel.left)
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        assertEquals(root.bottom, wheel.bottom, 2f)
+        // Drawn over its strip, reaching into the sheet's bottom inset (PickerOverhang) below it.
+        assertEquals(root.bottom + PickerOverhang.value * rule.density.density, wheel.bottom, 2f)
         assertTrue(wheel.width <= WheelMaxRadius.value * rule.density.density + 1f)
     }
 }

@@ -13,6 +13,7 @@ import com.hereliesaz.graffitixr.common.scene.DepthComposite
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
+import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.feature.editor.DepthScene
 import com.hereliesaz.graffitixr.feature.editor.VectorRaster
@@ -52,6 +53,13 @@ internal class SceneExport(private val manager: ExportManager) {
         val target: Bitmap?,
     ) {
         val frame = SceneMath.frame(camera, w.toFloat(), h.toFloat())
+
+        /** Layers on a flat surface draw on it, as on the canvas (SceneContext.flatSurfaceModels). */
+        val flatSurfaceModels = SurfaceMath.flatSurfaceModels(layers, w.toFloat(), h.toFloat())
+
+        /** Box-local to scene, through the layer's whole chain of planes (or its flat surface). */
+        fun model(layer: Layer) = flatSurfaceModels[layer.id]
+            ?: SceneMath.chainModel(planeChain(layers, layer.id), w.toFloat(), h.toFloat())
     }
 
     private fun vector(layer: Layer, ctx: Ctx): VectorRaster.Image? =
@@ -59,13 +67,13 @@ internal class SceneExport(private val manager: ExportManager) {
 
     /** Box-local to canvas, through the layer's whole chain of planes. */
     private fun homography(layer: Layer, ctx: Ctx): Matrix? {
-        val hm = SceneMath.homography(SceneMath.chainModel(planeChain(ctx.layers, layer.id), ctx.w.toFloat(), ctx.h.toFloat()), ctx.frame)
+        val hm = SceneMath.homography(ctx.model(layer), ctx.frame)
         // A plane crossing the eye cannot be one perspective draw; clip to the part in front.
         return Matrix().apply { setValues(hm) }
     }
 
     private fun clipInFront(canvas: Canvas, layer: Layer, ctx: Ctx) {
-        val hm = SceneMath.homography(SceneMath.chainModel(planeChain(ctx.layers, layer.id), ctx.w.toFloat(), ctx.h.toFloat()), ctx.frame)
+        val hm = SceneMath.homography(ctx.model(layer), ctx.frame)
         val poly = SceneMath.visiblePolygon(hm, ctx.frame, CLIP_EXTENT * maxOf(ctx.w, ctx.h)) ?: return
         val path = android.graphics.Path()
         poly.forEachIndexed { i, (u, v) -> if (i == 0) path.moveTo(u, v) else path.lineTo(u, v) }

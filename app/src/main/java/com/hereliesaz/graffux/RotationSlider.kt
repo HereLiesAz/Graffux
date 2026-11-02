@@ -1,5 +1,8 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -163,3 +166,35 @@ private const val THUMB_HIT_DP = 24f
 private val TickHalfHeight = 4.dp
 private const val TRACK_ALPHA = 0.35f
 private const val TICK_ALPHA = 0.6f
+
+/**
+ * Where the rotation slider lives (spec/3d-space.md, "Rotation slider"): docked at the bottom of the
+ * screen, above the nav bar's inset and the bottom gesture strip ([CarouselBottomInset]) and
+ * [sideClearance] in from both sides, clear of the tool and layers rails whichever hand they are on.
+ * Shown only while the bottom sheet is closed ([sheetOpen] false) or hidden for drawing
+ * ([sheetHidden]); the sheet opening takes it away. Never ghosted while drawing: it is used between
+ * strokes. The outer box has no pointer input, so only the slider's own row takes touches, and
+ * those never reach the canvas below.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Suppress("FunctionNaming")
+@Composable
+internal fun RotationSliderDock(
+    sheetOpen: Boolean,
+    sheetHidden: () -> Boolean,
+    sideClearance: androidx.compose.ui.unit.Dp,
+    slider: @Composable () -> Unit,
+) {
+    if (sheetOpen && !sheetHidden()) return
+    Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomCenter) {
+        Box(
+            Modifier
+                .windowInsetsPadding(
+                    androidx.compose.foundation.layout.WindowInsets.navigationBarsIgnoringVisibility,
+                )
+                .padding(bottom = CarouselBottomInset)
+                .padding(horizontal = sideClearance)
+                .testTag("rotationSlider.dock"),
+        ) { slider() }
+    }
+}
