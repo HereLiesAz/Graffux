@@ -272,8 +272,8 @@ object SceneMath {
 
     /**
      * Ray from the eye through canvas point ([x], [y]) against the plane z = 0 of [model]'s local
-     * space: the hit in local (u, v), or null when the ray is parallel to the plane or the plane is
-     * behind the eye.
+     * space: the hit in local (u, v), or null when the ray is parallel to the plane, the plane is
+     * behind the eye, or the hit is nearer than the near plane (the eye in an edge-on plane).
      */
     fun canvasToLocal(x: Float, y: Float, model: Affine3, cam: CameraFrame): Pair<Float, Float>? {
         val dir = cam.rayDirection(x, y)
@@ -284,7 +284,9 @@ object SceneMath {
         val denom = dot(n, dir)
         if (abs(denom) < 1e-9f * (sqrt(dot(n, n)).coerceAtLeast(1e-9f))) return null
         val s = dot(n, FloatArray(3) { t[it] - cam.eye[it] }) / denom
-        if (s <= 0f || !s.isFinite()) return null
+        // A hit nearer than the near plane is no hit: it is the eye itself lying in the plane (an
+        // edge-on plane, where rounding leaves a tiny s), and nothing that close is ever drawn.
+        if (s <= nearPlane(cam.focal) || !s.isFinite()) return null
         val q = FloatArray(3) { cam.eye[it] + dir[it] * s - t[it] }
         // a and b are orthogonal (a rotation times a uniform scale), so the coordinates separate.
         val aa = dot(a, a)
