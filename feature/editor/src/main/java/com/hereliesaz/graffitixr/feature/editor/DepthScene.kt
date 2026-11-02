@@ -1,4 +1,4 @@
-@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength")
+@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength", "ReturnCount", "MagicNumber", "DestructuringDeclarationWithTooManyEntries")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -76,12 +76,49 @@ internal object DepthScene {
                 val r = DepthComposite.imageRect(layer, bmp.width, bmp.height, width, height) ?: continue
                 Triple(bmp, tok, r)
             }
+            val owner = if (id in plan.surfaceIds) com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) else null
+            if (owner != null) {
+                val mesh = surfaceMesh(owner, rect, width, height) ?: continue
+                val siblings = plan.memberIds.filter { it in plan.surfaceIds && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, it)?.group?.id == owner.group.id }
+                planes += DepthCompositor.Plane(
+                    id, bitmap, token, SceneMath.chainModel(owner.ownerChain, width, height), rect, colorMatrixOf(layer), alpha, key,
+                    surface = mesh, surfaceGroup = owner.group.id, surfaceIndex = siblings.indexOf(id).coerceAtLeast(0),
+                    surfaceFlat = owner.profile.isFlat,
+                )
+                continue
+            }
             planes += DepthCompositor.Plane(id, bitmap, token, model, rect, colorMatrixOf(layer), alpha, key)
         }
         return DepthCompositor.Scene(
             SceneMath.frame(camera, width, height), planes, inks, models,
             activeId = activeId, drawing = drawing, viewKey = camera.takeIf { activeId != null },
         )
+    }
+
+    /**
+     * The strips that carry an image at [rect] (its leaf's box coordinates) on [owner]'s surface:
+     * x, y, z in the owner's box space, then the image's u, v. The image's corners are unrolled by
+     * the leaf's flat chain below the owner; arc length along the profile is the image's x.
+     */
+    fun surfaceMesh(owner: com.hereliesaz.graffitixr.common.scene.SurfaceOwner, rect: FloatArray, width: Float, height: Float): FloatArray? {
+        val math = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+        val toUnrolled = math.boxToUnrolled(owner.innerChain, width, height)
+        val toBox = toUnrolled.inverse() ?: return null
+        val (l, t, r, b) = rect.toList()
+        if (r <= l || b <= t) return null
+        val corners = listOf(toUnrolled.apply(l, t, 0f), toUnrolled.apply(r, t, 0f), toUnrolled.apply(r, b, 0f), toUnrolled.apply(l, b, 0f))
+        val mesh = math.mesh(
+            owner.profile, corners.minOf { it[0] }, corners.maxOf { it[0] }, corners.minOf { it[1] }, corners.maxOf { it[1] },
+        )
+        if (mesh.isEmpty()) return null
+        var i = 0
+        while (i < mesh.size) {
+            val box = toBox.apply(mesh[i + 3], mesh[i + 4], 0f)
+            mesh[i + 3] = (box[0] - l) / (r - l)
+            mesh[i + 4] = (box[1] - t) / (b - t)
+            i += 5
+        }
+        return mesh
     }
 
     /** The canvas's colour adjustment for [layer]; null when it changes nothing. */

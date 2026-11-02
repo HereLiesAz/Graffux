@@ -682,6 +682,16 @@ fun EditorScreen(
             )
         }
 
+        // 3a-surface. "Draw surface" armed on a group (spec/3d-space.md, "Group surfaces"): the next
+        // one-finger stroke is the group's profile, over every tool, and paints nothing.
+        if (uiState.surfaceDrawGroupId != null) {
+            SurfaceProfileCapture(
+                toWorld = activePlane::world,
+                onDrawn = { vm.onSurfaceProfileDrawn(it) },
+                modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
+            )
+        }
+
         // 3a-bis. Lasso capture layer — traces a new selection, or moves the pixels of the current
         // one when the drag starts inside it. Raw screen coordinates, like the brush layer above,
         // and for the same reason converted to world space before the view-model ever sees them:
@@ -1037,7 +1047,7 @@ private fun LayerStackNode(
     if (!layer.isVisible) return
     if (frameAlpha <= 0f) return
     // Drawn by the GPU depth pass instead (DepthPass), with the other planes it can cross.
-    if (LocalScene.current?.depth?.contains(layer.id) == true) return
+    if (LocalScene.current?.depth?.let { layer.id in it || layer.id in it.surfaceIds } == true) return
 
     // The 3D scene path (spec/3d-space.md); null = the 2D fast path, exactly as before.
     val scene = LocalScene.current
@@ -1901,5 +1911,44 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLayerBitmap(
                 scale(1f / crisp.scale, 1f / crisp.scale, pivot = androidx.compose.ui.geometry.Offset.Zero)
             }) { drawImage(crisp.image, colorFilter = colorFilter) }
         }
+    }
+}
+
+/**
+ * Captures one stroke for a group's profile: its points in world space, in order, shown as a line
+ * while drawn. A second finger ends it as it is.
+ */
+@Suppress("FunctionNaming")
+@Composable
+private fun SurfaceProfileCapture(
+    toWorld: (Offset) -> Offset,
+    onDrawn: (List<Offset>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val screen = remember { mutableStateListOf<Offset>() }
+    val drawn = androidx.compose.runtime.rememberUpdatedState(onDrawn)
+    val world = androidx.compose.runtime.rememberUpdatedState(toWorld)
+    Canvas(
+        modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                down.consume()
+                screen.clear()
+                screen += down.position
+                val points = arrayListOf(world.value(down.position))
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (event.changes.size > 1 || !change.pressed) break
+                    change.consume()
+                    screen += change.position
+                    points += world.value(change.position)
+                }
+                screen.clear()
+                drawn.value(points)
+            }
+        },
+    ) {
+        for (i in 1 until screen.size) drawLine(Color.Cyan, screen[i - 1], screen[i], strokeWidth = 3f)
     }
 }

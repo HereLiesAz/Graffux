@@ -59,6 +59,7 @@ fun Layer.toOverlayLayer(): OverlayLayer {
         plane3D = plane3D,
         spatial = spatial,
         model = model,
+        surface = surface,
     )
 }
 
@@ -110,6 +111,7 @@ fun OverlayLayer.toLayer(): Layer {
         plane3D = plane3D,
         spatial = spatial,
         model = model,
+        surface = surface,
     )
 }
 

@@ -88,6 +88,23 @@ internal fun buildSceneGltf(
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
         }.toByteArray()
         vector?.bitmap?.recycle()
+        // Paint on a group surface: the surface's strips under the image, in scene pixels.
+        val owner = if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, layer.id)) {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id)
+        } else {
+            null
+        }
+        val surface = owner?.let { o ->
+            val mesh = DepthScene.surfaceMesh(o, rect, w, h) ?: return@let null
+            val toScene = SceneMath.chainModel(o.ownerChain, w, h)
+            var i = 0
+            while (i < mesh.size) {
+                toScene.apply(mesh[i], mesh[i + 1], mesh[i + 2]).copyInto(mesh, i)
+                i += 5
+            }
+            mesh
+        }
+        if (owner != null && surface == null) continue
         quads += SceneGltfExporter.Quad(
             layer.name, png,
             listOf(
@@ -95,6 +112,7 @@ internal fun buildSceneGltf(
                 model.apply(right, bottom, 0f), model.apply(left, bottom, 0f),
             ),
             chainOpacity(layer),
+            surface,
         )
     }
     return SceneGltfExporter.Scene(

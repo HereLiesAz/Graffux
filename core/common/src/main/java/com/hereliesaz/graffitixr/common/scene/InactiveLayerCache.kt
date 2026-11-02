@@ -1,4 +1,4 @@
-@file:Suppress("ReturnCount", "MagicNumber", "CyclomaticComplexMethod", "MaxLineLength")
+@file:Suppress("ReturnCount", "MagicNumber", "CyclomaticComplexMethod", "MaxLineLength", "LoopWithTooManyJumpStatements")
 
 package com.hereliesaz.graffitixr.common.scene
 
@@ -142,7 +142,11 @@ data class StackSplit(
  * frame is drawn uncached rather than differently.
  */
 object DepthSplit {
-    class Member(val id: String, val points: List<FloatArray>, val planar: Boolean)
+    /**
+     * [group] is the surface-owning group of paint on a group surface (spec/3d-space.md, "Group
+     * surfaces"), [stack] its position in that group, bottom 0.
+     */
+    class Member(val id: String, val points: List<FloatArray>, val planar: Boolean, val group: String? = null, val stack: Int = 0)
 
     sealed interface Result
     data class Split(val behind: List<String>, val front: List<String>) : Result
@@ -161,6 +165,14 @@ object DepthSplit {
         val front = ArrayList<String>()
         for (m in members) {
             if (m.id == activeId) continue
+            // Paint on the active layer's own surface: split by stack order, the way it is drawn.
+            // A curved surface can fold in front of itself, so a layer above may be hidden behind
+            // the active one there: that split is ambiguous, and the frame is drawn uncached.
+            if (active.group != null && m.group == active.group) {
+                if (!active.planar) return Uncached("layer ${m.id} shares the active curved surface")
+                if (m.stack < active.stack) behind += m.id else front += m.id
+                continue
+            }
             when (side(m)) {
                 FAR -> behind += m.id
                 NEAR -> front += m.id

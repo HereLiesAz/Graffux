@@ -1373,6 +1373,54 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `Draw surface turns the next stroke into the group's profile, and Flatten clears it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onSurfaceProfileDrawn((0..30).map { Offset(200f + it * 20f, 1000f - (it - 15f) * (it - 15f)) })
+        testDispatcher.scheduler.advanceUntilIdle()
+        val profile = viewModel.uiState.value.layers.first { it.id == "g" }.surface
+        assertTrue(profile != null && !profile.isFlat)
+        assertEquals(null, viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onFlattenSurface("g")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(profile, viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+    }
+
+    @Test
+    fun `on a group surface the Move tool and the rotation slider move the group, not the layer`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
+            listOf(com.hereliesaz.graffitixr.common.scene.PlanePose()),
+        )
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = floor)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("d").copy(parentId = "g")))
+        viewModel.onLayerActivated("c")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoFinger(pan = Offset(10f, 0f), steps = 3)
+        val after = viewModel.uiState.value.layers
+        assertTrue(after.first { it.id == "g" }.offset.x > 1f)
+        assertEquals(Offset.Zero, after.first { it.id == "c" }.offset)
+        assertEquals(Offset.Zero, after.first { it.id == "d" }.offset)
+        viewModel.onRotationSliderStart()
+        viewModel.onRotationSliderChange(30f)
+        viewModel.onRotationSliderEnd()
+        val turned = viewModel.uiState.value.layers
+        assertEquals(30f, viewModel.rotationSliderValue()!!, 0.01f)
+        assertEquals(0f, turned.first { it.id == "c" }.let { it.rotationX + it.rotationY + it.rotationZ }, 0f)
+        assertTrue(turned.first { it.id == "g" }.let { it.rotationX + it.rotationY + it.rotationZ } != 0f)
+    }
+
+    @Test
     fun `a still second finger under the Move tool leaves undo and redo alone`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))

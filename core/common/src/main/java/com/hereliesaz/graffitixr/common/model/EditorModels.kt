@@ -152,6 +152,11 @@ data class Layer(
      * every other layer. RASTER with no bitmap, like a 3D strokes layer.
      */
     val model: com.hereliesaz.graffitixr.common.scene.ModelLayerContent? = null,
+    /**
+     * A group's surface (spec/3d-space.md, "Group surfaces"): the profile its layers are painted
+     * on. Null = flat, exactly as 2D. Only meaningful on a container.
+     */
+    val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile? = null,
     @Serializable(with = FiniteFloatOrOneSerializer::class)
     val scale: Float = 1.0f,
     /**
@@ -319,6 +324,9 @@ data class LayerExtProps(
     val textParams: TextLayerParams? = null,
     /** [Layer.plane3D]: made a 3D layer by hand; null = not sent (a peer that predates it). */
     val plane3D: Boolean? = null,
+    /** [Layer.surface]; only read when [surfaceSent] (a peer that predates surfaces sends neither). */
+    val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile? = null,
+    val surfaceSent: Boolean = false,
 )
 
 /** Everything [LayerProps] carries, read from this layer. */
@@ -354,6 +362,8 @@ fun Layer.toLayerProps(): LayerProps = LayerProps(
         isLinked = isLinked,
         textParams = textParams,
         plane3D = plane3D,
+        surface = surface,
+        surfaceSent = true,
     ),
 )
 
@@ -393,6 +403,7 @@ fun Layer.withLayerProps(props: LayerProps): Layer {
         isLinked = x.isLinked,
         textParams = x.textParams ?: textParams,
         plane3D = x.plane3D ?: plane3D,
+        surface = if (x.surfaceSent) x.surface else surface,
     )
 }
 
@@ -489,6 +500,11 @@ data class EditorUiState(
     val gestureInProgress: Boolean = false,
     val showRotationAxisFeedback: Boolean = false,
     val activeRotationAxis: RotationAxis = RotationAxis.Z,
+    /**
+     * "Draw surface" armed on this group (spec/3d-space.md, "Group surfaces"): the next stroke is
+     * its profile instead of paint. Null = not armed.
+     */
+    val surfaceDrawGroupId: String? = null,
     val undoCount: Int = 0,
     val redoCount: Int = 0,
     val isLoading: Boolean = false,

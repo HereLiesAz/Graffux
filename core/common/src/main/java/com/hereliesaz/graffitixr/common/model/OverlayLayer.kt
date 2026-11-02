@@ -104,4 +104,6 @@ data class OverlayLayer(
     val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
     // Format 8: a 3D model layer's file names (spec/3d-space.md). Absent from older saves.
     val model: com.hereliesaz.graffitixr.common.scene.ModelLayerContent? = null,
+    // Format 9: a group's surface profile (spec/3d-space.md, "Group surfaces"). Absent: flat.
+    val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile? = null,
 )

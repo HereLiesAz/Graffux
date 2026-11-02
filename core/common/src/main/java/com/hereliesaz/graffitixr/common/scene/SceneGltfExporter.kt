@@ -23,7 +23,17 @@ import kotlin.math.sqrt
  */
 object SceneGltfExporter {
     /** A paint layer: its pixels as PNG and its quad's scene corners, TL, TR, BR, BL. */
-    class Quad(val name: String, val png: ByteArray, val corners: List<FloatArray>, val opacity: Float)
+    class Quad(
+        val name: String,
+        val png: ByteArray,
+        val corners: List<FloatArray>,
+        val opacity: Float,
+        /**
+         * Paint on a group surface (spec/3d-space.md, "Group surfaces"): triangles of x, y, z in
+         * scene pixels then the image's u, v, emitted as a mesh in place of [corners]' quad.
+         */
+        val surface: FloatArray? = null,
+    )
 
     /** A 3D strokes layer: its strokes and the map from stroke units to scene pixels. */
     class Strokes(val name: String, val strokes: List<SpatialStroke>, val strokeToScene: Affine3)
@@ -106,13 +116,31 @@ object SceneGltfExporter {
         }
 
         for (quad in scene.quads) {
-            require(quad.corners.size == 4) { "A layer quad has four corners" }
-            val positions = FloatArray(12).also { out ->
-                quad.corners.forEachIndexed { i, c -> point(c).copyInto(out, i * 3) }
+            val surface = quad.surface?.takeIf { it.size >= 15 }
+            val pos: Int
+            val uv: Int
+            val idx: Int
+            if (surface != null) {
+                val n = surface.size / 5
+                val positions = FloatArray(n * 3)
+                val uvs = FloatArray(n * 2)
+                for (i in 0 until n) {
+                    point(floatArrayOf(surface[i * 5], surface[i * 5 + 1], surface[i * 5 + 2])).copyInto(positions, i * 3)
+                    uvs[i * 2] = surface[i * 5 + 3]
+                    uvs[i * 2 + 1] = surface[i * 5 + 4]
+                }
+                pos = accessor(view(floats(positions), 34962), 5126, n, "VEC3", bounds(positions))
+                uv = accessor(view(floats(uvs), 34962), 5126, n, "VEC2")
+                idx = accessor(view(ints(IntArray(n) { it }), 34963), 5125, n, "SCALAR")
+            } else {
+                require(quad.corners.size == 4) { "A layer quad has four corners" }
+                val positions = FloatArray(12).also { out ->
+                    quad.corners.forEachIndexed { i, c -> point(c).copyInto(out, i * 3) }
+                }
+                pos = accessor(view(floats(positions), 34962), 5126, 4, "VEC3", bounds(positions))
+                uv = accessor(view(floats(floatArrayOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)), 34962), 5126, 4, "VEC2")
+                idx = accessor(view(ints(intArrayOf(0, 3, 1, 1, 3, 2)), 34963), 5125, 6, "SCALAR")
             }
-            val pos = accessor(view(floats(positions), 34962), 5126, 4, "VEC3", bounds(positions))
-            val uv = accessor(view(floats(floatArrayOf(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)), 34962), 5126, 4, "VEC2")
-            val idx = accessor(view(ints(intArrayOf(0, 3, 1, 1, 3, 2)), 34963), 5125, 6, "SCALAR")
             images += """{"bufferView":${view(quad.png, null)},"mimeType":"image/png"}"""
             textures += """{"source":${images.lastIndex}}"""
             materials += """{"name":${json(quad.name)},"pbrMetallicRoughness":{"baseColorTexture":{"index":${textures.lastIndex}},""" +

@@ -60,6 +60,18 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val alpha: Float,
         /** What the inactive-layer cache compares (size-independent); null = never cached. */
         val key: Any? = null,
+        /**
+         * Paint on a group surface (spec/3d-space.md, "Group surfaces"): triangles x, y, z (the
+         * owning group's box-local space, which [model] places) then the image's u, v. Null for a
+         * flat plane, which draws [rect] instead.
+         */
+        val surface: FloatArray? = null,
+        /** The owning group, for a surface member: its members draw together, in stack order. */
+        val surfaceGroup: String? = null,
+        /** Stack position inside [surfaceGroup], bottom 0: later ones draw over coplanar paint. */
+        val surfaceIndex: Int = 0,
+        /** Whether the owning group's profile is straight (one plane). */
+        val surfaceFlat: Boolean = true,
     )
 
     /** A 3D strokes layer: its tubes and the map from stroke units into the scene. */
@@ -106,6 +118,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
     private var inkProgram = 0
     private var modelProgram = 0
     private var blitProgram = 0
+    private var surfaceProgram = 0
 
     /** The behind and front renders: colour textures the size of the viewport they were built at. */
     private class Target(val texture: Int, val w: Int, val h: Int)
@@ -143,6 +156,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
         blitProgram = program(BLIT_VS, BLIT_FS)
         inkProgram = program(INK_VS, INK_FS)
         modelProgram = program(MODEL_VS, MODEL_FS)
+        surfaceProgram = program(SURFACE_VS, SURFACE_FS)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -157,7 +171,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glDepthMask(true)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s = scene ?: return
-        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0 || blitProgram == 0) return
+        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0 || blitProgram == 0 || surfaceProgram == 0) return
         release(s)
         val order = drawOrder(s)
         if (drawCached(s, order)) return
@@ -248,6 +262,17 @@ class DepthCompositor : GLSurfaceView.Renderer {
     private fun splitMembers(s: Scene): List<DepthSplit.Member> {
         val out = ArrayList<DepthSplit.Member>(s.planes.size + s.inks.size + s.models.size)
         for (p in s.planes) {
+            val surface = p.surface
+            if (surface != null) {
+                val pts = ArrayList<FloatArray>(surface.size / 5)
+                var i = 0
+                while (i + 2 < surface.size) {
+                    pts += p.model.apply(surface[i], surface[i + 1], surface[i + 2])
+                    i += 5
+                }
+                out += DepthSplit.Member(p.id, pts, planar = p.surfaceFlat, group = p.surfaceGroup, stack = p.surfaceIndex)
+                continue
+            }
             val (l, t, r, b) = p.rect.toList()
             out += DepthSplit.Member(p.id, listOf(p.model.apply(l, t, 0f), p.model.apply(r, t, 0f), p.model.apply(r, b, 0f), p.model.apply(l, b, 0f)), planar = true)
         }
@@ -478,6 +503,11 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     private fun drawPlane(p: Plane, cam: CameraFrame) {
         val tex = texture(p) ?: return
+        val surface = p.surface
+        if (surface != null) {
+            drawSurface(p, surface, tex, cam)
+            return
+        }
         val (l, t, r, b) = p.rect.toList()
         val pos = floats(l, t, r, t, r, b, l, b)
         val uv = floats(0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f)
@@ -500,6 +530,41 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_FAN, 0, 4)
         GLES30.glDisableVertexAttribArray(aPos)
         GLES30.glDisableVertexAttribArray(aUv)
+    }
+
+    /**
+     * Paint on a group surface: its strips, depth-tested like any member. Coplanar paint of one
+     * group is pulled toward the eye by its stack position, so a layer above draws over the one
+     * below on the same surface instead of fighting it for depth.
+     */
+    private fun drawSurface(p: Plane, surface: FloatArray, tex: Texture, cam: CameraFrame) {
+        if (surface.isEmpty()) return
+        GLES30.glUseProgram(surfaceProgram)
+        GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(surfaceProgram, "uMvp"), 1, false, SceneMath.clipMatrix(p.model, cam), 0)
+        val (matrix, offset) = colorUniforms(p.colorMatrix)
+        GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(surfaceProgram, "uColor"), 1, false, matrix, 0)
+        GLES30.glUniform4fv(GLES30.glGetUniformLocation(surfaceProgram, "uOffset"), 1, offset, 0)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(surfaceProgram, "uAlpha"), p.alpha.coerceIn(0f, 1f))
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex.handle)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(surfaceProgram, "uTex"), 0)
+        GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
+        val pull = -(p.surfaceIndex + 1).toFloat()
+        GLES30.glPolygonOffset(pull, pull * SURFACE_OFFSET_UNITS)
+        val data = ByteBuffer.allocateDirect(surface.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(surface); flip() }
+        val aPos = GLES30.glGetAttribLocation(surfaceProgram, "aPos")
+        val aUv = GLES30.glGetAttribLocation(surfaceProgram, "aUv")
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        GLES30.glEnableVertexAttribArray(aPos)
+        GLES30.glEnableVertexAttribArray(aUv)
+        data.position(0)
+        GLES30.glVertexAttribPointer(aPos, 3, GLES30.GL_FLOAT, false, 5 * 4, data)
+        data.position(3)
+        GLES30.glVertexAttribPointer(aUv, 2, GLES30.GL_FLOAT, false, 5 * 4, data)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, surface.size / 5)
+        GLES30.glDisableVertexAttribArray(aPos)
+        GLES30.glDisableVertexAttribArray(aUv)
+        GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
     }
 
     private fun mesh(ink: Ink): Mesh? {
@@ -601,8 +666,14 @@ class DepthCompositor : GLSurfaceView.Renderer {
                 p.id to s.camera.toCamera(p.model.apply(cx, cy, 0f))[2]
             }
             val byId = s.planes.associateBy { it.id }
-            val (solidPlanes, clearPlanes) = s.planes.partition { it.alpha >= 1f }
+            val (surfacePlanes, flatPlanes) = s.planes.partition { it.surface != null }
+            val (solidPlanes, clearPlanes) = flatPlanes.partition { it.alpha >= 1f }
             for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) out += Draw(id, byId.getValue(id), false)
+            // Paint on group surfaces: each group's layers in stack order (the list's), depth
+            // written, so they stack on the surface as in 2D and the surface occludes itself.
+            surfacePlanes.groupBy { it.surfaceGroup }.values.forEach { group ->
+                group.sortedBy { it.surfaceIndex }.forEach { out += Draw(it.id, it, false) }
+            }
             for (item in translucentOrder(clearPlanes, translucent, s.camera)) {
                 when (item) {
                     is Plane -> out += Draw(item.id, item, true)
@@ -691,6 +762,36 @@ class DepthCompositor : GLSurfaceView.Renderer {
             in vec2 vUv;
             out vec4 fragColor;
             void main() {
+                vec4 c = texture(uTex, vUv);
+                if (c.a < 0.004) discard;
+                vec4 straight = vec4(c.rgb / c.a, c.a);
+                vec4 m = clamp(uColor * straight + uOffset, 0.0, 1.0);
+                float a = m.a * uAlpha;
+                if (a < 0.004) discard;
+                fragColor = vec4(m.rgb * a, a);
+            }"""
+
+        /** Polygon-offset units per stack step of paint on one surface. */
+        private const val SURFACE_OFFSET_UNITS = 4f
+
+        private const val SURFACE_VS = """#version 300 es
+            uniform mat4 uMvp;
+            in vec3 aPos;
+            in vec2 aUv;
+            out vec2 vUv;
+            void main() { vUv = aUv; gl_Position = uMvp * vec4(aPos, 1.0); }"""
+
+        // QUAD_FS, plus nothing outside the image: the strips cover the image's unrolled bounds.
+        private const val SURFACE_FS = """#version 300 es
+            precision mediump float;
+            uniform sampler2D uTex;
+            uniform mat4 uColor;
+            uniform vec4 uOffset;
+            uniform float uAlpha;
+            in vec2 vUv;
+            out vec4 fragColor;
+            void main() {
+                if (vUv.x < 0.0 || vUv.y < 0.0 || vUv.x > 1.0 || vUv.y > 1.0) discard;
                 vec4 c = texture(uTex, vUv);
                 if (c.a < 0.004) discard;
                 vec4 straight = vec4(c.rgb / c.a, c.a);

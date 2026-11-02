@@ -5113,7 +5113,8 @@ class EditorViewModel @Inject constructor(
 
     /** Whether the active layer is a 3D layer ([is3DLayer]); only one has a rotation axis. */
     private fun EditorUiState.active3D(): Boolean =
-        layers.firstOrNull { it.id == activeLayerId }?.is3DLayer == true
+        layers.firstOrNull { it.id == activeLayerId }?.is3DLayer == true ||
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, activeLayerId) != null
 
     /**
      * A double-tap on the canvas: steps the rotation axis X -> Y -> Z on a 3D layer, and does
@@ -5242,7 +5243,7 @@ class EditorViewModel @Inject constructor(
     }
 
     fun onTransformGesture(pan: Offset, zoom: Float, rotationDelta: Float, canvasW: Float = 0f, canvasH: Float = 0f) {
-        val activeId = _uiState.value.activeLayerId ?: return
+        val activeId = _uiState.value.transformTargetId() ?: return
         val axis = _uiState.value.activeRotationAxis
         // The resize handle on a sized frame resizes the frame's box — its children follow their
         // constraints — instead of scaling the frame's transform, which would scale every child
@@ -5350,7 +5351,7 @@ class EditorViewModel @Inject constructor(
         // first 6 slots of a 16-float list (slots 6-15 are zeros).
         // applySpectatorOp must decode using the same convention.
         val state = _uiState.value
-        val activeId = state.activeLayerId ?: return
+        val activeId = state.transformTargetId() ?: return
         val layer = state.layers.find { it.id == activeId } ?: return
         val encodedMatrix = com.hereliesaz.graffitixr.common.coop.LayerTransformCodec.encode(layer)
         opEmitter.emit(Op.LayerTransform(activeId, encodedMatrix))
@@ -5589,7 +5590,7 @@ class EditorViewModel @Inject constructor(
 
     /** The active layer's angle on [rotationSliderAxis], wrapped to -180..180, or null with no layer. */
     fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
-        val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return null
+        val layer = state.layers.firstOrNull { it.id == state.transformTargetId() } ?: return null
         val raw = when (rotationSliderAxis(state)) {
             RotationAxis.X -> layer.rotationX
             RotationAxis.Y -> layer.rotationY
@@ -5603,7 +5604,7 @@ class EditorViewModel @Inject constructor(
 
     /** Live: turns the active layer (and its linked group) so its slider angle reads [degrees]. */
     fun onRotationSliderChange(degrees: Float) {
-        val activeId = _uiState.value.activeLayerId
+        val activeId = _uiState.value.transformTargetId()
         val current = rotationSliderValue()
         val delta = if (current == null) 0f else degrees.coerceIn(-HALF_TURN_DEG, HALF_TURN_DEG) - current
         if (activeId == null || delta == 0f || !delta.isFinite()) return
@@ -11950,8 +11951,8 @@ class EditorViewModel @Inject constructor(
 
     /** Whether the Move / Transform tool is in hand on a 3D layer: two fingers then act on the layer. */
     private fun EditorUiState.moveToolActive(): Boolean {
-        val active = layers.firstOrNull { it.id == activeLayerId }
-        return activePanel == EditorPanel.TRANSFORM && active != null && !active.isImageLocked && active.is3DLayer
+        val active = layers.firstOrNull { it.id == transformTargetId() }
+        return activePanel == EditorPanel.TRANSFORM && active != null && !active.isImageLocked && active3D()
     }
 
     /**
@@ -12049,7 +12050,7 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     private fun onLayerTwoFinger(pan: Offset, zoom: Float, rotation: Float) {
         val state = _uiState.value
-        val id = state.activeLayerId ?: return
+        val id = state.transformTargetId() ?: return
         val size = state.canvasSize
         val worldPan = CanvasHitTest.screenDeltaToWorld(pan, state.viewportZoom, state.viewportRotation)
         if (rotation != 0f) onTransformGesture(Offset.Zero, 1f, rotation)
@@ -12122,7 +12123,8 @@ class EditorViewModel @Inject constructor(
         val size = state.canvasSize
         val layer = state.layers.firstOrNull { it.id == id }
         val eligible = layer != null && !state.sceneCamera.isDefault && size.width > 0 && size.height > 0 &&
-            !layer.isPlacedIn3D && layer.isEmptyPaintLayer()
+            !layer.isPlacedIn3D && !com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, id) &&
+            layer.isEmptyPaintLayer()
         if (!eligible || layer == null) return false
         val w = size.width.toFloat()
         val h = size.height.toFloat()
@@ -12172,6 +12174,65 @@ class EditorViewModel @Inject constructor(
         }
         emitActiveLayerProps()
         saveProject()
+    }
+
+    /**
+     * "Draw surface" on group [groupId] (spec/3d-space.md, "Group surfaces"): arms the next stroke,
+     * drawn in the current view, as the group's profile. Calling it again for the armed group disarms.
+     */
+    fun onArmSurfaceDraw(groupId: String) {
+        val group = _uiState.value.layers.firstOrNull { it.id == groupId }?.takeIf { it.isContainer } ?: return
+        updateUi { it.copy(surfaceDrawGroupId = if (it.surfaceDrawGroupId == group.id) null else group.id) }
+    }
+
+    /** Disarms "Draw surface" without changing anything. */
+    fun onCancelSurfaceDraw() {
+        if (_uiState.value.surfaceDrawGroupId != null) updateUi { it.copy(surfaceDrawGroupId = null) }
+    }
+
+    /**
+     * The armed stroke ended: [world] are its canvas points in order. The armed group's profile
+     * becomes that curve swept along the view direction, as one undo step; a stroke too short to
+     * be a curve changes nothing. Either way the action is spent.
+     */
+    @Suppress("ReturnCount")
+    fun onSurfaceProfileDrawn(world: List<Offset>) {
+        val st = _uiState.value
+        val groupId = st.surfaceDrawGroupId ?: return
+        updateUi { it.copy(surfaceDrawGroupId = null) }
+        val size = st.canvasSize
+        if (size.width <= 0 || size.height <= 0) return
+        val chain = planeChain(st.layers, groupId)
+        if (chain.isEmpty()) return
+        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            world.map { it.x to it.y }, st.sceneCamera, size.width.toFloat(), size.height.toFloat(), chain,
+        ) ?: return
+        setSurface(groupId, profile)
+    }
+
+    /** "Flatten surface": the group's profile is cleared and its layers are flat 2D again. */
+    fun onFlattenSurface(groupId: String) {
+        if (_uiState.value.layers.firstOrNull { it.id == groupId }?.surface == null) return
+        setSurface(groupId, null)
+    }
+
+    private fun setSurface(groupId: String, profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?) {
+        pushHistory()
+        updateUi { s -> s.copy(layers = LayerListOps.mapLayer(s.layers, groupId) { it.copy(surface = profile) }) }
+        _uiState.value.layers.firstOrNull { it.id == groupId }?.let { emitLayerProps(groupId, it.toLayerProps()) }
+        saveProject()
+    }
+
+    /**
+     * What a move, the rotation slider and a Move-tool gesture act on: the active layer's surface
+     * group when it is paint on one (its layers are paint on the group's shape), else the active
+     * layer itself.
+     */
+    @Suppress("ReturnCount")
+    private fun EditorUiState.transformTargetId(): String? {
+        val id = activeLayerId ?: return null
+        if (!com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(layers, id)) return id
+        return com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id)?.group?.id ?: id
     }
 
     /** Adds an empty 3D strokes layer on top and puts 3D on, ready to draw. */

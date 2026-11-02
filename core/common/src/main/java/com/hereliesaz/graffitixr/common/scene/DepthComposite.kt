@@ -31,6 +31,11 @@ data class DepthComposite(
     val memberIds: List<String>,
     /** The top-level layer at whose position the pass draws; null when the plan is empty. */
     val anchorTopLevelId: String?,
+    /**
+     * Every layer painted on a group surface (spec/3d-space.md, "Group surfaces"). Those the pass
+     * cannot draw (an adjustment, say) are not drawn flat either: they have no plane of their own.
+     */
+    val surfaceIds: Set<String> = emptySet(),
 ) {
     val isEmpty: Boolean get() = memberIds.isEmpty()
 
@@ -45,6 +50,7 @@ data class DepthComposite(
         fun plan(layers: List<Layer>, camera: SceneCamera): DepthComposite {
             val sceneIds = SceneRenderPath.sceneLayerIds(layers, camera)
             if (sceneIds.isEmpty() && layers.none { it.spatial != null || it.model != null }) return EMPTY
+            val onSurface = SurfaceMath.surfaceLayerIds(layers)
             val byId = layers.associateBy { it.id }
             fun ancestors(layer: Layer): List<Layer> {
                 val out = ArrayList<Layer>()
@@ -68,17 +74,20 @@ data class DepthComposite(
                     layer.spatial != null || layer.model != null -> true
                     layer.id !in sceneIds -> false
                     layer.adjustment != null -> false
+                    // Paint on a surface has no plane to draw it by: the pass draws it on the
+                    // surface's mesh, in stack order, whatever its blend mode (normal) or group.
+                    layer.id in onSurface -> layer.bitmap != null || layer.shapes.isNotEmpty()
                     layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow -> false
                     layer.bitmap == null && layer.shapes.isEmpty() -> false
                     else -> ancestors(layer).all(::plainGroup)
                 }
             }
-            if (members.isEmpty()) return EMPTY
+            if (members.isEmpty()) return if (onSurface.isEmpty()) EMPTY else DepthComposite(emptyList(), null, onSurface)
             fun topLevel(layer: Layer): String = ancestors(layer).lastOrNull()?.id ?: layer.id
             val tops = members.map(::topLevel).toSet()
             val anchor = layers.firstOrNull { it.parentId == null && it.id in tops }?.id
                 ?: topLevel(members.first())
-            return DepthComposite(members.map { it.id }, anchor)
+            return DepthComposite(members.map { it.id }, anchor, onSurface)
         }
 
         /** The opacity a member composites with: its own times every enclosing group's. */

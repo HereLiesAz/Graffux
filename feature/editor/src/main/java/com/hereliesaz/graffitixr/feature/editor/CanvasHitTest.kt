@@ -92,7 +92,7 @@ internal object CanvasHitTest {
      * Returns the ids of all visible layers whose transformed content contains [tap] (canvas pixels),
      * ordered front-to-back (topmost layer first).
      */
-    @Suppress("LongParameterList", "ReturnCount", "CyclomaticComplexMethod")
+    @Suppress("LongParameterList", "ReturnCount", "CyclomaticComplexMethod", "LongMethod")
     fun allHits(
         layers: List<Layer>,
         tap: Offset,
@@ -134,10 +134,19 @@ internal object CanvasHitTest {
             val at = if (layer.id in sceneIds) {
                 val chain = com.hereliesaz.graffitixr.common.scene.planeChain(layers, layer.id)
                 val scene = SceneMath
-                val flat = scene.worldToLayerFlat(worldTap.x, worldTap.y, chain, camera, canvasWidth, canvasHeight)
-                    ?: continue
-                scene.hitDepth(worldTap.x, worldTap.y, chain, camera, canvasWidth, canvasHeight)
-                    ?.let { depths[layer.id] = it }
+                val surfaces = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                val owner = if (surfaces.isOnSurface(layers, layer.id)) surfaces.ownerOf(layers, layer.id) else null
+                val flat = if (owner != null) {
+                    surfaces.worldToFlat(worldTap.x, worldTap.y, owner, camera, canvasWidth, canvasHeight)
+                } else {
+                    scene.worldToLayerFlat(worldTap.x, worldTap.y, chain, camera, canvasWidth, canvasHeight)
+                } ?: continue
+                val depth = if (owner != null) {
+                    surfaces.hitDepth(worldTap.x, worldTap.y, owner, camera, canvasWidth, canvasHeight)
+                } else {
+                    scene.hitDepth(worldTap.x, worldTap.y, chain, camera, canvasWidth, canvasHeight)
+                }
+                depth?.let { depths[layer.id] = it }
                 Offset(flat.first, flat.second)
             } else {
                 worldTap

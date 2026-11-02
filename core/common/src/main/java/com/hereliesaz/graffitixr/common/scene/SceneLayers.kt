@@ -3,7 +3,16 @@
 package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
+
+/** A group with a surface profile (spec/3d-space.md, "Group surfaces"). */
+val Layer.hasSurface: Boolean
+    get() = isContainer && surface?.isValid == true
+
+/** Placed in 3D, or a group whose layers are painted on a surface: drawn through the scene. */
+private val Layer.inScene: Boolean
+    get() = isPlacedIn3D || hasSurface
 
 /** The layer's plane placement. */
 val Layer.planePose: PlanePose
@@ -34,7 +43,7 @@ object SceneRenderPath {
     fun sceneLayerIds(layers: List<Layer>, camera: SceneCamera): Set<String> {
         if (layers.isEmpty()) return emptySet()
         if (!camera.isDefault) return layers.mapTo(HashSet()) { it.id }
-        if (layers.none { it.isPlacedIn3D }) return emptySet()
+        if (layers.none { it.inScene }) return emptySet()
         val ids = layers.mapTo(HashSet()) { it.id }
         val byId = layers.associateBy { it.id }
         fun root(layer: Layer): String {
@@ -46,13 +55,13 @@ object SceneRenderPath {
             return current.id
         }
         val roots = layers.groupBy(::root)
-        return roots.values.filter { subtree -> subtree.any { it.isPlacedIn3D } }
+        return roots.values.filter { subtree -> subtree.any { it.inScene } }
             .flatMapTo(HashSet()) { subtree -> subtree.map { it.id } }
     }
 
     /** True when the 2D canvas is exactly what is on screen: the identity fast path everywhere. */
     fun isFlat(layers: List<Layer>, camera: SceneCamera): Boolean =
-        camera.isDefault && layers.none { it.isPlacedIn3D }
+        camera.isDefault && layers.none { it.inScene }
 
     /** True when [layerId] draws exactly as in 2D (its subtree is flat and the camera at default). */
     fun isLayerFlat(layers: List<Layer>, layerId: String, camera: SceneCamera): Boolean =

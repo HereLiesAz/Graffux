@@ -14,6 +14,8 @@
     <string name="layer_menu_curves">Curves</string>
     <string name="layer_menu_transform">Transform</string>
     <string name="layer_menu_reset_plane">Reset plane</string>
+    <string name="layer_menu_draw_surface">Draw surface</string>
+    <string name="layer_menu_flatten_surface">Flatten surface</string>
     <string name="layer_menu_layer_options">Layer options</string>
     <string name="layer_menu_rename">Rename</string>
     <string name="layer_menu_move_up">Move up</string>

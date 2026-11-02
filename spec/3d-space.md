@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 8). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 9). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -297,6 +297,55 @@ layer under the finger, and painting the plain world point would put the paint w
 before it was turned. The stroke starts at its first sample that hits, and a stroke that never hits
 is cancelled, so a layer seen edge-on takes no paint. A fill or clone tap that misses still uses the
 plain world point.
+
+## Group surfaces
+
+Layer groups own surfaces. Every group (`LayerType.GROUP` or `FRAME`) has an optional surface
+profile, `Layer.surface: SurfaceProfile?`; none means flat 2D, exactly as before, through exactly
+the same render path. The layers inside a profiled group are paint on its surface: they stack, hide
+and take their opacity as in 2D, all on the group's shape. The model is `SurfaceProfile.kt`
+(`:core:common`, `SurfaceMath`).
+
+- **Drawing the profile.** "Draw surface" in a group's layer menu arms the next stroke
+  (`EditorUiState.surfaceDrawGroupId`; the capture surface lies over every tool and paints
+  nothing). That stroke, drawn in the current view, is the profile: each point is cast from the eye
+  onto the view plane (facing the camera through its orbit target, so at the default view it is the
+  picture plane exactly under the stroke), simplified (Ramer-Douglas-Peucker, 1.5 px, at most 256
+  vertices) and stored in the group's box-local space, with the view direction as the sweep. A
+  straight stroke is one plane; an L is two. One undo step. A tap (under 4 px) changes nothing.
+- **No depth limit.** The surface is the profile swept along the view direction away from the
+  viewer, `P(u) + t * sweep`, `t >= 0`, without bound. There is no extent or depth setting: distance
+  is just zoom, and each layer's own pixel bounds limit what shows.
+- **Painting.** A stroke paints the active layer, mapped onto its group's surface by ray
+  intersection (`SurfaceMath.hit`, one planar strip per profile segment, the nearest hit in front
+  of the near plane). Paint maps by arc length: the surface's unrolled coordinates `(u, t)` are the
+  group's flat box coordinates, so a stroke does not stretch however the profile bends. Samples that
+  miss the surface are skipped and a stroke with no hits is cancelled (`PlaneStrokeFeed`, as on a
+  tilted plane). Selection, tap-select and the lasso go through the same mapping
+  (`ActivePlaneMapping`, `CanvasHitTest`). View-plane adoption never applies to paint on a surface.
+- **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
+  active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
+  the group's space, so all its layers move with it.
+- **Flatten surface** (the group's menu) clears the profile, as one undo step.
+- **Nesting.** A layer's surface is its nearest enclosing group with a profile; groups between
+  it and that group compose flat (their 2D transforms, in unrolled space).
+- **Rendering.** A profiled group's subtree is on the scene path. Its visible paint, text and
+  vector layers are depth-pass members whatever their blend mode, drawn by `DepthCompositor` as
+  meshes: one strip per profile segment along the sweep, covering the image's unrolled bounds
+  (`SurfaceMath.mesh`, `DepthScene.surfaceMesh`). A group's layers draw together in stack order,
+  each pulled toward the eye by its stack position (polygon offset), so a layer above draws over the
+  one below on the same surface and the surface still occludes itself. Layers the pass cannot draw
+  (an adjustment) are not drawn flat either (`DepthComposite.surfaceIds`).
+- **Inactive-layer cache.** Split by group: the active group's other layers are behind or in front
+  by stack order when its profile is straight; when it is curved the surface can fold in front of
+  itself, so the split is ambiguous and the frame is drawn uncached. Other members are split as
+  before (by the active plane when straight, by depth range when curved).
+- **Co-op.** `LayerExtProps.surface` with `surfaceSent`; a peer that predates surfaces sends
+  neither and keeps the receiver's.
+- **glTF.** Paint on a surface is exported as its strips (`SceneGltfExporter.Quad.surface`).
+- **Persistence.** `OverlayLayer.surface`, project format 9.
+- **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
+  (source-over); the export's no-GLES fallback omits paint on surfaces.
 
 ## Adopting the view plane
 
