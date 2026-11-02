@@ -29,7 +29,7 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:common` | Models (`Layer`, `EditorUiState`, `GraffitiProject`), pure ops (`LayerListOps`, `LinkOps`), serialization, the `azphalt` extension format's Android-free types (`AzphaltManifest`, `CubeLut`, `TrustStore`). |
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
-| `:core:design` | Design system: theme, `AppStrings`, reusable components (`FloatingWindow`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
+| `:core:design` | Design system: theme, `AppStrings`, reusable components (the adaptive tool-surface containers in `AdaptiveSurfaces.kt`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
 | `:core:nativebridge` | JNI bridge to the native (GLES/wgpu) world used by Liquify (`LiquifyEngine`, `ImageWarper.cpp`), drawing, and GPU compositing. Hosts the GPU stamp engine behind `StampEngine.h`: the adapter over the wgpu engine (the Vulkan and OpenGL ES engines were retired). |
 | `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a and armeabi-v7a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
 | `:core:engine` | The azphalt stamp-brush engine as pure Kotlin Multiplatform math/data (`BrushStamps`, `AzphaltBrush`, `BrushSensorDynamics`, `TileGrid`, `DirtyRegion`, ...), zero Android dependency, targeting both `androidMain` and `jvm("desktop")`. `:core:common` depends on this under the same package name. Its `jvmShared` source set (Android + desktop) holds the JNI wrapper of the wgpu engine. |
@@ -167,10 +167,35 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 - **AzNavRail drives the whole UI, not a custom Compose layout.** The rail/host/sub-item DSL
   (`azRailItem`, `azRailRelocItem`, `azNestedRail`, `azUnattachedHostItem`, hidden menus) is
-  the one and only UI framework for chrome; floating windows (`FloatingWindow`-based dialogs)
-  are the escape hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
+  the one and only UI framework for chrome; tool surfaces (`ToolSurface`, below) are the escape
+  hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
   around a library limitation (invariant 7/8 above) is treated as a bigger change than the
   limitation warrants — fixes go upstream instead.
+- **No floating windows on phones or tablets; each tool opens in the container its kind calls
+  for.** `core:design`'s `AdaptiveSurfaces.kt` holds five containers (`AnchoredValuePopover`,
+  `AppBottomSheet`, `CenteredSheet`, `FullScreenPage`, `DockedPanel`) and `ToolSurface(kind, …)`,
+  which picks one by `SurfaceKind` and width class (compact, under 600dp, is a phone; medium and
+  expanded are a tablet). Each dialog keeps its own content composable; only the wrapper changed.
+
+  | Kind | Dialogs | Phone | Tablet |
+  |---|---|---|---|
+  | `VALUE` | ShapeSize, CornerRadius, PolygonSides, VectorStroke | popover by the control that opened it | same |
+  | `PICKER` | BlendModePicker, BackgroundColor, LayerOptions | bottom sheet | anchored popover |
+  | `FORM` | SaveProject, DocumentSize, AddContent, StoreChooser | bottom sheet, 56dp targets | centred sheet |
+  | `EDITOR` | BrushStudio, Curves, BrushTipsManager, CustomBrushes, ColorPicker (SketchTools) | full-screen page | panel docked away from the rail, no scrim |
+  | `TIMELINE` | AnimationWindow | full-screen page | docked along the bottom |
+  | `BROWSER` | Store, OpenProject, Figma | full-screen page | full-screen page |
+  | — | ReferenceWindow | pinned 96dp thumbnail, tap expands to a sheet | docked panel (split view) |
+  | — | TextEditDialog | bottom sheet (in-place canvas editing deferred) | bottom sheet |
+
+  None is a separate window (no `Popup`/`Dialog`/`ModalBottomSheet`): they lay out in
+  MainActivity's overlay box, register their dismiss with `SurfaceBackStack`, and MainActivity's
+  single BackHandler closes the most recently opened one through a `BackLayer` — through the same
+  dismiss as the close button, so apply-on-close dialogs still apply. The popover anchor is the
+  last press, recorded by `trackSurfaceAnchor` on the Initial pass without consuming or writing
+  Compose state, so the stroke path is untouched. Docked panels overlay the canvas edge rather
+  than resizing the viewport, so canvas geometry is unchanged. The desktop build keeps its own
+  `FloatingWindow` (`desktop/.../FloatingWindow.kt`).
 - **A tap opens a nested rail.** No `azNestedRail` sets `reflectSelectionInParent`: with it,
   AzNavRail 11.52 turns the parent's tap into "re-run the last-picked child" (or nothing, before a
   child has been picked), so the rail could only be opened by long press. Without it, a tap toggles

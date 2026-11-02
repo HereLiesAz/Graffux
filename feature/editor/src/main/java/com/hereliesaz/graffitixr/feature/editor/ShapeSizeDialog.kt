@@ -16,7 +16,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * Sets the width × height (px) of the active vector layer's shapes — the numeric alternative to
@@ -44,7 +45,11 @@ fun ShapeSizeDialog(
         onDismiss()
     }
 
-    FloatingWindow(title = if (isLine) "Line length" else "Shape size", onDismiss = ::confirmAndDismiss) {
+    ToolSurface(
+        kind = SurfaceKind.VALUE,
+        title = if (isLine) "Line length" else "Shape size",
+        onDismiss = ::confirmAndDismiss,
+    ) {
         Column {
             Row(
                 modifier = Modifier.fillMaxWidth(),

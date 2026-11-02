@@ -11,7 +11,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
 
 /**
@@ -28,7 +29,7 @@ fun PolygonSidesDialog(
 ) {
     var sides by remember { mutableIntStateOf(currentSides.coerceIn(3, 12)) }
 
-    FloatingWindow(title = "Polygon sides", onDismiss = { onApply(sides); onDismiss() }) {
+    ToolSurface(kind = SurfaceKind.VALUE, title = "Polygon sides", onDismiss = { onApply(sides); onDismiss() }) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text("$sides sides")
             Slider(

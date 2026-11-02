@@ -21,12 +21,32 @@ import coil.compose.rememberAsyncImagePainter
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.GraffuxIcons
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import com.hereliesaz.graffitixr.design.components.AppBottomSheet
+import com.hereliesaz.graffitixr.design.components.DockEdge
+import com.hereliesaz.graffitixr.design.components.DockedPanel
+import com.hereliesaz.graffitixr.design.components.LocalRailInset
+import com.hereliesaz.graffitixr.design.components.isCompactWidth
 
 /**
  * Procreate's Reference tool: a floating image that stays on top of the canvas so a piece can be
- * drawn while looking at it, without switching apps. [FloatingWindow] already gives it drag/collapse
- * for free — this just supplies the "picked image or an empty prompt" body and a swap button. Purely
+ * drawn while looking at it, without switching apps. On a tablet it is a split view: a panel docked
+ * beside the canvas. On a phone, where a panel would cover most of the artwork, it is a small pinned
+ * thumbnail in the corner away from the rail that expands into a bottom sheet on tap (closing the
+ * sheet shrinks it back to the thumbnail; Back or the sheet's close then closes the reference). Purely
  * a viewing aid: it carries no artwork state, isn't undo-tracked, and isn't part of the project (a
  * v1 scoping choice, since neither Procreate's reference is part of the artwork either).
  */
@@ -36,7 +56,40 @@ fun ReferenceWindow(
     onPickImage: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    FloatingWindow(title = "Reference", onDismiss = onDismiss) {
+    if (!isCompactWidth()) {
+        DockedPanel(title = "Reference", onDismiss = onDismiss, edge = DockEdge.SIDE) {
+            ReferenceBody(imageUri, onPickImage)
+        }
+        return
+    }
+    var expanded by rememberSaveable { mutableStateOf(imageUri == null) }
+    if (expanded) {
+        AppBottomSheet(title = "Reference", onDismiss = { if (imageUri != null) expanded = false else onDismiss() }) {
+            ReferenceBody(imageUri, onPickImage)
+        }
+    } else {
+        val rail = LocalRailInset.current
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+            Image(
+                painter = rememberAsyncImagePainter(imageUri),
+                contentDescription = "Reference image, tap to expand",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .align(if (rail.dockedOnLeft) Alignment.TopEnd else Alignment.TopStart)
+                    .padding(top = 72.dp, start = 16.dp, end = 16.dp)
+                    .size(96.dp)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    .clickable(role = Role.Button) { expanded = true }
+                    .testTag("surface.thumbnail"),
+            )
+        }
+    }
+}
+
+@Suppress("FunctionNaming")
+@Composable
+private fun ColumnScope.ReferenceBody(imageUri: Uri?, onPickImage: () -> Unit) {
         if (imageUri != null) {
             Image(
                 painter = rememberAsyncImagePainter(imageUri),
@@ -66,5 +119,4 @@ fun ReferenceWindow(
             onClick = onPickImage,
             shape = GraffuxButtonShape.RECTANGLE,
         )
-    }
 }

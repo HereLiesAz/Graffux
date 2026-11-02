@@ -80,8 +80,9 @@ sound finished — see each claim's own verification note.
   coffee-cup icon.
 - **Floating, draggable tool-option panels — the actual layout paradigm change, not just a
   mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
-  gone. `desktop/.../FloatingWindow.kt` is a copy of `core:design`'s `FloatingWindow` composable,
-  adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
+  gone. `desktop/.../FloatingWindow.kt` began as a copy of `core:design`'s former `FloatingWindow`
+  composable (Android has since replaced floating windows with adaptive containers; see
+  ARCHITECTURE.md), adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
   (11.47 at the time, now 11.57; already a `:desktop` dependency) — confirmed by decompiling
   `aznavrail-cmp-desktop-11.47.jar` and reading `aznavrail-cmp`'s own `commonMain` source
   (`AzWindow.kt`) before writing this, not assumed. This is a genuine reuse of Android's real

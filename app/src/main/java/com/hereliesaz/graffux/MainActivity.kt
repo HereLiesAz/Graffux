@@ -106,7 +106,12 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.LocalRailInset
+import com.hereliesaz.graffitixr.design.components.LocalSurfaceAnchor
+import com.hereliesaz.graffitixr.design.components.LocalSurfaceBackStack
 import com.hereliesaz.graffitixr.design.components.RailInset
+import com.hereliesaz.graffitixr.design.components.SurfaceAnchor
+import com.hereliesaz.graffitixr.design.components.SurfaceBackStack
+import com.hereliesaz.graffitixr.design.components.trackSurfaceAnchor
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
@@ -260,7 +265,7 @@ private const val MIN_BRUSH_ALPHA = 0.05f
  * The four vector-shape editing dialogs LayerOptionsDialog's own submenu opens — Stroke Width,
  * Corner Radius, Shape Size, Polygon Sides. One tap on that submenu opens exactly one of these at
  * a time, so unlike most of this file's other `show*` dialog flags (several of which deliberately
- * stack — see the `if (showLayerOptionsDialog)` block's own comment on FloatingWindow-style
+ * stack — see the `if (showLayerOptionsDialog)` block's own comment on tool-surface
  * dialogs never blocking each other), these four are genuinely mutually exclusive and collapse
  * into one slot. LayerOptionsDialog itself stays a separate flag: it's the parent these open on
  * top of, and stays open while any of them is up.
@@ -491,8 +496,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // the project gate and the expanded hero card register their own handlers later in the
     // composition, so they take precedence while they are up; AlertDialogs handle Back themselves.
     val windowOrder = remember { WindowOpenOrder() }
-    // Floating windows stack in the order they opened (FloatingWindow's z-index), so Back closes
-    // them latest-opened first, not in a fixed order.
+    // Every open tool surface (popover, sheet, page, docked panel: see AdaptiveSurfaces) registers
+    // its own dismiss here; Back closes the most recently opened one through that dismiss, so a
+    // dialog that applies on close still applies. The flag-based layers below stay as a fallback
+    // for anything shown without a surface (the phone's collapsed reference thumbnail).
+    val surfaceBackStack = remember { SurfaceBackStack() }
+    val surfaceAnchor = remember { SurfaceAnchor() }
+    // Windows are closed latest-opened first, not in a fixed order.
     val windowLayers = windowOrder.topFirst(
         listOf(
             "store" to BackLayer(showStore) { showStore = false },
@@ -513,7 +523,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         BackLayer(layerMenuFor != null) { layerMenuFor = null },
         BackLayer(showAbout) { showAbout = false },
         BackLayer(showGestureHelp) { showGestureHelp = false },
-    ) + windowLayers + listOf(
+    ) + BackLayer(surfaceBackStack.isOpen) { surfaceBackStack.closeTop() } + windowLayers + listOf(
         BackLayer(uiState.activePanel != EditorPanel.NONE) { vm.onDismissPanel() },
         BackLayer(carouselUi.sheetOpen) { carouselUi = carouselUi.copy(sheetOpen = false, showingCarousel = false) },
     )
@@ -863,10 +873,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val layersRailBesideTools = Modifier
         .padding(horizontal = RailSideInset + RailWidth + RailSideInset)
         .padding(top = LayersRailTopInset, bottom = railBottom)
-    CompositionLocalProvider(LocalRailInset provides railInset, LocalChromeHidden provides { chrome.hidden }) {
+    CompositionLocalProvider(
+        LocalRailInset provides railInset,
+        LocalChromeHidden provides { chrome.hidden },
+        LocalSurfaceBackStack provides surfaceBackStack,
+        LocalSurfaceAnchor provides surfaceAnchor,
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // Remembers where the last press landed, so a value popover opens by its control.
+            .trackSurfaceAnchor(surfaceAnchor)
             .multiFingerTaps(strokeGate) { slot, at ->
                 performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
@@ -1560,7 +1577,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // key(uiState.activeLayerId) on all four of these: the same staleness hazard
             // TextEditDialog's own key() below is documented against — these dialogs seed their
             // fields from `remember { mutableStateOf(current...) }` with no key, so if the active
-            // layer changes while one stays open (FloatingWindow-style dialogs never block the
+            // layer changes while one stays open (docked panels and pages leave the
             // canvas/rail), the dialog keeps showing and applying the OLD layer's stale value,
             // silently overwriting the NEW active layer's real property on Apply.
             if (activeShapeDialog == ShapeEditDialog.STROKE) {
@@ -1783,7 +1800,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 )
             }
 
-            // The azphalt extensions window: one FloatingWindow, two tabs (Installed/Browse) —
+            // The azphalt extensions window: one ToolSurface page, two tabs (Installed/Browse) —
             // see StoreWindow's own doc comment for why this replaced two separate windows.
             // "Other sources…" still reaches the delegated handoff (StoreChooserDialog) below,
             // for what only a real store app can do (Play Billing).

@@ -24,7 +24,8 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.AnimationLoopMode
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -57,9 +58,8 @@ internal fun normalizedPlaybackRange(anchor: Int, current: Int): IntRange =
  * time-lapse recorder several items above — each of them a rail button, none of them visibly
  * related to the others. Animation is not something you reach for mid-stroke the way you reach for
  * a brush size; it is a mode you set up and then work inside, watching frames go past. That is a
- * panel, and it is the same [FloatingWindow] the 3D viewport, the reference image and the brush
- * studio already use — draggable, collapsible, never dimming the canvas, so the artwork stays
- * visible while the transport runs.
+ * panel: a [ToolSurface] timeline — a full-screen page on a phone, and on a tablet docked along the
+ * bottom with no scrim, so the artwork stays visible and live while the transport runs.
  *
  * The compact ruler here is deliberately a transport control, not a second frame model: every
  * top-level layer still *is* a frame (see `AnimationFrames`) and the layer rail remains the
@@ -118,7 +118,7 @@ fun AnimationWindow(
     // "Frame 1/0", and the count is derived from the layer stack, which can legitimately be empty.
     val shownFrame = (activeFrameIndex + 1).coerceAtMost(frameCount.coerceAtLeast(1))
 
-    FloatingWindow(title = "Animation", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.TIMELINE, title = "Animation", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),

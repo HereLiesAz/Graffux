@@ -41,7 +41,8 @@ import androidx.compose.ui.semantics.semantics
 import com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush
 import com.hereliesaz.graffitixr.common.util.ColorHarmony
 import com.hereliesaz.graffitixr.common.util.HarmonyMode
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import com.hereliesaz.graffitixr.design.theme.AppStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -130,7 +131,8 @@ fun ColorPickerDialog(
         if (mode == ColorPickerMode.HARMONY) ColorHarmony.partners(hue, harmony) else emptyList()
     }
 
-    FloatingWindow(
+    ToolSurface(
+        kind = SurfaceKind.EDITOR,
         title = "Colour",
         onDismiss = { onDismissWithColor?.invoke(selectedColor) ?: onDismiss() },
     ) {

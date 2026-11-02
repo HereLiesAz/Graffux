@@ -16,7 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * Every installed extension's brush(es), each with an on/off switch for whether it shows up in a
@@ -33,7 +34,7 @@ fun BrushTipsManagerWindow(
     onSetHidden: (id: String, hidden: Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    FloatingWindow(title = "Manage Brush Tips", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.EDITOR, title = "Manage Brush Tips", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),

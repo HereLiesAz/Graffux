@@ -28,7 +28,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.AppBottomSheet
 import kotlin.math.roundToInt
 
 /** Swatch palette offered for text colour. */
@@ -84,7 +84,10 @@ fun TextEditDialog(
     var isDraggingSize by remember { mutableStateOf(false) }
     var isDraggingKerning by remember { mutableStateOf(false) }
 
-    FloatingWindow(title = "Text", onDismiss = onDismiss) {
+    // A bottom sheet on phone and tablet alike, for now: editing in place on the canvas, with a
+    // formatting bar over the keyboard, needs the text layer's on-screen bounds and an IME-driven
+    // canvas edit mode that do not exist yet. A sheet leaves the upper canvas (and the text) visible.
+    AppBottomSheet(title = "Text", onDismiss = onDismiss, largeTargets = true) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp),

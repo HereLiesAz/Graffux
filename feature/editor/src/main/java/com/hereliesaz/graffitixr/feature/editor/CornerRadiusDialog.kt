@@ -11,7 +11,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
 
 /**
@@ -28,7 +29,7 @@ fun CornerRadiusDialog(
 ) {
     var radius by remember { mutableFloatStateOf(currentRadius.coerceIn(0f, 200f)) }
 
-    FloatingWindow(title = "Corner radius", onDismiss = { onApply(radius); onDismiss() }) {
+    ToolSurface(kind = SurfaceKind.VALUE, title = "Corner radius", onDismiss = { onApply(radius); onDismiss() }) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(if (radius < 0.5f) "Square corners" else "${radius.roundToInt()} px")
             Slider(
