@@ -36,11 +36,16 @@ internal class SceneContext(
     /** What the GPU depth pass draws (spec/3d-space.md, "Per-pixel depth"). */
     val depth: com.hereliesaz.graffitixr.common.scene.DepthComposite =
         com.hereliesaz.graffitixr.common.scene.DepthComposite.EMPTY,
+    /**
+     * Absolute models of the layers painted on a flat surface (SurfaceMath.flatSurfaceModels): one
+     * the depth pass leaves in the stack (a blend mode or a clip) draws on the surface through it.
+     */
+    val flatSurfaceModels: Map<String, Affine3> = emptyMap(),
 ) {
     /** The node's own placement on the scene path, or null for the 2D fast path. */
     fun placementFor(layer: Layer): ScenePlacement? {
         if (layer.id !in sceneIds) return null
-        val model = parentModel * SceneMath.model(layer.planePose, frame.width, frame.height)
+        val model = modelFor(layer)
         val homography = SceneMath.homography(model, frame)
         val relative = SceneMath.relativeHomography(parentHomography, homography)
         val clip = SceneMath.visiblePolygon(homography, frame, CLIP_EXTENT * maxOf(frame.width, frame.height))
@@ -48,11 +53,13 @@ internal class SceneContext(
     }
 
     /** This layer's box-local to scene map, whichever path it draws through. */
-    fun modelFor(layer: Layer): Affine3 =
-        parentModel * SceneMath.model(layer.planePose, frame.width, frame.height)
+    fun modelFor(layer: Layer): Affine3 = flatSurfaceModels[layer.id]
+        ?: (parentModel * SceneMath.model(layer.planePose, frame.width, frame.height))
 
-    fun inside(placement: ScenePlacement): SceneContext =
-        SceneContext(camera, frame, sceneIds, placement.model, placement.homography, draft, draftLayerId, showGuideFor, depth)
+    fun inside(placement: ScenePlacement): SceneContext = SceneContext(
+        camera, frame, sceneIds, placement.model, placement.homography, draft, draftLayerId, showGuideFor, depth,
+        flatSurfaceModels,
+    )
 
     private companion object {
         /** How far past the canvas a plane's visible part is drawn when it crosses the eye. */
@@ -231,8 +238,10 @@ internal class ActivePlaneMapping private constructor(
  * to the ray, or behind the eye) has no point on the layer under the finger, so it is skipped
  * rather than painted at an unrelated flat-space point. The stroke starts at its first sample that
  * hits; a stroke that never hits is cancelled, which also puts back an adopted view plane. A
- * stroke that leaves the plane and comes back is broken at the gap (ended, then a new stroke
- * started where it comes back) rather than bridged with a straight segment across it.
+ * stroke that leaves the plane and comes back is broken at the gap (the segment ended through
+ * [segmentEnd], then a new stroke started where it comes back) rather than bridged with a straight
+ * segment across it. The segments are still one gesture: the view-model keeps them in one undo step
+ * and a later cancel (a second finger) takes every one of them back, not only the last.
  */
 internal class PlaneStrokeFeed<S>(
     private val toLayer: (S) -> S?,
@@ -240,6 +249,8 @@ internal class PlaneStrokeFeed<S>(
     private val point: (S) -> Unit,
     private val end: () -> Unit,
     private val cancel: () -> Unit,
+    /** Ends a segment at a gap without ending the gesture; [end] or [cancel] still closes it. */
+    private val segmentEnd: () -> Unit = end,
 ) {
     private var started = false
 
@@ -265,7 +276,7 @@ internal class PlaneStrokeFeed<S>(
             return
         }
         if (started && gap) {
-            end()
+            segmentEnd()
             started = false
         }
         gap = false
