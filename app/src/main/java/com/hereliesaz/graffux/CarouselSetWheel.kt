@@ -6,7 +6,10 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +70,7 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -102,6 +106,9 @@ private val WheelHubRadius = 18.dp
  * falls past the hub, instead of being cut by the box, the screen's edge or its rounded corner.
  */
 internal val WheelEdgeInset = 12.dp
+
+/** Names start no further out than this share of the disc's radius, so a short wheel keeps room. */
+private const val WHEEL_TEXT_INNER_FRACTION = 0.3f
 
 /** The wheel's hub in a [width] x [height] box with the hub [inset] in from its corner. */
 internal object WheelHub {
@@ -246,7 +253,8 @@ internal fun CarouselSetWheel(
     val insetPx = with(density) { WheelEdgeInset.toPx() }
     // The disc's radius: the box less the hub's inset.
     val rPx = with(density) { radius.toPx() } - insetPx
-    val innerPx = with(density) { WheelTextInner.toPx() }
+    // A small wheel (the picker's strip is short) brings its names in toward the hub.
+    val innerPx = min(with(density) { WheelTextInner.toPx() }, rPx * WHEEL_TEXT_INNER_FRACTION)
     val textMax = (rPx - innerPx - with(density) { WheelRimPadding.toPx() }).coerceAtLeast(1f)
     val colors = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
@@ -289,32 +297,32 @@ internal fun CarouselSetWheel(
                 val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
                 fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
                 val tracker = VelocityTracker1D(isDataDifferential = false)
-                var lastAngle = 0f
-                detectDragGestures(
-                    onDragStart = { start ->
-                        motion.job?.cancel()
-                        motion.dragging = true
-                        tracker.resetTracking()
-                        lastAngle = angleOf(start)
-                    },
-                    onDragEnd = {
-                        motion.dragging = false
-                        val v = tracker.calculateVelocity()
-                        settleTo(wheelSnapTarget(position.floatValue, if (v.isFinite()) v else 0f, count))
-                    },
-                    onDragCancel = {
-                        motion.dragging = false
-                        settleTo(wheelSnapTarget(position.floatValue, 0f, count))
-                    },
-                ) { change, _ ->
-                    val a = angleOf(change.position)
-                    val turned = angleDelta(lastAngle, a)
-                    lastAngle = a
-                    change.consume()
-                    // The names follow the finger round the hub.
-                    val delta = -(if (onRight) -1f else 1f) * turned / WHEEL_WEDGE_DEGREES
-                    position.floatValue = wheelDragPosition(position.floatValue, delta, count)
-                    tracker.addDataPoint(change.uptimeMillis, position.floatValue)
+                // Only a touch that lands on the quarter disc turns it: the rest of its square box
+                // (toward the cards) never takes a swipe.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (hypot(down.position.x - hub.x, down.position.y - hub.y) > rPx) return@awaitEachGesture
+                    var lastAngle = angleOf(down.position)
+                    val slop = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        ?: return@awaitEachGesture
+                    motion.job?.cancel()
+                    motion.dragging = true
+                    tracker.resetTracking()
+                    fun turn(change: androidx.compose.ui.input.pointer.PointerInputChange) {
+                        val a = angleOf(change.position)
+                        val turned = angleDelta(lastAngle, a)
+                        lastAngle = a
+                        change.consume()
+                        // The names follow the finger round the hub.
+                        val delta = -(if (onRight) -1f else 1f) * turned / WHEEL_WEDGE_DEGREES
+                        position.floatValue = wheelDragPosition(position.floatValue, delta, count)
+                        tracker.addDataPoint(change.uptimeMillis, position.floatValue)
+                    }
+                    turn(slop)
+                    val completed = drag(slop.id) { turn(it) }
+                    motion.dragging = false
+                    val v = if (completed) tracker.calculateVelocity() else 0f
+                    settleTo(wheelSnapTarget(position.floatValue, if (v.isFinite()) v else 0f, count))
                 }
             }
             .pointerInput(count, onRight) {
@@ -367,7 +375,7 @@ internal fun CarouselSetWheel(
                     colors.primary,
                 )
             }
-            drawCircle(colors.outline, WheelHubRadius.toPx(), hub, style = Stroke(1.dp.toPx()))
+            drawCircle(colors.outline, min(WheelHubRadius.toPx(), r * WHEEL_TEXT_INNER_FRACTION / 2), hub, style = Stroke(1.dp.toPx()))
             layouts.forEachIndexed { i, (plain, bold) ->
                 val spoke = wheelSpokeDegrees(i, pos, onRight)
                 if (angleDelta(pointer, spoke) !in -WHEEL_ARC_DEGREES..WHEEL_ARC_DEGREES) return@forEachIndexed

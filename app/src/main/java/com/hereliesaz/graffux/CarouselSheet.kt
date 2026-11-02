@@ -34,6 +34,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -211,7 +213,16 @@ internal fun CarouselSheet(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // Only the handle may remain when closed. Clip the translating content before the
             // reserved bottom inset: otherwise the hidden tabs slide INTO the navigation area.
-            Box(Modifier.clipToBounds()) {
+            // Open, the clip reaches down over the bottom inset (never the nav bar's) so the set
+            // picker's wheel, drawn over its strip, may use that gesture-free room; it shrinks back as
+            // the sheet closes, so hidden content still never slides into it.
+            val insetPx = with(LocalDensity.current) { bottomInset.toPx() }
+            Box(
+                Modifier.drawWithContent {
+                    val extra = (insetPx - offset.value).coerceAtLeast(0f)
+                    clipRect(0f, 0f, size.width, size.height + extra) { this@drawWithContent.drawContent() }
+                },
+            ) {
                 Column(
                     modifier = Modifier
                         .offset { IntOffset(0, offset.value.roundToInt()) }
