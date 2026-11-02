@@ -133,7 +133,10 @@ used to open the window, now imports into a layer.
   surface (the same ray as painting), ranked by the depth of the surface hit; the selection outline
   is the mesh's framed x/y bounds on the layer's plane.
 - **Flatten and composites.** A composite with no camera still uses the scene renderer, at the
-  default camera, when a model or 3D strokes layer is present; Flatten All passes the scene camera.
+  default camera, when a model or 3D strokes layer is present; Flatten All passes the scene camera;
+  under a moved camera it renders at the canvas size and puts the flattened layer on the view plane
+  (`SceneMath.viewPlanePose`), whose box projects onto the canvas pixel for pixel, so the result
+  shows exactly as the layers did rather than projected a second time.
 - **Paint revisions and undo.** The paint is `ModelLayerContent.texture`, a `ModelTexture`: one
   immutable revision, compared by identity. A stroke paints a copy (`EditorUiState.modelDraft`,
   which the depth pass draws in its place), and on lift that copy becomes the next revision. The
@@ -152,9 +155,9 @@ above or below the whole pass. The shader is the old renderer's (paint over a ba
 headlight so no side is lost in shadow), ported to GLES 3 and fed the scene camera's clip matrix.
 The mesh is uploaded once per mesh, the texture once per revision (or per dab while painting, under
 the bitmap's lock so an upload never tears). Opaque models are drawn with the ink, before the
-planes, so translucent plane pixels blend over them. A model whose layer opacity is below 1 is drawn
-after the planes, depth-tested but without depth writes, farthest first, so what is behind it shows
-through. A flat document without models still has no
+planes, so translucent plane pixels blend over them. Translucent members, a model or a plane whose
+opacity is below 1, are drawn last in one pass, farthest first, depth-tested but without depth
+writes, so each blends over whatever is behind it, translucent or not. A flat document without models still has no
 depth pass.
 
 ## Render path

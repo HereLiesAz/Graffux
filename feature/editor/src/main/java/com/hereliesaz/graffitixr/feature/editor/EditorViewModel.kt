@@ -14018,12 +14018,19 @@ class EditorViewModel @Inject constructor(
         dispatch(EditorIntent.SetLoading(true, "Flattening layers…"))
         viewModelScope.launch(dispatchers.default) {
             val metrics = context.resources.displayMetrics
-            val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
-            val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
+            val camera = _uiState.value.sceneCamera
+            val canvas = _uiState.value.canvasSize
+            // Under a moved camera the image is the view as seen, so it is rendered at the canvas's
+            // own size and placed on the view plane below; a default camera flattens as it always did.
+            val seen = !camera.isDefault && canvas.width > 0 && canvas.height > 0
+            val w = if (seen) canvas.width else metrics.widthPixels.takeIf { it > 0 } ?: 1080
+            val h = if (seen) canvas.height else metrics.heightPixels.takeIf { it > 0 } ?: 1920
             // Through the scene camera: 3D layers flatten as they are seen, models and 3D ink included.
-            val composite = exportManager.compositeLayers(
-                _uiState.value.layers, w, h, camera = _uiState.value.sceneCamera,
-            )
+            val composite = exportManager.compositeLayers(_uiState.value.layers, w, h, camera = camera)
+            // The view plane (facing the camera through its orbit target, at its distance scale)
+            // projects its box onto the canvas pixel for pixel, so the flattened image shows exactly
+            // as the layers did instead of being projected through the camera a second time.
+            val pose = if (seen) SceneMath.viewPlanePose(camera, w.toFloat(), h.toFloat()) else null
 
             val filename = "flattened_${UUID.randomUUID()}.png"
             val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(composite))
@@ -14033,8 +14040,18 @@ class EditorViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 name = "Flattened",
                 uri = localUri,
-                bitmap = composite
-            )
+                bitmap = composite,
+            ).let { flat ->
+                if (pose == null) {
+                    flat
+                } else {
+                    flat.copy(
+                        offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
+                        rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
+                        scale = pose.scale, plane3D = true,
+                    )
+                }
+            }
 
             withContext(dispatchers.main) {
                 // Deliberately NOT layerStore.remove() on the pre-flatten layers: pushHistory()

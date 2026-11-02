@@ -329,6 +329,36 @@ class ModelLayerTest {
     }
 
     @Test
+    fun `a flatten under a moved camera sits on the view plane, so it shows as seen, not projected twice`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val image = android.graphics.Bitmap.createBitmap(size.width, size.height, android.graphics.Bitmap.Config.ARGB_8888)
+        every { exportManager.compositeLayers(any(), any(), any(), camera = any()) } returns image
+        addModel()
+        vm.onSceneOrbit(0.5f, -0.2f)
+        vm.onFlattenAllLayers()
+        idle()
+        // Rendered at the canvas's own size, through the camera.
+        io.mockk.verify { exportManager.compositeLayers(any(), size.width, size.height, camera = vm.uiState.value.sceneCamera) }
+        val flat = vm.uiState.value.layers.single()
+        assertTrue(flat.plane3D)
+        // Its box projects onto the canvas pixel for pixel: the plane's homography is the identity.
+        val w = size.width.toFloat()
+        val hh = size.height.toFloat()
+        val homography = SceneMath.homography(
+            SceneMath.model(com.hereliesaz.graffitixr.common.scene.PlanePose(
+                flat.offset.x, flat.offset.y, flat.positionZ, flat.rotationX, flat.rotationY, flat.rotationZ, flat.scale,
+            ), w, hh),
+            SceneMath.frame(vm.uiState.value.sceneCamera, w, hh),
+        )
+        listOf(0f to 0f, w to 0f, w / 3f to hh * 0.7f).forEach { (x, y) ->
+            val (px, py) = SceneMath.applyHomography(homography, x, y)!!
+            assertEquals(x, px, 0.05f)
+            assertEquals(y, py, 0.05f)
+        }
+    }
+
+    @Test
     fun `a tap on a model's surface selects it, and its outline has corners`() = runTest(dispatcher) {
         addModel()
         val w = size.width.toFloat()
