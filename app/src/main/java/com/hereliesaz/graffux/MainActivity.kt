@@ -988,6 +988,20 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Clears the nav bar itself and keeps the grab pill off the screen's
                     // bottom edge, where system gestures would take its touches.
                     bottomInset = CarouselBottomInset,
+                    topAccessory = {
+                        ShownWhenNotDrawing(chrome) {
+                            vm.rotationSliderValue(uiState)?.let { angle ->
+                                RotationSlider(
+                                    value = angle,
+                                    onStart = vm::onRotationSliderStart,
+                                    onChange = vm::onRotationSliderChange,
+                                    onEnd = vm::onRotationSliderEnd,
+                                    onReset = vm::onRotationSliderReset,
+                                    label = strings.nav.rotateLayer,
+                                )
+                            }
+                        }
+                    },
                 ) {
                     val carouselInputs = CarouselInputs(
                         groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
@@ -1080,6 +1094,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         effectPreviews.updateSource(previewLayer?.bitmap)
                     }
                     DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
+                    // The set wheel sits on the side away from the rail (CarouselSetWheel.kt).
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalSetWheelOnRight provides uiState.isRightHanded,
+                    ) {
                     if (designMode) {
                         DesignSheetBody(
                             tab = designTab,
@@ -1232,6 +1250,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onEntryClick = runCarouselEntry,
                         expansion = heroExpansion,
                     )
+                    }
                 }
             }
             // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the
@@ -1247,7 +1266,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     WindowInsets.safeDrawing,
                 ),
         ) {
-            if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome) {
+            if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome, fillParent = true) {
                 ToolRail(
                     vm = toolRailActions,
                     uiState = uiState,

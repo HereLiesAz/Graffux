@@ -192,7 +192,7 @@ class PhotoRetouchUiTest {
         assertTrue(calls.contains("maskTo"))
         assertEquals("maskEnd", calls.last())
         rule.onNodeWithTag("photo.mask.erase").performClick()
-        rule.onNodeWithTag("photo.mask.canvas").performTouchInput { down(center); up() }
+        rule.onNodeWithTag("photo.mask.canvas").performTouchInput { down(Offset(262f * d, 300f * d)); up() }
         rule.waitForIdle()
         assertTrue(calls.any { it.startsWith("maskStart:true") })
         rule.onNodeWithTag("photo.mask.selection").performClick()

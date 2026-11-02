@@ -5580,6 +5580,59 @@ class EditorViewModel @Inject constructor(
 
     override fun onCycleRotationAxis() = dispatch(EditorIntent.CycleRotationAxis)
 
+    /**
+     * The axis the rotation slider above the sheet turns: Z (in-plane) on a 2D layer, the rail's
+     * axis cycler ([EditorUiState.activeRotationAxis]) on a 3D one.
+     */
+    fun rotationSliderAxis(state: EditorUiState = _uiState.value): RotationAxis =
+        if (state.active3D()) state.activeRotationAxis else RotationAxis.Z
+
+    /** The active layer's angle on [rotationSliderAxis], wrapped to -180..180, or null with no layer. */
+    fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
+        val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return null
+        val raw = when (rotationSliderAxis(state)) {
+            RotationAxis.X -> layer.rotationX
+            RotationAxis.Y -> layer.rotationY
+            RotationAxis.Z -> layer.rotationZ
+        }
+        return wrapDegrees(raw)
+    }
+
+    /** A rotation-slider drag begins: one undo step for the whole drag, like a transform gesture. */
+    fun onRotationSliderStart() = onGestureStart()
+
+    /** Live: turns the active layer (and its linked group) so its slider angle reads [degrees]. */
+    fun onRotationSliderChange(degrees: Float) {
+        val activeId = _uiState.value.activeLayerId
+        val current = rotationSliderValue()
+        val delta = if (current == null) 0f else degrees.coerceIn(-HALF_TURN_DEG, HALF_TURN_DEG) - current
+        if (activeId == null || delta == 0f || !delta.isFinite()) return
+        val axis = rotationSliderAxis()
+        updateLinkedGroup(activeId) { layer ->
+            when (axis) {
+                RotationAxis.X -> layer.copy(rotationX = layer.rotationX + delta)
+                RotationAxis.Y -> layer.copy(rotationY = layer.rotationY + delta)
+                RotationAxis.Z -> layer.copy(rotationZ = layer.rotationZ + delta)
+            }
+        }
+    }
+
+    /** The drag ends: saves and emits the co-op transform, as a transform gesture's end does. */
+    fun onRotationSliderEnd() = onGestureEnd()
+
+    /** A double-tap on the slider's thumb: back to 0° on its axis, as one undo step. */
+    fun onRotationSliderReset() {
+        if (rotationSliderValue() == null) return
+        onRotationSliderStart()
+        onRotationSliderChange(0f)
+        onRotationSliderEnd()
+    }
+
+    private fun wrapDegrees(d: Float): Float {
+        val m = ((d + HALF_TURN_DEG) % FULL_TURN_DEG + FULL_TURN_DEG) % FULL_TURN_DEG - HALF_TURN_DEG
+        return if (m == -HALF_TURN_DEG && d > 0f) HALF_TURN_DEG else m
+    }
+
     override fun onAdjustmentStart() { pushHistory(); dispatch(EditorIntent.SetGestureInProgress(true)) }
 
     override fun onAdjustmentEnd() {
@@ -14450,3 +14503,6 @@ private const val MIN_LAYER_DEPTH_FRACTION = 0.05f
 
 /** The largest dab radius a model brush paints, in texels. */
 private const val MAX_MODEL_BRUSH_TEXELS = 512f
+
+private const val HALF_TURN_DEG = 180f
+private const val FULL_TURN_DEG = 360f

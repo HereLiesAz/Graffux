@@ -616,18 +616,33 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         } else if (canPaintActiveLayer && uiState.activeTool !in NON_RASTER_TOOLS) {
-            // A ray that misses the plane keeps the plain world point, so a stroke never breaks.
+            // A fill or clone tap whose ray misses the plane keeps the plain world point.
             fun toWorld(screen: Offset): Offset {
                 val plane = strokePlane.value ?: activePlane
                 return plane.toFlat(screen) ?: plane.world(screen)
             }
-            fun toWorldSample(sample: BrushSample): BrushSample {
-                val world = toWorld(Offset(sample.x, sample.y))
+            fun toWorldSample(sample: BrushSample): BrushSample? {
+                // Through the plane: a ray that misses a 3D layer's plane has no point on it.
+                val plane = strokePlane.value ?: activePlane
+                val world = plane.toFlat(Offset(sample.x, sample.y)) ?: return null
                 // The nib was recorded as seen on screen; the layer sees it through the view's rotation.
                 val penAngle = nibLayerAngle(sample.telemetry.penAngleDegrees, uiState.viewportRotation)
                 return sample.copy(
                     x = world.x, y = world.y,
                     telemetry = sample.telemetry.copy(penAngleDegrees = penAngle),
+                )
+            }
+            val strokeSize = remember { object { var value = androidx.compose.ui.unit.IntSize.Zero } }
+            // The feed outlives recompositions (it holds whether the stroke has started); the
+            // mapping it calls is always this composition's.
+            val mapSample = rememberUpdatedState<(BrushSample) -> BrushSample?> { toWorldSample(it) }
+            val strokeFeed = remember(vm) {
+                PlaneStrokeFeed<BrushSample>(
+                    toLayer = { mapSample.value(it) },
+                    start = { vm.onStrokeStart(it, strokeSize.value) },
+                    point = { vm.onStrokePoint(it) },
+                    end = { vm.onStrokeEnd() },
+                    cancel = { vm.onStrokeCancel() },
                 )
             }
             DrawingCanvas(
@@ -644,11 +659,12 @@ fun EditorScreen(
                     // plane as it is now, not as of the last recomposition.
                     val adopted = vm.adoptViewPlaneForStroke()
                     strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
-                    vm.onStrokeStart(toWorldSample(sample), size)
+                    strokeSize.value = size
+                    strokeFeed.onStart(sample)
                 },
-                onStrokePoint = { sample -> vm.onStrokePoint(toWorldSample(sample)) },
-                onStrokeEnd = { vm.onStrokeEnd(); strokePlane.value = null },
-                onStrokeCancel = { vm.onStrokeCancel(); strokePlane.value = null },
+                onStrokePoint = { sample -> strokeFeed.onPoint(sample) },
+                onStrokeEnd = { strokeFeed.onEnd(); strokePlane.value = null },
+                onStrokeCancel = { strokeFeed.onCancel(); strokePlane.value = null },
                 onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
                 onPickCloneSource = { at -> vm.onSetCloneSource(toWorld(at)) },

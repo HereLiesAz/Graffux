@@ -7,14 +7,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.style.TextOverflow
-import com.hereliesaz.aznavrail.AzRoller
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -227,14 +227,14 @@ internal fun carouselSetLabels(sections: List<CarouselTabSection>): Map<String, 
 internal fun previousSetAfter(picked: String, current: String?, previous: String?): String? =
     if (current != null && current != picked) current else previous
 
-private val StripHeight = 56.dp
 private val QuickButtonHeight = 40.dp
-
 /**
- * The set picker: AzNavRail's [AzRoller] (a vertical slot-machine of the sets, one at a time) with
- * two quick buttons beside it on the same strip — Favorites, and the set picked before this one,
- * named, for switching back and forth. Each set is its own list, so nothing scrolls on from one set
- * into the next. [onSelect] is called with the picked set.
+ * The set picker: a quarter-circle wheel of the sets ([CarouselSetWheel]) in the sheet's bottom corner
+ * away from the rail ([LocalSetWheelOnRight], from the handedness setting), with two quick buttons stacked on
+ * the rail side — Favorites, and the set picked before this one, named, for switching back and
+ * forth. Each set is its own list, so nothing scrolls on from one set into the next. [onSelect] is
+ * called with the committed set (after the wheel's dwell, see [WHEEL_DWELL_MS]). AzRoller's
+ * type-to-filter search went with it: the wheel has no field.
  *
  * [previousKey] is the set to offer for going back, when the caller keeps it (the brush sheet saves
  * it in [CarouselUi]); left null, the strip remembers the last switch itself.
@@ -259,31 +259,32 @@ internal fun CarouselTabList(
         ownPrevious = previousSetAfter(group.key, selectedKey, ownPrevious)
         onSelect(group)
     }
-    val selected = sets.firstOrNull { it.key == selectedKey }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = StripHeight)
-            .padding(horizontal = 8.dp)
-            .testTag("carousel.tabs"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(Modifier.weight(1f).testTag("carousel.roller")) {
-            AzRoller(
-                options = sets.map { labels.getValue(it.key) },
-                selectedOption = selected?.let { labels.getValue(it.key) } ?: "",
-                onOptionSelected = { label ->
-                    sets.firstOrNull { labels[it.key] == label }?.let(pick)
-                },
-                hint = "Set",
-            )
+    val onRight = LocalSetWheelOnRight.current
+    BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = PickerGap).testTag("carousel.tabs")) {
+        val radius = setWheelRadius(maxWidth, maxHeight)
+        val quick: @Composable () -> Unit = {
+            Column(
+                Modifier.width(QuickColumnWidth),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (favorites != null) {
+                    QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
+                        pick(favorites)
+                    }
+                }
+                if (previous != null) {
+                    QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") { pick(previous) }
+                }
+            }
         }
-        if (favorites != null) {
-            QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") { pick(favorites) }
-        }
-        if (previous != null) {
-            QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") { pick(previous) }
+        Row(
+            Modifier.fillMaxWidth().height(radius),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            if (onRight) quick()
+            CarouselSetWheel(sets, labels, selectedKey, radius, pick)
+            if (!onRight) quick()
         }
     }
 }
@@ -295,7 +296,7 @@ private fun QuickSetButton(label: String, lit: Boolean, tag: String, onClick: ()
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .widthIn(max = 120.dp)
+            .fillMaxWidth()
             .height(QuickButtonHeight)
             .clip(RoundedCornerShape(QuickButtonHeight / 2))
             .background(if (lit) colors.onSurface else colors.surface.copy(alpha = 0.72f))

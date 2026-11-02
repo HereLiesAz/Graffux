@@ -263,6 +263,20 @@ codebase is deferred scope or a real gap in the install-report flow.
   `SettingsRepository.carouselFavorites` (DataStore key `carousel_favorites`, newline-separated).
   Pages are picked by hand, never inferred from the tool. Everything each page shows is derived in
   `BottomCarouselPlan.kt` (pure, tested).
+  Below the strip the set picker (`CarouselTabList`, used by the brush, effect, photo and design
+  sheets) is a quarter-circle wheel (`CarouselSetWheel.kt`) in the sheet's bottom corner away from
+  the rail — bottom-right when right-handed, mirrored to bottom-left when `isRightHanded` is false
+  (`LocalSetWheelOnRight`, provided in MainActivity). Each set's name lies on its own spoke, 22.5°
+  apart (`WHEEL_WEDGE_DEGREES`), drawn with `drawText` on a Canvas and rotated never to read upside
+  down; a fixed pointer marks the arc's midpoint (45°). Drag turns it round the hub, a release flings
+  and snaps to a wedge, a tap turns the tapped name to the pointer, and the list stops at its ends
+  after a small pull. The pointed set is provisional (accent outline) until the wheel has rested on
+  it for `WHEEL_DWELL_MS` (1s), then it is committed; new motion cancels the wait. Accessibility
+  (each name a selectable item; Next set / Previous set actions) commits at once. The radius is
+  `WheelMaxRadius` (136dp) or less when the width is short, and the peek strip is that tall. The
+  wheel's position is a float state read only in draw and placement, so turning it recomposes
+  nothing. Favorites and the previous set are quick buttons stacked on the rail side. AzNavRail's
+  `AzRoller` it replaced had type-to-filter search; the wheel has none.
   **Placement.** The carousel is its own AzNavRail page, `background(weight = 1, page = 0f)`, one weight
   in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
   by the rail's width, so `background()` is the only page laid out across the whole window, and that
@@ -311,7 +325,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   "UI hidden for drawing" flag (see the rails entry below) in the sheet, not in the page, so a stroke
   does not recompose the carousel. While it is true the sheet is shown shut
   (`carouselSheetShownOpen(userOpen, hiddenForDrawing)`): it snaps shut with no animation. It stays
-  shut for `DRAWING_UI_RETURN_DELAY_MS` (1500ms) after the stroke ends or is cancelled, then slides
+  shut for `DRAWING_UI_RETURN_DELAY_MS` (750ms) after the stroke ends or is cancelled, then slides
   back in `REOPEN_MS` (120ms). The stroke never writes
   `CarouselUi.sheetOpen`, so a sheet the user had shut stays shut. Unlike the rails, it reopens.
   **Per-item settings (`CarouselItemSettingsPlan.kt`).** Each stamp brush, Ink utensil and effect
@@ -338,7 +352,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   source is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
   stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. Nothing
   reads it directly: `rememberDrawingUiHidden` (`DrawingUiHidden.kt`) derives the "UI hidden for
-  drawing" flag from it, true during a stroke and for `DRAWING_UI_RETURN_DELAY_MS` (1500ms, the one
+  drawing" flag from it, true during a stroke and for `DRAWING_UI_RETURN_DELAY_MS` (750ms, the one
   constant to tune) after it ends. A stroke that starts inside that hold cancels the pending return
   (`collectLatest` drops the `delay`), so nothing flickers back between strokes. The rails and the
   carousel sheet read only that flag. The main rail uses AzNavRail's own `isFoldedUp` (OR'd with the
@@ -348,6 +362,15 @@ codebase is deferred scope or a real gap in the install-report flow.
   Nothing is added to the pointer path; the UI just observes the flag. The fold and the host
   collapse/expand animate at AzNavRail 11.52's own speed: the library exposes no duration or spec for
   either (`isFoldedUp` is a plain Boolean; `azKinetics`' timings cover only the drawer's menu words).
+  **Ghosted, not gone.** The chrome MainActivity wraps in `ShownWhenNotDrawing` (rails, rail menus,
+  logo menu) and the editor's `HiddenWhileDrawing` (nib-angle dial) go through `GhostWhileDrawing`
+  (`feature/editor/ChromeHidden.kt`): while hidden they fade in `CHROME_FADE_OUT_MS` (150ms) to a
+  `CHROME_GHOST_ALPHA` (0.08) silhouette and fade back in `CHROME_FADE_IN_MS` (200ms). Only the
+  `graphicsLayer` alpha animates, so no fade frame recomposes or relays out. While ghosted the content
+  stays composed but is *placed* far off screen and *drawn* back in place, with its semantics cleared,
+  so hit testing finds nothing there and a stroke over a ghosted rail reaches the canvas. Captures
+  (`hideUiForCapture`) still drop the chrome entirely, and exports render the layers, not the screen,
+  so the ghost never appears in either. The carousel sheet keeps its own snap-shut / slide-back.
 - **Curves, per-channel LUT extensions, and the ColorMatrix adjustments are three separate
   pixel-transform paths on purpose.** `ColorMatrixUtils.createColorMatrix` (opacity/
   brightness/contrast/balance) is a 4×5 affine transform applied live via a `ColorFilter` —

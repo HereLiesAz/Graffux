@@ -24,8 +24,8 @@ class DrawingUiHiddenTest {
     }.also { runCurrent() }
 
     @Test
-    fun `the default hold is 1500ms`() {
-        assertEquals(1500L, DRAWING_UI_RETURN_DELAY_MS)
+    fun `the default hold is 750ms`() {
+        assertEquals(750L, DRAWING_UI_RETURN_DELAY_MS)
     }
 
     @Test
@@ -42,12 +42,12 @@ class DrawingUiHiddenTest {
         stroke.value = false
         runCurrent()
         assertTrue("still hidden as the stroke ends", hidden)
-        advanceTimeBy(1499)
+        advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS - 1)
         runCurrent()
-        assertTrue("still hidden at 1499ms", hidden)
+        assertTrue("still hidden 1ms short of the hold", hidden)
         advanceTimeBy(1)
         runCurrent()
-        assertFalse("shown at 1500ms", hidden)
+        assertFalse("shown when the hold runs out", hidden)
     }
 
     @Test
@@ -57,20 +57,20 @@ class DrawingUiHiddenTest {
         runCurrent()
         stroke.value = false
         runCurrent()
-        advanceTimeBy(1000)
+        advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS / 2)
         runCurrent()
 
         stroke.value = true
         runCurrent()
         assertTrue(hidden)
         // Past where the first stroke's return would have landed: nothing came back.
-        advanceTimeBy(1000)
+        advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS)
         runCurrent()
         assertTrue("the first stroke's return was cancelled", hidden)
 
         stroke.value = false
         runCurrent()
-        advanceTimeBy(1499)
+        advanceTimeBy(DRAWING_UI_RETURN_DELAY_MS - 1)
         runCurrent()
         assertTrue("the hold restarts from the second stroke's end", hidden)
         advanceTimeBy(1)
