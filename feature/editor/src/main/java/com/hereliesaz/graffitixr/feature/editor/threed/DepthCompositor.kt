@@ -31,7 +31,9 @@ import javax.microedition.khronos.opengles.GL10
  * Their colour adjustments run in the fragment shader with the same matrix the 2D canvas uses.
  * 3D strokes are the tube mesh shared with the glTF export, uploaded once per stroke list.
  *
- * Order: ink first, then planes farthest-first, depth test on and depth writes on. The test makes
+ * 3D model layers are their mesh, lit by a headlight, with their paint texture over a base colour.
+ *
+ * Order: ink and models first, then planes farthest-first, depth test on and depth writes on. The test makes
  * crossings exact for opaque pixels; the order makes translucent pixels blend over what is behind.
  * Fully transparent texels are discarded so a layer's empty area never hides what is behind it.
  * Output is premultiplied over transparent, which is what a TextureView (and the export readback)
@@ -55,12 +57,30 @@ class DepthCompositor : GLSurfaceView.Renderer {
     /** A 3D strokes layer: its tubes and the map from stroke units into the scene. */
     class Ink(val id: String, val strokes: List<SpatialStroke>, val toScene: Affine3, val alpha: Float)
 
-    class Scene(val camera: CameraFrame, val planes: List<Plane>, val inks: List<Ink>)
+    /**
+     * A 3D model layer: its mesh, the map from mesh coordinates into the scene, and its paint.
+     * [texture] is null when unpainted; [lock] (when set) is held while its pixels upload, because
+     * a stroke in progress paints into them on the UI thread.
+     */
+    class Model(
+        val id: String,
+        val mesh: com.hereliesaz.graffitixr.common.mesh.Mesh,
+        val toScene: Affine3,
+        val texture: Bitmap?,
+        val textureToken: Long,
+        val alpha: Float,
+        val lock: Any? = null,
+    )
+
+    class Scene(val camera: CameraFrame, val planes: List<Plane>, val inks: List<Ink>, val models: List<Model> = emptyList())
 
     @Volatile var scene: Scene? = null
 
     private var quadProgram = 0
     private var inkProgram = 0
+    private var modelProgram = 0
+    private val modelMeshes = HashMap<String, ModelBuffers>()
+    private val modelTextures = HashMap<String, Texture>()
     private val textures = HashMap<String, Texture>()
     private val meshes = HashMap<String, Mesh>()
     private var viewportW = 1
@@ -70,12 +90,17 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     private class Mesh(val strokes: List<SpatialStroke>, val vbo: Int, val ibo: Int, val count: Int)
 
+    private class ModelBuffers(val mesh: com.hereliesaz.graffitixr.common.mesh.Mesh, val vbo: Int, val ibo: Int, val count: Int)
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         // A new context: every old handle is gone.
         textures.clear()
         meshes.clear()
+        modelMeshes.clear()
+        modelTextures.clear()
         quadProgram = program(QUAD_VS, QUAD_FS)
         inkProgram = program(INK_VS, INK_FS)
+        modelProgram = program(MODEL_VS, MODEL_FS)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -90,7 +115,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glDepthMask(true)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s = scene ?: return
-        if (quadProgram == 0 || inkProgram == 0) return
+        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0) return
         release(s)
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glDepthFunc(GLES30.GL_LEQUAL)
@@ -98,6 +123,8 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
         for (ink in s.inks) drawInk(ink, s.camera)
+        // Models are opaque surfaces: drawn with the ink, before the planes blend over them.
+        for (model in s.models) drawModel(model, s.camera)
         val depths = s.planes.associate { p ->
             val cx = (p.rect[0] + p.rect[2]) / 2f
             val cy = (p.rect[1] + p.rect[3]) / 2f
@@ -119,6 +146,108 @@ class DepthCompositor : GLSurfaceView.Renderer {
             val m = meshes.remove(id)!!
             GLES30.glDeleteBuffers(2, intArrayOf(m.vbo, m.ibo), 0)
         }
+        val models = s.models.mapTo(HashSet()) { it.id }
+        modelMeshes.keys.filter { it !in models }.forEach { id ->
+            val m = modelMeshes.remove(id)!!
+            GLES30.glDeleteBuffers(2, intArrayOf(m.vbo, m.ibo), 0)
+        }
+        modelTextures.keys.filter { it !in models }.forEach { id ->
+            GLES30.glDeleteTextures(1, intArrayOf(modelTextures.remove(id)!!.handle), 0)
+        }
+    }
+
+    private fun modelBuffers(model: Model): ModelBuffers? {
+        modelMeshes[model.id]?.takeIf { it.mesh === model.mesh }?.let { return it }
+        modelMeshes.remove(model.id)?.let { GLES30.glDeleteBuffers(2, intArrayOf(it.vbo, it.ibo), 0) }
+        val mesh = model.mesh
+        if (mesh.indices.isEmpty()) return null
+        val vertices = ByteBuffer.allocateDirect(mesh.vertices.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        vertices.put(mesh.vertices).flip()
+        val indices = ByteBuffer.allocateDirect(mesh.indices.size * 4).order(ByteOrder.nativeOrder()).asIntBuffer()
+        indices.put(mesh.indices).flip()
+        val h = IntArray(2)
+        GLES30.glGenBuffers(2, h, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, h[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, mesh.vertices.size * 4, vertices, GLES30.GL_STATIC_DRAW)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, h[1])
+        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, mesh.indices.size * 4, indices as IntBuffer, GLES30.GL_STATIC_DRAW)
+        return ModelBuffers(mesh, h[0], h[1], mesh.indices.size).also { modelMeshes[model.id] = it }
+    }
+
+    /** The model's paint on the GPU, uploaded only when its pixels or their token change. */
+    private fun modelTexture(model: Model): Texture? {
+        val bitmap = model.texture?.takeUnless { it.isRecycled } ?: return null
+        val existing = modelTextures[model.id]
+        if (existing != null && existing.bitmap === bitmap && existing.generation == bitmap.generationId &&
+            existing.token == model.textureToken
+        ) {
+            return existing
+        }
+        val t = existing ?: run {
+            val h = IntArray(1)
+            GLES30.glGenTextures(1, h, 0)
+            Texture(h[0], null, -1, -1L, 0, 0).also { modelTextures[model.id] = it }
+        }
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.handle)
+        val upload = {
+            if (t.w == bitmap.width && t.h == bitmap.height) {
+                GLUtils.texSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, bitmap)
+            } else {
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+                // UVs outside the unit square tile, as the painting maths wraps them.
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_REPEAT)
+                GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_REPEAT)
+                GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0)
+                t.w = bitmap.width
+                t.h = bitmap.height
+            }
+        }
+        val lock = model.lock
+        if (lock != null) synchronized(lock) { upload() } else upload()
+        t.bitmap = bitmap
+        t.generation = bitmap.generationId
+        t.token = model.textureToken
+        return t
+    }
+
+    private fun drawModel(model: Model, cam: CameraFrame) {
+        val buffers = modelBuffers(model) ?: return
+        val tex = modelTexture(model)
+        GLES30.glUseProgram(modelProgram)
+        GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(modelProgram, "uMvp"), 1, false, SceneMath.clipMatrix(model.toScene, cam), 0)
+        // Normals into the scene: the linear part is a rotation times a uniform scale, so it is its
+        // own normal matrix once normalized in the shader.
+        val m = model.toScene.m
+        val normal = floatArrayOf(m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10])
+        GLES30.glUniformMatrix3fv(GLES30.glGetUniformLocation(modelProgram, "uNormal"), 1, false, normal, 0)
+        // A headlight: lit from the eye, so no side of the model is ever lost in shadow.
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(modelProgram, "uToLight"), -cam.forward[0], -cam.forward[1], -cam.forward[2])
+        val base = com.hereliesaz.graffitixr.common.scene.SceneGltfExporter.MODEL_BASE_COLOR
+        GLES30.glUniform3f(GLES30.glGetUniformLocation(modelProgram, "uBase"), base[0], base[1], base[2])
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(modelProgram, "uAlpha"), model.alpha.coerceIn(0f, 1f))
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(modelProgram, "uHasTexture"), if (tex != null) 1f else 0f)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex?.handle ?: 0)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(modelProgram, "uTex"), 0)
+        val stride = com.hereliesaz.graffitixr.common.mesh.Mesh.FLOATS_PER_VERTEX * 4
+        val aPos = GLES30.glGetAttribLocation(modelProgram, "aPosition")
+        val aNormal = GLES30.glGetAttribLocation(modelProgram, "aNormal")
+        val aUv = GLES30.glGetAttribLocation(modelProgram, "aUv")
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, buffers.vbo)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, buffers.ibo)
+        GLES30.glEnableVertexAttribArray(aPos)
+        GLES30.glEnableVertexAttribArray(aNormal)
+        GLES30.glEnableVertexAttribArray(aUv)
+        GLES30.glVertexAttribPointer(aPos, 3, GLES30.GL_FLOAT, false, stride, 0)
+        GLES30.glVertexAttribPointer(aNormal, 3, GLES30.GL_FLOAT, false, stride, 3 * 4)
+        GLES30.glVertexAttribPointer(aUv, 2, GLES30.GL_FLOAT, false, stride, 6 * 4)
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, buffers.count, GLES30.GL_UNSIGNED_INT, 0)
+        GLES30.glDisableVertexAttribArray(aPos)
+        GLES30.glDisableVertexAttribArray(aNormal)
+        GLES30.glDisableVertexAttribArray(aUv)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, 0)
     }
 
     private fun texture(p: Plane): Texture? {
@@ -292,6 +421,35 @@ class DepthCompositor : GLSurfaceView.Renderer {
                 float a = m.a * uAlpha;
                 if (a < 0.004) discard;
                 fragColor = vec4(m.rgb * a, a);
+            }"""
+
+        private const val MODEL_VS = """#version 300 es
+            uniform mat4 uMvp;
+            uniform mat3 uNormal;
+            in vec3 aPosition;
+            in vec3 aNormal;
+            in vec2 aUv;
+            out vec3 vNormal;
+            out vec2 vUv;
+            void main() { vNormal = uNormal * aNormal; vUv = aUv; gl_Position = uMvp * vec4(aPosition, 1.0); }"""
+
+        // The paint (premultiplied) over the base colour, then a two-sided headlight.
+        private const val MODEL_FS = """#version 300 es
+            precision mediump float;
+            uniform sampler2D uTex;
+            uniform float uHasTexture;
+            uniform vec3 uBase;
+            uniform vec3 uToLight;
+            uniform float uAlpha;
+            in vec3 vNormal;
+            in vec2 vUv;
+            out vec4 fragColor;
+            void main() {
+                vec3 n = normalize(vNormal);
+                float light = abs(dot(n, normalize(uToLight))) * 0.6 + 0.4;
+                vec4 paint = texture(uTex, vUv) * uHasTexture;
+                vec3 surface = paint.rgb + uBase * (1.0 - paint.a);
+                fragColor = vec4(surface * light * uAlpha, uAlpha);
             }"""
 
         private const val INK_VS = """#version 300 es

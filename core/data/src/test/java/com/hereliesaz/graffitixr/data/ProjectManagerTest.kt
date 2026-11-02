@@ -205,7 +205,8 @@ class ProjectManagerTest {
         // Import landed beside it, with its own paths rebased to the new id.
         assertEquals(listOf<Byte>(1, 2, 3), File(tempFilesDir, "projects/$newId/layer.png").readBytes().toList())
         assertEquals("Old export", persisted(newId).name)
-        assertEquals("/f/projects/$newId/model.obj", persisted(newId).modelPath)
+        // The old floating-window model came along as a 3D model layer naming its file.
+        assertEquals("model.obj", persisted(newId).layers.single().model!!.objFile)
         // No staging debris.
         assertFalse(File(tempFilesDir, "import_staging").walkTopDown().any { it.isFile })
     }
@@ -381,10 +382,10 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":7"))
+        assertTrue(text.contains("\"formatVersion\":8"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(7, back.formatVersion)
+        assertEquals(8, back.formatVersion)
     }
 
     @Test
@@ -415,7 +416,7 @@ class ProjectManagerTest {
         val project = GraffitiProject(id = "guide-scene", spatialGuide = storedGuide)
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val restored = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
-        assertEquals(7, restored.formatVersion)
+        assertEquals(8, restored.formatVersion)
         assertEquals(storedGuide, restored.spatialGuide)
 
         // Independent historical format-5 fixture: no guide key was ever written in that format.
@@ -423,7 +424,7 @@ class ProjectManagerTest {
             {"id":"old-line","points":[{"x":1.0,"y":0.0,"z":0.0}],
              "colorArgb":-1,"width":0.2}]}"""
         val reopened = manager.decodeProject(legacy)
-        assertEquals(7, reopened.formatVersion)
+        assertEquals(8, reopened.formatVersion)
         // Format 7 moves the sketch into a 3D strokes layer, with the original view-plane guide.
         val content = reopened.layers.single().spatial!!
         assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), content.guide)
@@ -438,7 +439,7 @@ class ProjectManagerTest {
             "spatialStrokes":[{"id":"ink","points":[{"x":0.5,"y":-1.0,"z":2.0,"pressure":0.4}],"colorArgb":-65536,"width":0.1}],
             "spatialGuide":{"kind":"SPHERE","radius":1.5}}"""
         val project = manager.decodeProject(v6)
-        assertEquals(7, project.formatVersion)
+        assertEquals(8, project.formatVersion)
         assertEquals(listOf("photo", project.layers[1].id), project.layers.map { it.id })
         val photo = project.layers[0]
         assertEquals(0f, photo.positionZ)
@@ -451,6 +452,42 @@ class ProjectManagerTest {
         assertEquals(1.5f, ink.spatial!!.guide.radius)
         assertTrue(project.spatialStrokes.isEmpty())
         assertEquals(com.hereliesaz.graffitixr.common.scene.SceneCamera(), project.sceneCamera)
+    }
+
+    @Test
+    fun `a format seven floating-window model loads as a 3D model layer on top`() {
+        val v7 = """{"formatVersion":7,"id":"m","layers":[{"id":"a","name":"A","uri":""}],
+            "modelPath":"/data/user/0/app/files/projects/m/model.obj","modelName":"head.obj",
+            "modelTexturePath":"/data/user/0/app/files/projects/m/model_texture.png"}"""
+        val project = manager.decodeProject(v7)
+        assertEquals(8, project.formatVersion)
+        assertEquals(2, project.layers.size)
+        val model = project.layers.last()
+        assertEquals("head", model.name)
+        assertTrue(model.plane3D)
+        assertEquals("model.obj", model.model!!.objFile)
+        assertEquals("model_texture.png", model.model!!.textureFile)
+        assertNull(project.modelPath)
+        assertNull(project.modelTexturePath)
+        // At the identity plane: facing the default camera through the canvas centre.
+        assertEquals(0f, model.positionZ)
+        assertEquals(0f, model.rotationX)
+        assertEquals(0f, model.rotationY)
+    }
+
+    @Test
+    fun `a format seven project without a model gains no layer, and a model layer round-trips`() {
+        val v7 = """{"formatVersion":7,"id":"m","layers":[{"id":"a","name":"A","uri":""}]}"""
+        assertEquals(listOf("a"), manager.decodeProject(v7).layers.map { it.id })
+        val content = com.hereliesaz.graffitixr.common.scene.ModelLayerContent("model_x.obj", "model_tex_x.png")
+        val project = GraffitiProject(
+            id = "m",
+            layers = listOf(OverlayLayer(id = "x", uri = mockk(relaxed = true), plane3D = true, model = content)),
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
+        assertEquals(content, back.layers.single().model)
+        assertEquals(1, back.layers.size)
     }
 
     @Test
@@ -509,7 +546,7 @@ class ProjectManagerTest {
 
     @Test
     fun `a newer format is never lowered`() {
-        assertEquals(7, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 7), 7).formatVersion)
+        assertEquals(8, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 8), 8).formatVersion)
     }
 
     @Test

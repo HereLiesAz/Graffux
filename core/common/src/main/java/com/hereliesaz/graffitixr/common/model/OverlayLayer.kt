@@ -102,4 +102,6 @@ data class OverlayLayer(
     // Layer.plane3D: made a 3D layer by hand. Absent from older saves: a 2D layer.
     val plane3D: Boolean = false,
     val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
+    // Format 8: a 3D model layer's file names (spec/3d-space.md). Absent from older saves.
+    val model: com.hereliesaz.graffitixr.common.scene.ModelLayerContent? = null,
 )

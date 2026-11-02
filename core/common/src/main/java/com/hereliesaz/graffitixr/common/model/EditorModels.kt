@@ -147,6 +147,11 @@ data class Layer(
      * adjustment layer it is RASTER with no bitmap, so an older build shows it as an empty layer.
      */
     val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
+    /**
+     * A 3D model layer's mesh and painted texture (spec/3d-space.md, "3D model layers"). Null for
+     * every other layer. RASTER with no bitmap, like a 3D strokes layer.
+     */
+    val model: com.hereliesaz.graffitixr.common.scene.ModelLayerContent? = null,
     @Serializable(with = FiniteFloatOrOneSerializer::class)
     val scale: Float = 1.0f,
     /**
@@ -228,11 +233,15 @@ val Layer.isPlacedIn3D: Boolean
  * layer. Only a 3D layer has a rotation axis: X/Y twists and the axis cycler need one.
  */
 val Layer.is3DLayer: Boolean
-    get() = plane3D || isPlacedIn3D || spatial != null
+    get() = plane3D || isPlacedIn3D || spatial != null || model != null
 
 /** A 3D strokes layer (spec/3d-space.md). */
 val Layer.isSpatial: Boolean
     get() = spatial != null
+
+/** A 3D model layer (spec/3d-space.md, "3D model layers"). */
+val Layer.isModel: Boolean
+    get() = model != null
 
 val Layer.isAdjustment: Boolean
     get() = adjustment != null
@@ -668,6 +677,9 @@ data class EditorUiState(
     // scene onto the canvas exactly as the 2D canvas draws. View state, not history.
     val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =
         com.hereliesaz.graffitixr.common.scene.SceneCamera(),
+    // A paint stroke on a 3D model layer in progress (its texture being painted), or null.
+    // Transient, like the live 2D stroke; the depth pass draws it in place of the saved texture.
+    val modelDraft: com.hereliesaz.graffitixr.common.scene.ModelDraft? = null,
 )
 
 

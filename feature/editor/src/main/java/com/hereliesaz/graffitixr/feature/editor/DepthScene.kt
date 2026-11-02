@@ -1,4 +1,4 @@
-@file:Suppress("LoopWithTooManyJumpStatements")
+@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -31,14 +31,28 @@ internal object DepthScene {
         pixels: Pixels,
         vectors: (Layer) -> VectorRaster.Image?,
         draft: Pair<String, SpatialStroke>? = null,
+        modelDraft: com.hereliesaz.graffitixr.common.scene.ModelDraft? = null,
     ): DepthCompositor.Scene {
         val byId = layers.associateBy { it.id }
         val planes = ArrayList<DepthCompositor.Plane>()
         val inks = ArrayList<DepthCompositor.Ink>()
+        val models = ArrayList<DepthCompositor.Model>()
         for (id in plan.memberIds) {
             val layer = byId[id] ?: continue
             val model = SceneMath.chainModel(planeChain(layers, id), width, height)
             val alpha = DepthComposite.effectiveOpacity(layers, id)
+            val content = layer.model
+            if (content != null) {
+                val mesh = content.mesh ?: continue
+                val toScene = model * com.hereliesaz.graffitixr.common.scene.ModelSpace.meshToLocal(mesh, width, height)
+                val painting = modelDraft?.takeIf { it.layerId == id }
+                models += if (painting != null) {
+                    DepthCompositor.Model(id, mesh.mesh, toScene, painting.bitmap, painting.version, alpha, painting.bitmap)
+                } else {
+                    DepthCompositor.Model(id, mesh.mesh, toScene, content.texture?.pixels(), 0L, alpha)
+                }
+                continue
+            }
             val spatial = layer.spatial
             if (spatial != null) {
                 val live = draft?.takeIf { it.first == id }?.second
@@ -58,7 +72,7 @@ internal object DepthScene {
             }
             planes += DepthCompositor.Plane(id, bitmap, token, model, rect, colorMatrixOf(layer), alpha)
         }
-        return DepthCompositor.Scene(SceneMath.frame(camera, width, height), planes, inks)
+        return DepthCompositor.Scene(SceneMath.frame(camera, width, height), planes, inks, models)
     }
 
     /** The canvas's colour adjustment for [layer]; null when it changes nothing. */

@@ -68,7 +68,7 @@ class RailToolGroupsUiTest {
         EFFECT_TOOLS.forEach { tool ->
             val lit = activeRailClassifiers(
                 RailClassifierInputs(
-                    EditorUiState(activeTool = tool), emptyList(), emptyList(), modelWindowOpen = false,
+                    EditorUiState(activeTool = tool), emptyList(), emptyList(),
                 ),
             )
             assertTrue("$tool", RETOUCH_RAIL_ID in lit)

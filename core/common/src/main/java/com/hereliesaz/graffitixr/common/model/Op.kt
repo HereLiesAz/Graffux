@@ -92,4 +92,28 @@ sealed class Op {
         override fun hashCode(): Int =
             (((layerId.hashCode() * 31 + revision) * 31 + width) * 31 + height) * 31 + deflated.contentHashCode()
     }
+
+    /**
+     * A 3D model layer's content, which [LayerAdd] names but cannot carry: the OBJ text deflated
+     * ([objDeflated], null when only the paint changed) and the painted texture as PNG
+     * ([texturePng], null = unpainted). Sent after the LayerAdd that introduces the layer, and
+     * again whenever its paint changes (a stroke, an undo). A peer that predates it drops it.
+     */
+    @Serializable
+    data class ModelData(
+        val layerId: String,
+        val objFile: String,
+        val objDeflated: ByteArray? = null,
+        val texturePng: ByteArray? = null,
+    ) : Op() {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is ModelData) return false
+            return layerId == other.layerId && objFile == other.objFile &&
+                objDeflated.contentEquals(other.objDeflated) && texturePng.contentEquals(other.texturePng)
+        }
+        override fun hashCode(): Int =
+            ((layerId.hashCode() * 31 + objFile.hashCode()) * 31 + objDeflated.contentHashCode()) * 31 +
+                texturePng.contentHashCode()
+    }
 }

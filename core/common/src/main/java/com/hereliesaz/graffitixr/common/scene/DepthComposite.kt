@@ -16,7 +16,7 @@ import com.hereliesaz.graffitixr.common.model.isFrame
  * planes that cross occlude each other pixel by pixel. A depth buffer has no notion of a blend mode
  * or a clipping mask, so a layer needing one stays in the ordinary stack, drawn by HWUI through its
  * homography. Membership:
- * - a 3D strokes layer, always, at its full placement through any groups (its tubes need depth
+ * - a 3D strokes or 3D model layer, always, at its full placement through any groups (its tubes need depth
  *   against the planes, and a group's 3D placement moves them);
  * - a paint, text or vector layer that is on the scene path, composites normally (SrcOver, no clip
  *   to below, no adjustment) and sits only in groups that do too (normal blend, full opacity, and
@@ -44,7 +44,7 @@ data class DepthComposite(
 
         fun plan(layers: List<Layer>, camera: SceneCamera): DepthComposite {
             val sceneIds = SceneRenderPath.sceneLayerIds(layers, camera)
-            if (sceneIds.isEmpty() && layers.none { it.spatial != null }) return EMPTY
+            if (sceneIds.isEmpty() && layers.none { it.spatial != null || it.model != null }) return EMPTY
             val byId = layers.associateBy { it.id }
             fun ancestors(layer: Layer): List<Layer> {
                 val out = ArrayList<Layer>()
@@ -65,7 +65,7 @@ data class DepthComposite(
             val members = layers.filter { layer ->
                 when {
                     layer.isContainer || !visible(layer) -> false
-                    layer.spatial != null -> true
+                    layer.spatial != null || layer.model != null -> true
                     layer.id !in sceneIds -> false
                     layer.adjustment != null -> false
                     layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow -> false

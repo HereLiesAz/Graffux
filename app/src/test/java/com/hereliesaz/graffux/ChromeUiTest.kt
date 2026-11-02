@@ -101,7 +101,7 @@ class ChromeUiTest {
                         ToolRail(
                             vm = actions,
                             uiState = uiState,
-                            lit = activeRailClassifiers(RailClassifierInputs(uiState, emptyList(), emptyList(), false)),
+                            lit = activeRailClassifiers(RailClassifierInputs(uiState, emptyList(), emptyList())),
                             secondary = emptySet(),
                             callbacks = ToolRailCallbacks({ calls += "options" }, { calls += "group:$it" }, { calls += "brushMenu" }),
                             modifier = Modifier.align(Alignment.TopStart).padding(start = RailSideInset, top = RailTopInset),

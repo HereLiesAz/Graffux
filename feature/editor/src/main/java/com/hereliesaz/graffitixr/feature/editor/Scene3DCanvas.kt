@@ -69,6 +69,75 @@ val EditorUiState.spatialStrokeTool: SpatialStrokeTool?
         }
     }
 
+/**
+ * Whether one finger paints on the active 3D model layer's surface (spec/3d-space.md, "3D model
+ * layers"): the brush paints, the eraser erases; null for any other tool or layer.
+ */
+val EditorUiState.modelPaintTool: SpatialStrokeTool?
+    get() {
+        val active = layers.firstOrNull { it.id == activeLayerId } ?: return null
+        if (active.model == null || active.isImageLocked) return null
+        return when (activeTool) {
+            Tool.BRUSH -> SpatialStrokeTool.DRAW
+            Tool.ERASER -> SpatialStrokeTool.ERASE
+            else -> null
+        }
+    }
+
+/** The view-model calls painting a model layer makes; world points (the 2D viewport undone). */
+interface ModelPaintActions {
+    fun start(world: Offset): Boolean
+    fun move(world: Offset)
+    fun end()
+}
+
+fun EditorViewModel.modelPaintActions(): ModelPaintActions = object : ModelPaintActions {
+    override fun start(world: Offset) = onModelPaintStart(world)
+    override fun move(world: Offset) = onModelPaintMove(world)
+    override fun end() = onModelPaintEnd()
+}
+
+/**
+ * One finger on an active 3D model layer with the brush or eraser (spec/3d-space.md, "3D model
+ * layers"): paints the surface under the finger. A second finger ends the stroke and belongs to the
+ * root's navigation (or the Move tool), which this never consumes.
+ */
+@Composable
+internal fun ModelPaintCanvas(actions: ModelPaintActions, uiState: EditorUiState, modifier: Modifier = Modifier) {
+    val state by rememberUpdatedState(uiState)
+    val currentActions by rememberUpdatedState(actions)
+    Box(
+        modifier
+            .testTag("scene3d.modelPaint")
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val actions = currentActions
+                    val st = state
+                    fun world(p: Offset) = CanvasHitTest.screenToWorld(p, st.viewportOffset, st.viewportZoom, st.viewportRotation)
+                    var painting = actions.start(world(down.position))
+                    if (painting) down.consume()
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pressed = event.changes.filter { it.pressed }
+                        if (pressed.isEmpty()) break
+                        if (pressed.size >= 2) {
+                            if (painting) actions.end()
+                            painting = false
+                            break
+                        }
+                        if (painting) {
+                            val change = pressed.first()
+                            actions.move(world(change.position))
+                            change.consume()
+                        }
+                    }
+                    if (painting) actions.end()
+                }
+            },
+    )
+}
+
 /** The view-model calls a 3D strokes layer makes, as an interface tests can fake. */
 interface Scene3DActions {
     fun spatialStroke(layerId: String, stroke: SpatialStroke)
@@ -232,7 +301,7 @@ internal fun DepthPass(
     val live = liveStroke.value
     // Rasterized once per shape list and canvas size, not per frame.
     val vectorCache = remember { VectorRasterCache() }
-    val depthScene = remember(uiState.layers, scene, live.layerId, live.version, live.bitmap) {
+    val depthScene = remember(uiState.layers, scene, live.layerId, live.version, live.bitmap, uiState.modelDraft) {
         DepthScene.build(
             uiState.layers, scene.depth, scene.camera, frame.width, frame.height,
             pixels = { layer ->
@@ -244,6 +313,7 @@ internal fun DepthPass(
             },
             vectors = { layer -> vectorCache.get(layer, frame.width, frame.height) },
             draft = scene.draft?.let { d -> scene.draftLayerId?.let { it to d } },
+            modelDraft = uiState.modelDraft,
         )
     }
     Box(modifier) {

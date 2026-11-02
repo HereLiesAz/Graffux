@@ -530,7 +530,7 @@ fun EditorScreen(
             LiveStrokeOverlayHost(vm, overlayGeometry, Modifier.fillMaxSize())
         }
         val canPaintActiveLayer = activeLayer != null && !activeLayerLocked &&
-            activeLayer.spatial == null
+            activeLayer.spatial == null && activeLayer.model == null
         if (canPaintActiveLayer && inkUtensil != null && vm.usesJetpackInk(uiState)) {
             com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
                 screenToWorld = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.screenToWorld(
@@ -781,6 +781,11 @@ fun EditorScreen(
             Scene3DCanvas(uiState, scene3DActions, spatialDraft, Modifier.fillMaxSize())
             Scene3DToolbar(uiState, scene3DActions, Modifier.align(Alignment.TopCenter).padding(top = 72.dp))
         }
+        // A 3D model layer under the brush or eraser: one finger paints its surface (spec/3d-space.md).
+        if (uiState.modelPaintTool != null) {
+            val modelActions = remember(vm) { vm.modelPaintActions() }
+            ModelPaintCanvas(modelActions, uiState, Modifier.fillMaxSize())
+        }
 
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
         // with the colour currently under it; screen-space overlay, purely visual.
@@ -975,8 +980,8 @@ private fun LayerStackNode(
                     }
                 }
             }
-        } else if (layer.spatial != null) {
-            // Every visible 3D strokes layer is a depth-pass member; nothing more to draw here.
+        } else if (layer.spatial != null || layer.model != null) {
+            // Every visible 3D strokes or model layer is a depth-pass member; nothing more to draw here.
         } else {
             // Vector layer: drawn from its shapes via Canvas. (A raster layer's bitmap path below
             // no-ops for it, since a vector layer carries no bitmap.)

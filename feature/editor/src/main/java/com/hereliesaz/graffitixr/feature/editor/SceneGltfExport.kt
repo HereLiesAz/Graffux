@@ -13,7 +13,8 @@ import com.hereliesaz.graffitixr.common.scene.planeChain
 
 /**
  * The whole 3D space as glTF input (spec/3d-space.md, "Export"): every visible paint, text and
- * vector layer as a textured quad at its placement, every 3D strokes layer as its tube mesh, and
+ * vector layer as a textured quad at its placement, every 3D strokes layer as its tube mesh, every
+ * 3D model layer as its mesh with UVs and painted texture, and
  * the camera when [includeCamera]. Vector layers are rasterized ([VectorRaster]).
  */
 internal fun buildSceneGltf(
@@ -44,11 +45,23 @@ internal fun buildSceneGltf(
     }
     val quads = ArrayList<SceneGltfExporter.Quad>()
     val strokes = ArrayList<SceneGltfExporter.Strokes>()
+    val models = ArrayList<SceneGltfExporter.Model>()
     for (layer in state.layers) {
         if (layer.isContainer || !chainVisible(layer)) continue
         val model = SceneMath.chainModel(
             planeChain(state.layers, layer.id), w, h,
         )
+        val content = layer.model
+        if (content != null) {
+            val mesh = content.mesh ?: continue
+            models += SceneGltfExporter.Model(
+                layer.name, mesh.mesh,
+                model * com.hereliesaz.graffitixr.common.scene.ModelSpace.meshToLocal(mesh, w, h),
+                content.texture?.pixels()?.let(::modelTexturePng),
+                chainOpacity(layer),
+            )
+            continue
+        }
         val spatial = layer.spatial
         if (spatial != null) {
             if (spatial.strokes.isNotEmpty()) {
@@ -85,6 +98,18 @@ internal fun buildSceneGltf(
         )
     }
     return SceneGltfExporter.Scene(
-        w, h, quads, strokes, state.sceneCamera.takeIf { includeCamera },
+        w, h, quads, strokes, state.sceneCamera.takeIf { includeCamera }, models,
     )
+}
+
+/** A model's paint over its base colour, as the canvas shows it, as an opaque PNG. */
+internal fun modelTexturePng(paint: Bitmap): ByteArray {
+    val c = SceneGltfExporter.MODEL_BASE_COLOR
+    val out = Bitmap.createBitmap(paint.width, paint.height, Bitmap.Config.ARGB_8888)
+    out.eraseColor(android.graphics.Color.rgb((c[0] * 255).toInt(), (c[1] * 255).toInt(), (c[2] * 255).toInt()))
+    android.graphics.Canvas(out).drawBitmap(paint, 0f, 0f, null)
+    return java.io.ByteArrayOutputStream().also {
+        out.compress(Bitmap.CompressFormat.PNG, 100, it)
+        out.recycle()
+    }.toByteArray()
 }
