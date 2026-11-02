@@ -12,7 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.BlendMode
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /**
  * The compositing modes offered by the picker, with human labels. This is the standard
@@ -50,8 +51,8 @@ fun BlendModePicker(
     onSelect: (BlendMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    FloatingWindow(title = "Blend mode", onDismiss = onDismiss) {
-        // Plain Column, not LazyColumn: this window's content already sits inside FloatingWindow's
+    ToolSurface(kind = SurfaceKind.PICKER, title = "Blend mode", onDismiss = onDismiss) {
+        // Plain Column, not LazyColumn: this window's content already sits inside ToolSurface's
         // own scrollable Column, and a lazy list nested there is built on SubcomposeLayout --
         // AzWindow's sizing asks its content for an intrinsic measurement, which Compose refuses
         // to do across a SubcomposeLayout boundary, crashing the instant this window opened. A

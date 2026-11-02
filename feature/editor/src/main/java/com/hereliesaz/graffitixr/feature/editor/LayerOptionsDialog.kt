@@ -18,7 +18,8 @@ import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.ShapeKind
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import com.hereliesaz.graffitixr.design.theme.NavStrings
 import kotlin.math.roundToInt
 
@@ -60,7 +61,7 @@ fun LayerOptionsDialog(
     // reports neither "drag started" nor how many fingers are still down, so this is the only way
     // to fire onEditStart exactly once per drag instead of once per emitted value.
     var isDraggingGap by remember { mutableStateOf(false) }
-    FloatingWindow(title = "Edit", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.PICKER, title = "Edit", onDismiss = onDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),

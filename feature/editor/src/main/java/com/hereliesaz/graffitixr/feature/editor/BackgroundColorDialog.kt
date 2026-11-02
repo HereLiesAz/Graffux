@@ -21,7 +21,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /** Canvas-background swatch palette: neutrals plus a few tints. */
 private val BACKGROUND_COLORS = listOf(
@@ -49,7 +50,7 @@ fun BackgroundColorDialog(
     onSelect: (Color) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    FloatingWindow(title = "Background", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.PICKER, title = "Background", onDismiss = onDismiss) {
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
