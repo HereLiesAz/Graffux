@@ -5111,10 +5111,9 @@ class EditorViewModel @Inject constructor(
 
     override fun onLayerActivated(id: String) = dispatch(EditorIntent.ActivateLayer(id))
 
-    /** Whether the active layer is a 3D layer ([is3DLayer]); only one has a rotation axis. */
+    /** Whether the active layer is a 3D layer ([is3DIn]); only one has a rotation axis. */
     private fun EditorUiState.active3D(): Boolean =
-        layers.firstOrNull { it.id == activeLayerId }?.is3DLayer == true ||
-            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, activeLayerId) != null
+        layers.firstOrNull { it.id == activeLayerId }?.is3DIn(layers) == true
 
     /**
      * A double-tap on the canvas: steps the rotation axis X -> Y -> Z on a 3D layer, and does
@@ -5127,31 +5126,19 @@ class EditorViewModel @Inject constructor(
 
     /**
      * The rail's axis slot: on a 3D layer it steps the axis; on a 2D layer (where it reads "3D")
-     * it makes that layer 3D.
-     */
-    fun onAxisSlotTapped() {
-        if (_uiState.value.active3D()) onCycleRotationAxis() else makeActiveLayer3D()
-    }
-
-    /**
-     * The active 2D layer becomes a 3D layer (spec/3d-space.md, "2D and 3D layers"), as one undo
-     * step, starting on axis Z. Its plane is untouched; there is no way back to 2D by design.
+     * it arms "Draw surface" on the layer's group (the group itself when a group is active), the
+     * way into 3D since groups own surfaces. A layer in no group has nothing to arm.
      */
     @Suppress("ReturnCount")
-    fun makeActiveLayer3D() {
+    fun onAxisSlotTapped() {
         val st = _uiState.value
-        val id = st.activeLayerId ?: return
-        val layer = st.layers.firstOrNull { it.id == id } ?: return
-        if (layer.is3DLayer) return
-        pushHistory()
-        updateUi { s ->
-            s.copy(
-                layers = LayerListOps.mapLayer(s.layers, id) { it.copy(plane3D = true) },
-                activeRotationAxis = RotationAxis.Z,
-            )
+        if (st.active3D()) {
+            onCycleRotationAxis()
+            return
         }
-        emitActiveLayerProps()
-        saveProject()
+        val active = st.layers.firstOrNull { it.id == st.activeLayerId } ?: return
+        val groupId = if (active.isContainer) active.id else active.parentId ?: return
+        onArmSurfaceDraw(groupId)
     }
 
     fun onRotateLayerHandle(degreesDelta: Float) {
@@ -12167,8 +12154,7 @@ class EditorViewModel @Inject constructor(
         updateUi { s ->
             s.copy(
                 layers = LayerListOps.mapLayer(s.layers, id) {
-                    // Flat again, but still a 3D layer: there is no way back to 2D.
-                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f, plane3D = true)
+                    it.copy(positionZ = 0f, rotationX = 0f, rotationY = 0f)
                 },
             )
         }
@@ -12209,6 +12195,9 @@ class EditorViewModel @Inject constructor(
         ) ?: return
         setSurface(groupId, profile)
     }
+
+    /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
+    fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
 
     /** "Flatten surface": the group's profile is cleared and its layers are flat 2D again. */
     fun onFlattenSurface(groupId: String) {
@@ -12412,7 +12401,6 @@ class EditorViewModel @Inject constructor(
         val layer = Layer(
             id = layerId,
             name = name,
-            plane3D = true,
             offset = Offset(pose.offsetX, pose.offsetY),
             positionZ = pose.positionZ,
             rotationX = pose.rotationX,
@@ -14165,7 +14153,7 @@ class EditorViewModel @Inject constructor(
                     flat.copy(
                         offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
                         rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
-                        scale = pose.scale, plane3D = true,
+                        scale = pose.scale,
                     )
                 }
             }

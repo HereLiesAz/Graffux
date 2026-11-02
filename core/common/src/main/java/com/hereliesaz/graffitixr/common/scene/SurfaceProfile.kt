@@ -133,6 +133,13 @@ object SurfaceMath {
         return !layer.isContainer && ownerOf(layers, layerId) != null
     }
 
+    /**
+     * The group whose guide grid shows: the active layer's surface group, while [visible] (the
+     * toggle) is on; null otherwise. At most one grid, and never another group's.
+     */
+    fun gridGroupId(layers: List<Layer>, activeId: String?, visible: Boolean): String? =
+        if (visible) ownerOf(layers, activeId)?.group?.id else null
+
     /** Every layer drawn on a group surface. */
     fun surfaceLayerIds(layers: List<Layer>): Set<String> {
         if (layers.none { it.isContainer && it.surface != null }) return emptySet()

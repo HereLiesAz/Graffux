@@ -23,6 +23,8 @@ data class LayerMenuStrings(
     val drawSurface: String,
     /** A group's "Flatten surface": clears its profile. */
     val flattenSurface: String,
+    /** The surface guide grid toggle, on a layer on a surface or its group. */
+    val surfaceGrid: String,
     val layerOptions: String,
     val rename: String,
     val moveUp: String,
@@ -87,6 +89,7 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     resetPlane = stringResource(R.string.layer_menu_reset_plane),
     drawSurface = stringResource(R.string.layer_menu_draw_surface),
     flattenSurface = stringResource(R.string.layer_menu_flatten_surface),
+    surfaceGrid = stringResource(R.string.layer_menu_surface_grid),
     layerOptions = stringResource(R.string.layer_menu_layer_options),
     rename = stringResource(R.string.layer_menu_rename),
     moveUp = stringResource(R.string.layer_menu_move_up),

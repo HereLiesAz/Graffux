@@ -149,4 +149,35 @@ class SurfaceProfileTest {
         assertTrue(json.contains("\"count\":$n,\"type\":\"VEC3\""))
         assertTrue(n > 6)
     }
+
+    @Test
+    fun `only the active layer's group shows its grid, and only while the toggle is on`() {
+        val floor = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)
+        val layers = listOf(
+            Layer("a", "A", type = LayerType.GROUP, surface = floor), Layer("a1", "A1", parentId = "a"),
+            Layer("b", "B", type = LayerType.GROUP, surface = floor), Layer("b1", "B1", parentId = "b"),
+            Layer("flat", "Flat"),
+        )
+        assertEquals("a", SurfaceMath.gridGroupId(layers, "a1", visible = true))
+        assertEquals("b", SurfaceMath.gridGroupId(layers, "b1", visible = true))
+        assertEquals("b", SurfaceMath.gridGroupId(layers, "b", visible = true))
+        assertNull(SurfaceMath.gridGroupId(layers, "flat", visible = true))
+        assertNull(SurfaceMath.gridGroupId(layers, "a1", visible = false))
+    }
+
+    @Test
+    fun `the grid follows the surface in perspective`() {
+        val p = SurfaceMath.capture(ell, camera, w, h, identity)!!
+        val cam = SceneMath.frame(camera, w, h)
+        val lines = SurfaceMath.gridLines(p, Affine3.IDENTITY, cam)
+        assertTrue(lines.size > 10)
+        // The first profile line is the stroke itself; sweep lines run toward the vanishing point.
+        val first = lines.first()
+        assertEquals(200f, first[0], 0.5f)
+        assertEquals(200f, first[1], 0.5f)
+        val sweep = lines.last()
+        assertEquals(p.length, 800f, 1f)
+        assertTrue(kotlin.math.abs(sweep[2] - w / 2f) < kotlin.math.abs(sweep[0] - w / 2f))
+        assertTrue(kotlin.math.abs(sweep[3] - h / 2f) < kotlin.math.abs(sweep[1] - h / 2f))
+    }
 }

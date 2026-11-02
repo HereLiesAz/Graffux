@@ -99,8 +99,8 @@ data class OverlayLayer(
     // Format 7 (spec/3d-space.md): the plane's depth in the 3D space, and a 3D strokes layer's
     // ink. Absent from older saves: depth 0, not a strokes layer.
     val positionZ: Float = 0f,
-    // Layer.plane3D: made a 3D layer by hand. Absent from older saves: a 2D layer.
-    val plane3D: Boolean = false,
+    // The retired per-layer `plane3D` flag (formats 7-8) is ignored on load: such a layer is flat
+    // unless placed in 3D or on a group surface (spec/3d-space.md, "Group surfaces").
     val spatial: com.hereliesaz.graffitixr.common.scene.SpatialLayerContent? = null,
     // Format 8: a 3D model layer's file names (spec/3d-space.md). Absent from older saves.
     val model: com.hereliesaz.graffitixr.common.scene.ModelLayerContent? = null,

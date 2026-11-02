@@ -376,7 +376,6 @@ class ProjectManager @Inject constructor(
         val layer = com.hereliesaz.graffitixr.common.model.OverlayLayer(
             name = project.modelName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "3D model",
             uri = android.net.Uri.parse(""),
-            plane3D = true,
             model = com.hereliesaz.graffitixr.common.scene.ModelLayerContent(objName, textureName),
         )
         return cleared.copy(layers = cleared.layers + layer)
