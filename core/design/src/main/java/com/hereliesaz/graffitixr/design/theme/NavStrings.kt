@@ -19,6 +19,7 @@ fun rememberNavStrings(): NavStrings {
         redo = stringResource(R.string.adj_redo),
         dodge = stringResource(R.string.nav_dodge),
         burn = stringResource(R.string.nav_burn),
+        rotateLayer = stringResource(R.string.nav_rotate_layer),
     )
 }
 
@@ -35,4 +36,5 @@ data class NavStrings(
     val redo: String,
     val dodge: String,
     val burn: String,
+    val rotateLayer: String,
 )

@@ -24,6 +24,7 @@
     <string name="nav_share">Share</string>
     <!-- Action label for the dodge/lighten tool. -->
     <string name="nav_dodge">Dodge</string>
+    <string name="nav_rotate_layer">Rotate layer</string>
     <!-- Action label for the burn/darken tool. -->
     <string name="nav_burn">Burn</string>
 
