@@ -616,6 +616,9 @@ private fun previewStamps(
 ): List<PreviewStamp> {
     val canvasWidth = canvasSize.width
     val canvasHeight = canvasSize.height
+    // Too small to hold the smallest dab (a card squeezed by large fonts): draw nothing rather
+    // than hand coerceIn an empty range, which throws.
+    if (canvasWidth <= 0f || canvasHeight * 0.9f < 4f) return emptyList()
     val diameter = (sizeOverridePx ?: (canvasHeight / 3f)).coerceIn(4f, canvasHeight * 0.9f)
     // Always route through dynamicDabs(), which itself falls back to the plain dabs() path
     // when nothing dynamic is configured (see its own doc comment) -- picking between the two

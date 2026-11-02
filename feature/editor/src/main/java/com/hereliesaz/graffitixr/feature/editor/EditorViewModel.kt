@@ -13934,7 +13934,8 @@ class EditorViewModel @Inject constructor(
      *  extension may now bundle more than one brush. A malformed id (missing the separator, or a
      *  non-numeric index) is treated as "not found", same as an id for an extension that was
      *  uninstalled since the picker was drawn. */
-    fun selectBrushExtension(compositeId: String?) {
+    /** [onLoaded] runs on the main thread once the brush is in hand (not when the load fails). */
+    fun selectBrushExtension(compositeId: String?, onLoaded: (() -> Unit)? = null) {
         if (compositeId == null) {
             _activeInkUtensil.value = null
             activeStampBrush = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.round
@@ -13944,6 +13945,7 @@ class EditorViewModel @Inject constructor(
             dispatch(
                 EditorIntent.SetActiveBrush(com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.DEFAULT_NAME),
             )
+            onLoaded?.invoke()
             return
         }
         val separatorIndex = compositeId.lastIndexOf(BRUSH_ASSET_ID_SEPARATOR)
@@ -13967,6 +13969,7 @@ class EditorViewModel @Inject constructor(
                     activeStampMaskShape = runtime.maskShape
                     dispatch(EditorIntent.SetActiveBrush(runtime.brush.name))
                     setActiveTool(Tool.BRUSH)
+                    onLoaded?.invoke()
                 }
             }
         }

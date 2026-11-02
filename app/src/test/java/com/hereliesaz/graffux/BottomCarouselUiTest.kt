@@ -200,8 +200,10 @@ class BottomCarouselUiTest {
         assertTrue(count(CarouselTier.SMALL) >= 2)
         // The hero is the active brush, so it wears the accent highlight; nothing else does.
         assertEquals(1, tagged("carousel.hero.active"))
-        // Details render only on the hero card, so exactly one card carries a details line.
-        assertEquals(1, rule.onAllNodesWithText("Built-in · Basics").fetchSemanticsNodes().size)
+        // Brush cards share one face: no description lines, a type line on the hero and mediums.
+        assertEquals(0, rule.onAllNodesWithText("Built-in · Basics").fetchSemanticsNodes().size)
+        val types = rule.onAllNodesWithTag("carousel.brushcard.type", useUnmergedTree = true)
+        assertEquals(3, types.fetchSemanticsNodes().size)
         // And it is the selected brush's card: its name is on screen.
         assertTrue(rule.onAllNodesWithText(selectedName).fetchSemanticsNodes().isNotEmpty())
 
