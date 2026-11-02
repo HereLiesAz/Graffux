@@ -301,7 +301,14 @@ internal fun DepthPass(
     val live = liveStroke.value
     // Rasterized once per shape list and canvas size, not per frame.
     val vectorCache = remember { VectorRasterCache() }
-    val depthScene = remember(uiState.layers, scene, live.layerId, live.version, live.bitmap, uiState.modelDraft) {
+    val activeId = uiState.activeLayerId
+    // A stroke in progress on the active layer: paint, 3D ink or a model's texture.
+    val drawing = activeId != null && (
+        (live.layerId == activeId && live.bitmap != null) ||
+            scene.draftLayerId == activeId && scene.draft != null ||
+            uiState.modelDraft?.layerId == activeId
+        )
+    val depthScene = remember(uiState.layers, scene, live.layerId, live.version, live.bitmap, uiState.modelDraft, activeId, drawing) {
         DepthScene.build(
             uiState.layers, scene.depth, scene.camera, frame.width, frame.height,
             pixels = { layer ->
@@ -314,6 +321,8 @@ internal fun DepthPass(
             vectors = { layer -> vectorCache.get(layer, frame.width, frame.height) },
             draft = scene.draft?.let { d -> scene.draftLayerId?.let { it to d } },
             modelDraft = uiState.modelDraft,
+            activeId = activeId,
+            drawing = drawing,
         )
     }
     Box(modifier) {

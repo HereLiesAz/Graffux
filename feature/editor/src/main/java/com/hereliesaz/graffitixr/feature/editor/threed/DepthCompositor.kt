@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "TooManyFunctions", "LongMethod", "MaxLineLength", "LongParameterList", "ComplexCondition", "ReturnCount", "DestructuringDeclarationWithTooManyEntries")
+@file:Suppress("MagicNumber", "TooManyFunctions", "CyclomaticComplexMethod", "LongMethod", "MaxLineLength", "LongParameterList", "ComplexCondition", "ReturnCount", "DestructuringDeclarationWithTooManyEntries")
 
 package com.hereliesaz.graffitixr.feature.editor.threed
 
@@ -12,6 +12,8 @@ import com.hereliesaz.graffitixr.common.mesh.SpatialStroke
 import com.hereliesaz.graffitixr.common.scene.Affine3
 import com.hereliesaz.graffitixr.common.scene.CameraFrame
 import com.hereliesaz.graffitixr.common.scene.DepthComposite
+import com.hereliesaz.graffitixr.common.scene.DepthSplit
+import com.hereliesaz.graffitixr.common.scene.SplitCache
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -38,6 +40,10 @@ import javax.microedition.khronos.opengles.GL10
  * Fully transparent texels are discarded so a layer's empty area never hides what is behind it.
  * Output is premultiplied over transparent, which is what a TextureView (and the export readback)
  * composites.
+ *
+ * While a stroke is in progress on a member, the others may come from the inactive-layer cache:
+ * one texture of the members behind the active layer and one of those in front, split by depth
+ * from the current view (spec/3d-space.md, "Inactive-layer cache").
  */
 class DepthCompositor : GLSurfaceView.Renderer {
     /** A paint layer: its image, where the image sits in its box, and the box's placement. */
@@ -52,10 +58,12 @@ class DepthCompositor : GLSurfaceView.Renderer {
         /** The canvas's 4x5 colour matrix (row-major, offsets in 0..255), or null for none. */
         val colorMatrix: FloatArray?,
         val alpha: Float,
+        /** What the inactive-layer cache compares (size-independent); null = never cached. */
+        val key: Any? = null,
     )
 
     /** A 3D strokes layer: its tubes and the map from stroke units into the scene. */
-    class Ink(val id: String, val strokes: List<SpatialStroke>, val toScene: Affine3, val alpha: Float)
+    class Ink(val id: String, val strokes: List<SpatialStroke>, val toScene: Affine3, val alpha: Float, val key: Any? = null)
 
     /**
      * A 3D model layer: its mesh, the map from mesh coordinates into the scene, and its paint.
@@ -70,15 +78,47 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val textureToken: Long,
         val alpha: Float,
         val lock: Any? = null,
+        val key: Any? = null,
     )
 
-    class Scene(val camera: CameraFrame, val planes: List<Plane>, val inks: List<Ink>, val models: List<Model> = emptyList())
+    /**
+     * [activeId] is the layer being drawn on, [drawing] whether a stroke is in progress on it, and
+     * [viewKey] the view (the camera, not the canvas size): with all three, the inactive-layer
+     * cache may draw the members behind and in front of the active layer from two renders
+     * (spec/3d-space.md, "Inactive-layer cache"). The export leaves them null.
+     */
+    class Scene(
+        val camera: CameraFrame,
+        val planes: List<Plane>,
+        val inks: List<Ink>,
+        val models: List<Model> = emptyList(),
+        val activeId: String? = null,
+        val drawing: Boolean = false,
+        val viewKey: Any? = null,
+    )
+
+    /** One member in the uncached draw order; [blended] members draw without depth writes. */
+    class Draw(val id: String, val member: Any, val blended: Boolean)
 
     @Volatile var scene: Scene? = null
 
     private var quadProgram = 0
     private var inkProgram = 0
     private var modelProgram = 0
+    private var blitProgram = 0
+
+    /** The behind and front renders: colour textures the size of the viewport they were built at. */
+    private class Target(val texture: Int, val w: Int, val h: Int)
+
+    private val cache = com.hereliesaz.graffitixr.common.scene.SplitCache<Target> {
+        GLES30.glDeleteTextures(1, intArrayOf(it.texture), 0)
+    }
+    private val rest = com.hereliesaz.graffitixr.common.scene.RestGate()
+    private val inkBounds = HashMap<String, Pair<List<SpatialStroke>, FloatArray?>>()
+    private val meshBounds = HashMap<String, Pair<com.hereliesaz.graffitixr.common.mesh.Mesh, FloatArray?>>()
+
+    /** How many inactive-layer renders exist (at most two). */
+    val cachedRenders: Int get() = cache.liveCount
     private val modelMeshes = HashMap<String, ModelBuffers>()
     private val modelTextures = HashMap<String, Texture>()
     private val textures = HashMap<String, Texture>()
@@ -98,7 +138,9 @@ class DepthCompositor : GLSurfaceView.Renderer {
         meshes.clear()
         modelMeshes.clear()
         modelTextures.clear()
+        cache.abandon()
         quadProgram = program(QUAD_VS, QUAD_FS)
+        blitProgram = program(BLIT_VS, BLIT_FS)
         inkProgram = program(INK_VS, INK_FS)
         modelProgram = program(MODEL_VS, MODEL_FS)
     }
@@ -115,39 +157,178 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glDepthMask(true)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s = scene ?: return
-        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0) return
+        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0 || blitProgram == 0) return
         release(s)
+        val order = drawOrder(s)
+        if (drawCached(s, order)) return
+        beginPass()
+        drawMembers(order, s.camera) { true }
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+    }
+
+    private fun beginPass() {
         GLES30.glEnable(GLES30.GL_DEPTH_TEST)
         GLES30.glDepthFunc(GLES30.GL_LEQUAL)
         GLES30.glDisable(GLES30.GL_CULL_FACE)
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
-        for (ink in s.inks) drawInk(ink, s.camera)
-        // Opaque geometry first, writing depth: the ink, opaque models, then opaque planes farthest
-        // first. Translucent planes and models follow in one back-to-front pass without depth
-        // writes, so each blends over whatever is behind it, translucent or not.
-        val (opaque, translucent) = s.models.partition { it.alpha >= 1f }
-        for (model in opaque) drawModel(model, s.camera)
-        val depths = s.planes.associate { p ->
-            val cx = (p.rect[0] + p.rect[2]) / 2f
-            val cy = (p.rect[1] + p.rect[3]) / 2f
-            p.id to s.camera.toCamera(p.model.apply(cx, cy, 0f))[2]
-        }
-        val byId = s.planes.associateBy { it.id }
-        val (solidPlanes, clearPlanes) = s.planes.partition { it.alpha >= 1f }
-        for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) drawPlane(byId.getValue(id), s.camera)
-        val blended = translucentOrder(clearPlanes, translucent, s.camera)
-        if (blended.isNotEmpty()) {
-            GLES30.glDepthMask(false)
-            for (item in blended) {
-                when (item) {
-                    is Plane -> drawPlane(item, s.camera)
-                    is Model -> drawModel(item, s.camera)
-                }
+    }
+
+    /** The members [include] admits, in [order]; the blended ones without depth writes. */
+    private fun drawMembers(order: List<Draw>, cam: CameraFrame, include: (String) -> Boolean) {
+        var masked = false
+        for (d in order) {
+            if (!include(d.id)) continue
+            if (d.blended != masked) {
+                GLES30.glDepthMask(!d.blended)
+                masked = d.blended
             }
-            GLES30.glDepthMask(true)
+            when (val m = d.member) {
+                is Ink -> drawInk(m, cam)
+                is Plane -> drawPlane(m, cam)
+                is Model -> drawModel(m, cam)
+            }
         }
+        GLES30.glDepthMask(true)
+    }
+
+    /**
+     * The inactive-layer cache (spec/3d-space.md, "Inactive-layer cache"): behind render, the
+     * active layer live, front render. False when this frame is drawn the ordinary way: no active
+     * member, the camera moving, a member crossing the active plane, or nothing worth caching.
+     */
+    private fun drawCached(s: Scene, order: List<Draw>): Boolean {
+        val activeId = s.activeId
+        cache.select(activeId)
+        val viewKey = s.viewKey
+        if (activeId == null || viewKey == null) return false
+        if (!rest.settled(viewKey)) {
+            cache.dumpAll()
+            return false
+        }
+        val split = DepthSplit.classify(s.camera, activeId, splitMembers(s), order.map { it.id })
+        if (split !is DepthSplit.Split) {
+            cache.dumpAll()
+            return false
+        }
+        val keys = order.associate { it.id to memberKey(it.member) }
+        fun side(slot: SplitCache.Slot, ids: List<String>): Target? {
+            val memberKeys = ids.map { keys[it] ?: return null.also { cache.dump(slot) } }
+            if (ids.isEmpty()) return null.also { cache.dump(slot) }
+            val set = ids.toHashSet()
+            return cache.get(slot, listOf(viewKey, ids, memberKeys)) {
+                if (s.drawing) buildTarget(order, s.camera) { it in set } else null
+            }
+        }
+        val behind = side(SplitCache.Slot.BEHIND, split.behind)
+        val front = side(SplitCache.Slot.FRONT, split.front)
+        if (behind == null && front == null) return false
+        val behindSet = split.behind.toHashSet()
+        val frontSet = split.front.toHashSet()
+        // Nothing behind can occlude the active layer (it is all beyond its plane), and nothing
+        // in front can be occluded by either, so the renders need no depth here.
+        if (behind != null) blit(behind) else { beginPass(); drawMembers(order, s.camera) { it in behindSet } }
+        beginPass()
+        drawMembers(order, s.camera) { it == activeId }
         GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        if (front != null) blit(front) else { beginPass(); drawMembers(order, s.camera) { it in frontSet }; GLES30.glDisable(GLES30.GL_DEPTH_TEST) }
+        return true
+    }
+
+    private fun memberKey(member: Any): Any? = when (member) {
+        is Plane -> member.key?.let { listOf(it, System.identityHashCode(member.bitmap), member.bitmap.generationId, member.contentToken) }
+        is Ink -> member.key?.let { listOf(it, System.identityHashCode(member.strokes)) }
+        is Model -> member.key?.let {
+            listOf(it, System.identityHashCode(member.mesh), member.texture?.let(System::identityHashCode), member.texture?.generationId, member.textureToken)
+        }
+        else -> null
+    }
+
+    /** Bounding points of every member in scene coordinates, for the depth split. */
+    private fun splitMembers(s: Scene): List<DepthSplit.Member> {
+        val out = ArrayList<DepthSplit.Member>(s.planes.size + s.inks.size + s.models.size)
+        for (p in s.planes) {
+            val (l, t, r, b) = p.rect.toList()
+            out += DepthSplit.Member(p.id, listOf(p.model.apply(l, t, 0f), p.model.apply(r, t, 0f), p.model.apply(r, b, 0f), p.model.apply(l, b, 0f)), planar = true)
+        }
+        for (ink in s.inks) {
+            val cached = inkBounds[ink.id]?.takeIf { it.first === ink.strokes }
+            val box = cached?.second ?: inkBox(ink.strokes).also { inkBounds[ink.id] = ink.strokes to it }
+            out += DepthSplit.Member(ink.id, box?.let { DepthSplit.boxCorners(it, ink.toScene) } ?: emptyList(), planar = false)
+        }
+        for (m in s.models) {
+            val cached = meshBounds[m.id]?.takeIf { it.first === m.mesh }
+            val box = cached?.second ?: m.mesh.bounds().also { meshBounds[m.id] = m.mesh to it }
+            out += DepthSplit.Member(m.id, box?.let { DepthSplit.boxCorners(it, m.toScene) } ?: emptyList(), planar = false)
+        }
+        inkBounds.keys.retainAll(s.inks.mapTo(HashSet()) { it.id })
+        meshBounds.keys.retainAll(s.models.mapTo(HashSet()) { it.id })
+        return out
+    }
+
+    /** Renders the admitted members into a new colour texture the size of the viewport. */
+    private fun buildTarget(order: List<Draw>, cam: CameraFrame, include: (String) -> Boolean): Target? {
+        val w = viewportW
+        val h = viewportH
+        val ids = IntArray(1)
+        GLES30.glGenTextures(1, ids, 0)
+        val tex = ids[0]
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, w, h, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+        GLES30.glGenRenderbuffers(1, ids, 0)
+        val depth = ids[0]
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, depth)
+        GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT24, w, h)
+        GLES30.glGenFramebuffers(1, ids, 0)
+        val fbo = ids[0]
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, tex, 0)
+        GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, depth)
+        val complete = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE
+        if (complete) {
+            GLES30.glViewport(0, 0, w, h)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClearDepthf(1f)
+            GLES30.glDepthMask(true)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+            beginPass()
+            drawMembers(order, cam, include)
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        }
+        // The depth attachment only orders the members inside the render; composing needs none.
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        GLES30.glDeleteFramebuffers(1, intArrayOf(fbo), 0)
+        GLES30.glDeleteRenderbuffers(1, intArrayOf(depth), 0)
+        if (!complete) {
+            GLES30.glDeleteTextures(1, intArrayOf(tex), 0)
+            return null
+        }
+        return Target(tex, w, h)
+    }
+
+    /**
+     * A render over what is drawn, premultiplied source-over. At its own size it is copied texel
+     * for texel; after a resize it is scaled into the new viewport rather than rebuilt.
+     */
+    private fun blit(t: Target) {
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA)
+        GLES30.glUseProgram(blitProgram)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.texture)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(blitProgram, "uTex"), 0)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(blitProgram, "uExact"), if (t.w == viewportW && t.h == viewportH) 1 else 0)
+        val aPos = GLES30.glGetAttribLocation(blitProgram, "aPos")
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        GLES30.glEnableVertexAttribArray(aPos)
+        GLES30.glVertexAttribPointer(aPos, 2, GLES30.GL_FLOAT, false, 0, FULL_SCREEN)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_FAN, 0, 4)
+        GLES30.glDisableVertexAttribArray(aPos)
     }
 
     /** Frees what no member uses any more. */
@@ -398,6 +579,69 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     companion object {
         private const val TAG = "DepthCompositor"
+
+        private val FULL_SCREEN: FloatBuffer =
+            ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                put(floatArrayOf(-1f, -1f, 1f, -1f, 1f, 1f, -1f, 1f)); flip()
+            }
+
+        /**
+         * The uncached draw order: the ink, opaque models, then opaque planes farthest first, all
+         * writing depth; then translucent planes and models in one back-to-front pass without depth
+         * writes, so each blends over whatever is behind it, translucent or not.
+         */
+        fun drawOrder(s: Scene): List<Draw> {
+            val out = ArrayList<Draw>(s.inks.size + s.models.size + s.planes.size)
+            s.inks.forEach { out += Draw(it.id, it, false) }
+            val (opaque, translucent) = s.models.partition { it.alpha >= 1f }
+            opaque.forEach { out += Draw(it.id, it, false) }
+            val depths = s.planes.associate { p ->
+                val cx = (p.rect[0] + p.rect[2]) / 2f
+                val cy = (p.rect[1] + p.rect[3]) / 2f
+                p.id to s.camera.toCamera(p.model.apply(cx, cy, 0f))[2]
+            }
+            val byId = s.planes.associateBy { it.id }
+            val (solidPlanes, clearPlanes) = s.planes.partition { it.alpha >= 1f }
+            for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) out += Draw(id, byId.getValue(id), false)
+            for (item in translucentOrder(clearPlanes, translucent, s.camera)) {
+                when (item) {
+                    is Plane -> out += Draw(item.id, item, true)
+                    is Model -> out += Draw(item.id, item, true)
+                }
+            }
+            return out
+        }
+
+        /** The bounds of 3D ink in stroke units, padded by the widest tube's radius. */
+        fun inkBox(strokes: List<SpatialStroke>): FloatArray? {
+            var any = false
+            val b = floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
+            for (s in strokes) {
+                val r = s.width * 0.5f
+                for (p in s.points) {
+                    any = true
+                    b[0] = minOf(b[0], p.x - r); b[1] = minOf(b[1], p.y - r); b[2] = minOf(b[2], p.z - r)
+                    b[3] = maxOf(b[3], p.x + r); b[4] = maxOf(b[4], p.y + r); b[5] = maxOf(b[5], p.z + r)
+                }
+            }
+            return b.takeIf { any }
+        }
+
+        private const val BLIT_VS = """#version 300 es
+            in vec2 aPos;
+            out vec2 vUv;
+            void main() { vUv = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }"""
+
+        // Already premultiplied: copied as is. texelFetch at the same size, so the copy is exact.
+        private const val BLIT_FS = """#version 300 es
+            precision highp float;
+            uniform sampler2D uTex;
+            uniform int uExact;
+            in vec2 vUv;
+            out vec4 fragColor;
+            void main() {
+                fragColor = uExact == 1 ? texelFetch(uTex, ivec2(gl_FragCoord.xy), 0) : texture(uTex, vUv);
+            }"""
 
         /**
          * The order translucent planes and models draw in, together: farthest first, by the camera

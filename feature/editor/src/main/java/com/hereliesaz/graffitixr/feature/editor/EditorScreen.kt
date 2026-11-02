@@ -3,6 +3,8 @@ package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
+import com.hereliesaz.graffitixr.common.scene.SplitCache
+import com.hereliesaz.graffitixr.common.model.LayerNode
 import com.hereliesaz.graffitixr.common.scene.planeChain
 
 import com.hereliesaz.graffitixr.design.theme.CheckerDark
@@ -88,7 +90,6 @@ import com.hereliesaz.graffitixr.common.model.ShapeKind
 import com.hereliesaz.graffitixr.common.model.TransformMode
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.VectorShape
-import com.hereliesaz.graffitixr.common.model.LayerNode
 import com.hereliesaz.graffitixr.common.model.buildLayerTree
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import kotlin.math.PI
@@ -211,6 +212,10 @@ fun EditorScreen(
                 } else Modifier
             )
     ) {
+        // The inactive-layer cache's two renders (spec/3d-space.md, "Inactive-layer cache").
+        val graphicsContext = androidx.compose.ui.platform.LocalGraphicsContext.current
+        val stackCache = remember(graphicsContext) { StackLayerCache(graphicsContext) }
+        androidx.compose.runtime.DisposableEffect(stackCache) { onDispose { stackCache.dumpAll() } }
         // Infinite-canvas camera: pans/zooms the layer stack + artboard together (identity = no-op).
         // Screen-space overlays below (gestures, selection, panels) stay OUTSIDE it, in screen space.
         BoxWithConstraints(
@@ -242,7 +247,9 @@ fun EditorScreen(
                             .fillMaxSize()
                             .offset(x = (dx * renderWidth).dp, y = (dy * renderHeight).dp)
                     ) {
-                        // 0. Page — the document's own fill
+                        // 0. Page — the document's own fill, and 0b. the grid: the bottom of the
+                        // inactive-layer cache's behind render when there is one.
+                        val pageAndGrid: @Composable () -> Unit = {
                         ArtboardPage(
                             documentWidth = uiState.documentWidth,
                             documentHeight = uiState.documentHeight,
@@ -260,6 +267,7 @@ fun EditorScreen(
                                 rotationDeg = uiState.viewportRotation,
                                 modifier = Modifier.fillMaxSize(),
                             )
+                        }
                         }
                         // 1. Layer stack render.
                         // Hold-to-compare (the photo sheet) drops the adjustment layers: the photo as it was.
@@ -324,6 +332,70 @@ fun EditorScreen(
                                 // handle X/Y-tilted groups/layers so perspective never disappears.
                                 null
                             }
+                        // The inactive-layer cache (spec/3d-space.md, "Inactive-layer cache"): a flat,
+                        // single-tile, uncropped stack splits around the active layer's subtree.
+                        val split = StackLayerCache.split(layerTree, uiState.activeLayerId).takeIf {
+                            dx == 0 && dy == 0 && bufferedAnimationFrame == null &&
+                                StackLayerCache.applies(uiState, sceneContext)
+                        }
+                        if (split == null) SideEffect { stackCache.dumpAll() }
+                        val drawNodes: @Composable (List<LayerNode>) -> Unit = { nodes ->
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                LocalHighResOverlays provides highResOverlays,
+                                LocalScene provides sceneContext,
+                            ) { nodes.forEach { node ->
+                                // The GPU depth pass sits where its first member's top-level
+                                // subtree does; the layers it draws are skipped below.
+                                if (sceneContext != null && node.layer.id == sceneContext.depth.anchorTopLevelId) {
+                                    DepthPass(uiState, sceneContext, liveStrokeState, Modifier.fillMaxSize())
+                                }
+                                LayerStackNode(
+                                    node,
+                                    liveStrokeState,
+                                    frameAlpha = frameAlphas[node.layer.id] ?: 1f,
+                                    // Only the centre tile: wrap-around draws the same layer
+                                    // nine times, and the overlay maps to the real document.
+                                    overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
+                                )
+                            } }
+                        }
+                        if (split != null) {
+                            val activeId = uiState.activeLayerId!!
+                            val view = StackLayerCache.ViewTransform(
+                                uiState.viewportZoom, uiState.viewportRotation,
+                                uiState.viewportOffset.x, uiState.viewportOffset.y,
+                            )
+                            val byId = layerTree.associateBy { it.layer.id }
+                            fun nodes(ids: List<String>) = ids.mapNotNull(byId::get)
+                            fun key(ids: List<String>) = listOf(
+                                activeId, ids, nodes(ids).map(StackLayerCache::flatten),
+                                uiState.canvasBackground, uiState.documentWidth, uiState.documentHeight,
+                            )
+                            val drawing = { liveStrokeState.value.layerId == activeId }
+                            with(stackCache) {
+                                Box(
+                                    Modifier.fillMaxSize().cachedSide(
+                                        SplitCache.Slot.BEHIND, activeId, split.cacheBehind, key(split.behind),
+                                        view, drawing,
+                                    ),
+                                ) {
+                                    pageAndGrid()
+                                    Box(Modifier.fillMaxSize()) { drawNodes(nodes(split.behind)) }
+                                }
+                                Box(Modifier.fillMaxSize()) {
+                                    drawNodes(nodes(listOf(split.activeTopLevelId)))
+                                }
+                                Box(
+                                    Modifier.fillMaxSize().cachedSide(
+                                        SplitCache.Slot.FRONT, activeId, split.cacheFront, key(split.front),
+                                        view, drawing,
+                                    ),
+                                ) {
+                                    drawNodes(nodes(split.front))
+                                }
+                            }
+                        } else {
+                        pageAndGrid()
                         // The Crop tab's crop and geometry, around the whole layer stack (DocumentCropRender).
                         Box(
                             Modifier.fillMaxSize().documentCrop(
@@ -341,25 +413,9 @@ fun EditorScreen(
                                     contentScale = ContentScale.Fit,
                                 )
                             } else {
-                                androidx.compose.runtime.CompositionLocalProvider(
-                                    LocalHighResOverlays provides highResOverlays,
-                                    LocalScene provides sceneContext,
-                                ) { layerTree.forEach { node ->
-                                    // The GPU depth pass sits where its first member's top-level
-                                    // subtree does; the layers it draws are skipped below.
-                                    if (sceneContext != null && node.layer.id == sceneContext.depth.anchorTopLevelId) {
-                                        DepthPass(uiState, sceneContext, liveStrokeState, Modifier.fillMaxSize())
-                                    }
-                                    LayerStackNode(
-                                        node,
-                                        liveStrokeState,
-                                        frameAlpha = frameAlphas[node.layer.id] ?: 1f,
-                                        // Only the centre tile: wrap-around draws the same layer
-                                        // nine times, and the overlay maps to the real document.
-                                        overlayGeometry = overlayGeometry.takeIf { dx == 0 && dy == 0 },
-                                    )
-                                } }
+                                drawNodes(layerTree)
                             }
+                        }
                         }
                     }
                 }

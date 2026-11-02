@@ -227,6 +227,51 @@ each frame in place of HWUI uploading it for the Compose draw, which no longer h
 layer. The wgpu direct display stays fast-path only, as before. The pass does not exist for a flat
 document without 3D ink.
 
+## Inactive-layer cache
+
+While the user draws on the active layer, every other layer is composited into at most two
+temporary GPU renders: one for everything behind the active layer, one for everything in front of
+it. Each frame then draws behind render + the live active layer + front render. The pure model is
+`InactiveLayerCache.kt` (`:core:common`): `SplitCache` (the two slots and their keys), `RestGate`,
+`StackSplit` and `DepthSplit`.
+
+- **2D (flat document), stack order.** `StackLayerCache` splits the top-level list around the
+  subtree holding the active layer. The behind render holds the page, the grid and the subtrees
+  under it; the front render the subtrees over it. Each is an offscreen Compose `GraphicsLayer`
+  (an HWUI hardware layer), recorded through the view transform and drawn back through its inverse,
+  so its texels are screen pixels and zoom or rotation samples each layer bitmap once, as the
+  uncached stack does. HWUI re-renders a render only when something in it is damaged. A side is
+  cached only when every layer in it is plain source-over (no blend mode, clipping mask or
+  adjustment, also inside groups); otherwise that side draws directly, since in an isolated buffer
+  a blend mode would see a different backdrop. The active layer may have any blend mode: it blends
+  over the same pixels either way. Not used for wrap-around, Animation Assist, a document crop or a
+  scene-path stack.
+- **3D (the depth pass), depth order from the current view.** `DepthCompositor` classifies the
+  other members against the active one (`DepthSplit`): for an active plane, by which side of its
+  plane each member lies on (the eye's side is in front); for active 3D ink or a model, by depth
+  range. Each render is an RGBA8 texture drawn with its own depth attachment, so its members
+  occlude one another exactly as uncached; the depth attachment is freed straight after the build.
+  It is not needed when composing, because nothing behind can reach the eye's side of the active
+  plane and nothing in front can be occluded by it: the active layer draws over the behind render
+  with a fresh depth buffer, and the front render is drawn over both. If any member straddles (or
+  lies in) the active plane, or the uncached draw order (opaque first, translucent after) does not
+  put every behind member before the active layer and every front member after it, the frame is
+  drawn uncached.
+- **Invalidation.** A render is dumped (its texture freed) and rebuilt lazily, on the next frame
+  of a stroke, when another layer becomes active, when any layer in it changes content,
+  visibility, opacity, blend mode, transform or order, or when the view (2D pan, zoom and rotation;
+  3D camera) changes. While the view moves the cache is bypassed; it is rebuilt on the first frame
+  the view is the same as the frame before. A canvas resize does not rebuild: the renders are drawn
+  scaled into the new viewport (exact again after the next rebuild). Only a stroke in progress
+  builds a render.
+- **Exactness.** Behind render + active layer is bit-exact (in 2D under the page). The front render
+  is the same image by associativity of source-over, but composited once instead of layer by
+  layer, so an 8-bit intermediate rounds differently where translucent front layers overlap: at
+  most 1/255 in the emulated GLES pipeline and 3/255 in Skia's raster pipeline, measured.
+- **Memory.** One render is width x height x 4 bytes of the canvas viewport (about 10 MB at
+  1080 x 2400); two at most. A 3D build also holds a 24-bit depth buffer of the same size until the
+  build ends.
+
 ## Painting on a tilted plane
 
 The brush, fill and clone surfaces hand the view-model "world" points (screen with the 2D
