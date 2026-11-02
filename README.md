@@ -45,8 +45,9 @@ consumes the same modules for its 2D work and adds AR on top.
   before.
 - **Per-pixel depth** — planes that cross in space, and 3D strokes among them, hide each other
   pixel by pixel on the GPU.
-- **3D model texture painting** — load an `.obj`, paint directly on its UV surface, and add the
-  painted view as a flattened 2D layer. This remains independent of spatial strokes.
+- **3D model layers** — import an `.obj` as a layer in the same 3D space as every other layer:
+  moved with the same Move-tool gestures, painted on its UV surface with the brush and eraser,
+  depth-tested against planes and 3D strokes, and exported to glTF with its painted texture.
 - **Animation Assist** — each top-level layer as one frame, with onion skinning, playback, and
   time-lapse recording of a drawing session.
 - **Reference & import** — a floating reference image that stays on top while you draw; import

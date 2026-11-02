@@ -13,7 +13,8 @@ import kotlin.math.sqrt
 
 /**
  * The whole 3D space as one self-contained glTF 2.0 JSON file (spec/3d-space.md, "Export"): each
- * paint layer a textured quad at its placement, each 3D strokes layer its tube mesh, and
+ * paint layer a textured quad at its placement, each 3D strokes layer its tube mesh, each 3D model
+ * layer its mesh with UVs and painted texture, and
  * optionally the camera.
  *
  * glTF axes are y up, z toward the viewer, metres; one metre is one spatial-ink unit
@@ -27,13 +28,29 @@ object SceneGltfExporter {
     /** A 3D strokes layer: its strokes and the map from stroke units to scene pixels. */
     class Strokes(val name: String, val strokes: List<SpatialStroke>, val strokeToScene: Affine3)
 
+    /**
+     * A 3D model layer: its mesh, the map from mesh coordinates to scene pixels, and its painted
+     * texture as PNG (the paint over the model's base colour; null = unpainted, the base colour).
+     */
+    class Model(
+        val name: String,
+        val mesh: com.hereliesaz.graffitixr.common.mesh.Mesh,
+        val meshToScene: Affine3,
+        val png: ByteArray?,
+        val opacity: Float,
+    )
+
     class Scene(
         val width: Float,
         val height: Float,
         val quads: List<Quad>,
         val strokes: List<Strokes>,
         val camera: SceneCamera?,
+        val models: List<Model> = emptyList(),
     )
+
+    /** The base colour an unpainted model shows (RGB 0..1), as on the canvas. */
+    val MODEL_BASE_COLOR = floatArrayOf(0.82f, 0.84f, 0.88f)
 
     fun encode(scene: Scene): String {
         val focal = SceneMath.focalLength(scene.height)
@@ -120,6 +137,42 @@ object SceneGltfExporter {
                 """"doubleSided":true,"alphaMode":"BLEND","extensions":{"KHR_materials_unlit":{}}}"""
             meshes += """{"name":${json(layer.name)},"primitives":[{"attributes":{"POSITION":$pos,"COLOR_0":$col},"indices":$idx,"material":${materials.lastIndex},"mode":4}]}"""
             nodes += """{"name":${json(layer.name)},"mesh":${meshes.lastIndex}}"""
+        }
+        for (model in scene.models) {
+            val m = model.mesh
+            val stride = com.hereliesaz.graffitixr.common.mesh.Mesh.FLOATS_PER_VERTEX
+            val count = m.vertexCount
+            if (count == 0 || m.indices.isEmpty()) continue
+            val positions = FloatArray(count * 3)
+            val normals = FloatArray(count * 3)
+            val uvs = FloatArray(count * 2)
+            for (i in 0 until count) {
+                val o = i * stride
+                point(model.meshToScene.apply(m.vertices[o], m.vertices[o + 1], m.vertices[o + 2])).copyInto(positions, i * 3)
+                val n = model.meshToScene.applyVector(m.vertices[o + 3], m.vertices[o + 4], m.vertices[o + 5])
+                SceneMath.normalize(vector(n)).copyInto(normals, i * 3)
+                uvs[i * 2] = m.vertices[o + 6]
+                uvs[i * 2 + 1] = m.vertices[o + 7]
+            }
+            val pos = accessor(view(floats(positions), 34962), 5126, count, "VEC3", bounds(positions))
+            val nor = accessor(view(floats(normals), 34962), 5126, count, "VEC3")
+            val uv = accessor(view(floats(uvs), 34962), 5126, count, "VEC2")
+            val idx = accessor(view(ints(m.indices), 34963), 5125, m.indices.size, "SCALAR")
+            val alpha = model.opacity.coerceIn(0f, 1f)
+            val blend = if (alpha < 1f) ",\"alphaMode\":\"BLEND\"" else ""
+            val png = model.png
+            materials += if (png != null) {
+                images += """{"bufferView":${view(png, null)},"mimeType":"image/png"}"""
+                textures += """{"source":${images.lastIndex}}"""
+                """{"name":${json(model.name)},"pbrMetallicRoughness":{"baseColorTexture":{"index":${textures.lastIndex}},""" +
+                    """"baseColorFactor":[1,1,1,$alpha],"metallicFactor":0.0,"roughnessFactor":1.0}$blend}"""
+            } else {
+                val c = MODEL_BASE_COLOR
+                """{"name":${json(model.name)},"pbrMetallicRoughness":{"baseColorFactor":[${c[0]},${c[1]},${c[2]},$alpha],""" +
+                    """"metallicFactor":0.0,"roughnessFactor":1.0}$blend}"""
+            }
+            meshes += """{"name":${json(model.name)},"primitives":[{"attributes":{"POSITION":$pos,"NORMAL":$nor,"TEXCOORD_0":$uv},"indices":$idx,"material":${materials.lastIndex},"mode":4}]}"""
+            nodes += """{"name":${json(model.name)},"mesh":${meshes.lastIndex}}"""
         }
         require(nodes.isNotEmpty()) { "Nothing in the scene to export" }
 

@@ -132,7 +132,6 @@ import com.hereliesaz.graffitixr.feature.editor.multiFingerTaps
 import com.hereliesaz.graffitixr.feature.editor.performGestureAction
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
-import com.hereliesaz.graffitixr.feature.editor.threed.ModelWindow
 import com.hereliesaz.graffitixr.feature.editor.PolygonSidesDialog
 import com.hereliesaz.graffitixr.feature.editor.FigmaWindow
 import com.hereliesaz.graffitixr.feature.editor.ReferenceWindow
@@ -278,7 +277,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val railExpansion by vm.railExpansion.collectAsState()
     val colorSmudgeSettings by vm.colorSmudgeSettings.collectAsState()
     val allInstalledExtensions by vm.allInstalledExtensions.collectAsState()
-    val modelState by vm.modelState.collectAsState()
     val projects by vm.projects.collectAsState()
     val openScreenState by vm.openScreenState.collectAsState()
     val strings = rememberAppStrings()
@@ -365,7 +363,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var showStore by rememberSaveable { mutableStateOf(false) }
     var storeTab by rememberSaveable { mutableStateOf(StoreTab.BROWSE) }
     var showStoreChooser by rememberSaveable { mutableStateOf(false) }
-    var showModelDialog by rememberSaveable { mutableStateOf(false) }
     var showSaveDialog by rememberSaveable { mutableStateOf(false) }
     var showOpenDialog by rememberSaveable { mutableStateOf(false) }
     var showReferenceWindow by rememberSaveable { mutableStateOf(false) }
@@ -675,7 +672,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // opens on all files and the parser rejects anything that isn't a model.
     val modelPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { vm.loadModel(it, it.lastPathSegment?.substringAfterLast('/')) } }
+    ) { uri -> uri?.let { vm.importModelLayer(it, it.lastPathSegment?.substringAfterLast('/')) } }
 
     // The 3D scene exports geometry rather than a screenshot; the SAF picker owns the destination.
     val sceneGltfExporter = rememberLauncherForActivityResult(
@@ -797,12 +794,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val activeClassifiers = activeRailClassifiers(
         RailClassifierInputs(
             uiState, brushes, customBrushes,
-            modelWindowOpen = showModelDialog,
             activeInkUtensil = activeInkUtensil,
         ),
     ).toMutableSet().apply {
         if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("area.animation")
-        if (showModelDialog) add("area.model")
         if (carouselOnScreen && carouselUi.sheetOpen && !carouselUi.photo) {
             carouselGroupRailId(carouselUi.category)?.let(::add)
         }
@@ -1316,8 +1311,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         listOf(
                             // The old full-screen Spatial Sketch is a layer type now (spec/3d-space.md).
                             ToolboxAction("New 3D strokes layer") { vm.addSpatialLayer() },
-                            ToolboxAction("3D Model", lit = showModelDialog) { showModelDialog = true },
-                            ToolboxAction("Choose Model") { showModelDialog = true; modelPicker.launch(arrayOf("*/*")) },
+                            // An imported .obj is a 3D model layer in the same space (spec/3d-space.md).
+                            ToolboxAction("Import 3D model") { modelPicker.launch(arrayOf("*/*")) },
                         ),
                     ).takeIf { showModelRail },
                     ToolboxSpec(
@@ -1847,23 +1842,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 )
             }
 
-            if (showModelDialog) {
-                ModelWindow(
-                    state = modelState,
-                    onPickModel = { modelPicker.launch(arrayOf("*/*")) },
-                    onDismiss = { showModelDialog = false },
-                    onPaintChanged = { vm.onModelPaintChanged() },
-                    onAddToCanvas = { bitmap ->
-                        vm.addModelViewToCanvas(bitmap)
-                        showModelDialog = false
-                    },
-                    // The same colour and size the 2D canvas is set to: switching to a model is a
-                    // change of surface, not of brush.
-                    paintColor = uiState.activeColor,
-                    brushRadiusPx = uiState.brushSize / 2f,
-                )
-            }
-
             // Animation Assist. Opening the window is what turns animation mode on, and closing
             // it turns it off — the mode and the panel were two separate rail buttons before,
             // which meant the panel could be shut with the mode still running (onion skins still
@@ -2053,14 +2031,10 @@ private const val TRANSFORM_ID = "grp.transform"
  * read from this set, so the two cannot disagree about what is active.
  */
 /** [activeRailClassifiers]' modes and toggles that stay on until turned off. */
-private fun modeRailClassifiers(
-    uiState: EditorUiState,
-    modelWindowOpen: Boolean,
-): Set<String> = buildSet {
+private fun modeRailClassifiers(uiState: EditorUiState): Set<String> = buildSet {
     // Time-lapse lives inside the Animation window now, so the thing that lights up for it is the
     // window's own item — otherwise a recording in progress would show nowhere in the rail.
     if (uiState.isAnimationMode || uiState.isTimeLapseRecording) add("tool.animation")
-    if (modelWindowOpen) add("tool.model")
     if (uiState.pathEditLayerId != null) add("tool.nodeEdit")
     if (uiState.activeTool == Tool.CLONE && uiState.cloneSource != null) add("tool.cloneSource")
     if (uiState.selection?.inverted == true) add("tool.selectInvert")
@@ -2096,11 +2070,6 @@ internal data class RailClassifierInputs(
     val uiState: EditorUiState,
     val brushes: List<Pair<String, String>>,
     val customBrushes: List<CustomBrush>,
-    // Whether the 3D window is open. Passed in rather than read off [EditorUiState] because that is
-    // where it lives — the window's visibility is composable state in `GraffuxApp`, like every other
-    // floating window's. It is here at all because an item that opens a window has to light up while
-    // that window is open, or the rail says nothing about a panel sitting over the artwork.
-    val modelWindowOpen: Boolean,
     /**
      * The view-model's `activeInkUtensil`. Ink is classified by this, never by `activeBrushName`: a
      * stamp brush may share a utensil's name (the built-in "Ink Pen" does).
@@ -2125,7 +2094,7 @@ internal fun activeRailClassifiers(inputs: RailClassifierInputs): Set<String> = 
     // and nothing ever added it, so it faked the state in its label instead.
 
     // Modes and toggles that stay on until turned off.
-    addAll(modeRailClassifiers(uiState, modelWindowOpen))
+    addAll(modeRailClassifiers(uiState))
 
     // Which panel is open — the rail item that opened it stays lit while it is.
     //

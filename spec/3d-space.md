@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 7). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 8). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -20,6 +20,7 @@ depends on whether the **active layer** is a 2D or a 3D layer (below):
 | Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn) | rotate the layer about the current axis |
 | Double-tap | nothing | step the axis X -> Y -> Z | step the axis X -> Y -> Z |
 | Brush / Eraser on a 3D strokes layer | | draw a tube on its guide / erase the curve under the finger | |
+| Brush / Eraser on a 3D model layer | | paint / erase the model's surface under the finger | |
 
 A double-tap never changes the active layer; a buried layer is picked from the layers rail. (The
 old double-tap that cycled through the layers under the finger is gone.)
@@ -32,7 +33,7 @@ The two stay distinct. A layer is a **3D layer** (`Layer.is3DLayer`) when any of
   (`OverlayLayer.plane3D`; absent from older saves, which load every layer as 2D unless placed);
 - it is placed in 3D (`Layer.isPlacedIn3D`: a depth or an X/Y tilt), by any means: view-plane
   adoption, the Move tool's depth or tilt, the Transform panel, an older project;
-- it is a 3D strokes layer.
+- it is a 3D strokes layer or a 3D model layer.
 
 A dedicated flag is needed because `isPlacedIn3D` is derived from the transform alone: a layer made
 3D by hand still sits on the identity plane until it is moved, and must stay 3D. There is no way
@@ -100,6 +101,55 @@ picture plane.
 - **UI state.** `EditorUiState.sceneCamera` and `activeRotationAxis`. Written only through
   `updateUi` / the reducer. Camera moves are view state, not history, like the 2D viewport.
 
+## 3D model layers
+
+An imported `.obj` is a layer in the one space, not a separate window (the floating 3D window and
+its "Add view to canvas" snapshot are retired). The 3D toolbox's **Import 3D model** entry, which
+used to open the window, now imports into a layer.
+
+- **Import.** `EditorViewModel.importModelLayer` parses the OBJ (`ObjParser`), copies the file
+  into the project folder as `model_<layerId>.obj`, and adds a layer on top with
+  `Layer.model: ModelLayerContent` and `plane3D` set, so it is a 3D layer: the rail shows the axis
+  cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule
+  (`SceneMath.viewPlanePose`): facing the camera through its orbit target, at the camera's distance
+  scale. One undo step.
+- **Framing.** `ModelSpace.meshToLocal` puts the mesh's bounding centre on the layer's box centre
+  and its bounding radius at 0.3 of the canvas's shorter side, turning the OBJ's y up / z toward
+  the viewer into the scene's y down / z away (a half turn about x, not a mirror). The layer's plane
+  pose then places that box like any layer's, through its group chain.
+- **Controls.** Exactly those of any 3D layer (the table above): two fingers move the view; with the
+  Move tool they slide the model, pinch it in depth and twist it about the current axis, one undo
+  step per completed gesture; double-tap and the rail's axis slot cycle the axis. Nothing here is
+  model-specific: the Move tool acts on the layer's plane pose.
+- **Painting.** With the brush or eraser on an active model layer, one finger paints its surface
+  (`ModelPaintCanvas`, above every tool surface, so a 2D tool never also paints). Each sample casts
+  the camera ray through the touch into mesh coordinates (`ModelSpace.ray`, the inverse of the
+  layer's mesh-to-scene map), finds the nearest triangle and its UV (`MeshPicker.raycast`), and
+  stamps dabs from the previous UV (`TexturePaint.stamps`, which breaks the stroke at UV seams) into
+  the texture (`PaintableTexture`). The brush's on-screen size is converted to texels at the hit
+  (`ModelSpace.texelsPerPixel`: the triangle's texel area over its projected area). A miss ends the
+  run. A second finger ends the stroke. The 2D paint pipeline is not touched.
+- **Paint revisions and undo.** The paint is `ModelLayerContent.texture`, a `ModelTexture`: one
+  immutable revision, compared by identity. A stroke paints a copy (`EditorUiState.modelDraft`,
+  which the depth pass draws in its place), and on lift that copy becomes the next revision. The
+  stroke's first dab pushes an ordinary layer-list undo entry, so undo and redo swap revisions by
+  restoring the layer, with no pixel replay. A revision only history still holds is compacted to PNG
+  off the main thread (a 1024 texture is 4 MB of pixels and usually a few KB of PNG) and decoded
+  again if undo brings it back.
+
+### Rendering choice
+
+Models are drawn by the existing depth pass (`DepthCompositor`, GLES 3), as members alongside 3D
+strokes, rather than by the retired window's GLES 2 `ModelRenderer`. The depth pass already owns
+the one depth buffer that planes and ink are tested against, so a model drawn there occludes and is
+occluded per pixel with no second buffer to reconcile; a separate GL surface could only be stacked
+above or below the whole pass. The shader is the old renderer's (paint over a base colour, a
+headlight so no side is lost in shadow), ported to GLES 3 and fed the scene camera's clip matrix.
+The mesh is uploaded once per mesh, the texture once per revision (or per dab while painting, under
+the bitmap's lock so an upload never tears). Models are drawn opaque with the ink, before the
+planes, so translucent plane pixels blend over them. A flat document without models still has no
+depth pass.
+
 ## Render path
 
 `SceneRenderPath.sceneLayerIds(layers, camera)` decides per top-level subtree:
@@ -136,7 +186,7 @@ live bitmap drawn in perspective). The crisp zoom overlay is likewise fast-path 
 `DepthComposite.plan(layers, camera)` picks the layers drawn by one GPU depth pass
 (`DepthCompositor`, GLES 3, in a transparent `TextureView`):
 
-- every visible 3D strokes layer, at its whole chain's placement, so a group placed in 3D moves
+- every visible 3D strokes layer and 3D model layer, at its whole chain's placement, so a group placed in 3D moves
   the ink, and its opacity multiplies in;
 - every scene-path paint, text or vector layer that composites normally (SrcOver, no clip to
   below, not an adjustment) inside groups that do too: normal blend, full opacity, and for a
@@ -232,7 +282,7 @@ the three rotations, as always, and slot 6 is now the depth. Older builds always
 which is exactly their layers' depth, and ignore it when reading. Every transform message carries
 the whole plane placement, and a peer's diff now notices depth and rotation changes.
 
-## Migration and persistence (format 6 -> 7)
+## Migration and persistence (format 6 -> 7 -> 8)
 
 - `OverlayLayer.positionZ` and `OverlayLayer.spatial`; absent in older files, so every older layer
   loads at depth 0 with its old rotations.
@@ -243,6 +293,17 @@ the whole plane placement, and a peer's diff now notices depth and rotation chan
 - A layer tilted by the old X/Y rotation (GraffitiXR projects, or the retired Transform-panel
   switch) now shares the scene camera instead of Compose's per-layer camera, so its foreshortening
   changes slightly. Nothing in a document without such tilts changes.
+
+Format 7 -> 8 (3D model layers):
+
+- `OverlayLayer.model` holds the OBJ's and the texture's file names in the project folder (names,
+  not paths, so a `.fux` imported under a new id still finds them). The texture is written as
+  `model_tex_<layerId>.png` on save, only when its revision changed since the last write.
+- `ProjectManager.migrateFormat` 7 -> 8 (`migrateFloatingModelToLayer`): a project whose
+  `modelPath` is set gains a top 3D model layer for that file and its `modelTexturePath`, at the
+  identity plane (facing the default camera through the canvas centre); the project-level fields
+  are cleared and written empty from then on. A missing OBJ loads as an empty layer, a missing
+  texture as unpainted.
 
 The full-screen Spatial Sketch workspace and its separate undo stack are retired. Its guide tools
 are the 3D strokes layer's Draw mode; its undo is the editor's undo (strokes live in the layer).
@@ -259,6 +320,9 @@ File menu, **Export 3D scene (glTF)**: one self-contained glTF 2.0 JSON (`SceneG
   The texture is at canvas resolution (up to 4096 a side).
 - Each 3D strokes layer becomes its tube mesh (`SpatialGltfExporter.buildMesh`), transformed by
   the layer's placement.
+- Each 3D model layer becomes its mesh with normals and UVs at the layer's placement, its painted
+  texture (over the base colour, as the canvas shows it) as the base-colour texture; an unpainted
+  model gets the base colour alone.
 - Optionally the scene camera, as a perspective camera node.
 
 **PNG, PDF, share and thumbnail** (`ExportManager.compositeLayers(..., camera)`, `SceneExport`):
@@ -268,10 +332,20 @@ come from the same `DepthCompositor`, rendered off screen on a pbuffer
 (`OffscreenDepthRender`) and read back once. Every other layer draws through its homography
 (Skia renders perspective bitmaps), groups with their opacity and blend, and a frame's fill and
 clip through the frame's own plane. Where GLES cannot start (unit tests), the members are drawn
-farthest-first through their homographies and 3D ink is omitted.
+farthest-first through their homographies and 3D ink and models are omitted.
 
 glTF axes are y-up, z toward the viewer, metres. One metre is one spatial unit (`F / 3` scene
 pixels), origin at the canvas centre on the picture plane, so the strokes keep their coordinates.
+
+### Co-op
+
+A model layer syncs the way a 3D strokes layer does (`LayerAdd`, then transform and props diffs),
+plus `Op.ModelData`, because neither the mesh nor the paint fits in a `LayerAdd`: it carries the OBJ
+deflated and the texture as PNG, after the `LayerAdd` that introduces the layer, and the texture
+alone whenever the paint revision changes (a stroke, an undo). The receiver validates the file name,
+caps the inflated OBJ at 64 MB and the texture at 4096 a side, saves the OBJ into its own project
+folder and installs the mesh once parsed. The cost is one OBJ transfer per model and one PNG per
+finished stroke, not per dab. (Graffux has no co-op transport bound yet; this is the protocol.)
 
 ## Limits
 
@@ -281,3 +355,5 @@ pixels), origin at the canvas centre on the picture plane, so the strokes keep t
 - Crossing semi-transparent edges occlude rather than blend (no order-independent transparency).
 - A 3D strokes layer in a group with a non-normal blend mode is composited normally, in the pass.
 - Animation Assist's onion-skin fading does not apply to depth-pass members.
+- A model layer has no pixels of its own, like a 3D strokes layer. Its blend mode is ignored
+  (it is always in the depth pass), and the brush paints opaque round dabs in the active colour.

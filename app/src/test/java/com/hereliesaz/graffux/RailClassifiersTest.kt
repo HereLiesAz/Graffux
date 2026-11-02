@@ -23,12 +23,11 @@ import org.junit.Test
  */
 class RailClassifiersTest {
 
-    private fun classifiers(state: EditorUiState, modelOpen: Boolean = false) =
+    private fun classifiers(state: EditorUiState) =
         activeRailClassifiers(RailClassifierInputs(
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
-            modelWindowOpen = modelOpen,
         ))
 
     @Test
@@ -105,15 +104,6 @@ class RailClassifiersTest {
             "tool.selectInvert" in
                 classifiers(plain.copy(selection = plain.selection?.copy(inverted = true))),
         )
-    }
-
-    @Test
-    fun `windows whose state lives outside UiState still light their openers`() {
-        // Composable state in GraffuxApp rather than editor state, which is precisely why
-        // it is a parameter — an item that opens a window has to light up while it is open.
-        assertTrue("tool.model" in classifiers(EditorUiState(), modelOpen = true))
-        val none = classifiers(EditorUiState())
-        assertFalse("tool.model" in none)
     }
 
     @Test
@@ -194,7 +184,6 @@ class SecondaryRailClassifiersTest {
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
-            modelWindowOpen = false,
         ))
         assertFalse("brush.ink.pen" in lit)
         assertTrue("brush.builtin.Ink Pen" in lit)
@@ -207,7 +196,6 @@ class SecondaryRailClassifiersTest {
             uiState = state,
             brushes = emptyList(),
             customBrushes = emptyList(),
-            modelWindowOpen = false,
             activeInkUtensil = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN,
         ))
         assertTrue("brush.ink.pen" in lit)

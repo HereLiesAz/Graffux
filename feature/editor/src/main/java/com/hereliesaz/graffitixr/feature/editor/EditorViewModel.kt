@@ -514,15 +514,6 @@ private fun readBytesBounded(input: java.io.InputStream, maxBytes: Int): ByteArr
     return buffer.toByteArray()
 }
 
-// The 3D model and its paint, inside the project folder. Fixed names rather than generated ones:
-// a project holds at most one model, so a uuid would only accumulate orphans every time a new
-// model replaced the old.
-private const val MODEL_OBJ_FILE = "model.obj"
-private const val MODEL_TEXTURE_FILE = "model_texture.png"
-
-// Key for the model texture in the pending-write map, which is otherwise keyed by layer id. Prefixed
-// so it can never collide with one — layer ids are uuids, but relying on that is a trap for later.
-private const val MODEL_TEXTURE_KEY = "model:texture"
 
 /**
  * How long a continuous edit (a rail-slider drag) must be still before it is considered finished.
@@ -2480,7 +2471,7 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetSavedSelections(project.savedSelections))
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
-                        restoreModel(project)
+                        restoreModelLayers(project.id, layers)
                         updateUi { it.copy(sceneCamera = project.sceneCamera) }
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
@@ -2632,7 +2623,12 @@ class EditorViewModel @Inject constructor(
         val live = _uiState.value.layers.associateBy { it.id }
         return snapshot.map { layer ->
             val current = live[layer.id]
-            if (current == null) layer.copy(bitmap = null) else layer.copy(bitmap = current.bitmap, uri = current.uri)
+            val restored = if (current == null) {
+                layer.copy(bitmap = null)
+            } else {
+                layer.copy(bitmap = current.bitmap, uri = current.uri)
+            }
+            fillModel(restored)
         }
     }
 
@@ -4709,10 +4705,11 @@ class EditorViewModel @Inject constructor(
      */
     private suspend fun persistProject(name: String?): GraffitiProject? {
         val currentProject = projectRepository.currentProject.value
-        val updatedLayers = _uiState.value.layers.map { it.toOverlayLayer() }
-
         // Paths derive from the (immutable) project id.
         val projectId = currentProject?.id ?: GraffitiProject(name = name ?: "New Project").id
+        // A model layer's paint goes to its texture file (only when it changed) before the manifest
+        // names that file.
+        val updatedLayers = _uiState.value.layers.map { modelOverlay(it, it.toOverlayLayer(), projectId) }
 
         val manifestToSave: GraffitiProject
         if (currentProject == null) {
@@ -4749,6 +4746,10 @@ class EditorViewModel @Inject constructor(
                     spatialStrokes = emptyList(),
                     spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
                     sceneCamera = _uiState.value.sceneCamera,
+                    // Format 8: the model lives in a 3D model layer.
+                    modelPath = null,
+                    modelName = null,
+                    modelTexturePath = null,
                     formatVersion = maxOf(
                         current.formatVersion, com.hereliesaz.graffitixr.common.model.CURRENT_FORMAT_VERSION,
                     ),
@@ -6135,6 +6136,9 @@ class EditorViewModel @Inject constructor(
         val transform: List<Float>,
         val geometry: Triple<List<VectorShape>, Float, Float>,
         val parentId: String?,
+        /** A model layer's mesh and paint revision, by identity: a change sends [Op.ModelData]. */
+        val modelMesh: Any? = null,
+        val modelTexture: Any? = null,
     )
 
     private fun Layer.coopState() = CoopLayerState(
@@ -6142,6 +6146,8 @@ class EditorViewModel @Inject constructor(
         coopTransform(),
         Triple(shapes, layoutWidth, layoutHeight),
         parentId,
+        model?.mesh,
+        model?.texture,
     )
 
     /** The LayerTransform encoding ([com.hereliesaz.graffitixr.common.coop.LayerTransformCodec]). */
@@ -6194,6 +6200,10 @@ class EditorViewModel @Inject constructor(
             }
         }
         opEmitter.emit(op)
+        // A model layer's mesh and paint follow its LayerAdd, which cannot carry them.
+        if (op is Op.LayerAdd && opEmitter.isActive && op.layer.model?.mesh != null) {
+            sendModelData(op.layer, withMesh = true)
+        }
     }
 
     /**
@@ -6251,8 +6261,14 @@ class EditorViewModel @Inject constructor(
             if (was == null) {
                 sendMaskIfUnsent(layer)
                 opEmitter.emit(Op.LayerAdd(layer))
+                if (now.modelMesh != null) sendModelData(layer, withMesh = true)
                 peerOrder += layer.id
                 continue
+            }
+            if (was.modelMesh !== now.modelMesh && now.modelMesh != null) {
+                sendModelData(layer, withMesh = true)
+            } else if (was.modelTexture !== now.modelTexture) {
+                sendModelData(layer, withMesh = false)
             }
             if (was.parentId != now.parentId) opEmitter.emit(Op.LayerParent(layer.id, now.parentId))
             if (was.geometry != now.geometry) {
@@ -6346,7 +6362,7 @@ class EditorViewModel @Inject constructor(
         }
         val layerId = state.activeLayerId ?: return
         // A 3D strokes layer has no pixels: it is drawn on with 3D on, never painted.
-        if (state.layers.any { it.id == layerId && it.isSpatial }) return
+        if (state.layers.any { it.id == layerId && (it.isSpatial || it.model != null) }) return
         strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
         ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         // The layer reaches as far as the screen does: grown (once, before anything binds or copies
@@ -12071,7 +12087,7 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     private fun Layer.isEmptyPaintLayer(): Boolean {
         val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
-        val notPaint = isAdjustment || isSpatial || isContainer
+        val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
         val b = bitmap?.takeUnless { it.isRecycled } ?: return true
         val row = IntArray(b.width)
@@ -12189,171 +12205,329 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // ── 3D model viewport ────────────────────────────────────────────────────────────────────
+    // ── 3D model layers (spec/3d-space.md, "3D model layers") ──────────────────────────────
 
-    private val _modelState = MutableStateFlow(com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState())
-    val modelState: StateFlow<com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState> =
-        _modelState.asStateFlow()
+    /** Parsed meshes by `<projectId>/<objFile>`: a duplicated layer shares its original's. */
+    private val modelMeshCache = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelMesh>()
 
     /**
-     * Loads an OBJ model from [uri]. Parsing runs off the main thread — a scanned mesh is megabytes
-     * of text and would jank the UI if read inline.
-     *
-     * The file is copied into the project rather than referenced where the user picked it. A
-     * document-picker URI is a grant that expires, so a project reopened next week would find its
-     * own model gone; a copy also means the model rides along inside a `.fux`.
+     * Each model layer's texture as read from disk at load. An undo snapshot taken before the load
+     * finished holds the layer without it; [fillModel] puts it back.
      */
-    fun loadModel(uri: Uri, displayName: String? = null) {
-        _modelState.update { it.copy(isLoading = true, error = null) }
+    private val modelTexturesOnDisk = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+
+    /** The texture revision last written for each model layer, so a save writes only a changed one. */
+    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+
+    /** A paint stroke on a model layer in progress. */
+    private class ModelStroke(
+        val layerId: String,
+        val surface: PaintableTexture,
+        val erase: Boolean,
+        val before: com.hereliesaz.graffitixr.common.scene.ModelTexture?,
+    ) {
+        var lastUv: Pair<Float, Float>? = null
+        var edited = false
+        var version = 0L
+    }
+
+    private var modelStroke: ModelStroke? = null
+
+    private fun modelMeshKey(objFile: String) = "${_uiState.value.projectId}/$objFile"
+
+    /**
+     * Imports an OBJ from [uri] as a 3D model layer on top (spec/3d-space.md, "3D model layers"):
+     * a 3D layer facing the camera through its orbit point (the view-plane rule), the model's
+     * bounds framed to [com.hereliesaz.graffitixr.common.scene.ModelSpace.FRAME_FRACTION] of the
+     * canvas. The file is copied into the project folder, so it survives the picker's grant and
+     * rides along in a `.fux`. One undo step.
+     */
+    fun importModelLayer(uri: Uri, displayName: String? = null) {
         viewModelScope.launch(dispatchers.io) {
             val result = runCatching {
-                val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
-                    input.readBytes()
-                } ?: throw java.io.IOException("Couldn't open that file")
-                val mesh = com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString())
-                mesh to bytes
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw java.io.IOException("Couldn't open that file")
+                com.hereliesaz.graffitixr.common.scene.ModelMesh(
+                    com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString()),
+                ) to bytes
             }
-            result
-                .onSuccess { (mesh, bytes) ->
-                    val name = displayName ?: "Model"
-                    // Persist before publishing, so the state the UI shows is one that survives a
-                    // reopen — the alternative is a model that looks loaded and isn't saved.
-                    val paths = runCatching { persistModel(bytes, name) }.getOrNull()
-                    val texture = PaintableTexture(
-                        PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE,
-                    )
-                    modelTexturePath = paths?.second
-                    withContext(dispatchers.main) {
-                        _modelState.update {
-                            it.copy(
-                                mesh = mesh, name = name, texture = texture,
-                                isLoading = false, error = null,
-                            )
-                        }
+            result.onSuccess { (mesh, bytes) ->
+                val projectId = ensureProjectId()
+                val layerId = UUID.randomUUID().toString()
+                val objFile = ModelFiles.objFor(layerId)
+                val saved = runCatching { projectRepository.saveArtifact(projectId, objFile, bytes) }
+                withContext(dispatchers.main) {
+                    if (saved.isFailure) {
+                        notify("Couldn't save that model into the project", NoticeKind.WARNING)
+                    } else {
+                        modelMeshCache["$projectId/$objFile"] = mesh
+                        addModelLayer(layerId, displayName, objFile, mesh)
                     }
                 }
-                .onFailure { e ->
-                    withContext(dispatchers.main) {
-                        _modelState.update {
-                            it.copy(isLoading = false, error = e.message ?: "Couldn't read that model")
-                        }
-                    }
+            }.onFailure { e ->
+                withContext(dispatchers.main) {
+                    notify("Couldn't read that model: ${e.message ?: "unknown error"}", NoticeKind.WARNING)
                 }
-        }
-    }
-
-    /**
-     * Adds the model as it currently looks — angle, paint and all — to the document as a layer.
-     *
-     * A snapshot rather than a live 3D layer: the document is a flat image, and everything that
-     * acts on a layer (transform, blend, adjustments, export) already works on pixels. Turning the
-     * model and taking another is cheap, so nothing is lost by not keeping it live.
-     */
-    fun addModelViewToCanvas(bitmap: Bitmap) {
-        viewModelScope.launch(dispatchers.io) {
-            ensureProjectId()
-            val name = _modelState.value.name?.substringBeforeLast('.') ?: "Model"
-            importSingleBitmap(bitmap, name)
-            withContext(dispatchers.main) { notify("Added “$name” to the canvas", NoticeKind.NOTICE) }
-        }
-    }
-
-    /** Where the current model's texture is written. Null when no model is loaded. */
-    private var modelTexturePath: String? = null
-
-    /** Copies the model into the project and records it on the manifest. Returns (objPath, texturePath). */
-    private suspend fun persistModel(objBytes: ByteArray, name: String): Pair<String, String> {
-        val projectId = ensureProjectId()
-        val objPath = projectRepository.saveArtifact(projectId, MODEL_OBJ_FILE, objBytes)
-        val texturePath = File(File(objPath).parentFile, MODEL_TEXTURE_FILE).absolutePath
-        projectRepository.updateProject { current ->
-            if (current.id == projectId) {
-                current.copy(
-                    modelPath = objPath,
-                    modelName = name,
-                    // Recorded even before anything is painted: the path is where the texture
-                    // *will* be, and a reopen that finds no file there simply starts unpainted.
-                    modelTexturePath = texturePath,
-                )
-            } else {
-                current
             }
         }
-        return objPath to texturePath
     }
 
-    /**
-     * Called when paint lands on the model. Writes the texture on the same debounce as layer
-     * bitmaps, and through the same pending-write map — so leaving the app flushes model paint
-     * exactly as it flushes a stroke on the flat canvas.
-     */
-    fun onModelPaintChanged() {
-        invalidateResident(null)
-        val texture = _modelState.value.texture ?: return
-        val path = modelTexturePath ?: return
-        val pending = PendingLayerWrite(
-            path = path,
-            bitmap = texture.bitmap,
-            // A model texture is not an editor layer and owns no canonical material sidecar.
-            projectId = null,
-            material = null,
+    /** Adds the model layer [layerId], facing the camera through its orbit point. Main thread. */
+    internal fun addModelLayer(
+        layerId: String,
+        displayName: String?,
+        objFile: String,
+        mesh: com.hereliesaz.graffitixr.common.scene.ModelMesh,
+    ) {
+        val state = _uiState.value
+        val size = state.canvasSize
+        val pose = if (size.width > 0 && size.height > 0) {
+            SceneMath.viewPlanePose(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        } else {
+            null
+        } ?: com.hereliesaz.graffitixr.common.scene.PlanePose()
+        val name = displayName?.substringAfterLast('/')?.substringBeforeLast('.')
+            ?.takeIf { it.isNotBlank() } ?: "3D model"
+        val layer = Layer(
+            id = layerId,
+            name = name,
+            plane3D = true,
+            offset = Offset(pose.offsetX, pose.offsetY),
+            positionZ = pose.positionZ,
+            rotationX = pose.rotationX,
+            rotationY = pose.rotationY,
+            rotationZ = pose.rotationZ,
+            scale = pose.scale,
+            model = com.hereliesaz.graffitixr.common.scene.ModelLayerContent(objFile, mesh = mesh),
         )
-        pendingWrites[MODEL_TEXTURE_KEY] = pending
-        pendingSaveJobs.remove(MODEL_TEXTURE_KEY)?.cancel()
-        val job = viewModelScope.launch(dispatchers.io) {
-            kotlinx.coroutines.delay(1500)
-            val saved = writeLayerBitmap(MODEL_TEXTURE_KEY, path, texture.bitmap)
-            if (saved) {
-                pendingWrites.remove(MODEL_TEXTURE_KEY, pending)
-                saveProject()
-            }
-            pendingSaveJobs.remove(MODEL_TEXTURE_KEY, coroutineContext[kotlinx.coroutines.Job])
-        }
-        pendingSaveJobs[MODEL_TEXTURE_KEY] = job
+        pushHistory()
+        dispatch(EditorIntent.AddLayer(layer))
+        emitMembership(Op.LayerAdd(layer))
+        saveProject()
+        notify("Added “$name” as a 3D layer", NoticeKind.NOTICE)
     }
 
     /**
-     * Brings back the model a project was saved with, paint and all. Silent when the project has
-     * none, which is most of them.
+     * One finger lands on the active model layer with the brush or eraser: a stroke starts and
+     * paints where the ray from the camera through [world] meets the surface. Returns whether a
+     * stroke started (the active layer is a loaded model layer).
      */
-    private fun restoreModel(project: GraffitiProject) {
-        val objPath = project.modelPath
-        if (objPath == null) {
-            modelTexturePath = null
-            _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState()
+    @Suppress("ReturnCount")
+    fun onModelPaintStart(world: Offset): Boolean {
+        val st = _uiState.value
+        val tool = st.modelPaintTool ?: return false
+        val layer = st.layers.firstOrNull { it.id == st.activeLayerId } ?: return false
+        val content = layer.model ?: return false
+        if (content.mesh == null || st.canvasSize.width <= 0 || st.canvasSize.height <= 0) return false
+        modelStroke = ModelStroke(
+            layer.id,
+            PaintableTexture.startingFrom(content.texture?.pixels(), content.textureWidth, content.textureHeight),
+            erase = tool == SpatialStrokeTool.ERASE,
+            before = content.texture,
+        )
+        onModelPaintMove(world)
+        return true
+    }
+
+    /**
+     * The finger moved: dabs from the last surface point to the one under [world], in texture
+     * space (seams break the stroke rather than paint across the texture). The brush's on-screen
+     * size is converted to texels at the hit. A miss ends the run, so leaving the silhouette and
+     * coming back does not draw through the gap. The first dab opens the stroke's undo step.
+     */
+    @Suppress("ReturnCount")
+    fun onModelPaintMove(world: Offset) {
+        val stroke = modelStroke ?: return
+        val st = _uiState.value
+        val layer = st.layers.firstOrNull { it.id == stroke.layerId } ?: return
+        val mesh = layer.model?.mesh ?: return
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val toScene = com.hereliesaz.graffitixr.common.scene.ModelSpace
+            .meshToScene(planeChain(st.layers, layer.id), mesh, w, h)
+        val frame = SceneMath.frame(st.sceneCamera, w, h)
+        val hit = com.hereliesaz.graffitixr.common.scene.ModelSpace.pick(mesh, world.x, world.y, toScene, frame)
+        if (hit == null) {
+            stroke.lastUv = null
             return
         }
-        _modelState.update { it.copy(isLoading = true, error = null) }
+        val surface = stroke.surface
+        val texels = com.hereliesaz.graffitixr.common.scene.ModelSpace.texelsPerPixel(
+            mesh, hit.triangleIndex, toScene, frame, surface.width, surface.height,
+        )
+        val radius = (st.brushSize / 2f / st.viewportZoom.coerceAtLeast(0.01f) * texels)
+            .coerceIn(0.5f, MAX_MODEL_BRUSH_TEXELS)
+        val from = stroke.lastUv ?: (hit.u to hit.v)
+        val stamps = com.hereliesaz.graffitixr.common.mesh.TexturePaint.stamps(
+            from.first, from.second, hit.u, hit.v, surface.width, surface.height, spacingPx = radius / 4f,
+        )
+        if (!stroke.edited) {
+            stroke.edited = true
+            pushHistory()
+        }
+        surface.stamp(stamps, st.activeColor.toArgb(), radius, erase = stroke.erase)
+        stroke.lastUv = hit.u to hit.v
+        stroke.version++
+        val draft = com.hereliesaz.graffitixr.common.scene.ModelDraft(layer.id, surface.bitmap, stroke.version)
+        updateUi { it.copy(modelDraft = draft) }
+    }
+
+    /** The stroke ended: its pixels become the layer's new texture revision (the step already open). */
+    fun onModelPaintEnd() {
+        val stroke = modelStroke ?: return
+        modelStroke = null
+        if (!stroke.edited) {
+            updateUi { it.copy(modelDraft = null) }
+            return
+        }
+        val revision = com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPixels(stroke.surface.bitmap)
+        updateUi { s ->
+            s.copy(
+                modelDraft = null,
+                layers = LayerListOps.mapLayer(s.layers, stroke.layerId) { l ->
+                    l.model?.let { l.copy(model = it.copy(texture = revision)) } ?: l
+                },
+            )
+        }
+        // The replaced revision now lives only in undo history: keep it as PNG, not 4 MB of pixels.
+        stroke.before?.let { old -> viewModelScope.launch(dispatchers.io) { old.compact() } }
+        saveProject()
+    }
+
+    /** [layer] with its model's mesh and loaded texture filled in where a snapshot lacks them. */
+    @Suppress("ReturnCount")
+    private fun fillModel(layer: Layer): Layer {
+        val content = layer.model ?: return layer
+        val mesh = content.mesh ?: modelMeshCache[modelMeshKey(content.objFile)]
+        val texture = content.texture ?: modelTexturesOnDisk[layer.id]?.takeIf { content.textureFile != null }
+        if (mesh === content.mesh && texture === content.texture) return layer
+        return layer.copy(model = content.copy(mesh = mesh, texture = texture))
+    }
+
+    /**
+     * Loads every model layer's mesh and texture from the project folder (spec/3d-space.md). A
+     * missing or unreadable OBJ leaves the layer empty, never the project broken; a missing texture
+     * is unpainted.
+     */
+    private fun restoreModelLayers(projectId: String, layers: List<Layer>) {
+        modelTexturesOnDisk.clear()
+        writtenModelTextures.clear()
+        val pending = layers.filter { it.model != null && it.model?.mesh == null }
+        if (pending.isEmpty()) return
         viewModelScope.launch(dispatchers.io) {
-            val restored = runCatching {
-                val file = File(objPath)
-                if (!file.exists()) throw java.io.FileNotFoundException("model missing")
-                val mesh = com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(file.readText())
-                val texture = PaintableTexture(
-                    PaintableTexture.DEFAULT_SIZE, PaintableTexture.DEFAULT_SIZE,
-                )
-                project.modelTexturePath?.let { texturePath ->
-                    val saved = File(texturePath)
-                    if (saved.exists()) {
-                        BitmapFactory.decodeFile(texturePath)?.let { texture.restore(it) }
-                    }
-                }
-                mesh to texture
-            }
-            modelTexturePath = project.modelTexturePath
-            withContext(dispatchers.main) {
-                restored
-                    .onSuccess { (mesh, texture) ->
-                        _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState(
-                            mesh = mesh, name = project.modelName, texture = texture,
+            val dir = File(context.filesDir, "projects/$projectId")
+            val textures = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+            for (layer in pending) {
+                val content = layer.model ?: continue
+                runCatching {
+                    val objFile = ModelFiles.safe(content.objFile)
+                        ?: throw java.io.IOException("unsafe model file name")
+                    val key = "$projectId/$objFile"
+                    if (modelMeshCache[key] == null) {
+                        modelMeshCache[key] = com.hereliesaz.graffitixr.common.scene.ModelMesh(
+                            com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(File(dir, objFile).readText()),
                         )
                     }
-                    .onFailure {
-                        // A project whose model file is gone shouldn't look broken — it just has
-                        // no model any more, which is the same as never having had one.
-                        android.util.Log.w("EditorViewModel", "Couldn't restore model for ${project.id}", it)
-                        _modelState.value = com.hereliesaz.graffitixr.feature.editor.threed.ModelUiState()
+                    ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
+                        textures[layer.id] = com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(it.readBytes())
                     }
+                }.onFailure {
+                    android.util.Log.w("EditorViewModel", "Couldn't load the model of layer ${layer.id}", it)
+                }
+            }
+            withContext(dispatchers.main) {
+                if (_uiState.value.projectId != projectId) return@withContext
+                modelTexturesOnDisk.putAll(textures)
+                writtenModelTextures.putAll(textures)
+                updateUi { s -> s.copy(layers = s.layers.map(::fillModel)) }
+            }
+        }
+    }
+
+    /**
+     * The saved form of [layer]: a model layer's paint is written to its texture file when it
+     * changed since the last write (undo included), and the file is named on the layer.
+     */
+    private suspend fun modelOverlay(
+        layer: Layer,
+        overlay: com.hereliesaz.graffitixr.common.model.OverlayLayer,
+        projectId: String,
+    ) =
+        run {
+            val content = layer.model ?: return@run overlay
+            val texture = content.texture ?: return@run overlay
+            val name = ModelFiles.textureFor(layer.id)
+            if (writtenModelTextures[layer.id] !== texture) {
+                val bytes = texture.encoded() ?: return@run overlay
+                projectRepository.saveArtifact(projectId, name, bytes)
+                writtenModelTextures[layer.id] = texture
+            }
+            overlay.copy(model = overlay.model?.copy(textureFile = name))
+        }
+
+    /**
+     * Sends peers a model layer's content (spec/3d-space.md, "3D model layers", Co-op): the OBJ when
+     * [withMesh] (read from the project folder, off the main thread), and the current paint.
+     */
+    private fun sendModelData(layer: Layer, withMesh: Boolean) {
+        val content = layer.model ?: return
+        val projectId = _uiState.value.projectId ?: return
+        val texture = content.texture
+        viewModelScope.launch(dispatchers.io) {
+            val obj = if (withMesh) {
+                ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
+                    ?.takeIf { it.isFile }?.readBytes()?.let(ModelCoopCodec::deflate) ?: return@launch
+            } else {
+                null
+            }
+            val png = texture?.encoded()
+            withContext(dispatchers.main) {
+                if (opEmitter.isActive) opEmitter.emit(Op.ModelData(layer.id, content.objFile, obj, png))
+            }
+        }
+    }
+
+    /** A peer's model content: the paint at once, the mesh once parsed and saved in the folder. */
+    @Suppress("ReturnCount", "CyclomaticComplexMethod")
+    private fun installPeerModel(op: Op.ModelData) {
+        val layer = _uiState.value.layers.firstOrNull { it.id == op.layerId } ?: return
+        val content = layer.model ?: return
+        if (content.objFile != op.objFile || ModelFiles.safe(op.objFile) == null) return
+        val texture = op.texturePng?.takeIf(ModelCoopCodec::textureInBounds)
+            ?.let(com.hereliesaz.graffitixr.common.scene.ModelTexture::ofPng)
+        if (op.texturePng == null || texture != null) {
+            updateUi { s ->
+                s.copy(layers = LayerListOps.mapLayer(s.layers, op.layerId) { l ->
+                    l.model?.let { l.copy(model = it.copy(texture = texture)) } ?: l
+                })
+            }
+        }
+        val deflated = op.objDeflated ?: return
+        val projectId = _uiState.value.projectId ?: return
+        viewModelScope.launch(dispatchers.default) {
+            val parsed = runCatching {
+                val bytes = ModelCoopCodec.inflate(deflated) ?: throw java.io.IOException("bad model data")
+                val mesh = com.hereliesaz.graffitixr.common.scene.ModelMesh(
+                    com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString()),
+                )
+                projectRepository.saveArtifact(projectId, op.objFile, bytes)
+                mesh
+            }.onFailure { android.util.Log.w("EditorViewModel", "Couldn't install a peer's model", it) }.getOrNull()
+                ?: return@launch
+            withContext(dispatchers.main) {
+                if (_uiState.value.projectId != projectId) return@withContext
+                modelMeshCache["$projectId/${op.objFile}"] = parsed
+                // What the peer sent is what it has: recorded, not sent back.
+                syncLayersToPeers(_uiState.value.layers)
+                updateUi { s ->
+                    s.copy(layers = s.layers.map { l ->
+                        val c = l.model
+                        val waiting = c != null && c.objFile == op.objFile && c.mesh == null
+                        if (waiting) l.copy(model = c?.copy(mesh = parsed)) else l
+                    })
+                }
+                syncLayersToPeers(_uiState.value.layers, send = false)
             }
         }
     }
@@ -14065,6 +14239,8 @@ class EditorViewModel @Inject constructor(
         is Op.LayerGeometry, is Op.LayerParent -> null
         // A mask is not the layer's pixels; installing it redraws the adjustment.
         is Op.AdjustmentMaskData -> null
+        // A model's mesh and paint are drawn by the depth pass, not from the layer's pixels.
+        is Op.ModelData -> null
     }
 
     /** Applies a remote Op received from a peer, without echoing it back through opEmitter. Main thread. */
@@ -14105,6 +14281,7 @@ class EditorViewModel @Inject constructor(
                 if (after != null && after != before) rerasterizeTextLayer(op.layerId, after)
             }
             is Op.AdjustmentMaskData -> installPeerMask(op)
+            is Op.ModelData -> installPeerModel(op)
             is Op.LayerGeometry -> dispatch(
                 EditorIntent.SetLayerGeometry(op.layerId, op.shapes, op.layoutWidth, op.layoutHeight),
             )
@@ -14233,3 +14410,6 @@ class EditorViewModel @Inject constructor(
 
 /** The nearest a Move-tool pinch brings a layer: this fraction of the focal length from the eye. */
 private const val MIN_LAYER_DEPTH_FRACTION = 0.05f
+
+/** The largest dab radius a model brush paints, in texels. */
+private const val MAX_MODEL_BRUSH_TEXELS = 512f

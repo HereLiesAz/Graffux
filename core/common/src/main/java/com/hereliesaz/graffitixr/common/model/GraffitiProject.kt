@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 7
+const val CURRENT_FORMAT_VERSION = 8
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
@@ -65,6 +65,9 @@ data class GraffitiProject(
      * - 7: the one 3D space (spec/3d-space.md): `OverlayLayer.positionZ`, `OverlayLayer.spatial`
      *   and [sceneCamera]. A version 6 file's [spatialStrokes] and [spatialGuide] move into a
      *   "3D strokes" layer on top; the project-level fields are written empty from then on.
+     * - 8: 3D model layers (`OverlayLayer.model`). A version 7 file's floating-window model
+     *   ([modelPath], [modelTexturePath]) becomes a model layer on top; those fields are written
+     *   empty from then on.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),
@@ -138,7 +141,8 @@ data class GraffitiProject(
     // the project folder rather than referenced where the user picked them: a document picker URI
     // is a grant that expires, so a project reopened next week would find its own model gone. Being
     // in the folder also means both ride along in a `.fux` and reopen intact on another device.
-    // All null on projects without a model, which is most of them.
+    // All null on projects without a model, which is most of them. Format 8 moves the model into a
+    // 3D model layer (OverlayLayer.model); these are read only to migrate a version 7 file.
     val modelPath: String? = null,
     val modelName: String? = null,
     val modelTexturePath: String? = null,

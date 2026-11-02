@@ -307,7 +307,8 @@ class ProjectManager @Inject constructor(
      * keys a version 3 file could not have written are cleared. 4 -> 5 introduces spatial ink,
      * defaulting to an empty list for older projects. 5 -> 6 adds transformable sketch guides,
      * defaulting to the original view plane. Neither step moves existing XYZ ink. 6 -> 7 moves the
-     * project-level spatial ink into a 3D strokes layer ([migrateSpatialSketchToLayer]).
+     * project-level spatial ink into a 3D strokes layer ([migrateSpatialSketchToLayer]). 7 -> 8
+     * moves the floating-window model into a 3D model layer ([migrateFloatingModelToLayer]).
      * Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
@@ -328,6 +329,10 @@ class ProjectManager @Inject constructor(
         if (version < FORMAT_SCENE) {
             migrated = migrateSpatialSketchToLayer(migrated)
             version = FORMAT_SCENE
+        }
+        if (version < FORMAT_MODEL_LAYERS) {
+            migrated = migrateFloatingModelToLayer(migrated)
+            version = FORMAT_MODEL_LAYERS
         }
         return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
@@ -352,6 +357,29 @@ class ProjectManager @Inject constructor(
             spatialStrokes = emptyList(),
             spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
         )
+    }
+
+    /**
+     * 7 -> 8 (spec/3d-space.md, "3D model layers"): the model the retired floating 3D window kept
+     * (`modelPath`, `modelTexturePath`, both files in the project folder) becomes a 3D model layer
+     * on top of the stack, at the identity plane (facing the default camera through the canvas
+     * centre). Only the file names are kept: they are resolved in the project folder, which also
+     * survives a `.fux` import under a new id. A missing texture file loads as unpainted.
+     */
+    internal fun migrateFloatingModelToLayer(project: GraffitiProject): GraffitiProject {
+        val objName = project.modelPath?.let { java.io.File(it).name }
+            ?.takeIf { com.hereliesaz.graffitixr.common.scene.ModelLayerContent.isSafeFileName(it) }
+        val cleared = project.copy(modelPath = null, modelName = null, modelTexturePath = null)
+        if (objName == null) return cleared
+        val textureName = project.modelTexturePath?.let { java.io.File(it).name }
+            ?.takeIf { com.hereliesaz.graffitixr.common.scene.ModelLayerContent.isSafeFileName(it) }
+        val layer = com.hereliesaz.graffitixr.common.model.OverlayLayer(
+            name = project.modelName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "3D model",
+            uri = android.net.Uri.parse(""),
+            plane3D = true,
+            model = com.hereliesaz.graffitixr.common.scene.ModelLayerContent(objName, textureName),
+        )
+        return cleared.copy(layers = cleared.layers + layer)
     }
 
     private fun migrateSizedGroupToFrame(layer: com.hereliesaz.graffitixr.common.model.OverlayLayer) =
@@ -835,3 +863,6 @@ private const val FORMAT_DOCUMENT_CROP = 3
 /** Design frames: `OverlayLayer.isFrame` and its fill, radius and clip. */
 private const val FORMAT_FRAMES = 4
 private const val FORMAT_SCENE = 7
+
+/** 3D model layers: `OverlayLayer.model`; the floating window's model becomes one. */
+private const val FORMAT_MODEL_LAYERS = 8
