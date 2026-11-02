@@ -3,6 +3,7 @@
 package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.common.model.LayerType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -126,6 +127,58 @@ class SurfaceProfileTest {
         val layers = listOf(Layer("g", "G", type = LayerType.GROUP, surface = floor), Layer("c", "C", parentId = "g"))
         assertFalse(SceneRenderPath.isFlat(layers, camera))
         assertEquals(setOf("c"), DepthComposite.plan(layers, camera).surfaceIds)
+    }
+
+    @Test
+    fun `an adjustment layer on a surface is drawn in the stack, not dropped`() {
+        val wall = SurfaceMath.capture(ell, camera, w, h, identity)
+        val adj = Layer(
+            "adj", "Light", parentId = "g",
+            adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(com.hereliesaz.graffitixr.common.photo.PhotoTool.LIGHT),
+        )
+        val layers = listOf(Layer("g", "G", type = LayerType.GROUP, surface = wall), Layer("c", "C", parentId = "g"), adj)
+        val plan = DepthComposite.plan(layers, camera)
+        assertFalse("adj" in plan.surfaceIds)
+        assertFalse("adj" in plan)
+        assertTrue("c" in plan.surfaceIds)
+    }
+
+    @Test
+    fun `on a flat surface a blend mode or clip keeps the layer on the plane path`() {
+        val floor = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)!!
+        assertTrue(floor.isFlat)
+        fun layers(surface: SurfaceProfile) = listOf(
+            Layer("g", "G", type = LayerType.GROUP, surface = surface),
+            Layer("plain", "Plain", parentId = "g"),
+            Layer("mult", "Multiply", parentId = "g", blendMode = androidx.compose.ui.graphics.BlendMode.Multiply),
+            Layer("clip", "Clip", parentId = "g", clipToLayerBelow = true),
+        )
+        val flat = DepthComposite.plan(layers(floor), camera)
+        assertEquals(setOf("plain"), flat.surfaceIds)
+        // A curved surface has no plane to fall back to: those stay on it.
+        val curved = DepthComposite.plan(layers(SurfaceMath.capture(ell, camera, w, h, identity)!!), camera)
+        assertEquals(setOf("plain", "mult", "clip"), curved.surfaceIds)
+    }
+
+    @Test
+    fun `animation playback takes the live path for a surface group`() {
+        val floor = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)
+        val layers = listOf(Layer("g", "G", type = LayerType.GROUP, surface = floor), Layer("c", "C", parentId = "g"))
+        assertTrue(needsPerspectiveRender(layers, camera))
+        assertFalse(needsPerspectiveRender(listOf(Layer("a", "A")), camera))
+        assertTrue(needsPerspectiveRender(listOf(Layer("a", "A", rotationX = 10f)), camera))
+    }
+
+    @Test
+    fun `is3DIn over a prebuilt map agrees with the list form`() {
+        val floor = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)
+        val layers = listOf(
+            Layer("g", "G", type = LayerType.GROUP, surface = floor), Layer("c", "C", parentId = "g"),
+            Layer("f", "F"), Layer("t", "T", rotationY = 5f),
+        )
+        val byId = layers.associateBy { it.id }
+        layers.forEach { assertEquals(it.id, it.is3DIn(layers), it.is3DIn(byId)) }
+        assertEquals(SurfaceMath.ownerOf(layers, "c")?.group?.id, SurfaceMath.ownerOf(byId, "c")?.group?.id)
     }
 
     @Test

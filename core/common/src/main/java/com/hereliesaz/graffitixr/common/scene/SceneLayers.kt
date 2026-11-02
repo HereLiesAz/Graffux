@@ -14,6 +14,13 @@ val Layer.hasSurface: Boolean
 private val Layer.inScene: Boolean
     get() = isPlacedIn3D || hasSurface
 
+/**
+ * Whether the canvas must draw through the scene (perspective) rather than the affine-only bitmap
+ * path animation playback buffers: a layer placed in 3D, a group with a surface, or a moved camera.
+ */
+fun needsPerspectiveRender(layers: List<Layer>, camera: SceneCamera): Boolean =
+    layers.any { it.inScene } || !camera.isDefault
+
 /** The layer's plane placement. */
 val Layer.planePose: PlanePose
     get() = PlanePose(offset.x, offset.y, positionZ, rotationX, rotationY, rotationZ, scale)

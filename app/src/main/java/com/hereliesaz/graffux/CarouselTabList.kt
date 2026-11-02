@@ -222,10 +222,11 @@ internal fun carouselSetLabels(sections: List<CarouselTabSection>): Map<String, 
 
 /**
  * The set to go back to after picking [picked]: the one showing until now ([current]), or, when the
- * same set is picked again, the remembered [previous].
+ * same set is picked again, the remembered [previous]. Favorites has its own quick button, so it is
+ * never the set to go back to: leaving it keeps the [previous] set.
  */
 internal fun previousSetAfter(picked: String, current: String?, previous: String?): String? =
-    if (current != null && current != picked) current else previous
+    if (current != null && current != picked && current != FAVORITES_SET_KEY) current else previous
 
 private val QuickButtonHeight = 40.dp
 /**
@@ -253,7 +254,7 @@ internal fun CarouselTabList(
     val labels = remember(sections) { carouselSetLabels(sections) }
     var ownPrevious by rememberSaveable { mutableStateOf<String?>(null) }
     val previous = (previousKey ?: ownPrevious)?.let { key -> sets.firstOrNull { it.key == key } }
-        ?.takeIf { it.key != selectedKey }
+        ?.takeIf { it.key != selectedKey && it.key != FAVORITES_SET_KEY }
     val favorites = sets.firstOrNull { it.key == FAVORITES_SET_KEY }
     val pick: (CarouselTabGroup) -> Unit = { group ->
         ownPrevious = previousSetAfter(group.key, selectedKey, ownPrevious)
@@ -280,7 +281,8 @@ internal fun CarouselTabList(
         Row(
             Modifier.fillMaxWidth().height(radius),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            // The quick buttons sit right beside the wheel, on its rail side.
+            horizontalArrangement = Arrangement.spacedBy(PickerGap, if (onRight) Alignment.End else Alignment.Start),
         ) {
             if (onRight) quick()
             CarouselSetWheel(sets, labels, selectedKey, radius, pick)
@@ -315,3 +317,4 @@ private fun QuickSetButton(label: String, lit: Boolean, tag: String, onClick: ()
         )
     }
 }
+

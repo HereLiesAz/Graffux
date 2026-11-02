@@ -52,6 +52,7 @@ class LayerTile3DOutlineTest {
             Layer("flat", "Flat"),
             Layer("group", "Flat group", type = LayerType.GROUP),
             Layer("inFlat", "In a flat group", parentId = "group"),
+            Layer("placed", "Placed", positionZ = 40f),
             Layer("surface", "Surface", type = LayerType.GROUP, surface = profile),
             Layer("painted", "On the surface", parentId = "surface"),
             Layer("ink", "3D strokes", spatial = SpatialLayerContent()),
@@ -68,7 +69,7 @@ class LayerTile3DOutlineTest {
                 )
             }
         }
-        listOf("surface", "ink", "obj").forEach {
+        listOf("surface", "placed", "ink", "obj").forEach {
             rule.onNodeWithTag("rail.${layerRailId(it)}").assertContentDescriptionContains(", 3D", substring = true)
         }
         // The outlines follow the GROUP: paint on a surface is 3D, paint in a flat group is not.

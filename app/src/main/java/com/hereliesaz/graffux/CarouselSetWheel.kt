@@ -95,6 +95,19 @@ internal val WheelMaxRadius = 136.dp
 private val WheelTextInner = 52.dp
 private val WheelRimPadding = 8.dp
 private val WheelHubRadius = 18.dp
+
+/**
+ * The hub sits this far in from the box's bottom and outer edges, so the names on the arc's two edge
+ * spokes (flat along the bottom, upright along the side) keep the half of their line height that
+ * falls past the hub, instead of being cut by the box, the screen's edge or its rounded corner.
+ */
+internal val WheelEdgeInset = 12.dp
+
+/** The wheel's hub in a [width] x [height] box with the hub [inset] in from its corner. */
+internal object WheelHub {
+    fun at(width: Float, height: Float, inset: Float, onRight: Boolean): Offset =
+        Offset(if (onRight) width - inset else inset, height - inset)
+}
 private const val FLING_SECONDS = 0.18f
 private const val DIM_ALPHA = 0.5f
 private const val HALF_TURN = 180f
@@ -163,10 +176,11 @@ internal fun wheelTextRotation(degrees: Float): Float {
  * ([LocalSetWheelOnRight]), its hub in that corner, with every set's name on its own spoke
  * [WHEEL_WEDGE_DEGREES] apart, like a Wheel of Fortune. A fixed pointer at the arc's midpoint (45°)
  * marks the pointed wedge. Drag along the arc to turn it; a release flings and snaps to a wedge, and
- * a tap on a name turns that name to the pointer. The pointed set is only provisional (outlined in
- * the accent) until the wheel has rested on it for [WHEEL_DWELL_MS]; then it is committed through
- * [onPick] (accent fill). Any new motion cancels the wait. Accessibility actions (select a name,
- * next, previous) commit at once. The list is bounded: it stops at the first and last set after a
+ * a tap on a name turns that name to the pointer and commits it at once. After a drag or fling the
+ * pointed set is only provisional (outlined in the accent) until the wheel has rested on it for
+ * [WHEEL_DWELL_MS]; then it is committed through [onPick] (accent fill). Any new motion cancels
+ * the wait. Accessibility actions (select a name, next, previous) commit at once. The list is
+ * bounded: it stops at the first and last set after a
  * small pull. A light tick plays as each wedge passes the pointer.
  *
  * The wheel's position lives in a float state read only while drawing and placing, so turning it
@@ -229,7 +243,9 @@ internal fun CarouselSetWheel(
     }
 
     val density = LocalDensity.current
-    val rPx = with(density) { radius.toPx() }
+    val insetPx = with(density) { WheelEdgeInset.toPx() }
+    // The disc's radius: the box less the hub's inset.
+    val rPx = with(density) { radius.toPx() } - insetPx
     val innerPx = with(density) { WheelTextInner.toPx() }
     val textMax = (rPx - innerPx - with(density) { WheelRimPadding.toPx() }).coerceAtLeast(1f)
     val colors = MaterialTheme.colorScheme
@@ -270,7 +286,7 @@ internal fun CarouselSetWheel(
                 )
             }
             .pointerInput(count, onRight) {
-                val hub = Offset(if (onRight) size.width.toFloat() else 0f, size.height.toFloat())
+                val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
                 fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
                 val tracker = VelocityTracker1D(isDataDifferential = false)
                 var lastAngle = 0f
@@ -303,16 +319,20 @@ internal fun CarouselSetWheel(
             }
             .pointerInput(count, onRight) {
                 detectTapGestures { tap ->
-                    val hub = Offset(if (onRight) size.width.toFloat() else 0f, size.height.toFloat())
-                    if (hypot(tap.x - hub.x, tap.y - hub.y) > size.height) return@detectTapGestures
+                    val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
+                    if (hypot(tap.x - hub.x, tap.y - hub.y) > rPx) return@detectTapGestures
                     val a = (atan2(tap.y - hub.y, tap.x - hub.x) * HALF_TURN / PI).toFloat()
-                    settleTo(wheelIndexAt(a, position.floatValue, onRight).roundToInt().coerceIn(0, count - 1))
+                    // A tap is a decision: it commits at once. The dwell is for a drag or fling at rest.
+                    settleTo(
+                        wheelIndexAt(a, position.floatValue, onRight).roundToInt().coerceIn(0, count - 1),
+                        commitNow = true,
+                    )
                 }
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val hub = Offset(if (onRight) size.width else 0f, size.height)
-            val r = size.height
+            val hub = WheelHub.at(size.width, size.height, insetPx, onRight)
+            val r = size.height - insetPx
             val pos = position.floatValue
             val pointed = pos.roundToInt().coerceIn(0, count - 1)
             val committed = pointed == selectedIndex
@@ -371,7 +391,7 @@ internal fun CarouselSetWheel(
         // pass through to the wheel's own tap handling.
         val itemSize = 28.dp
         val itemPx = with(density) { itemSize.toPx() }
-        val hubX = if (onRight) rPx else 0f
+        val hubX = WheelHub.at(rPx + insetPx, rPx + insetPx, insetPx, onRight).x
         sets.forEachIndexed { i, set ->
             val label = labels[set.key] ?: set.label
             Box(

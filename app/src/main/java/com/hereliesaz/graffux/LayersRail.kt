@@ -241,6 +241,8 @@ internal fun LayersRail(
     maskThumbs: Map<String, android.graphics.Bitmap> = emptyMap(),
 ) {
     val centers = remember { HashMap<String, Float>() }
+    // Built once per layer list: is3DIn would otherwise index the document again for every tile.
+    val layersById = remember(layers) { layers.associateBy { it.id } }
     var dragging by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
     var dragDx by remember { mutableFloatStateOf(0f) }
@@ -287,7 +289,7 @@ internal fun LayersRail(
                         light = RailLight(active = carried.id == activeLayerId),
                         nested = false,
                         expanded = false,
-                        is3D = carried.is3DIn(layers),
+                        is3D = carried.is3DIn(layersById),
                     )
                 }
             }
@@ -408,7 +410,7 @@ internal fun LayersRail(
                     light = RailLight(active = layer.id == activeLayerId, secondary = id in secondary),
                     nested = layer.parentId != null,
                     expanded = expanded,
-                    is3D = layer.is3DIn(layers),
+                    is3D = layer.is3DIn(layersById),
                 )
             }
         } }

@@ -116,13 +116,21 @@ private fun GridCard(
     onToggleFavorite: (CarouselEntry) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val border = if (entry.selected) Modifier else Modifier.border(BorderStroke(1.dp, colors.outline), CardShape)
+    // A selected brush card keeps the dark fill (its live stroke is in the brush colour) and is
+    // marked by an accent border instead.
+    val brushFace = isBrushCard(entry)
+    val lightFill = entry.selected && !brushFace
+    val border = when {
+        lightFill -> Modifier
+        entry.selected -> Modifier.border(BorderStroke(2.dp, colors.primary), CardShape)
+        else -> Modifier.border(BorderStroke(1.dp, colors.outline), CardShape)
+    }
     Box(
         Modifier
             .size(HeroRestSize)
             .clip(CardShape)
             .then(border)
-            .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
+            .background(if (lightFill) colors.onSurface else colors.surfaceVariant)
             .clickable(role = Role.Tab) { onEntryClick(entry) }
             .semantics {
                 selected = entry.selected
@@ -132,8 +140,8 @@ private fun GridCard(
             .testTag("carousel.grid.card"),
         contentAlignment = Alignment.Center,
     ) {
-        val tint = if (entry.selected) colors.surface else colors.onSurface
-        if (isBrushCard(entry)) {
+        val tint = if (lightFill) colors.surface else colors.onSurface
+        if (brushFace) {
             BrushCardFace(entry, content, tint, onEntryClick, onToggleFavorite)
         } else {
             CardIdentity(entry, CarouselTier.HERO, content, tint, onToggleFavorite)

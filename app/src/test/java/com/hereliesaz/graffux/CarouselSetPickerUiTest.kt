@@ -142,7 +142,8 @@ class CarouselSetPickerUiTest {
         rule.onNodeWithTag("carousel.quick.previous").performClick()
         rule.waitForIdle()
         assertEquals("ink", ui.tab)
-        assertEquals("previous is now Favorites", FAVORITES_SET_KEY, ui.previousTab)
+        // Favorites has its own button: it is never offered as the set to go back to.
+        assertTrue("previous is never Favorites", ui.previousTab != FAVORITES_SET_KEY)
     }
 
     @Test

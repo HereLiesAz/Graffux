@@ -230,7 +230,9 @@ internal class ActivePlaneMapping private constructor(
  * "Painting on a tilted plane"). A sample whose ray misses the plane (the plane edge-on, parallel
  * to the ray, or behind the eye) has no point on the layer under the finger, so it is skipped
  * rather than painted at an unrelated flat-space point. The stroke starts at its first sample that
- * hits; a stroke that never hits is cancelled, which also puts back an adopted view plane.
+ * hits; a stroke that never hits is cancelled, which also puts back an adopted view plane. A
+ * stroke that leaves the plane and comes back is broken at the gap (ended, then a new stroke
+ * started where it comes back) rather than bridged with a straight segment across it.
  */
 internal class PlaneStrokeFeed<S>(
     private val toLayer: (S) -> S?,
@@ -241,8 +243,12 @@ internal class PlaneStrokeFeed<S>(
 ) {
     private var started = false
 
+    /** A sample missed the plane since the last one that hit. */
+    private var gap = false
+
     fun onStart(sample: S) {
         started = false
+        gap = false
         feed(sample)
     }
 
@@ -253,7 +259,16 @@ internal class PlaneStrokeFeed<S>(
     fun onCancel() = finish(cancel)
 
     private fun feed(sample: S) {
-        val mapped = toLayer(sample) ?: return
+        val mapped = toLayer(sample)
+        if (mapped == null) {
+            gap = started
+            return
+        }
+        if (started && gap) {
+            end()
+            started = false
+        }
+        gap = false
         if (started) {
             point(mapped)
         } else {
@@ -265,5 +280,6 @@ internal class PlaneStrokeFeed<S>(
     private fun finish(then: () -> Unit) {
         if (started) then() else cancel()
         started = false
+        gap = false
     }
 }

@@ -140,6 +140,11 @@ internal class SceneExport(private val manager: ExportManager) {
         for (id in DepthComposite.backToFront(depths, scene.planes.map { it.id })) {
             val plane = scene.planes.first { it.id == id }
             val layer = byId[id] ?: continue
+            // Paint on a group surface goes on the surface's strips, not on a plane of its own.
+            plane.surface?.let { surface ->
+                drawSurfaceFallback(canvas, plane, surface, scene.camera, manager.layerPaint(layer, plane.alpha))
+                continue
+            }
             val m = homography(layer, ctx) ?: continue
             val place = Matrix().apply {
                 setScale((plane.rect[2] - plane.rect[0]) / plane.bitmap.width, (plane.rect[3] - plane.rect[1]) / plane.bitmap.height)
@@ -150,8 +155,55 @@ internal class SceneExport(private val manager: ExportManager) {
         }
     }
 
+    /**
+     * The no-GLES fallback for paint on a surface: each strip of [surface] (a planar quad, six
+     * vertices x, y, z, u, v in the owner's box) maps the image onto its projection exactly, so the
+     * image follows the profile. A strip reaching behind the eye is skipped.
+     */
+    private fun drawSurfaceFallback(
+        canvas: Canvas,
+        plane: com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor.Plane,
+        surface: FloatArray,
+        cam: com.hereliesaz.graffitixr.common.scene.CameraFrame,
+        paint: android.graphics.Paint,
+    ) {
+        val bw = plane.bitmap.width.toFloat()
+        val bh = plane.bitmap.height.toFloat()
+        var i = 0
+        while (i + STRIP_FLOATS <= surface.size) {
+            val src = FloatArray(8)
+            val dst = FloatArray(8)
+            var inFront = true
+            QUAD_CORNERS.forEachIndexed { k, v ->
+                val o = i + v * VERTEX_FLOATS
+                val c = cam.toCamera(plane.model.apply(surface[o], surface[o + 1], surface[o + 2]))
+                if (c[2] <= NEAR) inFront = false
+                src[k * 2] = surface[o + 3] * bw
+                src[k * 2 + 1] = surface[o + 4] * bh
+                dst[k * 2] = cam.width / 2f + cam.focal * c[0] / c[2]
+                dst[k * 2 + 1] = cam.height / 2f + cam.focal * c[1] / c[2]
+            }
+            i += STRIP_FLOATS
+            val m = Matrix()
+            if (!inFront || !m.setPolyToPoly(src, 0, dst, 0, 4)) continue
+            val clip = android.graphics.Path().apply {
+                moveTo(dst[0], dst[1]); lineTo(dst[2], dst[3]); lineTo(dst[4], dst[5]); lineTo(dst[6], dst[7]); close()
+            }
+            val save = canvas.save()
+            canvas.clipPath(clip)
+            canvas.drawBitmap(plane.bitmap, m, paint)
+            canvas.restoreToCount(save)
+        }
+    }
+
     companion object {
         private const val CLIP_EXTENT = 8f
+        private const val VERTEX_FLOATS = 5
+        private const val STRIP_FLOATS = 6 * VERTEX_FLOATS
+
+        /** A strip's two triangles are (a,t0) (b,t0) (b,t1) and (a,t0) (b,t1) (a,t1): its corners. */
+        private val QUAD_CORNERS = intArrayOf(0, 1, 2, 5)
+        private const val NEAR = 1e-3f
 
         /** Anything to do beyond the flat composite: a layer placed in 3D, a moved camera, 3D ink. */
         fun needed(layers: List<Layer>, camera: SceneCamera): Boolean =
