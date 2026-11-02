@@ -44,6 +44,8 @@ class BrushOpensSheetUiTest {
         override fun setBrushFeathering(feathering: Float) = Unit
     }
 
+    private var wheelToggles = 0
+
     /** The same wiring MainActivity has: the rail's onBrush and the active-tool effect. */
     private fun setUp() {
         rule.setContent {
@@ -60,6 +62,7 @@ class BrushOpensSheetUiTest {
                         onToolGroup = { ui = ui.copy(category = it, sheetOpen = true, tab = null) },
                         onBrushMenu = {},
                         onBrush = open,
+                        onPackWheelToggle = { wheelToggles++ },
                     ),
                 )
             }
@@ -85,7 +88,7 @@ class BrushOpensSheetUiTest {
     }
 
     @Test
-    fun reTapWhileActiveReopensAfterADismiss() {
+    fun reTapWhileActiveTogglesThePackWheelInstead() {
         setUp()
         rule.onNodeWithTag("rail.tool.brush").performClick()
         rule.waitForIdle()
@@ -94,7 +97,9 @@ class BrushOpensSheetUiTest {
         rule.onNodeWithTag("rail.tool.brush").performClick()
         rule.waitForIdle()
         assertEquals(Tool.BRUSH, tool)
-        assertBrushSheetShown()
+        // The second tap is the pack wheel's (RailPackWheel); picking a pack there brings the sheet back.
+        assertEquals(1, wheelToggles)
+        assertFalse(ui.sheetOpen)
     }
 
     @Test

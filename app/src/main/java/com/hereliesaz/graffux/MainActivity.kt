@@ -445,6 +445,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         carouselUi = carouselUi.openOnBrushes()
     }
     brushOpensSheet(uiState.activeTool, openBrushSheet)
+    // The brush pack wheel (RailPackWheel.kt), opened from the rail's Brush and Eraser items.
+    val packWheel = remember { PackWheelState() }
+    LaunchedEffect(uiState.activeTool) {
+        if (uiState.activeTool !in PACK_WHEEL_TOOLS) packWheel.close()
+    }
     val carouselFavorites by vm.carouselFavorites.collectAsState()
     // The design tools (the rail's Frame circle): the Frame tool in hand turns the sheet into the
     // design tabs, or on a tablet / desktop docks the properties in a side panel instead (the
@@ -849,6 +854,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         showPosterMenu = false
         brushMenuOpen = false
         layerMenuFor = null
+        packWheel.close()
         carouselUi = carouselUi.afterCanvasTouch(uiState.activeTool)
         heroExpansion.collapse()
         TOOLBOX_IDS.filter { railExpansion[it] == true }.forEach { vm.onRailHostExpansionChanged(it, false) }
@@ -884,6 +890,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             .fillMaxSize()
             // Remembers where the last press landed, so a value popover opens by its control.
             .trackSurfaceAnchor(surfaceAnchor)
+            // A press anywhere off the pack wheel shuts it (and still does what it does).
+            .closesPackWheelOutside(packWheel)
             .multiFingerTaps(strokeGate) { slot, at ->
                 performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
@@ -991,7 +999,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             carouselUi = carouselUi.steppedUp(gridAllowed = !designMode && !carouselUi.photo)
                         },
                         onStepDown = {
-                            carouselUi.steppedDown()?.let { carouselUi = it } != null
+                            val brushPage = !designMode && !carouselUi.photo &&
+                                carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
+                            carouselUi.steppedDown(tabListStage = !brushPage)?.let { carouselUi = it } != null
                         },
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
@@ -1292,9 +1302,49 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
                         onAdjust = openAdjust,
                         onBrush = openBrushSheet,
+                        onPackWheelToggle = packWheel::toggle,
+                        onPackWheelOpen = { packWheel.open = true },
+                        onPackAnchor = packWheel::anchor,
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
+                if (packWheel.open) {
+                    val packInputs = CarouselInputs(
+                        activeTool = uiState.activeTool,
+                        activeBrushName = uiState.activeBrushName,
+                        activeInkUtensil = activeInkUtensil,
+                        builtInBrushes = com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets,
+                        customBrushes = customBrushes.map { it.id to it.brush },
+                        extensionBrushes = brushes,
+                        stabilizerLevel = uiState.stabilizerLevel,
+                        stabilizerAlgorithm = uiState.stabilizerAlgorithm,
+                        smudgeMode = colorSmudgeSettings.mode,
+                        selectionShape = uiState.selectionShape,
+                        favorites = carouselFavorites,
+                    )
+                    val packSections = carouselTabSections(
+                        CarouselContext.BRUSHES, CarouselCategory.BRUSHES, packInputs,
+                        packNames = allInstalledExtensions.associate { it.id to it.manifest.name },
+                    )
+                    val packSets = carouselSets(packSections)
+                    val onBrushPage = !carouselUi.photo &&
+                        carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
+                    RailPackWheel(
+                        state = packWheel,
+                        sets = packSets,
+                        labels = carouselSetLabels(packSections),
+                        selectedKey = selectedTabGroup(packSections, carouselUi.tab.takeIf { onBrushPage })?.key,
+                        opensRight = uiState.isRightHanded,
+                        // The Eraser erases with the brush in hand, so it shares the brush's packs:
+                        // either way the pick puts the brush sheet up on that pack.
+                        onPick = { group ->
+                            showCarousel = true
+                            heroExpansion.collapse()
+                            carouselUi = carouselUi.copy(sheetOpen = true, photo = false).withSet(group)
+                        },
+                        closeWhen = { strokeGate.strokeActive },
+                    )
+                }
                 if (brushMenuOpen) {
                     MenuPanel(
                         rows = buildMenu {

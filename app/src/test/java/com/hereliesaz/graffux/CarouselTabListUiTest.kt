@@ -120,51 +120,27 @@ class CarouselTabListUiTest {
     private fun tabsShown() = rule.onAllNodesWithTag("carousel.tabs").fetchSemanticsNodes().isNotEmpty()
 
     @Test
-    fun `shut, tab list, carousel, and back`() {
+    fun `the brush page has no tab list, so opening it shows the cards`() {
         compose()
         screenshot("1-shut")
         assertFalse(carouselShown())
-
-        // No grab handle any more: the rail opens the sheet.
-        ui = ui.copy(sheetOpen = true)
+        // Opened with no carousel stage asked for (a swipe, the back stack): the cards show anyway.
+        ui = ui.copy(sheetOpen = true, showingCarousel = false)
         rule.waitForIdle()
-        screenshot("2-tab-list")
-        assertTrue(ui.sheetOpen)
-        assertTrue(tabsShown())
-        assertFalse("brushes stay hidden at the tab list", carouselShown())
-
-        rule.onAllNodesWithText("Spray Caps", useUnmergedTree = true).onLast()
-            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-        rule.waitForIdle()
-        screenshot("3-carousel")
-        assertEquals("pack.caps", ui.tab)
+        screenshot("2-open")
         assertTrue(carouselShown())
-
-        rule.onNodeWithTag("carousel.tabs").performTouchInput {
-            swipeDown(startY = top, endY = bottom + 900f, durationMillis = 100)
-        }
-        rule.waitForIdle()
-        assertTrue("a swipe down steps back to the tab list", ui.sheetOpen && !ui.showingCarousel)
-        assertFalse(carouselShown())
-
-        rule.onNodeWithTag("carousel.tabs").performTouchInput {
-            swipeUp(startY = bottom, endY = top - 300f, durationMillis = 100)
-        }
-        rule.waitForIdle()
-        assertTrue("a swipe up brings the carousel back", ui.showingCarousel)
-        assertEquals("pack.caps", ui.tab)
-        assertTrue(carouselShown())
+        assertFalse("no picker in the brush sheet", tabsShown())
+        // And a step down from the carousel shuts it: there is no tab-list stage to stop at.
+        assertEquals(null, ui.copy(showingCarousel = true).steppedDown(tabListStage = false))
+        assertTrue(ui.copy(showingCarousel = true).steppedDown(tabListStage = true) != null)
     }
 
     @Test
-    fun `the brush tab list offers only brushes`() {
-        compose()
-        ui = ui.copy(sheetOpen = true)
-        rule.waitForIdle()
-        fun shown(label: String) =
-            rule.onAllNodesWithText(label, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-        assertTrue(shown("Ink"))
-        assertFalse(shown("Tools"))
-        assertFalse(shown("Options"))
+    fun `the brush packs are only brushes`() {
+        val sections = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, inputs)
+        val labels = carouselSets(sections).map { it.label }
+        assertTrue("Ink" in labels)
+        assertFalse("Tools" in labels)
+        assertFalse("Options" in labels)
     }
 }

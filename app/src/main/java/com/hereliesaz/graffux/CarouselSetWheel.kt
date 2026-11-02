@@ -66,7 +66,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.min
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -158,7 +157,7 @@ private fun wheelDirection(onRight: Boolean) = if (onRight) 1f else -1f
 
 /**
  * The spoke angle, in degrees, of set [index] while the wheel sits at [position] (a fractional set
- * index under the pointer). The first sets lie toward the rail (and the quick buttons) and the later
+ * index under the pointer). The first sets lie toward the rail and the later
  * ones away from it, so [onRight] mirrors the order.
  */
 internal fun wheelSpokeDegrees(index: Int, position: Float, onRight: Boolean): Float =
@@ -286,7 +285,7 @@ private fun SetWheelBand(
         }
     }
 
-    // A set picked elsewhere (Favorites, previous) turns the wheel to it.
+    // A set picked elsewhere turns the wheel to it.
     LaunchedEffect(selectedIndex) {
         motion.committed = null
         if (!motion.dragging && position.floatValue.roundToInt() != selectedIndex) {
@@ -480,29 +479,5 @@ private class WheelMotion {
     var committed: Int? = null
 }
 
-internal val QuickColumnWidth = 112.dp
+/** The picker strip's side padding. */
 internal val PickerGap = 8.dp
-
-/** Gaps across the picker: both sides and between the buttons and the wheel. */
-internal const val PICKER_GAPS = 3
-
-/** A quick button is never narrower than this side by side; below it the buttons stack. */
-internal val QuickMinWidth = 80.dp
-
-/**
- * How the picker shares [available] width between the wheel and [buttons] quick buttons: each
- * button's even share, whether they stack in one column, and the wheel's width. The wheel keeps at least
- * [WheelMinWidth] (so typical names fit) and at most [WheelMaxWidth]; the buttons give way first,
- * down to [QuickMinWidth] each, and only then stack.
- */
-internal data class PickerSplit(val buttonWidth: Dp, val stacked: Boolean, val wheelWidth: Dp, val quickWidth: Dp)
-
-internal fun pickerSplit(available: Dp, buttons: Int): PickerSplit {
-    if (buttons == 0) return PickerSplit(0.dp, false, available.coerceAtMost(WheelMaxWidth), 0.dp)
-    val room = available - WheelMinWidth - PickerGap * buttons
-    val side = min(QuickColumnWidth, room / buttons)
-    val stacked = buttons > 1 && side < QuickMinWidth
-    val button = if (stacked) QuickColumnWidth else side.coerceAtLeast(0.dp)
-    val column = if (stacked) button else button * buttons + PickerGap * (buttons - 1)
-    return PickerSplit(button, stacked, (available - column - PickerGap).coerceIn(0.dp, WheelMaxWidth), column)
-}

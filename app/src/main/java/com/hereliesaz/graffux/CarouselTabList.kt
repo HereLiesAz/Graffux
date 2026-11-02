@@ -1,38 +1,18 @@
 package com.hereliesaz.graffux
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -95,8 +75,8 @@ internal fun carouselTabSections(
         ),
     ) + if (category == CarouselCategory.VECTOR) effectSections(input) else emptyList()
 }.map { section ->
-    // Favorites stays even when empty: its quick button always has somewhere to go, and the empty
-    // set says how to star something.
+    // Favorites stays even when empty: it is always the pack wheel's first entry, and the empty set
+    // says how to star something.
     section.copy(groups = section.groups.filter { it.entries.isNotEmpty() || it.key == FAVORITES_SET_KEY })
 }
     .filter { it.groups.isNotEmpty() }
@@ -198,7 +178,7 @@ internal fun selectedTabGroup(sections: List<CarouselTabSection>, requested: Str
         ?: groups.firstOrNull()
 }
 
-/** The one Favorites set (starred entries): the target of the picker's Favorites button. */
+/** The one Favorites set (starred entries): the pack wheel's first entry. */
 internal const val FAVORITES_SET_KEY = "fav.starred"
 
 /**
@@ -226,124 +206,48 @@ internal fun carouselSetLabels(sections: List<CarouselTabSection>): Map<String, 
 
 /**
  * The set to go back to after picking [picked]: the one showing until now ([current]), or, when the
- * same set is picked again, the remembered [previous]. Favorites has its own quick button, so it is
- * never the set to go back to: leaving it keeps the [previous] set.
+ * same set is picked again, the remembered [previous]. Favorites is never the set to go back to:
+ * leaving it keeps the [previous] set. Kept in [CarouselUi.previousTab].
  */
 internal fun previousSetAfter(picked: String, current: String?, previous: String?): String? =
     if (current != null && current != picked && current != FAVORITES_SET_KEY) current else previous
 
-/** The quick buttons' height: a full 44dp touch target, inside the strip and its overhang. */
-private val QuickButtonHeight = 44.dp
-private val QuickStackGap = 4.dp
 /**
- * The set picker: a wide, flat wheel of the sets ([CarouselSetWheel]) in the sheet's bottom corner
- * away from the rail ([LocalSetWheelOnRight], from the handedness setting), with two quick buttons stacked on
- * the rail side — Favorites, and the set picked before this one, named, for switching back and
- * forth. Each set is its own list, so nothing scrolls on from one set into the next. [onSelect] is
- * called with the committed set (after the wheel's dwell, see [WHEEL_DWELL_MS]). AzRoller's
- * type-to-filter search went with it: the wheel has no field.
- *
- * [previousKey] is the set to offer for going back, when the caller keeps it (the brush sheet saves
- * it in [CarouselUi]); left null, the strip remembers the last switch itself.
+ * The compact set picker the sheets without a Brush item keep (Photo, Design, and the brush sheet's
+ * effect and tool-group pages): a wide, flat wheel of the sets ([CarouselSetWheel]) in the sheet's
+ * bottom corner away from the rail ([LocalSetWheelOnRight]). The brush packs are picked on the
+ * rail instead ([RailPackWheel]), so the brush page has no strip at all. [onSelect] is called with
+ * the committed set (after the wheel's dwell, see [WHEEL_DWELL_MS]).
  */
-@Suppress("FunctionNaming", "LongMethod")
+@Suppress("FunctionNaming")
 @Composable
 internal fun CarouselTabList(
     sections: List<CarouselTabSection>,
     selectedKey: String?,
     onSelect: (CarouselTabGroup) -> Unit,
     modifier: Modifier = Modifier,
-    previousKey: String? = null,
 ) {
     val sets = remember(sections) { carouselSets(sections) }
     if (sets.isEmpty()) return
     val labels = remember(sections) { carouselSetLabels(sections) }
-    var ownPrevious by rememberSaveable { mutableStateOf<String?>(null) }
-    val previous = (previousKey ?: ownPrevious)?.let { key -> sets.firstOrNull { it.key == key } }
-        ?.takeIf { it.key != selectedKey && it.key != FAVORITES_SET_KEY }
-    val favorites = sets.firstOrNull { it.key == FAVORITES_SET_KEY }
-    val pick: (CarouselTabGroup) -> Unit = { group ->
-        ownPrevious = previousSetAfter(group.key, selectedKey, ownPrevious)
-        onSelect(group)
-    }
     val onRight = LocalSetWheelOnRight.current
-    // The strip takes exactly the height the picker had before the wheel (StripHeight), so the cards
-    // above sit where they always did. The wheel and the quick buttons are drawn over it, anchored
-    // in its bottom corner and reaching down into the sheet's gesture-free bottom inset (above the
-    // nav bar's), never up into the cards.
+    // The strip takes the height the picker always had (StripHeight), so the cards above sit where
+    // they did. The wheel is drawn over it, anchored in its bottom corner and reaching down into the
+    // sheet's gesture-free bottom inset (above the nav bar's), never up into the cards.
     BoxWithConstraints(
         modifier.fillMaxWidth().height(StripHeight).padding(horizontal = PickerGap).testTag("carousel.tabs"),
     ) {
-        val buttons = listOfNotNull(favorites, previous).size
-        // Both quick buttons count: side by side they narrow before the wheel does, and only stack
-        // (one button's width, rising a little over the strip) when even that leaves too little.
-        val split = pickerSplit(maxWidth, buttons)
         val wheelHeight = StripHeight + PickerOverhang
-        val quick: @Composable () -> Unit = {
-            val favoritesButton: @Composable () -> Unit = {
-                if (favorites != null) {
-                    Box(Modifier.width(split.buttonWidth)) {
-                        QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
-                            pick(favorites)
-                        }
-                    }
-                }
-            }
-            val previousButton: @Composable () -> Unit = {
-                if (previous != null) {
-                    Box(Modifier.width(split.buttonWidth)) {
-                        QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") {
-                            pick(previous)
-                        }
-                    }
-                }
-            }
-            if (split.stacked) {
-                Column(
-                    Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true),
-                    verticalArrangement = Arrangement.spacedBy(QuickStackGap),
-                ) {
-                    favoritesButton()
-                    previousButton()
-                }
-            } else {
-                // Side by side in the buttons' share: Favorites as wide as its label, the previous
-                // set's name taking the rest. Favorites stays nearest the rail either way round.
-                val fav: @Composable RowScope.() -> Unit = {
-                    if (favorites != null) {
-                        Box(Modifier.width(IntrinsicSize.Max)) {
-                            QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
-                                pick(favorites)
-                            }
-                        }
-                    }
-                }
-                val prev: @Composable RowScope.() -> Unit = {
-                    if (previous != null) {
-                        Box(Modifier.weight(1f)) {
-                            QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") {
-                                pick(previous)
-                            }
-                        }
-                    }
-                }
-                Row(Modifier.width(split.quickWidth), horizontalArrangement = Arrangement.spacedBy(PickerGap)) {
-                    if (onRight) { fav(); prev() } else { prev(); fav() }
-                }
-            }
-        }
+        val wheelWidth = maxWidth.coerceAtMost(WheelMaxWidth)
         Row(
             Modifier
                 .fillMaxWidth()
                 .wrapContentHeight(Alignment.Top, unbounded = true)
                 .requiredHeight(wheelHeight),
             verticalAlignment = Alignment.Bottom,
-            // The quick buttons sit right beside the wheel, on its rail side.
-            horizontalArrangement = Arrangement.spacedBy(PickerGap, if (onRight) Alignment.End else Alignment.Start),
+            horizontalArrangement = if (onRight) Arrangement.End else Arrangement.Start,
         ) {
-            if (onRight) quick()
-            CarouselSetWheel(sets, labels, selectedKey, split.wheelWidth, wheelHeight, pick)
-            if (!onRight) quick()
+            CarouselSetWheel(sets, labels, selectedKey, wheelWidth, wheelHeight, onSelect)
         }
     }
 }
@@ -353,31 +257,3 @@ internal val StripHeight = 56.dp
 
 /** How far the wheel reaches below the strip: into the sheet's bottom inset ([CarouselBottomInset]). */
 internal val PickerOverhang = CarouselBottomInset
-
-@Suppress("FunctionNaming")
-@Composable
-private fun QuickSetButton(label: String, lit: Boolean, tag: String, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(QuickButtonHeight)
-            .clip(RoundedCornerShape(QuickButtonHeight / 2))
-            .background(if (lit) colors.onSurface else colors.surface.copy(alpha = 0.72f))
-            .border(1.dp, colors.outline, RoundedCornerShape(QuickButtonHeight / 2))
-            .clickable(role = Role.Button, onClick = onClick)
-            .semantics { selected = lit }
-            .padding(horizontal = 10.dp)
-            .testTag(tag),
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (lit) colors.surface else colors.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-

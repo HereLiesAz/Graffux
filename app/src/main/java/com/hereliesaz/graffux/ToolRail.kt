@@ -50,6 +50,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 
 /** The editor calls the tool rail makes. EditorViewModel's own methods, as an interface tests can fake. */
 internal interface ToolRailActions {
@@ -89,16 +92,26 @@ internal class ToolRailCallbacks(
     val onBrushMenu: () -> Unit,
     /** Adjust photo: put the sheet on the photo tabs. */
     val onAdjust: () -> Unit = {},
-    /** The Brush item: bring up the brush sheet, even with the brush already in hand. */
+    /** The Brush item picked up from another tool: bring up the brush sheet. */
     val onBrush: () -> Unit = {},
+    /** The Brush or Eraser item tapped while it is already in hand: open or shut the pack wheel. */
+    val onPackWheelToggle: () -> Unit = {},
+    /** A long-press on the Brush or Eraser item: open the pack wheel ([RailPackWheel]). */
+    val onPackWheelOpen: () -> Unit = {},
+    /** Where the Brush or Eraser item sits, in root coordinates: the pack wheel's anchor. */
+    val onPackAnchor: (Tool, Rect) -> Unit = { _, _ -> },
 )
 
 /**
  * The left tool rail (right, for the left-handed), laid out as the approved mockup draws it: the
- * brush-size chip and the colour; then Brush, Fill, Text, Vector, Selection, Crop & Transform and
+ * brush-size chip and the colour; then Brush with the Eraser directly below it (the pair the pack
+ * wheel, [RailPackWheel], opens from), Fill, Text, Vector, Selection, Crop & Transform and
  * Retouch; then Undo and Redo. Items the mockup does not draw stay because nothing else reaches them
  * as directly: the Brush and Retouch (every drawing and retouching tool must be on the rail, not only
  * in the sheet), the Eraser, and Fit (only while the view has moved).
+ *
+ * Tapping the Brush or the Eraser while it is already in hand opens (or shuts) the pack wheel, and a
+ * long-press on either opens it too; picking either up from another tool does not.
  *
  * The brush's long-press menu (Brush Studio, My Brushes, Brush Tips) is on the size chip.
  *
@@ -125,16 +138,30 @@ internal fun ToolRail(
             label = label,
             light = light(entry.id),
             testTag = "rail.${entry.id}",
-            // Tapping the tool already in hand puts it down (Procreate's rule, and the sheet's).
+            modifier = if (tool in PACK_WHEEL_TOOLS) {
+                Modifier.onGloballyPositioned { callbacks.onPackAnchor(tool, it.boundsInRoot()) }
+            } else {
+                Modifier
+            },
+            // Tapping the tool already in hand puts it down (Procreate's rule, and the sheet's),
+            // except the Brush and the Eraser, whose second tap opens or shuts the pack wheel.
             onClick = {
-                if (tool == Tool.BRUSH) {
-                    // The brush is never put down from here: a tap always picks it up and opens
-                    // its sheet, so one dismissed by hand comes back on the next tap.
-                    if (uiState.activeTool != Tool.BRUSH) vm.setActiveTool(Tool.BRUSH)
-                    callbacks.onBrush()
-                } else {
-                    vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
+                when {
+                    tool in PACK_WHEEL_TOOLS && uiState.activeTool == tool -> callbacks.onPackWheelToggle()
+                    tool == Tool.BRUSH -> {
+                        vm.setActiveTool(Tool.BRUSH)
+                        callbacks.onBrush()
+                    }
+                    else -> vm.setActiveTool(if (uiState.activeTool == tool) Tool.NONE else tool)
                 }
+            },
+            onLongClick = if (tool in PACK_WHEEL_TOOLS) {
+                {
+                    if (uiState.activeTool != tool) vm.setActiveTool(tool)
+                    callbacks.onPackWheelOpen()
+                }
+            } else {
+                null
             },
         ) { glyph(entry.id in lit) }
     }
@@ -178,6 +205,8 @@ internal fun ToolRail(
         // The brush, back on the rail: the sheet is shut while drawing, and picking the brush up
         // again must not need it. Its long-press menu stays on the size chip above.
         tool(Tool.BRUSH, "Brush") { RailGlyph(TOOL_CATALOG.getValue(Tool.BRUSH).icon, active = it) }
+        // Directly below the Brush: the pair the pack wheel opens from, centred between them.
+        tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
         tool(Tool.FILL, "Fill") { RailGlyph(RailIcons.Fill, active = it) }
         tool(Tool.TEXT, "Text") { active ->
             Text(
@@ -224,8 +253,6 @@ internal fun ToolRail(
         // surface" on the layer's group.
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
         AxisButton(uiState.activeRotationAxis.takeIf { active3D }) { vm.onAxisSlotTapped() }
-        // Not in the mockup; kept because the rail is the eraser's only always-there button.
-        tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
             uiState.viewportRotation != 0f ||
@@ -251,6 +278,9 @@ internal fun ToolRail(
     }
     }
 }
+
+/** The rail items the pack wheel ([RailPackWheel]) opens from: they share the brush packs. */
+internal val PACK_WHEEL_TOOLS: Set<Tool> = setOf(Tool.BRUSH, Tool.ERASER)
 
 /** The axis a brush-chip drag is locked to. */
 internal enum class DragAxis { VERTICAL, HORIZONTAL }

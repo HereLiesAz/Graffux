@@ -204,18 +204,6 @@ class CarouselSetWheelUiTest {
     }
 
     @Test
-    fun `Favorites and previous still work beside the wheel`() {
-        compose(start = "ink")
-        rule.onNodeWithTag("carousel.quick.favorites").performClick()
-        rule.waitForIdle()
-        assertEquals(FAVORITES_SET_KEY, selected)
-        rule.onNode(hasTestTag("carousel.quick.previous") and hasText("Ink")).performClick()
-        rule.waitForIdle()
-        assertEquals("ink", selected)
-        assertEquals(270f, angleOf("Ink"), 3f)
-    }
-
-    @Test
     fun `the wheel is a single-select list whose accessibility actions commit at once`() {
         compose()
         rule.mainClock.autoAdvance = false
@@ -240,8 +228,8 @@ class CarouselSetWheelUiTest {
     fun `left-handed mirrors the wheel into the bottom-left corner`() {
         compose(onRight = false)
         val wheel = wheelBounds()
-        val fav = rule.onNodeWithTag("carousel.quick.favorites").fetchSemanticsNode().boundsInRoot
-        assertTrue("wheel on the left, buttons on the right", wheel.right <= fav.left)
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue("wheel on the left", wheel.center.x < root.center.x)
         assertEquals(270f, angleOf("Favorites", onRight = false), 1f)
         // Mirrored: the later sets run off to the left, away from the rail.
         assertEquals(270f - WHEEL_WEDGE_DEGREES, angleOf("Round", onRight = false), 1f)
@@ -255,14 +243,16 @@ class CarouselSetWheelUiTest {
     fun `right-handed puts the wheel in the bottom-right corner`() {
         compose()
         val wheel = wheelBounds()
-        val fav = rule.onNodeWithTag("carousel.quick.favorites").fetchSemanticsNode().boundsInRoot
-        assertTrue(fav.right <= wheel.left)
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue("wheel on the right", wheel.center.x > root.center.x)
         // Drawn over its strip, reaching into the sheet's bottom inset (PickerOverhang) below it.
         assertEquals(root.bottom + PickerOverhang.value * rule.density.density, wheel.bottom, 2f)
         val d = rule.density.density
         assertTrue(wheel.width <= WheelMaxWidth.value * d + 1f)
         assertTrue(wheel.width >= WheelMinWidth.value * d - 1f)
+        // The geometry is built for the width the wheel really has.
+        val node = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode()
+        assertEquals(node.boundsInRoot.width, node.config[WheelGeometryWidth], 1f)
     }
 
     @Test
@@ -296,34 +286,4 @@ class CarouselSetWheelUiTest {
         }
     }
 
-    private fun bothButtonsFit(onRight: Boolean) {
-        compose(onRight = onRight, start = "studio")
-        // Leaving My Brushes for Favorites makes it the previous set: both quick buttons show.
-        rule.onNodeWithTag("carousel.quick.favorites").performClick()
-        rule.waitForIdle()
-        val fav = rule.onNodeWithTag("carousel.quick.favorites").fetchSemanticsNode().boundsInRoot
-        val prev = rule.onNode(hasTestTag("carousel.quick.previous") and hasText("My Brushes"))
-            .fetchSemanticsNode().boundsInRoot
-        assertTrue("favorites $fav", fav.width > 0f)
-        assertTrue("previous $prev", prev.width > 0f)
-        val node = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode()
-        // The geometry is built for the width the wheel really has.
-        assertEquals(node.boundsInRoot.width, node.config[WheelGeometryWidth], 1f)
-        assertTrue(node.boundsInRoot.width >= WheelMinWidth.value * rule.density.density - 1f)
-        // Nothing overlaps: buttons and wheel each keep their own room.
-        val w = node.boundsInRoot
-        listOf(fav, prev).forEach { b ->
-            assertTrue("$b overlaps $w", b.right <= w.left + 1f || b.left >= w.right - 1f)
-        }
-        assertTrue(fav.right <= prev.left + 1f || prev.right <= fav.left + 1f)
-        // The narrower wheel still shows a typical name in full.
-        assertEquals(false, item("My Brushes").fetchSemanticsNode().config[WheelNameEllipsized])
-        assertEquals(270f, angleOf("Favorites", onRight), 1f)
-    }
-
-    @Test
-    fun `both quick buttons and the wheel fit side by side, right-handed`() = bothButtonsFit(onRight = true)
-
-    @Test
-    fun `both quick buttons and the wheel fit side by side, left-handed`() = bothButtonsFit(onRight = false)
 }

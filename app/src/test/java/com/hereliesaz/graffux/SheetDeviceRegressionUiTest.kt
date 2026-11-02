@@ -66,7 +66,6 @@ class SheetDeviceRegressionUiTest {
         ),
     )
     private var selected by mutableStateOf<String?>(FAVORITES_SET_KEY)
-    private var previous by mutableStateOf<String?>(null)
 
     private fun composePicker(start: String) {
         selected = start
@@ -74,15 +73,7 @@ class SheetDeviceRegressionUiTest {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CompositionLocalProvider(LocalSetWheelOnRight provides true) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        // As the brush sheet keeps it (BottomCarousel): the caller holds the previous set.
-                        CarouselTabList(
-                            sections, selected,
-                            onSelect = {
-                                previous = previousSetAfter(it.key, selected, previous)
-                                selected = it.key
-                            },
-                            previousKey = previous,
-                        )
+                        CarouselTabList(sections, selected, onSelect = { selected = it.key })
                     }
                 }
             }
@@ -92,47 +83,6 @@ class SheetDeviceRegressionUiTest {
 
     private fun bounds(tag: String): Rect =
         rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-
-    private fun pickOnWheel(label: String) {
-        rule.onNode(hasTestTag("carousel.wheel.item") and hasText(label))
-            .performSemanticsAction(SemanticsActions.OnClick)
-        rule.waitForIdle()
-    }
-
-    @Test
-    fun `item 1 - the previous-set button never repeats Favorites`() {
-        composePicker(start = FAVORITES_SET_KEY)
-        pickOnWheel("Ink")
-        rule.onNode(hasTestTag("carousel.quick.previous") and hasText("Favorites")).assertDoesNotExist()
-        pickOnWheel("Round")
-        rule.onNode(hasTestTag("carousel.quick.previous") and hasText("Ink")).assertExists()
-        // Through Favorites and out again, the set to go back to is still the last real set.
-        rule.onNodeWithTag("carousel.quick.favorites").performSemanticsAction(SemanticsActions.OnClick)
-        rule.waitForIdle()
-        pickOnWheel("Flat")
-        rule.onNode(hasTestTag("carousel.quick.previous") and hasText("Round")).assertExists()
-    }
-
-    @Test
-    fun `item 1 - the quick buttons sit right beside the wheel, on the rail side`() {
-        composePicker(start = "ink")
-        pickOnWheel("Round")
-        val wheel = bounds("carousel.wheel")
-        val gapPx = PickerGap.value * rule.density.density
-        // In a row on the wheel's rail side, the nearer one right beside it, the other beside that.
-        val near = bounds("carousel.quick.previous")
-        val far = bounds("carousel.quick.favorites")
-        assertTrue("previous left of the wheel", near.right <= wheel.left + 1f)
-        val nearGap = wheel.left - near.right
-        assertTrue("previous beside the wheel (gap ${nearGap}px)", nearGap <= gapPx + 1f)
-        // At 360dp two buttons side by side would leave the wheel too narrow for a name, so they
-        // stack in one column beside it: Favorites on top, the previous set under it.
-        val farGap = wheel.left - far.right
-        assertTrue("favorites beside the wheel (gap ${farGap}px)", farGap in -1f..gapPx + 1f)
-        val stackGap = near.top - far.bottom
-        assertTrue("favorites stacked on previous (gap ${stackGap}px)", stackGap in -1f..gapPx + 1f)
-        assertTrue(wheel.width >= WheelMinWidth.value * rule.density.density - 1f)
-    }
 
     @Test
     fun `item 2 - the names on the wheel's edge spokes are not cut by its box`() {

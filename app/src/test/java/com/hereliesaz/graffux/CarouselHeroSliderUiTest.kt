@@ -187,8 +187,8 @@ class CarouselHeroSliderUiTest {
             .fetchSemanticsNode().boundsInRoot
         assertTrue("preview ${preview.bottom} above row ${row.top}", preview.bottom <= row.top + 1f)
         assertEquals("the row is as tall as the hero", row.height, hero.height, 1f)
-        val tabs = rule.onNodeWithTag("carousel.tabs", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        assertTrue("tabs ${tabs.top} below row ${row.bottom}", tabs.top >= row.bottom - 1f)
+        // The brush page has no tab list under the row: its packs are on the rail (RailPackWheel).
+        rule.onNodeWithTag("carousel.tabs", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test

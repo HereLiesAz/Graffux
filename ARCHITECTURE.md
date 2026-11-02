@@ -263,20 +263,30 @@ codebase is deferred scope or a real gap in the install-report flow.
   `SettingsRepository.carouselFavorites` (DataStore key `carousel_favorites`, newline-separated).
   Pages are picked by hand, never inferred from the tool. Everything each page shows is derived in
   `BottomCarouselPlan.kt` (pure, tested).
-  Below the strip the set picker (`CarouselTabList`, used by the brush, effect, photo and design
-  sheets) is a quarter-circle wheel (`CarouselSetWheel.kt`) in the sheet's bottom corner away from
-  the rail — bottom-right when right-handed, mirrored to bottom-left when `isRightHanded` is false
-  (`LocalSetWheelOnRight`, provided in MainActivity). Each set's name lies on its own spoke, 22.5°
-  apart (`WHEEL_WEDGE_DEGREES`), drawn with `drawText` on a Canvas and rotated never to read upside
-  down; a fixed pointer marks the arc's midpoint (45°). Drag turns it round the hub, a release flings
-  and snaps to a wedge, a tap turns the tapped name to the pointer, and the list stops at its ends
-  after a small pull. The pointed set is provisional (accent outline) until the wheel has rested on
-  it for `WHEEL_DWELL_MS` (1s), then it is committed; new motion cancels the wait. Accessibility
-  (each name a selectable item; Next set / Previous set actions) commits at once. The radius is
-  `WheelMaxRadius` (136dp) or less when the width is short, and the peek strip is that tall. The
-  wheel's position is a float state read only in draw and placement, so turning it recomposes
-  nothing. Favorites and the previous set are quick buttons stacked on the rail side. AzNavRail's
-  `AzRoller` it replaced had type-to-filter search; the wheel has none.
+  **Brush packs** are picked on the tool rail, not in the sheet: the pack wheel (`RailPackWheel.kt`,
+  experimental). The rail has the Eraser directly below the Brush; tapping either while it is
+  already in hand toggles the wheel, a long-press on either opens it (arming that tool), and
+  picking either up from another tool does not (the Brush still opens its sheet). The wheel is a
+  half disc whose flat side lies on the rail's edge, centred on the Brush/Eraser pair and opening
+  toward the canvas (mirrored when `isRightHanded` is false). Pack names lie radially on spokes
+  `PACK_WEDGE_DEGREES` (24°) apart, drawn with `drawText` on a Canvas; the spoke pointing straight out
+  from the rail, marked by a pointer, is the active pack. Favorites is the first entry. Drag or fling
+  turns it (tick per spoke, bounded ends); a tap commits at once; after a drag the pick commits after
+  `WHEEL_DWELL_MS` (1s) at rest; Next pack / Previous pack accessibility actions commit at once. It
+  shuts `PACK_WHEEL_CLOSE_MS` (600ms) after a tap or dwell commit, when a stroke starts
+  (`StrokeGate.strokeActive`), and on any press off it (`closesPackWheelOutside` on the root, initial
+  pass, consumes nothing). Radius `PackWheelMaxRadius` (156dp), shrinking to keep clear of the layers
+  rail and the safe area down to `PackWheelMinRadius` (128dp), past which the hub slides along the
+  rail. Only the half disc takes touches (the box is clipped to the outline, which hit testing
+  follows). A pick sets the sheet's tab (`CarouselUi.withSet`) and opens the brush sheet on it; the
+  Eraser erases with the brush in hand, so it shares those packs. Rotation is a float state read only
+  in draw and placement. The brush page therefore has no picker strip: its cards sit at the sheet's
+  foot (`CarouselPickerPositionUiTest`), it always shows its cards when open, and a step down from
+  the carousel shuts it (`steppedDown(tabListStage = false)`).
+  The sheets without a Brush item (photo, design, and the effect and tool-group pages) keep the
+  compact set picker (`CarouselTabList`): a flat wheel band (`CarouselSetWheel.kt`) in the sheet's
+  bottom corner away from the rail (`LocalSetWheelOnRight`), with the same drag, snap, dwell and
+  accessibility rules. The Favorites and previous-set quick buttons are gone.
   **Placement.** The carousel is its own AzNavRail page, `background(weight = 1, page = 0f)`, one weight
   in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
   by the rail's width, so `background()` is the only page laid out across the whole window, and that
