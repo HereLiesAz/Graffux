@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber") // Wheel geometry: degrees and dp read better inline.
+@file:Suppress("MagicNumber", "TooManyFunctions") // Wheel geometry: degrees and dp read better inline.
 
 package com.hereliesaz.graffux
 
@@ -29,6 +29,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -43,6 +44,8 @@ import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.CollectionItemInfo
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.collectionItemInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -62,7 +65,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.min
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -70,7 +72,8 @@ import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
-import kotlin.math.min
+import kotlin.math.asin
+import kotlin.math.sqrt
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -80,11 +83,36 @@ import kotlin.math.sin
  */
 internal val LocalSetWheelOnRight = staticCompositionLocalOf { true }
 
-/** Degrees between neighbouring spokes: the quarter's 90° holds the pointed set and two each side. */
-internal const val WHEEL_WEDGE_DEGREES = 22.5f
+/**
+ * The wheel's outer radius. Its hub sits far below the screen, so the visible part is a wide, shallow
+ * band along the sheet's bottom corner rather than a quarter disc.
+ */
+internal val WheelArcRadius = 420.dp
 
-/** The visible arc: a quarter disc in the sheet's corner. */
-internal const val WHEEL_ARC_DEGREES = 90f
+/** The band's thickness, rim to rim: room for one line of name with air above and below. */
+internal val WheelBandThickness = 36.dp
+
+/** The outer rim's top (at the pointer) sits this far below the box's top. */
+internal val WheelTopPad = 2.dp
+
+/** The radius the names ride on: the band's middle. */
+internal val WheelTextRadius = WheelArcRadius - WheelBandThickness / 2
+
+/**
+ * Degrees between neighbouring spokes: at [WheelTextRadius] one wedge is about 105dp of arc, wide
+ * enough for a set name such as "My Brushes" in full (bold) with [WheelNameGap] to spare.
+ */
+internal const val WHEEL_WEDGE_DEGREES = 15f
+
+/** Air between neighbouring names along the band. */
+internal val WheelNameGap = 8.dp
+
+/** A name's widest drawn width: one wedge of arc less the gap; only a longer name gets an ellipsis. */
+internal val WheelNameMaxWidth = WheelTextRadius * (WHEEL_WEDGE_DEGREES * PI.toFloat() / 180f) - WheelNameGap
+
+/** The band is never narrower than this, so typical names fit, nor wider than [WheelMaxWidth]. */
+internal val WheelMinWidth = 200.dp
+internal val WheelMaxWidth = 272.dp
 
 /** How long the wheel must rest on a wedge before that set is committed (drag, fling, snap, tap). */
 internal const val WHEEL_DWELL_MS = 1_000L
@@ -92,54 +120,51 @@ internal const val WHEEL_DWELL_MS = 1_000L
 /** How far past the first or last set a drag may pull the wheel, in wedges. */
 internal const val WHEEL_OVERSCROLL = 0.35f
 
-/** The wheel's largest radius; the peek strip is this tall, less when the space is smaller. */
-internal val WheelMaxRadius = 136.dp
-
-/** Names start this far from the hub, so neighbours are clear of one another (22.5° ≈ 20dp there). */
-private val WheelTextInner = 52.dp
-private val WheelRimPadding = 8.dp
-private val WheelHubRadius = 18.dp
-
 /**
- * The hub sits this far in from the box's bottom and outer edges, so the names on the arc's two edge
- * spokes (flat along the bottom, upright along the side) keep the half of their line height that
- * falls past the hub, instead of being cut by the box, the screen's edge or its rounded corner.
+ * The band's lowest point (its inner rim at the box's outer edges) stays at least this far above the
+ * box's bottom, clear of the screen's rounded corner and the nav bar's edge.
  */
 internal val WheelEdgeInset = 12.dp
 
-/** Names start no further out than this share of the disc's radius, so a short wheel keeps room. */
-private const val WHEEL_TEXT_INNER_FRACTION = 0.3f
-
-/** The wheel's hub in a [width] x [height] box with the hub [inset] in from its corner. */
+/** The wheel's hub, far below a box [width] wide: centred, [outerRadius] below the rim's top. */
 internal object WheelHub {
-    fun at(width: Float, height: Float, inset: Float, onRight: Boolean): Offset =
-        Offset(if (onRight) width - inset else inset, height - inset)
+    fun at(width: Float, outerRadius: Float, topPad: Float): Offset = Offset(width / 2, topPad + outerRadius)
 }
+
+/** How far below the box's top the band's inner rim reaches at the edges of a box [width] wide. */
+internal fun wheelBandDepth(width: Dp): Dp {
+    val inner = (WheelArcRadius - WheelBandThickness).value
+    val half = width.value / 2
+    return WheelTopPad + WheelBandThickness + (inner - sqrt(inner * inner - half * half)).dp
+}
+
+/** The visible arc of the outer rim, in degrees, across a box [width] wide. */
+internal fun wheelVisibleArcDegrees(width: Dp): Float =
+    2 * Math.toDegrees(asin((width.value / 2 / WheelArcRadius.value).toDouble())).toFloat()
+
 private const val FLING_SECONDS = 0.18f
 private const val DIM_ALPHA = 0.5f
 private const val HALF_TURN = 180f
+private const val UP = 270f
 
-/**
- * Where the arc starts (screen degrees, 0° = +x, 90° = down): the right-hand wheel's hub is the
- * sheet's bottom-right corner and its quarter runs 180°–270° (left to up); the left-hand one's hub is
- * the bottom-left corner and its quarter runs 270°–360° (up to right).
- */
-internal fun wheelArcStart(onRight: Boolean): Float = if (onRight) HALF_TURN else 270f
+/** The fixed pointer's spoke: straight up from the hub, the band's midpoint, either hand. */
+@Suppress("UnusedParameter") // Kept symmetric with the other wheel functions; the flat arc is centred.
+internal fun wheelPointerDegrees(onRight: Boolean): Float = UP
 
-/** The fixed pointer's spoke: the quarter's midpoint, 45° into the arc. */
-internal fun wheelPointerDegrees(onRight: Boolean): Float = wheelArcStart(onRight) + WHEEL_ARC_DEGREES / 2
+/** +1 when later sets lie to the right (right-handed: away from the rail on the left), else -1. */
+private fun wheelDirection(onRight: Boolean) = if (onRight) 1f else -1f
 
 /**
  * The spoke angle, in degrees, of set [index] while the wheel sits at [position] (a fractional set
- * index under the pointer). Either way round the first sets lie toward the top and the later ones
- * toward the bottom edge, so [onRight] mirrors the order with the corner.
+ * index under the pointer). The first sets lie toward the rail (and the quick buttons) and the later
+ * ones away from it, so [onRight] mirrors the order.
  */
 internal fun wheelSpokeDegrees(index: Int, position: Float, onRight: Boolean): Float =
-    wheelPointerDegrees(onRight) + (if (onRight) -1f else 1f) * (index - position) * WHEEL_WEDGE_DEGREES
+    wheelPointerDegrees(onRight) + wheelDirection(onRight) * (index - position) * WHEEL_WEDGE_DEGREES
 
 /** The fractional set index at screen angle [degrees], with the wheel at [position]. */
 internal fun wheelIndexAt(degrees: Float, position: Float, onRight: Boolean): Float =
-    position + (if (onRight) -1f else 1f) * angleDelta(wheelPointerDegrees(onRight), degrees) / WHEEL_WEDGE_DEGREES
+    position + wheelDirection(onRight) * angleDelta(wheelPointerDegrees(onRight), degrees) / WHEEL_WEDGE_DEGREES
 
 /** The signed shortest turn from [from] to [to], in (-180, 180]. */
 internal fun angleDelta(from: Float, to: Float): Float {
@@ -165,30 +190,34 @@ internal fun wheelSnapTarget(position: Float, velocity: Float, count: Int): Int 
     (position + velocity * FLING_SECONDS).roundToInt().coerceIn(0, count - 1)
 
 /**
- * The text's rotation on spoke [degrees] so it lies along the spoke and never reads upside down:
- * spokes from 180° to 270° (the right-hand quarter) read in toward the hub, 270° to 360° (the
- * left-hand quarter) read outward.
+ * The text's rotation on spoke [degrees]: each name lies along the band, upright at the pointer and
+ * leaning with the arc either side, so none ever reads upside down.
  */
-internal fun wheelTextRotation(degrees: Float): Float {
-    val a = ((degrees % 360f) + 360f) % 360f
-    return when {
-        a in HALF_TURN..<270f -> a - HALF_TURN
-        a >= 270f -> a - 360f
-        else -> a
-    }
+internal fun wheelTextRotation(degrees: Float): Float = angleDelta(UP, degrees)
+
+/** Whether a wheel item's name had to be cut with an ellipsis to fit its wedge. */
+internal val WheelNameEllipsized = SemanticsPropertyKey<Boolean>("WheelNameEllipsized")
+private var SemanticsPropertyReceiver.wheelNameEllipsized by WheelNameEllipsized
+
+/** The ring sector between radii [inner] and [outer] about [hub], from [start] through [sweep] degrees. */
+private fun bandSector(hub: Offset, inner: Float, outer: Float, start: Float, sweep: Float) = Path().apply {
+    arcTo(Rect(hub, outer), start, sweep, forceMoveTo = true)
+    arcTo(Rect(hub, inner), start + sweep, -sweep, forceMoveTo = false)
+    close()
 }
 
 /**
- * The set picker's wheel: a quarter disc in the sheet's bottom corner away from the rail
- * ([LocalSetWheelOnRight]), its hub in that corner, with every set's name on its own spoke
- * [WHEEL_WEDGE_DEGREES] apart, like a Wheel of Fortune. A fixed pointer at the arc's midpoint (45°)
- * marks the pointed wedge. Drag along the arc to turn it; a release flings and snaps to a wedge, and
- * a tap on a name turns that name to the pointer and commits it at once. After a drag or fling the
- * pointed set is only provisional (outlined in the accent) until the wheel has rested on it for
- * [WHEEL_DWELL_MS]; then it is committed through [onPick] (accent fill). Any new motion cancels
- * the wait. Accessibility actions (select a name, next, previous) commit at once. The list is
- * bounded: it stops at the first and last set after a
- * small pull. A light tick plays as each wedge passes the pointer.
+ * The set picker's wheel: a wide, shallow band along the sheet's bottom corner away from the rail
+ * ([LocalSetWheelOnRight]) — the top of a big wheel whose hub is far below the screen — with every
+ * set's name on its own spoke [WHEEL_WEDGE_DEGREES] apart, like a Wheel of Fortune. A fixed pointer
+ * at the band's midpoint marks the pointed wedge. Drag along the band to turn it; a release flings
+ * and snaps to a wedge, and a tap on a name turns that name to the pointer and commits it at once.
+ * After a drag or fling the pointed set is only provisional (outlined in the accent) until the wheel
+ * has rested on it for [WHEEL_DWELL_MS]; then it is committed through [onPick] (accent fill). Any
+ * new motion cancels the wait. Accessibility actions (select a name, next, previous) commit at once.
+ * The list is bounded: it stops at the first and last set after a small pull. A light tick plays as
+ * each wedge passes the pointer. Only touches on the band itself turn or pick; the rest of its box
+ * never takes a swipe.
  *
  * The wheel's position lives in a float state read only while drawing and placing, so turning it
  * recomposes nothing — not the wheel, and not the cards above it.
@@ -199,7 +228,8 @@ internal fun CarouselSetWheel(
     sets: List<CarouselTabGroup>,
     labels: Map<String, String>,
     selectedKey: String?,
-    radius: Dp,
+    width: Dp,
+    height: Dp,
     onPick: (CarouselTabGroup) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -250,28 +280,32 @@ internal fun CarouselSetWheel(
     }
 
     val density = LocalDensity.current
-    val insetPx = with(density) { WheelEdgeInset.toPx() }
-    // The disc's radius: the box less the hub's inset.
-    val rPx = with(density) { radius.toPx() } - insetPx
-    // A small wheel (the picker's strip is short) brings its names in toward the hub.
-    val innerPx = min(with(density) { WheelTextInner.toPx() }, rPx * WHEEL_TEXT_INNER_FRACTION)
-    val textMax = (rPx - innerPx - with(density) { WheelRimPadding.toPx() }).coerceAtLeast(1f)
+    val outerPx = with(density) { WheelArcRadius.toPx() }
+    val innerPx = with(density) { (WheelArcRadius - WheelBandThickness).toPx() }
+    val textRPx = with(density) { WheelTextRadius.toPx() }
+    val topPx = with(density) { WheelTopPad.toPx() }
+    val widthPx = with(density) { width.toPx() }
+    val hub = WheelHub.at(widthPx, outerPx, topPx)
+    val nameMax = with(density) { WheelNameMaxWidth.toPx() }
     val colors = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
     val baseStyle = MaterialTheme.typography.labelLarge
-    val layouts: List<Pair<TextLayoutResult, TextLayoutResult>> = remember(sets, labels, textMax, baseStyle) {
+    val layouts: List<Pair<TextLayoutResult, TextLayoutResult>> = remember(sets, labels, nameMax, baseStyle) {
         sets.map { set ->
             val text = labels[set.key] ?: set.label
             fun measure(bold: Boolean) = measurer.measure(
                 text, if (bold) baseStyle.copy(fontWeight = FontWeight.Bold) else baseStyle,
                 overflow = TextOverflow.Ellipsis, maxLines = 1,
-                constraints = Constraints(maxWidth = textMax.toInt()),
+                constraints = Constraints(maxWidth = nameMax.toInt()),
             )
             measure(false) to measure(true)
         }
     }
-    val arcStart = wheelArcStart(onRight)
     val pointer = wheelPointerDegrees(onRight)
+    // Enough arc either side of the pointer to reach past the box's edges; the box clips the rest.
+    val halfArc = wheelVisibleArcDegrees(width) / 2 + WHEEL_WEDGE_DEGREES
+    fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
+    fun onBand(p: Offset) = hypot(p.x - hub.x, p.y - hub.y) in innerPx..outerPx
 
     fun move(by: Int) {
         val from = motion.committed ?: currentSelected
@@ -281,7 +315,7 @@ internal fun CarouselSetWheel(
 
     Box(
         modifier
-            .size(radius)
+            .size(width, height)
             .clipToBounds()
             .testTag("carousel.wheel")
             .semantics {
@@ -293,15 +327,13 @@ internal fun CarouselSetWheel(
                     CustomAccessibilityAction("Previous set") { move(-1); true },
                 )
             }
-            .pointerInput(count, onRight) {
-                val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
-                fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
+            .pointerInput(count, onRight, hub) {
                 val tracker = VelocityTracker1D(isDataDifferential = false)
-                // Only a touch that lands on the quarter disc turns it: the rest of its square box
-                // (toward the cards) never takes a swipe.
+                // Only a touch that lands on the band turns it: the rest of its box (toward the cards)
+                // never takes a swipe.
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    if (hypot(down.position.x - hub.x, down.position.y - hub.y) > rPx) return@awaitEachGesture
+                    if (!onBand(down.position)) return@awaitEachGesture
                     var lastAngle = angleOf(down.position)
                     val slop = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                         ?: return@awaitEachGesture
@@ -313,8 +345,8 @@ internal fun CarouselSetWheel(
                         val turned = angleDelta(lastAngle, a)
                         lastAngle = a
                         change.consume()
-                        // The names follow the finger round the hub.
-                        val delta = -(if (onRight) -1f else 1f) * turned / WHEEL_WEDGE_DEGREES
+                        // The names follow the finger along the band.
+                        val delta = -wheelDirection(onRight) * turned / WHEEL_WEDGE_DEGREES
                         position.floatValue = wheelDragPosition(position.floatValue, delta, count)
                         tracker.addDataPoint(change.uptimeMillis, position.floatValue)
                     }
@@ -325,72 +357,60 @@ internal fun CarouselSetWheel(
                     settleTo(wheelSnapTarget(position.floatValue, if (v.isFinite()) v else 0f, count))
                 }
             }
-            .pointerInput(count, onRight) {
+            .pointerInput(count, onRight, hub) {
                 detectTapGestures { tap ->
-                    val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
-                    if (hypot(tap.x - hub.x, tap.y - hub.y) > rPx) return@detectTapGestures
-                    val a = (atan2(tap.y - hub.y, tap.x - hub.x) * HALF_TURN / PI).toFloat()
+                    if (!onBand(tap)) return@detectTapGestures
                     // A tap is a decision: it commits at once. The dwell is for a drag or fling at rest.
                     settleTo(
-                        wheelIndexAt(a, position.floatValue, onRight).roundToInt().coerceIn(0, count - 1),
+                        wheelIndexAt(angleOf(tap), position.floatValue, onRight).roundToInt().coerceIn(0, count - 1),
                         commitNow = true,
                     )
                 }
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val hub = WheelHub.at(size.width, size.height, insetPx, onRight)
-            val r = size.height - insetPx
             val pos = position.floatValue
             val pointed = pos.roundToInt().coerceIn(0, count - 1)
             val committed = pointed == selectedIndex
-            // The disc, the pointed wedge (filled once committed, outlined while provisional), the
-            // rim and the pointer.
-            val box = Size(r * 2, r * 2)
-            val corner = hub - Offset(r, r)
-            val wedgeStart = pointer - WHEEL_WEDGE_DEGREES / 2
-            drawArc(colors.surface.copy(alpha = 0.72f), arcStart, WHEEL_ARC_DEGREES, true, corner, box)
+            // The band, the pointed wedge (filled once committed, outlined while provisional), the
+            // rims and the pointer.
+            val band = bandSector(hub, innerPx, outerPx, pointer - halfArc, halfArc * 2)
+            drawPath(band, colors.surface.copy(alpha = 0.72f))
+            val wedge = bandSector(hub, innerPx, outerPx, pointer - WHEEL_WEDGE_DEGREES / 2, WHEEL_WEDGE_DEGREES)
             if (committed) {
-                drawArc(colors.primary.copy(alpha = 0.28f), wedgeStart, WHEEL_WEDGE_DEGREES, true, corner, box)
+                drawPath(wedge, colors.primary.copy(alpha = 0.28f))
             } else {
+                drawPath(wedge, colors.primary, style = Stroke(1.5.dp.toPx()))
+            }
+            val rim = 1.dp.toPx()
+            listOf(outerPx - rim / 2, innerPx + rim / 2).forEach { r ->
                 drawArc(
-                    colors.primary, wedgeStart, WHEEL_WEDGE_DEGREES, true, corner, box,
-                    style = Stroke(1.5.dp.toPx()),
+                    colors.outline, pointer - halfArc, halfArc * 2, false, hub - Offset(r, r), Size(r * 2, r * 2),
+                    style = Stroke(rim),
                 )
             }
-            drawArc(
-                colors.outline, arcStart, WHEEL_ARC_DEGREES, false, corner + Offset(1f, 1f),
-                Size(r * 2 - 2f, r * 2 - 2f), style = Stroke(1.dp.toPx()),
+            val tip = 7.dp.toPx()
+            val top = hub.y - outerPx
+            drawPath(
+                Path().apply {
+                    moveTo(hub.x - tip, top)
+                    lineTo(hub.x + tip, top)
+                    lineTo(hub.x, top + tip * 1.2f)
+                    close()
+                },
+                colors.primary,
             )
-            val tip = 8.dp.toPx()
-            rotate(pointer - 270f, pivot = hub) {
-                // Drawn pointing down onto the rim at the top, then turned onto the pointer spoke.
-                drawPath(
-                    Path().apply {
-                        moveTo(hub.x - tip, hub.y - r)
-                        lineTo(hub.x + tip, hub.y - r)
-                        lineTo(hub.x, hub.y - r + tip * 1.4f)
-                        close()
-                    },
-                    colors.primary,
-                )
-            }
-            val hubRadius = min(WheelHubRadius.toPx(), r * WHEEL_TEXT_INNER_FRACTION / 2)
-            drawCircle(colors.outline, hubRadius, hub, style = Stroke(1.dp.toPx()))
             layouts.forEachIndexed { i, (plain, bold) ->
                 val spoke = wheelSpokeDegrees(i, pos, onRight)
-                if (angleDelta(pointer, spoke) !in -WHEEL_ARC_DEGREES..WHEEL_ARC_DEGREES) return@forEachIndexed
+                if (angleDelta(pointer, spoke) !in -halfArc..halfArc) return@forEachIndexed
                 val lit = (i - pos) in -0.5f..0.5f
                 val layout = if (lit) bold else plain
-                val rot = wheelTextRotation(spoke)
-                // Inward-reading names end near the hub; outward-reading ones start there.
-                val inward = rot >= 0f
-                rotate(rot, pivot = hub) {
-                    val x = if (inward) hub.x - innerPx - layout.size.width else hub.x + innerPx
+                // Upright at the pointer, leaning with the band either side.
+                rotate(wheelTextRotation(spoke), pivot = hub) {
                     drawText(
                         layout,
                         color = if (lit) colors.onSurface else colors.onSurface.copy(alpha = DIM_ALPHA),
-                        topLeft = Offset(x, hub.y - layout.size.height / 2f),
+                        topLeft = Offset(hub.x - layout.size.width / 2f, hub.y - textRPx - layout.size.height / 2f),
                     )
                 }
             }
@@ -400,17 +420,16 @@ internal fun CarouselSetWheel(
         // pass through to the wheel's own tap handling.
         val itemSize = 28.dp
         val itemPx = with(density) { itemSize.toPx() }
-        val hubX = WheelHub.at(rPx + insetPx, rPx + insetPx, insetPx, onRight).x
         sets.forEachIndexed { i, set ->
             val label = labels[set.key] ?: set.label
+            val cut = layouts[i].second.isLineEllipsized(0)
             Box(
                 Modifier
                     .offset {
                         val spoke = wheelSpokeDegrees(i, position.floatValue, onRight) * (PI / HALF_TURN).toFloat()
-                        val mid = innerPx + layouts[i].first.size.width / 2f
                         IntOffset(
-                            (hubX + mid * cos(spoke) - itemPx / 2).roundToInt(),
-                            (rPx + mid * sin(spoke) - itemPx / 2).roundToInt(),
+                            (hub.x + textRPx * cos(spoke) - itemPx / 2).roundToInt(),
+                            (hub.y + textRPx * sin(spoke) - itemPx / 2).roundToInt(),
                         )
                     }
                     .size(itemSize)
@@ -419,6 +438,7 @@ internal fun CarouselSetWheel(
                         selected = i == selectedIndex
                         role = Role.Tab
                         collectionItemInfo = CollectionItemInfo(i, 1, 0, 1)
+                        wheelNameEllipsized = cut
                         onClick(label = "Select") { settleTo(i, commitNow = true); true }
                     }
                     .testTag("carousel.wheel.item"),
@@ -443,9 +463,7 @@ internal val PickerGap = 8.dp
 internal const val PICKER_GAPS = 3
 
 /**
- * The wheel's radius in a picker [width] wide and at most [height] tall (unbounded while the sheet
- * wraps its content): [WheelMaxRadius], less when the quarter disc (as wide as it is tall) and the
- * quick-button column would not fit side by side. The peek strip is exactly this tall.
+ * The wheel's width in a picker with [available] width beside the quick buttons: all of it, between
+ * [WheelMinWidth] (so typical names fit) and [WheelMaxWidth].
  */
-internal fun setWheelRadius(width: Dp, height: Dp) =
-    min(min(WheelMaxRadius, height), width - QuickColumnWidth - PickerGap * PICKER_GAPS)
+internal fun setWheelWidth(available: Dp): Dp = available.coerceIn(WheelMinWidth, WheelMaxWidth)

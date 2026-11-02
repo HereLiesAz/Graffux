@@ -232,7 +232,7 @@ internal fun previousSetAfter(picked: String, current: String?, previous: String
 
 private val QuickButtonHeight = 40.dp
 /**
- * The set picker: a quarter-circle wheel of the sets ([CarouselSetWheel]) in the sheet's bottom corner
+ * The set picker: a wide, flat wheel of the sets ([CarouselSetWheel]) in the sheet's bottom corner
  * away from the rail ([LocalSetWheelOnRight], from the handedness setting), with two quick buttons stacked on
  * the rail side — Favorites, and the set picked before this one, named, for switching back and
  * forth. Each set is its own list, so nothing scrolls on from one set into the next. [onSelect] is
@@ -270,7 +270,8 @@ internal fun CarouselTabList(
     BoxWithConstraints(
         modifier.fillMaxWidth().height(StripHeight).padding(horizontal = PickerGap).testTag("carousel.tabs"),
     ) {
-        val radius = setWheelRadius(maxWidth - QuickColumnWidth - PickerGap, StripHeight + PickerOverhang)
+        val wheelWidth = setWheelWidth(maxWidth - QuickColumnWidth - PickerGap)
+        val wheelHeight = StripHeight + PickerOverhang
         val quick: @Composable () -> Unit = {
             if (favorites != null) {
                 Box(Modifier.width(QuickColumnWidth)) {
@@ -289,13 +290,13 @@ internal fun CarouselTabList(
             Modifier
                 .fillMaxWidth()
                 .wrapContentHeight(Alignment.Top, unbounded = true)
-                .requiredHeight(radius),
+                .requiredHeight(wheelHeight),
             verticalAlignment = Alignment.Bottom,
             // The quick buttons sit right beside the wheel, on its rail side.
             horizontalArrangement = Arrangement.spacedBy(PickerGap, if (onRight) Alignment.End else Alignment.Start),
         ) {
             if (onRight) quick()
-            CarouselSetWheel(sets, labels, selectedKey, radius, pick)
+            CarouselSetWheel(sets, labels, selectedKey, wheelWidth, wheelHeight, pick)
             if (!onRight) quick()
         }
     }

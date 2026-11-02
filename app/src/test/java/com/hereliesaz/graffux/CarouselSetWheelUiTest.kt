@@ -27,6 +27,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -40,7 +41,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
-/** The set picker's quarter-circle wheel: spokes, drag and snap, the dwell commit, taps, ends, semantics, mirroring. */
+/** The set picker's wide, flat wheel: spokes, drag and snap, the dwell commit, taps, ends, semantics, mirroring. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi", application = Application::class)
@@ -81,10 +82,15 @@ class CarouselSetWheelUiTest {
     private fun wheelBounds() = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
 
     /** The screen angle of [label]'s name, seen from the wheel's hub in its corner. */
+    private fun hubIn(width: Float): Offset {
+        val d = rule.density.density
+        return WheelHub.at(width, WheelArcRadius.value * d, WheelTopPad.value * d)
+    }
+
+    @Suppress("UnusedParameter")
     private fun angleOf(label: String, onRight: Boolean = true): Float {
         val w = wheelBounds()
-        val inset = WheelEdgeInset.value * rule.density.density
-        val hub = WheelHub.at(w.width, w.height, inset, onRight) + Offset(w.left, w.top)
+        val hub = hubIn(w.width) + Offset(w.left, w.top)
         val c = center(label)
         val deg = Math.toDegrees(atan2((c.y - hub.y).toDouble(), (c.x - hub.x).toDouble())).toFloat()
         return (deg + 360f) % 360f
@@ -96,12 +102,12 @@ class CarouselSetWheelUiTest {
         rule.waitForIdle()
     }
 
-    /** Drags slowly around the hub from [fromDeg] to [toDeg], 80% of the way out, and lets go. */
+    /** Drags slowly along the band (its middle) from [fromDeg] to [toDeg] about the hub, and lets go. */
+    @Suppress("UnusedParameter")
     private fun dragAround(fromDeg: Float, toDeg: Float, onRight: Boolean = true) {
         rule.onNodeWithTag("carousel.wheel").performTouchInput {
-            val inset = WheelEdgeInset.toPx()
-            val hub = WheelHub.at(width.toFloat(), height.toFloat(), inset, onRight)
-            val r = (height - inset) * 0.8f
+            val hub = hubIn(width.toFloat())
+            val r = WheelTextRadius.toPx()
             fun at(deg: Float) = (deg * PI / 180).let { hub + Offset((r * cos(it)).toFloat(), (r * sin(it)).toFloat()) }
             val steps = 30
             down(at(fromDeg))
@@ -123,28 +129,29 @@ class CarouselSetWheelUiTest {
         compose()
         assertEquals(keys.size, rule.onAllNodesWithTag("carousel.wheel.item").fetchSemanticsNodes().size)
         val spokes = keys.indices.map { wheelSpokeDegrees(it, 0f, onRight = true) }
-        spokes.zipWithNext().forEach { (a, b) -> assertEquals(WHEEL_WEDGE_DEGREES, a - b, 1e-4f) }
-        assertEquals(225f, pointer, 1e-4f)
-        // The selected name is on the pointer at the quarter's midpoint, the next a wedge lower.
-        assertEquals(225f, angleOf("Favorites"), 3f)
-        assertEquals(225f - WHEEL_WEDGE_DEGREES, angleOf("Round"), 3f)
-        assertEquals(225f + WHEEL_WEDGE_DEGREES * 0, angleOf("Favorites"), 3f)
-        // Names never read upside down.
-        (180..360).forEach { assertTrue(wheelTextRotation(it.toFloat()) in -90f..90f) }
+        spokes.zipWithNext().forEach { (a, b) -> assertEquals(WHEEL_WEDGE_DEGREES, b - a, 1e-4f) }
+        assertEquals(270f, pointer, 1e-4f)
+        // The selected name is on the pointer at the band's midpoint (straight up from the far hub),
+        // the next a wedge further from the rail.
+        assertEquals(270f, angleOf("Favorites"), 1f)
+        assertEquals(270f + WHEEL_WEDGE_DEGREES, angleOf("Round"), 1f)
+        // Names lie along the band, upright at the pointer, never upside down.
+        assertEquals(0f, wheelTextRotation(270f), 1e-4f)
+        (200..340).forEach { assertTrue(wheelTextRotation(it.toFloat()) in -90f..90f) }
     }
 
     @Test
     fun `a drag snaps to a set and commits it after the dwell`() {
         compose()
         rule.mainClock.autoAdvance = false
-        // Right-handed, later sets lie toward the bottom edge: turning clockwise brings them up.
-        dragAround(pointer, pointer + WHEEL_WEDGE_DEGREES * 2)
+        // Right-handed, later sets lie to the right: dragging left brings them to the pointer.
+        dragAround(pointer, pointer - WHEEL_WEDGE_DEGREES * 2)
         advance(WHEEL_DWELL_MS - 100)
         assertTrue("provisional while it waits", picks.isEmpty())
         assertEquals(FAVORITES_SET_KEY, selected)
         advance(WHEEL_DWELL_MS * 3)
         assertEquals(listOf(keys[2]), picks)
-        assertEquals(225f, angleOf("Flat"), 3f)
+        assertEquals(270f, angleOf("Flat"), 3f)
     }
 
     @Test
@@ -161,7 +168,7 @@ class CarouselSetWheelUiTest {
         assertEquals(listOf("basic.round"), picks)
         advance(WHEEL_DWELL_MS * 3)
         assertEquals(listOf("basic.round"), picks)
-        assertEquals(225f, angleOf("Round"), 3f)
+        assertEquals(270f, angleOf("Round"), 3f)
         val flat = center("Flat")
         rule.onNodeWithTag("carousel.wheel").performTouchInput {
             click(Offset(flat.x - wheel.left, flat.y - wheel.top))
@@ -178,22 +185,22 @@ class CarouselSetWheelUiTest {
         assertEquals(0, wheelSnapTarget(-0.3f, -40f, keys.size))
         compose()
         rule.mainClock.autoAdvance = false
-        dragAround(pointer, pointer - 45f)
+        dragAround(pointer, pointer + 30f)
         advance(WHEEL_DWELL_MS * 4)
         assertEquals(FAVORITES_SET_KEY, selected)
         assertTrue(picks.isEmpty())
-        assertEquals(225f, angleOf("Favorites"), 3f)
+        assertEquals(270f, angleOf("Favorites"), 3f)
     }
 
     @Test
     fun `the wheel stops at the last set`() {
         compose(start = "pack.caps")
         rule.mainClock.autoAdvance = false
-        dragAround(pointer, pointer + 45f)
+        dragAround(pointer, pointer - 30f)
         advance(WHEEL_DWELL_MS * 4)
         assertEquals("pack.caps", selected)
         assertTrue(picks.isEmpty())
-        assertEquals(225f, angleOf("Spray Caps"), 3f)
+        assertEquals(270f, angleOf("Spray Caps"), 3f)
     }
 
     @Test
@@ -205,7 +212,7 @@ class CarouselSetWheelUiTest {
         rule.onNode(hasTestTag("carousel.quick.previous") and hasText("Ink")).performClick()
         rule.waitForIdle()
         assertEquals("ink", selected)
-        assertEquals(225f, angleOf("Ink"), 3f)
+        assertEquals(270f, angleOf("Ink"), 3f)
     }
 
     @Test
@@ -235,10 +242,11 @@ class CarouselSetWheelUiTest {
         val wheel = wheelBounds()
         val fav = rule.onNodeWithTag("carousel.quick.favorites").fetchSemanticsNode().boundsInRoot
         assertTrue("wheel on the left, buttons on the right", wheel.right <= fav.left)
-        assertEquals(315f, angleOf("Favorites", onRight = false), 3f)
-        assertEquals(315f + WHEEL_WEDGE_DEGREES, angleOf("Round", onRight = false), 3f)
+        assertEquals(270f, angleOf("Favorites", onRight = false), 1f)
+        // Mirrored: the later sets run off to the left, away from the rail.
+        assertEquals(270f - WHEEL_WEDGE_DEGREES, angleOf("Round", onRight = false), 1f)
         rule.mainClock.autoAdvance = false
-        dragAround(315f, 315f - WHEEL_WEDGE_DEGREES * 2, onRight = false)
+        dragAround(270f, 270f + WHEEL_WEDGE_DEGREES * 2, onRight = false)
         advance(WHEEL_DWELL_MS * 4)
         assertEquals(keys[2], selected)
     }
@@ -252,6 +260,39 @@ class CarouselSetWheelUiTest {
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
         // Drawn over its strip, reaching into the sheet's bottom inset (PickerOverhang) below it.
         assertEquals(root.bottom + PickerOverhang.value * rule.density.density, wheel.bottom, 2f)
-        assertTrue(wheel.width <= WheelMaxRadius.value * rule.density.density + 1f)
+        val d = rule.density.density
+        assertTrue(wheel.width <= WheelMaxWidth.value * d + 1f)
+        assertTrue(wheel.width >= WheelMinWidth.value * d - 1f)
+    }
+
+    @Test
+    fun `the band is a wide shallow arc that stays clear of the corner`() {
+        // Wider than tall several times over, with only a few degrees of arc showing.
+        assertTrue(wheelVisibleArcDegrees(WheelMaxWidth) < 45f)
+        assertTrue(WheelMinWidth.value > (StripHeight + PickerOverhang).value * 2)
+        // The band's lowest point, at its outer edges, keeps the corner inset at the widest band.
+        val depth = wheelBandDepth(WheelMaxWidth)
+        assertTrue("depth $depth", depth <= StripHeight + PickerOverhang - WheelEdgeInset)
+        // A wedge holds a typical name, so the pointed one and its neighbours never overlap.
+        assertTrue(WheelNameMaxWidth.value >= 90f)
+        compose()
+        // A touch above the band (toward the cards) neither turns nor picks.
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("carousel.wheel").performTouchInput {
+            // The box's top corner: above the band, which dips toward the edges.
+            click(Offset(4f, 4f))
+            swipe(Offset(4f, 4f), Offset(width / 2f, 4f), durationMillis = 300)
+        }
+        advance(WHEEL_DWELL_MS * 3)
+        assertTrue(picks.isEmpty())
+    }
+
+    @Test
+    fun `typical set names show in full on the wheel`() {
+        compose()
+        listOf("My Brushes", "Spray Caps", "Favorites").forEach { name ->
+            val node = item(name).fetchSemanticsNode()
+            assertEquals("$name is cut", false, node.config[WheelNameEllipsized])
+        }
     }
 }
