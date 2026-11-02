@@ -5998,13 +5998,25 @@ class EditorViewModel @Inject constructor(
         writeState(follow = true, transform)
     }
 
+    /**
+     * [state] with "Draw surface" disarmed when its group is gone (an undo of the auto-wrap, a
+     * redo, a delete, a co-op removal): an armed capture over a missing group swallowed the next
+     * stroke and drew nothing.
+     */
+    private fun withoutOrphanSurfaceCapture(state: EditorUiState): EditorUiState {
+        val groupId = state.surfaceDrawGroupId ?: return state
+        return if (state.layers.any { it.id == groupId }) state else state.copy(surfaceDrawGroupId = null)
+    }
+
     /** The one state writer behind [dispatch] and [updateUi]; see [rebaseInheritedPixels]. */
     private inline fun writeState(follow: Boolean, crossinline transform: (EditorUiState) -> EditorUiState) {
         var raw: List<Layer>? = null
         var out: List<Layer>? = null
         _uiState.update { before ->
             val next = transform(before)
-            val followed = if (follow) EditorReducer.withInstancesFollowing(before, next) else next
+            val followed = withoutOrphanSurfaceCapture(
+                if (follow) EditorReducer.withInstancesFollowing(before, next) else next,
+            )
             raw = next.layers
             out = followed.layers
             followed
