@@ -108,9 +108,12 @@ object SurfaceMath {
      * The nearest group owning a surface for [layerId]: the layer itself when it is a group with a
      * profile, else its nearest enclosing group with one. Null when there is none (a flat layer).
      */
-    fun ownerOf(layers: List<Layer>, layerId: String?): SurfaceOwner? {
+    fun ownerOf(layers: List<Layer>, layerId: String?): SurfaceOwner? =
+        if (layerId == null) null else ownerOf(layers.associateBy { it.id }, layerId)
+
+    /** [ownerOf] over the layers by id, for a caller asking about many layers of one document. */
+    fun ownerOf(byId: Map<String, Layer>, layerId: String?): SurfaceOwner? {
         if (layerId == null) return null
-        val byId = layers.associateBy { it.id }
         val path = ArrayList<Layer>()
         var current = byId[layerId]
         val seen = HashSet<String>()

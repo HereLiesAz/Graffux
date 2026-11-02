@@ -340,6 +340,7 @@ class ModelLayerTest {
         // Rendered at the canvas's own size, through the camera.
         io.mockk.verify { exportManager.compositeLayers(any(), size.width, size.height, camera = vm.uiState.value.sceneCamera) }
         val flat = vm.uiState.value.layers.single()
+        assertTrue(flat.is3DIn(vm.uiState.value.layers))
         // Its box projects onto the canvas pixel for pixel: the plane's homography is the identity.
         val w = size.width.toFloat()
         val hh = size.height.toFloat()

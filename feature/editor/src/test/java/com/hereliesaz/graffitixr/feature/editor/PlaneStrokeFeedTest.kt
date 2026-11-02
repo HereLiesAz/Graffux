@@ -125,4 +125,19 @@ class PlaneStrokeFeedTest {
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     )
+
+    @Test
+    fun `a stroke that leaves the plane and comes back is broken at the gap, not bridged`() {
+        val r = Recorder()
+        val hits = listOf(Offset(1f, 1f), null, null, Offset(9f, 9f), Offset(10f, 10f))
+        var n = 0
+        val feed = r.feed { hits[n++] }
+        feed.onStart(Offset.Zero)
+        repeat(hits.size - 1) { feed.onPoint(Offset.Zero) }
+        feed.onEnd()
+        assertEquals(listOf(Offset(1f, 1f), Offset(9f, 9f)), r.started)
+        assertEquals(listOf(Offset(10f, 10f)), r.points)
+        assertEquals(2, r.ended)
+        assertEquals(0, r.cancelled)
+    }
 }

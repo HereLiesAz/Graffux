@@ -545,7 +545,7 @@ class ProjectManagerTest {
 
     @Test
     fun `a newer format is never lowered`() {
-        assertEquals(9, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 8), 8).formatVersion)
+        assertEquals(10, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 10), 10).formatVersion)
     }
 
     @Test

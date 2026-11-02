@@ -104,8 +104,10 @@ private val WheelHubRadius = 18.dp
 internal val WheelEdgeInset = 12.dp
 
 /** The wheel's hub in a [width] x [height] box with the hub [inset] in from its corner. */
-internal fun wheelHub(width: Float, height: Float, inset: Float, onRight: Boolean): Offset =
-    Offset(if (onRight) width - inset else inset, height - inset)
+internal object WheelHub {
+    fun at(width: Float, height: Float, inset: Float, onRight: Boolean): Offset =
+        Offset(if (onRight) width - inset else inset, height - inset)
+}
 private const val FLING_SECONDS = 0.18f
 private const val DIM_ALPHA = 0.5f
 private const val HALF_TURN = 180f
@@ -174,10 +176,11 @@ internal fun wheelTextRotation(degrees: Float): Float {
  * ([LocalSetWheelOnRight]), its hub in that corner, with every set's name on its own spoke
  * [WHEEL_WEDGE_DEGREES] apart, like a Wheel of Fortune. A fixed pointer at the arc's midpoint (45°)
  * marks the pointed wedge. Drag along the arc to turn it; a release flings and snaps to a wedge, and
- * a tap on a name turns that name to the pointer. The pointed set is only provisional (outlined in
- * the accent) until the wheel has rested on it for [WHEEL_DWELL_MS]; then it is committed through
- * [onPick] (accent fill). Any new motion cancels the wait. Accessibility actions (select a name,
- * next, previous) commit at once. The list is bounded: it stops at the first and last set after a
+ * a tap on a name turns that name to the pointer and commits it at once. After a drag or fling the
+ * pointed set is only provisional (outlined in the accent) until the wheel has rested on it for
+ * [WHEEL_DWELL_MS]; then it is committed through [onPick] (accent fill). Any new motion cancels
+ * the wait. Accessibility actions (select a name, next, previous) commit at once. The list is
+ * bounded: it stops at the first and last set after a
  * small pull. A light tick plays as each wedge passes the pointer.
  *
  * The wheel's position lives in a float state read only while drawing and placing, so turning it
@@ -283,7 +286,7 @@ internal fun CarouselSetWheel(
                 )
             }
             .pointerInput(count, onRight) {
-                val hub = wheelHub(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
+                val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
                 fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
                 val tracker = VelocityTracker1D(isDataDifferential = false)
                 var lastAngle = 0f
@@ -316,15 +319,19 @@ internal fun CarouselSetWheel(
             }
             .pointerInput(count, onRight) {
                 detectTapGestures { tap ->
-                    val hub = wheelHub(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
+                    val hub = WheelHub.at(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
                     if (hypot(tap.x - hub.x, tap.y - hub.y) > rPx) return@detectTapGestures
                     val a = (atan2(tap.y - hub.y, tap.x - hub.x) * HALF_TURN / PI).toFloat()
-                    settleTo(wheelIndexAt(a, position.floatValue, onRight).roundToInt().coerceIn(0, count - 1))
+                    // A tap is a decision: it commits at once. The dwell is for a drag or fling at rest.
+                    settleTo(
+                        wheelIndexAt(a, position.floatValue, onRight).roundToInt().coerceIn(0, count - 1),
+                        commitNow = true,
+                    )
                 }
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val hub = wheelHub(size.width, size.height, insetPx, onRight)
+            val hub = WheelHub.at(size.width, size.height, insetPx, onRight)
             val r = size.height - insetPx
             val pos = position.floatValue
             val pointed = pos.roundToInt().coerceIn(0, count - 1)
@@ -384,7 +391,7 @@ internal fun CarouselSetWheel(
         // pass through to the wheel's own tap handling.
         val itemSize = 28.dp
         val itemPx = with(density) { itemSize.toPx() }
-        val hubX = wheelHub(rPx + insetPx, rPx + insetPx, insetPx, onRight).x
+        val hubX = WheelHub.at(rPx + insetPx, rPx + insetPx, insetPx, onRight).x
         sets.forEachIndexed { i, set ->
             val label = labels[set.key] ?: set.label
             Box(

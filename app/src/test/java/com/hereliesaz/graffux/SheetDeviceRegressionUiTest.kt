@@ -90,10 +90,12 @@ class SheetDeviceRegressionUiTest {
         rule.waitForIdle()
     }
 
-    private fun bounds(tag: String): Rect = rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+    private fun bounds(tag: String): Rect =
+        rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
 
     private fun pickOnWheel(label: String) {
-        rule.onNode(hasTestTag("carousel.wheel.item") and hasText(label)).performSemanticsAction(SemanticsActions.OnClick)
+        rule.onNode(hasTestTag("carousel.wheel.item") and hasText(label))
+            .performSemanticsAction(SemanticsActions.OnClick)
         rule.waitForIdle()
     }
 
@@ -169,7 +171,9 @@ class SheetDeviceRegressionUiTest {
                         },
                     ) {
                         BottomCarousel(
-                            ui = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, showingCarousel = showingCarousel),
+                            ui = CarouselUi(
+                                CarouselCategory.BRUSHES, sheetOpen = true, showingCarousel = showingCarousel,
+                            ),
                             onUiChange = {},
                             content = CarouselContent(
                                 entries = carouselEntries(CarouselCategory.BRUSHES, inputs),

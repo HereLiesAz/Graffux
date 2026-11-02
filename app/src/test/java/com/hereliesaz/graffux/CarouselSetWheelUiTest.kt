@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performTouchInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -82,7 +83,8 @@ class CarouselSetWheelUiTest {
     /** The screen angle of [label]'s name, seen from the wheel's hub in its corner. */
     private fun angleOf(label: String, onRight: Boolean = true): Float {
         val w = wheelBounds()
-        val hub = Offset(if (onRight) w.right else w.left, w.bottom)
+        val inset = WheelEdgeInset.value * rule.density.density
+        val hub = WheelHub.at(w.width, w.height, inset, onRight) + Offset(w.left, w.top)
         val c = center(label)
         val deg = Math.toDegrees(atan2((c.y - hub.y).toDouble(), (c.x - hub.x).toDouble())).toFloat()
         return (deg + 360f) % 360f
@@ -97,8 +99,9 @@ class CarouselSetWheelUiTest {
     /** Drags slowly around the hub from [fromDeg] to [toDeg], 80% of the way out, and lets go. */
     private fun dragAround(fromDeg: Float, toDeg: Float, onRight: Boolean = true) {
         rule.onNodeWithTag("carousel.wheel").performTouchInput {
-            val hub = Offset(if (onRight) width.toFloat() else 0f, height.toFloat())
-            val r = height * 0.8f
+            val inset = WheelEdgeInset.toPx()
+            val hub = WheelHub.at(width.toFloat(), height.toFloat(), inset, onRight)
+            val r = (height - inset) * 0.8f
             fun at(deg: Float) = (deg * PI / 180).let { hub + Offset((r * cos(it)).toFloat(), (r * sin(it)).toFloat()) }
             val steps = 30
             down(at(fromDeg))
@@ -145,19 +148,26 @@ class CarouselSetWheelUiTest {
     }
 
     @Test
-    fun `tapping a name turns it to the pointer, and new motion restarts the dwell`() {
+    fun `a real tap on a name commits it at once and turns it to the pointer, with no dwell`() {
         compose()
         rule.mainClock.autoAdvance = false
-        item("Round").performClick()
-        advance(WHEEL_DWELL_MS / 2)
-        assertTrue(picks.isEmpty())
-        // A second tap before the dwell ends cancels the first.
-        item("Flat").performClick()
-        advance(WHEEL_DWELL_MS - 100)
-        assertTrue(picks.isEmpty())
+        // A real touch on the wheel at the name (not the semantics OnClick action).
+        val wheel = wheelBounds()
+        val round = center("Round")
+        rule.onNodeWithTag("carousel.wheel").performTouchInput {
+            click(Offset(round.x - wheel.left, round.y - wheel.top))
+        }
+        advance(100)
+        assertEquals(listOf("basic.round"), picks)
         advance(WHEEL_DWELL_MS * 3)
-        assertEquals(listOf("basic.flat"), picks)
-        assertEquals(225f, angleOf("Flat"), 3f)
+        assertEquals(listOf("basic.round"), picks)
+        assertEquals(225f, angleOf("Round"), 3f)
+        val flat = center("Flat")
+        rule.onNodeWithTag("carousel.wheel").performTouchInput {
+            click(Offset(flat.x - wheel.left, flat.y - wheel.top))
+        }
+        advance(100)
+        assertEquals(listOf("basic.round", "basic.flat"), picks)
     }
 
     @Test

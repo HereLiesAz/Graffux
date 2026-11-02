@@ -32,8 +32,9 @@ data class DepthComposite(
     /** The top-level layer at whose position the pass draws; null when the plan is empty. */
     val anchorTopLevelId: String?,
     /**
-     * Every layer painted on a group surface (spec/3d-space.md, "Group surfaces"). Those the pass
-     * cannot draw (an adjustment, say) are not drawn flat either: they have no plane of their own.
+     * Every layer the depth pass paints on a group surface (spec/3d-space.md, "Group surfaces").
+     * Adjustment layers, and blend-mode or clipped layers on a flat surface, are not in it: they
+     * draw in the ordinary stack.
      */
     val surfaceIds: Set<String> = emptySet(),
 ) {
@@ -50,8 +51,17 @@ data class DepthComposite(
         fun plan(layers: List<Layer>, camera: SceneCamera): DepthComposite {
             val sceneIds = SceneRenderPath.sceneLayerIds(layers, camera)
             if (sceneIds.isEmpty() && layers.none { it.spatial != null || it.model != null }) return EMPTY
-            val onSurface = SurfaceMath.surfaceLayerIds(layers)
             val byId = layers.associateBy { it.id }
+            // Paint the depth pass draws on a surface. Not an adjustment layer: it has no image of
+            // its own and works on what is beneath it on screen, so it stays in the stack. Nor, on
+            // a FLAT surface (one plane), a layer needing a blend mode or a clip, which a depth
+            // buffer cannot do: it draws through its plane in the stack, exactly as before surfaces.
+            val onSurface = SurfaceMath.surfaceLayerIds(layers).filterTo(HashSet()) { id ->
+                val layer = byId.getValue(id)
+                val needsStack = layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow
+                layer.adjustment == null &&
+                    !(needsStack && SurfaceMath.ownerOf(byId, id)?.profile?.isFlat == true)
+            }
             fun ancestors(layer: Layer): List<Layer> {
                 val out = ArrayList<Layer>()
                 var p = layer.parentId?.let(byId::get)

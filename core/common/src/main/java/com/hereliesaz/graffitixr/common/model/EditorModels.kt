@@ -227,12 +227,19 @@ val Layer.isPlacedIn3D: Boolean
     get() = positionZ != 0f || rotationX != 0f || rotationY != 0f
 
 /**
- * A 3D layer, as opposed to a 2D one (spec/3d-space.md, "2D and 3D layers"): paint on a group
- * surface (the layer's group, or the group itself, has a profile), a 3D strokes layer or a 3D
- * model layer. Only a 3D layer has a rotation axis. [layers] is the document the layer is in.
+ * A 3D layer, as opposed to a 2D one (spec/3d-space.md, "2D and 3D layers"): placed in 3D by any
+ * means (a depth or an X/Y tilt, [isPlacedIn3D]), paint on a group surface (the layer's group, or
+ * the group itself, has a profile), a 3D strokes layer or a 3D model layer. Only a 3D layer has a
+ * rotation axis. [layers] is the document the layer is in.
  */
 fun Layer.is3DIn(layers: List<Layer>): Boolean =
-    spatial != null || model != null || com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) != null
+    isPlacedIn3D || spatial != null || model != null ||
+        com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) != null
+
+/** [is3DIn] over the document's layers by id, built once by a caller asking for many layers. */
+fun Layer.is3DIn(byId: Map<String, Layer>): Boolean =
+    isPlacedIn3D || spatial != null || model != null ||
+        com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(byId, id) != null
 
 /** A 3D strokes layer (spec/3d-space.md). */
 val Layer.isSpatial: Boolean

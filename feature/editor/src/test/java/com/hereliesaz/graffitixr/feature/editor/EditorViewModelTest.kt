@@ -1648,7 +1648,7 @@ class EditorViewModelTest {
     @Test
     fun `double-tap cycles the axis on a 3D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(modelLyr("a")))
+        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()
         val before = viewModel.uiState.value.activeRotationAxis
@@ -1676,9 +1676,6 @@ class EditorViewModelTest {
         val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
         viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("lone")))
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
-        viewModel.onLayerActivated("lone")
-        viewModel.onAxisSlotTapped()
-        assertEquals(null, viewModel.uiState.value.surfaceDrawGroupId)
         viewModel.onLayerActivated("c")
         assertFalse(viewModel.uiState.value.layers.first { it.id == "c" }.is3DIn(viewModel.uiState.value.layers))
         viewModel.onAxisSlotTapped()
@@ -1690,6 +1687,61 @@ class EditorViewModelTest {
         val axis = viewModel.uiState.value.activeRotationAxis
         viewModel.onAxisSlotTapped()
         assertEquals(RotationAxis.entries[(axis.ordinal + 1) % 3], viewModel.uiState.value.activeRotationAxis)
+    }
+
+    @Test
+    fun `the axis slot wraps an ungrouped 2D layer in a new group, one undo step, and arms Draw surface`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("under"), lyr("lone"), lyr("over")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onAxisSlotTapped()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layers = viewModel.uiState.value.layers
+        val lone = layers.first { it.id == "lone" }
+        val group = layers.first { it.id == lone.parentId }
+        assertEquals(com.hereliesaz.graffitixr.common.model.LayerType.GROUP, group.type)
+        assertNull(group.parentId)
+        assertEquals(group.id, viewModel.uiState.value.surfaceDrawGroupId)
+        assertEquals("lone", viewModel.uiState.value.activeLayerId)
+        // Its place in the stack is unchanged: between "under" and "over".
+        assertEquals(listOf("under", group.id, "over"), layers.filter { it.parentId == null }.map { it.id })
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("under", "lone", "over"), viewModel.uiState.value.layers.map { it.id })
+    }
+
+    @Test
+    fun `the rotation slider leaves the open panel open`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(EditorPanel.TRANSFORM, viewModel.uiState.value.activePanel)
+        val undo = viewModel.uiState.value.undoCount
+        sliderDrag(20f)
+        assertEquals(EditorPanel.TRANSFORM, viewModel.uiState.value.activePanel)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        assertEquals(20f, viewModel.uiState.value.layers.single().rotationZ, 0.01f)
+    }
+
+    @Test
+    fun `the rotation slider does nothing on a locked layer`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(isImageLocked = true)))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.rotationSliderValue())
+        val undo = viewModel.uiState.value.undoCount
+        sliderDrag(45f)
+        viewModel.onRotationSliderReset()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.layers.single().rotationZ, 0.01f)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
     }
 
     private fun sliderDrag(vararg degrees: Float) {
@@ -1723,7 +1775,7 @@ class EditorViewModelTest {
     @Test
     fun `the rotation slider uses the cycler axis on a 3D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(modelLyr("a").copy(rotationX = 10f)))
+        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
         viewModel.onLayerActivated("a")
         setAxis(RotationAxis.Y)
         testDispatcher.scheduler.advanceUntilIdle()

@@ -83,7 +83,6 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.isContainer
-import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
 import com.hereliesaz.graffitixr.common.model.PathEditing
 import com.hereliesaz.graffitixr.common.model.ShapeKind
@@ -295,8 +294,9 @@ fun EditorScreen(
                                 uiState.onionSkinFutureCount,
                             )
                         }
-                        val hasPerspectiveTilt = uiState.layers.any { it.isPlacedIn3D } ||
-                            !uiState.sceneCamera.isDefault
+                        val hasPerspectiveTilt = com.hereliesaz.graffitixr.common.scene.needsPerspectiveRender(
+                            uiState.layers, uiState.sceneCamera,
+                        )
                         // The one 3D space, resolved for this canvas box. Its sceneIds is empty for
                         // a flat document, which keeps every layer on the original 2D path.
                         val sceneContext = remember(

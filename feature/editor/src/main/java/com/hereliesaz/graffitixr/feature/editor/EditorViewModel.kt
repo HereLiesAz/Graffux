@@ -5127,7 +5127,8 @@ class EditorViewModel @Inject constructor(
     /**
      * The rail's axis slot: on a 3D layer it steps the axis; on a 2D layer (where it reads "3D")
      * it arms "Draw surface" on the layer's group (the group itself when a group is active), the
-     * way into 3D since groups own surfaces. A layer in no group has nothing to arm.
+     * way into 3D since groups own surfaces. A layer in no group is first wrapped in a new group of
+     * its own (one undo step), which is then armed.
      */
     @Suppress("ReturnCount")
     fun onAxisSlotTapped() {
@@ -5137,8 +5138,30 @@ class EditorViewModel @Inject constructor(
             return
         }
         val active = st.layers.firstOrNull { it.id == st.activeLayerId } ?: return
-        val groupId = if (active.isContainer) active.id else active.parentId ?: return
+        val groupId = if (active.isContainer) active.id else active.parentId ?: wrapInNewGroup(active.id) ?: return
         onArmSurfaceDraw(groupId)
+    }
+
+    /**
+     * Wraps top-level layer [layerId] in a new [LayerType.GROUP] at its place in the stack, as one
+     * undo step, and tells co-op peers. Returns the new group's id, or null when it cannot.
+     */
+    private fun wrapInNewGroup(layerId: String): String? {
+        val before = _uiState.value.layers
+        val layer = before.firstOrNull { it.id == layerId }?.takeIf { it.parentId == null } ?: return null
+        val group = Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP)
+        pushHistory()
+        updateUi { st ->
+            st.copy(
+                layers = st.layers.flatMap {
+                    if (it.id == layer.id) listOf(group, it.copy(parentId = group.id)) else listOf(it)
+                },
+            )
+        }
+        emitMembership(Op.LayerAdd(group))
+        emitGeometryChanges(before, _uiState.value.layers)
+        saveProject()
+        return group.id
     }
 
     fun onRotateLayerHandle(degreesDelta: Float) {
@@ -5577,7 +5600,9 @@ class EditorViewModel @Inject constructor(
 
     /** The active layer's angle on [rotationSliderAxis], wrapped to -180..180, or null with no layer. */
     fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
-        val layer = state.layers.firstOrNull { it.id == state.transformTargetId() } ?: return null
+        // A locked layer does not turn: no slider.
+        val layer = state.layers.firstOrNull { it.id == state.transformTargetId() }
+            ?.takeUnless { it.isImageLocked } ?: return null
         val raw = when (rotationSliderAxis(state)) {
             RotationAxis.X -> layer.rotationX
             RotationAxis.Y -> layer.rotationY
@@ -5586,8 +5611,16 @@ class EditorViewModel @Inject constructor(
         return wrapDegrees(raw)
     }
 
-    /** A rotation-slider drag begins: one undo step for the whole drag, like a transform gesture. */
-    fun onRotationSliderStart() = onGestureStart()
+    /**
+     * A rotation-slider drag begins: one undo step for the whole drag. Unlike a canvas transform
+     * gesture it leaves the open panel (Transform, say) open. Nothing on a locked layer.
+     */
+    fun onRotationSliderStart() {
+        if (rotationSliderValue() == null) return
+        pushHistory()
+        gestureStartLayers = _uiState.value.layers
+        dispatch(EditorIntent.SetGestureInProgress(true))
+    }
 
     /** Live: turns the active layer (and its linked group) so its slider angle reads [degrees]. */
     fun onRotationSliderChange(degrees: Float) {
@@ -5606,7 +5639,10 @@ class EditorViewModel @Inject constructor(
     }
 
     /** The drag ends: saves and emits the co-op transform, as a transform gesture's end does. */
-    fun onRotationSliderEnd() = onGestureEnd()
+    fun onRotationSliderEnd() {
+        if (gestureStartLayers == null) return
+        onGestureEnd()
+    }
 
     /** A double-tap on the slider's thumb: back to 0° on its axis, as one undo step. */
     fun onRotationSliderReset() {
