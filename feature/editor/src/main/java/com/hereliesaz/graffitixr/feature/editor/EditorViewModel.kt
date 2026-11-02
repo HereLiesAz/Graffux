@@ -2667,6 +2667,10 @@ class EditorViewModel @Inject constructor(
 
     override fun onUndoClicked() {
         if (_uiState.value.undoCount > 0) showHud("Undo")
+        undoTop()
+    }
+
+    private fun undoTop() {
         val command = history.popUndo { undone ->
             when (undone) {
                 is EditCommand.Draw -> undone
@@ -7850,6 +7854,42 @@ class EditorViewModel @Inject constructor(
 
     /** Called when the user lifts their finger. Finalizes the stroke into the layer and undo history. */
     fun onStrokeEnd() {
+        endStroke()
+        closeGesture()
+    }
+
+    /**
+     * Ends one segment of a gesture the active layer's plane broke at a gap (PlaneStrokeFeed): it
+     * commits like a finger-up, but the gesture stays open, so the next segment joins its undo entry
+     * and a cancel of the gesture takes every segment back.
+     */
+    fun onStrokeSegmentEnd() {
+        gestureOpen = true
+        endStroke()
+    }
+
+    /** A gesture broken into segments is still in progress ([onStrokeSegmentEnd]). */
+    private var gestureOpen = false
+
+    /** The newest committed segment of the open gesture, by identity; null = none committed yet. */
+    private var gestureCommitted: StrokeCommand? = null
+
+    private fun closeGesture() {
+        gestureOpen = false
+        gestureCommitted = null
+    }
+
+    /** Takes back every committed segment of a cancelled gesture: one entry, no redo, no pill. */
+    private fun rollBackGesture() {
+        val committed = gestureCommitted ?: return
+        closeGesture()
+        if (!history.topDrawHolds(committed)) return
+        undoTop()
+        history.dropTopRedo()
+        updateHistoryCounts()
+    }
+
+    private fun endStroke() {
         // The commit renders from canonical history; a preview frame queued for this stroke is moot.
         stampFrameRequestedFor = -1L
         // The tracker that measured THIS stroke: stamp brushes and Basic Brush are timed separately.
@@ -8951,6 +8991,12 @@ class EditorViewModel @Inject constructor(
      * recorded on finger-up), so dropping the live preview is the whole cancel.
      */
     fun onStrokeCancel() {
+        cancelStroke()
+        rollBackGesture()
+        closeGesture()
+    }
+
+    private fun cancelStroke() {
         // A cancelled first stroke leaves no paint, so the layer keeps the plane it had.
         pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
         pendingPlaneAdoption = null
@@ -9186,7 +9232,9 @@ class EditorViewModel @Inject constructor(
         // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
-        return history.pushDraw(layerId, command, chunkable, plane = plane)
+        val continues = gestureOpen && gestureCommitted != null
+        if (gestureOpen) gestureCommitted = command
+        return history.pushDraw(layerId, command, chunkable, plane = plane, continuesGesture = continues)
     }
 
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
