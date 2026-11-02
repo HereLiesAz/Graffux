@@ -246,8 +246,12 @@ first casts the ray from the eye through that point, intersects the layer's plan
 in the layer's box coordinates `L`, and returns `C + (ox, oy) + Rz * scale * (L - C)`: the point
 the existing pipeline would have received had the layer been flat. Every brush and tool then runs
 unchanged (`mapScreenToBitmap` undoes exactly the 2D part). A ray that misses the plane (parallel,
-or the plane behind the eye) yields no point. The brush then keeps the plain world point, so a
-stroke never breaks.
+the plane behind the eye, or a hit nearer than the near plane, which is the eye lying in an edge-on
+plane) yields no point. The brush skips that sample (`PlaneStrokeFeed`): there is nothing of the
+layer under the finger, and painting the plain world point would put the paint where the layer sat
+before it was turned. The stroke starts at its first sample that hits, and a stroke that never hits
+is cancelled, so a layer seen edge-on takes no paint. A fill or clone tap that misses still uses the
+plain world point.
 
 ## Adopting the view plane
 
