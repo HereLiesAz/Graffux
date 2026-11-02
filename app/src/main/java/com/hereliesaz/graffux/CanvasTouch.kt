@@ -114,10 +114,15 @@ internal fun rememberChromeVisibility(
 
 /**
  * [content] at full alpha while the chrome is shown; while it is hidden, a faint silhouette that
- * takes no touches, so a stroke over it reaches the canvas (see [GhostWhileDrawing]).
+ * takes no touches, so a stroke over it reaches the canvas (see [GhostWhileDrawing]). An overlay
+ * passes [fillParent] so its content can align in the parent Box; a slot in a Column leaves it off.
  */
 @Suppress("FunctionNaming")
 @Composable
-internal fun ShownWhenNotDrawing(visibility: ChromeVisibility, content: @Composable () -> Unit) {
-    GhostWhileDrawing(hidden = { visibility.hidden }, content = content)
+internal fun ShownWhenNotDrawing(
+    visibility: ChromeVisibility,
+    fillParent: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    GhostWhileDrawing(hidden = { visibility.hidden }, fillParent = fillParent, content = content)
 }

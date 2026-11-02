@@ -1266,7 +1266,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     WindowInsets.safeDrawing,
                 ),
         ) {
-            if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome) {
+            if (!uiState.hideUiForCapture) ShownWhenNotDrawing(chrome, fillParent = true) {
                 ToolRail(
                     vm = toolRailActions,
                     uiState = uiState,

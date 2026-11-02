@@ -50,11 +50,16 @@ fun chromeTargetAlpha(hidden: Boolean): Float = if (hidden) CHROME_GHOST_ALPHA e
  * Only `graphicsLayer` alpha animates: no frame of the fade recomposes or relays out anything.
  * While hidden, the content is *placed* [GHOST_PARK_PX] off screen and *drawn* back where it was,
  * so hit testing finds nothing there and the canvas underneath takes the stroke. Touches return the
- * moment the fade in starts. Fills the parent Box, so the content's `Modifier.align` still works.
+ * moment the fade in starts. With [fillParent] it fills the parent Box, so an overlay's
+ * `Modifier.align` still works; without, it wraps its content (for a slot in a Column or Row).
  */
 @Suppress("FunctionNaming")
 @Composable
-fun GhostWhileDrawing(hidden: () -> Boolean, content: @Composable () -> Unit) {
+fun GhostWhileDrawing(
+    hidden: () -> Boolean,
+    fillParent: Boolean = false,
+    content: @Composable () -> Unit,
+) {
     val latest by rememberUpdatedState(hidden)
     val ghosted by remember { derivedStateOf { latest() } }
     val alpha by animateFloatAsState(
@@ -65,7 +70,7 @@ fun GhostWhileDrawing(hidden: () -> Boolean, content: @Composable () -> Unit) {
     val park = if (ghosted) GHOST_PARK_PX else 0
     Box(
         Modifier
-            .fillMaxSize()
+            .then(if (fillParent) Modifier.fillMaxSize() else Modifier)
             .testTag(CHROME_GHOST_TAG)
             .graphicsLayer { this.alpha = alpha }
             .drawWithContent { translate(top = -park.toFloat()) { this@drawWithContent.drawContent() } }
@@ -81,5 +86,5 @@ fun GhostWhileDrawing(hidden: () -> Boolean, content: @Composable () -> Unit) {
 @Suppress("FunctionNaming")
 @Composable
 fun HiddenWhileDrawing(content: @Composable () -> Unit) {
-    GhostWhileDrawing(LocalChromeHidden.current, content)
+    GhostWhileDrawing(LocalChromeHidden.current, fillParent = true, content = content)
 }
