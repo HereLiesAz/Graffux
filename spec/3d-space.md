@@ -27,26 +27,28 @@ old double-tap that cycled through the layers under the finger is gone.)
 
 ## 2D and 3D layers
 
-The two stay distinct. A layer is a **3D layer** (`Layer.is3DLayer`) when any of these holds:
+The two stay distinct, and 3D is a property of the layer's **group** (spec "Group surfaces"
+below). A layer is a **3D layer** (`Layer.is3DIn(layers)`) when any of these holds:
 
-- it was made 3D by hand: `Layer.plane3D`, a stored flag, saved with the project
-  (`OverlayLayer.plane3D`; absent from older saves, which load every layer as 2D unless placed);
-- it is placed in 3D (`Layer.isPlacedIn3D`: a depth or an X/Y tilt), by any means: view-plane
-  adoption, the Move tool's depth or tilt, the Transform panel, an older project;
+- it is paint on a group surface: its group (or, for a group, the group itself) has a profile;
 - it is a 3D strokes layer or a 3D model layer.
 
-A dedicated flag is needed because `isPlacedIn3D` is derived from the transform alone: a layer made
-3D by hand still sits on the identity plane until it is moved, and must stay 3D. There is no way
-back to 2D by design: Reset plane flattens the plane and sets `plane3D`, so the layer stays 3D.
+The per-layer 3D flag (`plane3D`) is retired: it is no longer saved, and a project that still has
+it loads those layers as flat (`OverlayLayer` and `Layer` skip the unknown key; a co-op peer's
+`LayerExtProps` does too). Old projects are not migrated. A layer can still be *placed* in 3D
+(`Layer.isPlacedIn3D`: a depth or an X/Y tilt, from an older project or view-plane adoption) and is
+then drawn through the scene as before, but it is not a 3D layer for the rail and gestures.
 
 On the layers rail the tile outline tells them apart: the active 2D layer wears the rail's
 selected-tool accent (pink), the active 3D layer cyan (the X-axis colour), any other 3D layer white,
-and any other 2D layer no outline. A 3D tile's TalkBack label also says "3D".
+and any other 2D layer no outline. A profiled group's tile and every tile on its surface are 3D. A
+3D tile's TalkBack label also says "3D".
 
 The rail's **axis slot** (the slot the old 3D button had) is always there:
 
-- on a 2D layer it reads **3D**; a tap makes the layer 3D as one undo step, on axis Z, and the
-  slot then reads **Z**;
+- on a 2D layer (its group has no profile) it reads **3D**; a tap arms "Draw surface" on the
+  layer's group (the group itself when a group is active), and once that stroke is drawn the slot
+  shows the axis. A layer in no group has no surface to draw, and the tap does nothing;
 - on a 3D layer it shows the current axis as its letter in the axis colour (X cyan, Y pink, Z
   green), so the user can always see which axis a twist turns about; a tap steps X -> Y -> Z,
   the same state a double-tap steps. An "Axis:" chip confirms a change briefly, then clears.
@@ -81,8 +83,8 @@ placement, rendered in perspective. When the active layer is tilted or the camer
 touch is mapped onto the layer through a ray-plane intersection (below), so brushes and tools work
 unchanged on the tilted plane.
 
-The old `Layer.is3D` field, its Transform-panel switch and its reducer intent are deleted; `plane3D`
-is a different key, so a co-op peer or snapshot from an older build that still sends `is3D` decodes
+The old `Layer.is3D` field, its Transform-panel switch and its reducer intent are deleted, and so is
+its successor `plane3D`, so a co-op peer or snapshot from an older build that still sends `is3D` decodes
 cleanly, because `Layer` skips unknown keys. The Transform panel shows the X, Y and depth fields
 whenever the layer is placed in 3D or the camera has moved.
 
@@ -120,7 +122,7 @@ used to open the window, now imports into a layer.
 
 - **Import.** `EditorViewModel.importModelLayer` parses the OBJ (`ObjParser`), copies the file
   into the project folder as `model_<layerId>.obj`, and adds a layer on top with
-  `Layer.model: ModelLayerContent` and `plane3D` set, so it is a 3D layer: the rail shows the axis
+  `Layer.model: ModelLayerContent`, which makes it a 3D layer: the rail shows the axis
   cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule
   (`SceneMath.viewPlanePose`): facing the camera through its orbit target, at the camera's distance
   scale. One undo step.

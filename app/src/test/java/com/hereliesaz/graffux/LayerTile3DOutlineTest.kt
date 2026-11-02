@@ -9,7 +9,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.is3DIn
+import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
 import com.hereliesaz.graffitixr.common.scene.ModelLayerContent
 import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.design.theme.Cyan
@@ -18,6 +20,7 @@ import com.hereliesaz.graffitixr.design.theme.White
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,10 +47,13 @@ class LayerTile3DOutlineTest {
 
     @Test
     fun `3D tiles say so to TalkBack and 2D tiles do not`() {
+        val profile = SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
         val layers = listOf(
             Layer("flat", "Flat"),
-            Layer("made", "Made 3D", plane3D = true),
-            Layer("placed", "Placed", positionZ = 40f),
+            Layer("group", "Flat group", type = LayerType.GROUP),
+            Layer("inFlat", "In a flat group", parentId = "group"),
+            Layer("surface", "Surface", type = LayerType.GROUP, surface = profile),
+            Layer("painted", "On the surface", parentId = "surface"),
             Layer("ink", "3D strokes", spatial = SpatialLayerContent()),
             Layer("obj", "3D model", model = ModelLayerContent("model_obj.obj")),
         )
@@ -62,9 +68,12 @@ class LayerTile3DOutlineTest {
                 )
             }
         }
-        listOf("made", "placed", "ink", "obj").forEach {
+        listOf("surface", "ink", "obj").forEach {
             rule.onNodeWithTag("rail.${layerRailId(it)}").assertContentDescriptionContains(", 3D", substring = true)
         }
+        // The outlines follow the GROUP: paint on a surface is 3D, paint in a flat group is not.
+        assertTrue(layers.first { it.id == "painted" }.is3DIn(layers))
+        listOf("flat", "group", "inFlat").forEach { id -> assertFalse(layers.first { it.id == id }.is3DIn(layers)) }
         assertFalse(layerThumbLabel(layers.first(), masked = false, expanded = false).contains("3D"))
     }
 
@@ -83,7 +92,7 @@ class LayerTile3DOutlineTest {
             }
         }
         rule.onNodeWithTag("rail.${layerRailId("obj")}").assertContentDescriptionContains(", 3D", substring = true)
-        assertEquals(2.dp to Cyan, layerOutline(is3D = model.is3DLayer, light = on, accent = HotPink))
-        assertEquals(1.dp to White, layerOutline(is3D = model.is3DLayer, light = off, accent = HotPink))
+        assertEquals(2.dp to Cyan, layerOutline(is3D = model.is3DIn(listOf(model)), light = on, accent = HotPink))
+        assertEquals(1.dp to White, layerOutline(is3D = model.is3DIn(listOf(model)), light = off, accent = HotPink))
     }
 }

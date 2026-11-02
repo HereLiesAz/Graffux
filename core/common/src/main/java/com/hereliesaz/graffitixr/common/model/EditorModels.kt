@@ -137,12 +137,6 @@ data class Layer(
     @Serializable(with = FiniteFloatOrZeroSerializer::class)
     val positionZ: Float = 0f,
     /**
-     * Made a 3D layer by hand (the rail's "3D" button) before anything moved it in depth: a layer
-     * stays 3D ([is3DLayer]) even while its plane is still the identity, which [isPlacedIn3D],
-     * derived from the transform alone, cannot say. Never cleared. Saved with the project.
-     */
-    val plane3D: Boolean = false,
-    /**
      * A 3D strokes layer's ink and guide (spec/3d-space.md). Null for every other layer. Like an
      * adjustment layer it is RASTER with no bitmap, so an older build shows it as an empty layer.
      */
@@ -233,12 +227,12 @@ val Layer.isPlacedIn3D: Boolean
     get() = positionZ != 0f || rotationX != 0f || rotationY != 0f
 
 /**
- * A 3D layer, as opposed to a 2D one (spec/3d-space.md, "2D and 3D layers"): made 3D by hand,
- * placed in 3D by any means (view-plane adoption, the Move tool's depth or tilt), or a 3D strokes
- * layer. Only a 3D layer has a rotation axis: X/Y twists and the axis cycler need one.
+ * A 3D layer, as opposed to a 2D one (spec/3d-space.md, "2D and 3D layers"): paint on a group
+ * surface (the layer's group, or the group itself, has a profile), a 3D strokes layer or a 3D
+ * model layer. Only a 3D layer has a rotation axis. [layers] is the document the layer is in.
  */
-val Layer.is3DLayer: Boolean
-    get() = plane3D || isPlacedIn3D || spatial != null || model != null
+fun Layer.is3DIn(layers: List<Layer>): Boolean =
+    spatial != null || model != null || com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) != null
 
 /** A 3D strokes layer (spec/3d-space.md). */
 val Layer.isSpatial: Boolean
@@ -304,6 +298,9 @@ data class LayerProps(
  *
  * The mask's pixels are not here, only its revision: they travel in [Op.AdjustmentMaskData].
  */
+// A peer that predates surfaces may still send the retired `plane3D` key: skipped, not rejected.
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+@kotlinx.serialization.json.JsonIgnoreUnknownKeys
 @Serializable
 data class LayerExtProps(
     val name: String,
@@ -322,8 +319,6 @@ data class LayerExtProps(
     val isLinked: Boolean = false,
     /** The text layer's content and formatting (font, size, colour, spacing, style); null = not sent. */
     val textParams: TextLayerParams? = null,
-    /** [Layer.plane3D]: made a 3D layer by hand; null = not sent (a peer that predates it). */
-    val plane3D: Boolean? = null,
     /** [Layer.surface]; only read when [surfaceSent] (a peer that predates surfaces sends neither). */
     val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile? = null,
     val surfaceSent: Boolean = false,
@@ -361,7 +356,6 @@ fun Layer.toLayerProps(): LayerProps = LayerProps(
         isSketch = isSketch,
         isLinked = isLinked,
         textParams = textParams,
-        plane3D = plane3D,
         surface = surface,
         surfaceSent = true,
     ),
@@ -402,7 +396,6 @@ fun Layer.withLayerProps(props: LayerProps): Layer {
         isSketch = x.isSketch,
         isLinked = x.isLinked,
         textParams = x.textParams ?: textParams,
-        plane3D = x.plane3D ?: plane3D,
         surface = if (x.surfaceSent) x.surface else surface,
     )
 }

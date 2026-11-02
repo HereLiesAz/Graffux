@@ -4,7 +4,7 @@ package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.mesh.ObjParser
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -97,7 +97,7 @@ class ModelSpaceTest {
     @Test
     fun `a model layer is a 3D layer and always a depth-pass member`() {
         val model = Layer("m", "M", model = ModelLayerContent("model_m.obj"))
-        assertTrue(model.is3DLayer)
+        assertTrue(model.is3DIn(listOf(model)))
         val plan = DepthComposite.plan(listOf(Layer("a", "A"), model), SceneCamera())
         assertEquals(listOf("m"), plan.memberIds)
         assertTrue(DepthComposite.plan(listOf(Layer("a", "A")), SceneCamera()).isEmpty)
