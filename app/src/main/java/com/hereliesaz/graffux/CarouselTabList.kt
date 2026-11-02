@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -230,7 +232,9 @@ internal fun carouselSetLabels(sections: List<CarouselTabSection>): Map<String, 
 internal fun previousSetAfter(picked: String, current: String?, previous: String?): String? =
     if (current != null && current != picked && current != FAVORITES_SET_KEY) current else previous
 
-private val QuickButtonHeight = 40.dp
+/** The quick buttons' height: a full 44dp touch target, inside the strip and its overhang. */
+private val QuickButtonHeight = 44.dp
+private val QuickStackGap = 4.dp
 /**
  * The set picker: a wide, flat wheel of the sets ([CarouselSetWheel]) in the sheet's bottom corner
  * away from the rail ([LocalSetWheelOnRight], from the handedness setting), with two quick buttons stacked on
@@ -270,19 +274,61 @@ internal fun CarouselTabList(
     BoxWithConstraints(
         modifier.fillMaxWidth().height(StripHeight).padding(horizontal = PickerGap).testTag("carousel.tabs"),
     ) {
-        val wheelWidth = setWheelWidth(maxWidth - QuickColumnWidth - PickerGap)
+        val buttons = listOfNotNull(favorites, previous).size
+        // Both quick buttons count: side by side they narrow before the wheel does, and only stack
+        // (one button's width, rising a little over the strip) when even that leaves too little.
+        val split = pickerSplit(maxWidth, buttons)
         val wheelHeight = StripHeight + PickerOverhang
         val quick: @Composable () -> Unit = {
-            if (favorites != null) {
-                Box(Modifier.width(QuickColumnWidth)) {
-                    QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
-                        pick(favorites)
+            val favoritesButton: @Composable () -> Unit = {
+                if (favorites != null) {
+                    Box(Modifier.width(split.buttonWidth)) {
+                        QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
+                            pick(favorites)
+                        }
                     }
                 }
             }
-            if (previous != null) {
-                Box(Modifier.width(QuickColumnWidth)) {
-                    QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") { pick(previous) }
+            val previousButton: @Composable () -> Unit = {
+                if (previous != null) {
+                    Box(Modifier.width(split.buttonWidth)) {
+                        QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") {
+                            pick(previous)
+                        }
+                    }
+                }
+            }
+            if (split.stacked) {
+                Column(
+                    Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true),
+                    verticalArrangement = Arrangement.spacedBy(QuickStackGap),
+                ) {
+                    favoritesButton()
+                    previousButton()
+                }
+            } else {
+                // Side by side in the buttons' share: Favorites as wide as its label, the previous
+                // set's name taking the rest. Favorites stays nearest the rail either way round.
+                val fav: @Composable RowScope.() -> Unit = {
+                    if (favorites != null) {
+                        Box(Modifier.width(IntrinsicSize.Max)) {
+                            QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") {
+                                pick(favorites)
+                            }
+                        }
+                    }
+                }
+                val prev: @Composable RowScope.() -> Unit = {
+                    if (previous != null) {
+                        Box(Modifier.weight(1f)) {
+                            QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") {
+                                pick(previous)
+                            }
+                        }
+                    }
+                }
+                Row(Modifier.width(split.quickWidth), horizontalArrangement = Arrangement.spacedBy(PickerGap)) {
+                    if (onRight) { fav(); prev() } else { prev(); fav() }
                 }
             }
         }
@@ -296,7 +342,7 @@ internal fun CarouselTabList(
             horizontalArrangement = Arrangement.spacedBy(PickerGap, if (onRight) Alignment.End else Alignment.Start),
         ) {
             if (onRight) quick()
-            CarouselSetWheel(sets, labels, selectedKey, wheelWidth, wheelHeight, pick)
+            CarouselSetWheel(sets, labels, selectedKey, split.wheelWidth, wheelHeight, pick)
             if (!onRight) quick()
         }
     }
@@ -322,7 +368,7 @@ private fun QuickSetButton(label: String, lit: Boolean, tag: String, onClick: ()
             .border(1.dp, colors.outline, RoundedCornerShape(QuickButtonHeight / 2))
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { selected = lit }
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 10.dp)
             .testTag(tag),
     ) {
         Text(

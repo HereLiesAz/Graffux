@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -222,7 +224,7 @@ private fun bandSector(hub: Offset, inner: Float, outer: Float, start: Float, sw
  * The wheel's position lives in a float state read only while drawing and placing, so turning it
  * recomposes nothing — not the wheel, and not the cards above it.
  */
-@Suppress("FunctionNaming", "LongMethod", "CyclomaticComplexMethod", "LongParameterList")
+@Suppress("FunctionNaming", "LongParameterList")
 @Composable
 internal fun CarouselSetWheel(
     sets: List<CarouselTabGroup>,
@@ -232,6 +234,27 @@ internal fun CarouselSetWheel(
     height: Dp,
     onPick: (CarouselTabGroup) -> Unit,
     modifier: Modifier = Modifier,
+) {
+    // The hub, the arc and the hit area all follow the width the wheel is actually given, which a
+    // crowded row may make less than [width].
+    BoxWithConstraints(modifier.size(width, height)) {
+        SetWheelBand(sets, labels, selectedKey, maxWidth, maxHeight, onPick)
+    }
+}
+
+/** The wheel's width its geometry (hub, arc, hit area) was built for, in px. */
+internal val WheelGeometryWidth = SemanticsPropertyKey<Float>("WheelGeometryWidth")
+private var SemanticsPropertyReceiver.wheelGeometryWidth by WheelGeometryWidth
+
+@Suppress("FunctionNaming", "LongMethod", "CyclomaticComplexMethod", "LongParameterList")
+@Composable
+private fun SetWheelBand(
+    sets: List<CarouselTabGroup>,
+    labels: Map<String, String>,
+    selectedKey: String?,
+    width: Dp,
+    height: Dp,
+    onPick: (CarouselTabGroup) -> Unit,
 ) {
     val onRight = LocalSetWheelOnRight.current
     val count = sets.size
@@ -314,13 +337,14 @@ internal fun CarouselSetWheel(
     }
 
     Box(
-        modifier
+        Modifier
             .size(width, height)
             .clipToBounds()
             .testTag("carousel.wheel")
             .semantics {
                 selectableGroup()
                 contentDescription = "Sets"
+                wheelGeometryWidth = widthPx
                 collectionInfo = CollectionInfo(rowCount = count, columnCount = 1)
                 customActions = listOf(
                     CustomAccessibilityAction("Next set") { move(1); true },
@@ -462,8 +486,23 @@ internal val PickerGap = 8.dp
 /** Gaps across the picker: both sides and between the buttons and the wheel. */
 internal const val PICKER_GAPS = 3
 
+/** A quick button is never narrower than this side by side; below it the buttons stack. */
+internal val QuickMinWidth = 80.dp
+
 /**
- * The wheel's width in a picker with [available] width beside the quick buttons: all of it, between
- * [WheelMinWidth] (so typical names fit) and [WheelMaxWidth].
+ * How the picker shares [available] width between the wheel and [buttons] quick buttons: each
+ * button's even share, whether they stack in one column, and the wheel's width. The wheel keeps at least
+ * [WheelMinWidth] (so typical names fit) and at most [WheelMaxWidth]; the buttons give way first,
+ * down to [QuickMinWidth] each, and only then stack.
  */
-internal fun setWheelWidth(available: Dp): Dp = available.coerceIn(WheelMinWidth, WheelMaxWidth)
+internal data class PickerSplit(val buttonWidth: Dp, val stacked: Boolean, val wheelWidth: Dp, val quickWidth: Dp)
+
+internal fun pickerSplit(available: Dp, buttons: Int): PickerSplit {
+    if (buttons == 0) return PickerSplit(0.dp, false, available.coerceAtMost(WheelMaxWidth), 0.dp)
+    val room = available - WheelMinWidth - PickerGap * buttons
+    val side = min(QuickColumnWidth, room / buttons)
+    val stacked = buttons > 1 && side < QuickMinWidth
+    val button = if (stacked) QuickColumnWidth else side.coerceAtLeast(0.dp)
+    val column = if (stacked) button else button * buttons + PickerGap * (buttons - 1)
+    return PickerSplit(button, stacked, (available - column - PickerGap).coerceIn(0.dp, WheelMaxWidth), column)
+}
