@@ -32,6 +32,9 @@ internal object DepthScene {
         vectors: (Layer) -> VectorRaster.Image?,
         draft: Pair<String, SpatialStroke>? = null,
         modelDraft: com.hereliesaz.graffitixr.common.scene.ModelDraft? = null,
+        /** The layer being drawn on, for the inactive-layer cache; null (the export) caches nothing. */
+        activeId: String? = null,
+        drawing: Boolean = false,
     ): DepthCompositor.Scene {
         val byId = layers.associateBy { it.id }
         val planes = ArrayList<DepthCompositor.Plane>()
@@ -41,15 +44,18 @@ internal object DepthScene {
             val layer = byId[id] ?: continue
             val model = SceneMath.chainModel(planeChain(layers, id), width, height)
             val alpha = DepthComposite.effectiveOpacity(layers, id)
+            // What the inactive-layer cache compares: the layer and its placement chain, never the
+            // canvas size (a resize scales the renders instead of rebuilding them).
+            val key = if (activeId == null) null else listOf(layer, planeChain(layers, id), alpha)
             val content = layer.model
             if (content != null) {
                 val mesh = content.mesh ?: continue
                 val toScene = model * com.hereliesaz.graffitixr.common.scene.ModelSpace.meshToLocal(mesh, width, height)
                 val painting = modelDraft?.takeIf { it.layerId == id }
                 models += if (painting != null) {
-                    DepthCompositor.Model(id, mesh.mesh, toScene, painting.bitmap, painting.version, alpha, painting.bitmap)
+                    DepthCompositor.Model(id, mesh.mesh, toScene, painting.bitmap, painting.version, alpha, painting.bitmap, key)
                 } else {
-                    DepthCompositor.Model(id, mesh.mesh, toScene, content.texture?.pixels(), 0L, alpha)
+                    DepthCompositor.Model(id, mesh.mesh, toScene, content.texture?.pixels(), 0L, alpha, key = key)
                 }
                 continue
             }
@@ -58,7 +64,7 @@ internal object DepthScene {
                 val live = draft?.takeIf { it.first == id }?.second
                 inks += DepthCompositor.Ink(
                     id, if (live == null) spatial.strokes else spatial.strokes + live,
-                    model * SceneMath.strokeToLocal(width, height), alpha,
+                    model * SceneMath.strokeToLocal(width, height), alpha, key,
                 )
                 continue
             }
@@ -70,9 +76,12 @@ internal object DepthScene {
                 val r = DepthComposite.imageRect(layer, bmp.width, bmp.height, width, height) ?: continue
                 Triple(bmp, tok, r)
             }
-            planes += DepthCompositor.Plane(id, bitmap, token, model, rect, colorMatrixOf(layer), alpha)
+            planes += DepthCompositor.Plane(id, bitmap, token, model, rect, colorMatrixOf(layer), alpha, key)
         }
-        return DepthCompositor.Scene(SceneMath.frame(camera, width, height), planes, inks, models)
+        return DepthCompositor.Scene(
+            SceneMath.frame(camera, width, height), planes, inks, models,
+            activeId = activeId, drawing = drawing, viewKey = camera.takeIf { activeId != null },
+        )
     }
 
     /** The canvas's colour adjustment for [layer]; null when it changes nothing. */
