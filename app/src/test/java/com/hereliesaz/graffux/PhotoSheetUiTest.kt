@@ -28,6 +28,8 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -185,8 +187,10 @@ class PhotoSheetUiTest {
         rule.onNodeWithTag("rail.$PHOTO_RAIL_ID").performClick()
         assertEquals(listOf("adjust"), calls)
         // The tab list is the brush sheet's own, with the photo tabs.
-        rule.onAllNodesWithTag("carousel.tab.photo.light").onFirst().assertExists()
-        rule.onAllNodesWithTag("carousel.tab.photo.color").onFirst().performClick()
+        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        rule.onAllNodesWithText("Light", useUnmergedTree = true).onFirst().assertExists()
+        rule.onAllNodesWithText("Colour", useUnmergedTree = true).onLast().performClick()
         rule.waitForIdle()
         rule.onNodeWithTag("photo.title").assertTextEquals("Colour")
         rule.onNodeWithTag("photo.slider.temperature").assertExists()

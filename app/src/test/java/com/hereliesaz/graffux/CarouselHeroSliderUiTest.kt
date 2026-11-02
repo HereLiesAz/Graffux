@@ -154,7 +154,10 @@ class CarouselHeroSliderUiTest {
     @Test
     fun `expanded slider edits settings without changing active item`() {
         compose()
-        rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
+        // Brush cards have no More: a swipe up on the hero grows it in place.
+        rule.onNodeWithTag("carousel.card.HERO", useUnmergedTree = true).performTouchInput {
+            swipeUp(startY = bottom - 10f, endY = top - 200f, durationMillis = 150)
+        }
         rule.waitForIdle()
         rule.onNodeWithTag("carousel.expanded.slider.size", useUnmergedTree = true).performTouchInput {
             swipe(Offset(width * 0.1f, centerY), Offset(width * 0.9f, centerY), durationMillis = 600)
@@ -205,11 +208,11 @@ class CarouselHeroSliderUiTest {
         assertTrue("medium $medium < hero $hero", medium.max() < hero)
         // The hero is about one and a half medium cards.
         assertTrue("hero/medium ${hero / medium.min()}", hero / medium.min() in 1.4f..1.6f)
-        // More is on screen, inside the hero card.
+        // The card's foot row (engine icon) is on screen, inside the hero card.
         val card = cardBounds(CarouselTier.HERO).single()
-        val more = bounds("carousel.hero.more")
-        assertTrue("More inside the hero", more.bottom <= card.bottom + 1f && more.top >= card.top - 1f)
-        rule.onAllNodesWithText("Built-in · Basics", useUnmergedTree = true).assertCountEquals(1)
+        val edit = rule.onAllNodesWithTag("carousel.brushcard.engine", useUnmergedTree = true).fetchSemanticsNodes()
+            .map { it.boundsInRoot }.single { it.left >= card.left - 1f && it.right <= card.right + 1f }
+        assertTrue("foot row inside the hero", edit.bottom <= card.bottom + 1f && edit.top >= card.top - 1f)
     }
 
     private fun bounds(tag: String) =
@@ -218,13 +221,15 @@ class CarouselHeroSliderUiTest {
     @Test
     fun `compact title and details stay readable without adjustment controls`() {
         compose()
-        val identity = bounds("carousel.hero.identity")
-        val details = rule.onAllNodesWithText("Built-in · Basics", useUnmergedTree = true)
-            .fetchSemanticsNodes().single().boundsInRoot
-        assertTrue(details.bottom <= identity.bottom + 1f)
+        val card = bounds("carousel.card.HERO")
+        val names = rule.onAllNodesWithTag("carousel.brushcard.name", useUnmergedTree = true).fetchSemanticsNodes()
+            .map { it.boundsInRoot }.filter { it.left >= card.left - 1f && it.right <= card.right + 1f }
+        val types = rule.onAllNodesWithTag("carousel.brushcard.type", useUnmergedTree = true).fetchSemanticsNodes()
+            .map { it.boundsInRoot }.filter { it.left >= card.left - 1f && it.right <= card.right + 1f }
+        assertTrue("name above the type line", names.single().bottom <= types.single().top + 1f)
         assertEquals(0, rule.onAllNodesWithTag("carousel.hero.controls", useUnmergedTree = true)
             .fetchSemanticsNodes().size)
-        val more = bounds("carousel.hero.more")
-        assertTrue(more.bottom <= bounds("carousel.card.HERO").bottom + 1f)
+        assertEquals(0, rule.onAllNodesWithTag("carousel.hero.more", useUnmergedTree = true)
+            .fetchSemanticsNodes().size)
     }
 }

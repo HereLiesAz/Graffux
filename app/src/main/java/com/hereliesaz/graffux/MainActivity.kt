@@ -947,21 +947,27 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         carouselUi = carouselUi.copy(sheetOpen = open, showingCarousel = false)
                     },
                     stages = SheetStages(
+                        // Tab list, carousel, then (card sheets only) the set's grid at half
+                        // and full; down again the same way.
                         onStepUp = {
-                            if (!carouselUi.showingCarousel) {
-                                carouselUi = carouselUi.copy(showingCarousel = true)
-                            }
+                            carouselUi = carouselUi.steppedUp(gridAllowed = !designMode && !carouselUi.photo)
                         },
                         onStepDown = {
-                            carouselUi.showingCarousel.also { up ->
-                                if (up) carouselUi = carouselUi.copy(showingCarousel = false)
-                            }
+                            carouselUi.steppedDown()?.let { carouselUi = it } != null
                         },
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
                     hiddenForDrawing = { chrome.hidden && !chrome.forcedOnly },
                     chromeHidden = { photoDrag.active },
+                    nameLabel = {
+                        carouselNamePill(
+                            brushesPage = !designMode && !carouselUi.photo &&
+                                carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES,
+                            showingCarousel = carouselUi.showingCarousel,
+                            brushName = uiState.activeBrushName,
+                        )
+                    },
                     // Clears the nav bar itself and keeps the grab pill off the screen's
                     // bottom edge, where system gestures would take its touches.
                     bottomInset = CarouselBottomInset,
@@ -1170,6 +1176,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             onMore = {},
                             strokeActive = { strokeGate.strokeActive },
                             effectPreviews = effectPreviews,
+                            // A brush card's gear: Brush Studio on that brush (a saved one by
+                            // id; any other is picked first and drafted from).
+                            onEdit = { entry ->
+                                val custom = (entry.action as? CarouselAction.CustomBrush)?.id
+                                if (custom == null && !entry.selected) runCarouselEntry(entry)
+                                vm.onOpenBrushStudio(custom)
+                            },
                             onChoose = { _, setter, index ->
                                 when (setter) {
                                     HeroChoiceSetter.SMUDGE_MODE ->

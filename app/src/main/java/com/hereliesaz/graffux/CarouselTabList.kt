@@ -3,19 +3,24 @@ package com.hereliesaz.graffux
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.style.TextOverflow
+import com.hereliesaz.aznavrail.AzRoller
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,7 +30,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.Tool
 
@@ -86,7 +90,11 @@ internal fun carouselTabSections(
             ),
         ),
     ) + if (category == CarouselCategory.VECTOR) effectSections(input) else emptyList()
-}.map { section -> section.copy(groups = section.groups.filter { it.entries.isNotEmpty() }) }
+}.map { section ->
+    // Favorites stays even when empty: its quick button always has somewhere to go, and the empty
+    // set says how to star something.
+    section.copy(groups = section.groups.filter { it.entries.isNotEmpty() || it.key == FAVORITES_SET_KEY })
+}
     .filter { it.groups.isNotEmpty() }
 
 private fun brushSections(input: CarouselInputs, packNames: Map<String, String>): List<CarouselTabSection> {
@@ -99,7 +107,7 @@ private fun brushSections(input: CarouselInputs, packNames: Map<String, String>)
     return listOf(
         CarouselTabSection(
             "FAVORITES",
-            listOf(CarouselTabGroup("fav.starred", "Starred", CarouselCategory.FAVORITES, starred)),
+            listOf(CarouselTabGroup(FAVORITES_SET_KEY, "Favorites", CarouselCategory.FAVORITES, starred)),
         ),
         CarouselTabSection(
             "BASIC",
@@ -174,7 +182,7 @@ private const val EXTENSION_ASSET_SEPARATOR = "::"
 
 /**
  * The tab to show: [requested] when it is still in the list, else the tab holding the current
- * selection, else the first. Null only when the list is empty.
+ * selection, else the first with anything in it. Null only when the list is empty.
  */
 internal fun selectedTabGroup(sections: List<CarouselTabSection>, requested: String?): CarouselTabGroup? {
     val groups = sections.flatMap { it.groups }
@@ -182,105 +190,127 @@ internal fun selectedTabGroup(sections: List<CarouselTabSection>, requested: Str
         ?: groups.firstOrNull { group ->
             group.category != CarouselCategory.FAVORITES && group.entries.any { it.selected }
         }
+        ?: groups.firstOrNull { it.entries.isNotEmpty() }
         ?: groups.firstOrNull()
 }
 
-/** One slot in the scrolling list: a type heading, or a tab. */
-internal sealed interface CarouselTabListItem {
-    data class Heading(val type: String) : CarouselTabListItem
-    data class Tab(val group: CarouselTabGroup) : CarouselTabListItem
-}
-
-internal fun carouselTabListItems(sections: List<CarouselTabSection>): List<CarouselTabListItem> =
-    sections.flatMap { section ->
-        listOf(CarouselTabListItem.Heading(section.type)) + section.groups.map { CarouselTabListItem.Tab(it) }
-    }
-
-/** Repeats the list this many times each way, which no finger will ever scroll past. */
-private const val LOOP_SPAN = 10_000
-
-private val TabHeight = 40.dp
-private val TabListHeight = 48.dp
+/** The one Favorites set (starred entries): the target of the picker's Favorites button. */
+internal const val FAVORITES_SET_KEY = "fav.starred"
 
 /**
- * The tab list: type headings with their pack tabs between them, scrolling without end in either
- * direction (the list repeats). The selected tab is centred when the list appears or the selection
- * changes. Tapping a tab calls [onSelect]; headings are labels, not targets.
+ * Every set the picker offers, once each, in list order: a type with a single set (Ink, My Brushes)
+ * is that one set, and a type with several (Basic's sets, installed packs) offers each. The type
+ * heading is not a set of its own, so nothing is listed twice.
  */
-@Suppress("FunctionNaming")
+internal fun carouselSets(sections: List<CarouselTabSection>): List<CarouselTabGroup> =
+    sections.flatMap { it.groups }.distinctBy { it.key }
+
+/**
+ * The roller's label for each of [sets], by key, unique: a label two sets share is told apart by
+ * its type ("Gravity · INSTALLED"), and any clash left after that by a count.
+ */
+internal fun carouselSetLabels(sections: List<CarouselTabSection>): Map<String, String> {
+    val typed = sections.flatMap { section -> section.groups.map { it to section.type } }.distinctBy { it.first.key }
+    val counts = typed.groupingBy { it.first.label }.eachCount()
+    val seen = mutableMapOf<String, Int>()
+    return typed.associate { (group, type) ->
+        val base = if ((counts[group.label] ?: 0) > 1) "${group.label} · $type" else group.label
+        val n = seen.merge(base, 1, Int::plus) ?: 1
+        group.key to if (n > 1) "$base ($n)" else base
+    }
+}
+
+/**
+ * The set to go back to after picking [picked]: the one showing until now ([current]), or, when the
+ * same set is picked again, the remembered [previous].
+ */
+internal fun previousSetAfter(picked: String, current: String?, previous: String?): String? =
+    if (current != null && current != picked) current else previous
+
+private val StripHeight = 56.dp
+private val QuickButtonHeight = 40.dp
+
+/**
+ * The set picker: AzNavRail's [AzRoller] (a vertical slot-machine of the sets, one at a time) with
+ * two quick buttons beside it on the same strip — Favorites, and the set picked before this one,
+ * named, for switching back and forth. Each set is its own list, so nothing scrolls on from one set
+ * into the next. [onSelect] is called with the picked set.
+ *
+ * [previousKey] is the set to offer for going back, when the caller keeps it (the brush sheet saves
+ * it in [CarouselUi]); left null, the strip remembers the last switch itself.
+ */
+@Suppress("FunctionNaming", "LongMethod")
 @Composable
 internal fun CarouselTabList(
     sections: List<CarouselTabSection>,
     selectedKey: String?,
     onSelect: (CarouselTabGroup) -> Unit,
     modifier: Modifier = Modifier,
+    previousKey: String? = null,
 ) {
-    val items = remember(sections) { carouselTabListItems(sections) }
-    if (items.isEmpty()) return
-    val n = items.size
-    val selectedIndex = items.indexOfFirst { it is CarouselTabListItem.Tab && it.group.key == selectedKey }
-        .coerceAtLeast(0)
-    val base = LOOP_SPAN / 2 * n
-    val state = rememberLazyListState(initialFirstVisibleItemIndex = base + selectedIndex)
-    LaunchedEffect(selectedKey, n) {
-        // Nearest copy of the selected tab to where the list is now, then centred on it.
-        val first = state.firstVisibleItemIndex
-        val target = first - Math.floorMod(first, n) + selectedIndex
-        state.scrollToItem(target)
-        // Nothing picked yet (the photo sheet's first visit): the list starts at its first heading,
-        // as the mockup's entry board draws it, rather than centring the heading.
-        if (items.none { it is CarouselTabListItem.Tab && it.group.key == selectedKey }) return@LaunchedEffect
-        val info = state.layoutInfo
-        val item = info.visibleItemsInfo.firstOrNull { it.index == target } ?: return@LaunchedEffect
-        val viewportCentre = (info.viewportStartOffset + info.viewportEndOffset) / 2
-        state.scrollBy((item.offset + item.size / 2 - viewportCentre).toFloat())
+    val sets = remember(sections) { carouselSets(sections) }
+    if (sets.isEmpty()) return
+    val labels = remember(sections) { carouselSetLabels(sections) }
+    var ownPrevious by rememberSaveable { mutableStateOf<String?>(null) }
+    val previous = (previousKey ?: ownPrevious)?.let { key -> sets.firstOrNull { it.key == key } }
+        ?.takeIf { it.key != selectedKey }
+    val favorites = sets.firstOrNull { it.key == FAVORITES_SET_KEY }
+    val pick: (CarouselTabGroup) -> Unit = { group ->
+        ownPrevious = previousSetAfter(group.key, selectedKey, ownPrevious)
+        onSelect(group)
     }
-    val colors = MaterialTheme.colorScheme
-    LazyRow(
-        state = state,
-        modifier = modifier.fillMaxWidth().height(TabListHeight).testTag("carousel.tabs"),
+    val selected = sets.firstOrNull { it.key == selectedKey }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = StripHeight)
+            .padding(horizontal = 8.dp)
+            .testTag("carousel.tabs"),
         verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(count = n * LOOP_SPAN) { index ->
-            when (val item = items[index % n]) {
-                is CarouselTabListItem.Heading -> Text(
-                    item.type,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, letterSpacing = 1.sp),
-                    color = colors.onSurface.copy(alpha = HEADING_ALPHA),
-                    maxLines = 1,
-                    modifier = Modifier.padding(start = 14.dp, end = 6.dp),
-                )
-                is CarouselTabListItem.Tab -> TabChip(item.group, item.group.key == selectedKey, onSelect)
-            }
+        Box(Modifier.weight(1f).testTag("carousel.roller")) {
+            AzRoller(
+                options = sets.map { labels.getValue(it.key) },
+                selectedOption = selected?.let { labels.getValue(it.key) } ?: "",
+                onOptionSelected = { label ->
+                    sets.firstOrNull { labels[it.key] == label }?.let(pick)
+                },
+                hint = "Set",
+            )
+        }
+        if (favorites != null) {
+            QuickSetButton("Favorites", favorites.key == selectedKey, "carousel.quick.favorites") { pick(favorites) }
+        }
+        if (previous != null) {
+            QuickSetButton(labels.getValue(previous.key), false, "carousel.quick.previous") { pick(previous) }
         }
     }
 }
 
 @Suppress("FunctionNaming")
 @Composable
-private fun TabChip(group: CarouselTabGroup, lit: Boolean, onSelect: (CarouselTabGroup) -> Unit) {
+private fun QuickSetButton(label: String, lit: Boolean, tag: String, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .padding(horizontal = 3.dp)
-            .height(TabHeight)
-            .clip(RoundedCornerShape(TabHeight / 2))
+            .widthIn(max = 120.dp)
+            .height(QuickButtonHeight)
+            .clip(RoundedCornerShape(QuickButtonHeight / 2))
             .background(if (lit) colors.onSurface else colors.surface.copy(alpha = 0.72f))
-            .border(1.dp, colors.outline, RoundedCornerShape(TabHeight / 2))
-            .clickable(role = Role.Tab) { onSelect(group) }
+            .border(1.dp, colors.outline, RoundedCornerShape(QuickButtonHeight / 2))
+            .clickable(role = Role.Button, onClick = onClick)
             .semantics { selected = lit }
             .padding(horizontal = 14.dp)
-            .testTag("carousel.tab.${group.key}"),
+            .testTag(tag),
     ) {
         Text(
-            group.label,
+            label,
             style = MaterialTheme.typography.labelLarge,
             color = if (lit) colors.surface else colors.onSurface,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
-
-private const val HEADING_ALPHA = 0.6f

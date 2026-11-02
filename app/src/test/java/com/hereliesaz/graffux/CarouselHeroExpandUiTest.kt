@@ -27,6 +27,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
@@ -125,7 +126,10 @@ class CarouselHeroExpandUiTest {
     private fun bounds(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().map { it.boundsInRoot }
 
     private fun more() {
-        rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
+        // Brush cards have no More: a swipe up on the hero grows it in place.
+        rule.onNodeWithTag("carousel.card.HERO", useUnmergedTree = true).performTouchInput {
+            swipeUp(startY = bottom - 10f, endY = top - 200f, durationMillis = 150)
+        }
         rule.waitForIdle()
     }
 
@@ -175,7 +179,10 @@ class CarouselHeroExpandUiTest {
         assertEquals("at rest, PreviewGap above the hero", restHero.top - gapPx(), restPreview.bottom, 1f)
 
         rule.mainClock.autoAdvance = false
-        rule.onNodeWithTag("carousel.hero.more", useUnmergedTree = true).performClick()
+        // Brush cards have no More: a swipe up on the hero grows it in place.
+        rule.onNodeWithTag("carousel.card.HERO", useUnmergedTree = true).performTouchInput {
+            swipeUp(startY = bottom - 10f, endY = top - 200f, durationMillis = 150)
+        }
         // Reading the tree each frame syncs it, as a drawn frame would.
         repeat(PARTWAY_FRAMES) { rule.mainClock.advanceTimeByFrame(); expandedCount() }
         rule.waitForIdle()
