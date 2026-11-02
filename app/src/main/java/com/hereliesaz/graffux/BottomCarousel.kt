@@ -577,6 +577,7 @@ private fun CarouselItem(
 ) {
     val colors = MaterialTheme.colorScheme
     val isHero = tier == CarouselTier.HERO
+    val brushFace = tier != CarouselTier.SMALL && isBrushCard(entry)
     val nestedScope = rememberCoroutineScope()
     val nestedDispatcher = remember { NestedScrollDispatcher() }
     val nestedConnection = remember { object : NestedScrollConnection {} }
@@ -624,7 +625,9 @@ private fun CarouselItem(
                                 )
                             } else Modifier,
                     )
-                    .background(if (entry.selected) colors.onSurface else colors.surfaceVariant)
+                    // A brush face keeps the dark card when selected (the highlight marks it): its
+                    // live stroke is in the brush colour, which a light fill would swallow.
+                    .background(if (entry.selected && !brushFace) colors.onSurface else colors.surfaceVariant)
                     .semantics {
                         this.selected = entry.selected
                         contentDescription = entry.label
@@ -637,9 +640,9 @@ private fun CarouselItem(
                         .fillMaxWidth()
                         .testTag("carousel.card.scroll"),
                 ) {
-                    val tint = if (entry.selected) colors.surface else colors.onSurface
+                    val tint = if (entry.selected && !brushFace) colors.surface else colors.onSurface
                     val onMore = content.onMore?.takeIf { heroHasMore(entry) }
-                    if (tier != CarouselTier.SMALL && isBrushCard(entry)) {
+                    if (brushFace) {
                         // Every brush card, hero or not, selected or not: one arrangement.
                         Box(Modifier.fillMaxWidth().height(cardHeight)) {
                             BrushCardFace(

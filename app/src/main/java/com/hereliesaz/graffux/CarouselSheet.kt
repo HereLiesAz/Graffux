@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -53,6 +56,9 @@ import kotlin.math.roundToInt
  * clear of the bottom edge's system gestures.
  */
 internal val CarouselBottomInset = 20.dp
+
+/** Clear space under the top accessory (the rotation slider), above the pill and the content. */
+internal val TopAccessoryGap = 8.dp
 
 /**
  * Whether the sheet is actually drawn open: the user's choice, overridden shut while the UI is
@@ -106,6 +112,7 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
  * while the carousel is open; and its detents step on to HALF/FULL with a scrim. So this lives in the carousel's own
  * `background()` page and only the sheet's own pixels take touches.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @Composable
 internal fun CarouselSheet(
@@ -213,7 +220,12 @@ internal fun CarouselSheet(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     if (topAccessory != null && shownOpen) {
-                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { topAccessory() }
+                        // A gap under it, so it never sits on the name pill or the content's top.
+                        Box(
+                            Modifier
+                                .padding(bottom = TopAccessoryGap)
+                                .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },
+                        ) { topAccessory() }
                     }
                     nameLabel()?.let { name ->
                         Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
@@ -221,7 +233,9 @@ internal fun CarouselSheet(
                     Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
                 }
             }
-            Box(Modifier.navigationBarsPadding().height(bottomInset))
+            // The app hides the system bars (immersive), so navigationBars reads 0 until a swipe
+            // shows them over the sheet: keep their room whether they are showing or not.
+            Box(Modifier.windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility).height(bottomInset))
         }
     }
 }

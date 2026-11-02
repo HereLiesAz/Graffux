@@ -95,6 +95,17 @@ internal val WheelMaxRadius = 136.dp
 private val WheelTextInner = 52.dp
 private val WheelRimPadding = 8.dp
 private val WheelHubRadius = 18.dp
+
+/**
+ * The hub sits this far in from the box's bottom and outer edges, so the names on the arc's two edge
+ * spokes (flat along the bottom, upright along the side) keep the half of their line height that
+ * falls past the hub, instead of being cut by the box, the screen's edge or its rounded corner.
+ */
+internal val WheelEdgeInset = 12.dp
+
+/** The wheel's hub in a [width] x [height] box with the hub [inset] in from its corner. */
+internal fun wheelHub(width: Float, height: Float, inset: Float, onRight: Boolean): Offset =
+    Offset(if (onRight) width - inset else inset, height - inset)
 private const val FLING_SECONDS = 0.18f
 private const val DIM_ALPHA = 0.5f
 private const val HALF_TURN = 180f
@@ -229,7 +240,9 @@ internal fun CarouselSetWheel(
     }
 
     val density = LocalDensity.current
-    val rPx = with(density) { radius.toPx() }
+    val insetPx = with(density) { WheelEdgeInset.toPx() }
+    // The disc's radius: the box less the hub's inset.
+    val rPx = with(density) { radius.toPx() } - insetPx
     val innerPx = with(density) { WheelTextInner.toPx() }
     val textMax = (rPx - innerPx - with(density) { WheelRimPadding.toPx() }).coerceAtLeast(1f)
     val colors = MaterialTheme.colorScheme
@@ -270,7 +283,7 @@ internal fun CarouselSetWheel(
                 )
             }
             .pointerInput(count, onRight) {
-                val hub = Offset(if (onRight) size.width.toFloat() else 0f, size.height.toFloat())
+                val hub = wheelHub(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
                 fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
                 val tracker = VelocityTracker1D(isDataDifferential = false)
                 var lastAngle = 0f
@@ -303,16 +316,16 @@ internal fun CarouselSetWheel(
             }
             .pointerInput(count, onRight) {
                 detectTapGestures { tap ->
-                    val hub = Offset(if (onRight) size.width.toFloat() else 0f, size.height.toFloat())
-                    if (hypot(tap.x - hub.x, tap.y - hub.y) > size.height) return@detectTapGestures
+                    val hub = wheelHub(size.width.toFloat(), size.height.toFloat(), insetPx, onRight)
+                    if (hypot(tap.x - hub.x, tap.y - hub.y) > rPx) return@detectTapGestures
                     val a = (atan2(tap.y - hub.y, tap.x - hub.x) * HALF_TURN / PI).toFloat()
                     settleTo(wheelIndexAt(a, position.floatValue, onRight).roundToInt().coerceIn(0, count - 1))
                 }
             },
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val hub = Offset(if (onRight) size.width else 0f, size.height)
-            val r = size.height
+            val hub = wheelHub(size.width, size.height, insetPx, onRight)
+            val r = size.height - insetPx
             val pos = position.floatValue
             val pointed = pos.roundToInt().coerceIn(0, count - 1)
             val committed = pointed == selectedIndex
@@ -371,7 +384,7 @@ internal fun CarouselSetWheel(
         // pass through to the wheel's own tap handling.
         val itemSize = 28.dp
         val itemPx = with(density) { itemSize.toPx() }
-        val hubX = if (onRight) rPx else 0f
+        val hubX = wheelHub(rPx + insetPx, rPx + insetPx, insetPx, onRight).x
         sets.forEachIndexed { i, set ->
             val label = labels[set.key] ?: set.label
             Box(
