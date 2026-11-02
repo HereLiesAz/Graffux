@@ -19,6 +19,12 @@ data class LayerMenuStrings(
     val transform: String,
     /** Back to the flat plane: depth 0, no X/Y tilt. Only on a layer placed in 3D. */
     val resetPlane: String,
+    /** A group's "Draw surface": the next stroke is its profile (spec/3d-space.md). */
+    val drawSurface: String,
+    /** A group's "Flatten surface": clears its profile. */
+    val flattenSurface: String,
+    /** The surface guide grid toggle, on a layer on a surface or its group. */
+    val surfaceGrid: String,
     val layerOptions: String,
     val rename: String,
     val moveUp: String,
@@ -66,6 +72,7 @@ data class LayerMenuStrings(
     val placeCopy: String,
 )
 
+@Suppress("LongMethod")
 @Composable
 fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     sectionLayer = stringResource(R.string.layer_menu_section_layer),
@@ -80,6 +87,9 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     curves = stringResource(R.string.layer_menu_curves),
     transform = stringResource(R.string.layer_menu_transform),
     resetPlane = stringResource(R.string.layer_menu_reset_plane),
+    drawSurface = stringResource(R.string.layer_menu_draw_surface),
+    flattenSurface = stringResource(R.string.layer_menu_flatten_surface),
+    surfaceGrid = stringResource(R.string.layer_menu_surface_grid),
     layerOptions = stringResource(R.string.layer_menu_layer_options),
     rename = stringResource(R.string.layer_menu_rename),
     moveUp = stringResource(R.string.layer_menu_move_up),

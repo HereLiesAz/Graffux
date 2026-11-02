@@ -34,7 +34,7 @@ import com.hereliesaz.graffitixr.common.model.CanvasViewport
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.Cyan
@@ -219,9 +219,10 @@ internal fun ToolRail(
         )
         // The axis slot, always there. On a 3D layer: the current rotation axis as its letter in
         // the axis's colour, so which axis a twist turns about is always on screen; a tap steps
-        // X -> Y -> Z, the same state a double-tap on the canvas steps. On a 2D layer: "3D", and a
-        // tap makes the layer 3D.
-        val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DLayer == true
+        // X -> Y -> Z, the same state a double-tap on the canvas steps. 3D means the active layer's
+        // GROUP has a surface (or it is 3D ink or a model); otherwise "3D", and a tap arms "Draw
+        // surface" on the layer's group.
+        val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
         AxisButton(uiState.activeRotationAxis.takeIf { active3D }) { vm.onAxisSlotTapped() }
         // Not in the mockup; kept because the rail is the eraser's only always-there button.
         tool(Tool.ERASER, "Eraser") { RailGlyph(TOOL_CATALOG.getValue(Tool.ERASER).icon, active = it) }

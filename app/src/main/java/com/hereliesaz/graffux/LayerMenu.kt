@@ -47,6 +47,13 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (!isGroup) listItem(m.curves, on(onCurves))
     listItem(m.transform, on { vm.onTransformClicked() })
     if (layer.isPlacedIn3D) listItem(m.resetPlane, on { vm.resetActivePlane() })
+    // A group's surface (spec/3d-space.md, "Group surfaces"): the next stroke draws its profile.
+    if (isGroup) listItem(m.drawSurface, on { vm.onArmSurfaceDraw(layer.id) })
+    if (isGroup && layer.surface != null) listItem(m.flattenSurface, on { vm.onFlattenSurface(layer.id) })
+    // The guide grid: shown only for the active layer's group, so the row activates this layer.
+    if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id) != null) {
+        check(m.surfaceGrid, uiState.surfaceGridVisible, on { vm.onToggleSurfaceGrid() })
+    }
     listItem(m.layerOptions, on(onEditClicked))
     inputItem(hint = m.rename, initialValue = layer.name) { newName -> vm.onLayerRenamed(layer.id, newName) }
     listItem(if (layer.isVisible) strings.editor.hideLayer else strings.editor.showLayer) { vm.onToggleVisibility(layer.id) }

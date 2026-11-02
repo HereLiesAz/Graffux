@@ -147,21 +147,38 @@ internal class ActivePlaneMapping private constructor(
     private val chain: List<com.hereliesaz.graffitixr.common.scene.PlanePose>?,
     private val width: Float,
     private val height: Float,
+    /** The active layer's group surface, when it is paint on one (spec/3d-space.md, "Group surfaces"). */
+    private val surface: com.hereliesaz.graffitixr.common.scene.SurfaceOwner? = null,
 ) {
+    private fun toFlatAt(w: Offset): Offset? {
+        val s = surface
+        val c = chain ?: return w
+        val p = if (s != null) {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.worldToFlat(w.x, w.y, s, camera, width, height)
+        } else {
+            SceneMath.worldToLayerFlat(w.x, w.y, c, camera, width, height)
+        }
+        return p?.let { Offset(it.first, it.second) }
+    }
+
     fun world(screen: Offset): Offset =
         CanvasHitTest.screenToWorld(screen, viewportOffset, viewportZoom, viewportRotation)
 
     /** The flat point for [screen], or null when the ray misses the plane. */
     fun toFlat(screen: Offset): Offset? {
-        val w = world(screen)
-        val c = chain ?: return w
-        return SceneMath.worldToLayerFlat(w.x, w.y, c, camera, width, height)?.let { Offset(it.first, it.second) }
+        return toFlatAt(world(screen))
     }
 
     /** A flat point back to where it shows in world space; null behind the eye. */
     fun flatToWorld(flat: Offset): Offset? {
         val c = chain ?: return flat
-        return SceneMath.layerFlatToWorld(flat.x, flat.y, c, camera, width, height)?.let { Offset(it.first, it.second) }
+        val s = surface
+        val p = if (s != null) {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.flatToWorld(flat.x, flat.y, s, camera, width, height)
+        } else {
+            SceneMath.layerFlatToWorld(flat.x, flat.y, c, camera, width, height)
+        }
+        return p?.let { Offset(it.first, it.second) }
     }
 
     /** [flatToWorld] when the layer is drawn in 3D, null (no mapping) when it is flat. */
@@ -173,13 +190,13 @@ internal class ActivePlaneMapping private constructor(
      */
     fun flatDelta(delta: Offset, around: List<Offset>?): Offset {
         val worldDelta = CanvasHitTest.screenDeltaToWorld(delta, viewportZoom, viewportRotation)
-        val c = chain ?: return worldDelta
+        if (chain == null) return worldDelta
         if (around.isNullOrEmpty()) return worldDelta
         val anchor = Offset(around.sumOf { it.x.toDouble() }.toFloat() / around.size, around.sumOf { it.y.toDouble() }.toFloat() / around.size)
         val from = flatToWorld(anchor) ?: return worldDelta
         val to = from + worldDelta
-        val moved = SceneMath.worldToLayerFlat(to.x, to.y, c, camera, width, height) ?: return Offset.Zero
-        return Offset(moved.first - anchor.x, moved.second - anchor.y)
+        val moved = toFlatAt(to) ?: return Offset.Zero
+        return Offset(moved.x - anchor.x, moved.y - anchor.y)
     }
 
     companion object {
@@ -194,8 +211,15 @@ internal class ActivePlaneMapping private constructor(
             } else {
                 com.hereliesaz.graffitixr.common.scene.planeChain(state.layers, id).takeIf { it.isNotEmpty() }
             }
+            val surface = if (chain != null && id != null &&
+                com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, id)
+            ) {
+                com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, id)
+            } else {
+                null
+            }
             return ActivePlaneMapping(
-                state.viewportOffset, state.viewportZoom, state.viewportRotation, state.sceneCamera, chain, w, h,
+                state.viewportOffset, state.viewportZoom, state.viewportRotation, state.sceneCamera, chain, w, h, surface,
             )
         }
     }

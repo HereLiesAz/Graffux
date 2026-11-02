@@ -382,10 +382,10 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":8"))
+        assertTrue(text.contains("\"formatVersion\":9"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(8, back.formatVersion)
+        assertEquals(9, back.formatVersion)
     }
 
     @Test
@@ -416,7 +416,7 @@ class ProjectManagerTest {
         val project = GraffitiProject(id = "guide-scene", spatialGuide = storedGuide)
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val restored = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
-        assertEquals(8, restored.formatVersion)
+        assertEquals(9, restored.formatVersion)
         assertEquals(storedGuide, restored.spatialGuide)
 
         // Independent historical format-5 fixture: no guide key was ever written in that format.
@@ -424,7 +424,7 @@ class ProjectManagerTest {
             {"id":"old-line","points":[{"x":1.0,"y":0.0,"z":0.0}],
              "colorArgb":-1,"width":0.2}]}"""
         val reopened = manager.decodeProject(legacy)
-        assertEquals(8, reopened.formatVersion)
+        assertEquals(9, reopened.formatVersion)
         // Format 7 moves the sketch into a 3D strokes layer, with the original view-plane guide.
         val content = reopened.layers.single().spatial!!
         assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), content.guide)
@@ -439,7 +439,7 @@ class ProjectManagerTest {
             "spatialStrokes":[{"id":"ink","points":[{"x":0.5,"y":-1.0,"z":2.0,"pressure":0.4}],"colorArgb":-65536,"width":0.1}],
             "spatialGuide":{"kind":"SPHERE","radius":1.5}}"""
         val project = manager.decodeProject(v6)
-        assertEquals(8, project.formatVersion)
+        assertEquals(9, project.formatVersion)
         assertEquals(listOf("photo", project.layers[1].id), project.layers.map { it.id })
         val photo = project.layers[0]
         assertEquals(0f, photo.positionZ)
@@ -460,11 +460,10 @@ class ProjectManagerTest {
             "modelPath":"/data/user/0/app/files/projects/m/model.obj","modelName":"head.obj",
             "modelTexturePath":"/data/user/0/app/files/projects/m/model_texture.png"}"""
         val project = manager.decodeProject(v7)
-        assertEquals(8, project.formatVersion)
+        assertEquals(9, project.formatVersion)
         assertEquals(2, project.layers.size)
         val model = project.layers.last()
         assertEquals("head", model.name)
-        assertTrue(model.plane3D)
         assertEquals("model.obj", model.model!!.objFile)
         assertEquals("model_texture.png", model.model!!.textureFile)
         assertNull(project.modelPath)
@@ -482,7 +481,7 @@ class ProjectManagerTest {
         val content = com.hereliesaz.graffitixr.common.scene.ModelLayerContent("model_x.obj", "model_tex_x.png")
         val project = GraffitiProject(
             id = "m",
-            layers = listOf(OverlayLayer(id = "x", uri = mockk(relaxed = true), plane3D = true, model = content)),
+            layers = listOf(OverlayLayer(id = "x", uri = mockk(relaxed = true), model = content)),
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
@@ -546,7 +545,7 @@ class ProjectManagerTest {
 
     @Test
     fun `a newer format is never lowered`() {
-        assertEquals(8, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 8), 8).formatVersion)
+        assertEquals(9, manager.migrateFormat(GraffitiProject(id = "p", formatVersion = 8), 8).formatVersion)
     }
 
     @Test

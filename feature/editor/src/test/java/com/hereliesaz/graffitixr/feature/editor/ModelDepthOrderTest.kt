@@ -55,7 +55,7 @@ class ModelDepthOrderTest {
         var passed: DepthCompositor.Scene? = null
         export.depthRenderer = { scene, _, _ -> passed = scene; null }
         val bg = Layer("bg", "BG", bitmap = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) })
-        val model = Layer("m", "M", plane3D = true, model = ModelLayerContent("model_m.obj", mesh = quad))
+        val model = Layer("m", "M", model = ModelLayerContent("model_m.obj", mesh = quad))
         export.compositeLayers(listOf(bg, model), 400, 400)
         assertEquals(listOf("m"), passed!!.models.map { it.id })
     }

@@ -557,9 +557,11 @@ Full design: `spec/3d-space.md`. In short:
   `EditorViewModel.onTwoFingerStart`/`onTwoFingerGesture`/`onTwoFingerEnd`: on the view, pan/pinch
   move the 2D view and a twist rotates it about `activeRotationAxis` (Z: the 2D rotation; X/Y: the
   camera's orbit); with the Transform panel open, the same gestures move, push and rotate the active
-  layer as one undo step. Only on a 3D layer (`Layer.is3DLayer`: the stored `plane3D` flag, a 3D
-  placement, or 3D strokes); on a 2D layer a twist only rotates the canvas. The rail's axis slot
-  reads "3D" on a 2D layer and converts it; on a 3D layer it and a double-tap step the axis.
+  layer (or, on a group surface, its group) as one undo step. Only on a 3D layer
+  (`Layer.is3DIn`: paint on a group surface, 3D strokes or a model; the per-layer `plane3D` flag is
+  retired and old projects load such layers flat); on a 2D layer a twist only rotates the canvas.
+  The rail's axis slot reads "3D" while the active layer's group is flat and arms "Draw surface" on
+  it; on a 3D layer it and a double-tap step the axis. The layers rail's 3D outlines follow groups.
   `Scene3DCanvas` is mounted only for the brush or eraser on a 3D strokes layer. The brush,
   fill and clone surfaces map each touch through `SceneMath.worldToLayerFlat` (ray-plane hit, then
   the layer's own flat 2D transform), so every tool works unchanged on a tilted plane.
@@ -595,6 +597,13 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+- **Group surfaces (format 9).** A group owns an optional `Layer.surface` (`SurfaceProfile`,
+  `SurfaceMath` in `:core:common`): a profile curve, drawn by "Draw surface" in the current view,
+  swept without bound along the view direction. Its layers are paint on it: brushes map through
+  `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
+  misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
+  rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
+  A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

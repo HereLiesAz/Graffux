@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 8). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 9). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -27,26 +27,28 @@ old double-tap that cycled through the layers under the finger is gone.)
 
 ## 2D and 3D layers
 
-The two stay distinct. A layer is a **3D layer** (`Layer.is3DLayer`) when any of these holds:
+The two stay distinct, and 3D is a property of the layer's **group** (spec "Group surfaces"
+below). A layer is a **3D layer** (`Layer.is3DIn(layers)`) when any of these holds:
 
-- it was made 3D by hand: `Layer.plane3D`, a stored flag, saved with the project
-  (`OverlayLayer.plane3D`; absent from older saves, which load every layer as 2D unless placed);
-- it is placed in 3D (`Layer.isPlacedIn3D`: a depth or an X/Y tilt), by any means: view-plane
-  adoption, the Move tool's depth or tilt, the Transform panel, an older project;
+- it is paint on a group surface: its group (or, for a group, the group itself) has a profile;
 - it is a 3D strokes layer or a 3D model layer.
 
-A dedicated flag is needed because `isPlacedIn3D` is derived from the transform alone: a layer made
-3D by hand still sits on the identity plane until it is moved, and must stay 3D. There is no way
-back to 2D by design: Reset plane flattens the plane and sets `plane3D`, so the layer stays 3D.
+The per-layer 3D flag (`plane3D`) is retired: it is no longer saved, and a project that still has
+it loads those layers as flat (`OverlayLayer` and `Layer` skip the unknown key; a co-op peer's
+`LayerExtProps` does too). Old projects are not migrated. A layer can still be *placed* in 3D
+(`Layer.isPlacedIn3D`: a depth or an X/Y tilt, from an older project or view-plane adoption) and is
+then drawn through the scene as before, but it is not a 3D layer for the rail and gestures.
 
 On the layers rail the tile outline tells them apart: the active 2D layer wears the rail's
 selected-tool accent (pink), the active 3D layer cyan (the X-axis colour), any other 3D layer white,
-and any other 2D layer no outline. A 3D tile's TalkBack label also says "3D".
+and any other 2D layer no outline. A profiled group's tile and every tile on its surface are 3D. A
+3D tile's TalkBack label also says "3D".
 
 The rail's **axis slot** (the slot the old 3D button had) is always there:
 
-- on a 2D layer it reads **3D**; a tap makes the layer 3D as one undo step, on axis Z, and the
-  slot then reads **Z**;
+- on a 2D layer (its group has no profile) it reads **3D**; a tap arms "Draw surface" on the
+  layer's group (the group itself when a group is active), and once that stroke is drawn the slot
+  shows the axis. A layer in no group has no surface to draw, and the tap does nothing;
 - on a 3D layer it shows the current axis as its letter in the axis colour (X cyan, Y pink, Z
   green), so the user can always see which axis a twist turns about; a tap steps X -> Y -> Z,
   the same state a double-tap steps. An "Axis:" chip confirms a change briefly, then clears.
@@ -81,8 +83,8 @@ placement, rendered in perspective. When the active layer is tilted or the camer
 touch is mapped onto the layer through a ray-plane intersection (below), so brushes and tools work
 unchanged on the tilted plane.
 
-The old `Layer.is3D` field, its Transform-panel switch and its reducer intent are deleted; `plane3D`
-is a different key, so a co-op peer or snapshot from an older build that still sends `is3D` decodes
+The old `Layer.is3D` field, its Transform-panel switch and its reducer intent are deleted, and so is
+its successor `plane3D`, so a co-op peer or snapshot from an older build that still sends `is3D` decodes
 cleanly, because `Layer` skips unknown keys. The Transform panel shows the X, Y and depth fields
 whenever the layer is placed in 3D or the camera has moved.
 
@@ -120,7 +122,7 @@ used to open the window, now imports into a layer.
 
 - **Import.** `EditorViewModel.importModelLayer` parses the OBJ (`ObjParser`), copies the file
   into the project folder as `model_<layerId>.obj`, and adds a layer on top with
-  `Layer.model: ModelLayerContent` and `plane3D` set, so it is a 3D layer: the rail shows the axis
+  `Layer.model: ModelLayerContent`, which makes it a 3D layer: the rail shows the axis
   cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule
   (`SceneMath.viewPlanePose`): facing the camera through its orbit target, at the camera's distance
   scale. One undo step.
@@ -297,6 +299,63 @@ layer under the finger, and painting the plain world point would put the paint w
 before it was turned. The stroke starts at its first sample that hits, and a stroke that never hits
 is cancelled, so a layer seen edge-on takes no paint. A fill or clone tap that misses still uses the
 plain world point.
+
+## Group surfaces
+
+Layer groups own surfaces. Every group (`LayerType.GROUP` or `FRAME`) has an optional surface
+profile, `Layer.surface: SurfaceProfile?`; none means flat 2D, exactly as before, through exactly
+the same render path. The layers inside a profiled group are paint on its surface: they stack, hide
+and take their opacity as in 2D, all on the group's shape. The model is `SurfaceProfile.kt`
+(`:core:common`, `SurfaceMath`).
+
+- **Drawing the profile.** "Draw surface" in a group's layer menu arms the next stroke
+  (`EditorUiState.surfaceDrawGroupId`; the capture surface lies over every tool and paints
+  nothing). That stroke, drawn in the current view, is the profile: each point is cast from the eye
+  onto the view plane (facing the camera through its orbit target, so at the default view it is the
+  picture plane exactly under the stroke), simplified (Ramer-Douglas-Peucker, 1.5 px, at most 256
+  vertices) and stored in the group's box-local space, with the view direction as the sweep. A
+  straight stroke is one plane; an L is two. One undo step. A tap (under 4 px) changes nothing.
+- **No depth limit.** The surface is the profile swept along the view direction away from the
+  viewer, `P(u) + t * sweep`, `t >= 0`, without bound. There is no extent or depth setting: distance
+  is just zoom, and each layer's own pixel bounds limit what shows.
+- **Painting.** A stroke paints the active layer, mapped onto its group's surface by ray
+  intersection (`SurfaceMath.hit`, one planar strip per profile segment, the nearest hit in front
+  of the near plane). Paint maps by arc length: the surface's unrolled coordinates `(u, t)` are the
+  group's flat box coordinates, so a stroke does not stretch however the profile bends. Samples that
+  miss the surface are skipped and a stroke with no hits is cancelled (`PlaneStrokeFeed`, as on a
+  tilted plane). Selection, tap-select and the lasso go through the same mapping
+  (`ActivePlaneMapping`, `CanvasHitTest`). View-plane adoption never applies to paint on a surface.
+- **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
+  active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
+  the group's space, so all its layers move with it.
+- **Guide grid.** Lines along the profile (at sweep distances 0, 64, 128... box units) and lines
+  along the sweep (every 64 units of arc length, and at the profile's end), projected through the
+  scene camera and clipped to the near plane (`SurfaceMath.gridLines`), so they curve and
+  foreshorten with the view and the user can trace strokes along them in more than 2D without
+  moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on
+  one, toggles `EditorUiState.surfaceGridVisible` (view state, not history). Only the active
+  layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
+  overlay UI in the canvas's world space, never part of an export.
+- **Flatten surface** (the group's menu) clears the profile, as one undo step.
+- **Nesting.** A layer's surface is its nearest enclosing group with a profile; groups between
+  it and that group compose flat (their 2D transforms, in unrolled space).
+- **Rendering.** A profiled group's subtree is on the scene path. Its visible paint, text and
+  vector layers are depth-pass members whatever their blend mode, drawn by `DepthCompositor` as
+  meshes: one strip per profile segment along the sweep, covering the image's unrolled bounds
+  (`SurfaceMath.mesh`, `DepthScene.surfaceMesh`). A group's layers draw together in stack order,
+  each pulled toward the eye by its stack position (polygon offset), so a layer above draws over the
+  one below on the same surface and the surface still occludes itself. Layers the pass cannot draw
+  (an adjustment) are not drawn flat either (`DepthComposite.surfaceIds`).
+- **Inactive-layer cache.** Split by group: the active group's other layers are behind or in front
+  by stack order when its profile is straight; when it is curved the surface can fold in front of
+  itself, so the split is ambiguous and the frame is drawn uncached. Other members are split as
+  before (by the active plane when straight, by depth range when curved).
+- **Co-op.** `LayerExtProps.surface` with `surfaceSent`; a peer that predates surfaces sends
+  neither and keeps the receiver's.
+- **glTF.** Paint on a surface is exported as its strips (`SceneGltfExporter.Quad.surface`).
+- **Persistence.** `OverlayLayer.surface`, project format 9.
+- **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
+  (source-over); the export's no-GLES fallback omits paint on surfaces.
 
 ## Adopting the view plane
 

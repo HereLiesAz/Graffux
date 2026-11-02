@@ -14,7 +14,7 @@ import com.hereliesaz.graffitixr.common.model.GraffitiProject
 import com.hereliesaz.graffitixr.common.model.Op
 import com.hereliesaz.graffitixr.common.model.OverlayLayer
 import com.hereliesaz.graffitixr.common.model.Tool
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.common.scene.ModelLayerContent
 import com.hereliesaz.graffitixr.common.scene.ModelMesh
 import com.hereliesaz.graffitixr.common.scene.ModelSpace
@@ -160,8 +160,7 @@ class ModelLayerTest {
         vm.onSceneOrbit(0.6f, -0.25f)
         addModel()
         val layer = model()
-        assertTrue(layer.plane3D)
-        assertTrue(layer.is3DLayer)
+        assertTrue(layer.is3DIn(vm.uiState.value.layers))
         assertEquals("head", layer.name)
         assertEquals(layer.id, vm.uiState.value.activeLayerId)
         val camera = vm.uiState.value.sceneCamera
@@ -297,7 +296,7 @@ class ModelLayerTest {
         File(projectDir(), "model_texture.png").outputStream().use { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         currentProject.value = project(listOf(
             OverlayLayer(id = "a", uri = android.net.Uri.parse("")),
-            OverlayLayer(id = "old", name = "head", uri = android.net.Uri.parse(""), plane3D = true, model = ModelLayerContent("model.obj", "model_texture.png")),
+            OverlayLayer(id = "old", name = "head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model.obj", "model_texture.png")),
         ))
         idle()
         val layers = vm.uiState.value.layers
@@ -305,7 +304,7 @@ class ModelLayerTest {
         val content = layers.last().model!!
         assertNotNull(content.mesh)
         assertEquals(Color.GREEN, content.texture!!.pixels()!!.getPixel(10, 10))
-        assertTrue(layers.last().is3DLayer)
+        assertTrue(layers.last().is3DIn(layers))
         // An unchanged save keeps the texture under the name it was migrated with (Codex #684).
         artifacts.clear()
         vm.saveProject()
@@ -341,7 +340,6 @@ class ModelLayerTest {
         // Rendered at the canvas's own size, through the camera.
         io.mockk.verify { exportManager.compositeLayers(any(), size.width, size.height, camera = vm.uiState.value.sceneCamera) }
         val flat = vm.uiState.value.layers.single()
-        assertTrue(flat.plane3D)
         // Its box projects onto the canvas pixel for pixel: the plane's homography is the identity.
         val w = size.width.toFloat()
         val hh = size.height.toFloat()
@@ -396,7 +394,7 @@ class ModelLayerTest {
     fun `co-op sends the paint after a stroke and installs a peer's mesh`() = runTest(dispatcher) {
         File(projectDir(), "model_m.obj").writeText(objText)
         currentProject.value = project(listOf(
-            OverlayLayer(id = "m", name = "M", uri = android.net.Uri.parse(""), plane3D = true, model = ModelLayerContent("model_m.obj")),
+            OverlayLayer(id = "m", name = "M", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj")),
         ))
         idle()
         coopActive = true
@@ -411,7 +409,7 @@ class ModelLayerTest {
         assertNull(data.objDeflated)
         assertNotNull(data.texturePng)
         // A peer's layer without its mesh gets one from the peer's model data.
-        val peerLayer = com.hereliesaz.graffitixr.common.model.Layer("peer", "P", plane3D = true, model = ModelLayerContent("model_peer.obj"))
+        val peerLayer = com.hereliesaz.graffitixr.common.model.Layer("peer", "P", model = ModelLayerContent("model_peer.obj"))
         vm.applySpectatorOp(Op.LayerAdd(peerLayer))
         vm.applySpectatorOp(Op.ModelData("peer", "model_peer.obj", ModelCoopCodec.deflate(objText.toByteArray()), data.texturePng))
         idle()

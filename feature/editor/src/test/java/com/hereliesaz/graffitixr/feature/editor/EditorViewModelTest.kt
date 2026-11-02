@@ -4,7 +4,7 @@ import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.model.RotationAxis
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import com.hereliesaz.graffitixr.common.model.isSpatial
 
@@ -1233,6 +1233,10 @@ class EditorViewModelTest {
 
     private fun lyr(id: String, name: String = id) = Layer(id = id, name = name)
 
+    /** A 3D layer on its own: a model layer (the per-layer 3D flag is retired). */
+    private fun modelLyr(id: String) =
+        lyr(id).copy(model = com.hereliesaz.graffitixr.common.scene.ModelLayerContent("model_$id.obj"))
+
     // ── One 3D space (spec/3d-space.md) ──
 
     @Test
@@ -1315,7 +1319,7 @@ class EditorViewModelTest {
     @Test
     fun `a twist on X or Y orbits the camera progressively, and Fit resets it`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.setLayers(listOf(modelLyr("a")))
         viewModel.onLayerActivated("a")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         setAxis(RotationAxis.Y)
@@ -1343,7 +1347,7 @@ class EditorViewModelTest {
     @Test
     fun `with the Move tool two fingers act on a 3D layer, one undo step per gesture`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.setLayers(listOf(modelLyr("a")))
         viewModel.onLayerActivated("a")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         viewModel.onTransformClicked()
@@ -1373,9 +1377,81 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `Draw surface turns the next stroke into the group's profile, and Flatten clears it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onSurfaceProfileDrawn((0..30).map { Offset(200f + it * 20f, 1000f - (it - 15f) * (it - 15f)) })
+        testDispatcher.scheduler.advanceUntilIdle()
+        val profile = viewModel.uiState.value.layers.first { it.id == "g" }.surface
+        assertTrue(profile != null && !profile.isFlat)
+        assertEquals(null, viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onFlattenSurface("g")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(null, viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(profile, viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+    }
+
+    @Test
+    fun `the surface grid toggle shows only the active layer's group's grid`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
+            listOf(com.hereliesaz.graffitixr.common.scene.PlanePose()),
+        )
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = floor)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("x")))
+        viewModel.onLayerActivated("c")
+        fun grid() = viewModel.uiState.value.let {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                .gridGroupId(it.layers, it.activeLayerId, it.surfaceGridVisible)
+        }
+        assertEquals(null, grid())
+        viewModel.onToggleSurfaceGrid()
+        assertEquals("g", grid())
+        viewModel.onLayerActivated("x")
+        assertEquals(null, grid())
+        viewModel.onLayerActivated("c")
+        viewModel.onToggleSurfaceGrid()
+        assertEquals(null, grid())
+    }
+
+    @Test
+    fun `on a group surface the Move tool and the rotation slider move the group, not the layer`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
+            listOf(com.hereliesaz.graffitixr.common.scene.PlanePose()),
+        )
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = floor)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("d").copy(parentId = "g")))
+        viewModel.onLayerActivated("c")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoFinger(pan = Offset(10f, 0f), steps = 3)
+        val after = viewModel.uiState.value.layers
+        assertTrue(after.first { it.id == "g" }.offset.x > 1f)
+        assertEquals(Offset.Zero, after.first { it.id == "c" }.offset)
+        assertEquals(Offset.Zero, after.first { it.id == "d" }.offset)
+        viewModel.onRotationSliderStart()
+        viewModel.onRotationSliderChange(30f)
+        viewModel.onRotationSliderEnd()
+        val turned = viewModel.uiState.value.layers
+        assertEquals(30f, viewModel.rotationSliderValue()!!, 0.01f)
+        assertEquals(0f, turned.first { it.id == "c" }.let { it.rotationX + it.rotationY + it.rotationZ }, 0f)
+        assertTrue(turned.first { it.id == "g" }.let { it.rotationX + it.rotationY + it.rotationZ } != 0f)
+    }
+
+    @Test
     fun `a still second finger under the Move tool leaves undo and redo alone`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.setLayers(listOf(modelLyr("a")))
         viewModel.onLayerActivated("a")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         viewModel.onTransformClicked()
@@ -1398,7 +1474,7 @@ class EditorViewModelTest {
     @Test
     fun `repeated pinch-outs stop short of the near plane`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a").copy(plane3D = true)))
+        viewModel.setLayers(listOf(modelLyr("a")))
         viewModel.onLayerActivated("a")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
         viewModel.onTransformClicked()
@@ -1411,15 +1487,16 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `making a layer 3D is sent to co-op peers`() = runTest {
+    fun `a group's new surface is sent to co-op peers`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a")))
-        viewModel.onLayerActivated("a")
-        viewModel.makeActiveLayer3D()
+        viewModel.setLayers(listOf(lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(700f, 900f)))
         testDispatcher.scheduler.advanceUntilIdle()
         verify {
             opEmitter.emit(
-                match { it is Op.LayerPropsChange && it.layerId == "a" && it.props.extended?.plane3D == true },
+                match { it is Op.LayerPropsChange && it.layerId == "g" && it.props.extended?.surface != null },
             )
         }
     }
@@ -1428,7 +1505,7 @@ class EditorViewModelTest {
     fun `a Move-tool pan on a child of a scaled, rotated group follows the fingers`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val group = lyr("g").copy(scale = 2f, rotationZ = 90f)
-        val child = lyr("c").copy(parentId = "g", plane3D = true)
+        val child = modelLyr("c").copy(parentId = "g")
         viewModel.setLayers(listOf(group, child))
         viewModel.onLayerActivated("c")
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
@@ -1451,7 +1528,6 @@ class EditorViewModelTest {
         viewModel.resetActivePlane()
         testDispatcher.scheduler.advanceUntilIdle()
         assertFalse(viewModel.uiState.value.layers.single().isPlacedIn3D)
-        assertTrue(viewModel.uiState.value.layers.single().is3DLayer)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(30f, viewModel.uiState.value.layers.single().positionZ)
@@ -1572,7 +1648,7 @@ class EditorViewModelTest {
     @Test
     fun `double-tap cycles the axis on a 3D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
+        viewModel.setLayers(listOf(modelLyr("a")))
         viewModel.onLayerActivated("a")
         testDispatcher.scheduler.advanceUntilIdle()
         val before = viewModel.uiState.value.activeRotationAxis
@@ -1595,27 +1671,25 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `the axis slot makes a 2D layer 3D on Z as one undo step, then cycles the axis`() = runTest {
+    fun `the axis slot arms Draw surface on a 2D layer's group, and cycles on a surface`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a")))
-        viewModel.onLayerActivated("a")
-        viewModel.onCycleRotationAxis() // somewhere other than Z beforehand
-        testDispatcher.scheduler.advanceUntilIdle()
-        val undo = viewModel.uiState.value.undoCount
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("lone")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
         viewModel.onAxisSlotTapped()
-        testDispatcher.scheduler.advanceUntilIdle()
-        val layer = viewModel.uiState.value.layers.single()
-        assertTrue(layer.is3DLayer)
-        assertFalse(layer.isPlacedIn3D)
-        assertEquals(RotationAxis.Z, viewModel.uiState.value.activeRotationAxis)
-        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        assertEquals(null, viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onLayerActivated("c")
+        assertFalse(viewModel.uiState.value.layers.first { it.id == "c" }.is3DIn(viewModel.uiState.value.layers))
         viewModel.onAxisSlotTapped()
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f)))
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(RotationAxis.X, viewModel.uiState.value.activeRotationAxis)
-        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertFalse(viewModel.uiState.value.layers.single().is3DLayer)
+        val layers = viewModel.uiState.value.layers
+        assertTrue(layers.first { it.id == "c" }.is3DIn(layers))
+        val axis = viewModel.uiState.value.activeRotationAxis
+        viewModel.onAxisSlotTapped()
+        assertEquals(RotationAxis.entries[(axis.ordinal + 1) % 3], viewModel.uiState.value.activeRotationAxis)
     }
 
     private fun sliderDrag(vararg degrees: Float) {
@@ -1649,7 +1723,7 @@ class EditorViewModelTest {
     @Test
     fun `the rotation slider uses the cycler axis on a 3D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
+        viewModel.setLayers(listOf(modelLyr("a").copy(rotationX = 10f)))
         viewModel.onLayerActivated("a")
         setAxis(RotationAxis.Y)
         testDispatcher.scheduler.advanceUntilIdle()

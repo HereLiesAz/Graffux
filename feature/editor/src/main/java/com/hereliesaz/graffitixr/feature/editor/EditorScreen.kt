@@ -439,6 +439,16 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        // 1d. The surface guide grid (spec/3d-space.md, "Guide grid"): the active layer's group's
+        // surface in perspective, overlay only (never exported). World space, like the guides.
+        val gridGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId(
+            uiState.layers, uiState.activeLayerId, uiState.surfaceGridVisible,
+        )
+        if (gridGroup != null && boxWidth > 0f && boxHeight > 0f) {
+            SurfaceGuideGrid(
+                uiState, gridGroup, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.surfaceGrid"),
+            )
+        }
         } // end infinite-canvas camera container
 
         // (Camera navigation is a modifier on the root Box above — see `Modifier.canvasNavigation`.
@@ -679,6 +689,16 @@ fun EditorScreen(
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
                 predictionLeadMs = { vm.predictionLeadMs },
                 onRawMotionEvent = { strokeRecorder?.onMotionEvent(it) },
+            )
+        }
+
+        // 3a-surface. "Draw surface" armed on a group (spec/3d-space.md, "Group surfaces"): the next
+        // one-finger stroke is the group's profile, over every tool, and paints nothing.
+        if (uiState.surfaceDrawGroupId != null) {
+            SurfaceProfileCapture(
+                toWorld = activePlane::world,
+                onDrawn = { vm.onSurfaceProfileDrawn(it) },
+                modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
             )
         }
 
@@ -1037,7 +1057,7 @@ private fun LayerStackNode(
     if (!layer.isVisible) return
     if (frameAlpha <= 0f) return
     // Drawn by the GPU depth pass instead (DepthPass), with the other planes it can cross.
-    if (LocalScene.current?.depth?.contains(layer.id) == true) return
+    if (LocalScene.current?.depth?.let { layer.id in it || layer.id in it.surfaceIds } == true) return
 
     // The 3D scene path (spec/3d-space.md); null = the 2D fast path, exactly as before.
     val scene = LocalScene.current
@@ -1901,5 +1921,70 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLayerBitmap(
                 scale(1f / crisp.scale, 1f / crisp.scale, pivot = androidx.compose.ui.geometry.Offset.Zero)
             }) { drawImage(crisp.image, colorFilter = colorFilter) }
         }
+    }
+}
+
+/**
+ * Captures one stroke for a group's profile: its points in world space, in order, shown as a line
+ * while drawn. A second finger ends it as it is.
+ */
+@Suppress("FunctionNaming")
+@Composable
+private fun SurfaceProfileCapture(
+    toWorld: (Offset) -> Offset,
+    onDrawn: (List<Offset>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val screen = remember { mutableStateListOf<Offset>() }
+    val drawn = androidx.compose.runtime.rememberUpdatedState(onDrawn)
+    val world = androidx.compose.runtime.rememberUpdatedState(toWorld)
+    Canvas(
+        modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown()
+                down.consume()
+                screen.clear()
+                screen += down.position
+                val points = arrayListOf(world.value(down.position))
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (event.changes.size > 1 || !change.pressed) break
+                    change.consume()
+                    screen += change.position
+                    points += world.value(change.position)
+                }
+                screen.clear()
+                drawn.value(points)
+            }
+        },
+    ) {
+        for (i in 1 until screen.size) drawLine(Color.Cyan, screen[i - 1], screen[i], strokeWidth = 3f)
+    }
+}
+
+/** The guide grid of [groupId]'s surface, projected through the scene camera onto the canvas box. */
+@Suppress("FunctionNaming", "MaxLineLength", "MagicNumber")
+@Composable
+private fun SurfaceGuideGrid(
+    uiState: EditorUiState,
+    groupId: String,
+    width: Float,
+    height: Float,
+    modifier: Modifier = Modifier,
+) {
+    val lines = remember(uiState.layers, uiState.sceneCamera, groupId, width, height) {
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, groupId)
+        if (owner == null) {
+            emptyList()
+        } else {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridLines(
+                owner.profile, SceneMath.chainModel(owner.ownerChain, width, height), SceneMath.frame(uiState.sceneCamera, width, height),
+            )
+        }
+    }
+    val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
+    Canvas(modifier) {
+        lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.45f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
     }
 }

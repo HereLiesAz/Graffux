@@ -52,7 +52,7 @@ class PlaneStrokeFeedTest {
 
     @Test
     fun `a layer turned 90 degrees is edge-on, so a stroke on it paints nothing and is cancelled`() {
-        val layer = Layer(id = "a", name = "a", plane3D = true, rotationY = 90f)
+        val layer = Layer(id = "a", name = "a", rotationY = 90f)
         val plane = ActivePlaneMapping.of(state(layer))
         touches.forEach { assertNull("ray $it lies in the edge-on plane", plane.toFlat(it)) }
         val r = Recorder()
@@ -68,7 +68,7 @@ class PlaneStrokeFeedTest {
     @Test
     fun `under a view orbited 90 degrees the eye lies in the layer plane, which is no hit`() {
         // Before the fix rounding put a hit at the eye, ~(2431, 800) in flat space for every touch.
-        val layer = Layer(id = "a", name = "a", plane3D = true)
+        val layer = Layer(id = "a", name = "a")
         val plane = ActivePlaneMapping.of(state(layer, SceneCamera(yaw = (Math.PI / 2).toFloat())))
         touches.forEach { assertNull(plane.toFlat(it)) }
     }
@@ -76,7 +76,7 @@ class PlaneStrokeFeedTest {
     @Test
     fun `a stroke on a rotated layer lands on its plane under the finger and turns with it`() {
         // Rotated on one axis, drawn, then rotated on a second axis.
-        val tilted = Layer(id = "a", name = "a", plane3D = true, rotationX = 60f)
+        val tilted = Layer(id = "a", name = "a", rotationX = 60f)
         val plane = ActivePlaneMapping.of(state(tilted))
         val r = Recorder()
         val feed = r.feed(plane::toFlat)
