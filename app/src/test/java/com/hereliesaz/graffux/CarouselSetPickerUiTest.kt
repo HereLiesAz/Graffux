@@ -13,7 +13,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -46,6 +50,11 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi", application = Application::class)
 class CarouselSetPickerUiTest {
+    private companion object {
+        const val MIN_CARD_DP = 60
+        const val MAX_CARD_DP = 160
+    }
+
     @get:Rule
     val rule = createAndroidComposeRule<ComponentActivity>()
 
@@ -221,5 +230,47 @@ class CarouselSetPickerUiTest {
         }
         assertNotEquals(null, carouselNamePill(true, false, "Round"))
         assertEquals("other sheets show no pill", null, carouselNamePill(false, false, "Round"))
+    }
+
+    @Test
+    fun `a narrow brush card at font scale 2 draws without crashing`() {
+        val entries = carouselEntries(CarouselCategory.BRUSHES, inputs).take(2) +
+            carouselEntries(CarouselCategory.INK, inputs).take(2)
+        rule.setContent {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides
+                    androidx.compose.ui.unit.Density(density.density, fontScale = 2f),
+            ) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    // Card heights stepped a dp at a time, so some leave the stroke a sliver of a
+                    // few pixels: the case that handed coerceIn an empty range. Plus a bare preview
+                    // one dp tall.
+                    androidx.compose.foundation.layout.Row {
+                        Box(Modifier.size(56.dp, 1.dp)) {
+                            com.hereliesaz.graffitixr.feature.editor.BrushPreview(
+                                entries.first().brush!!, Color.Red, Color.White, height = 1.dp,
+                            )
+                        }
+                        (MIN_CARD_DP..MAX_CARD_DP).forEach { h ->
+                            androidx.compose.foundation.layout.Column {
+                                entries.forEach { entry ->
+                                    Box(Modifier.size(56.dp, h.dp)) {
+                                        BrushCardFace(
+                                            entry,
+                                            CarouselContent(entries, Color.Red, Color.White, emptyMap(), onEdit = {}),
+                                            Color.White, {}, {},
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.onRoot().captureToImage()
+        assertEquals(entries.size * (MAX_CARD_DP - MIN_CARD_DP + 1), count("carousel.brushcard.stroke"))
     }
 }

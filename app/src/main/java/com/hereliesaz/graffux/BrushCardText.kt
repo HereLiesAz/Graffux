@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -111,6 +112,9 @@ private fun brushTraits(brush: AzphaltBrush?): List<String> {
 }
 
 private val EngineIconSize = 18.dp
+
+/** The stroke keeps at least this much of the card, however large the text around it grows. */
+private val MinStrokeHeight = 24.dp
 private val EditTouchSize = 32.dp
 private val EditIconSize = 18.dp
 
@@ -216,7 +220,7 @@ private fun ColumnScope.CardStroke(entry: CarouselEntry, content: CarouselConten
     val own = content.itemSettings(entry)
     val sizePx = own?.size ?: content.heroState?.brushSize
     BoxWithConstraints(
-        Modifier.weight(1f).fillMaxWidth().testTag("carousel.brushcard.stroke"),
+        Modifier.weight(1f).heightIn(min = MinStrokeHeight).fillMaxWidth().testTag("carousel.brushcard.stroke"),
         contentAlignment = Alignment.Center,
     ) {
         val action = entry.action
@@ -253,6 +257,8 @@ private const val HALF_STEP = 0.5f
 @Composable
 private fun InkStroke(utensil: InkUtensil, color: Color, sizePx: Float?, modifier: Modifier) {
     androidx.compose.foundation.Canvas(modifier) {
+        // No room for even the thinnest line: draw nothing (coerceIn would get an empty range).
+        if (size.width <= 0f || size.height * INK_HEIGHT_SHARE < INK_MIN_PX) return@Canvas
         val width = (sizePx ?: (size.height * INK_DEFAULT_SHARE)).coerceIn(INK_MIN_PX, size.height * INK_HEIGHT_SHARE)
         val y = size.height / 2f
         val amp = size.height * INK_AMPLITUDE_SHARE
