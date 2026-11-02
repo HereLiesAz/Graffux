@@ -11,7 +11,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
 
 /**
@@ -28,7 +29,7 @@ fun VectorStrokeDialog(
 ) {
     var width by remember { mutableFloatStateOf(currentWidth.coerceIn(0f, 100f)) }
 
-    FloatingWindow(title = "Stroke width", onDismiss = { onApply(width); onDismiss() }) {
+    ToolSurface(kind = SurfaceKind.VALUE, title = "Stroke width", onDismiss = { onApply(width); onDismiss() }) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(if (width < 0.5f) "No outline" else "${width.roundToInt()} px")
             Slider(
