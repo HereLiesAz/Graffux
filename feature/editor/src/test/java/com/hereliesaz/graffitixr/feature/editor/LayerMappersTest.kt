@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.net.Uri
@@ -36,11 +38,11 @@ class LayerMappersTest {
     }
 
     @Test
-    fun `a layer made 3D by hand stays 3D through the round trip`() {
-        val made = Layer(id = "p", name = "p", uri = uri, plane3D = true)
-        val restored = made.toOverlayLayer().toLayer()
-        assertEquals(true, restored.plane3D)
-        assertEquals(false, Layer(id = "q", name = "q", uri = uri).toOverlayLayer().toLayer().plane3D)
+    fun `a group's surface survives the round trip, and a plain group stays flat`() {
+        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 50f, 0f, 200f, 0f, 0f))
+        val group = Layer(id = "g", name = "g", uri = uri, type = LayerType.GROUP, surface = profile)
+        assertEquals(profile, group.toOverlayLayer().toLayer().surface)
+        assertEquals(null, Layer(id = "q", name = "q", uri = uri, type = LayerType.GROUP).toOverlayLayer().toLayer().surface)
     }
 
     @Test

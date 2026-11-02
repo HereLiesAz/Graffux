@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffux
 
 import android.app.Application
@@ -13,7 +15,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.is3DIn
+import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
@@ -47,11 +51,15 @@ class Scene3DRailUiTest {
         override fun onRedoClicked() = Unit
         override fun setBrushSize(size: Float) = Unit
         override fun setBrushFeathering(feathering: Float) = Unit
-        // What EditorViewModel.onAxisSlotTapped writes: a 2D layer becomes 3D on Z; a 3D one cycles.
+        // What EditorViewModel.onAxisSlotTapped leads to: on a 2D layer, its group gets a surface (once
+        // the armed stroke is drawn); on a 3D one the axis cycles.
         override fun onAxisSlotTapped() {
-            val layer = state.layers.single()
-            state = if (!layer.is3DLayer) {
-                state.copy(layers = listOf(layer.copy(plane3D = true)), activeRotationAxis = RotationAxis.Z)
+            val layer = state.layers.first { it.id == state.activeLayerId }
+            state = if (!layer.is3DIn(state.layers)) {
+                state.copy(
+                    layers = state.layers.map { if (it.id == layer.parentId) it.copy(surface = SurfaceProfile(listOf(0f, 0f, 0f, 1f, 0f, 0f))) else it },
+                    activeRotationAxis = RotationAxis.Z,
+                )
             } else {
                 val next = RotationAxis.entries[(state.activeRotationAxis.ordinal + 1) % RotationAxis.entries.size]
                 state.copy(activeRotationAxis = next)
@@ -60,8 +68,11 @@ class Scene3DRailUiTest {
     }
 
     @Test
-    fun `the axis slot reads 3D on a 2D layer, converts it to Z, then cycles the axis`() {
-        state = state.copy(layers = listOf(Layer("a", "A")), activeLayerId = "a", activeRotationAxis = RotationAxis.Y)
+    fun `the axis slot reads 3D while the layer's group is flat, the axis once it has a surface`() {
+        state = state.copy(
+            layers = listOf(Layer("g", "G", type = LayerType.GROUP), Layer("a", "A", parentId = "g")),
+            activeLayerId = "a", activeRotationAxis = RotationAxis.Y,
+        )
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 ToolRail(actions, state, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}))
@@ -71,7 +82,7 @@ class Scene3DRailUiTest {
         rule.onNodeWithText("3D", useUnmergedTree = true).assertExists()
         slot.performClick()
         rule.waitForIdle()
-        assertTrue(state.layers.single().is3DLayer)
+        assertTrue(state.layers.first { it.id == "a" }.is3DIn(state.layers))
         rule.onNodeWithText("Z", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("3D", useUnmergedTree = true).assertDoesNotExist()
         val seen = (0 until 3).map {

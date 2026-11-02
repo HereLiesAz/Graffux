@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.ui.geometry.Offset
@@ -7,6 +9,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.OverlayLayer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.common.scene.PlanePose
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SurfaceMath
@@ -69,5 +72,15 @@ class SurfaceGroupTest {
         assertEquals(floor, restored.surface)
         assertTrue(restored.surface!!.isFlat)
         assertEquals(floor.length, restored.surface!!.length, 1e-3f)
+    }
+
+    @Test
+    fun `a layer saved with the retired 3D flag loads as a flat layer`() {
+        val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val text = json.encodeToString(OverlayLayer.serializer(), Layer("old", "Old", uri = android.net.Uri.parse("")).toOverlayLayer())
+            .replaceFirst("{", "{\"plane3D\":true,")
+        val restored = json.decodeFromString(OverlayLayer.serializer(), text).toLayer()
+        assertEquals(false, restored.is3DIn(listOf(restored)))
+        assertTrue(com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isFlat(listOf(restored), SceneCamera()))
     }
 }

@@ -72,7 +72,7 @@ import kotlinx.coroutines.isActive
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.is3DLayer
+import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.Amber
@@ -203,9 +203,9 @@ internal fun layerOutline(is3D: Boolean, light: RailLight, accent: Color): Pair<
 }
 
 /** The TalkBack label of a layer's thumbnail: its name, then every state the thumbnail draws. */
-internal fun layerThumbLabel(layer: Layer, masked: Boolean, expanded: Boolean): String =
+internal fun layerThumbLabel(layer: Layer, masked: Boolean, expanded: Boolean, is3D: Boolean = false): String =
     layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
-        (if (layer.is3DLayer) ", 3D" else "") +
+        (if (is3D) ", 3D" else "") +
         (if (masked) ", masked" else "") +
         (if (layer.alphaLock) ", alpha locked" else "") +
         (if (layer.isVisible) "" else ", hidden") + (if (layer.isContainer && expanded) ", open" else "")
@@ -287,6 +287,7 @@ internal fun LayersRail(
                         light = RailLight(active = carried.id == activeLayerId),
                         nested = false,
                         expanded = false,
+                        is3D = carried.is3DIn(layers),
                     )
                 }
             }
@@ -407,6 +408,7 @@ internal fun LayersRail(
                     light = RailLight(active = layer.id == activeLayerId, secondary = id in secondary),
                     nested = layer.parentId != null,
                     expanded = expanded,
+                    is3D = layer.is3DIn(layers),
                 )
             }
         } }
@@ -429,15 +431,17 @@ private fun LayerThumb(
     nested: Boolean,
     expanded: Boolean,
     maskThumb: android.graphics.Bitmap? = null,
+    /** On a group surface (or the profiled group itself), a 3D strokes or a model layer. */
+    is3D: Boolean = false,
 ) {
     val isGroup = layer.isContainer
-    val label = layerThumbLabel(layer, masked = maskThumb != null, expanded = expanded)
+    val label = layerThumbLabel(layer, masked = maskThumb != null, expanded = expanded, is3D = is3D)
     Box(contentAlignment = Alignment.CenterStart) {
         Box(
             modifier = Modifier
                 .size(RailButtonSize)
                 .then(
-                    layerOutline(layer.is3DLayer, light, MaterialTheme.colorScheme.primary)
+                    layerOutline(is3D, light, MaterialTheme.colorScheme.primary)
                         ?.let { (width, color) -> Modifier.border(width, color, ThumbShape) } ?: Modifier,
                 )
                 // The row around this handles the touch: tap, long-press and drag are one gesture.

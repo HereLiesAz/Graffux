@@ -464,7 +464,6 @@ class ProjectManagerTest {
         assertEquals(2, project.layers.size)
         val model = project.layers.last()
         assertEquals("head", model.name)
-        assertTrue(model.plane3D)
         assertEquals("model.obj", model.model!!.objFile)
         assertEquals("model_texture.png", model.model!!.textureFile)
         assertNull(project.modelPath)
@@ -482,7 +481,7 @@ class ProjectManagerTest {
         val content = com.hereliesaz.graffitixr.common.scene.ModelLayerContent("model_x.obj", "model_tex_x.png")
         val project = GraffitiProject(
             id = "m",
-            layers = listOf(OverlayLayer(id = "x", uri = mockk(relaxed = true), plane3D = true, model = content)),
+            layers = listOf(OverlayLayer(id = "x", uri = mockk(relaxed = true), model = content)),
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))

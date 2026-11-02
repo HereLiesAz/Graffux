@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.common.model
 
 import com.hereliesaz.graffitixr.common.photo.PhotoAdjustment
@@ -39,13 +41,15 @@ class LayerPropsTest {
     }
 
     @Test
-    fun `a layer made 3D reaches a peer, and a peer that predates the flag keeps it`() {
-        val made = Layer(id = "L", name = "L", plane3D = true)
-        assertEquals(true, Layer(id = "L", name = "L").withLayerProps(made.toLayerProps()).plane3D)
-        // Undo back to 2D travels too.
-        assertEquals(false, made.withLayerProps(Layer(id = "L", name = "L").toLayerProps()).plane3D)
-        val older = made.toLayerProps().let { it.copy(extended = it.extended!!.copy(plane3D = null)) }
-        assertEquals(true, made.withLayerProps(older).plane3D)
+    fun `a group's surface reaches a peer, and a peer that predates surfaces keeps it`() {
+        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
+        val made = Layer(id = "G", name = "G", type = LayerType.GROUP, surface = profile)
+        val plain = Layer(id = "G", name = "G", type = LayerType.GROUP)
+        assertEquals(profile, plain.withLayerProps(made.toLayerProps()).surface)
+        // Flatten travels too.
+        assertNull(made.withLayerProps(plain.toLayerProps()).surface)
+        val older = made.toLayerProps().let { it.copy(extended = it.extended!!.copy(surface = null, surfaceSent = false)) }
+        assertEquals(profile, made.withLayerProps(older).surface)
     }
 
     @Test
