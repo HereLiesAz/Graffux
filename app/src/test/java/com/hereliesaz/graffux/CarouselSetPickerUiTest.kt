@@ -109,53 +109,6 @@ class CarouselSetPickerUiTest {
 
     private fun count(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
 
-    private fun pickInWheel(label: String) {
-        rule.onAllNodesWithText(label, useUnmergedTree = true).onLast()
-            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
-        rule.waitForIdle()
-    }
-
-    @Test
-    fun `the wheel selects a set`() {
-        compose()
-        pickInWheel("Ink")
-        assertEquals("ink", ui.tab)
-    }
-
-    @Test
-    fun `the Favorites button jumps to Favorites`() {
-        compose()
-        rule.onNodeWithTag("carousel.quick.favorites").performClick()
-        rule.waitForIdle()
-        assertEquals(FAVORITES_SET_KEY, ui.tab)
-        assertEquals(CarouselCategory.FAVORITES, ui.category)
-    }
-
-    @Test
-    fun `the previous-set button returns to the set before, named for it`() {
-        compose()
-        pickInWheel("Ink")
-        rule.onNodeWithTag("carousel.quick.favorites").performClick()
-        rule.waitForIdle()
-        val previous = hasTestTag("carousel.quick.previous") and hasText("Ink", substring = false)
-        assertEquals(1, rule.onAllNodes(previous).fetchSemanticsNodes().size)
-        rule.onNodeWithTag("carousel.quick.previous").performClick()
-        rule.waitForIdle()
-        assertEquals("ink", ui.tab)
-        // Favorites has its own button: it is never offered as the set to go back to.
-        assertTrue("previous is never Favorites", ui.previousTab != FAVORITES_SET_KEY)
-    }
-
-    @Test
-    fun `no duplicate sets on the wheel`() {
-        compose()
-        // Favorites once in the list (plus its quick button); no "Starred", no type headings.
-        assertEquals(2, rule.onAllNodesWithText("Favorites", useUnmergedTree = true).fetchSemanticsNodes().size)
-        assertEquals(0, rule.onAllNodesWithText("Starred", useUnmergedTree = true).fetchSemanticsNodes().size)
-        assertEquals(0, rule.onAllNodesWithText("BASIC", useUnmergedTree = true).fetchSemanticsNodes().size)
-        assertEquals(1, rule.onAllNodesWithText("Spray Caps", useUnmergedTree = true).fetchSemanticsNodes().size)
-    }
-
     @Test
     fun `a set's list ends with no cross-set continuation`() {
         ui = ui.copy(tab = "ink", detent = CarouselDetent.FULL)

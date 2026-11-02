@@ -133,7 +133,7 @@ internal data class CarouselUi(
     val showingCarousel: Boolean = true,
     /** The photo tabs instead of brushes (the rail's Adjust); [tab] is then a [PhotoTab.key]. */
     val photo: Boolean = false,
-    /** The set showing before [tab], for the picker's previous-set button. */
+    /** The set showing before [tab] (see [previousSetAfter]). */
     val previousTab: String? = null,
     /** How far up the carousel stage is pulled: the strip, or the set as a grid at half or full. */
     val detent: CarouselDetent = CarouselDetent.SHORT,
@@ -164,6 +164,14 @@ internal data class CarouselUi(
             )
     }
 }
+
+/** The sheet on [group], from a set picker (the sheet's own, or the rail's pack wheel). */
+internal fun CarouselUi.withSet(group: CarouselTabGroup): CarouselUi = copy(
+    category = group.category,
+    tab = group.key,
+    previousTab = previousSetAfter(group.key, tab, previousTab),
+    showingCarousel = true,
+)
 
 /** What the strip draws: its items plus what the brush previews need to render them. */
 internal data class CarouselContent(
@@ -212,8 +220,10 @@ internal data class CarouselContent(
  * crossfading as the row scrolls), M3's [HorizontalCenteredHeroCarousel] — one large item in the
  * centre between two small ones, snapping one item per fling (`singleAdvanceFlingBehavior`),
  * the selection snapped into the centre and whatever settles there selected (see
- * [carouselSettleSelects]) — and the tab list (see [CarouselTabList]). With the sheet showing only
- * its tab list ([CarouselUi.showingCarousel] false) the carousel is not composed at all.
+ * [carouselSettleSelects]) — and, off the brush page, the tab list (see [CarouselTabList]). With the
+ * sheet showing only its tab list ([CarouselUi.showingCarousel] false) the carousel is not composed
+ * at all. The brush page has no tab list (its packs are on the rail, [RailPackWheel]), so it always
+ * shows its cards.
  * The host places this across the full window width (an AzNavRail `background` page), so "centre"
  * means the centre of the screen, not of the strip beside the rail.
  *
@@ -222,7 +232,8 @@ internal data class CarouselContent(
  * shows the tip visual, name and details; medium cards the tip and name; small cards the tip alone.
  * Hero and medium cards carry a star toggle ([onToggleFavorite]) — outlined, or filled when starred.
  */
-@Suppress("FunctionNaming", "LongParameterList", "LongMethod") // Composable naming, as in SettingsScreen.kt.
+// Composable naming, as in SettingsScreen.kt.
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod", "CyclomaticComplexMethod")
 @Composable
 internal fun BottomCarousel(
     ui: CarouselUi,
@@ -237,12 +248,14 @@ internal fun BottomCarousel(
 ) {
     // Crash breadcrumb: when the carousel first composed, relative to a save or engine start.
     LaunchedEffect(Unit) { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("carousel first composition") }
+    // With no tab list to fall back to, the brush page shows its cards whenever the sheet is open.
+    val brushPage = carouselContextOf(ui.category) == CarouselContext.BRUSHES
     Column(
         modifier = modifier.widthIn(max = MaxCarouselWidth).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(ColumnSpacing),
     ) {
-        if (!ui.showingCarousel) {
+        if (!ui.showingCarousel && !(brushPage && ui.sheetOpen)) {
             Unit
         } else if (content.entries.isNotEmpty() && ui.detent.showsGrid) {
             // Half and full detents: the set as a grid of the same cards, ending with the set.
@@ -302,21 +315,15 @@ internal fun BottomCarousel(
                 EmptyHint("No options for this tool. A card's More shows all of its settings.")
             }
         }
-        CarouselTabList(
-            tabs,
-            selectedTab,
-            onSelect = { group ->
-                onUiChange(
-                    ui.copy(
-                        category = group.category,
-                        tab = group.key,
-                        previousTab = previousSetAfter(group.key, selectedTab, ui.previousTab),
-                        showingCarousel = true,
-                    ),
-                )
-            },
-            previousKey = ui.previousTab,
-        )
+        // The brush page has no picker in the sheet: its packs are on the rail's pack wheel
+        // (RailPackWheel). The effect and tool-group pages keep the compact one.
+        if (!brushPage) {
+            CarouselTabList(
+                tabs,
+                selectedTab,
+                onSelect = { group -> onUiChange(ui.withSet(group)) },
+            )
+        }
     }
 }
 

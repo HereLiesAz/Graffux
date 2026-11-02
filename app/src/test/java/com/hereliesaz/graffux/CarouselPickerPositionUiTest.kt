@@ -23,10 +23,7 @@ import com.hereliesaz.graffitixr.feature.editor.util.ColorSmudgeEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipe
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -38,9 +35,11 @@ import java.io.File
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h914dp-420dpi", application = Application::class)
 /**
- * The set picker's wheel (#691) must not move the cards: they sit exactly where they did with the
- * pre-wheel strip (measured from aa654e18^1's picker at this size, in px, 1078x2399), at peek and
- * at half. Also writes build/sheet-shots for a look by eye.
+ * The brush sheet has no picker strip any more (its packs are on the rail's pack wheel,
+ * RailPackWheel.kt), and nothing reserves the strip's room: the cards sit where the pre-#691 layout
+ * had them less the strip (StripHeight) and the column gap above it, i.e. 158px lower than the
+ * strip-era pins (1663 / 1009 / 2188, measured from aa654e18^1 at this size, 1078x2399). Pinned at
+ * peek and at half. Also writes build/sheet-shots for a look by eye.
  */
 class CarouselPickerPositionUiTest {
     @get:Rule
@@ -89,26 +88,31 @@ class CarouselPickerPositionUiTest {
     }
 
     @Test
-    fun `at peek the cards sit where they did before the wheel`() =
-        probe(CarouselDetent.SHORT, "carousel.card.HERO", "peek", 1663f, 2188f)
+    fun `at peek the cards sit at the sheet's foot with no strip under them`() =
+        probe(CarouselDetent.SHORT, "carousel.card.HERO", "peek", PEEK_TOP, CARDS_BOTTOM)
 
     @Test
-    fun `at half the cards sit where they did before the wheel`() =
-        probe(CarouselDetent.HALF, "carousel.grid.card", "half", 1009f, 2188f)
+    fun `at half the cards sit at the sheet's foot with no strip under them`() =
+        probe(CarouselDetent.HALF, "carousel.grid.card", "half", HALF_TOP, CARDS_BOTTOM)
 
     @Test
-    fun `the wheel stays below the cards and only its quarter disc takes a swipe`() {
-        probe(CarouselDetent.SHORT, "carousel.card.HERO", "peek", 1663f, 2188f)
-        val wheel = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
-        assertTrue("wheel top ${wheel.top} under the cards", wheel.top >= 2188f)
-        val pointed = { rule.onAllNodesWithTag("carousel.wheel.item").fetchSemanticsNodes()
-            .map { it.boundsInRoot.center } }
-        val before = pointed()
-        // The box's corner away from the hub (top-left, the wheel on the right) is off the disc.
-        rule.onNodeWithTag("carousel.wheel").performTouchInput {
-            swipe(Offset(2f, 2f), Offset(40f, 2f), 200)
-        }
-        rule.waitForIdle()
-        assertEquals(before, pointed())
+    fun `the brush sheet shows no picker and nothing pushes the cards up`() {
+        probe(CarouselDetent.SHORT, "carousel.card.HERO", "peek", PEEK_TOP, CARDS_BOTTOM)
+        rule.onNodeWithTag("carousel.tabs").assertDoesNotExist()
+        rule.onNodeWithTag("carousel.wheel").assertDoesNotExist()
+        rule.onNodeWithTag("carousel.quick.favorites").assertDoesNotExist()
+        rule.onNodeWithTag("carousel.quick.previous").assertDoesNotExist()
+        val cards = rule.onAllNodesWithTag("carousel.card.HERO", useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("never above the strip-era pin", cards.minOf { it.boundsInRoot.top } >= STRIP_ERA_PEEK_TOP)
+    }
+
+    private companion object {
+        /** Where the cards sat with the picker strip under them (aa654e18^1, and #691 to #703). */
+        const val STRIP_ERA_PEEK_TOP = 1663f
+        /** The strip's 56dp and the column gap above it, at 420dpi. */
+        const val STRIP_ROOM = 158f
+        const val PEEK_TOP = STRIP_ERA_PEEK_TOP + STRIP_ROOM
+        const val HALF_TOP = 1009f + STRIP_ROOM
+        const val CARDS_BOTTOM = 2188f + STRIP_ROOM
     }
 }

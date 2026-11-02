@@ -16,7 +16,7 @@ consumes the same modules for its 2D work and adds AR on top.
   panel; Distort (4 handles) and Warp (16 handles) for perspective/bend.
 - **Adjustments** — opacity, brightness, contrast, saturation, colour balance, curves (a monotone
   cubic-spline LUT baked into the layer), invert, colour-lookup (`.cube` LUT) extensions.
-- **Paint** — brush and eraser with size + hardness, colour, node-edited vector paths (Pen), Heal,
+- **Paint** — brush and eraser with size + hardness, brush packs on a half wheel that opens from the rail's Brush and Eraser, colour, node-edited vector paths (Pen), Heal,
   Clone, Blur, Sharpen, Smudge, Liquify (native GLES warper), Dodge, Burn, Colorize, plus
   wraparound painting mode. Brush Studio for building custom brushes.
 - **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, Subject (ML Kit

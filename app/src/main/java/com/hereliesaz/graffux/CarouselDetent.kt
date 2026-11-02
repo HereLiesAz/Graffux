@@ -58,9 +58,14 @@ internal fun CarouselUi.steppedUp(gridAllowed: Boolean): CarouselUi = when {
 internal fun CarouselUi.forToolOptions(category: CarouselCategory): CarouselUi =
     copy(category = category, sheetOpen = true, tab = null, showingCarousel = true, detent = CarouselDetent.SHORT)
 
-/** One stage down, or null when the sheet is at its lowest open stage (the tab list) and shuts. */
-internal fun CarouselUi.steppedDown(): CarouselUi? = when {
+/**
+ * One stage down, or null when the sheet is at its lowest open stage and shuts: the tab list, or,
+ * on a sheet with no tab list ([tabListStage] false: the brush page, whose packs are on the rail),
+ * the carousel.
+ */
+internal fun CarouselUi.steppedDown(tabListStage: Boolean = true): CarouselUi? = when {
     !showingCarousel -> null
+    !tabListStage && detent == CarouselDetent.SHORT -> null
     detent == CarouselDetent.FULL -> copy(detent = CarouselDetent.HALF)
     detent == CarouselDetent.HALF -> copy(detent = CarouselDetent.SHORT)
     else -> copy(showingCarousel = false)
