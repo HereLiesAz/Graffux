@@ -12216,8 +12216,15 @@ class EditorViewModel @Inject constructor(
      */
     private val modelTexturesOnDisk = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
 
-    /** The texture revision last written for each model layer, so a save writes only a changed one. */
-    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+    /** A texture revision on disk, and the file in the project folder that holds it. */
+    private class WrittenTexture(val texture: com.hereliesaz.graffitixr.common.scene.ModelTexture, val file: String)
+
+    /**
+     * The texture revision last written (or loaded) for each model layer and its file, so a save
+     * writes only a changed one and an unchanged one keeps the name it is stored under (a migrated
+     * project's `model_texture.png`, say).
+     */
+    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, WrittenTexture>()
 
     /** A paint stroke on a model layer in progress. */
     private class ModelStroke(
@@ -12417,7 +12424,7 @@ class EditorViewModel @Inject constructor(
         if (pending.isEmpty()) return
         viewModelScope.launch(dispatchers.io) {
             val dir = File(context.filesDir, "projects/$projectId")
-            val textures = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+            val textures = HashMap<String, WrittenTexture>()
             for (layer in pending) {
                 val content = layer.model ?: continue
                 runCatching {
@@ -12430,7 +12437,9 @@ class EditorViewModel @Inject constructor(
                         )
                     }
                     ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
-                        textures[layer.id] = com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(it.readBytes())
+                        textures[layer.id] = WrittenTexture(
+                            com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(it.readBytes()), it.name,
+                        )
                     }
                 }.onFailure {
                     android.util.Log.w("EditorViewModel", "Couldn't load the model of layer ${layer.id}", it)
@@ -12438,7 +12447,7 @@ class EditorViewModel @Inject constructor(
             }
             withContext(dispatchers.main) {
                 if (_uiState.value.projectId != projectId) return@withContext
-                modelTexturesOnDisk.putAll(textures)
+                textures.forEach { (id, written) -> modelTexturesOnDisk[id] = written.texture }
                 writtenModelTextures.putAll(textures)
                 updateUi { s -> s.copy(layers = s.layers.map(::fillModel)) }
             }
@@ -12457,11 +12466,16 @@ class EditorViewModel @Inject constructor(
         run {
             val content = layer.model ?: return@run overlay
             val texture = content.texture ?: return@run overlay
-            val name = ModelFiles.textureFor(layer.id)
-            if (writtenModelTextures[layer.id] !== texture) {
+            val written = writtenModelTextures[layer.id]
+            val name = if (written != null && written.texture === texture) {
+                // Already on disk, under the name it was written or loaded as.
+                written.file
+            } else {
+                val fresh = ModelFiles.textureFor(layer.id)
                 val bytes = texture.encoded() ?: return@run overlay
-                projectRepository.saveArtifact(projectId, name, bytes)
-                writtenModelTextures[layer.id] = texture
+                projectRepository.saveArtifact(projectId, fresh, bytes)
+                writtenModelTextures[layer.id] = WrittenTexture(texture, fresh)
+                fresh
             }
             overlay.copy(model = overlay.model?.copy(textureFile = name))
         }
@@ -14006,7 +14020,10 @@ class EditorViewModel @Inject constructor(
             val metrics = context.resources.displayMetrics
             val w = metrics.widthPixels.takeIf { it > 0 } ?: 1080
             val h = metrics.heightPixels.takeIf { it > 0 } ?: 1920
-            val composite = exportManager.compositeLayers(_uiState.value.layers, w, h)
+            // Through the scene camera: 3D layers flatten as they are seen, models and 3D ink included.
+            val composite = exportManager.compositeLayers(
+                _uiState.value.layers, w, h, camera = _uiState.value.sceneCamera,
+            )
 
             val filename = "flattened_${UUID.randomUUID()}.png"
             val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(composite))
