@@ -97,7 +97,7 @@ class ChromeUiTest {
                             .background(Color(0xFF2B2B30))
                             .testTag("canvas"),
                     )
-                    ShownWhenNotDrawing(chrome) {
+                    ShownWhenNotDrawing(chrome, fillParent = true) {
                         ToolRail(
                             vm = actions,
                             uiState = uiState,

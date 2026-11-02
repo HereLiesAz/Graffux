@@ -72,7 +72,7 @@ class ChromeGhostUiTest {
                             }
                         },
                 )
-                ShownWhenNotDrawing(chrome) {
+                ShownWhenNotDrawing(chrome, fillParent = true) {
                     Box(
                         Modifier
                             .align(Alignment.Center)
