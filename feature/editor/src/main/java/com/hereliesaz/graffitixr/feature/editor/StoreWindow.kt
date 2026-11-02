@@ -55,14 +55,15 @@ import com.hereliesaz.graffitixr.data.azphalt.InstalledExtension
 import com.hereliesaz.graffitixr.data.azphalt.purchase.BuyPrice
 import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 
 /** Which half of [StoreWindow] is showing. "Manage Extensions"/the Extensions rail toggle open on
  *  [INSTALLED]; "Azphalt Store…" opens on [BROWSE]. */
 enum class StoreTab { BROWSE, INSTALLED }
 
 /**
- * The azphalt extensions window: a single [FloatingWindow] with two tabs sharing one title bar,
+ * The azphalt extensions window: a single [ToolSurface] with two tabs sharing one title bar,
  * rather than the two entirely separate windows this used to be ([StoreWindow] for what's
  * installed, [BrowseStoreWindow] for the in-app Repository API search). Nothing about either half
  * changed — same data, same actions — only the container: one window whose tab you land on
@@ -129,7 +130,11 @@ fun StoreWindow(
         )
     }
 
-    FloatingWindow(title = if (tab == StoreTab.BROWSE) "Azphalt Store" else "Extensions", onDismiss = onDismiss) {
+    ToolSurface(
+        kind = SurfaceKind.BROWSER,
+        title = if (tab == StoreTab.BROWSE) "Azphalt Store" else "Extensions",
+        onDismiss = onDismiss,
+    ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StoreTabChip(text = "Browse", selected = tab == StoreTab.BROWSE) { tab = StoreTab.BROWSE }
@@ -219,7 +224,7 @@ private fun InstalledTab(
         GraffuxButton(text = "Browse the Azphalt Store", onClick = onBrowse, shape = GraffuxButtonShape.RECTANGLE)
         return
     }
-    // Plain Column, not LazyColumn: this whole window's content already sits inside FloatingWindow's
+    // Plain Column, not LazyColumn: this whole window's content already sits inside ToolSurface's
     // own scrollable Column (its own doc comment explains why -- AzWindow caps height but doesn't
     // scroll past it). A LazyColumn nested in there is a lazy list -- built on SubcomposeLayout --
     // and AzWindow's sizing asks its content for an intrinsic measurement, which Compose refuses to
@@ -313,7 +318,7 @@ private fun BrowseTab(
         }
 
         // Plain Column, not LazyColumn -- see InstalledTab's identical doc comment for why (this
-        // window's content sits inside FloatingWindow's own scrollable Column either way). Search
+        // window's content sits inside ToolSurface's own scrollable Column either way). Search
         // results are a page at a time, not an infinite feed, so losing lazy virtualization costs
         // nothing real here.
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
