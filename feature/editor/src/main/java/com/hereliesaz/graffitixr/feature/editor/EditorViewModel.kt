@@ -5148,6 +5148,7 @@ class EditorViewModel @Inject constructor(
                 activeRotationAxis = RotationAxis.Z,
             )
         }
+        emitActiveLayerProps()
         saveProject()
     }
 
@@ -11991,7 +11992,10 @@ class EditorViewModel @Inject constructor(
         val h = size.height.toFloat()
         val chain = planeChain(state.layers, id)
         if (chain.isEmpty()) return
-        val flat = state.sceneCamera.isDefault && state.layers.none { it.isPlacedIn3D }
+        // The 2D move, for a top-level layer only: onTransformGesture adds the world delta to the
+        // offset as is, which for a child of a scaled or rotated group is in the wrong space. A
+        // nested layer takes the plane move below, which goes through the parent's inverse.
+        val flat = chain.size == 1 && state.sceneCamera.isDefault && state.layers.none { it.isPlacedIn3D }
         if (flat && worldPan != Offset.Zero) {
             onTransformGesture(worldPan, 1f, 0f, w, h)
         }
@@ -12097,6 +12101,7 @@ class EditorViewModel @Inject constructor(
                 },
             )
         }
+        emitActiveLayerProps()
         saveProject()
     }
 

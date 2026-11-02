@@ -1411,6 +1411,39 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `making a layer 3D is sent to co-op peers`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.makeActiveLayer3D()
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify {
+            opEmitter.emit(
+                match { it is Op.LayerPropsChange && it.layerId == "a" && it.props.extended?.plane3D == true },
+            )
+        }
+    }
+
+    @Test
+    fun `a Move-tool pan on a child of a scaled, rotated group follows the fingers`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(scale = 2f, rotationZ = 90f)
+        val child = lyr("c").copy(parentId = "g", plane3D = true)
+        viewModel.setLayers(listOf(group, child))
+        viewModel.onLayerActivated("c")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onTransformClicked()
+        fun centre(): FloatArray = SceneMath.chainModel(
+            com.hereliesaz.graffitixr.common.scene.planeChain(viewModel.uiState.value.layers, "c"), 1000f, 1600f,
+        ).apply(500f, 800f, 0f)
+        val before = centre()
+        twoFinger(pan = Offset(10f, 0f))
+        val after = centre()
+        assertEquals(10f, after[0] - before[0], 0.05f)
+        assertEquals(0f, after[1] - before[1], 0.05f)
+    }
+
+    @Test
     fun `Reset plane flattens a layer placed in 3D as one undo step`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("a").copy(positionZ = 30f, rotationX = 10f)))

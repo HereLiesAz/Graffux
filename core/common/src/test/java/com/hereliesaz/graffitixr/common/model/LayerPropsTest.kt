@@ -39,6 +39,16 @@ class LayerPropsTest {
     }
 
     @Test
+    fun `a layer made 3D reaches a peer, and a peer that predates the flag keeps it`() {
+        val made = Layer(id = "L", name = "L", plane3D = true)
+        assertEquals(true, Layer(id = "L", name = "L").withLayerProps(made.toLayerProps()).plane3D)
+        // Undo back to 2D travels too.
+        assertEquals(false, made.withLayerProps(Layer(id = "L", name = "L").toLayerProps()).plane3D)
+        val older = made.toLayerProps().let { it.copy(extended = it.extended!!.copy(plane3D = null)) }
+        assertEquals(true, made.withLayerProps(older).plane3D)
+    }
+
+    @Test
     fun `removing an adjustment travels too`() {
         val cleared = rich.withLayerProps(rich.copy(adjustment = null).toLayerProps())
         assertNull(cleared.adjustment)

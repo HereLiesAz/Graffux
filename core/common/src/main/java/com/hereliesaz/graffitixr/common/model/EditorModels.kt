@@ -308,6 +308,8 @@ data class LayerExtProps(
     val isLinked: Boolean = false,
     /** The text layer's content and formatting (font, size, colour, spacing, style); null = not sent. */
     val textParams: TextLayerParams? = null,
+    /** [Layer.plane3D]: made a 3D layer by hand; null = not sent (a peer that predates it). */
+    val plane3D: Boolean? = null,
 )
 
 /** Everything [LayerProps] carries, read from this layer. */
@@ -342,6 +344,7 @@ fun Layer.toLayerProps(): LayerProps = LayerProps(
         isSketch = isSketch,
         isLinked = isLinked,
         textParams = textParams,
+        plane3D = plane3D,
     ),
 )
 
@@ -380,6 +383,7 @@ fun Layer.withLayerProps(props: LayerProps): Layer {
         isSketch = x.isSketch,
         isLinked = x.isLinked,
         textParams = x.textParams ?: textParams,
+        plane3D = x.plane3D ?: plane3D,
     )
 }
 
