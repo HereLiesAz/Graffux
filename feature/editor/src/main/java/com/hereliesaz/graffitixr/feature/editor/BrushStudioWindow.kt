@@ -46,7 +46,8 @@ import com.hereliesaz.graffitixr.common.azphalt.GrainBlendMode
 import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushBlendMode
 import com.hereliesaz.graffitixr.common.azphalt.MaskedBrushConfig
 import com.hereliesaz.graffitixr.design.components.ConfirmDialog
-import com.hereliesaz.graffitixr.design.components.FloatingWindow
+import com.hereliesaz.graffitixr.design.components.SurfaceKind
+import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -110,7 +111,7 @@ fun BrushStudioWindow(
         )
     }
 
-    FloatingWindow(title = "Brush Studio", onDismiss = guardedDismiss) {
+    ToolSurface(kind = SurfaceKind.EDITOR, title = "Brush Studio", onDismiss = guardedDismiss) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(6.dp),
