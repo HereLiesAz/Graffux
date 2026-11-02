@@ -62,7 +62,8 @@ internal object CanvasHitTest {
         val cy = canvasHeight / 2f
         // In the 3D space the visually topmost layer is the nearest plane under the tap, so a scene
         // hits all candidates and takes the nearest (spec/3d-space.md, "Tilted layers").
-        if (com.hereliesaz.graffitixr.common.scene.SceneRenderPath.sceneLayerIds(layers, camera).isNotEmpty()) {
+        // A model layer is hit on its surface, which only the scene hit-test casts onto.
+        if (needsSceneHits(layers, camera)) {
             return allHits(
                 layers, tap, canvasWidth, canvasHeight, viewportOffset, viewportZoom, viewportRotation, camera,
             ).firstOrNull()
@@ -120,6 +121,14 @@ internal object CanvasHitTest {
         val depths = HashMap<String, Float>()
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
+            // A model layer: the tap's ray against the mesh itself, at the depth it meets the surface.
+            if (layer.model?.mesh != null) {
+                modelHitDepth(layers, layer, worldTap, canvasWidth, canvasHeight, camera)?.let {
+                    depths[layer.id] = it
+                    hits.add(layer.id)
+                }
+                continue
+            }
             val box = localBox(layer, canvasWidth, canvasHeight) ?: continue
             if (box.isEmpty) continue
             val at = if (layer.id in sceneIds) {
@@ -145,7 +154,7 @@ internal object CanvasHitTest {
                 hits.add(layer.id)
             }
         }
-        if (sceneIds.isEmpty()) return hits
+        if (sceneIds.isEmpty() && layers.none { it.model?.mesh != null }) return hits
         val plan = com.hereliesaz.graffitixr.common.scene.DepthComposite.plan(layers, camera)
         return stackOrder(layers, hits, plan, depths, SceneMath.focalLength(canvasHeight) * camera.distanceScale)
     }
@@ -442,6 +451,44 @@ internal object CanvasHitTest {
         return if (sized) (layer.layoutWidth / 2f) to (layer.layoutHeight / 2f) else null
     }
 
+    private fun modelBox(
+        m: com.hereliesaz.graffitixr.common.scene.ModelMesh,
+        canvasWidth: Float,
+        canvasHeight: Float,
+    ): LocalBox? {
+        val b = m.mesh.bounds() ?: return null
+        val fraction = com.hereliesaz.graffitixr.common.scene.ModelSpace.FRAME_FRACTION
+        val k = fraction * minOf(canvasWidth, canvasHeight) / m.radius
+        val halfW = (b[3] - b[0]) / 2f * k
+        val halfH = (b[4] - b[1]) / 2f * k
+        return LocalBox(-halfW, -halfH, halfW, halfH)
+    }
+
+    private fun needsSceneHits(layers: List<Layer>, camera: SceneCamera): Boolean =
+        com.hereliesaz.graffitixr.common.scene.SceneRenderPath.sceneLayerIds(layers, camera).isNotEmpty() ||
+            layers.any { it.model?.mesh != null }
+
+    /** Camera depth where the tap's ray meets [layer]'s model surface; null on a miss. */
+    @Suppress("LongParameterList", "ReturnCount")
+    private fun modelHitDepth(
+        layers: List<Layer>,
+        layer: Layer,
+        worldTap: Offset,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        camera: SceneCamera,
+    ): Float? {
+        val mesh = layer.model?.mesh ?: return null
+        val space = com.hereliesaz.graffitixr.common.scene.ModelSpace
+        val chain = com.hereliesaz.graffitixr.common.scene.planeChain(layers, layer.id)
+        val toScene = space.meshToScene(chain, mesh, canvasWidth, canvasHeight)
+        val frame = SceneMath.frame(camera, canvasWidth, canvasHeight)
+        val ray = space.ray(worldTap.x, worldTap.y, toScene, frame) ?: return null
+        val hit = com.hereliesaz.graffitixr.common.mesh.MeshPicker.raycast(mesh.mesh, ray) ?: return null
+        val p = FloatArray(3) { ray.origin[it] + ray.direction[it] * hit.distance }
+        return frame.toCamera(toScene.apply(p[0], p[1], p[2]))[2]
+    }
+
     /** A box in a layer's local (pre-transform) space, the canvas centre at (0, 0). */
     private data class LocalBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
         val isEmpty: Boolean get() = right <= left || bottom <= top
@@ -454,7 +501,11 @@ internal object CanvasHitTest {
      * the frame fitted uniformly to the canvas and centred on it — once grown, only its painted
      * pixels ([ContentBounds]), however far past the frame they reach. Null when the layer has no measurable content.
      */
+    @Suppress("ReturnCount")
     private fun localBox(layer: Layer, canvasWidth: Float, canvasHeight: Float): LocalBox? {
+        // A model layer: its mesh's x/y bounds as framed in the box (ModelSpace.meshToLocal), for
+        // the selection outline and handles. Hit-testing casts onto the surface instead (allHits).
+        layer.model?.mesh?.let { return modelBox(it, canvasWidth, canvasHeight) }
         if (layer.shapes.isNotEmpty()) {
             val halfW = layer.shapes.maxOf { it.width } / 2f
             val halfH = layer.shapes.maxOf { it.height } / 2f
