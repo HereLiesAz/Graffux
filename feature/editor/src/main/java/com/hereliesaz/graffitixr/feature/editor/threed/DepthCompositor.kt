@@ -134,6 +134,12 @@ class DepthCompositor : GLSurfaceView.Renderer {
             p.id to s.camera.toCamera(p.model.apply(cx, cy, 0f))[2]
         }
         val byId = s.planes.associateBy { it.id }
+        for (id in DepthComposite.backToFront(depths, s.planes.map { it.id })) drawPlane(byId.getValue(id), s.camera)
+        // A translucent model is tested against everything but writes no depth, so what is behind
+        // it (planes included) still shows through; several blend farthest first.
+        if (translucent.isNotEmpty()) {
+            GLES30.glDepthMask(false)
+            for (model in translucentOrder(translucent, s.camera)) drawModel(model, s.camera)
         val (solidPlanes, clearPlanes) = s.planes.partition { it.alpha >= 1f }
         for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) drawPlane(byId.getValue(id), s.camera)
         val blended = translucentOrder(clearPlanes, translucent, s.camera)

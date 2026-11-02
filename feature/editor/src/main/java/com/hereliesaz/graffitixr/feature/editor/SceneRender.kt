@@ -200,3 +200,46 @@ internal class ActivePlaneMapping private constructor(
         }
     }
 }
+
+/**
+ * Feeds one brush stroke to the view-model through the active layer's plane (spec/3d-space.md,
+ * "Painting on a tilted plane"). A sample whose ray misses the plane (the plane edge-on, parallel
+ * to the ray, or behind the eye) has no point on the layer under the finger, so it is skipped
+ * rather than painted at an unrelated flat-space point. The stroke starts at its first sample that
+ * hits; a stroke that never hits is cancelled, which also puts back an adopted view plane.
+ */
+internal class PlaneStrokeFeed<S>(
+    private val toLayer: (S) -> S?,
+    private val start: (S) -> Unit,
+    private val point: (S) -> Unit,
+    private val end: () -> Unit,
+    private val cancel: () -> Unit,
+) {
+    private var started = false
+
+    fun onStart(sample: S) {
+        started = false
+        feed(sample)
+    }
+
+    fun onPoint(sample: S) = feed(sample)
+
+    fun onEnd() = finish(end)
+
+    fun onCancel() = finish(cancel)
+
+    private fun feed(sample: S) {
+        val mapped = toLayer(sample) ?: return
+        if (started) {
+            point(mapped)
+        } else {
+            started = true
+            start(mapped)
+        }
+    }
+
+    private fun finish(then: () -> Unit) {
+        if (started) then() else cancel()
+        started = false
+    }
+}
