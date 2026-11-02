@@ -33,6 +33,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -187,10 +188,9 @@ class PhotoSheetUiTest {
         rule.onNodeWithTag("rail.$PHOTO_RAIL_ID").performClick()
         assertEquals(listOf("adjust"), calls)
         // The tab list is the brush sheet's own, with the photo tabs.
-        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
-        rule.waitForIdle()
         rule.onAllNodesWithText("Light", useUnmergedTree = true).onFirst().assertExists()
-        rule.onAllNodesWithText("Colour", useUnmergedTree = true).onLast().performClick()
+        rule.onAllNodesWithText("Colour", useUnmergedTree = true).onLast()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         rule.waitForIdle()
         rule.onNodeWithTag("photo.title").assertTextEquals("Colour")
         rule.onNodeWithTag("photo.slider.temperature").assertExists()

@@ -26,6 +26,7 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -42,7 +43,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * The brush sheet's set picker and detents: AzRoller picks a set, the Favorites and previous-set
+ * The brush sheet's set picker and detents: the set wheel picks a set, the Favorites and previous-set
  * buttons jump, each set is its own list, the set is a grid at half and full, the brush cards share
  * one face, and the sheet shows a name pill (no grab handle) at peek only.
  */
@@ -108,18 +109,16 @@ class CarouselSetPickerUiTest {
 
     private fun count(tag: String) = rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
 
-    private fun pickInRoller(label: String) {
-        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
-        rule.waitForIdle()
-        // The roller's own field shows the current set too; the option is the last match.
-        rule.onAllNodesWithText(label, useUnmergedTree = true).onLast().performClick()
+    private fun pickInWheel(label: String) {
+        rule.onAllNodesWithText(label, useUnmergedTree = true).onLast()
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.OnClick)
         rule.waitForIdle()
     }
 
     @Test
-    fun `the roller selects a set`() {
+    fun `the wheel selects a set`() {
         compose()
-        pickInRoller("Ink")
+        pickInWheel("Ink")
         assertEquals("ink", ui.tab)
     }
 
@@ -135,7 +134,7 @@ class CarouselSetPickerUiTest {
     @Test
     fun `the previous-set button returns to the set before, named for it`() {
         compose()
-        pickInRoller("Ink")
+        pickInWheel("Ink")
         rule.onNodeWithTag("carousel.quick.favorites").performClick()
         rule.waitForIdle()
         val previous = hasTestTag("carousel.quick.previous") and hasText("Ink", substring = false)
@@ -147,10 +146,8 @@ class CarouselSetPickerUiTest {
     }
 
     @Test
-    fun `no duplicate sets in the roller`() {
+    fun `no duplicate sets on the wheel`() {
         compose()
-        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
-        rule.waitForIdle()
         // Favorites once in the list (plus its quick button); no "Starred", no type headings.
         assertEquals(2, rule.onAllNodesWithText("Favorites", useUnmergedTree = true).fetchSemanticsNodes().size)
         assertEquals(0, rule.onAllNodesWithText("Starred", useUnmergedTree = true).fetchSemanticsNodes().size)

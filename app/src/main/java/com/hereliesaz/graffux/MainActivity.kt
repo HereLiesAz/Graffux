@@ -1080,6 +1080,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         effectPreviews.updateSource(previewLayer?.bitmap)
                     }
                     DisposableEffect(effectPreviews) { onDispose { effectPreviews.clear() } }
+                    // The set wheel sits on the side away from the rail (CarouselSetWheel.kt).
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        LocalSetWheelOnRight provides uiState.isRightHanded,
+                    ) {
                     if (designMode) {
                         DesignSheetBody(
                             tab = designTab,
@@ -1232,6 +1236,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         onEntryClick = runCarouselEntry,
                         expansion = heroExpansion,
                     )
+                    }
                 }
             }
             // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the

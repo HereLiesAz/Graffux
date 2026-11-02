@@ -263,6 +263,20 @@ codebase is deferred scope or a real gap in the install-report flow.
   `SettingsRepository.carouselFavorites` (DataStore key `carousel_favorites`, newline-separated).
   Pages are picked by hand, never inferred from the tool. Everything each page shows is derived in
   `BottomCarouselPlan.kt` (pure, tested).
+  Below the strip the set picker (`CarouselTabList`, used by the brush, effect, photo and design
+  sheets) is a quarter-circle wheel (`CarouselSetWheel.kt`) in the sheet's bottom corner away from
+  the rail — bottom-right when right-handed, mirrored to bottom-left when `isRightHanded` is false
+  (`LocalSetWheelOnRight`, provided in MainActivity). Each set's name lies on its own spoke, 22.5°
+  apart (`WHEEL_WEDGE_DEGREES`), drawn with `drawText` on a Canvas and rotated never to read upside
+  down; a fixed pointer marks the arc's midpoint (45°). Drag turns it round the hub, a release flings
+  and snaps to a wedge, a tap turns the tapped name to the pointer, and the list stops at its ends
+  after a small pull. The pointed set is provisional (accent outline) until the wheel has rested on
+  it for `WHEEL_DWELL_MS` (1s), then it is committed; new motion cancels the wait. Accessibility
+  (each name a selectable item; Next set / Previous set actions) commits at once. The radius is
+  `WheelMaxRadius` (136dp) or less when the width is short, and the peek strip is that tall. The
+  wheel's position is a float state read only in draw and placement, so turning it recomposes
+  nothing. Favorites and the previous set are quick buttons stacked on the rail side. AzNavRail's
+  `AzRoller` it replaced had type-to-filter search; the wheel has none.
   **Placement.** The carousel is its own AzNavRail page, `background(weight = 1, page = 0f)`, one weight
   in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
   by the rail's width, so `background()` is the only page laid out across the whole window, and that
