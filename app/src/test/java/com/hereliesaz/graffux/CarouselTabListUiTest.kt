@@ -18,7 +18,8 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -42,8 +43,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * The sheet's stages, wired the way MainActivity wires them: shut shows only the grab pill; a swipe
- * up shows only the tab list; a tab opens its carousel; a swipe down steps back to the tab list and a
+ * The sheet's stages, wired the way MainActivity wires them: open shows only the set picker; a set
+ * picked in the roller opens its carousel; a swipe down steps back to the tab list and a
  * swipe up from there brings the same carousel back. Set TAB_LIST_SCREENSHOTS to a directory to save
  * a render of each stage.
  */
@@ -123,14 +124,17 @@ class CarouselTabListUiTest {
         screenshot("1-shut")
         assertFalse(carouselShown())
 
-        rule.onNodeWithContentDescription("Brush sheet, shut").performClick()
+        // No grab handle any more: the rail opens the sheet.
+        ui = ui.copy(sheetOpen = true)
         rule.waitForIdle()
         screenshot("2-tab-list")
         assertTrue(ui.sheetOpen)
         assertTrue(tabsShown())
         assertFalse("brushes stay hidden at the tab list", carouselShown())
 
-        rule.onAllNodesWithTag("carousel.tab.pack.caps")[0].performClick()
+        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        rule.onAllNodesWithText("Spray Caps", useUnmergedTree = true).onLast().performClick()
         rule.waitForIdle()
         screenshot("3-carousel")
         assertEquals("pack.caps", ui.tab)
@@ -155,10 +159,14 @@ class CarouselTabListUiTest {
     @Test
     fun `the brush tab list offers only brushes`() {
         compose()
-        rule.onNodeWithContentDescription("Brush sheet, shut").performClick()
+        ui = ui.copy(sheetOpen = true)
         rule.waitForIdle()
-        assertTrue(rule.onAllNodesWithTag("carousel.tab.ink").fetchSemanticsNodes().isNotEmpty())
-        assertTrue(rule.onAllNodesWithTag("carousel.tab.fx.tools").fetchSemanticsNodes().isEmpty())
-        assertTrue(rule.onAllNodesWithTag("carousel.tab.options").fetchSemanticsNodes().isEmpty())
+        rule.onNodeWithTag("AzRollerRight", useUnmergedTree = true).performClick()
+        rule.waitForIdle()
+        fun shown(label: String) =
+            rule.onAllNodesWithText(label, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        assertTrue(shown("Ink"))
+        assertFalse(shown("Tools"))
+        assertFalse(shown("Options"))
     }
 }

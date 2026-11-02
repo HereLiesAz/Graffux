@@ -133,12 +133,21 @@ internal data class CarouselUi(
     val showingCarousel: Boolean = true,
     /** The photo tabs instead of brushes (the rail's Adjust); [tab] is then a [PhotoTab.key]. */
     val photo: Boolean = false,
+    /** The set showing before [tab], for the picker's previous-set button. */
+    val previousTab: String? = null,
+    /** How far up the carousel stage is pulled: the strip, or the set as a grid at half or full. */
+    val detent: CarouselDetent = CarouselDetent.SHORT,
 ) {
     internal companion object {
         /** Keeps the open sheet, its tab and mode across rotation and process death. */
         val Saver: androidx.compose.runtime.saveable.Saver<CarouselUi, Any> =
             androidx.compose.runtime.saveable.listSaver(
-                save = { listOf(it.category.name, it.sheetOpen, it.tab, it.showingCarousel, it.photo) },
+                save = {
+                    listOf(
+                        it.category.name, it.sheetOpen, it.tab, it.showingCarousel, it.photo, it.previousTab,
+                        it.detent.name,
+                    )
+                },
                 restore = {
                     CarouselUi(
                         category = CarouselCategory.entries.firstOrNull { c -> c.name == it[0] }
@@ -147,6 +156,9 @@ internal data class CarouselUi(
                         tab = it[2] as String?,
                         showingCarousel = it[3] as Boolean,
                         photo = it[4] as Boolean,
+                        previousTab = it.getOrNull(5) as String?,
+                        detent = CarouselDetent.entries.firstOrNull { d -> d.name == it.getOrNull(6) }
+                            ?: CarouselDetent.SHORT,
                     )
                 },
             )
@@ -189,6 +201,8 @@ internal data class CarouselContent(
      * Null: effect cards show their icon there instead.
      */
     val effectPreviews: EffectPreviewEngine? = null,
+    /** A brush card's edit button: opens Brush Studio on that brush. Null hides the button. */
+    val onEdit: ((CarouselEntry) -> Unit)? = null,
 )
 
 /**
@@ -208,7 +222,7 @@ internal data class CarouselContent(
  * shows the tip visual, name and details; medium cards the tip and name; small cards the tip alone.
  * Hero and medium cards carry a star toggle ([onToggleFavorite]) — outlined, or filled when starred.
  */
-@Suppress("FunctionNaming", "LongParameterList") // Composable naming, as in SettingsScreen.kt.
+@Suppress("FunctionNaming", "LongParameterList", "LongMethod") // Composable naming, as in SettingsScreen.kt.
 @Composable
 internal fun BottomCarousel(
     ui: CarouselUi,
@@ -230,6 +244,11 @@ internal fun BottomCarousel(
     ) {
         if (!ui.showingCarousel) {
             Unit
+        } else if (content.entries.isNotEmpty() && ui.detent.showsGrid) {
+            // Half and full detents: the set as a grid of the same cards, ending with the set.
+            key(ui.tab ?: ui.category.name) {
+                CarouselSetGrid(ui.detent, content, onEntryClick, onToggleFavorite)
+            }
         } else if (content.entries.isNotEmpty()) {
             key(ui.tab ?: ui.category.name) {
                 val count = content.entries.size
@@ -283,9 +302,21 @@ internal fun BottomCarousel(
                 EmptyHint("No options for this tool. A card's More shows all of its settings.")
             }
         }
-        CarouselTabList(tabs, selectedTab, onSelect = { group ->
-            onUiChange(ui.copy(category = group.category, tab = group.key, showingCarousel = true))
-        })
+        CarouselTabList(
+            tabs,
+            selectedTab,
+            onSelect = { group ->
+                onUiChange(
+                    ui.copy(
+                        category = group.category,
+                        tab = group.key,
+                        previousTab = previousSetAfter(group.key, selectedTab, ui.previousTab),
+                        showingCarousel = true,
+                    ),
+                )
+            },
+            previousKey = ui.previousTab,
+        )
     }
 }
 
@@ -608,7 +639,15 @@ private fun CarouselItem(
                 ) {
                     val tint = if (entry.selected) colors.surface else colors.onSurface
                     val onMore = content.onMore?.takeIf { heroHasMore(entry) }
-                    if (isHero) {
+                    if (tier != CarouselTier.SMALL && isBrushCard(entry)) {
+                        // Every brush card, hero or not, selected or not: one arrangement.
+                        Box(Modifier.fillMaxWidth().height(cardHeight)) {
+                            BrushCardFace(
+                                entry, content, tint, onEntryClick, onToggleFavorite,
+                                horizontalInset = maskInset,
+                            )
+                        }
+                    } else if (isHero) {
                         CompactHero(
                             entry, onMore, content, tint, maskInset, cardHeight, onEntryClick,
                             onToggleFavorite,
@@ -704,7 +743,7 @@ private fun CompactHero(
 
 @Suppress("FunctionNaming")
 @Composable
-private fun androidx.compose.foundation.layout.BoxScope.CardIdentity(
+internal fun androidx.compose.foundation.layout.BoxScope.CardIdentity(
     entry: CarouselEntry,
     tier: CarouselTier,
     content: CarouselContent,

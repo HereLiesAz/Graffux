@@ -1,7 +1,6 @@
 package com.hereliesaz.graffux
 
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -14,7 +13,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -38,8 +41,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -80,7 +81,8 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
 /**
  * A bottom sheet with no surface of its own: [content] and a small grab pill above it, over a
  * full-width dark, mostly transparent scrim ([CarouselScrimBrush]). Drag it down to shut it, drag
- * or fling it up to open it, or tap the pill. The editor composes it only while it is open (it is
+ * or fling it up to open it. It has no grab handle; [nameLabel] may put a small name pill there.
+ * The editor composes it only while it is open (it is
  * opened from the rail), so a shut sheet leaves nothing behind there. It settles open
  * or shut by [carouselSheetSettlesOpen]; [onOpenChange] reports where.
  *
@@ -104,7 +106,7 @@ internal val CarouselScrimBrush: Brush = Brush.verticalGradient(
  * while the carousel is open; and its detents step on to HALF/FULL with a scrim. So this lives in the carousel's own
  * `background()` page and only the sheet's own pixels take touches.
  */
-@Suppress("FunctionNaming", "LongMethod", "LongParameterList")
+@Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @Composable
 internal fun CarouselSheet(
     open: Boolean,
@@ -116,6 +118,9 @@ internal fun CarouselSheet(
     // True while a photo slider is dragged: the sheet stays where it is (the row under the finger
     // must not move) but its scrim and pill vanish, so only that row is left over the photo.
     chromeHidden: () -> Boolean = { false },
+    // The name for the small pill above the content, or null for none. The sheet has no drag
+    // handle: the pill is a label, and the sheet drags from anywhere on it, pill included.
+    nameLabel: () -> String? = { null },
     content: @Composable () -> Unit,
 ) {
     val hideChrome by rememberUpdatedState(chromeHidden)
@@ -204,8 +209,8 @@ internal fun CarouselSheet(
                         .nestedScroll(nested),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) {
-                        GrabHandle(open = shownOpen) { onOpenChange(!open) }
+                    nameLabel()?.let { name ->
+                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
                     }
                     Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
                 }
@@ -215,31 +220,39 @@ internal fun CarouselSheet(
     }
 }
 
+/**
+ * A very small pill with [name] in it (the brush in hand). Only a label: no click, no gesture of its
+ * own, so a drag on it drags the sheet like a drag anywhere else on it.
+ */
 @Suppress("FunctionNaming")
 @Composable
-private fun GrabHandle(open: Boolean, onToggle: () -> Unit) {
-    // A visible pill on a 48dp-tall strip: drag it like the sheet, or tap it to open or shut. Shut,
-    // it is all that remains on screen, so it must be seen to be found.
-    Box(
-        Modifier
-            .size(width = HandleTouchWidth, height = HandleTouchHeight)
-            .clickable(onClickLabel = if (open) "Hide brushes" else "Show brushes", onClick = onToggle)
-            .semantics { contentDescription = if (open) "Brush sheet, open" else "Brush sheet, shut" },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(width = PillWidth, height = PillHeight)
-                .background(Color.White.copy(alpha = PILL_ALPHA), RoundedCornerShape(PillHeight / 2)),
-        )
-    }
+private fun NamePill(name: String) {
+    val colors = MaterialTheme.colorScheme
+    Text(
+        name,
+        color = colors.onSurface,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .padding(vertical = 4.dp)
+            .widthIn(max = PillMaxWidth)
+            .background(colors.surface.copy(alpha = PILL_ALPHA), RoundedCornerShape(PILL_ROUND_PERCENT))
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .testTag("carousel.namePill"),
+    )
 }
 
-private val HandleTouchWidth = 96.dp
-private val HandleTouchHeight = 48.dp
-private val PillWidth = 40.dp
-private val PillHeight = 5.dp
-private const val PILL_ALPHA = 0.7f
+private val PillMaxWidth = 160.dp
+private const val PILL_ALPHA = 0.72f
+private const val PILL_ROUND_PERCENT = 50
+
+/**
+ * The pill's name: the brush in hand, only on the Brushes page ([brushesPage]) and only at the peek
+ * detent (the sheet open to its set picker alone, [showingCarousel] false). Null hides it.
+ */
+internal fun carouselNamePill(brushesPage: Boolean, showingCarousel: Boolean, brushName: String?): String? =
+    brushName?.takeIf { brushesPage && !showingCarousel && it.isNotBlank() }
 
 /** An upward pull this far past fully open steps the sheet up a stage (tab list to carousel). */
 private const val STEP_UP_DP = 32f
