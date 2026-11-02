@@ -176,7 +176,7 @@ class CarouselSetPickerUiTest {
 
     @Test
     fun `every brush card shares one layout, selected or not`() {
-        ui = ui.copy(tab = "ink", detent = CarouselDetent.HALF)
+        ui = ui.copy(detent = CarouselDetent.HALF)
         compose()
         val cards = count("carousel.brushcard")
         assertTrue(cards >= 2)
@@ -190,12 +190,20 @@ class CarouselSetPickerUiTest {
 
     @Test
     fun `the edit button opens Brush Studio for its brush`() {
-        ui = ui.copy(tab = "ink", detent = CarouselDetent.HALF)
+        ui = ui.copy(detent = CarouselDetent.HALF)
         compose()
         rule.onAllNodesWithContentDescription("Edit brush", useUnmergedTree = true).onFirst().performClick()
         rule.waitForIdle()
         assertEquals(1, edited.size)
-        assertTrue(edited.single().action is CarouselAction.InkUtensilPick)
+        assertTrue(edited.single().action is CarouselAction.BuiltInBrush)
+    }
+
+    @Test
+    fun `Ink cards have no edit button`() {
+        ui = ui.copy(tab = "ink", detent = CarouselDetent.HALF)
+        compose()
+        assertTrue(count("carousel.brushcard") >= 2)
+        assertEquals(0, count("carousel.brushcard.edit"))
     }
 
     @Test

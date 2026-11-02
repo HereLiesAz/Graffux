@@ -714,7 +714,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             heroExpansion.collapse()
         } else if (target != null) {
             showCarousel = true
-            carouselUi = carouselUi.copy(category = target.first, sheetOpen = true, tab = null, showingCarousel = true)
+            carouselUi = carouselUi.forToolOptions(target.first)
             heroExpansion.request(target.second)
         }
     }
@@ -1179,9 +1179,18 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             // A brush card's gear: Brush Studio on that brush (a saved one by
                             // id; any other is picked first and drafted from).
                             onEdit = { entry ->
-                                val custom = (entry.action as? CarouselAction.CustomBrush)?.id
-                                if (custom == null && !entry.selected) runCarouselEntry(entry)
-                                vm.onOpenBrushStudio(custom)
+                                when (val edit = brushEditPlan(entry)) {
+                                    is BrushEdit.Saved -> vm.onOpenBrushStudio(edit.id)
+                                    BrushEdit.InHand -> vm.onOpenBrushStudio(null)
+                                    // Its tip loads off the main thread: Studio waits for it.
+                                    is BrushEdit.AfterLoad ->
+                                        vm.selectBrushExtension(edit.id) { vm.onOpenBrushStudio(null) }
+                                    BrushEdit.PickThenOpen -> {
+                                        runCarouselEntry(entry)
+                                        vm.onOpenBrushStudio(null)
+                                    }
+                                    null -> Unit
+                                }
                             },
                             onChoose = { _, setter, index ->
                                 when (setter) {

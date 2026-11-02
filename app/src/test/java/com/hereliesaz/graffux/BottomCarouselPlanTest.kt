@@ -372,4 +372,28 @@ class BottomCarouselPlanTest {
         assertTrue(!short.steppedDown()!!.showingCarousel)
         assertEquals(null, short.copy(showingCarousel = false).steppedDown())
     }
+
+    @Test
+    fun `the gear waits for an installed brush to load, and Ink has none`() {
+        val ext = CarouselEntry("ext.caps::0", "Fat Cap", CarouselAction.ExtensionBrush("caps::0"), selected = false)
+        assertEquals(BrushEdit.AfterLoad("caps::0"), brushEditPlan(ext))
+        assertEquals(BrushEdit.InHand, brushEditPlan(ext.copy(selected = true)))
+        val ink = CarouselEntry(
+            "ink.pen", "Pressure Pen",
+            CarouselAction.InkUtensilPick(com.hereliesaz.graffitixr.common.model.InkUtensil.PEN), selected = false,
+        )
+        assertEquals(null, brushEditPlan(ink))
+        val saved = CarouselEntry("custom.c1", "Mine", CarouselAction.CustomBrush("c1"), selected = false)
+        assertEquals(BrushEdit.Saved("c1"), brushEditPlan(saved))
+    }
+
+    @Test
+    fun `Tool Options brings the sheet back to the short detent`() {
+        val grid = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, tab = "ink", detent = CarouselDetent.FULL)
+        val opened = grid.forToolOptions(CarouselCategory.INK)
+        assertEquals(CarouselDetent.SHORT, opened.detent)
+        assertTrue(opened.sheetOpen && opened.showingCarousel)
+        assertEquals(CarouselCategory.INK, opened.category)
+        assertEquals(null, opened.tab)
+    }
 }

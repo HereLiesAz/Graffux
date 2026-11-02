@@ -62,6 +62,33 @@ internal fun brushCardText(entry: CarouselEntry): BrushCardText = when (val acti
     else -> BrushCardText(entry.label, "Raster brush", brushTraits(entry.brush))
 }
 
+/** What a brush card's gear does: open Brush Studio on which brush, and when. */
+internal sealed interface BrushEdit {
+    /** A saved Brush Studio brush: open it by id. */
+    data class Saved(val id: String) : BrushEdit
+
+    /** The brush already in hand: Studio drafts from it. */
+    data object InHand : BrushEdit
+
+    /** An installed brush not in hand: pick it, and open Studio once its tip has loaded. */
+    data class AfterLoad(val id: String) : BrushEdit
+
+    /** A built-in not in hand: picking it is immediate, then Studio drafts from it. */
+    data object PickThenOpen : BrushEdit
+}
+
+/**
+ * The gear's plan for [entry], or null for no gear: Ink has no Brush Studio editor (Studio would
+ * draft a stamp brush and its apply would switch painting off Ink).
+ */
+internal fun brushEditPlan(entry: CarouselEntry): BrushEdit? = when (val action = entry.action) {
+    is CarouselAction.InkUtensilPick -> null
+    is CarouselAction.CustomBrush -> BrushEdit.Saved(action.id)
+    is CarouselAction.ExtensionBrush -> if (entry.selected) BrushEdit.InHand else BrushEdit.AfterLoad(action.id)
+    is CarouselAction.BuiltInBrush -> if (entry.selected) BrushEdit.InHand else BrushEdit.PickThenOpen
+    else -> null
+}
+
 private fun inkTraits(utensil: InkUtensil): List<String> = when (utensil) {
     InkUtensil.PEN -> listOf("Pressure")
     InkUtensil.MARKER -> listOf("Opaque")
@@ -148,7 +175,7 @@ internal fun BrushCardFace(
                 TipVisual(carouselTip(entry), content, tint, EngineIconSize)
             }
             Spacer(Modifier.weight(1f))
-            content.onEdit?.let { edit ->
+            content.onEdit?.takeIf { brushEditPlan(entry) != null }?.let { edit ->
                 IconButton(
                     onClick = { edit(entry) },
                     modifier = Modifier.size(EditTouchSize).testTag("carousel.brushcard.edit"),

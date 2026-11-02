@@ -263,6 +263,13 @@ class EditorViewModelInkUtensilTest {
     }
 
     @Test
+    fun `selectBrushExtension reports when the brush is in hand`() {
+        var loaded = false
+        viewModel.selectBrushExtension(null) { loaded = true }
+        assertTrue(loaded)
+    }
+
+    @Test
     fun `the Ink utensil no longer depends on any settings toggle`() {
         // The retired Settings > Jetpack Ink toggle is not read: selection alone routes through Ink.
         withLayer()

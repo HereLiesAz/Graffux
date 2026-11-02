@@ -51,6 +51,13 @@ internal fun CarouselUi.steppedUp(gridAllowed: Boolean): CarouselUi = when {
     else -> this
 }
 
+/**
+ * The sheet Tool Options opens: up on [category] at the short detent, where the carousel's hero can
+ * grow into the item's controls (the grid has no hero to grow).
+ */
+internal fun CarouselUi.forToolOptions(category: CarouselCategory): CarouselUi =
+    copy(category = category, sheetOpen = true, tab = null, showingCarousel = true, detent = CarouselDetent.SHORT)
+
 /** One stage down, or null when the sheet is at its lowest open stage (the tab list) and shuts. */
 internal fun CarouselUi.steppedDown(): CarouselUi? = when {
     !showingCarousel -> null
