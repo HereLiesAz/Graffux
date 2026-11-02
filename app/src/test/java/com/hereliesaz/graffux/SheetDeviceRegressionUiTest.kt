@@ -123,8 +123,10 @@ class SheetDeviceRegressionUiTest {
         val near = bounds("carousel.quick.previous")
         val far = bounds("carousel.quick.favorites")
         assertTrue("previous left of the wheel", near.right <= wheel.left + 1f)
-        assertTrue("previous beside the wheel (gap ${wheel.left - near.right}px)", wheel.left - near.right <= gapPx + 1f)
-        assertTrue("favorites beside previous (gap ${near.left - far.right}px)", near.left - far.right in -1f..gapPx + 1f)
+        val nearGap = wheel.left - near.right
+        assertTrue("previous beside the wheel (gap ${nearGap}px)", nearGap <= gapPx + 1f)
+        val farGap = near.left - far.right
+        assertTrue("favorites beside previous (gap ${farGap}px)", farGap in -1f..gapPx + 1f)
     }
 
     @Test

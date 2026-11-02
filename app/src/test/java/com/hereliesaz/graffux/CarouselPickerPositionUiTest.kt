@@ -59,7 +59,9 @@ class CarouselPickerPositionUiTest {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                     CarouselSheet(open = true, onOpenChange = {}, bottomInset = CarouselBottomInset) {
                         BottomCarousel(
-                            ui = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true, showingCarousel = true, detent = detent),
+                            ui = CarouselUi(
+                                CarouselCategory.BRUSHES, sheetOpen = true, showingCarousel = true, detent = detent,
+                            ),
                             onUiChange = {},
                             content = CarouselContent(
                                 entries = carouselEntries(CarouselCategory.BRUSHES, inputs),

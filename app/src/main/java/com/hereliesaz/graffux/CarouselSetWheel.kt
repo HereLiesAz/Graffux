@@ -375,7 +375,8 @@ internal fun CarouselSetWheel(
                     colors.primary,
                 )
             }
-            drawCircle(colors.outline, min(WheelHubRadius.toPx(), r * WHEEL_TEXT_INNER_FRACTION / 2), hub, style = Stroke(1.dp.toPx()))
+            val hubRadius = min(WheelHubRadius.toPx(), r * WHEEL_TEXT_INNER_FRACTION / 2)
+            drawCircle(colors.outline, hubRadius, hub, style = Stroke(1.dp.toPx()))
             layouts.forEachIndexed { i, (plain, bold) ->
                 val spoke = wheelSpokeDegrees(i, pos, onRight)
                 if (angleDelta(pointer, spoke) !in -WHEEL_ARC_DEGREES..WHEEL_ARC_DEGREES) return@forEachIndexed
