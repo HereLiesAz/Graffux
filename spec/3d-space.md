@@ -61,6 +61,17 @@ two-finger gesture on a layer is one undo step; view gestures are never history 
 saved with the project when the gesture ends). Every gesture follows the fingers continuously: the
 canvas gesture handlers are keyed so a state write on every step never restarts them.
 
+### Rotation slider
+
+While the bottom sheet is open, a hairline slider (`RotationSlider`, the sheet's `topAccessory`)
+rides just above its top edge and follows it between detents. It rotates the **active layer**, not
+the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer
+(`EditorViewModel.rotationSliderAxis`). It reads the layer's angle on that axis wrapped to
+-180..180°, with a centre tick at 0°, light haptic detents at 0 / ±45 / ±90 / ±180, a soft snap at
+0 only, and a degree readout only while dragging. A double-tap on the thumb resets to 0°. One drag
+(or reset) is one undo step, through the same gesture start/end as a transform gesture. It hides
+with the rest of the chrome while drawing.
+
 **Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
 the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,
 no X/Y tilt) as one undo step.
@@ -235,8 +246,12 @@ first casts the ray from the eye through that point, intersects the layer's plan
 in the layer's box coordinates `L`, and returns `C + (ox, oy) + Rz * scale * (L - C)`: the point
 the existing pipeline would have received had the layer been flat. Every brush and tool then runs
 unchanged (`mapScreenToBitmap` undoes exactly the 2D part). A ray that misses the plane (parallel,
-or the plane behind the eye) yields no point. The brush then keeps the plain world point, so a
-stroke never breaks.
+the plane behind the eye, or a hit nearer than the near plane, which is the eye lying in an edge-on
+plane) yields no point. The brush skips that sample (`PlaneStrokeFeed`): there is nothing of the
+layer under the finger, and painting the plain world point would put the paint where the layer sat
+before it was turned. The stroke starts at its first sample that hits, and a stroke that never hits
+is cancelled, so a layer seen edge-on takes no paint. A fill or clone tap that misses still uses the
+plain world point.
 
 ## Adopting the view plane
 

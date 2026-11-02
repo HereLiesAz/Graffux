@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.collectLatest
  * carousel sheet) waits after the stroke ends or is cancelled before coming back. One value for all
  * of them; tune it here.
  */
-internal const val DRAWING_UI_RETURN_DELAY_MS = 1500L
+internal const val DRAWING_UI_RETURN_DELAY_MS = 750L
 
 /**
  * Drives the "UI hidden for drawing" flag from [strokeActive]: true the moment a stroke starts, and
