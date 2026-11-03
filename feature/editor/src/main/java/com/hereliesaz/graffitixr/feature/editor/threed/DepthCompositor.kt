@@ -103,7 +103,18 @@ class DepthCompositor : GLSurfaceView.Renderer {
      * ([memberIds], a subset of [Scene.planes]) and the opacity the merged image is composited with.
      * [key] is what the inactive-layer cache compares for it (null = never cached).
      */
-    class Group(val id: String, val memberIds: List<String>, val opacity: Float, val key: Any? = null)
+    class Group(
+        val id: String,
+        val memberIds: List<String>,
+        val opacity: Float,
+        val key: Any? = null,
+        /**
+         * An opaque surface group above this one in the stack draws over it. The opaque group's
+         * planes are not translucent, so they draw first; the composite is pushed back a hair
+         * ([compositeBias]) so that at equal depth they still win, as stack order says.
+         */
+        val coveredByOpaqueAbove: Boolean = false,
+    )
 
     /** The uncached draw unit of a [Group]: its planes in stack order. Never touches GL on its own. */
     class Isolated(val group: Group, val planes: List<Plane>)
@@ -239,11 +250,12 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     /** The members [include] admits, in [order]; the blended ones without depth writes. */
     private fun drawMembers(order: List<Draw>, cam: CameraFrame, include: (String) -> Boolean) {
-        var masked = false
+        // Unknown at first: a run nested in a blended draw inherits "no depth writes" and must set it.
+        var masked: Boolean? = null
         for (d in order) {
             if (!include(d.id)) continue
-            if (d.blended != masked) {
-                GLES30.glDepthMask(!d.blended)
+            depthMaskChange(masked, d.blended)?.let {
+                GLES30.glDepthMask(it)
                 masked = d.blended
             }
             when (val m = d.member) {
@@ -433,6 +445,8 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val target = isoTarget(u.group.id)
         if (target == null) {
             alphaScale = u.group.opacity
+            // drawMembers sets depth writes itself for these opaque draws, so a curved surface
+            // still occludes itself; it leaves them on, so put the translucent pass's state back.
             drawMembers(u.planes.map { Draw(it.id, it, false) }, cam) { true }
             alphaScale = 1f
             GLES30.glDepthMask(false)
@@ -445,7 +459,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
             target.key = key
             isolatedRenders++
         }
-        compositeIsolated(target, u.group.opacity)
+        compositeIsolated(target, u.group.opacity, compositeBias(u.group.coveredByOpaqueAbove))
     }
 
     /** What the group's target shows: the view and every layer's pixels, placement, opacity and surface. */
@@ -527,7 +541,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
      * against the scene at each pixel's own stored depth (the surface's, where its paint is), no
      * depth write, like the other translucent members.
      */
-    private fun compositeIsolated(t: IsoTarget, opacity: Float) {
+    private fun compositeIsolated(t: IsoTarget, opacity: Float, bias: Float) {
         beginPass()
         GLES30.glDepthMask(false)
         GLES30.glUseProgram(isolatedProgram)
@@ -538,6 +552,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glUniform1i(GLES30.glGetUniformLocation(isolatedProgram, "uColor"), 0)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(isolatedProgram, "uDepth"), 1)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(isolatedProgram, "uOpacity"), opacity.coerceIn(0f, 1f))
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(isolatedProgram, "uBias"), bias)
         val aPos = GLES30.glGetAttribLocation(isolatedProgram, "aPos")
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
         GLES30.glEnableVertexAttribArray(aPos)
@@ -888,6 +903,18 @@ class DepthCompositor : GLSurfaceView.Renderer {
             return out
         }
 
+        /**
+         * The depth-write state to set before a draw of kind [blended], given the kind last set
+         * ([current], null when unknown): the mask value, or null when it already holds.
+         */
+        fun depthMaskChange(current: Boolean?, blended: Boolean): Boolean? = if (current == blended) null else !blended
+
+        /** Window-depth push-back of an isolated group's composite when an opaque group above it must win ties. */
+        fun compositeBias(covered: Boolean): Float = if (covered) COVERED_BIAS else 0f
+
+        /** Far above the polygon-offset steps between stacked layers (about 2e-7 each), far below any real gap. */
+        private const val COVERED_BIAS = 2e-5f
+
         /** The scene's translucent surface groups as draw units: their planes in stack order. */
         fun isolatedUnits(s: Scene): List<Isolated> = s.groups.mapNotNull { g ->
             val ids = g.memberIds.toHashSet()
@@ -949,12 +976,13 @@ class DepthCompositor : GLSurfaceView.Renderer {
             uniform highp sampler2D uColor;
             uniform highp sampler2D uDepth;
             uniform float uOpacity;
+            uniform float uBias;
             out vec4 fragColor;
             void main() {
                 ivec2 p = ivec2(gl_FragCoord.xy);
                 vec4 c = texelFetch(uColor, p, 0);
                 if (c.a < 0.002) discard;
-                gl_FragDepth = texelFetch(uDepth, p, 0).r;
+                gl_FragDepth = clamp(texelFetch(uDepth, p, 0).r + uBias, 0.0, 1.0);
                 fragColor = c * uOpacity;
             }"""
 
