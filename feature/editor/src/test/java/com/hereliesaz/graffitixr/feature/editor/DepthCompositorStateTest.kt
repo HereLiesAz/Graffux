@@ -39,25 +39,38 @@ class DepthCompositorStateTest {
     private fun grp(id: String, opacity: Float) = Layer(id, id, type = LayerType.GROUP, opacity = opacity, surface = wall)
     private fun kid(id: String, parent: String) = Layer(id, id, bitmap = bmp, parentId = parent)
 
-    private fun groups(layers: List<Layer>): List<DepthCompositor.Group> {
+    private fun order(layers: List<Layer>): List<DepthCompositor.Draw> {
         val camera = SceneCamera()
-        return DepthScene.build(
-            layers, DepthComposite.plan(layers, camera), camera, 1000f, 800f,
-            pixels = { l -> l.bitmap?.let { it to 0L } }, vectors = { null }, activeId = null,
-        ).groups
+        return DepthCompositor.drawOrder(
+            DepthScene.build(
+                layers, DepthComposite.plan(layers, camera), camera, 1000f, 800f,
+                pixels = { l -> l.bitmap?.let { it to 0L } }, vectors = { null }, activeId = null,
+            ),
+        )
+    }
+
+    private val lowFirst = listOf(grp("low", 0.5f), kid("a", "low"), grp("up", 1f), kid("b", "up"))
+    private val upFirst = listOf(grp("up", 1f), kid("b", "up"), grp("low", 0.5f), kid("a", "low"))
+
+    @Test
+    fun `a translucent group draws in stack order with the other surface groups, writing depth`() {
+        // Coincident groups: the one above must draw after the one below, so alpha (source-over)
+        // decides where each shows, not a depth tie-break.
+        val below = order(lowFirst)
+        assertEquals(listOf("low", "b"), below.map { it.id })
+        val above = order(upFirst)
+        assertEquals(listOf("b", "low"), above.map { it.id })
+        assertTrue(below.none { it.blended } && above.none { it.blended })
+        assertTrue(below[0].member is DepthCompositor.Isolated)
     }
 
     @Test
-    fun `a translucent group below an opaque surface group is marked as covered by it, one above is not`() {
-        val lowerTranslucent = groups(listOf(grp("low", 0.5f), kid("a", "low"), grp("up", 1f), kid("b", "up")))
-        assertTrue(lowerTranslucent.single { it.id == "low" }.coveredByOpaqueAbove)
-        val upperTranslucent = groups(listOf(grp("low", 1f), kid("a", "low"), grp("up", 0.5f), kid("b", "up")))
-        assertFalse(upperTranslucent.single { it.id == "up" }.coveredByOpaqueAbove)
-    }
-
-    @Test
-    fun `the composite is pushed back only when an opaque group covers it`() {
-        assertTrue(DepthCompositor.compositeBias(covered = true) > 0f)
-        assertEquals(0f, DepthCompositor.compositeBias(covered = false), 0f)
+    fun `a cached render's ids and key follow the draw order, so reordering coincident groups changes them`() {
+        val ids = listOf("low", "b")
+        val a = DepthCompositor.inDrawOrder(ids, order(lowFirst))
+        val b = DepthCompositor.inDrawOrder(ids, order(upFirst))
+        assertEquals(listOf("low", "b"), a)
+        assertEquals(listOf("b", "low"), b)
+        assertTrue(a != b)
     }
 }

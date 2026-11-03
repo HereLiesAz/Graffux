@@ -151,12 +151,17 @@ internal class SceneExport(private val manager: ExportManager) {
      */
     private fun drawDepthFallback(canvas: Canvas, scene: DepthCompositor.Scene, ctx: Ctx) {
         val units = DepthCompositor.isolatedUnits(scene)
-        val inUnit = units.flatMapTo(HashSet()) { u -> u.planes.map { it.id } }
+        // Stack order, so a tie in depth (coincident groups) goes to the one above.
         val items = ArrayList<Pair<Any, Float>>()
-        scene.planes.filter { it.id !in inUnit }.forEach { p ->
-            items += p to scene.camera.toCamera(p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f))[2]
+        val emitted = HashSet<String>()
+        for (p in scene.planes) {
+            val unit = units.firstOrNull { u -> u.planes.any { it.id == p.id } }
+            if (unit == null) {
+                items += p to scene.camera.toCamera(p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f))[2]
+            } else if (emitted.add(unit.group.id)) {
+                items += unit to DepthCompositor.unitDepth(unit, scene.camera)
+            }
         }
-        units.forEach { items += it to DepthCompositor.unitDepth(it, scene.camera) }
         val byId = ctx.layers.associateBy { it.id }
         for ((item, _) in items.sortedByDescending { it.second }) {
             when (item) {

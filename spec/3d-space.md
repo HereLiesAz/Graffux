@@ -358,7 +358,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   blend and stack order, exactly as an opaque group draws them to the screen. The target is then
   composited into the scene at the group's opacity as a full-screen pass that writes the target's own
   per-pixel depth (`gl_FragDepth`), so the group depth-tests against the other members like the
-  surface itself (it is drawn with the translucent members, farthest first, no depth writes). A fully
+  surface itself (it draws as one item among the surface groups, in stack order, writing depth like the paint it replaces, so a group above it covers it by ordinary source-over alpha, including coincident groups). A fully
   opaque group takes no offscreen pass: its layers draw straight into the scene, as before.
   - *Target lifetime.* One target per isolated group, kept in `DepthCompositor` and reused as long as the
     viewport size is unchanged (a resize reallocates once). It is re-rendered only when its key

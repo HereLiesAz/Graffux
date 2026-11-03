@@ -10,6 +10,7 @@ import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
 import com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -122,14 +123,14 @@ class DepthSceneCacheKeyTest {
     }
 
     @Test
-    fun `a translucent group draws as one unit among the translucent members, after the opaque ones`() {
+    fun `a translucent group draws as one unit among the surface groups, after the opaque flat planes`() {
         val order = DepthCompositor.drawOrder(scene(listOf(group(0.5f)) + kids + layers, 1000f, 800f, "c1"))
         val ids = order.map { it.id }
         // The layers are inside the unit, never drawn singly.
         assertTrue("c1" !in ids && "c2" !in ids)
         val unit = order.single { it.member is DepthCompositor.Isolated }
         assertEquals("wall", unit.id)
-        assertTrue(unit.blended)
+        assertFalse(unit.blended)
         assertEquals(listOf("c1", "c2"), (unit.member as DepthCompositor.Isolated).planes.map { it.id })
         assertTrue(ids.indexOf("wall") > ids.indexOf("far") && ids.indexOf("wall") > ids.indexOf("active"))
     }

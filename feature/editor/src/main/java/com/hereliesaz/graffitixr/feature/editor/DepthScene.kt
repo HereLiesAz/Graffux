@@ -87,7 +87,7 @@ internal object DepthScene {
             }
             planes += DepthCompositor.Plane(id, bitmap, token, model, rect, colorMatrixOf(layer), alpha, key)
         }
-        val groups = isolatedGroups(plan, planes, byId, activeId, layers)
+        val groups = isolatedGroups(plan, planes, byId, activeId)
         return DepthCompositor.Scene(
             SceneMath.frame(camera, width, height), planes, inks, models,
             activeId = activeId, drawing = drawing, viewKey = camera.takeIf { activeId != null }, groups = groups,
@@ -123,21 +123,6 @@ internal object DepthScene {
         isolation: DepthComposite.IsolatedGroup?,
     ): Any = listOf(layer, planeChain(layers, layer.id), alpha, profile, isolation?.opacity, isolation?.let { byId[it.groupId]?.blendMode })
 
-    /** Whether a surface group that is not isolated (opaque) sits above [groupId] in the stack and has paint. */
-    private fun coveredByOpaque(
-        groupId: String,
-        plan: DepthComposite,
-        planes: List<DepthCompositor.Plane>,
-        layers: List<Layer>,
-    ): Boolean {
-        val at = layers.indexOfFirst { it.id == groupId }
-        val isolated = plan.isolatedGroups.mapTo(HashSet()) { it.groupId }
-        return planes.any { p ->
-            val g = p.surfaceGroup
-            g != null && g !in isolated && layers.indexOfFirst { it.id == g } > at
-        }
-    }
-
     /**
      * One unit per translucent group that has paint to draw. Its key is what the cached renders
      * that hold it compare: the group's opacity and blend and its members' keys.
@@ -147,12 +132,11 @@ internal object DepthScene {
         planes: List<DepthCompositor.Plane>,
         byId: Map<String, Layer>,
         activeId: String?,
-        layers: List<Layer>,
     ): List<DepthCompositor.Group> = plan.isolatedGroups.mapNotNull { g ->
         val inside = planes.filter { it.surface != null && it.surfaceGroup == g.groupId }
         if (inside.isEmpty()) return@mapNotNull null
         val key = if (activeId == null) null else listOf(g.groupId, g.opacity, byId[g.groupId]?.blendMode, inside.map { it.key })
-        DepthCompositor.Group(g.groupId, inside.map { it.id }, g.opacity, key, coveredByOpaqueAbove = coveredByOpaque(g.groupId, plan, planes, layers))
+        DepthCompositor.Group(g.groupId, inside.map { it.id }, g.opacity, key)
     }
 
     /**

@@ -108,12 +108,6 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val memberIds: List<String>,
         val opacity: Float,
         val key: Any? = null,
-        /**
-         * An opaque surface group above this one in the stack draws over it. The opaque group's
-         * planes are not translucent, so they draw first; the composite is pushed back a hair
-         * ([compositeBias]) so that at equal depth they still win, as stack order says.
-         */
-        val coveredByOpaqueAbove: Boolean = false,
     )
 
     /** The uncached draw unit of a [Group]: its planes in stack order. Never touches GL on its own. */
@@ -291,7 +285,9 @@ class DepthCompositor : GLSurfaceView.Renderer {
             return false
         }
         val keys = order.associate { it.id to memberKey(it.member) }
-        fun side(slot: SplitCache.Slot, ids: List<String>): Target? {
+        fun side(slot: SplitCache.Slot, members: List<String>): Target? {
+            // In draw order, so reordering stacked groups changes the key and rebuilds the render.
+            val ids = inDrawOrder(members, order)
             val memberKeys = ids.map { keys[it] ?: return null.also { cache.dump(slot) } }
             if (ids.isEmpty()) return null.also { cache.dump(slot) }
             val set = ids.toHashSet()
@@ -446,10 +442,9 @@ class DepthCompositor : GLSurfaceView.Renderer {
         if (target == null) {
             alphaScale = u.group.opacity
             // drawMembers sets depth writes itself for these opaque draws, so a curved surface
-            // still occludes itself; it leaves them on, so put the translucent pass's state back.
+            // still occludes itself.
             drawMembers(u.planes.map { Draw(it.id, it, false) }, cam) { true }
             alphaScale = 1f
-            GLES30.glDepthMask(false)
             return
         }
         isoUsed += u.group.id
@@ -459,7 +454,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
             target.key = key
             isolatedRenders++
         }
-        compositeIsolated(target, u.group.opacity, compositeBias(u.group.coveredByOpaqueAbove))
+        compositeIsolated(target, u.group.opacity)
     }
 
     /** What the group's target shows: the view and every layer's pixels, placement, opacity and surface. */
@@ -541,9 +536,9 @@ class DepthCompositor : GLSurfaceView.Renderer {
      * against the scene at each pixel's own stored depth (the surface's, where its paint is), no
      * depth write, like the other translucent members.
      */
-    private fun compositeIsolated(t: IsoTarget, opacity: Float, bias: Float) {
+    private fun compositeIsolated(t: IsoTarget, opacity: Float) {
         beginPass()
-        GLES30.glDepthMask(false)
+        GLES30.glDepthMask(true)
         GLES30.glUseProgram(isolatedProgram)
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.color)
@@ -552,7 +547,6 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glUniform1i(GLES30.glGetUniformLocation(isolatedProgram, "uColor"), 0)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(isolatedProgram, "uDepth"), 1)
         GLES30.glUniform1f(GLES30.glGetUniformLocation(isolatedProgram, "uOpacity"), opacity.coerceIn(0f, 1f))
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(isolatedProgram, "uBias"), bias)
         val aPos = GLES30.glGetAttribLocation(isolatedProgram, "aPos")
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
         GLES30.glEnableVertexAttribArray(aPos)
@@ -884,20 +878,26 @@ class DepthCompositor : GLSurfaceView.Renderer {
             val byId = s.planes.associateBy { it.id }
             val units = isolatedUnits(s)
             val inUnit = units.flatMapTo(HashSet()) { u -> u.planes.map { it.id } }
+            val unitOf = units.associateBy { u -> u.group.id }
             val (surfacePlanes, flatPlanes) = s.planes.partition { it.surface != null }
             val (solidPlanes, clearPlanes) = flatPlanes.partition { it.alpha >= 1f }
             for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) out += Draw(id, byId.getValue(id), false)
-            // Paint on group surfaces: each group's layers in stack order (the list's), depth
-            // written, so they stack on the surface as in 2D and the surface occludes itself. A
-            // translucent group's are not here: they draw inside its unit, below.
-            surfacePlanes.filter { it.id !in inUnit }.groupBy { it.surfaceGroup }.values.forEach { group ->
-                group.sortedBy { it.surfaceIndex }.forEach { out += Draw(it.id, it, false) }
+            // Paint on group surfaces: each group in stack order (the list's), depth written, so
+            // they stack on the surface as in 2D and the surface occludes itself. A translucent
+            // group is one draw (its merged image) at its place in that order, so a group above
+            // covers it by alpha, source-over, exactly as before it was translucent.
+            surfacePlanes.groupBy { it.surfaceGroup }.forEach { (group, planes) ->
+                val unit = unitOf[group]
+                if (unit != null) {
+                    out += Draw(unit.group.id, unit, false)
+                } else {
+                    planes.filter { it.id !in inUnit }.sortedBy { it.surfaceIndex }.forEach { out += Draw(it.id, it, false) }
+                }
             }
-            for (item in translucentOrder(clearPlanes, translucent, s.camera, units)) {
+            for (item in translucentOrder(clearPlanes, translucent, s.camera)) {
                 when (item) {
                     is Plane -> out += Draw(item.id, item, true)
                     is Model -> out += Draw(item.id, item, true)
-                    is Isolated -> out += Draw(item.group.id, item, true)
                 }
             }
             return out
@@ -909,11 +909,11 @@ class DepthCompositor : GLSurfaceView.Renderer {
          */
         fun depthMaskChange(current: Boolean?, blended: Boolean): Boolean? = if (current == blended) null else !blended
 
-        /** Window-depth push-back of an isolated group's composite when an opaque group above it must win ties. */
-        fun compositeBias(covered: Boolean): Float = if (covered) COVERED_BIAS else 0f
-
-        /** Far above the polygon-offset steps between stacked layers (about 2e-7 each), far below any real gap. */
-        private const val COVERED_BIAS = 2e-5f
+        /** [ids] in the order [order] draws them: what a cached render holds, and keys on. */
+        fun inDrawOrder(ids: List<String>, order: List<Draw>): List<String> {
+            val set = ids.toHashSet()
+            return order.map { it.id }.filter { it in set }
+        }
 
         /** The scene's translucent surface groups as draw units: their planes in stack order. */
         fun isolatedUnits(s: Scene): List<Isolated> = s.groups.mapNotNull { g ->
@@ -976,24 +976,22 @@ class DepthCompositor : GLSurfaceView.Renderer {
             uniform highp sampler2D uColor;
             uniform highp sampler2D uDepth;
             uniform float uOpacity;
-            uniform float uBias;
             out vec4 fragColor;
             void main() {
                 ivec2 p = ivec2(gl_FragCoord.xy);
                 vec4 c = texelFetch(uColor, p, 0);
                 if (c.a < 0.002) discard;
-                gl_FragDepth = clamp(texelFetch(uDepth, p, 0).r + uBias, 0.0, 1.0);
+                gl_FragDepth = texelFetch(uDepth, p, 0).r;
                 fragColor = c * uOpacity;
             }"""
 
         /**
          * The order translucent planes and models draw in, together: farthest first, by the camera
          * depth of each plane's image centre and each mesh's bounding centre. Returns [Plane]s and
-         * [Model]s, and the [Isolated] units among them.
+         * [Model]s.
          */
-        fun translucentOrder(planes: List<Plane>, models: List<Model>, cam: CameraFrame, units: List<Isolated> = emptyList()): List<Any> {
-            val items = ArrayList<Pair<Any, Float>>(planes.size + models.size + units.size)
-            units.forEach { items += it to unitDepth(it, cam) }
+        fun translucentOrder(planes: List<Plane>, models: List<Model>, cam: CameraFrame): List<Any> {
+            val items = ArrayList<Pair<Any, Float>>(planes.size + models.size)
             planes.forEach { p ->
                 val centre = p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f)
                 items += p to cam.toCamera(centre)[2]
