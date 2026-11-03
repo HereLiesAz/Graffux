@@ -591,13 +591,19 @@ Full design: `spec/3d-space.md`. In short:
   occlude per pixel there. Blend-mode, clipping-mask, adjustment and frame-clipped layers stay in
   the HWUI stack, with opacity, blend and frame clip applied after the homography
   (`ScenePaint`), so they follow the plane. Textures upload only when a layer's pixels change.
+  A profiled group below full opacity is composited as a unit (`DepthComposite.isolatedGroups`): its
+  layers render into one reused offscreen colour + depth target, which is then drawn into the scene
+  at the group's opacity with its own per-pixel depth (the translucent members' pass, so it
+  depth-tests against the rest). Opaque groups take no offscreen pass. A straight profile's group blend
+  draws in the stack; on a curved one it is ignored. glTF cannot isolate a group.
 - **Inactive-layer cache.** While a stroke is in progress the layers behind and in front of the
   active one are drawn from at most two GPU renders (`InactiveLayerCache.kt` in `:core:common`):
   in 2D by stack order (`StackLayerCache`: offscreen `GraphicsLayer`s recorded in screen space,
   plain source-over sides only), in 3D by depth order from the view (`DepthCompositor`: RGBA8
   textures, split by the active plane, uncached if a member crosses it). Dumped when another layer
   becomes active or anything in them, or the view, changes; bypassed while the view moves; scaled,
-  not rebuilt, on resize. Details in `spec/3d-space.md`.
+  not rebuilt, on resize. An isolated group is one unit of the split, and its opacity and blend are in
+  the cache keys. Details in `spec/3d-space.md`.
 - **Tilted layers.** Lasso, magic wand, selection moves (`ActivePlaneMapping`) and tap-select
   (`CanvasHitTest` with the camera, nearest hit first) go through the planes.
 - **Export.** PNG/PDF/share/thumbnail render from the current camera (`SceneExport`, with the

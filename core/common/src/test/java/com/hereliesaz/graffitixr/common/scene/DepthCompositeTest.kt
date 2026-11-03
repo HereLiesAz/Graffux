@@ -88,4 +88,69 @@ class DepthCompositeTest {
         assertArrayEquals(floatArrayOf(0f, 250f, 1000f, 750f), DepthComposite.imageRect(Layer("a", "A"), 200, 100, 1000f, 1000f), 1e-3f)
         assertEquals(listOf("far", "mid", "near"), DepthComposite.backToFront(mapOf("near" to 1f, "far" to 9f, "mid" to 5f), listOf("near", "far", "mid")))
     }
+
+    private val bent = SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f, 200f, 0f, 100f))
+    private val straight = SurfaceProfile(listOf(0f, 0f, 0f, 200f, 0f, 0f), sweepX = 0f, sweepY = 1f, sweepZ = 0f)
+
+    private fun surfaceGroup(
+        opacity: Float = 1f,
+        blend: BlendMode = BlendMode.SrcOver,
+        profile: SurfaceProfile = bent,
+        parent: String? = null,
+    ) = Layer("g", "G", type = LayerType.GROUP, parentId = parent, opacity = opacity, blendMode = blend, surface = profile)
+
+    @Test
+    fun `a translucent surface group is one isolated unit, its layers keep only their own opacity`() {
+        val layers = listOf(surfaceGroup(opacity = 0.5f), paint("a", "g"), paint("b", "g").copy(opacity = 0.8f))
+        val plan = DepthComposite.plan(layers, SceneCamera())
+        assertEquals(listOf("a", "b"), plan.memberIds)
+        assertEquals(listOf(DepthComposite.IsolatedGroup("g", listOf("a", "b"), 0.5f)), plan.isolatedGroups)
+        assertEquals(plan.isolatedGroups[0], plan.isolationOf("b"))
+        assertEquals(0.8f, DepthComposite.opacityBelow(layers, "b", "g"), 1e-6f)
+        assertEquals(0.4f, DepthComposite.effectiveOpacity(layers, "b"), 1e-6f)
+    }
+
+    @Test
+    fun `a full-opacity surface group takes no offscreen unit`() {
+        val layers = listOf(surfaceGroup(opacity = 1f), paint("a", "g"), paint("b", "g").copy(opacity = 0.5f))
+        val plan = DepthComposite.plan(layers, SceneCamera())
+        assertEquals(listOf("a", "b"), plan.memberIds)
+        assertTrue(plan.isolatedGroups.isEmpty())
+        assertEquals(null, plan.isolationOf("a"))
+    }
+
+    @Test
+    fun `groups above the profiled one fade the unit, and groups between fade only their layers`() {
+        val outer = Layer("outer", "Outer", type = LayerType.GROUP, opacity = 0.5f)
+        val inner = Layer("inner", "Inner", type = LayerType.GROUP, parentId = "g", opacity = 0.5f)
+        val layers = listOf(outer, surfaceGroup(opacity = 0.8f, parent = "outer"), inner, paint("a", "inner"))
+        val plan = DepthComposite.plan(layers, SceneCamera())
+        assertEquals(0.4f, plan.isolatedGroups.single().opacity, 1e-6f)
+        assertEquals(0.5f, DepthComposite.opacityBelow(layers, "a", "g"), 1e-6f)
+    }
+
+    @Test
+    fun `a group blend mode keeps a straight surface in the stack and does not isolate it`() {
+        val layers = listOf(surfaceGroup(opacity = 0.6f, blend = BlendMode.Multiply, profile = straight), paint("a", "g"), paint("b", "g"))
+        val plan = DepthComposite.plan(layers, SceneCamera())
+        assertTrue(plan.isEmpty)
+        assertTrue(plan.surfaceIds.isEmpty())
+        assertTrue(plan.isolatedGroups.isEmpty())
+    }
+
+    @Test
+    fun `a curved surface has no stack path, so its group blend is not applied but its opacity is`() {
+        val layers = listOf(surfaceGroup(opacity = 0.6f, blend = BlendMode.Multiply, profile = bent), paint("a", "g"))
+        val plan = DepthComposite.plan(layers, SceneCamera())
+        assertEquals(listOf("a"), plan.memberIds)
+        assertEquals(0.6f, plan.isolatedGroups.single().opacity, 1e-6f)
+    }
+
+    @Test
+    fun `3D ink in a translucent surface group is not paint on the surface`() {
+        val layers = listOf(surfaceGroup(opacity = 0.5f), paint("a", "g"), ink.copy(parentId = "g"))
+        val plan = DepthComposite.plan(layers, SceneCamera())
+        assertEquals(listOf("a"), plan.isolatedGroups.single().memberIds)
+        assertTrue("ink" in plan)
+    }
 }
