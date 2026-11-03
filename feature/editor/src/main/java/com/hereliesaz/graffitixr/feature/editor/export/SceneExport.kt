@@ -1,4 +1,4 @@
-@file:Suppress("LongParameterList", "CyclomaticComplexMethod", "ReturnCount", "MaxLineLength", "LoopWithTooManyJumpStatements", "MagicNumber")
+@file:Suppress("LongParameterList", "CyclomaticComplexMethod", "ReturnCount", "MaxLineLength", "LoopWithTooManyJumpStatements", "MagicNumber", "TooManyFunctions")
 
 package com.hereliesaz.graffitixr.feature.editor.export
 
@@ -17,6 +17,7 @@ import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.feature.editor.DepthScene
 import com.hereliesaz.graffitixr.feature.editor.VectorRaster
+import com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor
 
 /**
  * The PNG/PDF composite of a document in 3D (spec/3d-space.md, "Export"): what the canvas shows
@@ -138,29 +139,70 @@ internal class SceneExport(private val manager: ExportManager) {
             rendered.recycle()
             return
         }
-        // No GLES (tests): the planes farthest-first through their homographies. Crossing planes
-        // then overlap by centre depth rather than per pixel, and 3D ink, which only the GPU pass
-        // draws, is absent.
-        val depths = scene.planes.associate { p ->
-            p.id to scene.camera.toCamera(p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f))[2]
+        drawDepthFallback(canvas, scene, ctx)
+    }
+
+    /**
+     * No GLES (tests): the planes farthest-first through their homographies. Crossing planes
+     * then overlap by centre depth rather than per pixel, and 3D ink, which only the GPU pass
+     * draws, is absent. A translucent surface group is one item: its layers are drawn into a
+     * bitmap of their own, in stack order, which is then drawn at the group's opacity (as the
+     * GPU pass composites its target), so its layers merge before they fade.
+     */
+    private fun drawDepthFallback(canvas: Canvas, scene: DepthCompositor.Scene, ctx: Ctx) {
+        val units = DepthCompositor.isolatedUnits(scene)
+        val inUnit = units.flatMapTo(HashSet()) { u -> u.planes.map { it.id } }
+        val items = ArrayList<Pair<Any, Float>>()
+        scene.planes.filter { it.id !in inUnit }.forEach { p ->
+            items += p to scene.camera.toCamera(p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f))[2]
         }
+        units.forEach { items += it to DepthCompositor.unitDepth(it, scene.camera) }
         val byId = ctx.layers.associateBy { it.id }
-        for (id in DepthComposite.backToFront(depths, scene.planes.map { it.id })) {
-            val plane = scene.planes.first { it.id == id }
-            val layer = byId[id] ?: continue
-            // Paint on a group surface goes on the surface's strips, not on a plane of its own.
-            plane.surface?.let { surface ->
-                drawSurfaceFallback(canvas, plane, surface, scene.camera, manager.layerPaint(layer, plane.alpha))
-                continue
+        for ((item, _) in items.sortedByDescending { it.second }) {
+            when (item) {
+                is DepthCompositor.Plane -> byId[item.id]?.let { drawPlaneFallback(canvas, item, it, scene, ctx) }
+                is DepthCompositor.Isolated -> drawMergedFallback(canvas, item, byId, scene, ctx)
             }
-            val m = homography(layer, ctx) ?: continue
-            val place = Matrix().apply {
-                setScale((plane.rect[2] - plane.rect[0]) / plane.bitmap.width, (plane.rect[3] - plane.rect[1]) / plane.bitmap.height)
-                postTranslate(plane.rect[0], plane.rect[1])
-                postConcat(m)
-            }
-            canvas.drawBitmap(plane.bitmap, place, manager.layerPaint(layer, plane.alpha))
         }
+    }
+
+    /** An isolated group's layers into a bitmap of their own, then that at the group's opacity. */
+    private fun drawMergedFallback(
+        canvas: Canvas,
+        unit: DepthCompositor.Isolated,
+        byId: Map<String, Layer>,
+        scene: DepthCompositor.Scene,
+        ctx: Ctx,
+    ) {
+        val merged = Bitmap.createBitmap(ctx.w, ctx.h, Bitmap.Config.ARGB_8888)
+        val mergedCanvas = Canvas(merged)
+        unit.planes.forEach { p -> byId[p.id]?.let { drawPlaneFallback(mergedCanvas, p, it, scene, ctx) } }
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            alpha = (unit.group.opacity * 255).toInt().coerceIn(0, 255)
+        }
+        canvas.drawBitmap(merged, 0f, 0f, paint)
+        merged.recycle()
+    }
+
+    private fun drawPlaneFallback(
+        canvas: Canvas,
+        plane: DepthCompositor.Plane,
+        layer: Layer,
+        scene: DepthCompositor.Scene,
+        ctx: Ctx,
+    ) {
+        // Paint on a group surface goes on the surface's strips, not on a plane of its own.
+        plane.surface?.let { surface ->
+            drawSurfaceFallback(canvas, plane, surface, scene.camera, manager.layerPaint(layer, plane.alpha))
+            return
+        }
+        val m = homography(layer, ctx) ?: return
+        val place = Matrix().apply {
+            setScale((plane.rect[2] - plane.rect[0]) / plane.bitmap.width, (plane.rect[3] - plane.rect[1]) / plane.bitmap.height)
+            postTranslate(plane.rect[0], plane.rect[1])
+            postConcat(m)
+        }
+        canvas.drawBitmap(plane.bitmap, place, manager.layerPaint(layer, plane.alpha))
     }
 
     /**

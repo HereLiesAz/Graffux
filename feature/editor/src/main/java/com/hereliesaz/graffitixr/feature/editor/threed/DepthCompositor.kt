@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "TooManyFunctions", "CyclomaticComplexMethod", "LongMethod", "MaxLineLength", "LongParameterList", "ComplexCondition", "ReturnCount", "DestructuringDeclarationWithTooManyEntries")
+@file:Suppress("MagicNumber", "TooManyFunctions", "CyclomaticComplexMethod", "LongMethod", "MaxLineLength", "LongParameterList", "ComplexCondition", "ReturnCount", "DestructuringDeclarationWithTooManyEntries", "LargeClass")
 
 package com.hereliesaz.graffitixr.feature.editor.threed
 
@@ -40,6 +40,11 @@ import javax.microedition.khronos.opengles.GL10
  * Fully transparent texels are discarded so a layer's empty area never hides what is behind it.
  * Output is premultiplied over transparent, which is what a TextureView (and the export readback)
  * composites.
+ *
+ * A translucent surface group (spec/3d-space.md, "Group surfaces") is drawn as one unit: its layers
+ * render into an offscreen colour + depth target first, which is then drawn into the scene at the
+ * group's opacity with its own per-pixel depth, so the layers merge before they fade, as on the flat
+ * canvas. A group at full opacity has no unit and draws straight into the scene.
  *
  * While a stroke is in progress on a member, the others may come from the inactive-layer cache:
  * one texture of the members behind the active layer and one of those in front, split by depth
@@ -94,6 +99,16 @@ class DepthCompositor : GLSurfaceView.Renderer {
     )
 
     /**
+     * A translucent surface group (see [Scene.groups]): the paint layers drawn on its surface
+     * ([memberIds], a subset of [Scene.planes]) and the opacity the merged image is composited with.
+     * [key] is what the inactive-layer cache compares for it (null = never cached).
+     */
+    class Group(val id: String, val memberIds: List<String>, val opacity: Float, val key: Any? = null)
+
+    /** The uncached draw unit of a [Group]: its planes in stack order. Never touches GL on its own. */
+    class Isolated(val group: Group, val planes: List<Plane>)
+
+    /**
      * [activeId] is the layer being drawn on, [drawing] whether a stroke is in progress on it, and
      * [viewKey] the view (the camera, not the canvas size): with all three, the inactive-layer
      * cache may draw the members behind and in front of the active layer from two renders
@@ -107,6 +122,8 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val activeId: String? = null,
         val drawing: Boolean = false,
         val viewKey: Any? = null,
+        /** Translucent surface groups: each draws as one unit (its planes are not drawn singly). */
+        val groups: List<Group> = emptyList(),
     )
 
     /** One member in the uncached draw order; [blended] members draw without depth writes. */
@@ -119,6 +136,28 @@ class DepthCompositor : GLSurfaceView.Renderer {
     private var modelProgram = 0
     private var blitProgram = 0
     private var surfaceProgram = 0
+    private var isolatedProgram = 0
+
+    /** An isolated group's render: premultiplied colour and depth, the size of the viewport. */
+    private class IsoTarget(val color: Int, val depth: Int, val fbo: Int, val w: Int, val h: Int) {
+        /** What the contents were rendered for; null when they cannot be reused. */
+        var key: Any? = null
+    }
+
+    private val isoTargets = HashMap<String, IsoTarget>()
+    private val isoUsed = HashSet<String>()
+
+    /** How many isolated-group targets are allocated right now (one per translucent group in use). */
+    val isolatedTargets: Int get() = isoTargets.size
+
+    /** Isolated-group renders made so far, and target allocations (for tests and logging). */
+    var isolatedRenders = 0
+        private set
+    var isolatedAllocations = 0
+        private set
+
+    /** Scales the opacity of every plane drawn, for a group drawn straight in when its target cannot be made. */
+    private var alphaScale = 1f
 
     /** The behind and front renders: colour textures the size of the viewport they were built at. */
     private class Target(val texture: Int, val w: Int, val h: Int)
@@ -151,12 +190,15 @@ class DepthCompositor : GLSurfaceView.Renderer {
         meshes.clear()
         modelMeshes.clear()
         modelTextures.clear()
+        isoTargets.clear()
+        isoUsed.clear()
         cache.abandon()
         quadProgram = program(QUAD_VS, QUAD_FS)
         blitProgram = program(BLIT_VS, BLIT_FS)
         inkProgram = program(INK_VS, INK_FS)
         modelProgram = program(MODEL_VS, MODEL_FS)
         surfaceProgram = program(SURFACE_VS, SURFACE_FS)
+        isolatedProgram = program(BLIT_VS, ISOLATED_FS)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -171,13 +213,20 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glDepthMask(true)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
         val s = scene ?: return
-        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0 || blitProgram == 0 || surfaceProgram == 0) return
+        if (quadProgram == 0 || inkProgram == 0 || modelProgram == 0 || blitProgram == 0 || surfaceProgram == 0 || isolatedProgram == 0) return
         release(s)
         val order = drawOrder(s)
-        if (drawCached(s, order)) return
-        beginPass()
-        drawMembers(order, s.camera) { true }
-        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        isoUsed.clear()
+        try {
+            if (drawCached(s, order)) return
+            beginPass()
+            drawMembers(order, s.camera) { true }
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        } finally {
+            // A group's target nothing drew from this frame (a cached render served it, or it is
+            // gone) is not kept: only a group drawn every frame, like the active one, holds one.
+            freeIdleIsolated()
+        }
     }
 
     private fun beginPass() {
@@ -201,6 +250,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
                 is Ink -> drawInk(m, cam)
                 is Plane -> drawPlane(m, cam)
                 is Model -> drawModel(m, cam)
+                is Isolated -> drawIsolated(m, cam)
             }
         }
         GLES30.glDepthMask(true)
@@ -212,7 +262,10 @@ class DepthCompositor : GLSurfaceView.Renderer {
      * member, the camera moving, a member crossing the active plane, or nothing worth caching.
      */
     private fun drawCached(s: Scene, order: List<Draw>): Boolean {
-        val activeId = s.activeId
+        // A layer inside an isolated group is drawn live as that group's unit: the rest is split
+        // around the whole group.
+        val unitOf = s.groups.flatMap { g -> g.memberIds.map { it to g.id } }.toMap()
+        val activeId = s.activeId?.let { unitOf[it] ?: it }
         cache.select(activeId)
         val viewKey = s.viewKey
         if (activeId == null || viewKey == null) return false
@@ -220,7 +273,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
             cache.dumpAll()
             return false
         }
-        val split = DepthSplit.classify(s.camera, activeId, splitMembers(s), order.map { it.id })
+        val split = DepthSplit.classify(s.camera, activeId, splitMembers(s, unitOf), order.map { it.id })
         if (split !is DepthSplit.Split) {
             cache.dumpAll()
             return false
@@ -255,22 +308,34 @@ class DepthCompositor : GLSurfaceView.Renderer {
         is Model -> member.key?.let {
             listOf(it, System.identityHashCode(member.mesh), member.texture?.let(System::identityHashCode), member.texture?.generationId, member.textureToken)
         }
+        // The merged image and the opacity it is drawn with, so a fade rebuilds the render holding it.
+        is Isolated -> member.group.key?.let { k ->
+            val stamps = member.planes.map { memberKey(it) ?: return null }
+            listOf(k, member.group.opacity, stamps)
+        }
         else -> null
     }
 
     /** Bounding points of every member in scene coordinates, for the depth split. */
-    private fun splitMembers(s: Scene): List<DepthSplit.Member> {
+    private fun splitMembers(s: Scene, unitOf: Map<String, String>): List<DepthSplit.Member> {
         val out = ArrayList<DepthSplit.Member>(s.planes.size + s.inks.size + s.models.size)
+        val unitPoints = LinkedHashMap<String, ArrayList<FloatArray>>()
+        val unitPlanar = HashMap<String, Boolean>()
         for (p in s.planes) {
             val surface = p.surface
             if (surface != null) {
-                val pts = ArrayList<FloatArray>(surface.size / 5)
+                val unit = unitOf[p.id]
+                val pts = if (unit != null) unitPoints.getOrPut(unit) { ArrayList() } else ArrayList<FloatArray>(surface.size / 5)
                 var i = 0
                 while (i + 2 < surface.size) {
                     pts += p.model.apply(surface[i], surface[i + 1], surface[i + 2])
                     i += 5
                 }
-                out += DepthSplit.Member(p.id, pts, planar = p.surfaceFlat, group = p.surfaceGroup, stack = p.surfaceIndex)
+                if (unit != null) {
+                    unitPlanar[unit] = (unitPlanar[unit] ?: true) && p.surfaceFlat
+                } else {
+                    out += DepthSplit.Member(p.id, pts, planar = p.surfaceFlat, group = p.surfaceGroup, stack = p.surfaceIndex)
+                }
                 continue
             }
             val (l, t, r, b) = p.rect.toList()
@@ -286,6 +351,8 @@ class DepthCompositor : GLSurfaceView.Renderer {
             val box = cached?.second ?: m.mesh.bounds().also { meshBounds[m.id] = m.mesh to it }
             out += DepthSplit.Member(m.id, box?.let { DepthSplit.boxCorners(it, m.toScene) } ?: emptyList(), planar = false)
         }
+        // An isolated group splits as one member: it is drawn, cached and kept live as a unit.
+        for ((unit, pts) in unitPoints) out += DepthSplit.Member(unit, pts, planar = unitPlanar[unit] ?: false)
         inkBounds.keys.retainAll(s.inks.mapTo(HashSet()) { it.id })
         meshBounds.keys.retainAll(s.models.mapTo(HashSet()) { it.id })
         return out
@@ -354,6 +421,140 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glVertexAttribPointer(aPos, 2, GLES30.GL_FLOAT, false, 0, FULL_SCREEN)
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_FAN, 0, 4)
         GLES30.glDisableVertexAttribArray(aPos)
+    }
+
+    /**
+     * An isolated group: its layers are rendered into the group's target (only when what they show
+     * has changed since that target was last rendered), and the target is composited into the scene
+     * at the group's opacity. A target that cannot be made falls back to drawing the layers straight
+     * in, each at the group's opacity too: the old, per-layer result, never a missing group.
+     */
+    private fun drawIsolated(u: Isolated, cam: CameraFrame) {
+        val target = isoTarget(u.group.id)
+        if (target == null) {
+            alphaScale = u.group.opacity
+            drawMembers(u.planes.map { Draw(it.id, it, false) }, cam) { true }
+            alphaScale = 1f
+            GLES30.glDepthMask(false)
+            return
+        }
+        isoUsed += u.group.id
+        val key = isolatedKey(u, cam)
+        if (key == null || target.key != key) {
+            renderIsolated(target, u, cam)
+            target.key = key
+            isolatedRenders++
+        }
+        compositeIsolated(target, u.group.opacity)
+    }
+
+    /** What the group's target shows: the view and every layer's pixels, placement, opacity and surface. */
+    private fun isolatedKey(u: Isolated, cam: CameraFrame): Any? {
+        val stamps = u.planes.map { memberKey(it) ?: return null }
+        return listOf(cameraKey(cam), viewportW, viewportH, stamps)
+    }
+
+    private fun cameraKey(c: CameraFrame): List<Any> =
+        listOf(c.width, c.height, c.focal, c.eye.toList(), c.target.toList(), c.right.toList(), c.down.toList(), c.forward.toList())
+
+    /** The group's target at the viewport's size: kept while the size holds, made anew when it changes. */
+    private fun isoTarget(id: String): IsoTarget? {
+        val w = viewportW
+        val h = viewportH
+        isoTargets[id]?.let { if (it.w == w && it.h == h) return it else freeIsolated(id) }
+        val ids = IntArray(1)
+        GLES30.glGenTextures(1, ids, 0)
+        val color = ids[0]
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, color)
+        nearestClamped()
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA8, w, h, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null)
+        GLES30.glGenTextures(1, ids, 0)
+        val depth = ids[0]
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, depth)
+        nearestClamped()
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_DEPTH_COMPONENT24, w, h, 0, GLES30.GL_DEPTH_COMPONENT, GLES30.GL_UNSIGNED_INT, null)
+        GLES30.glGenFramebuffers(1, ids, 0)
+        val fbo = ids[0]
+        val previous = IntArray(1)
+        GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, previous, 0)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo)
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, color, 0)
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_TEXTURE_2D, depth, 0)
+        val complete = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) == GLES30.GL_FRAMEBUFFER_COMPLETE
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, previous[0])
+        if (!complete) {
+            GLES30.glDeleteFramebuffers(1, intArrayOf(fbo), 0)
+            GLES30.glDeleteTextures(2, intArrayOf(color, depth), 0)
+            Log.w(TAG, "Group target ${w}x$h is not renderable; drawing the group per layer")
+            return null
+        }
+        isolatedAllocations++
+        return IsoTarget(color, depth, fbo, w, h).also { isoTargets[id] = it }
+    }
+
+    private fun nearestClamped() {
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE)
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE)
+    }
+
+    /**
+     * The group's layers into its target, in stack order with depth: what an opaque group draws to
+     * the screen, over a transparent clear. Premultiplied, so the composite is one multiply. May
+     * run inside another render's framebuffer (a cached side holds the group), so the binding and
+     * viewport it found are put back.
+     */
+    private fun renderIsolated(t: IsoTarget, u: Isolated, cam: CameraFrame) {
+        val previousFbo = IntArray(1)
+        val previousViewport = IntArray(4)
+        GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, previousFbo, 0)
+        GLES30.glGetIntegerv(GLES30.GL_VIEWPORT, previousViewport, 0)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, t.fbo)
+        GLES30.glViewport(0, 0, t.w, t.h)
+        GLES30.glClearColor(0f, 0f, 0f, 0f)
+        GLES30.glClearDepthf(1f)
+        GLES30.glDepthMask(true)
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT or GLES30.GL_DEPTH_BUFFER_BIT)
+        beginPass()
+        drawMembers(u.planes.map { Draw(it.id, it, false) }, cam) { true }
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, previousFbo[0])
+        GLES30.glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3])
+    }
+
+    /**
+     * The group's target over what is drawn: premultiplied source-over at [opacity], depth-tested
+     * against the scene at each pixel's own stored depth (the surface's, where its paint is), no
+     * depth write, like the other translucent members.
+     */
+    private fun compositeIsolated(t: IsoTarget, opacity: Float) {
+        beginPass()
+        GLES30.glDepthMask(false)
+        GLES30.glUseProgram(isolatedProgram)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.color)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, t.depth)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(isolatedProgram, "uColor"), 0)
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(isolatedProgram, "uDepth"), 1)
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(isolatedProgram, "uOpacity"), opacity.coerceIn(0f, 1f))
+        val aPos = GLES30.glGetAttribLocation(isolatedProgram, "aPos")
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+        GLES30.glEnableVertexAttribArray(aPos)
+        GLES30.glVertexAttribPointer(aPos, 2, GLES30.GL_FLOAT, false, 0, FULL_SCREEN)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLE_FAN, 0, 4)
+        GLES30.glDisableVertexAttribArray(aPos)
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+    }
+
+    private fun freeIsolated(id: String) {
+        val t = isoTargets.remove(id) ?: return
+        GLES30.glDeleteFramebuffers(1, intArrayOf(t.fbo), 0)
+        GLES30.glDeleteTextures(2, intArrayOf(t.color, t.depth), 0)
+    }
+
+    private fun freeIdleIsolated() {
+        isoTargets.keys.filter { it !in isoUsed }.forEach(::freeIsolated)
     }
 
     /** Frees what no member uses any more. */
@@ -544,7 +745,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val (matrix, offset) = colorUniforms(p.colorMatrix)
         GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(surfaceProgram, "uColor"), 1, false, matrix, 0)
         GLES30.glUniform4fv(GLES30.glGetUniformLocation(surfaceProgram, "uOffset"), 1, offset, 0)
-        GLES30.glUniform1f(GLES30.glGetUniformLocation(surfaceProgram, "uAlpha"), p.alpha.coerceIn(0f, 1f))
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(surfaceProgram, "uAlpha"), (p.alpha * alphaScale).coerceIn(0f, 1f))
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex.handle)
         GLES30.glUniform1i(GLES30.glGetUniformLocation(surfaceProgram, "uTex"), 0)
@@ -666,21 +867,48 @@ class DepthCompositor : GLSurfaceView.Renderer {
                 p.id to s.camera.toCamera(p.model.apply(cx, cy, 0f))[2]
             }
             val byId = s.planes.associateBy { it.id }
+            val units = isolatedUnits(s)
+            val inUnit = units.flatMapTo(HashSet()) { u -> u.planes.map { it.id } }
             val (surfacePlanes, flatPlanes) = s.planes.partition { it.surface != null }
             val (solidPlanes, clearPlanes) = flatPlanes.partition { it.alpha >= 1f }
             for (id in DepthComposite.backToFront(depths, solidPlanes.map { it.id })) out += Draw(id, byId.getValue(id), false)
             // Paint on group surfaces: each group's layers in stack order (the list's), depth
-            // written, so they stack on the surface as in 2D and the surface occludes itself.
-            surfacePlanes.groupBy { it.surfaceGroup }.values.forEach { group ->
+            // written, so they stack on the surface as in 2D and the surface occludes itself. A
+            // translucent group's are not here: they draw inside its unit, below.
+            surfacePlanes.filter { it.id !in inUnit }.groupBy { it.surfaceGroup }.values.forEach { group ->
                 group.sortedBy { it.surfaceIndex }.forEach { out += Draw(it.id, it, false) }
             }
-            for (item in translucentOrder(clearPlanes, translucent, s.camera)) {
+            for (item in translucentOrder(clearPlanes, translucent, s.camera, units)) {
                 when (item) {
                     is Plane -> out += Draw(item.id, item, true)
                     is Model -> out += Draw(item.id, item, true)
+                    is Isolated -> out += Draw(item.group.id, item, true)
                 }
             }
             return out
+        }
+
+        /** The scene's translucent surface groups as draw units: their planes in stack order. */
+        fun isolatedUnits(s: Scene): List<Isolated> = s.groups.mapNotNull { g ->
+            val ids = g.memberIds.toHashSet()
+            val planes = s.planes.filter { it.id in ids && it.surface != null }.sortedBy { it.surfaceIndex }
+            if (planes.isEmpty()) null else Isolated(g, planes)
+        }
+
+        /** Camera depth of a unit: the mean over its surface vertices, which orders it among translucent members. */
+        fun unitDepth(u: Isolated, cam: CameraFrame): Float {
+            var sum = 0f
+            var n = 0
+            for (p in u.planes) {
+                val v = p.surface ?: continue
+                var i = 0
+                while (i + 2 < v.size) {
+                    sum += cam.toCamera(p.model.apply(v[i], v[i + 1], v[i + 2]))[2]
+                    n++
+                    i += 5
+                }
+            }
+            return if (n == 0) 0f else sum / n
         }
 
         /** The bounds of 3D ink in stroke units, padded by the widest tube's radius. */
@@ -714,13 +942,30 @@ class DepthCompositor : GLSurfaceView.Renderer {
                 fragColor = uExact == 1 ? texelFetch(uTex, ivec2(gl_FragCoord.xy), 0) : texture(uTex, vUv);
             }"""
 
+        // A group's target (premultiplied colour and its depth) over the scene: the depth is written
+        // as the fragment's, so the test against the scene is per pixel, at the surface's own depth.
+        private const val ISOLATED_FS = """#version 300 es
+            precision highp float;
+            uniform highp sampler2D uColor;
+            uniform highp sampler2D uDepth;
+            uniform float uOpacity;
+            out vec4 fragColor;
+            void main() {
+                ivec2 p = ivec2(gl_FragCoord.xy);
+                vec4 c = texelFetch(uColor, p, 0);
+                if (c.a < 0.002) discard;
+                gl_FragDepth = texelFetch(uDepth, p, 0).r;
+                fragColor = c * uOpacity;
+            }"""
+
         /**
          * The order translucent planes and models draw in, together: farthest first, by the camera
          * depth of each plane's image centre and each mesh's bounding centre. Returns [Plane]s and
-         * [Model]s.
+         * [Model]s, and the [Isolated] units among them.
          */
-        fun translucentOrder(planes: List<Plane>, models: List<Model>, cam: CameraFrame): List<Any> {
-            val items = ArrayList<Pair<Any, Float>>(planes.size + models.size)
+        fun translucentOrder(planes: List<Plane>, models: List<Model>, cam: CameraFrame, units: List<Isolated> = emptyList()): List<Any> {
+            val items = ArrayList<Pair<Any, Float>>(planes.size + models.size + units.size)
+            units.forEach { items += it to unitDepth(it, cam) }
             planes.forEach { p ->
                 val centre = p.model.apply((p.rect[0] + p.rect[2]) / 2f, (p.rect[1] + p.rect[3]) / 2f, 0f)
                 items += p to cam.toCamera(centre)[2]

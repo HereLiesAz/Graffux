@@ -1,4 +1,4 @@
-@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength", "ReturnCount", "MagicNumber", "DestructuringDeclarationWithTooManyEntries")
+@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength", "ReturnCount", "MagicNumber", "DestructuringDeclarationWithTooManyEntries", "LongParameterList")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -43,12 +43,9 @@ internal object DepthScene {
         for (id in plan.memberIds) {
             val layer = byId[id] ?: continue
             val model = SceneMath.chainModel(planeChain(layers, id), width, height)
-            val alpha = DepthComposite.effectiveOpacity(layers, id)
+            val (alpha, isolation) = memberAlpha(layers, plan, layer)
             val owner = if (id in plan.surfaceIds) com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, id) else null
-            // What the inactive-layer cache compares: the layer, its placement chain and the surface
-            // it is painted on, never the canvas size (a resize scales the renders instead of
-            // rebuilding them).
-            val key = if (activeId == null) null else listOf(layer, planeChain(layers, id), alpha, owner?.profile)
+            val key = if (activeId == null) null else cacheKey(layers, byId, layer, alpha, owner?.profile, isolation)
             val content = layer.model
             if (content != null) {
                 val mesh = content.mesh ?: continue
@@ -90,10 +87,56 @@ internal object DepthScene {
             }
             planes += DepthCompositor.Plane(id, bitmap, token, model, rect, colorMatrixOf(layer), alpha, key)
         }
+        val groups = isolatedGroups(plan, planes, byId, activeId)
         return DepthCompositor.Scene(
             SceneMath.frame(camera, width, height), planes, inks, models,
-            activeId = activeId, drawing = drawing, viewKey = camera.takeIf { activeId != null },
+            activeId = activeId, drawing = drawing, viewKey = camera.takeIf { activeId != null }, groups = groups,
         )
+    }
+
+    /**
+     * The opacity a member draws with, and the isolated group it draws inside (if any). Paint in a
+     * translucent surface group composites inside the group's own target and takes the group's
+     * opacity once, over the merged image, so there it keeps only its own (and its inner groups').
+     */
+    private fun memberAlpha(layers: List<Layer>, plan: DepthComposite, layer: Layer): Pair<Float, DepthComposite.IsolatedGroup?> {
+        val isolation = plan.isolationOf(layer.id)?.takeIf { layer.spatial == null && layer.model == null }
+        val alpha = if (isolation != null) {
+            DepthComposite.opacityBelow(layers, layer.id, isolation.groupId)
+        } else {
+            DepthComposite.effectiveOpacity(layers, layer.id)
+        }
+        return alpha to isolation
+    }
+
+    /**
+     * What the inactive-layer cache compares: the layer, its placement chain and the surface it is
+     * painted on, never the canvas size (a resize scales the renders instead of rebuilding them).
+     * In an isolated group, also what the merged image is drawn with: its opacity and blend.
+     */
+    private fun cacheKey(
+        layers: List<Layer>,
+        byId: Map<String, Layer>,
+        layer: Layer,
+        alpha: Float,
+        profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?,
+        isolation: DepthComposite.IsolatedGroup?,
+    ): Any = listOf(layer, planeChain(layers, layer.id), alpha, profile, isolation?.opacity, isolation?.let { byId[it.groupId]?.blendMode })
+
+    /**
+     * One unit per translucent group that has paint to draw. Its key is what the cached renders
+     * that hold it compare: the group's opacity and blend and its members' keys.
+     */
+    private fun isolatedGroups(
+        plan: DepthComposite,
+        planes: List<DepthCompositor.Plane>,
+        byId: Map<String, Layer>,
+        activeId: String?,
+    ): List<DepthCompositor.Group> = plan.isolatedGroups.mapNotNull { g ->
+        val inside = planes.filter { it.surface != null && it.surfaceGroup == g.groupId }
+        if (inside.isEmpty()) return@mapNotNull null
+        val key = if (activeId == null) null else listOf(g.groupId, g.opacity, byId[g.groupId]?.blendMode, inside.map { it.key })
+        DepthCompositor.Group(g.groupId, inside.map { it.id }, g.opacity, key)
     }
 
     /**

@@ -349,16 +349,55 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   each pulled toward the eye by its stack position (polygon offset), so a layer above draws over the
   one below on the same surface and the surface still occludes itself. Layers the pass cannot draw
   (an adjustment) are not drawn flat either (`DepthComposite.surfaceIds`).
+- **Group opacity and blend.** A group composites as one unit on a surface, as on the flat canvas:
+  its layers merge first, then the merged image takes the group's opacity. Where two of its layers
+  overlap this is not the same as fading each layer, which lets the lower one show through the upper.
+  A group whose effective opacity (its own times its enclosing groups') is below 1 is an *isolated
+  group* (`DepthComposite.isolatedGroups`). Its layers draw into an offscreen colour + depth target the
+  size of the viewport, with their own opacity (times any groups between them and the profiled group),
+  blend and stack order, exactly as an opaque group draws them to the screen. The target is then
+  composited into the scene at the group's opacity as a full-screen pass that writes the target's own
+  per-pixel depth (`gl_FragDepth`), so the group depth-tests against the other members like the
+  surface itself (it is drawn with the translucent members, farthest first, no depth writes). A fully
+  opaque group takes no offscreen pass: its layers draw straight into the scene, as before.
+  - *Target lifetime.* One target per isolated group, kept in `DepthCompositor` and reused as long as the
+    viewport size is unchanged (a resize reallocates once). It is re-rendered only when its key
+    changes: the camera, the viewport, or any member's pixels, placement, opacity or surface. A target
+    not used in a frame (the inactive-layer cache served that side instead, the group became opaque or
+    was removed) is freed at the end of that frame. Memory: an RGBA8 colour texture plus a 24-bit
+    depth texture, 8 bytes a pixel (about 20 MB at 1080 x 2400), one per translucent group drawn
+    this frame. Where the target cannot be made (incomplete framebuffer), the group's layers draw
+    straight into the scene at the group's opacity each, the previous per-layer result.
+  - *Blend mode.* A group blend mode other than normal is honoured when the profile is straight (one
+    plane): the group's layers stay out of the depth pass and draw in the stack through the surface's
+    plane with the group's blend (`ScenePaint`), the way a blend-mode layer on a straight surface
+    already does. On a curved surface the blend mode is ignored (see Limits): the pass draws into a
+    transparent view that is composited above the stack, so it has no backdrop to blend with.
+  - *Nesting.* The unit is the profiled group. Groups above it fold their opacity into the unit's
+    (exact when the profiled group is their only content); groups between it and a layer still fold
+    theirs into that layer, so a translucent group nested inside a profiled group is not isolated.
 - **Inactive-layer cache.** Split by group: the active group's other layers are behind or in front
   by stack order when its profile is straight; when it is curved the surface can fold in front of
   itself, so the split is ambiguous and the frame is drawn uncached. Other members are split as
-  before (by the active plane when straight, by depth range when curved).
+  before (by the active plane when straight, by depth range when curved). An isolated group is one
+  unit for the split: while a stroke is in progress inside it, the other members are split around the
+  whole group, and the group itself is the live part: its target is reused and re-rendered each
+  frame (one clear, its layers' draws, one full-screen composite; nothing is allocated). When the
+  group is not the active one, its result is part of the behind or front render; the keys of both
+  include the group's opacity and blend, so changing either rebuilds that render.
 - **Co-op.** `LayerExtProps.surface` with `surfaceSent`; a peer that predates surfaces sends
   neither and keeps the receiver's.
-- **glTF.** Paint on a surface is exported as its strips (`SceneGltfExporter.Quad.surface`).
+- **glTF.** Paint on a surface is exported as its strips (`SceneGltfExporter.Quad.surface`), each
+  with its layer's own material alpha (the layer's opacity times its groups'). glTF cannot isolate a
+  group: its materials blend primitive by primitive, so where a translucent group's layers overlap the
+  viewer fades each one separately, as the canvas did before groups were isolated. Matching the unit
+  would mean baking the group into one texture; not done.
 - **Persistence.** `OverlayLayer.surface`, project format 9.
 - **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
-  (source-over); the export's no-GLES fallback omits paint on surfaces.
+  (source-over) when its profile is curved, except that a layer's own blend or clip on a straight
+  profile, and the group's blend on a straight profile, draw in the stack. glTF fades a translucent
+  group's layers one by one (see above). The export's no-GLES fallback composites an isolated group
+  into a bitmap the size of the canvas, then draws it at the group's opacity.
 
 ## Adopting the view plane
 
@@ -463,8 +502,12 @@ shows from the current camera, at canvas size, before the artboard crop. The dep
 come from the same `DepthCompositor`, rendered off screen on a pbuffer
 (`OffscreenDepthRender`) and read back once. Every other layer draws through its homography
 (Skia renders perspective bitmaps), groups with their opacity and blend, and a frame's fill and
-clip through the frame's own plane. Where GLES cannot start (unit tests), the members are drawn
-farthest-first through their homographies and 3D ink and models are omitted.
+clip through the frame's own plane. An isolated group (Group opacity and blend, above) renders the
+same way in the off-screen pass (one target, composited at the group's opacity with its own depth), so
+the export shows what the canvas does. Where GLES cannot start (unit tests), the members are drawn
+farthest-first through their homographies and 3D ink and models are omitted; an isolated group's
+layers are drawn into a canvas-sized bitmap first, which is then drawn at the group's opacity, at the
+group's place in that order.
 
 glTF axes are y-up, z toward the viewer, metres. One metre is one spatial unit (`F / 3` scene
 pixels), origin at the canvas centre on the picture plane, so the strokes keep their coordinates.
@@ -486,6 +529,9 @@ finished stroke, not per dab. (Graffux has no co-op transport bound yet; this is
   order among themselves and against the depth pass.
 - Crossing semi-transparent edges occlude rather than blend (no order-independent transparency).
 - A 3D strokes layer in a group with a non-normal blend mode is composited normally, in the pass.
+- A group's blend mode on a curved surface is ignored (a straight surface honours it, in the stack).
+- A translucent group nested inside a profiled group is not isolated: its opacity is folded into its
+  layers, so overlaps inside it compound. Only the profiled group (with the groups above it) is a unit.
 - Animation Assist's onion-skin fading does not apply to depth-pass members.
 - A model layer has no pixels of its own, like a 3D strokes layer. Its blend mode is ignored
   (it is always in the depth pass), and the brush paints opaque round dabs in the active colour.
