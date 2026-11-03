@@ -73,4 +73,23 @@ class DepthCompositorStateTest {
         assertEquals(listOf("b", "low"), b)
         assertTrue(a != b)
     }
+
+    @Test
+    fun `a group at opacity 0 leaves no fragment, so it cannot occlude what is drawn after it`() {
+        // Opaque child paint (alpha 1) at opacity 0 used to pass the unscaled test and write depth.
+        assertFalse(DepthCompositor.isolatedFragmentVisible(alpha = 1f, opacity = 0f))
+        assertFalse(DepthCompositor.isolatedFragmentVisible(alpha = 0f, opacity = 1f))
+        assertTrue(DepthCompositor.isolatedFragmentVisible(alpha = 1f, opacity = 1f))
+        assertTrue(DepthCompositor.isolatedFragmentVisible(alpha = 1f, opacity = 0.5f))
+    }
+
+    @Test
+    fun `the isolated shader discards on the opacity-scaled alpha before writing depth`() {
+        val fs = DepthCompositor.ISOLATED_FS
+        val scaled = fs.indexOf("* uOpacity")
+        val discard = fs.indexOf("discard")
+        val depth = fs.indexOf("gl_FragDepth =")
+        assertTrue(scaled in 0 until discard)
+        assertTrue(discard in 0 until depth)
+    }
 }

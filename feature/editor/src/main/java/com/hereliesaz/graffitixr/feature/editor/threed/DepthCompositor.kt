@@ -909,6 +909,12 @@ class DepthCompositor : GLSurfaceView.Renderer {
          */
         fun depthMaskChange(current: Boolean?, blended: Boolean): Boolean? = if (current == blended) null else !blended
 
+        /**
+         * Whether a composited group's texel survives [ISOLATED_FS]: its alpha scaled by the group's
+         * [opacity], which is what is drawn and what writes depth, so opacity 0 never does.
+         */
+        fun isolatedFragmentVisible(alpha: Float, opacity: Float): Boolean = alpha * opacity >= 0.002f
+
         /** [ids] in the order [order] draws them: what a cached render holds, and keys on. */
         fun inDrawOrder(ids: List<String>, order: List<Draw>): List<String> {
             val set = ids.toHashSet()
@@ -971,7 +977,7 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
         // A group's target (premultiplied colour and its depth) over the scene: the depth is written
         // as the fragment's, so the test against the scene is per pixel, at the surface's own depth.
-        private const val ISOLATED_FS = """#version 300 es
+        internal const val ISOLATED_FS = """#version 300 es
             precision highp float;
             uniform highp sampler2D uColor;
             uniform highp sampler2D uDepth;
@@ -979,10 +985,12 @@ class DepthCompositor : GLSurfaceView.Renderer {
             out vec4 fragColor;
             void main() {
                 ivec2 p = ivec2(gl_FragCoord.xy);
-                vec4 c = texelFetch(uColor, p, 0);
+                vec4 c = texelFetch(uColor, p, 0) * uOpacity;
+                // The scaled alpha decides, before any depth is written: a group faded to nothing
+                // must not leave an invisible occluder. Mirrors isolatedFragmentVisible().
                 if (c.a < 0.002) discard;
                 gl_FragDepth = texelFetch(uDepth, p, 0).r;
-                fragColor = c * uOpacity;
+                fragColor = c;
             }"""
 
         /**
