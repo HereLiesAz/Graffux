@@ -462,4 +462,36 @@ class EditHistoryTest {
         assertFalse(h.pushDraw("l", stroke(), chunkable = true, nowMs = 10L, plane = swap))
         assertEquals(swap, (h.undoStackTopForTest() as EditCommand.Draw).plane)
     }
+
+    @Test
+    fun `a stroke chained across two view images undoes and redoes as one step`() {
+        val h = EditHistory()
+        h.pushDraw("side", stroke(), continuesGesture = false)
+        h.pushDraw("top", stroke(), chainedToPrevious = true)
+        h.pushDraw("top", stroke(), continuesGesture = true)
+        assertEquals(2, h.undoCount)
+        val b = h.popUndo { it } as EditCommand.Draw
+        assertTrue(b.chainedToPrevious)
+        assertEquals(2, b.strokes.size)
+        assertTrue(h.undoTopIsDraw())
+        val a = h.popUndo { it } as EditCommand.Draw
+        assertEquals("side", a.layerId)
+        assertTrue(a.chainedNext)
+        assertEquals(0, h.undoCount)
+        assertEquals(2, h.redoCount)
+        assertEquals("side", (h.popRedo { it } as EditCommand.Draw).layerId)
+        assertTrue(h.redoTopIsDraw())
+        assertEquals("top", (h.popRedo { it } as EditCommand.Draw).layerId)
+    }
+
+    @Test
+    fun `chaining onto a different kind of entry or the same layer adds nothing special`() {
+        val h = EditHistory()
+        h.pushProperty(listOf(layer("a")))
+        h.pushDraw("top", stroke(), chainedToPrevious = true)
+        assertTrue(!(h.popUndo { it } as EditCommand.Draw).chainedToPrevious)
+        h.pushDraw("top", stroke())
+        h.pushDraw("top", stroke(), chainedToPrevious = true)
+        assertTrue(!(h.popUndo { it } as EditCommand.Draw).chainedToPrevious)
+    }
 }

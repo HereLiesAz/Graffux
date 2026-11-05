@@ -32,6 +32,7 @@ object SurfaceViewStroke {
      * `to`'s view, the bracket is not trustworthy: the touches themselves are returned (the stroke
      * is cut between them, with the gap the surface really has there).
      */
+    @Suppress("LongParameterList")
     fun crossing(
         ax: Float,
         ay: Float,

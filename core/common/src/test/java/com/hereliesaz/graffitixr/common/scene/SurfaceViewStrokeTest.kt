@@ -17,10 +17,10 @@ class SurfaceViewStrokeTest {
     private fun outline(sweep: FloatArray, corners: List<Pair<Float, Float>>, place: (Float, Float) -> FloatArray) =
         SurfaceProfile(corners.flatMap { place(it.first, it.second).toList() }, sweep[0], sweep[1], sweep[2])
 
-    private val box = listOf(0f to 0f, 100f to 0f, 100f to 100f, 0f to 100f)
+    private val box = listOf(300f to 200f, 700f to 200f, 700f to 600f, 300f to 600f)
     private val cube = outline(floatArrayOf(0f, 0f, 1f), box) { x, y -> floatArrayOf(x, y, 0f) }.copy(
-        side = outline(floatArrayOf(1f, 0f, 0f), box) { z, y -> floatArrayOf(0f, y, z) },
-        top = outline(floatArrayOf(0f, 1f, 0f), box) { x, z -> floatArrayOf(x, 0f, z) },
+        side = outline(floatArrayOf(1f, 0f, 0f), box) { z, y -> floatArrayOf(0f, y, z - 300f) },
+        top = outline(floatArrayOf(0f, 1f, 0f), box) { x, z -> floatArrayOf(x, 0f, z - 300f) },
     )
     private val group = Layer("g", "G", type = LayerType.GROUP, surface = cube)
     private val leaf = Layer("a", "A", parentId = "g")
@@ -36,7 +36,7 @@ class SurfaceViewStrokeTest {
 
     /** The first screen step along a row where the touched view changes: (x before, x after). */
     private fun viewChange(): Triple<Float, Float, Float>? {
-        for (y in 300..500 step 25) {
+        for (y in 205..235 step 5) {
             var prev: SurfaceMath.ViewFlat? = null
             var px = 0f
             var x = 0f
@@ -49,7 +49,7 @@ class SurfaceViewStrokeTest {
                 } else {
                     prev = null
                 }
-                x += 2f
+                x += 1f
             }
         }
         return null

@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -156,7 +157,31 @@ internal class ActivePlaneMapping private constructor(
     private val height: Float,
     /** The active layer's group surface, when it is paint on one (spec/3d-space.md, "Group surfaces"). */
     private val surface: com.hereliesaz.graffitixr.common.scene.SurfaceOwner? = null,
+    /** The active layer, the paint layer whose per-view images a hull stroke lands in. */
+    val layerId: String? = null,
 ) {
+    /** The intersected surface of a group drawn from more than one view, built once; null otherwise. */
+    private val hull: com.hereliesaz.graffitixr.common.scene.SurfaceHull? by lazy {
+        surface?.takeIf { it.profile.hasHull }?.let { com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(it.profile) }
+    }
+
+    /** True when the active layer is paint on a multi-view surface: a stroke is painted per view image. */
+    val onHull: Boolean get() = hull != null
+
+    /**
+     * [toFlatByFootprint] for a multi-view surface (spec/3d-space.md, "Paint per view"): the view
+     * whose image the touch lands on and the flat point in it; null for a true miss (or a cap,
+     * which has no image) and when the layer is not on a multi-view surface.
+     */
+    fun toViewFlatByFootprint(screen: Offset, footprintRadius: Float): com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat? {
+        val s = surface ?: return null
+        val h = hull ?: return null
+        val w = world(screen)
+        return com.hereliesaz.graffitixr.common.scene.SurfaceFootprint.worldToViewFlat(
+            w.x, w.y, footprintRadius / viewportZoom.coerceAtLeast(MIN_ZOOM), s, camera, width, height, h,
+        )
+    }
+
     private fun toFlatAt(w: Offset, footprint: Float = 0f): Offset? {
         val s = surface
         val c = chain ?: return w
@@ -245,7 +270,7 @@ internal class ActivePlaneMapping private constructor(
                 null
             }
             return ActivePlaneMapping(
-                state.viewportOffset, state.viewportZoom, state.viewportRotation, state.sceneCamera, chain, w, h, surface,
+                state.viewportOffset, state.viewportZoom, state.viewportRotation, state.sceneCamera, chain, w, h, surface, id,
             )
         }
     }
@@ -340,4 +365,99 @@ internal fun planeSegments(path: List<Offset>, toFlat: (Offset) -> Offset?): Lis
     }
     feed.onEnd()
     return done
+}
+
+/** Finds the flat samples either side of a crease between two touches ([ViewStrokeFeed.bridge]). */
+internal typealias BridgeFn = (ViewSample<BrushSample>, ViewSample<BrushSample>) -> Pair<BrushSample, BrushSample>?
+
+/** A raw touch with the view image it lands on and its flat sample there ([ViewStrokeFeed]). */
+internal class ViewSample<S>(
+    val view: com.hereliesaz.graffitixr.common.scene.SurfaceView,
+    val raw: S,
+    val flat: S,
+)
+
+/**
+ * [PlaneStrokeFeed] for a stroke on a multi-view surface (spec/3d-space.md, "Paint per view"): each
+ * view has its own paint image, so a stroke that moves from one view's face onto another's is cut
+ * there. The cut is made at the crease ([bridge] brackets it): the first image gets its last point
+ * right up to the crease and the next image starts at the other side of it, so nothing between is
+ * left unpainted. The segments are one gesture (the view-model chains them into one undo step).
+ * A gap (a sample off the surface) breaks the stroke exactly as in [PlaneStrokeFeed].
+ */
+@Suppress("LongParameterList")
+internal class ViewStrokeFeed<S>(
+    private val toView: (S) -> ViewSample<S>?,
+    /** The flat samples either side of the crease between consecutive touches in different views, or null for none. */
+    private val bridge: (ViewSample<S>, ViewSample<S>) -> Pair<S, S>?,
+    private val start: (com.hereliesaz.graffitixr.common.scene.SurfaceView, S) -> Unit,
+    private val point: (S) -> Unit,
+    private val end: () -> Unit,
+    private val cancel: () -> Unit,
+    private val segmentEnd: () -> Unit = end,
+) {
+    private var last: ViewSample<S>? = null
+    private var gap = false
+
+    fun onStart(sample: S) {
+        last = null
+        gap = false
+        feed(sample)
+    }
+
+    fun onPoint(sample: S) = feed(sample)
+
+    fun onEnd() = finish(end)
+
+    fun onCancel() = finish(cancel)
+
+    private fun feed(raw: S) {
+        val mapped = toView(raw)
+        if (mapped == null) {
+            gap = last != null
+            return
+        }
+        val prev = last
+        when {
+            prev == null -> start(mapped.view, mapped.flat)
+            gap -> {
+                segmentEnd()
+                start(mapped.view, mapped.flat)
+            }
+            prev.view != mapped.view -> {
+                val cut = bridge(prev, mapped)
+                if (cut != null) point(cut.first)
+                segmentEnd()
+                start(mapped.view, cut?.second ?: mapped.flat)
+                if (cut != null) point(mapped.flat)
+            }
+            else -> point(mapped.flat)
+        }
+        gap = false
+        last = mapped
+    }
+
+    private fun finish(then: () -> Unit) {
+        if (last != null) then() else cancel()
+        last = null
+        gap = false
+    }
+}
+
+/**
+ * The flat samples either side of the crease between two touches that land in different views
+ * ([ViewStrokeFeed.bridge]): the crease is found along the straight screen step between them, with
+ * the nib telemetry of the touch each side belongs to. Null when the step does not cross cleanly.
+ */
+internal fun ActivePlaneMapping.bridgeViews(
+    prev: ViewSample<BrushSample>,
+    next: ViewSample<BrushSample>,
+): Pair<BrushSample, BrushSample>? {
+    val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(prev.view, prev.flat.x, prev.flat.y)
+    val tm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(next.view, next.flat.x, next.flat.y)
+    val c = com.hereliesaz.graffitixr.common.scene.SurfaceViewStroke.crossing(
+        prev.raw.x, prev.raw.y, sm, next.raw.x, next.raw.y, tm,
+    ) { x, y -> toViewFlatByFootprint(Offset(x, y), 0f) }
+    if (c.last === sm && c.first === tm) return null
+    return prev.flat.copy(x = c.last.x, y = c.last.y) to next.flat.copy(x = c.first.x, y = c.first.y)
 }
