@@ -833,6 +833,7 @@ class EditorViewModel @Inject constructor(
         private const val LUMA_G = 0.7152f
         private const val LUMA_B = 0.0722f
         private const val HUD_MS = 700L
+        private const val SURFACE_NOTICE_MS = 4_000L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
          * Whether the host shows the mandatory project dialog ([projectGate]) instead of silently
@@ -5131,43 +5132,55 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The rail's axis slot: on a 3D layer it steps the axis; on a 2D layer (where it reads "3D")
-     * it arms "Draw surface" on the layer's group (the group itself when a group is active), the
-     * way into 3D since groups own surfaces. A layer in no group is first wrapped in a new group of
-     * its own (one undo step), which is then armed.
+     * The rail's axis slot: on a 3D layer it steps the axis; on a 2D layer (where it reads "3D") it
+     * arms "Draw surface" for the layer's group (the group itself when a group is active), the way
+     * into 3D since groups own surfaces. It only arms: nothing in the document changes until a line
+     * is captured, and a layer in no group is wrapped in a new group then, with the profile, as one
+     * undo step. Armed, the slot reads "Draw" and a tap cancels. A tap that cannot arm says why in
+     * the prompt chip ([SurfaceDrawNotice]); it is never silent.
      */
     @Suppress("ReturnCount")
     fun onAxisSlotTapped() {
         val st = _uiState.value
+        if (st.surfaceDrawArmed) {
+            onCancelSurfaceDraw()
+            return
+        }
         if (st.active3D()) {
             onCycleRotationAxis()
             return
         }
-        val active = st.layers.firstOrNull { it.id == st.activeLayerId } ?: return
-        val groupId = if (active.isContainer) active.id else active.parentId ?: wrapInNewGroup(active.id) ?: return
-        onArmSurfaceDraw(groupId)
+        val active = st.layers.firstOrNull { it.id == st.activeLayerId }
+        if (active == null) {
+            showSurfaceNotice(SurfaceDrawNotice.NO_LAYER)
+            return
+        }
+        if (active.isImageLocked) {
+            showSurfaceNotice(SurfaceDrawNotice.LOCKED)
+            return
+        }
+        val parent = active.parentId?.let { pid -> st.layers.firstOrNull { it.id == pid } }
+        when {
+            active.isContainer -> onArmSurfaceDraw(active.id)
+            parent?.isContainer == true -> onArmSurfaceDraw(parent.id)
+            active.parentId == null -> {
+                surfaceNoticeJob?.cancel()
+                updateUi { it.copy(surfaceDrawWrapLayerId = active.id, surfaceDrawNotice = null) }
+            }
+            else -> showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+        }
     }
 
-    /**
-     * Wraps top-level layer [layerId] in a new [LayerType.GROUP] at its place in the stack, as one
-     * undo step, and tells co-op peers. Returns the new group's id, or null when it cannot.
-     */
-    private fun wrapInNewGroup(layerId: String): String? {
-        val before = _uiState.value.layers
-        val layer = before.firstOrNull { it.id == layerId }?.takeIf { it.parentId == null } ?: return null
-        val group = Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP)
-        pushHistory()
-        updateUi { st ->
-            st.copy(
-                layers = st.layers.flatMap {
-                    if (it.id == layer.id) listOf(group, it.copy(parentId = group.id)) else listOf(it)
-                },
-            )
+    private var surfaceNoticeJob: Job? = null
+
+    /** A message in the Draw-surface chip while unarmed; it clears itself after a few seconds (OK clears it now). */
+    private fun showSurfaceNotice(notice: SurfaceDrawNotice) {
+        surfaceNoticeJob?.cancel()
+        updateUi { it.copy(surfaceDrawNotice = notice) }
+        surfaceNoticeJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(SURFACE_NOTICE_MS)
+            if (!_uiState.value.surfaceDrawArmed) updateUi { it.copy(surfaceDrawNotice = null) }
         }
-        emitMembership(Op.LayerAdd(group))
-        emitGeometryChanges(before, _uiState.value.layers)
-        saveProject()
-        return group.id
     }
 
     fun onRotateLayerHandle(degreesDelta: Float) {
@@ -6055,8 +6068,15 @@ class EditorViewModel @Inject constructor(
      * stroke and drew nothing.
      */
     private fun withoutOrphanSurfaceCapture(state: EditorUiState): EditorUiState {
-        val groupId = state.surfaceDrawGroupId ?: return state
-        return if (state.layers.any { it.id == groupId }) state else state.copy(surfaceDrawGroupId = null)
+        val groupId = state.surfaceDrawGroupId
+        val wrapId = state.surfaceDrawWrapLayerId
+        val gone = (groupId != null && state.layers.none { it.id == groupId }) ||
+            (wrapId != null && state.layers.none { it.id == wrapId })
+        return if (gone) {
+            state.copy(surfaceDrawGroupId = null, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null)
+        } else {
+            state
+        }
     }
 
     /** The one state writer behind [dispatch] and [updateUi]; see [rebaseInheritedPixels]. */
@@ -12328,34 +12348,82 @@ class EditorViewModel @Inject constructor(
      * drawn in the current view, as the group's profile. Calling it again for the armed group disarms.
      */
     fun onArmSurfaceDraw(groupId: String) {
-        val group = _uiState.value.layers.firstOrNull { it.id == groupId }?.takeIf { it.isContainer } ?: return
-        updateUi { it.copy(surfaceDrawGroupId = if (it.surfaceDrawGroupId == group.id) null else group.id) }
+        val group = _uiState.value.layers.firstOrNull { it.id == groupId }?.takeIf { it.isContainer }
+        if (group == null) {
+            showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+            return
+        }
+        surfaceNoticeJob?.cancel()
+        updateUi {
+            if (it.surfaceDrawGroupId == group.id) {
+                it.copy(surfaceDrawGroupId = null, surfaceDrawNotice = null)
+            } else {
+                it.copy(surfaceDrawGroupId = group.id, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null)
+            }
+        }
     }
 
-    /** Disarms "Draw surface" without changing anything. */
+    /** Disarms "Draw surface" (or dismisses its message) without changing anything in the document. */
     fun onCancelSurfaceDraw() {
-        if (_uiState.value.surfaceDrawGroupId != null) updateUi { it.copy(surfaceDrawGroupId = null) }
+        surfaceNoticeJob?.cancel()
+        val st = _uiState.value
+        if (st.surfaceDrawArmed || st.surfaceDrawNotice != null) {
+            updateUi { it.copy(surfaceDrawGroupId = null, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null) }
+        }
     }
 
     /**
      * The armed stroke ended: [world] are its canvas points in order. The armed group's profile
-     * becomes that curve swept along the view direction, as one undo step; a stroke too short to
-     * be a curve changes nothing. Either way the action is spent.
+     * becomes that curve swept along the view direction, as one undo step; for a layer in no group
+     * the group is made in the same step (wrap and profile together). A stroke too short to be a
+     * curve (a tap) changes nothing: it stays armed and the chip says so.
      */
     @Suppress("ReturnCount")
     fun onSurfaceProfileDrawn(world: List<Offset>) {
         val st = _uiState.value
-        val groupId = st.surfaceDrawGroupId ?: return
-        updateUi { it.copy(surfaceDrawGroupId = null) }
         val size = st.canvasSize
-        if (size.width <= 0 || size.height <= 0) return
-        val chain = planeChain(st.layers, groupId)
-        if (chain.isEmpty()) return
-        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
-            world.map { it.x to it.y }, st.sceneCamera, size.width.toFloat(), size.height.toFloat(), chain,
-        ) ?: return
-        setSurface(groupId, profile)
+        val wrapId = st.surfaceDrawWrapLayerId
+        // For a layer to be wrapped, the group is worked out on a copy of the stack first.
+        val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
+        val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
+        val groupId = newGroup?.id ?: st.surfaceDrawGroupId ?: return
+        val chain = planeChain(layers, groupId)
+        val profile = if (size.width <= 0 || size.height <= 0 || chain.isEmpty()) {
+            null
+        } else {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+                world.map { it.x to it.y }, st.sceneCamera, size.width.toFloat(), size.height.toFloat(), chain,
+            )
+        }
+        if (profile == null) {
+            updateUi { it.copy(surfaceDrawNotice = SurfaceDrawNotice.TOO_SHORT) }
+            return
+        }
+        if (newGroup == null) {
+            updateUi { it.copy(surfaceDrawGroupId = null, surfaceDrawNotice = null) }
+            setSurface(groupId, profile)
+        } else {
+            val before = st.layers
+            pushHistory()
+            updateUi { s ->
+                s.copy(
+                    layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)),
+                    surfaceDrawWrapLayerId = null,
+                    surfaceDrawNotice = null,
+                )
+            }
+            emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
+            emitGeometryChanges(before, _uiState.value.layers)
+            saveProject()
+        }
+        showSurfaceNotice(SurfaceDrawNotice.DONE)
     }
+
+    /** [layers] with top-level layer [layerId] inside [group], which takes its place in the stack. */
+    private fun wrappedInGroup(layers: List<Layer>, layerId: String, group: Layer): List<Layer> =
+        layers.flatMap {
+            if (it.id == layerId && it.parentId == null) listOf(group, it.copy(parentId = group.id)) else listOf(it)
+        }
 
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
     fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }

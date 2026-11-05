@@ -2,6 +2,8 @@ package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerType
+import androidx.compose.ui.graphics.Color
 
 /** The top-level layers host: an `azUnattachedHostItem`. */
 internal const val LAYERS_HOST_ID = "grp.layers"
@@ -38,4 +40,52 @@ internal fun layerRailRows(layers: List<Layer>): List<LayerRailRow> {
     }
     declare(null, LAYERS_HOST_ID)
     return rows
+}
+
+/**
+ * The outermost [LayerType.GROUP] holding [layer] (a group inside a group counts as its outermost
+ * group, so nesting adds nothing of its own), or null when it sits in no group.
+ */
+internal fun topGroupOf(layers: Map<String, Layer>, layer: Layer): Layer? {
+    var top: Layer? = null
+    var parent = layer.parentId?.let(layers::get)
+    val seen = HashSet<String>()
+    while (parent != null && seen.add(parent.id)) {
+        if (parent.type == LayerType.GROUP) top = parent
+        parent = parent.parentId?.let(layers::get)
+    }
+    return top
+}
+
+/** A group's mark on its layers' tiles: its 1-based number (for TalkBack) and its edge-band colour. */
+internal data class GroupBand(val number: Int, val color: Color)
+
+/**
+ * Group colours: six, apart in hue and in lightness, and none of the tile outlines' colours (pink,
+ * cyan, white, amber, neon green). Handed out in the order the groups sit in the document, so a
+ * document always paints the same group the same colour.
+ */
+@Suppress("MagicNumber")
+internal val GROUP_PALETTE: List<Color> = listOf(
+    Color(0xFF9B7BFF), // violet
+    Color(0xFFE8542B), // red-orange
+    Color(0xFF2F5BFF), // blue
+    Color(0xFF5FA83A), // leaf green
+    Color(0xFF7A1F3D), // wine
+    Color(0xFF008F7A), // deep teal
+)
+
+/**
+ * Which layers wear a group band, and which. Groups have no tile on the rail: layers are shown flat
+ * and membership is told by colour, and only when there are two or more groups with layers in them
+ * (one group would only tell the user what they already see, so it stays invisible). Keyed by
+ * layer id; ungrouped layers are absent.
+ */
+internal fun layerGroupBands(layers: List<Layer>): Map<String, GroupBand> {
+    val byId = layers.associateBy { it.id }
+    val members = layers.filter { !it.isContainer }.mapNotNull { l -> topGroupOf(byId, l)?.let { l.id to it.id } }
+    val groupIds = layers.filter { g -> members.any { it.second == g.id } }.map { it.id }
+    if (groupIds.size < 2) return emptyMap()
+    val band = groupIds.mapIndexed { i, id -> id to GroupBand(i + 1, GROUP_PALETTE[i % GROUP_PALETTE.size]) }.toMap()
+    return members.associate { (layerId, groupId) -> layerId to band.getValue(groupId) }
 }

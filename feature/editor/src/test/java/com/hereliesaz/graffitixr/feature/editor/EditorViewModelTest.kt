@@ -6,6 +6,8 @@ import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.is3DIn
+import com.hereliesaz.graffitixr.common.model.SurfaceDrawNotice
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import com.hereliesaz.graffitixr.common.model.isSpatial
 
@@ -44,6 +46,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import kotlinx.coroutines.test.TestScope
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertSame
@@ -1842,7 +1845,110 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `the axis slot wraps an ungrouped 2D layer in a new group, one undo step, and arms Draw surface`() = runTest {
+    fun `deleting the armed group disarms Draw surface, so the next stroke paints`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("g").copy(type = groupType), lyr("a").copy(parentId = "g")))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onArmSurfaceDraw("g")
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onLayerRemoved("g")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
+    }
+
+    /** What the 3D slot did in one state: the visible changes (armed, chip), and the document and history. */
+    private data class SlotOutcome(
+        val armed: Boolean,
+        val notice: SurfaceDrawNotice?,
+        val layersChanged: Boolean,
+        val undo: Int,
+        val axisMoved: Boolean,
+    )
+
+    private fun tapSlot(layers: List<Layer>, active: String?, canvas: Boolean = true): SlotOutcome {
+        viewModel.setLayers(layers)
+        if (canvas) viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onCancelSurfaceDraw()
+        if (active != null) viewModel.onLayerActivated(active) else viewModel.onLayerActivated("none")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val before = viewModel.uiState.value
+        viewModel.onAxisSlotTapped()
+        // Not advanceUntilIdle: that would run the notice's own timeout.
+        testDispatcher.scheduler.runCurrent()
+        val after = viewModel.uiState.value
+        return SlotOutcome(
+            armed = after.surfaceDrawArmed,
+            notice = after.surfaceDrawNotice,
+            layersChanged = after.layers != before.layers,
+            undo = after.undoCount - before.undoCount,
+            axisMoved = after.activeRotationAxis != before.activeRotationAxis,
+        )
+    }
+
+    private val groupType = com.hereliesaz.graffitixr.common.model.LayerType.GROUP
+
+    @Test
+    fun `the 3D slot does something visible in every state, and changes no layer`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // A lone ungrouped raster layer: armed, and not wrapped (that waits for the captured line).
+        assertEquals(SlotOutcome(true, null, false, 0, false), tapSlot(listOf(lyr("a")), "a"))
+        assertNotNull(viewModel.uiState.value.surfaceDrawWrapLayerId)
+        // In a group, or the group itself: armed on the group.
+        val grouped = listOf(lyr("g").copy(type = groupType), lyr("a").copy(parentId = "g"))
+        assertEquals(SlotOutcome(true, null, false, 0, false), tapSlot(grouped, "a"))
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        assertEquals(SlotOutcome(true, null, false, 0, false), tapSlot(grouped, "g"))
+        // Locked: a reason in the chip, nothing changes.
+        assertEquals(
+            SlotOutcome(false, SurfaceDrawNotice.LOCKED, false, 0, false),
+            tapSlot(listOf(lyr("a").copy(isImageLocked = true)), "a"),
+        )
+        // No active layer: a reason, not a silent return.
+        assertEquals(SlotOutcome(false, SurfaceDrawNotice.NO_LAYER, false, 0, false), tapSlot(listOf(lyr("a")), null))
+        // A layer whose parent is no container cannot be armed: a reason.
+        assertEquals(
+            SlotOutcome(false, SurfaceDrawNotice.UNAVAILABLE, false, 0, false),
+            tapSlot(listOf(lyr("p"), lyr("a").copy(parentId = "p")), "a"),
+        )
+        // A 3D layer: the axis steps (the slot shows it), as before.
+        assertEquals(true, tapSlot(listOf(modelLyr("m")), "m").axisMoved)
+        val ink = lyr("s").copy(spatial = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent())
+        assertEquals(true, tapSlot(listOf(ink), "s").axisMoved)
+        // A layer whose group already has a surface: the axis steps.
+        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
+        val surfaced = listOf(lyr("g").copy(type = groupType, surface = profile), lyr("a").copy(parentId = "g"))
+        assertEquals(true, tapSlot(surfaced, "a").axisMoved)
+    }
+
+    @Test
+    fun `arming then cancelling leaves the layers, groups and history exactly as they were`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("under"), lyr("lone"), lyr("over")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val before = viewModel.uiState.value
+        // By the slot again, and by Cancel (the Back key calls the same function).
+        viewModel.onAxisSlotTapped()
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertEquals(before.layers, viewModel.uiState.value.layers)
+        viewModel.onAxisSlotTapped()
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        viewModel.onCancelSurfaceDraw()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val after = viewModel.uiState.value
+        assertEquals(before.layers, after.layers)
+        assertEquals(before.undoCount, after.undoCount)
+        assertEquals(before.redoCount, after.redoCount)
+        assertEquals(before.activeLayerId, after.activeLayerId)
+        assertFalse(after.surfaceDrawArmed)
+        assertNull(after.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `the wrap and the profile are one undo step, made when the line is captured`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("under"), lyr("lone"), lyr("over")))
         viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
@@ -1850,48 +1956,68 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val undo = viewModel.uiState.value.undoCount
         viewModel.onAxisSlotTapped()
+        // A tap-length line: nothing made, still armed, and it says so.
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(10f, 10f), Offset(11f, 10f)))
         testDispatcher.scheduler.advanceUntilIdle()
-        val layers = viewModel.uiState.value.layers
-        val lone = layers.first { it.id == "lone" }
-        val group = layers.first { it.id == lone.parentId }
-        assertEquals(com.hereliesaz.graffitixr.common.model.LayerType.GROUP, group.type)
-        assertNull(group.parentId)
-        assertEquals(group.id, viewModel.uiState.value.surfaceDrawGroupId)
-        assertEquals("lone", viewModel.uiState.value.activeLayerId)
-        // Its place in the stack is unchanged: between "under" and "over".
-        assertEquals(listOf("under", group.id, "over"), layers.filter { it.parentId == null }.map { it.id })
-        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        assertEquals(listOf("under", "lone", "over"), viewModel.uiState.value.layers.map { it.id })
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertEquals(SurfaceDrawNotice.TOO_SHORT, viewModel.uiState.value.surfaceDrawNotice)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f)))
+        testDispatcher.scheduler.runCurrent()
+        val st = viewModel.uiState.value
+        val lone = st.layers.first { it.id == "lone" }
+        val group = st.layers.first { it.id == lone.parentId }
+        assertEquals(groupType, group.type)
+        assertNotNull(group.surface)
+        assertEquals(listOf("under", group.id, "over"), st.layers.filter { it.parentId == null }.map { it.id })
+        assertFalse(st.surfaceDrawArmed)
+        assertEquals(SurfaceDrawNotice.DONE, st.surfaceDrawNotice)
+        assertTrue(lone.is3DIn(st.layers))
+        assertEquals(undo + 1, st.undoCount)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("under", "lone", "over"), viewModel.uiState.value.layers.map { it.id })
     }
 
     @Test
-    fun `undoing the axis slot's auto-wrap disarms Draw surface, so the next stroke paints`() = runTest {
+    fun `a too-short stroke on a group stays armed and says so`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.setLayers(listOf(lyr("lone")))
-        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
-        viewModel.onLayerActivated("lone")
+        tapSlot(listOf(lyr("g").copy(type = groupType), lyr("a").copy(parentId = "g")), "a")
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(10f, 10f)))
         testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.onAxisSlotTapped()
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        assertEquals(SurfaceDrawNotice.TOO_SHORT, viewModel.uiState.value.surfaceDrawNotice)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `a reason and the confirmation clear themselves`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        val groupId = viewModel.uiState.value.surfaceDrawGroupId
-        assertNotNull(groupId)
-        viewModel.onUndoClicked()
+        tapSlot(listOf(lyr("a").copy(isImageLocked = true)), "a")
+        assertEquals(SurfaceDrawNotice.LOCKED, viewModel.uiState.value.surfaceDrawNotice)
+        testDispatcher.scheduler.advanceTimeBy(7_000)
+        testDispatcher.scheduler.runCurrent()
+        assertNull(viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `the armed prompt has no timeout`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.layers.none { it.id == groupId })
-        // Armed over a group that no longer exists, the capture swallowed the next stroke.
-        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
-        // Redo brings the group back but not the arming: the capture is a one-shot tool, not state.
-        viewModel.onRedoClicked()
+        tapSlot(listOf(lyr("a")), "a")
+        testDispatcher.scheduler.advanceTimeBy(60_000)
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+    }
+
+    @Test
+    fun `undoing the capture, or removing the layer, leaves nothing armed`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
-        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
-        // A delete of the armed group disarms it too.
-        viewModel.onArmSurfaceDraw(viewModel.uiState.value.layers.first { it.id == "lone" }.parentId!!)
-        assertNotNull(viewModel.uiState.value.surfaceDrawGroupId)
-        viewModel.onLayerRemoved(viewModel.uiState.value.surfaceDrawGroupId!!)
+        tapSlot(listOf(lyr("a"), lyr("b")), "a")
+        viewModel.onLayerRemoved("a")
         testDispatcher.scheduler.advanceUntilIdle()
-        assertNull(viewModel.uiState.value.surfaceDrawGroupId)
+        assertFalse(viewModel.uiState.value.surfaceDrawArmed)
     }
 
     @Test

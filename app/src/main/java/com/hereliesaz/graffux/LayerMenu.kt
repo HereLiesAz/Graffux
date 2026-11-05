@@ -50,6 +50,14 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     // A group's surface (spec/3d-space.md, "Group surfaces"): the next stroke draws its profile.
     if (isGroup) listItem(m.drawSurface, on { vm.onArmSurfaceDraw(layer.id) })
     if (isGroup && layer.surface != null) listItem(m.flattenSurface, on { vm.onFlattenSurface(layer.id) })
+    // Groups have no tile on the rail, so their actions are on every member's menu as well.
+    val memberOf = layerGroupOf(uiState.layers, layer)
+    if (memberOf != null) {
+        listItem(m.drawSurface, on { vm.onArmSurfaceDraw(memberOf.id) })
+        com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id)?.let { owner ->
+            listItem(m.flattenSurface, on { vm.onFlattenSurface(owner.group.id) })
+        }
+    }
     // The guide grid: shown only for the active layer's group, so the row activates this layer.
     if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id) != null) {
         check(m.surfaceGrid, uiState.surfaceGridVisible, on { vm.onToggleSurfaceGrid() })
@@ -70,6 +78,7 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (isGroup) {
         listItem(m.ungroup) { vm.onUngroupLayer(layer.id) }
     } else {
+        if (memberOf != null) listItem(m.ungroup) { vm.onUngroupLayer(memberOf.id) }
         listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
         listItem(m.groupWithAbove) { vm.onGroupWithLayerAbove(layer.id) }
         listItem(m.mergeDown) { vm.onMergeDown(layer.id) }
@@ -105,6 +114,10 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (!isGroup) destructiveItem(m.clear, on { vm.onClearLayer() })
     destructiveItem(strings.editor.delete) { if (isGroup) vm.onDeleteGroup(layer.id) else vm.onLayerRemoved(layer.id) }
 }
+
+/** The group [layer] sits directly in (a member's menu acts on it), or null. */
+internal fun layerGroupOf(layers: List<Layer>, layer: Layer): Layer? =
+    if (layer.isContainer) null else layers.firstOrNull { it.id == layer.parentId && it.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP }
 
 /** [layer]'s siblings (itself included), top of the stack first, as rail ids. */
 internal fun layerSiblingsTopFirst(layers: List<Layer>, layer: Layer): List<String> =

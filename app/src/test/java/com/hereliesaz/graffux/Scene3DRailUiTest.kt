@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -119,23 +120,38 @@ class Scene3DRailUiTest {
     }
 
     @Test
-    fun `the axis slot on an ungrouped layer groups it and arms Draw surface`() {
+    fun `the axis slot on an ungrouped layer only arms, the layers rail is unchanged and the slot reads Draw`() {
         val vm = realViewModel()
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
         vm.setLayers(listOf(Layer("a", "A")))
         vm.onLayerActivated("a")
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        val before = vm.uiState.value.layers
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 val ui by vm.uiState.collectAsState()
                 ToolRail(vm.toolRailActions(), ui, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}))
+                LayersRail(
+                    layers = ui.layers, activeLayerId = ui.activeLayerId, secondary = emptySet(), expansion = emptyMap(),
+                    callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                )
             }
         }
+        rule.onNodeWithTag("rail.layer.a").assertExists()
         rule.onNodeWithTag("rail.$AXIS_RAIL_ID").performClick()
         rule.waitForIdle()
-        val group = vm.uiState.value.layers.first { it.id == vm.uiState.value.layers.first { l -> l.id == "a" }.parentId }
-        assertEquals(LayerType.GROUP, group.type)
-        assertEquals(group.id, vm.uiState.value.surfaceDrawGroupId)
+        // Nothing in the document moved; the same one tile is on the rail.
+        assertEquals(before, vm.uiState.value.layers)
+        assertEquals("a", vm.uiState.value.surfaceDrawWrapLayerId)
+        rule.onNodeWithTag("rail.layer.a").assertExists()
+        rule.onNodeWithText("Draw", useUnmergedTree = true).assertExists()
+        // The capture makes the group, invisible on the rail: still one tile.
+        rule.runOnIdle { vm.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600)) }
+        rule.runOnIdle { vm.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f))) }
+        rule.waitForIdle()
+        assertEquals(LayerType.GROUP, vm.uiState.value.layers.first { it.id == vm.uiState.value.layers.first { l -> l.id == "a" }.parentId }.type)
+        rule.onNodeWithTag("rail.layer.a").assertExists()
+        rule.onAllNodes(androidx.compose.ui.test.hasTestTag("rail.group.band.a")).assertCountEquals(0)
     }
 
     @Test

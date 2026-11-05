@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.common.model.CanvasViewport
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.is3DIn
@@ -252,7 +253,7 @@ internal fun ToolRail(
         // GROUP has a surface (or it is 3D ink or a model); otherwise "3D", and a tap arms "Draw
         // surface" on the layer's group.
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
-        AxisButton(uiState.activeRotationAxis.takeIf { active3D }) { vm.onAxisSlotTapped() }
+        AxisButton(uiState.activeRotationAxis.takeIf { active3D }, armed = uiState.surfaceDrawArmed) { vm.onAxisSlotTapped() }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
             uiState.viewportRotation != 0f ||
@@ -338,16 +339,31 @@ internal fun RotationAxis.railColor() = when (this) {
     RotationAxis.Z -> NeonGreen
 }
 
-/** The axis slot: [axis] on a 3D layer, or null on a 2D one, which reads "3D". */
+/**
+ * The axis slot: [axis] on a 3D layer, or null on a 2D one, which reads "3D". While "Draw surface"
+ * is [armed] it reads "Draw" on a filled accent circle (the way the lit mode buttons are drawn) and
+ * a tap cancels.
+ */
 @Composable
-private fun AxisButton(axis: RotationAxis?, onClick: () -> Unit) {
+private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, onClick: () -> Unit) {
+    val surfaceStrings = com.hereliesaz.graffitixr.design.theme.rememberAppStrings().surface
     RailButton(
-        label = if (axis != null) "Rotation axis ${axis.name}. Tap to change" else "Make this layer 3D",
+        label = when {
+            armed -> surfaceStrings.slotArmedDescription
+            axis != null -> "Rotation axis ${axis.name}. Tap to change"
+            else -> "Make this layer 3D"
+        },
         testTag = "rail.$AXIS_RAIL_ID",
         onClick = onClick,
     ) {
-        Text(axis?.name ?: "3D", color = axis?.railColor() ?: RailInk, fontSize = if (axis != null) 18.sp else 16.sp,
-            fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
+        if (armed) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary, CircleShape))
+            Text(surfaceStrings.slotArmed, color = MaterialTheme.colorScheme.onPrimary, fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
+        } else {
+            Text(axis?.name ?: "3D", color = axis?.railColor() ?: RailInk, fontSize = if (axis != null) 18.sp else 16.sp,
+                fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
+        }
     }
 }
 

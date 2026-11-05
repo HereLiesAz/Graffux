@@ -69,9 +69,11 @@ class LayerTile3DOutlineTest {
                 )
             }
         }
-        listOf("surface", "placed", "ink", "obj").forEach {
+        listOf("painted", "placed", "ink", "obj").forEach {
             rule.onNodeWithTag("rail.${layerRailId(it)}").assertContentDescriptionContains(", 3D", substring = true)
         }
+        // Groups have no tile of their own on the rail.
+        rule.onNodeWithTag("rail.${layerRailId("surface")}").assertDoesNotExist()
         // The outlines follow the GROUP: paint on a surface is 3D, paint in a flat group is not.
         assertTrue(layers.first { it.id == "painted" }.is3DIn(layers))
         listOf("flat", "group", "inFlat").forEach { id -> assertFalse(layers.first { it.id == id }.is3DIn(layers)) }

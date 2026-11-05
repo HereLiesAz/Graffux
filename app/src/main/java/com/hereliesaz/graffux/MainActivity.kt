@@ -94,6 +94,7 @@ import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LinkOps
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
@@ -1596,6 +1597,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
+            // "Draw surface": the prompt while armed, or why the 3D slot did nothing. Below the messages.
+            SurfacePromptChip(
+                armed = uiState.surfaceDrawArmed,
+                notice = uiState.surfaceDrawNotice,
+                onCancel = { vm.onCancelSurfaceDraw() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
+            )
             // Failures and confirmations, over the artwork, never blocking it.
             MessageHost(
                 alerts,
@@ -1603,7 +1613,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
+                    // Under the Draw-surface chip while it is up, so neither covers the other.
+                    .padding(
+                        top = RailEdgeGap + surfaceChipClearance(uiState.surfaceDrawArmed, uiState.surfaceDrawNotice),
+                        start = besideRail,
+                        end = besideRail,
+                    ),
             )
         }
 
