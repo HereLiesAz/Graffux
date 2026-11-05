@@ -1600,6 +1600,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             MessageHost(
                 alerts,
                 okLabel = strings.messages.ok,
+                countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = RailEdgeGap, start = besideRail, end = besideRail),

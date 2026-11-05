@@ -26,8 +26,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.theme.Amber
 import kotlinx.coroutines.delay
@@ -43,6 +44,8 @@ internal data class ChromeMessage(
     /** An optional second button ("Open"), which also dismisses the message. */
     val actionLabel: String? = null,
     val onAction: (() -> Unit)? = null,
+    /** How many identical messages this one stands for; shown as "×n" from 2 up. */
+    val count: Int = 1,
 )
 
 /**
@@ -61,6 +64,15 @@ internal class MessageController {
         actionLabel: String? = null,
         onAction: (() -> Unit)? = null,
     ) {
+        // An identical message (same kind, title, text and action label) already showing is not
+        // stacked again: it counts up, and keeps its place.
+        val shown = messages.indexOfFirst {
+            it.kind == kind && it.title == title && it.text == message && it.actionLabel == actionLabel
+        }
+        if (shown >= 0) {
+            messages[shown] = messages[shown].copy(count = messages[shown].count + 1, onAction = onAction)
+            return
+        }
         messages += ChromeMessage(nextId++, kind, title, message, actionLabel, onAction)
         while (messages.size > MAX_SHOWN) messages.removeAt(0)
     }
@@ -78,7 +90,9 @@ private val MessageCardShape = RoundedCornerShape(12.dp)
 /** Draws [controller]'s messages, newest last. A NOTICE leaves after [NOTICE_MS]. */
 @Suppress("FunctionNaming")
 @Composable
-internal fun MessageHost(controller: MessageController, modifier: Modifier = Modifier, okLabel: String = "OK") {
+internal fun MessageHost(controller: MessageController, modifier: Modifier = Modifier, okLabel: String = "OK",
+    countLabel: (Int) -> String = { "$it times" },
+) {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -86,19 +100,20 @@ internal fun MessageHost(controller: MessageController, modifier: Modifier = Mod
     ) {
         controller.messages.forEach { message ->
             if (message.kind == MessageKind.NOTICE) {
-                LaunchedEffect(message.id) {
+                // Keyed on the count too: a merged message gets its full time again.
+                LaunchedEffect(message.id, message.count) {
                     delay(NOTICE_MS)
                     controller.dismiss(message.id)
                 }
             }
-            MessageCard(message, okLabel) { controller.dismiss(message.id) }
+            MessageCard(message, okLabel, countLabel) { controller.dismiss(message.id) }
         }
     }
 }
 
 @Suppress("FunctionNaming")
 @Composable
-private fun MessageCard(message: ChromeMessage, okLabel: String, onDismiss: () -> Unit) {
+private fun MessageCard(message: ChromeMessage, okLabel: String, countLabel: (Int) -> String, onDismiss: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val edge = if (message.kind == MessageKind.WARNING) Amber else RailBorder
     Row(
@@ -108,15 +123,39 @@ private fun MessageCard(message: ChromeMessage, okLabel: String, onDismiss: () -
             .clip(MessageCardShape)
             .background(RailFill)
             .border(1.dp, edge, MessageCardShape)
-            .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag("chrome.message")
             .padding(start = 14.dp, top = 4.dp, bottom = 4.dp),
     ) {
-        Column(Modifier.weight(1f, fill = false)) {
+        // Announced as one phrase, count included ("... 3 times"), and again when it changes.
+        val spoken = listOfNotNull(message.title, message.text, if (message.count > 1) countLabel(message.count) else null)
+            .joinToString(" ")
+        Column(
+            Modifier
+                .weight(1f, fill = false)
+                .clearAndSetSemantics {
+                    contentDescription = spoken
+                    liveRegion = LiveRegionMode.Polite
+                },
+        ) {
             message.title?.let {
                 Text(it, style = MaterialTheme.typography.titleSmall, color = colors.onSurface)
             }
-            Text(message.text, style = MaterialTheme.typography.bodySmall, color = colors.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    message.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurface,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (message.count > 1) {
+                    Text(
+                        "×${message.count}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp).testTag("chrome.message.count"),
+                    )
+                }
+            }
         }
         val action = message.onAction
         if (message.actionLabel != null && action != null) {
