@@ -222,7 +222,7 @@ data class Layer(
 )
 
 /** The Draw-surface chip's one-off messages (the UI words them; see the chrome strings). */
-enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, DONE }
+enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, DONE, VIEW_DONE }
 
 /**
  * Whether "Draw surface" is armed: on an existing group, or (see [EditorUiState.surfaceDrawWrapLayerId])
@@ -526,6 +526,13 @@ data class EditorUiState(
      * a captured line was refused, or that the surface is set. Null = nothing to say.
      */
     val surfaceDrawNotice: SurfaceDrawNotice? = null,
+    /**
+     * Which view the armed "Draw surface" stroke is (spec/3d-space.md, multi-view surfaces): the front
+     * is drawn from wherever the camera is; the side and top first turn the camera to look along them.
+     */
+    val surfaceDrawView: com.hereliesaz.graffitixr.common.scene.SurfaceView = com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT,
+    /** The camera to put back when a side or top view is captured or cancelled; null = nothing to restore. */
+    val surfaceReturnCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
     /**
      * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Only the active layer's
      * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).

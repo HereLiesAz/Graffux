@@ -23,6 +23,11 @@ data class LayerMenuStrings(
     val drawSurface: String,
     /** A group's "Flatten surface": clears its profile. */
     val flattenSurface: String,
+    /** A group with a surface: draw its outline from the side / top (a full 3D model). */
+    val drawSideView: String,
+    val drawTopView: String,
+    val redrawSideView: String,
+    val redrawTopView: String,
     /** The surface guide grid toggle, on a layer on a surface or its group. */
     val surfaceGrid: String,
     val layerOptions: String,
@@ -89,6 +94,10 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     resetPlane = stringResource(R.string.layer_menu_reset_plane),
     drawSurface = stringResource(R.string.layer_menu_draw_surface),
     flattenSurface = stringResource(R.string.layer_menu_flatten_surface),
+    drawSideView = stringResource(R.string.layer_menu_draw_side_view),
+    drawTopView = stringResource(R.string.layer_menu_draw_top_view),
+    redrawSideView = stringResource(R.string.layer_menu_redraw_side_view),
+    redrawTopView = stringResource(R.string.layer_menu_redraw_top_view),
     surfaceGrid = stringResource(R.string.layer_menu_surface_grid),
     layerOptions = stringResource(R.string.layer_menu_layer_options),
     rename = stringResource(R.string.layer_menu_rename),
@@ -305,6 +314,20 @@ data class SurfaceStrings(
     val slotArmed: String,
     val slotArmedState: String,
     val slotArmedDescription: String,
+    val titleSide: String,
+    val bodySide: String,
+    val titleTop: String,
+    val bodyTop: String,
+    val viewDone: String,
+    /** "Front: %1$s. Side: %2$s. Top: %3$s." */
+    val viewsStatus: String,
+    val viewIsDone: String,
+    val viewNotDrawn: String,
+    val viewsHint: String,
+    val drawSide: String,
+    val drawTop: String,
+    val redrawSide: String,
+    val redrawTop: String,
 )
 
 @Composable
@@ -321,4 +344,17 @@ fun rememberSurfaceStrings(): SurfaceStrings = SurfaceStrings(
     slotArmed = stringResource(R.string.surface_slot_armed),
     slotArmedState = stringResource(R.string.surface_slot_armed_state),
     slotArmedDescription = stringResource(R.string.surface_slot_armed_description),
+    titleSide = stringResource(R.string.surface_prompt_title_side),
+    bodySide = stringResource(R.string.surface_prompt_body_side),
+    titleTop = stringResource(R.string.surface_prompt_title_top),
+    bodyTop = stringResource(R.string.surface_prompt_body_top),
+    viewDone = stringResource(R.string.surface_view_done),
+    viewsStatus = stringResource(R.string.surface_views_status),
+    viewIsDone = stringResource(R.string.surface_view_is_done),
+    viewNotDrawn = stringResource(R.string.surface_view_not_drawn),
+    viewsHint = stringResource(R.string.surface_views_hint),
+    drawSide = stringResource(R.string.surface_draw_side),
+    drawTop = stringResource(R.string.surface_draw_top),
+    redrawSide = stringResource(R.string.surface_redraw_side),
+    redrawTop = stringResource(R.string.surface_redraw_top),
 )

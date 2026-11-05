@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 10; the multi-view surface below is data model, maths and persistence only so far). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 10; the multi-view surface below has its data model, maths, persistence and drawing UI; see its notes for paint and rendering). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -412,7 +412,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
 - **Persistence.** `OverlayLayer.surface`, project format 9; format 10 adds `SurfaceProfile.side` and
   `.top` (below). A version 9 file has neither and loads as the single-view surface; the migration only
   records the version.
-- **Multi-view surfaces (format 10; maths shipped, drawing and rendering not yet).** A group's surface can
+- **Multi-view surfaces (format 10).** A group's surface can
   also be drawn from its side and top. The three outlines combine by *intersection*, like silhouette
   carving (`SurfaceHull`, `:core:common`): each drawn outline, closed by joining its last vertex to its
   first, is swept along its own view direction into an infinite prism, and the solid is every point all
@@ -433,9 +433,15 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     side and top patches need their own paint space (one atlas per view), which is not defined yet.
   - *Rendering.* `SurfaceHull.meshByView` gives triangles (x, y, z, u, t) per view, exact for straight
     trims; not wired into `DepthCompositor`, glTF or the editor yet.
-  - *Camera.* `SurfaceView.camera` is the preset that looks along each view (side: quarter turn; top:
-    the camera's pitch limit). Drawing UI (setup chip per view, done markers, returning the camera) is
-    not built.
+  - *Drawing the other views.* A group with a surface has "Draw side view" and "Draw top view" in its
+    layer menu (labelled "Redraw ..." once drawn), and the "surface set" chip offers the same two
+    buttons. Arming (`EditorViewModel.onArmSurfaceView`) turns the camera to look along the view
+    (`SurfaceView.camera`: side a quarter turn, top the pitch limit) and stores the camera in
+    `EditorUiState.surfaceReturnCamera`; the next stroke is that view's outline (a closed shape makes it
+    solid, an open line a thin wall), merged with `SurfaceProfile.withView` (one undo step), and the
+    camera goes back when the stroke is captured, on Cancel/Back, or if the group vanishes. The chip says
+    what to do for each view and shows "Front: done. Side: not drawn yet. Top: ..." (words, not just
+    colour). Switching between views while armed keeps the first camera to return to.
 - **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
   (source-over) when its profile is curved, except that a layer's own blend or clip on a straight
   profile, and the group's blend on a straight profile, draw in the stack. glTF fades a translucent
