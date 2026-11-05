@@ -31,6 +31,7 @@ data class LayerMenuStrings(
     val moveDown: String,
     val ungroup: String,
     /** Format patterns taking the group's name. */
+    val groupEveryFrame: String,
     val hideGroup: String,
     val showGroup: String,
     val groupWithAbove: String,
@@ -98,6 +99,7 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     moveUp = stringResource(R.string.layer_menu_move_up),
     moveDown = stringResource(R.string.layer_menu_move_down),
     ungroup = stringResource(R.string.layer_menu_ungroup),
+    groupEveryFrame = stringResource(R.string.layer_menu_group_every_frame),
     hideGroup = stringResource(R.string.layer_menu_hide_group),
     showGroup = stringResource(R.string.layer_menu_show_group),
     groupWithAbove = stringResource(R.string.layer_menu_group_with_above),

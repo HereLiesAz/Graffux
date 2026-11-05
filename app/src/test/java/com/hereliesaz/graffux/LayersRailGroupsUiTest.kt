@@ -172,6 +172,41 @@ class LayersRailGroupsUiTest {
     }
 
     @Test
+    fun `a top-level group's frame pin is on its members' menus`() {
+        val layers = listOf(group("g").copy(isPinnedAcrossFrames = true), group("h", "g"), leaf("a", "h"))
+        val ui = EditorUiState(layers = layers, activeLayerId = "a")
+        var rows: List<MenuRow> = emptyList()
+        var toggled = ""
+        rule.setContent {
+            val strings = rememberAppStrings()
+            val vm = io.mockk.mockk<com.hereliesaz.graffitixr.feature.editor.EditorViewModel>(relaxed = true)
+            io.mockk.every { vm.onTogglePinnedAcrossFrames(any()) } answers { toggled += firstArg<String>() }
+            rows = MenuBuilder().apply { layerMenu(layers[2], ui, LayerMenuEnv(vm, strings, {}, {}, {})) }.rows
+        }
+        rule.waitForIdle()
+        val pin = rows.filterIsInstance<MenuRow.Check>().first { it.label == "Group g: show on every frame" }
+        assertTrue(pin.checked)
+        pin.onClick()
+        assertEquals("g", toggled)
+        // A member of a nested group does not get one for the nested group (only top-level layers pin).
+        assertTrue(rows.filterIsInstance<MenuRow.Check>().none { it.label.contains("Group h") })
+    }
+
+    @Test
+    fun `the drag reads the latest layers, so a group made meanwhile has a centre`() {
+        // After grouping a and b, the sibling "x" dragged above the new group g: g needs a centre.
+        val before = listOf(leaf("a"), leaf("b"), leaf("x"))
+        val after = listOf(group("g"), leaf("a", "g"), leaf("b", "g"), leaf("x"))
+        val centres = mapOf(layerRailId("a") to 300f, layerRailId("b") to 200f, layerRailId("x") to 100f)
+        assertTrue(layerRailId("g") !in siblingCenters(before, centres))
+        assertEquals(200f, siblingCenters(after, centres).getValue(layerRailId("g")))
+        assertEquals(
+            listOf("layer.x", "layer.g"),
+            droppedSiblingOrder(listOf("layer.x", "layer.g"), "layer.x", 50f, siblingCenters(after, centres)),
+        )
+    }
+
+    @Test
     fun `a member's menu carries the group's actions`() {
         val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
         val layers = listOf(group("g").copy(surface = profile), leaf("a", "g"))

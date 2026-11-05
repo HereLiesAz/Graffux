@@ -344,6 +344,8 @@ internal fun LayersRail(
             val expanded = expansion[id] == true
             val siblings = layers.filter { it.parentId == layer.parentId }.reversed().map { layerRailId(it.id) }
             val latestSiblings by rememberUpdatedState(siblings)
+            // The drag's coroutine outlives recompositions: read the layers, as the siblings, through this.
+            val latestLayers by rememberUpdatedState(layers)
             val tap: () -> Unit = {
                 when {
                     isGroup -> {
@@ -401,7 +403,7 @@ internal fun LayersRail(
                             if (trashed) {
                                 callbacks.onDelete(layer.id)
                             } else if (moved) {
-                                val order = droppedSiblingOrder(latestSiblings, id, drop, siblingCenters(layers, centers))
+                                val order = droppedSiblingOrder(latestSiblings, id, drop, siblingCenters(latestLayers, centers))
                                 if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
                             } else {
                                 callbacks.onOpenMenu(layer.id)

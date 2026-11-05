@@ -79,6 +79,11 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
         listItem(m.ungroup) { vm.onUngroupLayer(layer.id) }
     } else {
         if (memberOf != null) listItem(m.ungroup) { vm.onUngroupLayer(memberOf.id) }
+        // A top-level group is the frame-pinning candidate (only top-level layers can be pinned), and
+        // it has no tile of its own to carry that row.
+        topGroupOf(uiState.layers.associateBy { it.id }, layer)?.takeIf { it.parentId == null }?.let { top ->
+            check(m.groupEveryFrame.format(top.name), top.isPinnedAcrossFrames) { vm.onTogglePinnedAcrossFrames(top.id) }
+        }
         // A group has no tile to hide or show it by, so each group around this layer is toggled here.
         layerGroupsAround(uiState.layers, layer).forEach { g ->
             listItem((if (g.isVisible) m.hideGroup else m.showGroup).format(g.name)) { vm.onToggleVisibility(g.id) }
