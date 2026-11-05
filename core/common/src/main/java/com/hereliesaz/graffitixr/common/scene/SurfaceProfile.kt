@@ -135,6 +135,9 @@ object SurfaceMath {
     /** The most guide lines drawn in either direction. */
     const val GRID_MAX_LINES = 96
 
+    /** How far past the surface's box the guide grid reaches along the sweep, in box units. */
+    const val GRID_MARGIN = 32f
+
     /**
      * The nearest group owning a surface for [layerId]: the layer itself when it is a group with a
      * profile, else its nearest enclosing group with one. Null when there is none (a flat layer).
@@ -463,12 +466,19 @@ object SurfaceMath {
      * sweep (at arc lengths 0, [spacing]...,  and the profile's end), projected through [cam] and
      * clipped to the near plane, so they curve and foreshorten with the view.
      */
-    fun gridLines(profile: SurfaceProfile, model: Affine3, cam: CameraFrame, spacing: Float = GRID_SPACING): List<FloatArray> {
+    fun gridLines(
+        profile: SurfaceProfile,
+        model: Affine3,
+        cam: CameraFrame,
+        spacing: Float = GRID_SPACING,
+        sweepExtent: Float = gridExtent(profile),
+    ): List<FloatArray> {
         if (!profile.isValid || spacing <= 0f) return emptyList()
         val out = ArrayList<FloatArray>()
         val far = SceneMath.farPlane(cam.focal) * 0.5f
         val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)
-        val reach = far / scale
+        // The grid shows the surface, so it stops at the surface's extent (and never past the far plane).
+        val reach = minOf(sweepExtent.coerceAtLeast(0f), far / scale)
         fun scene(u: Float, t: Float): FloatArray {
             val p = profile.at(u, t)
             return model.apply(p[0], p[1], p[2])
@@ -483,6 +493,12 @@ object SurfaceMath {
             n++
             t = n * spacing
         }
+        // The grid closes at its extent, whatever the spacing.
+        if (n < GRID_MAX_LINES && (n - 1) * spacing < reach - 1e-3f) {
+            for (i in 0 until profile.count - 1) {
+                segment(scene(profile.arcLengths[i], reach), scene(profile.arcLengths[i + 1], reach), cam)?.let(out::add)
+            }
+        }
         // Lines along the sweep.
         val us = ArrayList<Float>()
         var u = 0f
@@ -493,6 +509,29 @@ object SurfaceMath {
         us += profile.length
         for (a in us) segment(scene(a, 0f), scene(a, reach), cam)?.let(out::add)
         return out
+    }
+
+    /**
+     * How far along the sweep the guide grid reaches, in box units: the surface's box plus
+     * [GRID_MARGIN]. The box is the hull's (every drawn outline's vertices, spanning the sweep as far
+     * as the other views draw it) for a multi-view group, else the profile's own vertices; a profile
+     * with no depth of its own is given a cube's, as the hull pads one (its largest side).
+     */
+    fun gridExtent(profile: SurfaceProfile): Float {
+        if (!profile.isValid) return 0f
+        val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
+        val lo = hull?.boundsMin ?: FloatArray(3) { k -> (0 until profile.count).minOf { profile.points[it * 3 + k] } }
+        val hi = hull?.boundsMax ?: FloatArray(3) { k -> (0 until profile.count).maxOf { profile.points[it * 3 + k] } }
+        val first = profile.point(0)
+        val sweep = profile.sweep
+        val base = SceneMath.dot(first, sweep)
+        var span = 0f
+        for (mask in 0 until 8) {
+            val c = FloatArray(3) { k -> if (mask shr k and 1 == 1) hi[k] else lo[k] }
+            span = maxOf(span, SceneMath.dot(c, sweep) - base)
+        }
+        val side = maxOf(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])
+        return maxOf(span, side) + GRID_MARGIN
     }
 
     /** A scene segment on the canvas, clipped to the near plane; null when wholly behind it. */
