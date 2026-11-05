@@ -1,6 +1,8 @@
 package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.scene.SurfaceMath
+import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
@@ -1602,6 +1604,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 armed = uiState.surfaceDrawArmed,
                 notice = uiState.surfaceDrawNotice,
                 onCancel = { vm.onCancelSurfaceDraw() },
+                view = uiState.surfaceDrawView,
+                views = surfaceViewsStatus(uiState),
+                onDrawView = uiState.layers.let { layers ->
+                    val group = SurfaceMath.ownerOf(layers, uiState.activeLayerId)?.group
+                    group?.let { g -> { v: SurfaceView -> vm.onArmSurfaceView(g.id, v) } }
+                },
                 alerts = alerts,
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },

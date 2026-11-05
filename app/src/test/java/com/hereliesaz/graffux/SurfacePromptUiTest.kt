@@ -178,4 +178,37 @@ class SurfacePromptUiTest {
         val message = rule.onNodeWithTag("chrome.message").fetchSemanticsNode().boundsInRoot
         assertTrue("chip ${chip} message ${message}", message.top >= chip.bottom)
     }
+
+    @Test
+    fun `a side view says what to do and marks which views are done`() {
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                SurfacePromptChip(
+                    true, null, onCancel = {},
+                    view = com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE,
+                    views = SurfaceViewsStatus(front = true, side = false, top = false),
+                )
+            }
+        }
+        rule.onNodeWithText("Set up this 3D group: draw its side", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Front: done. Side: not drawn yet. Top: not drawn yet.", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun `once a view is set the chip offers the other views`() {
+        val drawn = mutableListOf<com.hereliesaz.graffitixr.common.scene.SurfaceView>()
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                SurfacePromptChip(
+                    false, SurfaceDrawNotice.DONE, onCancel = {},
+                    views = SurfaceViewsStatus(front = true, side = false, top = true),
+                    onDrawView = { drawn += it },
+                )
+            }
+        }
+        rule.onNodeWithText("Draw side view", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Redraw top view", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("surface.prompt.draw.side").performClick()
+        assertEquals(listOf(com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE), drawn)
+    }
 }

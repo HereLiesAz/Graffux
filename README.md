@@ -39,7 +39,7 @@ consumes the same modules for its 2D work and adds AR on top.
   into a profile curve swept into depth, and the group's layers are painted on that shape
   ("Flatten surface" makes it flat again). Its guide grid follows the shape in perspective, so
   strokes can be traced in depth without moving the view. Groups keep their tile on the layers rail,
-  open by default. See `spec/3d-space.md`.
+  open by default. See `spec/3d-space.md`. (A group's surface can also be drawn from the side and top; the outlines intersect into one 3D shape. Painting and drawing that shape are still being built.)
 - **3D strokes layers** — draw real XYZ pressure-sensitive curves against adjustable camera-facing
   planes, anchored planes, cylinders and spheres, in a layer of the stack composited with the paint
   layers (View → 3D → New 3D strokes layer). Missing a bounded guide ends that segment rather than

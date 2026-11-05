@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.planePose
+import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SceneMath
@@ -1990,6 +1991,77 @@ class EditorViewModelTest {
         assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
         assertEquals(SurfaceDrawNotice.TOO_SHORT, viewModel.uiState.value.surfaceDrawNotice)
         assertEquals(undo, viewModel.uiState.value.undoCount)
+    }
+
+    private fun surfaceGroupVm(): String {
+        viewModel.setLayers(listOf(lyr("g").copy(type = groupType), lyr("a").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f)))
+        testDispatcher.scheduler.runCurrent()
+        return "g"
+    }
+
+    @Test
+    fun `a side view turns the camera, captures into the group, and puts the camera back`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val g = surfaceGroupVm()
+        val before = viewModel.uiState.value
+        val front = before.layers.first { it.id == g }.surface!!
+        val camera = before.sceneCamera
+        viewModel.onArmSurfaceView(g, SurfaceView.SIDE)
+        val armed = viewModel.uiState.value
+        assertEquals(SurfaceView.SIDE, armed.surfaceDrawView)
+        assertEquals(SurfaceView.SIDE.camera(camera), armed.sceneCamera)
+        assertEquals(camera, armed.surfaceReturnCamera)
+        val undo = armed.undoCount
+        val box = listOf(Offset(100f, 300f), Offset(500f, 300f), Offset(500f, 900f), Offset(100f, 900f))
+        viewModel.onSurfaceProfileDrawn(box)
+        testDispatcher.scheduler.runCurrent()
+        val st = viewModel.uiState.value
+        val surface = st.layers.first { it.id == g }.surface!!
+        assertNotNull(surface.side)
+        assertEquals(front.copy(side = null, top = null), surface.copy(side = null, top = null))
+        assertNull(surface.top)
+        assertEquals(camera, st.sceneCamera)
+        assertNull(st.surfaceReturnCamera)
+        assertFalse(st.surfaceDrawArmed)
+        assertEquals(SurfaceDrawNotice.VIEW_DONE, st.surfaceDrawNotice)
+        assertEquals(undo + 1, st.undoCount)
+        // Drawing the front again keeps the side; drawing the side again replaces it.
+        viewModel.onArmSurfaceView(g, SurfaceView.FRONT)
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 800f), Offset(700f, 800f)))
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(surface.side, viewModel.uiState.value.layers.first { it.id == g }.surface!!.side)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.layers.first { it.id == g }.surface!!.side)
+    }
+
+    @Test
+    fun `cancelling a side view puts the camera back and changes nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val g = surfaceGroupVm()
+        val before = viewModel.uiState.value
+        viewModel.onArmSurfaceView(g, SurfaceView.TOP)
+        viewModel.onArmSurfaceView(g, SurfaceView.SIDE)
+        // Switching views keeps the first camera to return to.
+        assertEquals(before.sceneCamera, viewModel.uiState.value.surfaceReturnCamera)
+        viewModel.onCancelSurfaceDraw()
+        val after = viewModel.uiState.value
+        assertEquals(before.sceneCamera, after.sceneCamera)
+        assertEquals(before.layers, after.layers)
+        assertEquals(before.undoCount, after.undoCount)
+        assertFalse(after.surfaceDrawArmed)
+        // A group with no surface cannot take a side view, and says so.
+        viewModel.setLayers(listOf(lyr("p").copy(type = groupType)))
+        viewModel.onArmSurfaceView("p", SurfaceView.SIDE)
+        assertEquals(SurfaceDrawNotice.UNAVAILABLE, viewModel.uiState.value.surfaceDrawNotice)
+        assertFalse(viewModel.uiState.value.surfaceDrawArmed)
     }
 
     @Test

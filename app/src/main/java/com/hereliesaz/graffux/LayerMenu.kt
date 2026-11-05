@@ -3,6 +3,7 @@
 package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.model.ConstraintAnchor
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -49,6 +50,11 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (layer.isPlacedIn3D) listItem(m.resetPlane, on { vm.resetActivePlane() })
     // A group's surface (spec/3d-space.md, "Group surfaces"): the next stroke draws its profile.
     if (isGroup) listItem(m.drawSurface, on { vm.onArmSurfaceDraw(layer.id) })
+    // The other two views of the surface, drawn from the side and the top: a full 3D model.
+    if (isGroup && layer.surface?.isValid == true) {
+        listItem(if (layer.surface?.side != null) m.redrawSideView else m.drawSideView, on { vm.onArmSurfaceView(layer.id, SurfaceView.SIDE) })
+        listItem(if (layer.surface?.top != null) m.redrawTopView else m.drawTopView, on { vm.onArmSurfaceView(layer.id, SurfaceView.TOP) })
+    }
     if (isGroup && layer.surface != null) listItem(m.flattenSurface, on { vm.onFlattenSurface(layer.id) })
     // The guide grid: shown only for the active layer's group, so the row activates this layer.
     if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id) != null) {

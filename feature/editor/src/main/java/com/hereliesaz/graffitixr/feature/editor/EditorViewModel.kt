@@ -2,6 +2,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
@@ -5165,7 +5166,13 @@ class EditorViewModel @Inject constructor(
             parent?.isContainer == true -> onArmSurfaceDraw(parent.id)
             active.parentId == null -> {
                 surfaceNoticeJob?.cancel()
-                updateUi { it.copy(surfaceDrawWrapLayerId = active.id, surfaceDrawNotice = null) }
+                updateUi {
+                    it.copy(
+                        surfaceDrawWrapLayerId = active.id,
+                        surfaceDrawNotice = null,
+                        surfaceDrawView = SurfaceView.FRONT,
+                    )
+                }
             }
             else -> showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
         }
@@ -6070,7 +6077,7 @@ class EditorViewModel @Inject constructor(
     private fun withoutOrphanSurfaceCapture(state: EditorUiState): EditorUiState {
         val groupId = state.surfaceDrawGroupId
         val wrapId = state.surfaceDrawWrapLayerId
-        val disarmed = state.copy(surfaceDrawGroupId = null, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null)
+        val disarmed = state.disarmedSurface()
         return when {
             groupId != null && state.layers.none { it.id == groupId } -> disarmed
             wrapId == null -> state
@@ -6090,6 +6097,16 @@ class EditorViewModel @Inject constructor(
             }
         }
     }
+
+    /** [this] with "Draw surface" disarmed and the camera put back if a side or top view had turned it. */
+    private fun EditorUiState.disarmedSurface(): EditorUiState = copy(
+        surfaceDrawGroupId = null,
+        surfaceDrawWrapLayerId = null,
+        surfaceDrawNotice = null,
+        surfaceDrawView = SurfaceView.FRONT,
+        surfaceReturnCamera = null,
+        sceneCamera = surfaceReturnCamera ?: sceneCamera,
+    )
 
     /** The one state writer behind [dispatch] and [updateUi]; see [rebaseInheritedPixels]. */
     private inline fun writeState(follow: Boolean, crossinline transform: (EditorUiState) -> EditorUiState) {
@@ -12430,10 +12447,47 @@ class EditorViewModel @Inject constructor(
         }
         surfaceNoticeJob?.cancel()
         updateUi {
-            if (it.surfaceDrawGroupId == group.id) {
-                it.copy(surfaceDrawGroupId = null, surfaceDrawNotice = null)
+            if (it.surfaceDrawGroupId == group.id &&
+                it.surfaceDrawView == SurfaceView.FRONT
+            ) {
+                it.disarmedSurface()
             } else {
-                it.copy(surfaceDrawGroupId = group.id, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null)
+                it.copy(
+                    surfaceDrawGroupId = group.id, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null,
+                    surfaceDrawView = SurfaceView.FRONT,
+                )
+            }
+        }
+    }
+
+    /**
+     * "Draw side view" / "Draw top view" on group [groupId] (multi-view surfaces, spec/3d-space.md):
+     * turns the camera to look along the view (the camera is put back when the stroke is captured or
+     * cancelled) and arms the next stroke as that view's outline. The group must already have its
+     * surface. Calling it again for the armed view cancels. [SurfaceView.FRONT] is plain "Draw surface".
+     */
+    fun onArmSurfaceView(groupId: String, view: SurfaceView) {
+        if (view == SurfaceView.FRONT) {
+            onArmSurfaceDraw(groupId)
+            return
+        }
+        val group = _uiState.value.layers.firstOrNull { it.id == groupId }
+            ?.takeIf { it.isContainer && it.surface?.isValid == true }
+        if (group == null) {
+            showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+            return
+        }
+        surfaceNoticeJob?.cancel()
+        updateUi {
+            if (it.surfaceDrawGroupId == group.id && it.surfaceDrawView == view) {
+                it.disarmedSurface()
+            } else {
+                it.copy(
+                    surfaceDrawGroupId = group.id, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null,
+                    surfaceDrawView = view,
+                    surfaceReturnCamera = it.surfaceReturnCamera ?: it.sceneCamera,
+                    sceneCamera = view.camera(it.sceneCamera),
+                )
             }
         }
     }
@@ -12443,7 +12497,7 @@ class EditorViewModel @Inject constructor(
         surfaceNoticeJob?.cancel()
         val st = _uiState.value
         if (st.surfaceDrawArmed || st.surfaceDrawNotice != null) {
-            updateUi { it.copy(surfaceDrawGroupId = null, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null) }
+            updateUi { it.disarmedSurface() }
         }
     }
 
@@ -12453,9 +12507,10 @@ class EditorViewModel @Inject constructor(
      * the group is made in the same step (wrap and profile together). A stroke too short to be a
      * curve (a tap) changes nothing: it stays armed and the chip says so.
      */
-    @Suppress("ReturnCount")
+    @Suppress("ReturnCount", "CyclomaticComplexMethod")
     fun onSurfaceProfileDrawn(world: List<Offset>) {
         val st = _uiState.value
+        val view = st.surfaceDrawView
         val size = st.canvasSize
         val wrapId = st.surfaceDrawWrapLayerId
         // For a layer to be wrapped, the group is worked out on a copy of the stack first.
@@ -12475,23 +12530,27 @@ class EditorViewModel @Inject constructor(
             return
         }
         if (newGroup == null) {
-            updateUi { it.copy(surfaceDrawGroupId = null, surfaceDrawNotice = null) }
-            setSurface(groupId, profile)
+            // A side or top outline joins the surface already there; the front keeps the others it has.
+            val existing = st.layers.firstOrNull { it.id == groupId }?.surface
+            if (view != SurfaceView.FRONT && existing == null) {
+                updateUi { it.disarmedSurface() }
+                return
+            }
+            updateUi { it.disarmedSurface() }
+            setSurface(groupId, existing?.withView(view, profile) ?: profile)
         } else {
             val before = st.layers
             pushHistory()
             updateUi { s ->
-                s.copy(
-                    layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)),
-                    surfaceDrawWrapLayerId = null,
-                    surfaceDrawNotice = null,
-                )
+                s.disarmedSurface().copy(layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)))
             }
             emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
             emitGeometryChanges(before, _uiState.value.layers)
             saveProject()
         }
-        showSurfaceNotice(SurfaceDrawNotice.DONE)
+        showSurfaceNotice(
+            if (view == SurfaceView.FRONT) SurfaceDrawNotice.DONE else SurfaceDrawNotice.VIEW_DONE,
+        )
     }
 
     /** [layers] with top-level layer [layerId] inside [group], which takes its place in the stack. */
