@@ -1390,6 +1390,41 @@ class EditorViewModelTest {
         for (i in 0..2) assertEquals(pivot[i], centre[i], 0.5f)
     }
 
+    @Test
+    fun `a twist and a pinch in one Move-tool step measure the pinch from the depth the twist left`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val focal = SceneMath.focalLength(pivotH)
+        // A lone layer tilted 90 degrees about X, its centre at camera depth 250 (default camera).
+        pivotSetup(lyr("a").copy(rotationX = 90f, positionZ = 250f - focal))
+        setAxis(RotationAxis.X)
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        fun depth() = SceneMath.frame(viewModel.uiState.value.sceneCamera, pivotW, pivotH)
+            .toCamera(boxPoint("a", 500f, 800f, 0f))[2]
+        assertEquals(250f, depth(), 0.5f)
+        twoFinger(zoom = 1.3f, rotation = -10f)
+        // The twist alone leaves the centre near depth 111; 1.3x would land at 85, below the minimum
+        // (5% of the focal length), so the clamp must hold it there.
+        assertTrue("depth ${depth()} below the minimum", depth() >= focal * 0.05f - 0.5f)
+    }
+
+    @Test
+    fun `turning a layer with the selection handle one way and back returns its centre`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a"), lyr("b").copy(positionZ = 400f))
+        viewModel.onLayerActivated("b")
+        setAxis(RotationAxis.X)
+        val centre = boxPoint("b", 500f, 800f, 0f)
+        viewModel.onGestureStart()
+        viewModel.onRotateLayerHandle(30f)
+        viewModel.onRotateLayerHandle(-30f)
+        viewModel.onGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.layers.first { it.id == "b" }.rotationX, 0.01f)
+        val after = boxPoint("b", 500f, 800f, 0f)
+        for (i in 0..2) assertEquals("axis $i", centre[i], after[i], 0.5f)
+    }
+
     private fun twoFinger(pan: Offset = Offset.Zero, zoom: Float = 1f, rotation: Float = 0f, steps: Int = 1) {
         viewModel.onTwoFingerStart()
         repeat(steps) { viewModel.onTwoFingerGesture(pan, zoom, Offset(500f, 800f), rotation) }

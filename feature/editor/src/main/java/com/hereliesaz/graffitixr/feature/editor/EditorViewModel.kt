@@ -5355,6 +5355,7 @@ class EditorViewModel @Inject constructor(
     override fun onGestureEnd() {
         val gestureBefore = gestureStartLayers
         gestureStartLayers = null
+        gesturePivot = null
         saveProject()
         dispatch(EditorIntent.SetGestureInProgress(false))
         if (_uiState.value.snapGuidesX.isNotEmpty() || _uiState.value.snapGuidesY.isNotEmpty()) {
@@ -5383,6 +5384,9 @@ class EditorViewModel @Inject constructor(
     override fun onGestureStart() {
         pushHistory()
         gestureStartLayers = _uiState.value.layers
+        // The orbit pivot is measured once, here, so a handle or Move-tool turn cannot move it as the
+        // layers it is measured from turn.
+        gesturePivot = orbitPivot()
         dispatch(EditorIntent.BeginGesture)
     }
 
@@ -12190,11 +12194,14 @@ class EditorViewModel @Inject constructor(
      */
     @Suppress("ReturnCount")
     private fun onLayerTwoFinger(pan: Offset, zoom: Float, rotation: Float) {
-        val state = _uiState.value
-        val id = state.transformTargetId() ?: return
-        val size = state.canvasSize
-        val worldPan = CanvasHitTest.screenDeltaToWorld(pan, state.viewportZoom, state.viewportRotation)
+        val before = _uiState.value
+        val id = before.transformTargetId() ?: return
+        val size = before.canvasSize
+        val worldPan = CanvasHitTest.screenDeltaToWorld(pan, before.viewportZoom, before.viewportRotation)
         if (rotation != 0f) onTransformGesture(Offset.Zero, 1f, rotation)
+        // A twist about the pivot also moves the layer's centre and depth, so what is left of the
+        // gesture (the slide and the pinch) is measured from the layers as the twist left them.
+        val state = _uiState.value
         if (size.width <= 0 || size.height <= 0) {
             if (worldPan != Offset.Zero) onTransformGesture(worldPan, 1f, 0f)
             return
