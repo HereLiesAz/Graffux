@@ -171,6 +171,12 @@ internal class ActivePlaneMapping private constructor(
     fun world(screen: Offset): Offset =
         CanvasHitTest.screenToWorld(screen, viewportOffset, viewportZoom, viewportRotation)
 
+    /** True when the active layer is drawn through the scene, so a touch has to be mapped onto its plane. */
+    val onPlane: Boolean get() = chain != null
+
+    /** The flat point for the world point [w] (the viewport already undone), null when the ray misses. */
+    fun worldToFlat(w: Offset): Offset? = toFlatAt(w)
+
     /** The flat point for [screen], or null when the ray misses the plane. */
     fun toFlat(screen: Offset): Offset? {
         return toFlatAt(world(screen))
@@ -293,4 +299,32 @@ internal class PlaneStrokeFeed<S>(
         started = false
         gap = false
     }
+}
+
+/**
+ * A finished stroke's world-space [path] cut into the runs that lie on the active layer's plane
+ * ([ActivePlaneMapping.worldToFlat]), through the same [PlaneStrokeFeed] the other brushes use: a
+ * sample that misses is dropped and a run that leaves the plane and returns is a new segment.
+ * Each segment is the original sample indices and their flat points. Empty when nothing hits.
+ */
+internal fun planeSegments(path: List<Offset>, toFlat: (Offset) -> Offset?): List<List<Pair<Int, Offset>>> {
+    val done = ArrayList<List<Pair<Int, Offset>>>()
+    var current = ArrayList<Pair<Int, Offset>>()
+    fun close() {
+        if (current.isNotEmpty()) done += current
+        current = ArrayList()
+    }
+    val feed = PlaneStrokeFeed<Pair<Int, Offset>>(
+        toLayer = { (i, p) -> toFlat(p)?.let { i to it } },
+        start = { current += it },
+        point = { current += it },
+        end = ::close,
+        cancel = { current = ArrayList() },
+        segmentEnd = ::close,
+    )
+    path.forEachIndexed { i, p ->
+        if (i == 0) feed.onStart(i to p) else feed.onPoint(i to p)
+    }
+    feed.onEnd()
+    return done
 }

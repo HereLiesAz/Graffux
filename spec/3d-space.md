@@ -312,6 +312,14 @@ before it was turned. The stroke starts at its first sample that hits, and a str
 is cancelled, so a layer seen edge-on takes no paint. A fill or clone tap that misses still uses the
 plain world point.
 
+A Jetpack Ink stroke follows the same rule. Ink shows the stroke live in screen space (the viewport
+undone, nothing more), so it stays under the finger; when it lifts, `commitInkThroughPlane` casts each
+sample onto the plane through `ActivePlaneMapping`, cuts the stroke into the runs that hit
+(`planeSegments`, which is `PlaneStrokeFeed`), rebuilds an Ink stroke from each run's flat points and
+commits the runs as one undo step. An empty layer under a moved camera adopts the view plane first, as
+for the other brushes, and a stroke with no hit commits nothing and puts the plane back. On a flat
+layer the stroke is committed as it was.
+
 ## Group surfaces
 
 Layer groups own surfaces. Every group (`LayerType.GROUP` or `FRAME`) has an optional surface
