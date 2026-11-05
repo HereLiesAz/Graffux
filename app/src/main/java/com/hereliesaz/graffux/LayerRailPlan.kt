@@ -1,6 +1,7 @@
 package com.hereliesaz.graffux
 
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.isSurfaceViewImage
 import com.hereliesaz.graffitixr.common.model.Layer
 
 /** The top-level layers host: an `azUnattachedHostItem`. */
@@ -31,7 +32,7 @@ internal data class LayerRailRow(val layer: Layer, val hostId: String) {
 internal fun layerRailRows(layers: List<Layer>): List<LayerRailRow> {
     val rows = mutableListOf<LayerRailRow>()
     fun declare(parentId: String?, hostId: String) {
-        layers.filter { it.parentId == parentId }.reversed().forEach {
+        layers.filter { it.parentId == parentId && !it.isSurfaceViewImage }.reversed().forEach {
             rows += LayerRailRow(it, hostId)
             if (it.isContainer) declare(it.id, layerRailId(it.id))
         }

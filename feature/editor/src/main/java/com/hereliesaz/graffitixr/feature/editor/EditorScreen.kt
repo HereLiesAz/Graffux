@@ -662,6 +662,37 @@ fun EditorScreen(
                     segmentEnd = { vm.onStrokeSegmentEnd() },
                 )
             }
+            // A multi-view surface paints a stroke per view image (spec/3d-space.md, "Paint per view").
+            val viewMap = rememberUpdatedState<(BrushSample) -> ViewSample<BrushSample>?> { sample ->
+                val plane = strokePlane.value ?: activePlane
+                val radius = uiState.effectiveScreenBrushSize() / 2f
+                val vf = plane.toViewFlatByFootprint(Offset(sample.x, sample.y), radius)
+                vf?.let {
+                    val penAngle = nibLayerAngle(sample.telemetry.penAngleDegrees, uiState.viewportRotation)
+                    ViewSample(
+                        it.view, sample,
+                        sample.copy(x = it.x, y = it.y, telemetry = sample.telemetry.copy(penAngleDegrees = penAngle)),
+                    )
+                }
+            }
+            val viewBridge = rememberUpdatedState<BridgeFn> { a, b ->
+                (strokePlane.value ?: activePlane).bridgeViews(a, b)
+            }
+            val strokeOnHull = remember { object { var value = false } }
+            val viewFeed = remember(vm) {
+                ViewStrokeFeed<BrushSample>(
+                    toView = { viewMap.value(it) },
+                    bridge = { a, b -> viewBridge.value(a, b) },
+                    start = { view, sample ->
+                        val primary = (strokePlane.value ?: activePlane).layerId
+                        if (primary != null) vm.onViewStrokeStart(primary, view, sample, strokeSize.value)
+                    },
+                    point = { vm.onStrokePoint(it) },
+                    end = { vm.onStrokeEnd() },
+                    cancel = { vm.onStrokeCancel() },
+                    segmentEnd = { vm.onStrokeSegmentEnd() },
+                )
+            }
             DrawingCanvas(
                 activeTool = uiState.activeTool,
                 brushSize = uiState.effectiveScreenBrushSize(),
@@ -677,11 +708,21 @@ fun EditorScreen(
                     val adopted = vm.adoptViewPlaneForStroke()
                     strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
                     strokeSize.value = size
-                    strokeFeed.onStart(sample)
+                    strokeOnHull.value = (strokePlane.value ?: activePlane).onHull &&
+                        (uiState.activeTool == Tool.BRUSH || uiState.activeTool == Tool.ERASER)
+                    if (strokeOnHull.value) viewFeed.onStart(sample) else strokeFeed.onStart(sample)
                 },
-                onStrokePoint = { sample -> strokeFeed.onPoint(sample) },
-                onStrokeEnd = { strokeFeed.onEnd(); strokePlane.value = null },
-                onStrokeCancel = { strokeFeed.onCancel(); strokePlane.value = null },
+                onStrokePoint = { sample ->
+                    if (strokeOnHull.value) viewFeed.onPoint(sample) else strokeFeed.onPoint(sample)
+                },
+                onStrokeEnd = {
+                    if (strokeOnHull.value) viewFeed.onEnd() else strokeFeed.onEnd()
+                    strokePlane.value = null
+                },
+                onStrokeCancel = {
+                    if (strokeOnHull.value) viewFeed.onCancel() else strokeFeed.onCancel()
+                    strokePlane.value = null
+                },
                 onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
                 onPickCloneSource = { at -> vm.onSetCloneSource(toWorld(at)) },

@@ -75,8 +75,23 @@ internal class EditHistory(
          * undo step whatever the chunk rules say.
          */
         continuesGesture: Boolean = false,
+        /**
+         * A later segment of the same gesture on a different layer than the newest entry's (a
+         * stroke crossing between view images): it becomes its own entry, chained to the newest so
+         * that undo and redo act on both as one step. Ignored when the newest entry is not a stroke.
+         */
+        chainedToPrevious: Boolean = false,
     ): Boolean {
         val top = undoStack.lastOrNull()
+        if (chainedToPrevious && top is EditCommand.Draw && top.layerId != layerId) {
+            undoStack[undoStack.lastIndex] = top.copy(chainedNext = true)
+            undoStack.addLast(
+                EditCommand.Draw(layerId, command, chunkable = false, lastPushMs = nowMs, chainedToPrevious = true),
+            )
+            trim()
+            clearRedo()
+            return false
+        }
         val joined = top is EditCommand.Draw && if (continuesGesture) {
             top.layerId == layerId
         } else {
@@ -100,6 +115,12 @@ internal class EditHistory(
     private fun joinsChunk(top: EditCommand.Draw, layerId: String, command: StrokeCommand, nowMs: Long) =
         top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
             top.strokes.size < chunkMaxStrokes && nowMs - top.lastPushMs <= chunkPauseMs
+
+    /** Whether the newest undo entry is a stroke. */
+    fun undoTopIsDraw(): Boolean = undoStack.lastOrNull() is EditCommand.Draw
+
+    /** Whether the next entry redo would apply is a stroke. */
+    fun redoTopIsDraw(): Boolean = redoStack.lastOrNull() is EditCommand.Draw
 
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */
     fun topDrawHolds(command: StrokeCommand): Boolean =
