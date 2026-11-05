@@ -144,4 +144,20 @@ class PlaneStrokeFeedTest {
         assertEquals(1, r.ended)
         assertEquals(0, r.cancelled)
     }
+
+    @Test
+    fun `a finished stroke is cut into the runs that hit the plane, in sample order`() {
+        val path = listOf(Offset(0f, 0f), Offset(1f, 0f), Offset(2f, 0f), Offset(3f, 0f), Offset(4f, 0f))
+        val segments = planeSegments(path) { p -> p.takeIf { it.x != 2f }?.let { Offset(it.x * 10f, 5f) } }
+        assertEquals(listOf(listOf(0, 1), listOf(3, 4)), segments.map { s -> s.map { it.first } })
+        assertEquals(Offset(30f, 5f), segments[1][0].second)
+        assertTrue(planeSegments(path) { null }.isEmpty())
+    }
+
+    @Test
+    fun `a finished stroke on a tilted layer maps like the live brush does`() {
+        val plane = ActivePlaneMapping.of(state(Layer(id = "a", name = "a", rotationX = 40f)))
+        val seg = planeSegments(touches, plane::worldToFlat).single()
+        assertEquals(touches.map { plane.toFlat(it) }, seg.map { it.second })
+    }
 }

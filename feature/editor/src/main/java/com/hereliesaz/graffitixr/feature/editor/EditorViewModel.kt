@@ -9290,7 +9290,70 @@ class EditorViewModel @Inject constructor(
             path += Offset(scratch.x, scratch.y)
             pressures += if (scratch.hasPressure) scratch.pressure else 1f
         }
-        commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted)
+        commitInkThroughPlane(stroke, path, pressures, utensil, canvasSize, onCommitted) { source, kept ->
+            inkStrokeOf(source, kept)
+        }
+    }
+
+    /** [stroke] rebuilt from only the samples [kept] (index to flat point), same brush, time and pressure. */
+    private fun inkStrokeOf(stroke: androidx.ink.strokes.Stroke, kept: List<Pair<Int, Offset>>): androidx.ink.strokes.Stroke {
+        val batch = androidx.ink.strokes.MutableStrokeInputBatch()
+        val scratch = androidx.ink.strokes.StrokeInput()
+        for ((i, p) in kept) {
+            stroke.inputs.populate(i, scratch)
+            batch.add(
+                androidx.ink.strokes.StrokeInput.create(
+                    p.x, p.y, scratch.elapsedTimeMillis, scratch.toolType, scratch.strokeUnitLengthCm,
+                    if (scratch.hasPressure) scratch.pressure else androidx.ink.strokes.StrokeInput.NO_PRESSURE,
+                ),
+            )
+        }
+        return androidx.ink.strokes.Stroke(stroke.brush, batch)
+    }
+
+    /**
+     * A finished Ink stroke ([path] in world coordinates) put through the active layer's plane, as
+     * every other brush is (spec/3d-space.md, "Painting on a tilted plane"): an empty layer under a
+     * moved camera first adopts the view plane, each sample is cast onto the plane, a sample that
+     * misses is dropped, and a stroke that leaves the plane and returns is committed as segments of
+     * one undo step. A stroke with no hit commits nothing and puts an adopted plane back. On a flat
+     * layer it is [commitInkStroke] unchanged. [rebuild] makes the Ink stroke for a segment's kept
+     * samples (native, so tests substitute it).
+     */
+    @Suppress("LongParameterList")
+    internal fun commitInkThroughPlane(
+        stroke: androidx.ink.strokes.Stroke,
+        path: List<Offset>,
+        pressures: List<Float>,
+        utensil: com.hereliesaz.graffitixr.common.model.InkUtensil,
+        canvasSize: IntSize,
+        onCommitted: () -> Unit,
+        rebuild: (androidx.ink.strokes.Stroke, List<Pair<Int, Offset>>) -> androidx.ink.strokes.Stroke,
+    ) {
+        adoptViewPlaneForStroke()
+        val plane = ActivePlaneMapping.of(_uiState.value)
+        if (!plane.onPlane) {
+            commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted)
+            return
+        }
+        val segments = planeSegments(path, plane::worldToFlat)
+        if (segments.isEmpty()) {
+            pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+            pendingPlaneAdoption = null
+            onCommitted()
+            return
+        }
+        var remaining = segments.size
+        val release = { if (--remaining == 0) onCommitted() }
+        gestureOpen = segments.size > 1
+        gestureCommitted = null
+        for (segment in segments) {
+            commitInkStroke(
+                rebuild(stroke, segment), segment.map { it.second }, segment.map { pressures[it.first] },
+                utensil, canvasSize, release,
+            )
+        }
+        closeGesture()
     }
 
     /** The Eraser with an Ink utensil in hand erases that utensil's exact stroke shape. */

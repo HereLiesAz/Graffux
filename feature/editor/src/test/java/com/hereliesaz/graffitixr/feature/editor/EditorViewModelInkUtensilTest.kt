@@ -445,4 +445,56 @@ class EditorViewModelInkUtensilTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertTrue(viewModel.inkLedgerStrokes(layerId).isEmpty())
     }
+
+    private fun tiltedLayer(rotationX: Float): String {
+        withLayer()
+        val size = IntSize(1000, 1600)
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(size))
+        viewModel.dispatchForTest(
+            EditorIntent.SetLayers(viewModel.uiState.value.layers.map { it.copy(rotationX = rotationX, scale = 1f) }),
+        )
+        viewModel.dispatchForTest(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
+        return viewModel.uiState.value.activeLayerId!!
+    }
+
+    private val inkPen = com.hereliesaz.graffitixr.common.model.InkUtensil.PEN
+    private val inkSize = IntSize(1000, 1600)
+
+    @Test
+    fun `an Ink stroke on a tilted layer is committed at the points the plane maps, not the world points`() {
+        val layerId = tiltedLayer(40f)
+        val world = listOf(Offset(420f, 700f), Offset(460f, 760f), Offset(510f, 820f))
+        val plane = ActivePlaneMapping.of(viewModel.uiState.value)
+        val expected = world.map { plane.worldToFlat(it)!! }
+        val stroke = mockk<androidx.ink.strokes.Stroke>(relaxed = true)
+        var committed = 0
+        viewModel.commitInkThroughPlane(
+            stroke, world, listOf(1f, 1f, 1f), inkPen, inkSize, { committed++ },
+        ) { s, _ -> s }
+        val path = viewModel.inkLedgerStrokes(layerId).single().path
+        assertEquals(expected, path)
+        assertNotEquals(world, path)
+    }
+
+    @Test
+    fun `an Ink stroke on an edge-on layer paints nothing and still releases the live copy`() {
+        val layerId = tiltedLayer(90f)
+        val undo = viewModel.uiState.value.undoCount
+        var committed = 0
+        viewModel.commitInkThroughPlane(
+            mockk(relaxed = true), listOf(Offset(420f, 700f), Offset(460f, 760f)), listOf(1f, 1f), inkPen, inkSize,
+            { committed++ },
+        ) { s, _ -> s }
+        assertEquals(1, committed)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertTrue(viewModel.inkLedgerStrokes(layerId).isEmpty())
+    }
+
+    @Test
+    fun `an Ink stroke on a flat layer is committed as is`() {
+        val layerId = tiltedLayer(0f)
+        val world = listOf(Offset(420f, 700f), Offset(460f, 760f))
+        viewModel.commitInkThroughPlane(mockk(relaxed = true), world, listOf(1f, 1f), inkPen, inkSize, {}) { s, _ -> s }
+        assertEquals(world, viewModel.inkLedgerStrokes(layerId).single().path)
+    }
 }
