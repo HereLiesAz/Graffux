@@ -456,13 +456,49 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     its images, and its bitmap file, stroke log and undo are those of any layer. Its flat space is the
     view's `(arc length, sweep offset)`; it is not moved by the paint layer's own transform. A brush or
     eraser touch maps by footprint (`SurfaceFootprint.worldToViewFlat`: the ray, else rings of rays out to
-    the brush radius); a cap belongs to no view and is not paintable. A stroke that moves from one view's
+    the brush radius); a cap lands in its host view's image (see Caps). A stroke that moves from one view's
     face to another's is cut at the crease (`SurfaceViewStroke.crossing` brackets it by bisection, so each
     image gets its half right up to the crease and no gap is left) by `ViewStrokeFeed`; the segments are
     entries chained in `EditHistory` (`chainedToPrevious`), so undo and redo take the whole stroke. A
-    single-view group and a flat layer take the old path unchanged. Not yet: duplicating a paint layer
-    copies only its own image; co-op announces the image layers as ordinary layers; fill, clone and
-    lasso still use the front sheet.
+    single-view group and a flat layer take the old path unchanged. Co-op announces the image layers as
+    ordinary layers (`Op.LayerAdd`), so a peer sees them as such.
+  - *Caps.* A face of the solid that no drawn outline's sheet carries is a box face (a tilted sweep leaves a
+    sliver of one; a lone closed outline leaves its two ends). It is drawn and painted like any other:
+    `SurfaceHull.capMeshByView` tessellates it (the sheet's slab scan, no prism skipped, and only where the
+    point is strictly inside every outline, so a box face lying in a drawn sheet is that sheet's and is never
+    drawn twice). Rule: a cap belongs to the view that looks at it most squarely (its sweep most parallel to
+    the face's axis, the earlier of front, side, top on a tie), and lives in that view's own image in a region
+    of its own, to the right of the sheet: faces in `axis * 2 + side` order, a gap (5% of the box's widest
+    side) before each. `PaintTarget` / `SurfaceHull.paintTarget` give a hit's view, point and `region`
+    (0 the sheet, `1 + face` a cap); the mesh from `SurfaceHullMesh.textured` carries sheet and caps in one
+    triangle list per view, so render, glTF and paint agree and there is no gap. Because two faces of one
+    image can be far apart in space, a stroke that moves between faces (sheet to cap, or cap to cap) is cut
+    exactly like one that moves between views (`SurfaceMath.ViewFlat.sameFace`). A ray that meets a plane two
+    views share a rounding error apart is a tie (within `TIE_EPS`) and goes to the earlier view, the one whose
+    patch the mesh emits (before, an oblique ray could name the later view, which draws nothing there).
+  - *Paint made before the second view.* A paint layer on the flat front sheet that has pixels, and no front
+    image yet, has them carried onto the hull when a group first gains a side or top: the front image is a
+    copy of the layer with the same transform and frame and an offset moved by
+    `SurfaceViewImages.carryOffset`, so every pixel shows where it did (the sheet's sweep distance runs from
+    the outline's plane, the hull's from the solid's near end). The pixels are copied untouched, so the carry
+    is lossless when the front outline has at most `SurfaceHull.MAX_MESH_POINTS` vertices (the hull
+    simplifies a longer closed outline, shifting arc length by at most the capture tolerance). The layer keeps
+    its own pixels, so "Flatten surface" gives the sheet back unchanged. It happens inside the one undo step
+    that draws the view. v9, v10 and v11 projects load as before.
+  - *Duplicating.* Duplicating a paint layer also duplicates its view images: new ids, linked to the copy
+    (`surfaceViewOf`), placed after it, each with its own pixel file, stroke log and base
+    (`SurfaceViewImages.duplicates`). One undo step takes the copy and its images back.
+  - *Fill, Clone, lasso.* A multi-view group keeps its lasso in world space (the marching ants are the lasso
+    as drawn) and cuts it to each image when used (`SurfaceViewSelection.forView`: the ring is clipped to every
+    projected triangle of the view's patches and caps, carried into the image through the triangle's own
+    perspective-correct mapping, so a point is selected in an image exactly when it is under the lasso on
+    the surface; a lasso crossing a crease is split across the images). Brush, eraser, clone and fill
+    take that per-image selection; a lasso that reaches nothing of a view makes it a miss. Fill (`onViewFillTap`)
+    floods the view image under the tap from the tap's flat point and, with no lasso, is bounded to the face
+    tapped (`SurfaceViewSelection.faceRegion`), as one undo step. Clone's source is a point of a view image
+    (`cloneSourceView`); a clone stroke copies within that image and a touch on another view is a miss. Not
+    on a multi-view surface yet: moving a selection's pixels, Automatic (wand) selection, the clone reticle,
+    and a fill's flood continuing across a crease into the neighbouring image (each image floods on its own).
   - *Rendering the hull.* A paint layer on a group with a side or top view draws as one plane per
     view image (`DepthScene.hullPlanes`), each on its view's patch of the hull: `SurfaceHull.meshByView`
     triangles, with texture coordinates into the image from `SurfaceHullMesh.textured` (a vertex's
@@ -472,8 +508,8 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     opacity, isolated compositing and depth against other layers and groups work as they do for a
     sheet. A face two views share is one patch, the earlier view's, and a ray hit is attributed to that
     same view. A group with one view renders exactly as before. The paint layer's own pixels (made on
-    the sheet before a side or top was drawn) are kept but not drawn on a hull. A cap (an axis no two
-    views bound) is not drawn: it has no image.
+    the sheet before a side or top was drawn) are kept, not drawn, on a hull, but a first side or top carries them
+    onto the front image (above). A cap is drawn from its host view's image (above).
   - *Export.* glTF gets one textured mesh per view image (`hullQuads`), the same triangle-list form as a
     surface sheet; the no-GLES export fallback draws a patch triangle by triangle.
   - *Drawing the other views.* A group with a surface has "Draw side view" and "Draw top view" in its
