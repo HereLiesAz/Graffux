@@ -530,7 +530,8 @@ data class EditorUiState(
      * Which view the armed "Draw surface" stroke is (spec/3d-space.md, multi-view surfaces): the front
      * is drawn from wherever the camera is; the side and top first turn the camera to look along them.
      */
-    val surfaceDrawView: com.hereliesaz.graffitixr.common.scene.SurfaceView = com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT,
+    val surfaceDrawView: com.hereliesaz.graffitixr.common.scene.SurfaceView =
+        com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT,
     /** The camera to put back when a side or top view is captured or cancelled; null = nothing to restore. */
     val surfaceReturnCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
     /**

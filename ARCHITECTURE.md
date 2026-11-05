@@ -636,7 +636,8 @@ Full design: `spec/3d-space.md`. In short:
   A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.
-  Data, maths and persistence only so far; no drawing UI or render path (see spec/3d-space.md).
+  Shipped: data, maths, persistence, and the per-view drawing UI (`EditorViewModel.onArmSurfaceView`,
+  `SurfacePromptChip`, camera presets). Not yet: per-view paint images and the render/glTF path (see spec/3d-space.md).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

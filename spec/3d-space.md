@@ -429,8 +429,13 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     the ray starts inside) with the carrying outline's unrolled `(u, t)` (arc length round the closed
     outline; signed distance along its sweep). `SurfaceMath.worldToSurface` is the world-to-surface API.
     Integration point: where `EditorViewModel`'s paint mapping calls `SurfaceMath.worldToFlat`, a group
-    with `profile.hasHull` should call `worldToSurface` and feed `(view, u, t)` to the footprint mapping;
-    side and top patches need their own paint space (one atlas per view), which is not defined yet.
+    with `profile.hasHull` should call `worldToViewFlat` and paint the image of the view it returns.
+  - *Paint storage (decided).* One paint image per view per layer (front, side, top painted
+    independently, no atlas). `SurfaceHull.paintSize(view)` is a view's image size (arc length round its
+    outline by the solid's reach along its sweep); `paintPoint` / `SurfaceMath.worldToViewFlat` map a
+    touch to the view hit and the flat point in that view's image (through the same inner-chain unroll
+    as `worldToFlat`). Not yet built: storing, persisting, painting into and displaying those images
+    (the layer store, edit history and bitmap files are single-image today).
   - *Rendering.* `SurfaceHull.meshByView` gives triangles (x, y, z, u, t) per view, exact for straight
     trims; not wired into `DepthCompositor`, glTF or the editor yet.
   - *Drawing the other views.* A group with a surface has "Draw side view" and "Draw top view" in its

@@ -372,6 +372,23 @@ object SurfaceMath {
         )
     }
 
+    /** A touch on a multi-view surface, in the paint image of the view it lands on. */
+    class ViewFlat(val view: SurfaceView, val x: Float, val y: Float)
+
+    /**
+     * [worldToSurface] taken to the flat point of the leaf's paint image for the view hit (one image
+     * per view, painted independently): the same unroll-then-leaf mapping as [worldToFlat], with the
+     * view's own `(arc length, sweep distance from the solid's near end)` as the unrolled point. Null
+     * on a miss, a cap, or a group with one view.
+     */
+    fun worldToViewFlat(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): ViewFlat? {
+        val hit = worldToSurface(x, y, owner, camera, width, height) ?: return null
+        val view = hit.view ?: return null
+        val (u, t) = SurfaceHull.of(owner.profile)?.paintPoint(hit) ?: return null
+        val flat = unrolledToFlat(u, t, owner.innerChain, width, height) ?: return null
+        return ViewFlat(view, flat.first, flat.second)
+    }
+
     /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */
     fun flatToWorld(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): Pair<Float, Float>? {
         if (width <= 0f || height <= 0f) return null

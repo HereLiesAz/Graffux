@@ -207,4 +207,31 @@ class SurfaceHullTest {
         val v9 = json.decodeFromString(SurfaceProfile.serializer(), """{"points":[0,0,0,10,0,0],"sweepZ":1}""")
         assertFalse(v9.hasHull)
     }
+
+    @Test
+    fun `each view has its own paint image sized by its outline and reach`() {
+        val hull = SurfaceHull.of(cube)!!
+        for (v in SurfaceView.values()) {
+            val (w, h) = hull.paintSize(v)!!
+            assertEquals(400f, w, 0.01f)
+            assertEquals(100f, h, 0.05f)
+        }
+        // A hit on the cube's front-most face lands inside that view's image, never negative.
+        val hit = hull.hit(floatArrayOf(30f, 40f, -500f), floatArrayOf(0f, 0f, 1f), 1f)!!
+        val (x, y) = hull.paintPoint(hit)!!
+        val (w, h) = hull.paintSize(hit.view!!)!!
+        assertTrue(x in 0f..w && y in 0f..h)
+        assertNull(SurfaceHull.of(wallFront)!!.paintSize(SurfaceView.SIDE))
+        assertNotNull(SurfaceHull.of(wallFront)!!.paintSize(SurfaceView.FRONT))
+    }
+
+    @Test
+    fun `world to view flat maps a touch into the hit view's image`() {
+        val group = com.hereliesaz.graffitixr.common.model.Layer("g", "G", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = cube)
+        val leaf = com.hereliesaz.graffitixr.common.model.Layer("a", "A", parentId = "g")
+        val owner = SurfaceMath.ownerOf(listOf(group, leaf), "a")!!
+        val f = SurfaceMath.worldToViewFlat(50f, 50f, owner, SceneCamera(), 1000f, 800f)!!
+        assertTrue(f.x in 0f..400f && f.y in 0f..100f)
+        assertNull(SurfaceMath.worldToViewFlat(900f, 700f, owner, SceneCamera(), 1000f, 800f))
+    }
 }

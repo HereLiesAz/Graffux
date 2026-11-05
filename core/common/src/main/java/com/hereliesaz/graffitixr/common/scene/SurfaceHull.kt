@@ -136,6 +136,44 @@ class SurfaceHull private constructor(
         return out
     }
 
+    /**
+     * The size of [view]'s paint image (project format 10: one image per view, the views painted
+     * independently): width the arc length round its outline, height the solid's reach along its
+     * sweep. Null for a view that does not carry surface (undrawn, or not the wall of a wall hull).
+     */
+    fun paintSize(view: SurfaceView): Pair<Float, Float>? {
+        val prism = carrying(view) ?: return null
+        val (lo, hi) = sweepRange(prism)
+        return prism.cum[prism.edges] to (hi - lo)
+    }
+
+    /**
+     * Where [hit] lands in its view's paint image: x the arc length round the outline, y the sweep
+     * distance measured from the nearest end of the solid so that it is never negative. Null for a cap.
+     */
+    fun paintPoint(hit: HullHit): Pair<Float, Float>? {
+        val view = hit.view ?: return null
+        val prism = carrying(view) ?: return null
+        return hit.u to hit.t - sweepRange(prism).first
+    }
+
+    private fun carrying(view: SurfaceView): Prism? =
+        prisms.withIndex().firstOrNull { (j, p) -> p.view == view && (wallIndex < 0 || j == wallIndex) }?.value
+
+    /** The sweep distances (from the outline's plane) the box spans along [prism]'s sweep. */
+    private fun sweepRange(prism: Prism): Pair<Float, Float> {
+        val p0 = prism.pts3[0]
+        var tLo = Float.POSITIVE_INFINITY
+        var tHi = Float.NEGATIVE_INFINITY
+        for (cx in 0..1) for (cy in 0..1) for (cz in 0..1) {
+            val c = floatArrayOf(if (cx == 0) lo[0] else hi[0], if (cy == 0) lo[1] else hi[1], if (cz == 0) lo[2] else hi[2])
+            val t = (c[0] - p0[0]) * prism.s[0] + (c[1] - p0[1]) * prism.s[1] + (c[2] - p0[2]) * prism.s[2]
+            tLo = min(tLo, t)
+            tHi = max(tHi, t)
+        }
+        return tLo to tHi
+    }
+
     // ---- ray casting -------------------------------------------------------------------------
 
     /** An interval of a line's parameter inside the solid, and what bounds each end. */
