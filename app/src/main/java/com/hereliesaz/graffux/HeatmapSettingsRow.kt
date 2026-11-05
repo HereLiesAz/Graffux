@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.FilterChip
+import com.hereliesaz.graffitixr.design.components.GraffuxChoiceChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,11 +84,11 @@ internal fun HeatmapSettingsRow() {
         Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(true, false).forEach { option ->
-                FilterChip(
+                GraffuxChoiceChip(
                     selected = option == on,
                     enabled = !checking,
                     onClick = { select(option) },
-                    label = { Text(if (option) "On" else "Off") },
+                    label = if (option) "On" else "Off",
                 )
             }
         }
