@@ -138,6 +138,40 @@ class LayersRailGroupsUiTest {
     }
 
     @Test
+    fun `a group whose topmost child is a group takes the first descendant tile's centre`() {
+        // g1 > [h (group, no tile) > a, b]; the top row under g1 is a (h has no centre).
+        val layers = listOf(group("g1"), leaf("b", "g1"), group("h", "g1"), leaf("a", "h"))
+        val centres = mapOf(layerRailId("a") to 200f, layerRailId("b") to 300f)
+        val out = siblingCenters(layers, centres)
+        assertEquals(200f, out.getValue(layerRailId("g1")))
+        assertEquals(200f, out.getValue(layerRailId("h")))
+        // Dropped above g1's first tile (150 < 200), "x" goes before it; it used to land after it.
+        assertEquals(listOf("x", "layer.g1"), droppedSiblingOrder(listOf("layer.g1", "x"), "x", 150f, out))
+    }
+
+    @Test
+    fun `a hidden group can be shown from a member's menu, and every group around it is offered`() {
+        val layers = listOf(group("g").copy(isVisible = false), group("h", "g"), leaf("a", "h"))
+        val ui = EditorUiState(layers = layers, activeLayerId = "a")
+        var rows: List<MenuRow> = emptyList()
+        var shown = ""
+        rule.setContent {
+            val strings = rememberAppStrings()
+            val vm = io.mockk.mockk<com.hereliesaz.graffitixr.feature.editor.EditorViewModel>(relaxed = true)
+            io.mockk.every { vm.onToggleVisibility(any()) } answers { shown += firstArg<String>() }
+            rows = MenuBuilder().apply { layerMenu(layers[2], ui, LayerMenuEnv(vm, strings, {}, {}, {})) }.rows
+        }
+        rule.waitForIdle()
+        val actions = rows.filterIsInstance<MenuRow.Action>()
+        val show = actions.first { it.text == "Show group g" }
+        assertTrue(actions.any { it.text == "Hide group h" })
+        show.onClick()
+        assertEquals("g", shown)
+        // And the rail still renders the member while the group is hidden: no group tile.
+        assertEquals(listOf("a"), visibleLayerRows(layers, emptyMap()).map { it.layer.id })
+    }
+
+    @Test
     fun `a member's menu carries the group's actions`() {
         val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
         val layers = listOf(group("g").copy(surface = profile), leaf("a", "g"))

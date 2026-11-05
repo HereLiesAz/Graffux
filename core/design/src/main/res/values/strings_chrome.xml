@@ -22,6 +22,8 @@
     <string name="layer_menu_move_up">Move up</string>
     <string name="layer_menu_move_down">Move down</string>
     <string name="layer_menu_ungroup">Ungroup</string>
+    <string name="layer_menu_hide_group">Hide group %s</string>
+    <string name="layer_menu_show_group">Show group %s</string>
     <string name="layer_menu_group_with_above">Group with layer above</string>
     <string name="layer_menu_merge_down">Merge down</string>
     <string name="layer_menu_alpha_lock">Lock transparency</string>

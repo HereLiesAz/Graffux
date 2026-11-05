@@ -160,9 +160,14 @@ internal fun visibleLayerRows(layers: List<Layer>, expansion: Map<String, Boolea
  */
 internal fun siblingCenters(layers: List<Layer>, centers: Map<String, Float>): Map<String, Float> {
     val out = HashMap(centers)
+    val rows = layerRailRows(layers)
     layers.filter { it.type == LayerType.GROUP }.forEach { g ->
-        val tops = layerRailRows(layers).firstOrNull { row -> row.layer.id != g.id && generateSequence(row.layer) { l -> layers.firstOrNull { it.id == l.parentId } }.any { it.id == g.id } }
-        tops?.let { centers[layerRailId(it.layer.id)] }?.let { out[layerRailId(g.id)] = it }
+        // The first row under the group that has a tile (its topmost child can itself be a group).
+        val centre = rows.firstNotNullOfOrNull { row ->
+            val inside = generateSequence(row.layer) { l -> layers.firstOrNull { it.id == l.parentId } }.drop(1).any { it.id == g.id }
+            if (inside) centers[layerRailId(row.layer.id)] else null
+        }
+        if (centre != null) out[layerRailId(g.id)] = centre
     }
     return out
 }

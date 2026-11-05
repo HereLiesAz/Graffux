@@ -157,4 +157,22 @@ class SurfacePromptUiTest {
         rule.onNodeWithText("3D", useUnmergedTree = true).assertExists()
         assertTrue(taps == 2)
     }
+
+    @Test
+    fun `the messages sit under the chip, not over it, at a large font scale`() {
+        val alerts = MessageController().apply { show(message = "Saved the project to your device and shared it with everyone") }
+        rule.setContent {
+            val base = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, fontScale = 2f),
+            ) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    NoticeStack(true, SurfaceDrawNotice.TOO_SHORT, {}, alerts, "OK", { "$it times" })
+                }
+            }
+        }
+        val chip = rule.onNodeWithTag("surface.prompt").fetchSemanticsNode().boundsInRoot
+        val message = rule.onNodeWithTag("chrome.message").fetchSemanticsNode().boundsInRoot
+        assertTrue("chip ${chip} message ${message}", message.top >= chip.bottom)
+    }
 }

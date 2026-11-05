@@ -79,6 +79,10 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
         listItem(m.ungroup) { vm.onUngroupLayer(layer.id) }
     } else {
         if (memberOf != null) listItem(m.ungroup) { vm.onUngroupLayer(memberOf.id) }
+        // A group has no tile to hide or show it by, so each group around this layer is toggled here.
+        layerGroupsAround(uiState.layers, layer).forEach { g ->
+            listItem((if (g.isVisible) m.hideGroup else m.showGroup).format(g.name)) { vm.onToggleVisibility(g.id) }
+        }
         listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
         listItem(m.groupWithAbove) { vm.onGroupWithLayerAbove(layer.id) }
         listItem(m.mergeDown) { vm.onMergeDown(layer.id) }
@@ -113,6 +117,18 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     section(m.sectionRemove)
     if (!isGroup) destructiveItem(m.clear, on { vm.onClearLayer() })
     destructiveItem(strings.editor.delete) { if (isGroup) vm.onDeleteGroup(layer.id) else vm.onLayerRemoved(layer.id) }
+}
+
+/** The groups around [layer], nearest first: the ones whose visibility it is inside of. */
+internal fun layerGroupsAround(layers: List<Layer>, layer: Layer): List<Layer> {
+    val byId = layers.associateBy { it.id }
+    val out = mutableListOf<Layer>()
+    var parent = layer.parentId?.let(byId::get)
+    while (parent != null && out.none { it.id == parent!!.id }) {
+        if (parent.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP) out += parent
+        parent = parent.parentId?.let(byId::get)
+    }
+    return out
 }
 
 /** The group [layer] sits directly in (a member's menu acts on it), or null. */

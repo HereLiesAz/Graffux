@@ -1597,28 +1597,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
-            // "Draw surface": the prompt while armed, or why the 3D slot did nothing. Below the messages.
-            SurfacePromptChip(
+            // "Draw surface" prompt, then failures and confirmations, over the artwork, never blocking it.
+            NoticeStack(
                 armed = uiState.surfaceDrawArmed,
                 notice = uiState.surfaceDrawNotice,
                 onCancel = { vm.onCancelSurfaceDraw() },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
-            )
-            // Failures and confirmations, over the artwork, never blocking it.
-            MessageHost(
-                alerts,
+                alerts = alerts,
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    // Under the Draw-surface chip while it is up, so neither covers the other.
-                    .padding(
-                        top = RailEdgeGap + surfaceChipClearance(uiState.surfaceDrawArmed, uiState.surfaceDrawNotice),
-                        start = besideRail,
-                        end = besideRail,
-                    ),
+                    .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
             )
         }
 

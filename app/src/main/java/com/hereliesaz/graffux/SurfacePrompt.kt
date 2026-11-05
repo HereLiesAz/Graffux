@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "MaxLineLength", "FunctionNaming", "MatchingDeclarationName")
+@file:Suppress("MagicNumber", "MaxLineLength", "FunctionNaming", "MatchingDeclarationName", "LongParameterList")
 
 package com.hereliesaz.graffux
 
@@ -108,6 +108,23 @@ internal fun SurfacePromptChip(
     }
 }
 
-/** The room the Draw-surface chip takes at the top of the canvas (the messages sit below it), or none. */
-internal fun surfaceChipClearance(armed: Boolean, notice: SurfaceDrawNotice?) =
-    if (armed || notice != null) 96.dp else 0.dp
+/**
+ * The top-of-canvas notices in one vertical layout: the Draw-surface chip, then the app's messages
+ * under it. Sharing a column lets the chip's real height (large font scales wrap it further) push
+ * the messages down, where a fixed offset would let them overlap.
+ */
+@Composable
+internal fun NoticeStack(
+    armed: Boolean,
+    notice: SurfaceDrawNotice?,
+    onCancel: () -> Unit,
+    alerts: MessageController,
+    okLabel: String,
+    countLabel: (Int) -> String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        SurfacePromptChip(armed, notice, onCancel)
+        MessageHost(alerts, okLabel = okLabel, countLabel = countLabel)
+    }
+}

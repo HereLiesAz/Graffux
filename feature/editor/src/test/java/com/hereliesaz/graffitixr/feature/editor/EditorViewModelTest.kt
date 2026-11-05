@@ -2012,6 +2012,24 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a pending wrap follows its layer into a group made meanwhile, and the capture still works`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        tapSlot(listOf(lyr("a"), lyr("b")), "a")
+        assertEquals("a", viewModel.uiState.value.surfaceDrawWrapLayerId)
+        // GroupLayers puts "a" inside a new group while the capture is armed.
+        viewModel.onGroupWithLayerAbove("a")
+        testDispatcher.scheduler.runCurrent()
+        val st = viewModel.uiState.value
+        val group = st.layers.first { it.id == st.layers.first { l -> l.id == "a" }.parentId }
+        assertNull(st.surfaceDrawWrapLayerId)
+        assertEquals(group.id, st.surfaceDrawGroupId)
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f)))
+        testDispatcher.scheduler.runCurrent()
+        assertNotNull(viewModel.uiState.value.layers.first { it.id == group.id }.surface)
+        assertFalse(viewModel.uiState.value.surfaceDrawArmed)
+    }
+
+    @Test
     fun `undoing the capture, or removing the layer, leaves nothing armed`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         tapSlot(listOf(lyr("a"), lyr("b")), "a")

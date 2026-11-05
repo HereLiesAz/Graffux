@@ -6070,12 +6070,24 @@ class EditorViewModel @Inject constructor(
     private fun withoutOrphanSurfaceCapture(state: EditorUiState): EditorUiState {
         val groupId = state.surfaceDrawGroupId
         val wrapId = state.surfaceDrawWrapLayerId
-        val gone = (groupId != null && state.layers.none { it.id == groupId }) ||
-            (wrapId != null && state.layers.none { it.id == wrapId })
-        return if (gone) {
-            state.copy(surfaceDrawGroupId = null, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null)
-        } else {
-            state
+        val disarmed = state.copy(surfaceDrawGroupId = null, surfaceDrawWrapLayerId = null, surfaceDrawNotice = null)
+        return when {
+            groupId != null && state.layers.none { it.id == groupId } -> disarmed
+            wrapId == null -> state
+            else -> {
+                // A pending wrap needs its layer to still be top-level. If a membership change since
+                // (GroupLayers, a co-op move) put it in a group, capture retargets to that group;
+                // if the layer is gone or has no group to draw on, the arm is cancelled.
+                val layer = state.layers.firstOrNull { it.id == wrapId }
+                val parent = layer?.parentId?.let { pid -> state.layers.firstOrNull { it.id == pid } }
+                when {
+                    layer == null -> disarmed
+                    layer.parentId == null -> state
+                    parent?.isContainer == true ->
+                        state.copy(surfaceDrawGroupId = parent.id, surfaceDrawWrapLayerId = null)
+                    else -> disarmed
+                }
+            }
         }
     }
 
