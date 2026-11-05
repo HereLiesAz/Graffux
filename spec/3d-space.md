@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 9). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 10; the multi-view surface below has its data model, maths, persistence and drawing UI; see its notes for paint and rendering). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -409,7 +409,44 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   group: its materials blend primitive by primitive, so where a translucent group's layers overlap the
   viewer fades each one separately, as the canvas did before groups were isolated. Matching the unit
   would mean baking the group into one texture; not done.
-- **Persistence.** `OverlayLayer.surface`, project format 9.
+- **Persistence.** `OverlayLayer.surface`, project format 9; format 10 adds `SurfaceProfile.side` and
+  `.top` (below). A version 9 file has neither and loads as the single-view surface; the migration only
+  records the version.
+- **Multi-view surfaces (format 10).** A group's surface can
+  also be drawn from its side and top. The three outlines combine by *intersection*, like silhouette
+  carving (`SurfaceHull`, `:core:common`): each drawn outline, closed by joining its last vertex to its
+  first, is swept along its own view direction into an infinite prism, and the solid is every point all
+  the prisms hold. The surface is that solid's boundary. The existing profile is the front view. A view
+  left undrawn does not constrain. A view drawn with no area (an open curve or a line) stays a *thin
+  wall*: the surface is that outline's swept sheet, trimmed to what the other views' closed outlines and
+  the box hold (the closed views bound it; their own faces are not surface). One wall at most is kept
+  (front, then side, then top); a lone open outline with no closed view is the single-view sheet; drawing a
+  view again replaces it (`SurfaceProfile.withView`; redrawing the front keeps the side and top). Axes
+  only one prism bounds are clipped to the box of the drawn outlines' vertices (padded to the widest
+  side where an outline has no depth), so the solid spans a view only as far as the drawing does.
+  A group with no side or top is untouched: same sheet, same render and paint paths.
+  - *Painting.* `SurfaceHull.hit` returns the front-most surface point for a ray (entry, or the exit if
+    the ray starts inside) with the carrying outline's unrolled `(u, t)` (arc length round the closed
+    outline; signed distance along its sweep). `SurfaceMath.worldToSurface` is the world-to-surface API.
+    Integration point: where `EditorViewModel`'s paint mapping calls `SurfaceMath.worldToFlat`, a group
+    with `profile.hasHull` should call `worldToViewFlat` and paint the image of the view it returns.
+  - *Paint storage (decided).* One paint image per view per layer (front, side, top painted
+    independently, no atlas). `SurfaceHull.paintSize(view)` is a view's image size (arc length round its
+    outline by the solid's reach along its sweep); `paintPoint` / `SurfaceMath.worldToViewFlat` map a
+    touch to the view hit and the flat point in that view's image (through the same inner-chain unroll
+    as `worldToFlat`). Not yet built: storing, persisting, painting into and displaying those images
+    (the layer store, edit history and bitmap files are single-image today).
+  - *Rendering.* `SurfaceHull.meshByView` gives triangles (x, y, z, u, t) per view, exact for straight
+    trims; not wired into `DepthCompositor`, glTF or the editor yet.
+  - *Drawing the other views.* A group with a surface has "Draw side view" and "Draw top view" in its
+    layer menu (labelled "Redraw ..." once drawn), and the "surface set" chip offers the same two
+    buttons. Arming (`EditorViewModel.onArmSurfaceView`) turns the camera to look along the view
+    (`SurfaceView.camera`: side a quarter turn, top the pitch limit) and stores the camera in
+    `EditorUiState.surfaceReturnCamera`; the next stroke is that view's outline (a closed shape makes it
+    solid, an open line a thin wall), merged with `SurfaceProfile.withView` (one undo step), and the
+    camera goes back when the stroke is captured, on Cancel/Back, or if the group vanishes. The chip says
+    what to do for each view and shows "Front: done. Side: not drawn yet. Top: ..." (words, not just
+    colour). Switching between views while armed keeps the first camera to return to.
 - **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
   (source-over) when its profile is curved, except that a layer's own blend or clip on a straight
   profile, and the group's blend on a straight profile, draw in the stack. glTF fades a translucent
