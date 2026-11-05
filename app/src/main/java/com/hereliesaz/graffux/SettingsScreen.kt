@@ -25,7 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.FilterChip
+import com.hereliesaz.graffitixr.design.components.GraffuxChoiceChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.platform.LocalContext
@@ -544,10 +544,10 @@ internal fun <T> ChoiceRow(
         Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { option ->
-                FilterChip(
+                GraffuxChoiceChip(
                     selected = option == selected,
                     onClick = { onSelect(option) },
-                    label = { Text(label(option)) },
+                    label = label(option),
                 )
             }
         }
