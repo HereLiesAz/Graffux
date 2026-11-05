@@ -642,7 +642,7 @@ Full design: `spec/3d-space.md`. In short:
   the ordinary per-layer ones. `ActivePlaneMapping.toViewFlatByFootprint` (`SurfaceFootprint.worldToViewFlat`)
   picks the view; `ViewStrokeFeed` cuts a stroke at the crease (`SurfaceViewStroke.crossing`) into segments
   that `EditorViewModel.onViewStrokeStart` paints into the right image, chained (`EditCommand.Draw.chainedToPrevious`)
-  into one undo step. Format 10 shipped in 1.63.0, hence 11. Not yet: the render/glTF path (see spec/3d-space.md).
+  into one undo step. Format 10 shipped in 1.63.0, hence 11. The hull renders (`DepthScene.hullPlanes`, `SurfaceHullMesh`: a plane per view image on its patch, depth-correct, opacity and isolated groups as for a sheet) and exports to glTF (`hullQuads`). GPU path untested off-device (see spec/3d-space.md).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

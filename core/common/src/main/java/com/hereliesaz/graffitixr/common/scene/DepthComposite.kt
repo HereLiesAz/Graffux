@@ -107,7 +107,10 @@ data class DepthComposite(
                     layer.adjustment != null -> false
                     // Paint on a surface has no plane to draw it by: the pass draws it on the
                     // surface's mesh, in stack order, whatever its blend mode (normal) or group.
-                    layer.id in onSurface -> layer.bitmap != null || layer.shapes.isNotEmpty()
+                    layer.id in onSurface ->
+                        layer.bitmap != null || layer.shapes.isNotEmpty() ||
+                            // On a multi-view surface the paint is in its per-view images.
+                            layers.any { it.surfaceViewOf == layer.id && it.bitmap != null }
                     layer.blendMode != BlendMode.SrcOver || layer.clipToLayerBelow -> false
                     layer.bitmap == null && layer.shapes.isEmpty() -> false
                     else -> ancestors(layer).all(::plainGroup)
