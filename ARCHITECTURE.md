@@ -548,7 +548,9 @@ Full design: `spec/3d-space.md`. In short:
 - **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
   3D" exactly when it has a depth or an X/Y tilt (`Layer.isPlacedIn3D`); there is no toggle, and
-  the old `is3D` flag is ignored. `EditorUiState.sceneCamera` (`SceneCamera`, saved with the
+  the old `is3D` flag is ignored. The orbit point (`OrbitPivot`, spec/3d-space.md "The orbit point") is the centre of the content's
+  box (layer 1's own box, D/2 behind it, until other layers add extent); the rotation slider, Move-tool
+  twist, view orbit and view-plane adoption all revolve about it. `EditorUiState.sceneCamera` (`SceneCamera`, saved with the
   project) is the one camera; its default projects depth 0 onto the canvas pixel for pixel.
   `SceneMath` (`:core:common`, pure, unit-tested) holds the camera, plane, homography and ray-plane
   maths.

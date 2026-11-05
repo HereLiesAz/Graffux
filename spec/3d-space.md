@@ -399,14 +399,40 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   group's layers one by one (see above). The export's no-GLES fallback composites an isolated group
   into a bitmap the size of the canvas, then draws it at the group's opacity.
 
+## The orbit point
+
+Everything that revolves revolves about one point, `OrbitPivot.of(layers, W, H)`: the rotation
+slider on every axis, the Move tool's twist, the axis cycler's two-finger turn and the camera orbit
+(`SceneMath.orbitAbout`, which keeps the pivot fixed on screen), and the point a newly adopted view
+plane passes through. It is the centre of the box that holds the content.
+
+- **Layer 1 alone.** Layer 1 (the first paint layer, the base) is flat, so the box is assumed from its
+  own size: W wide, H tall and `D = OrbitPivot.assumedDepth(W, H) = max(W, H)` deep, a cube on the
+  longer side. The owner did not state D, so it is one named function. The pivot is the box's centre:
+  x and y at the centre of layer 1, D/2 BEHIND its plane (+z, away from the viewer). The box is
+  carried by layer 1's pose, so the pivot is a fixed point of every turn about it: it cannot jump
+  while the layer is rotated.
+- **More content.** Once a second content layer exists (groups and adjustments do not count) the
+  pivot is the centre of the union of every content layer's world-space bounds (each plane's four
+  corners, through its group chain). Along any axis where that union is still flat the extent comes
+  from layer 1's assumed box. The bounds follow the layers, so the point is held for the length of a
+  gesture (a slider drag, a two-finger gesture), and recomputed between gestures.
+- **Turning a layer.** `SceneMath.rotatePoseAbout` moves the slider's Euler angle exactly as before
+  and moves the layer's offset and depth so its centre revolves about the pivot at a constant
+  distance. A Z turn of a flat layer (not placed in 3D) stays in place, as a 2D layer's always did;
+  for layer 1 that is the same thing, since the pivot sits straight behind its centre.
+- **Before this**, the pivot was the scene camera's target: the canvas centre ON layer 1's plane
+  (depth 0), and layers turned about their own centres, so an X or Y turn tilted the layer in place
+  while the camera swung about a point on the plane.
+
 ## Adopting the view plane
 
 An empty paint layer takes its plane from the view on its first stroke
 (`EditorViewModel.adoptViewPlaneForStroke`, `SceneMath.viewPlanePose`), so drawing under an
 orbited camera puts the paint where it is drawn rather than on the far-off picture plane:
 
-- The plane's normal is the camera's view direction and it passes through the camera's orbit
-  target (the pivot). The layer's box centre lands on the target, its x and y run along the view's
+- The plane's normal is the camera's view direction and it passes through the orbit point
+  (`OrbitPivot`, above; scaled to that point's depth so pixels still show 1:1 there). The layer's box centre lands on the target, its x and y run along the view's
   right and down, and its scale is the camera's distance factor. Its pixels therefore show at the
   same size as a flat layer's at the default view, and the first stroke lands under the finger.
 - Inside groups, the pose is expressed in the groups' space, so the group chain gives exactly

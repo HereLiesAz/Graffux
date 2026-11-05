@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.feature.editor
 
+import com.hereliesaz.graffitixr.common.scene.planePose
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SceneMath
@@ -1278,6 +1279,152 @@ class EditorViewModelTest {
         assertEquals(30f, viewModel.uiState.value.layers.single().positionZ)
     }
 
+    // ── The orbit pivot (spec/3d-space.md, "The orbit point") ──
+
+    private val pivotW = 1000f
+    private val pivotH = 1600f
+
+    private fun pivotSetup(vararg layers: Layer) {
+        viewModel.setLayers(layers.toList())
+        viewModel.onLayerActivated(layers.first().id)
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    private fun pivotNow() =
+        com.hereliesaz.graffitixr.common.scene.OrbitPivot.of(viewModel.uiState.value.layers, pivotW, pivotH)
+
+    private fun boxPoint(id: String, u: Float, v: Float, z: Float): FloatArray {
+        val layers = viewModel.uiState.value.layers
+        return SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, id), pivotW, pivotH)
+            .apply(u, v, z)
+    }
+
+    private fun dist(a: FloatArray, b: FloatArray) =
+        kotlin.math.sqrt((0..2).sumOf { ((a[it] - b[it]).toDouble().let { d -> d * d }) }).toFloat()
+
+    @Test
+    fun `a Z turn of a lone layer 1 leaves its centre where it is and the pivot behind it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a"))
+        val centre = boxPoint("a", 500f, 800f, 0f)
+        val pivot = pivotNow()
+        assertEquals(800f, pivot[2], 0.01f)
+        sliderDrag(20f, 55f)
+        assertEquals(55f, viewModel.uiState.value.layers.single().rotationZ, 0.01f)
+        val after = boxPoint("a", 500f, 800f, 0f)
+        for (i in 0..2) assertEquals(centre[i], after[i], 0.05f)
+        val pivotAfter = pivotNow()
+        for (i in 0..2) assertEquals(pivot[i], pivotAfter[i], 0.05f)
+    }
+
+    @Test
+    fun `an X turn swings layer 1 about the pivot behind it at a constant distance`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a").copy(rotationY = 1f)) // placed in 3D, so the slider has an axis
+        setAxis(RotationAxis.X)
+        val pivot = pivotNow()
+        val corners = listOf(0f to 0f, 1000f to 1600f).map { (u, v) -> boxPoint("a", u, v, 0f) }
+        val before = corners.map { dist(it, pivot) }
+        sliderDrag(30f, 75f)
+        val layer = viewModel.uiState.value.layers.single()
+        assertEquals(75f, layer.rotationX, 0.01f)
+        // It swung: its centre left the picture plane, round a point 800 behind it.
+        assertTrue("centre left the plane: ${layer.positionZ}", kotlin.math.abs(layer.positionZ) > 100f)
+        val after = listOf(0f to 0f, 1000f to 1600f).map { (u, v) -> dist(boxPoint("a", u, v, 0f), pivot) }
+        for (i in before.indices) assertEquals(before[i], after[i], 0.5f)
+        // And the point itself did not move.
+        val still = boxPoint("a", 500f, 800f, 800f)
+        for (i in 0..2) assertEquals(pivot[i], still[i], 0.5f)
+        val again = pivotNow()
+        for (i in 0..2) assertEquals(pivot[i], again[i], 0.5f)
+    }
+
+    @Test
+    fun `the slider, a two-finger turn and the view orbit all revolve about the same pivot`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a").copy(rotationY = 1f))
+        val pivot = pivotNow()
+        // Slider: the layer's box point at the pivot stays put.
+        setAxis(RotationAxis.Y)
+        sliderDrag(40f)
+        val viaSlider = boxPoint("a", 500f, 800f, 800f)
+        // Two fingers on the view (axis Y) and the orbit call: the pivot keeps its place in the camera.
+        fun cameraSpace() = SceneMath.frame(viewModel.uiState.value.sceneCamera, pivotW, pivotH).toCamera(pivot)
+        val seen0 = cameraSpace()
+        twoFinger(rotation = 25f, steps = 3)
+        val seen1 = cameraSpace()
+        viewModel.onSceneOrbit(0.4f, -0.2f)
+        val seen2 = cameraSpace()
+        for (i in 0..2) {
+            assertEquals("slider $i", pivot[i], viaSlider[i], 0.5f)
+            assertEquals("two-finger $i", seen0[i], seen1[i], 0.5f)
+            assertEquals("orbit $i", seen0[i], seen2[i], 0.5f)
+        }
+        assertTrue(viewModel.uiState.value.sceneCamera.yaw != 0f)
+    }
+
+    @Test
+    fun `a layer's Move-tool twist also revolves about the pivot`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a").copy(rotationY = 1f))
+        setAxis(RotationAxis.X)
+        val pivot = pivotNow()
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoFinger(rotation = 20f, steps = 3)
+        val still = boxPoint("a", 500f, 800f, 800f)
+        assertTrue(kotlin.math.abs(viewModel.uiState.value.layers.single().rotationX) > 1f)
+        for (i in 0..2) assertEquals(pivot[i], still[i], 0.5f)
+    }
+
+    @Test
+    fun `a view plane adopted under an orbited camera passes through the pivot`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a"))
+        // Layer 1 alone: the pivot is 800 (half its longer side) behind its centre.
+        val pivot = floatArrayOf(500f, 800f, 800f)
+        viewModel.onSceneOrbit((Math.PI / 2).toFloat(), 0f)
+        assertTrue(viewModel.adoptViewPlaneForStroke())
+        val centre = boxPoint("a", 500f, 800f, 0f)
+        for (i in 0..2) assertEquals(pivot[i], centre[i], 0.5f)
+    }
+
+    @Test
+    fun `a twist and a pinch in one Move-tool step measure the pinch from the depth the twist left`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val focal = SceneMath.focalLength(pivotH)
+        // A lone layer tilted 90 degrees about X, its centre at camera depth 250 (default camera).
+        pivotSetup(lyr("a").copy(rotationX = 90f, positionZ = 250f - focal))
+        setAxis(RotationAxis.X)
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        fun depth() = SceneMath.frame(viewModel.uiState.value.sceneCamera, pivotW, pivotH)
+            .toCamera(boxPoint("a", 500f, 800f, 0f))[2]
+        assertEquals(250f, depth(), 0.5f)
+        twoFinger(zoom = 1.3f, rotation = -10f)
+        // The twist alone leaves the centre near depth 111; 1.3x would land at 85, below the minimum
+        // (5% of the focal length), so the clamp must hold it there.
+        assertTrue("depth ${depth()} below the minimum", depth() >= focal * 0.05f - 0.5f)
+    }
+
+    @Test
+    fun `turning a layer with the selection handle one way and back returns its centre`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        pivotSetup(lyr("a"), lyr("b").copy(positionZ = 400f))
+        viewModel.onLayerActivated("b")
+        setAxis(RotationAxis.X)
+        val centre = boxPoint("b", 500f, 800f, 0f)
+        viewModel.onGestureStart()
+        viewModel.onRotateLayerHandle(30f)
+        viewModel.onRotateLayerHandle(-30f)
+        viewModel.onGestureEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0f, viewModel.uiState.value.layers.first { it.id == "b" }.rotationX, 0.01f)
+        val after = boxPoint("b", 500f, 800f, 0f)
+        for (i in 0..2) assertEquals("axis $i", centre[i], after[i], 0.5f)
+    }
+
     private fun twoFinger(pan: Offset = Offset.Zero, zoom: Float = 1f, rotation: Float = 0f, steps: Int = 1) {
         viewModel.onTwoFingerStart()
         repeat(steps) { viewModel.onTwoFingerGesture(pan, zoom, Offset(500f, 800f), rotation) }
@@ -1358,7 +1505,11 @@ class EditorViewModelTest {
         // Drag slides it, the twist turns it about Y, and nothing touches the view.
         twoFinger(pan = Offset(10f, 0f), rotation = 2f, steps = 4)
         val moved = viewModel.uiState.value.layers.single()
-        assertEquals(40f, moved.offset.x, 0.5f)
+        // The twist revolves about the orbit pivot (800 behind the layer), so the layer's centre swings
+        // as well as slides: it is the pivot's own point of the layer that moved by the drag alone.
+        val pivotPoint = SceneMath.model(moved.planePose, 1000f, 1600f).apply(500f, 800f, 800f)
+        assertEquals(540f, pivotPoint[0], 0.5f)
+        val swungZ = moved.positionZ
         assertEquals(8f, moved.rotationY, 0.01f)
         assertEquals(undoBefore + 1, viewModel.uiState.value.undoCount)
         assertEquals(0f, viewModel.uiState.value.viewportRotation)
@@ -1372,7 +1523,8 @@ class EditorViewModelTest {
         assertEquals(undoBefore + 2, viewModel.uiState.value.undoCount)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(0f, viewModel.uiState.value.layers.single().positionZ)
+        // Back to where the twist left it (its swing about the pivot gave it a little depth).
+        assertEquals(swungZ, viewModel.uiState.value.layers.single().positionZ, 0.01f)
         assertEquals(8f, viewModel.uiState.value.layers.single().rotationY, 0.01f)
     }
 
