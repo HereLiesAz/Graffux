@@ -12,6 +12,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -232,5 +233,57 @@ class SurfaceProfileTest {
         assertEquals(p.length, 800f, 1f)
         assertTrue(kotlin.math.abs(sweep[2] - w / 2f) < kotlin.math.abs(sweep[0] - w / 2f))
         assertTrue(kotlin.math.abs(sweep[3] - h / 2f) < kotlin.math.abs(sweep[1] - h / 2f))
+    }
+
+    // ── Grid extent: the grid shows the surface, not an infinite plane ─────────────────────────
+
+    private fun sweepEnd(p: SurfaceProfile, lines: List<FloatArray>, t: Float): Boolean {
+        val cam = SceneMath.frame(camera, w, h)
+        val a = p.at(p.length, t)
+        val end = SurfaceMath.segment(a, a, cam)!!
+        return lines.any { l -> abs(l[2] - end[0]) < 0.5f && abs(l[3] - end[1]) < 0.5f }
+    }
+
+    @Test
+    fun `a single profile's grid is bounded to its box plus a margin`() {
+        val p = SurfaceMath.capture(ell, camera, w, h, identity)!!
+        val extent = SurfaceMath.gridExtent(p)
+        // The profile's box is 400 x 400 (and no deep): the grid reaches its largest side plus a margin.
+        assertEquals(400f + SurfaceMath.GRID_MARGIN, extent, 2f)
+        val lines = SurfaceMath.gridLines(p, Affine3.IDENTITY, SceneMath.frame(camera, w, h))
+        assertTrue("a sweep line ends at the extent", sweepEnd(p, lines, extent))
+        // No profile line lies past the extent: the far one is the closing line at the extent itself.
+        val farthest = SceneMath.frame(camera, w, h).let { cam ->
+            val a = p.at(0f, extent + SurfaceMath.GRID_SPACING)
+            SurfaceMath.segment(a, a, cam)!!
+        }
+        assertFalse(lines.any { l -> abs(l[0] - farthest[0]) < 0.5f && abs(l[1] - farthest[1]) < 0.5f })
+    }
+
+    @Test
+    fun `an explicit sweep extent bounds the lines and closes the grid at it`() {
+        val p = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)!!
+        val cam = SceneMath.frame(camera, w, h)
+        val lines = SurfaceMath.gridLines(p, Affine3.IDENTITY, cam, sweepExtent = 100f)
+        // Profile lines at t = 0, 64 and the closing 100; sweep lines at u = 0, 64 ... and the end.
+        val profileLines = 3
+        val sweepLines = (p.length / SurfaceMath.GRID_SPACING).toInt() + 1 + 1
+        assertEquals(profileLines + sweepLines, lines.size)
+        assertTrue(sweepEnd(p, lines, 100f))
+    }
+
+    @Test
+    fun `a multi-view group's grid is bounded to the hull's box`() {
+        fun rect(a: Float, b: Float) = listOf(0f to 0f, a to 0f, a to b, 0f to b)
+        fun prof(sweep: FloatArray, pts: List<Pair<Float, Float>>, place: (Float, Float) -> FloatArray) =
+            SurfaceProfile(pts.flatMap { place(it.first, it.second).toList() }, sweep[0], sweep[1], sweep[2])
+        val front = prof(floatArrayOf(0f, 0f, 1f), rect(100f, 100f)) { x, y -> floatArrayOf(x, y, 0f) }
+        val hull = front.copy(side = prof(floatArrayOf(1f, 0f, 0f), rect(300f, 100f)) { z, y -> floatArrayOf(0f, y, z) })
+        val extent = SurfaceMath.gridExtent(hull)
+        // The side view is 300 deep along the front's sweep: the grid reaches the solid's far end.
+        assertEquals(300f + SurfaceMath.GRID_MARGIN, extent, 2f)
+        assertTrue(extent < SurfaceMath.GRID_MAX_LINES * SurfaceMath.GRID_SPACING)
+        val lines = SurfaceMath.gridLines(hull, Affine3.IDENTITY, SceneMath.frame(camera, w, h))
+        assertTrue(sweepEnd(hull, lines, extent))
     }
 }

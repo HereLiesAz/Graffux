@@ -6012,6 +6012,10 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun dispatchForTest(intent: EditorIntent) = dispatch(intent)
 
+    /** Puts the scene camera where a test needs it (no intent moves it). */
+    @androidx.annotation.VisibleForTesting
+    internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
+
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
@@ -9437,11 +9441,13 @@ class EditorViewModel @Inject constructor(
     /**
      * A finished Ink stroke ([path] in world coordinates) put through the active layer's plane, as
      * every other brush is (spec/3d-space.md, "Painting on a tilted plane"): an empty layer under a
-     * moved camera first adopts the view plane, each sample is cast onto the plane, a sample that
-     * misses is dropped, and a stroke that leaves the plane and returns is committed as segments of
-     * one undo step. A stroke with no hit commits nothing and puts an adopted plane back. On a flat
-     * layer it is [commitInkStroke] unchanged. [rebuild] makes the Ink stroke for a segment's kept
-     * samples (native, so tests substitute it).
+     * moved camera first adopts the view plane, each sample is mapped by the brush footprint ([footprint],
+     * world units, default the brush radius: the touch ray first, else the nearest surface point the
+     * brush reaches), a sample that misses is dropped, and a stroke that leaves the plane and returns is
+     * committed as segments of one undo step. On a multi-view surface each run goes to its view's paint
+     * image (cut at the creases, chained into the one step). A stroke with no hit commits nothing and
+     * puts an adopted plane back. On a flat layer it is [commitInkStroke] unchanged. [rebuild] makes
+     * the Ink stroke for a segment's kept samples (native, so tests substitute it).
      */
     @Suppress("LongParameterList")
     internal fun commitInkThroughPlane(
@@ -9451,15 +9457,16 @@ class EditorViewModel @Inject constructor(
         utensil: com.hereliesaz.graffitixr.common.model.InkUtensil,
         canvasSize: IntSize,
         onCommitted: () -> Unit,
+        footprint: Float? = null,
         rebuild: (androidx.ink.strokes.Stroke, List<Pair<Int, Offset>>) -> androidx.ink.strokes.Stroke,
     ) {
         adoptViewPlaneForStroke()
         val plane = ActivePlaneMapping.of(_uiState.value)
         if (!plane.onPlane) {
-            commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted)
+            commitInkStroke(stroke, path, pressures, utensil, canvasSize, onCommitted = onCommitted)
             return
         }
-        val segments = planeSegments(path, plane::worldToFlat)
+        val segments = plane.inkSegments(path, footprint ?: (_uiState.value.effectivePaintBrushSize() / 2f))
         if (segments.isEmpty()) {
             pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
             pendingPlaneAdoption = null
@@ -9471,9 +9478,16 @@ class EditorViewModel @Inject constructor(
         gestureOpen = segments.size > 1
         gestureCommitted = null
         for (segment in segments) {
+            val samples = segment.samples
+            // A hull run lands in its view's paint image (a layer of its own, made on first use).
+            val target = segment.view?.let { v -> plane.layerId?.let { ensureViewImageLayer(it, v) } }
+            if (segment.view != null && target == null) {
+                release()
+                continue
+            }
             commitInkStroke(
-                rebuild(stroke, segment), segment.map { it.second }, segment.map { pressures[it.first] },
-                utensil, canvasSize, release,
+                rebuild(stroke, samples), samples.map { it.second }, samples.map { pressures[it.first] },
+                utensil, canvasSize, target, release,
             )
         }
         closeGesture()
@@ -9519,17 +9533,18 @@ class EditorViewModel @Inject constructor(
     private val inkCommitLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
 
     /** [onInkStrokeFinished] once the stroke's inputs are read out (the seam tests drive, as Ink's are native). */
-    @Suppress("LongParameterList")
+    @Suppress("LongParameterList", "LongMethod")
     internal fun commitInkStroke(
         stroke: androidx.ink.strokes.Stroke,
         path: List<Offset>,
         pressures: List<Float>,
         utensil: com.hereliesaz.graffitixr.common.model.InkUtensil,
         canvasSize: IntSize,
+        targetLayerId: String? = null,
         onCommitted: () -> Unit,
     ) {
         val state = _uiState.value
-        val layerId = state.activeLayerId
+        val layerId = targetLayerId ?: state.activeLayerId
         val base = layerId?.let { ensurePaintableBitmap(it) }
         val layer = _uiState.value.layers.find { it.id == layerId }
         strokeLog(

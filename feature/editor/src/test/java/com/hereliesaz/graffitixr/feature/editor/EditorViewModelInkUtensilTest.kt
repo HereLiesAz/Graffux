@@ -497,4 +497,59 @@ class EditorViewModelInkUtensilTest {
         viewModel.commitInkThroughPlane(mockk(relaxed = true), world, listOf(1f, 1f), inkPen, inkSize, {}) { s, _ -> s }
         assertEquals(world, viewModel.inkLedgerStrokes(layerId).single().path)
     }
+
+    private fun hullOutline(sweep: FloatArray, place: (Float, Float) -> FloatArray) =
+        com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
+            listOf(300f to 200f, 700f to 200f, 700f to 600f, 300f to 600f)
+                .flatMap { place(it.first, it.second).toList() },
+            sweep[0], sweep[1], sweep[2],
+        )
+
+    private fun hullLayer(): String {
+        withLayer()
+        val size = IntSize(1000, 1600)
+        viewModel.dispatchForTest(EditorIntent.SetCanvasSize(size))
+        val cube = hullOutline(floatArrayOf(0f, 0f, 1f)) { x, y -> floatArrayOf(x, y, 0f) }.copy(
+            side = hullOutline(floatArrayOf(1f, 0f, 0f)) { z, y -> floatArrayOf(0f, y, z - 300f) },
+            top = hullOutline(floatArrayOf(0f, 1f, 0f)) { x, z -> floatArrayOf(x, 0f, z - 300f) },
+        )
+        val paint = viewModel.uiState.value.layers.single()
+        val group = Layer(
+            "g", "G", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = cube,
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(group, paint.copy(parentId = "g"))))
+        viewModel.dispatchForTest(EditorIntent.SetViewport(Offset.Zero, 1f, 0f))
+        viewModel.setSceneCameraForTest(com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 0.7f, pitch = 0.2f))
+        return paint.id
+    }
+
+    @Test
+    fun `an Ink stroke across a crease of a hull lands in each view image as one undo step`() {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        val paintId = hullLayer()
+        val plane = ActivePlaneMapping.of(viewModel.uiState.value)
+        assertTrue(plane.onHull)
+        val row = (0..200).map { Offset(300f + it * 3f, 400f) }
+        val views = row.map { plane.toViewFlatByFootprint(it, 0f)?.view }
+        val at = (1 until views.size).first {
+            views[it] != null && views[it - 1] != null && views[it] != views[it - 1]
+        }
+        val world = listOf(row[at - 1], row[at])
+        val undo = viewModel.uiState.value.undoCount
+        var committed = 0
+        viewModel.commitInkThroughPlane(
+            mockk(relaxed = true), world, listOf(1f, 1f), inkPen, inkSize, { committed++ },
+            footprint = 0f,
+        ) { s, _ -> s }
+        val images = viewModel.uiState.value.layers.filter { it.surfaceViewOf == paintId }
+        assertEquals(setOf(views[at - 1], views[at]), images.map { it.surfaceView }.toSet())
+        assertEquals(
+            images.map { it.surfaceView to 1 },
+            images.map { it.surfaceView to viewModel.recordedStrokesForTest(it.id).size },
+        )
+        assertTrue(viewModel.recordedStrokesForTest(paintId).isEmpty())
+        // Two image strokes chained into one undo step: a single undo takes both.
+        viewModel.onUndoClicked()
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+    }
 }
