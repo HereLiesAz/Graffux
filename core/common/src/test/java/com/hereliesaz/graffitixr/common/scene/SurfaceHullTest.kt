@@ -246,6 +246,7 @@ class SurfaceHullTest {
         (0..2).map { v -> FloatArray(3) { m[t * 15 + v * 5 + it] } }
     }
 
+    @Suppress("ReturnCount")
     private fun onTriangle(p: FloatArray, tri: List<FloatArray>, eps: Float): Boolean {
         val a = tri[0]; val b = tri[1]; val c = tri[2]
         val n = SceneMath.cross(FloatArray(3) { b[it] - a[it] }, FloatArray(3) { c[it] - a[it] })

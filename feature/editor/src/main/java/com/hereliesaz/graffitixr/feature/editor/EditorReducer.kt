@@ -503,7 +503,8 @@ internal object EditorReducer {
         is EditorIntent.SetSelectionShape -> state.copy(selectionShape = intent.shape)
         is EditorIntent.SetSelectionOp -> state.copy(selectionOp = intent.op)
         is EditorIntent.SetMagicWandTolerance -> state.copy(magicWandTolerance = intent.tolerance.coerceIn(0, 255))
-        is EditorIntent.SetCloneSource -> state.copy(cloneSource = intent.at, cloneSourceView = intent.at?.let { intent.view })
+        is EditorIntent.SetCloneSource ->
+            state.copy(cloneSource = intent.at, cloneSourceView = intent.view.takeIf { intent.at != null })
         is EditorIntent.SetCanvasSize -> state.copy(canvasSize = intent.size)
         // Changing mode drops the handles: they are a grid of a particular size laid over a
         // particular layer, so carrying a distort's four corners into warp's sixteen would be

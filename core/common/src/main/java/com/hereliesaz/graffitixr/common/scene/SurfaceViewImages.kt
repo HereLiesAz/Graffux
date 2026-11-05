@@ -52,12 +52,14 @@ object SurfaceViewImages {
      * between the owner and the leaf, however they are moved or turned). Null when the hull's front
      * outline carries no surface, or the chain cannot be solved.
      */
+    @Suppress("ReturnCount")
     fun carryOffset(owner: SurfaceOwner, hull: SurfaceHull, width: Float, height: Float): Pair<Float, Float>? {
         val shifted = hull.paintPointAt(SurfaceView.FRONT, 0f, 0f) ?: return null
         val chain = owner.innerChain
         if (chain.isEmpty()) return null
         fun at(dx: Float, dy: Float): Pair<Float, Float> {
-            val moved = chain.dropLast(1) + chain.last().let { it.copy(offsetX = it.offsetX + dx, offsetY = it.offsetY + dy) }
+            val last = chain.last()
+            val moved = chain.dropLast(1) + last.copy(offsetX = last.offsetX + dx, offsetY = last.offsetY + dy)
             val p = SurfaceMath.boxToUnrolled(moved, width, height).apply(0f, 0f, 0f)
             return p[0] to p[1]
         }
@@ -65,11 +67,13 @@ object SurfaceViewImages {
         val jx = at(1f, 0f).let { (it.first - o.first) to (it.second - o.second) }
         val jy = at(0f, 1f).let { (it.first - o.first) to (it.second - o.second) }
         val det = jx.first * jy.second - jy.first * jx.second
-        if (!(kotlin.math.abs(det) > 1e-9f)) return null
+        if (!(kotlin.math.abs(det) > MIN_DET)) return null
         val sx = shifted.first
         val sy = shifted.second
         val dx = (sx * jy.second - jy.first * sy) / det
         val dy = (jx.first * sy - sx * jx.second) / det
         return if (dx.isFinite() && dy.isFinite()) dx to dy else null
     }
+
+    private const val MIN_DET = 1e-9f
 }

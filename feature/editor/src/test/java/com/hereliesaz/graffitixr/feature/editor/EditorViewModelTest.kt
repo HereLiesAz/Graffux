@@ -2373,7 +2373,9 @@ class EditorViewModelTest {
 
     private fun drawSide(g: String = "g") {
         viewModel.onArmSurfaceView(g, SurfaceView.SIDE)
-        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 300f), Offset(500f, 300f), Offset(500f, 900f), Offset(100f, 900f)))
+        viewModel.onSurfaceProfileDrawn(
+            listOf(Offset(100f, 300f), Offset(500f, 300f), Offset(500f, 900f), Offset(100f, 900f)),
+        )
         testDispatcher.scheduler.runCurrent()
     }
 
@@ -2447,7 +2449,8 @@ class EditorViewModelTest {
         val at = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(SurfaceView.SIDE, 20f, 30f, 0)
         viewModel.onViewFillTap("a", at, androidx.compose.ui.unit.IntSize(1000, 1600))
         testDispatcher.scheduler.runCurrent()
-        val image = viewModel.uiState.value.layers.single { it.surfaceViewOf == "a" && it.surfaceView == SurfaceView.SIDE }
+        val image = viewModel.uiState.value.layers
+            .single { it.surfaceViewOf == "a" && it.surfaceView == SurfaceView.SIDE }
         // Not on the paint layer's own sheet: on the side image, from the tapped flat point.
         assertTrue(viewModel.recordedStrokesForTest("a").none { it.tool == Tool.FILL })
         val fill = viewModel.recordedStrokesForTest(image.id).single { it.tool == Tool.FILL }
@@ -2455,7 +2458,10 @@ class EditorViewModelTest {
         // No lasso: the fill is held to the face (a one-ring region round it).
         assertEquals(1, fill.selection!!.rings.size)
         // A lasso that covers nothing of the surface blocks the fill.
-        viewModel.onSelectionEnd(listOf(Offset(-500f, -500f), Offset(-400f, -500f), Offset(-400f, -400f)), androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onSelectionEnd(
+            listOf(Offset(-500f, -500f), Offset(-400f, -500f), Offset(-400f, -400f)),
+            androidx.compose.ui.unit.IntSize(1000, 1600),
+        )
         testDispatcher.scheduler.runCurrent()
         assertTrue(viewModel.viewSelectionBlocks("a", SurfaceView.SIDE))
         val n = viewModel.recordedStrokesForTest(image.id).size

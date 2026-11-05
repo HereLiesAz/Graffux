@@ -42,7 +42,17 @@ object SurfaceHullMesh {
     }
 
     @Suppress("LongParameterList")
-    private fun place(mesh: FloatArray, i: Int, fx: Float, fy: Float, toBox: Affine3, l: Float, t: Float, r: Float, b: Float) {
+    private fun place(
+        mesh: FloatArray,
+        i: Int,
+        fx: Float,
+        fy: Float,
+        toBox: Affine3,
+        l: Float,
+        t: Float,
+        r: Float,
+        b: Float,
+    ) {
         val box = toBox.apply(fx, fy, 0f)
         mesh[i + 3] = (box[0] - l) / (r - l)
         mesh[i + 4] = (box[1] - t) / (b - t)

@@ -667,7 +667,7 @@ fun EditorScreen(
                 val plane = strokePlane.value ?: activePlane
                 val radius = uiState.effectiveScreenBrushSize() / 2f
                 val vf = plane.toViewFlatByFootprint(Offset(sample.x, sample.y), radius)
-                    // A lasso that reaches nothing of the view, or a clone stroke outside the image it copies from, is a miss.
+                    // A lasso reaching nothing of the view, or a clone stroke outside its source's image, is a miss.
                     ?.takeIf { f -> plane.layerId?.let { id -> !vm.viewSelectionBlocks(id, f.view) } ?: true }
                     ?.takeIf { f -> uiState.activeTool != Tool.CLONE || uiState.cloneSourceView == f.view }
                 vf?.let {
@@ -713,7 +713,7 @@ fun EditorScreen(
                     strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
                     strokeSize.value = size
                     strokeOnHull.value = (strokePlane.value ?: activePlane).onHull &&
-                        (uiState.activeTool == Tool.BRUSH || uiState.activeTool == Tool.ERASER || uiState.activeTool == Tool.CLONE)
+                        uiState.activeTool in HULL_STROKE_TOOLS
                     if (strokeOnHull.value) viewFeed.onStart(sample) else strokeFeed.onStart(sample)
                 },
                 onStrokePoint = { sample ->
@@ -741,7 +741,9 @@ fun EditorScreen(
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
                 onPickCloneSource = { at ->
                     if (activePlane.onHull) {
-                        activePlane.toViewFlatByFootprint(at, 0f)?.let { vm.onSetCloneSource(Offset(it.x, it.y), it.view) }
+                        activePlane.toViewFlatByFootprint(at, 0f)?.let {
+                            vm.onSetCloneSource(Offset(it.x, it.y), it.view)
+                        }
                     } else {
                         vm.onSetCloneSource(toWorld(at))
                     }
@@ -777,11 +779,15 @@ fun EditorScreen(
                 // Through the active layer's plane: on a tilted layer each lasso point is where the
                 // ray meets it (a point off the plane is dropped), in the flat space the selection
                 // and its clip live in.
-                onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts.mapNotNull(activePlane::toSelectionPoint), size) },
+                onSelectionEnd = { pts, size ->
+                    vm.onSelectionEnd(pts.mapNotNull(activePlane::toSelectionPoint), size)
+                },
                 // Moving a selection's pixels and the wand read one layer's own pixels; a multi-view
                 // surface paints into several images, so they are not offered there yet.
                 onSelectionMove = { delta ->
-                    if (!activePlane.onHull) vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
+                    if (!activePlane.onHull) {
+                        vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
+                    }
                 },
                 onAutoSelect = { at, size ->
                     if (!activePlane.onHull) activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) }
@@ -2068,3 +2074,6 @@ private fun SurfaceGuideGrid(
         lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.9f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
     }
 }
+
+/** The tools whose strokes are painted per view image on a multi-view surface. */
+private val HULL_STROKE_TOOLS = setOf(Tool.BRUSH, Tool.ERASER, Tool.CLONE)

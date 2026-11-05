@@ -1,4 +1,11 @@
-@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList")
+@file:Suppress(
+    "MagicNumber",
+    "ReturnCount",
+    "LongParameterList",
+    "CyclomaticComplexMethod",
+    "NestedBlockDepth",
+    "LoopWithTooManyJumpStatements",
+)
 
 package com.hereliesaz.graffitixr.common.scene
 
@@ -98,7 +105,14 @@ object SurfaceViewSelection {
         }
     }
 
-    private fun triangles(view: SurfaceView, owner: SurfaceOwner, hull: SurfaceHull, camera: SceneCamera, width: Float, height: Float): List<Tri> {
+    private fun triangles(
+        view: SurfaceView,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+    ): List<Tri> {
         val cam = SceneMath.frame(camera, width, height)
         val model = SceneMath.chainModel(owner.ownerChain, width, height)
         val out = ArrayList<Tri>()
@@ -117,7 +131,11 @@ object SurfaceViewSelection {
                     val screen = cam.project(p)
                     val z = cam.toCamera(p)[2]
                     if (screen == null || !(z > 0f)) { ok = false; break }
-                    val paint = if (sheet) hull.paintPointAt(view, mesh[o + 3], mesh[o + 4]) else mesh[o + 3] to mesh[o + 4]
+                    val paint = if (sheet) {
+                        hull.paintPointAt(view, mesh[o + 3], mesh[o + 4])
+                    } else {
+                        mesh[o + 3] to mesh[o + 4]
+                    }
                     if (paint == null) { ok = false; break }
                     sx[k] = screen.first; sy[k] = screen.second; iz[k] = 1f / z
                     px[k] = paint.first; py[k] = paint.second
