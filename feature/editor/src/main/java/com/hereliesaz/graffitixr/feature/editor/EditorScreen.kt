@@ -672,6 +672,7 @@ fun EditorScreen(
                     ViewSample(
                         it.view, sample,
                         sample.copy(x = it.x, y = it.y, telemetry = sample.telemetry.copy(penAngleDegrees = penAngle)),
+                        it.region,
                     )
                 }
             }

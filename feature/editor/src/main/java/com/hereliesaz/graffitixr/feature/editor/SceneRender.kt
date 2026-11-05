@@ -375,6 +375,8 @@ internal class ViewSample<S>(
     val view: com.hereliesaz.graffitixr.common.scene.SurfaceView,
     val raw: S,
     val flat: S,
+    /** The face of the view's image the touch is on (0 its sheet, else a cap); a change cuts the stroke like a change of view. */
+    val region: Int = 0,
 )
 
 /**
@@ -424,7 +426,7 @@ internal class ViewStrokeFeed<S>(
                 segmentEnd()
                 start(mapped.view, mapped.flat)
             }
-            prev.view != mapped.view -> {
+            (prev.view != mapped.view || prev.region != mapped.region) -> {
                 val cut = bridge(prev, mapped)
                 if (cut != null) point(cut.first)
                 segmentEnd()
@@ -453,8 +455,8 @@ internal fun ActivePlaneMapping.bridgeViews(
     prev: ViewSample<BrushSample>,
     next: ViewSample<BrushSample>,
 ): Pair<BrushSample, BrushSample>? {
-    val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(prev.view, prev.flat.x, prev.flat.y)
-    val tm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(next.view, next.flat.x, next.flat.y)
+    val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(prev.view, prev.flat.x, prev.flat.y, prev.region)
+    val tm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(next.view, next.flat.x, next.flat.y, next.region)
     val c = com.hereliesaz.graffitixr.common.scene.SurfaceViewStroke.crossing(
         prev.raw.x, prev.raw.y, sm, next.raw.x, next.raw.y, tm,
     ) { x, y -> toViewFlatByFootprint(Offset(x, y), 0f) }

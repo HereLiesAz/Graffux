@@ -381,13 +381,16 @@ object SurfaceMath {
     }
 
     /** A touch on a multi-view surface, in the paint image of the view it lands on. */
-    class ViewFlat(val view: SurfaceView, val x: Float, val y: Float)
+    class ViewFlat(val view: SurfaceView, val x: Float, val y: Float, val region: Int = 0) {
+        /** Whether [other] is on the same face of the same image: a stroke between different faces is cut at the crease. */
+        fun sameFace(other: ViewFlat): Boolean = view == other.view && region == other.region
+    }
 
     /**
      * [worldToSurface] taken to the flat point of the leaf's paint image for the view hit (one image
      * per view, painted independently): the same unroll-then-leaf mapping as [worldToFlat], with the
      * view's own `(arc length, sweep distance from the solid's near end)` as the unrolled point. Null
-     * on a miss, a cap, or a group with one view.
+     * on a miss or a group with one view. A cap lands in its host view's cap region ([SurfaceHull.capMeshByView]).
      */
     fun worldToViewFlat(
         x: Float,
@@ -400,10 +403,9 @@ object SurfaceMath {
     ): ViewFlat? {
         val built = hull ?: SurfaceHull.of(owner.profile) ?: return null
         val hit = worldToSurface(x, y, owner, camera, width, height, built) ?: return null
-        val view = hit.view ?: return null
-        val (u, t) = built.paintPoint(hit) ?: return null
-        val flat = unrolledToFlat(u, t, owner.innerChain, width, height) ?: return null
-        return ViewFlat(view, flat.first, flat.second)
+        val target = built.paintTarget(hit) ?: return null
+        val flat = unrolledToFlat(target.x, target.y, owner.innerChain, width, height) ?: return null
+        return ViewFlat(target.view, flat.first, flat.second, target.region)
     }
 
     /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */
