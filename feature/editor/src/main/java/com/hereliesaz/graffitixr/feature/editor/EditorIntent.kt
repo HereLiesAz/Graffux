@@ -242,7 +242,7 @@ internal sealed interface EditorIntent {
     /** Softens the current selection's edge by a radius in screen px; 0 is a hard edge. */
     data class SetSelectionFeather(val featherPx: Float) : EditorIntent
     /** Aims the Clone tool at a screen point, or unaims it with null. */
-    data class SetCloneSource(val at: Offset?) : EditorIntent
+    data class SetCloneSource(val at: Offset?, val view: com.hereliesaz.graffitixr.common.scene.SurfaceView? = null) : EditorIntent
     /** The editor canvas's measured size. */
     data class SetCanvasSize(val size: IntSize) : EditorIntent
     /** Picks the Transform panel's mode: freeform, distort or warp. */
