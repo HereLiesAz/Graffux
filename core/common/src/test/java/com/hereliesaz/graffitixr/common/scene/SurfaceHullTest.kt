@@ -128,13 +128,37 @@ class SurfaceHullTest {
         val line = front(listOf(0f to 0f, 100f to 0f, 200f to 0f))
         assertNull(SurfaceHull.of(line))
         assertNull(SurfaceHull.of(front(listOf(0f to 0f, 10f to 10f))))
-        // A side that is a line is ignored; the front rectangle stands alone, padded to a depth.
-        val h = SurfaceHull.of(front(rect(100f, 100f)).copy(side = side(listOf(0f to 0f, 50f to 0f, 100f to 0f))))!!
-        assertEquals(listOf(SurfaceView.FRONT), h.views)
-        assertNotNull(h.hit(floatArrayOf(50f, 50f, -500f), floatArrayOf(0f, 0f, 1f), 1f))
-        // An open front sheet with a drawn side: the side alone, bounded by the drawing's box.
-        val sheet = front(listOf(0f to 0f, 100f to 0f)).copy(side = side(rect(100f, 100f)))
-        assertEquals(listOf(SurfaceView.SIDE), SurfaceHull.of(sheet)!!.views)
+        // A lone open outline has no solid to bound it: the caller keeps the single-view sheet.
+        assertNull(SurfaceHull.of(front(listOf(0f to 0f, 50f to 0f, 100f to 0f)).copy(side = side(listOf(0f to 0f, 50f to 0f, 100f to 0f)))))
+    }
+
+    private val wallFront = front(listOf(0f to 50f, 100f to 50f))
+        .copy(side = side(rect(60f, 100f)), top = top(rect(100f, 60f)))
+
+    @Test
+    fun `an open front stays a thin wall bounded by the side and top`() {
+        val hull = SurfaceHull.of(wallFront)!!
+        assertEquals(SurfaceView.FRONT, hull.wall)
+        val h = hull.hit(floatArrayOf(50f, -200f, 30f), floatArrayOf(0f, 1f, 0f), 1f)!!
+        assertEquals(250f, h.distance, 0.05f)
+        assertEquals(SurfaceView.FRONT, h.view)
+        assertEquals(50f, h.u, 0.05f)
+        assertEquals(30f, h.t, 0.05f)
+        // Beyond the side's depth, or off the wall's length, there is nothing.
+        assertNull(hull.hit(floatArrayOf(50f, -200f, 70f), floatArrayOf(0f, 1f, 0f), 1f))
+        assertNull(hull.hit(floatArrayOf(150f, -200f, 30f), floatArrayOf(0f, 1f, 0f), 1f))
+        // The wall is the whole surface: the closed views' own faces are not there.
+        assertNull(hull.hit(floatArrayOf(-300f, 20f, 30f), floatArrayOf(1f, 0f, 0f), 1f))
+        assertEquals(6000f, hull.meshByView().values.sumOf { area(it).toDouble() }.toFloat(), 10f)
+        assertEquals(setOf(SurfaceView.FRONT), hull.meshByView().keys)
+    }
+
+    @Test
+    fun `an open side with a closed front is a wall too, and only one wall is kept`() {
+        val p = front(rect(100f, 100f)).copy(side = side(listOf(0f to 0f, 50f to 100f)), top = top(listOf(0f to 0f, 100f to 60f)))
+        val hull = SurfaceHull.of(p)!!
+        assertEquals(SurfaceView.SIDE, hull.wall)
+        assertEquals(listOf(SurfaceView.FRONT, SurfaceView.SIDE), hull.views)
     }
 
     @Test

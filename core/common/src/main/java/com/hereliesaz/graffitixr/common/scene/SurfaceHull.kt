@@ -71,11 +71,20 @@ class HullHit(
  */
 class SurfaceHull private constructor(
     private val prisms: List<Prism>,
+    /** The one open outline kept as a thin wall (see [of]), or -1. It is in [prisms] but never constrains. */
+    private val wallIndex: Int,
     private val lo: FloatArray,
     private val hi: FloatArray,
 ) {
     /** The views that constrain the solid (drawn, with area), in front, side, top order. */
     val views: List<SurfaceView> get() = prisms.map { it.view }
+
+    /**
+     * The view drawn as an open outline, kept as a thin wall: when set, the surface is that outline's
+     * swept sheet, trimmed to what the other views' outlines and the box hold, and the closed views
+     * only bound it. Null when every constraining view is closed (a solid).
+     */
+    val wall: SurfaceView? get() = prisms.getOrNull(wallIndex)?.view
 
     /** The box every drawn outline's vertices fit in (min x, y, z), the solid's clip. */
     val boundsMin: FloatArray get() = lo.copyOf()
@@ -87,7 +96,7 @@ class SurfaceHull private constructor(
     fun contains(x: Float, y: Float, z: Float): Boolean {
         val p = floatArrayOf(x, y, z)
         for (k in 0..2) if (p[k] < lo[k] - TIE_EPS || p[k] > hi[k] + TIE_EPS) return false
-        return prisms.all { it.contains(p, strict = false) }
+        return prisms.withIndex().all { (j, prism) -> j == wallIndex || prism.contains(p, strict = false) }
     }
 
     /**
@@ -96,6 +105,7 @@ class SurfaceHull private constructor(
      * need not be a unit vector; [HullHit.distance] is in the same units as `s`.
      */
     fun hit(origin: FloatArray, dir: FloatArray, near: Float = 0f): HullHit? {
+        if (wallIndex >= 0) return wallHit(origin, dir, near)
         for (iv in lineIntervals(origin, dir, skip = NO_SKIP)) {
             if (iv.hi <= near) continue
             val entering = iv.lo > near
@@ -118,8 +128,9 @@ class SurfaceHull private constructor(
     fun meshByView(): Map<SurfaceView, FloatArray> {
         val out = LinkedHashMap<SurfaceView, FloatArray>()
         for ((k, prism) in prisms.withIndex()) {
+            if (wallIndex >= 0 && k != wallIndex) continue
             val tris = ArrayList<Float>()
-            for (i in 0 until prism.n) tessellateFace(k, prism, i, tris)
+            for (i in 0 until prism.edges) tessellateFace(k, prism, i, tris)
             if (tris.isNotEmpty()) out[prism.view] = tris.toFloatArray()
         }
         return out
@@ -139,8 +150,8 @@ class SurfaceHull private constructor(
     private fun lineIntervals(p0: FloatArray, d: FloatArray, skip: Int): List<Iv> {
         var acc = boxInterval(p0, d)?.let { listOf(it) } ?: return emptyList()
         for ((j, prism) in prisms.withIndex()) {
-            if (j == skip) continue
-            acc = intersect(acc, prism.intervals(p0, d, strict = skip != NO_SKIP && j < skip))
+            if (j == skip || j == wallIndex) continue
+            acc = intersect(acc, prism.intervals(p0, d, strict = skip != NO_SKIP && skip != wallIndex && j < skip))
             if (acc.isEmpty()) return acc
         }
         return acc
@@ -182,6 +193,36 @@ class SurfaceHull private constructor(
         out.sortBy { it.lo }
         return out
     }
+
+    /** The nearest strip of the wall the ray meets inside the other views and the box. */
+    private fun wallHit(origin: FloatArray, dir: FloatArray, near: Float): HullHit? {
+        val prism = prisms[wallIndex]
+        var best: HullHit? = null
+        for (i in 0 until prism.edges) {
+            val p0 = prism.pts3[i]
+            val p1 = prism.pts3[i + 1]
+            val e = FloatArray(3) { p1[it] - p0[it] }
+            // origin + s dir = p0 + a e + t sweep, solved for (s, a, t).
+            val rhs = FloatArray(3) { p0[it] - origin[it] }
+            val ne = FloatArray(3) { -e[it] }
+            val ns = FloatArray(3) { -prism.s[it] }
+            val det = det3(dir, ne, ns)
+            if (abs(det) < 1e-9f) continue
+            val sd = det3(rhs, ne, ns) / det
+            val a = det3(dir, rhs, ns) / det
+            if (!sd.isFinite() || sd <= near || a < 0f || a > 1f) continue
+            if (best != null && sd >= best.distance) continue
+            val x = origin[0] + dir[0] * sd
+            val y = origin[1] + dir[1] * sd
+            val z = origin[2] + dir[2] * sd
+            if (!contains(x, y, z)) continue
+            best = build(origin, dir, sd, wallIndex * EDGE_STRIDE + i, fromInside = false)
+        }
+        return best
+    }
+
+    private fun det3(a: FloatArray, b: FloatArray, c: FloatArray): Float =
+        a[0] * (b[1] * c[2] - b[2] * c[1]) - b[0] * (a[1] * c[2] - a[2] * c[1]) + c[0] * (a[1] * b[2] - a[2] * b[1])
 
     private fun build(origin: FloatArray, dir: FloatArray, s: Float, src: Int, fromInside: Boolean): HullHit {
         val px = origin[0] + dir[0] * s
@@ -245,7 +286,7 @@ class SurfaceHull private constructor(
             }
         }
         for ((j, other) in prisms.withIndex()) {
-            if (j == k) continue
+            if (j == k || j == wallIndex) continue
             val q0x = dot(p0, other.a)
             val q0y = dot(p0, other.b)
             val ax = dot(e, other.a)
@@ -339,8 +380,15 @@ class SurfaceHull private constructor(
         val xs: FloatArray,
         val ys: FloatArray,
         val cum: FloatArray,
+        val closed: Boolean = true,
     ) {
+        /** Its position in the hull's prism list; set once the list is built. */
+        var index: Int = 0
+
         val n: Int get() = pts3.size
+
+        /** The outline's edges: all round a closed outline, one fewer on an open one. */
+        val edges: Int get() = if (closed) n else n - 1
 
         /** Whether [p] is in the prism: closed, or [strict] only strictly inside by [TIE_EPS]. */
         fun contains(p: FloatArray, strict: Boolean): Boolean {
@@ -407,8 +455,8 @@ class SurfaceHull private constructor(
             val out = ArrayList<Iv>()
             var c = 0
             while (c + 1 < crossings.size) {
-                val s0 = view.ordinal * EDGE_STRIDE + crossings[c].second
-                val s1 = view.ordinal * EDGE_STRIDE + crossings[c + 1].second
+                val s0 = index * EDGE_STRIDE + crossings[c].second
+                val s1 = index * EDGE_STRIDE + crossings[c + 1].second
                 out += Iv(crossings[c].first, crossings[c + 1].first, s0, s1)
                 c += 2
             }
@@ -471,8 +519,14 @@ class SurfaceHull private constructor(
                 profile.top?.takeIf { it.isValid }?.let { SurfaceView.TOP to it },
             )
             if (drawn.isEmpty()) return null
-            val prisms = drawn.mapNotNull { (v, p) -> prismOf(v, p) }
-            if (prisms.isEmpty()) return null
+            val made = drawn.mapNotNull { (v, p) -> prismOf(v, p) }
+            val closedOnes = made.filter { it.closed }
+            if (closedOnes.isEmpty()) return null
+            // At most one open outline is kept, as the wall: the first of front, side, top.
+            val wallPrism = made.firstOrNull { !it.closed }
+            val prisms = closedOnes + listOfNotNull(wallPrism)
+            prisms.forEachIndexed { i, p -> p.index = i }
+            val wallIndex = if (wallPrism != null) prisms.lastIndex else -1
             val lo = floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
             val hi = floatArrayOf(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
             for ((_, p) in drawn) for (i in 0 until p.count) for (c in 0..2) {
@@ -488,14 +542,13 @@ class SurfaceHull private constructor(
                     hi[c] = mid + widest / 2f
                 }
             }
-            return SurfaceHull(prisms, lo, hi)
+            return SurfaceHull(prisms, wallIndex, lo, hi)
         }
 
         private fun prismOf(view: SurfaceView, profile: SurfaceProfile): Prism? {
             val raw = (0 until profile.count).map { profile.point(it) }.toMutableList()
             if (raw.size > 1 && distance(raw.first(), raw.last()) < 1e-3f) raw.removeAt(raw.lastIndex)
             val thin = if (raw.size > MAX_MESH_POINTS) simplifyClosed(raw) else raw
-            if (thin.size < 3) return null
             val sw = SceneMath.normalize(profile.sweep)
             if (sw.any { !it.isFinite() } || dot(sw, sw) < 0.5f) return null
             val ref = if (abs(sw[0]) <= abs(sw[1]) && abs(sw[0]) <= abs(sw[2])) floatArrayOf(1f, 0f, 0f) else if (abs(sw[1]) <= abs(sw[2])) floatArrayOf(0f, 1f, 0f) else floatArrayOf(0f, 0f, 1f)
@@ -513,7 +566,19 @@ class SurfaceHull private constructor(
                 perimeter += edge
                 cum[i + 1] = cum[i] + edge
             }
-            if (!(perimeter > 0f) || abs(area) / 2f < MIN_AREA_RATIO * perimeter * perimeter) return null
+            if (!(perimeter > 0f)) return null
+            if (thin.size < 3 || abs(area) / 2f < MIN_AREA_RATIO * perimeter * perimeter) {
+                // No area: an open curve (or a line): a thin wall. Its arc length is along the open curve.
+                val open = raw.toList()
+                if (open.size < 2) return null
+                val ox = FloatArray(open.size) { dot(open[it], a) }
+                val oy = FloatArray(open.size) { dot(open[it], b) }
+                val oc = FloatArray(open.size + 1)
+                for (i in 1 until open.size) oc[i] = oc[i - 1] + distance(open[i - 1], open[i])
+                oc[open.size] = oc[open.size - 1]
+                if (!(oc[open.size - 1] > 0f)) return null
+                return Prism(view, open, sw, a, b, ox, oy, oc, closed = false)
+            }
             return Prism(view, thin, sw, a, b, xs, ys, cum)
         }
 

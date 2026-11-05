@@ -417,7 +417,10 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   carving (`SurfaceHull`, `:core:common`): each drawn outline, closed by joining its last vertex to its
   first, is swept along its own view direction into an infinite prism, and the solid is every point all
   the prisms hold. The surface is that solid's boundary. The existing profile is the front view. A view
-  left undrawn, or drawn with no area (under three vertices, or collinear), does not constrain; drawing a
+  left undrawn does not constrain. A view drawn with no area (an open curve or a line) stays a *thin
+  wall*: the surface is that outline's swept sheet, trimmed to what the other views' closed outlines and
+  the box hold (the closed views bound it; their own faces are not surface). One wall at most is kept
+  (front, then side, then top); a lone open outline with no closed view is the single-view sheet; drawing a
   view again replaces it (`SurfaceProfile.withView`; redrawing the front keeps the side and top). Axes
   only one prism bounds are clipped to the box of the drawn outlines' vertices (padded to the widest
   side where an outline has no depth), so the solid spans a view only as far as the drawing does.
