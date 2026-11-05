@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 10; the multi-view surface below has its data model, maths, persistence and drawing UI; see its notes for paint and rendering). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 11; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering the hull is still to come). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -448,10 +448,23 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     independently, no atlas). `SurfaceHull.paintSize(view)` is a view's image size (arc length round its
     outline by the solid's reach along its sweep); `paintPoint` / `SurfaceMath.worldToViewFlat` map a
     touch to the view hit and the flat point in that view's image (through the same inner-chain unroll
-    as `worldToFlat`). Not yet built: storing, persisting, painting into and displaying those images
-    (the layer store, edit history and bitmap files are single-image today).
+    as `worldToFlat`).
+  - *Paint per view (format 11).* Format 10 shipped in 1.63.0, so the per-view fields are format 11
+    (migration 10 -> 11 only records the version). Each view's paint image is a hidden raster layer
+    (`Layer.surfaceViewOf` = the paint layer, `.surfaceView` = the view) in the same group, created on the
+    first stroke there: the layer panel and flat compositors skip it, removing the paint layer removes
+    its images, and its bitmap file, stroke log and undo are those of any layer. Its flat space is the
+    view's `(arc length, sweep offset)`; it is not moved by the paint layer's own transform. A brush or
+    eraser touch maps by footprint (`SurfaceFootprint.worldToViewFlat`: the ray, else rings of rays out to
+    the brush radius); a cap belongs to no view and is not paintable. A stroke that moves from one view's
+    face to another's is cut at the crease (`SurfaceViewStroke.crossing` brackets it by bisection, so each
+    image gets its half right up to the crease and no gap is left) by `ViewStrokeFeed`; the segments are
+    entries chained in `EditHistory` (`chainedToPrevious`), so undo and redo take the whole stroke. A
+    single-view group and a flat layer take the old path unchanged. Not yet: duplicating a paint layer
+    copies only its own image; co-op announces the image layers as ordinary layers; fill, clone and
+    lasso still use the front sheet; the images are not drawn until the hull render lands.
   - *Rendering.* `SurfaceHull.meshByView` gives triangles (x, y, z, u, t) per view, exact for straight
-    trims; not wired into `DepthCompositor`, glTF or the editor yet.
+    trims; not wired into `DepthCompositor`, glTF or the editor yet (the next change).
   - *Drawing the other views.* A group with a surface has "Draw side view" and "Draw top view" in its
     layer menu (labelled "Redraw ..." once drawn), and the "surface set" chip offers the same two
     buttons. Arming (`EditorViewModel.onArmSurfaceView`) turns the camera to look along the view

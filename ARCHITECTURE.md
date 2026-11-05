@@ -637,7 +637,12 @@ Full design: `spec/3d-space.md`. In short:
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.
   Shipped: data, maths, persistence, and the per-view drawing UI (`EditorViewModel.onArmSurfaceView`,
-  `SurfacePromptChip`, camera presets). Not yet: per-view paint images and the render/glTF path (see spec/3d-space.md).
+  `SurfacePromptChip`, camera presets). Format 11 adds a paint image per view: each is a hidden raster layer
+  (`Layer.surfaceViewOf` / `.surfaceView`) beside its paint layer, so bitmap files, stroke log and undo are
+  the ordinary per-layer ones. `ActivePlaneMapping.toViewFlatByFootprint` (`SurfaceFootprint.worldToViewFlat`)
+  picks the view; `ViewStrokeFeed` cuts a stroke at the crease (`SurfaceViewStroke.crossing`) into segments
+  that `EditorViewModel.onViewStrokeStart` paints into the right image, chained (`EditCommand.Draw.chainedToPrevious`)
+  into one undo step. Format 10 shipped in 1.63.0, hence 11. Not yet: the render/glTF path (see spec/3d-space.md).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

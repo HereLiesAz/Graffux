@@ -655,6 +655,14 @@ sealed class EditCommand {
          * "Adopting the view plane"): undo puts the old one back with the pixels, redo the new one.
          */
         val plane: PlaneSwap? = null,
+        /**
+         * This entry is the stroke of a view-image layer that continues a gesture whose previous
+         * segment is the entry below it on another layer (a stroke crossing from one view's paint
+         * image to another's): undo takes both back, redo puts both back ([EditHistory.pushDraw]).
+         */
+        val chainedToPrevious: Boolean = false,
+        /** The entry above this one is chained to it (see [chainedToPrevious]). */
+        val chainedNext: Boolean = false,
     ) : EditCommand() {
         /** Every stroke this entry undoes, oldest first. */
         val strokes: List<StrokeCommand> get() = earlier + command
@@ -2674,14 +2682,29 @@ class EditorViewModel @Inject constructor(
         undoTop()
     }
 
-    private fun undoTop() {
+    /**
+     * Undoes the newest entry; a stroke that crossed between view images is two entries chained
+     * together and comes back whole. Returns how many entries came off.
+     */
+    private fun undoTop(): Int {
+        var n = 0
+        do {
+            val before = history.undoCount
+            val again = undoOne()
+            if (history.undoCount < before) n++
+        } while (again && history.undoTopIsDraw())
+        return n
+    }
+
+    @Suppress("ReturnCount")
+    private fun undoOne(): Boolean {
         val command = history.popUndo { undone ->
             when (undone) {
                 is EditCommand.Draw -> undone
                 is EditCommand.PropertyChange ->
                     EditCommand.PropertyChange(currentLayerSnapshot(), _uiState.value.documentCrop)
             }
-        } ?: return
+        } ?: return false
 
         when (command) {
             is EditCommand.Draw -> {
@@ -2698,7 +2721,7 @@ class EditorViewModel @Inject constructor(
                     updateHistoryCounts()
                     // The "Undo" pill went up before this was known; correct it.
                     showHud("Couldn't undo that")
-                    return
+                    return false
                 }
                 // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
                 repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
@@ -2727,6 +2750,7 @@ class EditorViewModel @Inject constructor(
             }
         }
         updateHistoryCounts()
+        return (command as? EditCommand.Draw)?.chainedToPrevious == true
     }
 
     /** Puts the layer's pixels back as they were before [command]: the tile-delta fast path, else a rebuild. */
@@ -2748,13 +2772,20 @@ class EditorViewModel @Inject constructor(
 
     override fun onRedoClicked() {
         if (_uiState.value.redoCount > 0) showHud("Redo")
+        do {
+            val again = redoOne()
+        } while (again && history.redoTopIsDraw())
+    }
+
+    @Suppress("ReturnCount")
+    private fun redoOne(): Boolean {
         val command = history.popRedo { redone ->
             when (redone) {
                 is EditCommand.Draw -> redone
                 is EditCommand.PropertyChange ->
                     EditCommand.PropertyChange(currentLayerSnapshot(), _uiState.value.documentCrop)
             }
-        } ?: return
+        } ?: return false
 
         when (command) {
             is EditCommand.Draw -> {
@@ -2769,7 +2800,7 @@ class EditorViewModel @Inject constructor(
                     history.dropTopUndo()
                     updateHistoryCounts()
                     showHud("Couldn't redo that")
-                    return
+                    return false
                 }
                 reapplyRedoneStroke(command)
                 command.plane?.let { applyPlane(command.layerId, it.after) }
@@ -2786,6 +2817,7 @@ class EditorViewModel @Inject constructor(
             }
         }
         updateHistoryCounts()
+        return (command as? EditCommand.Draw)?.chainedNext == true
     }
 
     /** Re-applies [command] to its layer: the tile-delta fast path when it has one, else a full rebuild. */
@@ -6539,6 +6571,76 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** The paint layer and view whose image the next [onStrokeStart] paints into, while [onViewStrokeStart] runs. */
+    private var strokeViewTarget: Pair<String, com.hereliesaz.graffitixr.common.scene.SurfaceView>? = null
+
+    /**
+     * Starts a stroke segment in [view]'s paint image of the paint layer [primaryId] on a multi-view
+     * surface (spec/3d-space.md, "Paint per view"): the image is a layer of its own, created on first
+     * use, so the stroke, its undo entry and its bitmap file are those of any other layer. [sample]
+     * is already in that image's flat space.
+     */
+    fun onViewStrokeStart(
+        primaryId: String,
+        view: com.hereliesaz.graffitixr.common.scene.SurfaceView,
+        sample: BrushSample,
+        canvasSize: IntSize,
+    ) {
+        strokeViewTarget = primaryId to view
+        try {
+            onStrokeStart(sample, canvasSize)
+        } finally {
+            strokeViewTarget = null
+        }
+    }
+
+    /**
+     * The id of [primaryId]'s paint image for [view], creating it beside its paint layer when this is
+     * the first stroke there. Hidden (the layer panel and the flat compositors skip it) and blank;
+     * its pixel file is named now and written by the usual debounced save (and straight away, blank).
+     */
+    @Suppress("ReturnCount", "MaxLineLength")
+    private fun ensureViewImageLayer(primaryId: String, view: com.hereliesaz.graffitixr.common.scene.SurfaceView): String? {
+        val layers = _uiState.value.layers
+        layers.firstOrNull { it.surfaceViewOf == primaryId && it.surfaceView == view }?.let { return it.id }
+        val primary = layers.firstOrNull { it.id == primaryId } ?: return null
+        val (blank, frame, base) = createBlankPaintBitmap()
+        val projectId = _uiState.value.projectId
+        val filename = "layer_${UUID.randomUUID()}.png"
+        val uri = projectId?.let { "file://${java.io.File(context.filesDir, "projects/$it/$filename").path}".toUri() }
+        val image = Layer(
+            id = UUID.randomUUID().toString(),
+            name = "${primary.name} (${view.name.lowercase()})",
+            parentId = primary.parentId,
+            uri = uri,
+            bitmap = blank,
+            isVisible = false,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            originX = frame.originX,
+            originY = frame.originY,
+            surfaceViewOf = primaryId,
+            surfaceView = view,
+        )
+        if (base != null) layerStore.putBase(image.id, base) else putLayerBase(image.id, blank)
+        layerStore.initStrokes(image.id)
+        updateUi { s ->
+            val at = s.layers.indexOfFirst { it.id == primaryId }.let { if (it < 0) s.layers.size else it + 1 }
+            s.copy(layers = s.layers.toMutableList().apply { add(at, image) })
+        }
+        emitMembership(Op.LayerAdd(image))
+        if (projectId != null && uri != null) {
+            SafeBitmap.copy(blank, mutable = false)?.let { copy ->
+                viewModelScope.launch(dispatchers.io) {
+                    val bytes = ImageUtils.bitmapToByteArray(copy)
+                    runCatching { projectRepository.saveArtifact(projectId, filename, bytes) }
+                    saveProject()
+                }
+            }
+        }
+        return image.id
+    }
+
     /** Called when the user first touches the canvas. Prepares a mutable working bitmap for
      *  incremental real-time rendering (all tools except Liquify). */
     fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
@@ -6549,7 +6651,8 @@ class EditorViewModel @Inject constructor(
             gpuTuning?.coordinator?.onUserDrawing()
             feelFirstLatencyId = -1L
         }
-        val layerId = state.activeLayerId ?: return
+        val layerId = (strokeViewTarget?.let { (primary, view) -> ensureViewImageLayer(primary, view) } ?: state.activeLayerId)
+            ?: return
         // A 3D strokes layer has no pixels: it is drawn on with 3D on, never painted.
         if (state.layers.any { it.id == layerId && (it.isSpatial || it.model != null) }) return
         strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
@@ -7970,9 +8073,13 @@ class EditorViewModel @Inject constructor(
     /** The newest committed segment of the open gesture, by identity; null = none committed yet. */
     private var gestureCommitted: StrokeCommand? = null
 
+    /** The layer of [gestureCommitted]. */
+    private var gestureCommittedLayerId: String? = null
+
     private fun closeGesture() {
         gestureOpen = false
         gestureCommitted = null
+        gestureCommittedLayerId = null
     }
 
     /** Takes back every committed segment of a cancelled gesture: one entry, no redo, no pill. */
@@ -7980,8 +8087,7 @@ class EditorViewModel @Inject constructor(
         val committed = gestureCommitted ?: return
         closeGesture()
         if (!history.topDrawHolds(committed)) return
-        undoTop()
-        history.dropTopRedo()
+        repeat(undoTop()) { history.dropTopRedo() }
         updateHistoryCounts()
     }
 
@@ -9392,8 +9498,17 @@ class EditorViewModel @Inject constructor(
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
         val continues = gestureOpen && gestureCommitted != null
-        if (gestureOpen) gestureCommitted = command
-        return history.pushDraw(layerId, command, chunkable, plane = plane, continuesGesture = continues)
+        // A segment on another layer than the last one (a stroke crossing between view images) is its
+        // own entry, chained to the previous so that undo and redo take both.
+        val chained = continues && gestureCommittedLayerId != null && gestureCommittedLayerId != layerId
+        if (gestureOpen) {
+            gestureCommitted = command
+            gestureCommittedLayerId = layerId
+        }
+        return history.pushDraw(
+            layerId, command, chunkable, plane = plane,
+            continuesGesture = continues && !chained, chainedToPrevious = chained,
+        )
     }
 
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {

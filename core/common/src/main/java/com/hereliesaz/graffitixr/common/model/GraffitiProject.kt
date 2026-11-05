@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 10
+const val CURRENT_FORMAT_VERSION = 11
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:

@@ -417,3 +417,20 @@ class EditorReducerTest {
         assertSame(out, EditorReducer.withInstancesFollowing(s, out))
     }
 }
+
+/** A paint layer's per-view images (project format 11) have no life of their own. */
+class ViewImageReducerTest {
+    private fun image(id: String, of: String) = Layer(
+        id = id, name = id, surfaceViewOf = of,
+        surfaceView = com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE,
+    )
+
+    @Test
+    fun `removing a paint layer removes its view images and never lands on one`() {
+        val layers = listOf(image("img", "a"), Layer("a", "A"), Layer("b", "B"), image("imgB", "b"))
+        val state = com.hereliesaz.graffitixr.common.model.EditorUiState(layers = layers, activeLayerId = "a")
+        val out = EditorReducer.reduce(state, EditorIntent.RemoveLayer("a"))
+        assertEquals(listOf("b", "imgB"), out.layers.map { it.id })
+        assertEquals("b", out.activeLayerId)
+    }
+}

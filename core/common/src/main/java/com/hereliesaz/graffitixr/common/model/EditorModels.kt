@@ -46,6 +46,10 @@ enum class LayerType {
 val Layer.isContainer: Boolean
     get() = type == LayerType.GROUP || type == LayerType.FRAME
 
+/** A paint image of one view of another layer ([Layer.surfaceViewOf]): not a layer the user sees. */
+val Layer.isSurfaceViewImage: Boolean
+    get() = surfaceViewOf != null
+
 /** A design frame (see [LayerType.FRAME]). */
 val Layer.isFrame: Boolean
     get() = type == LayerType.FRAME
@@ -151,6 +155,15 @@ data class Layer(
      * on. Null = flat, exactly as 2D. Only meaningful on a container.
      */
     val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile? = null,
+    /**
+     * Project format 11 (spec/3d-space.md, "Paint per view"): when set, this layer is not a layer the
+     * user sees but the paint image of one view ([surfaceView]) of the paint layer [surfaceViewOf],
+     * on a group whose surface is drawn from more than one view. It is an ordinary raster in every
+     * other respect (its own bitmap file, stroke log and undo entries), kept beside its primary in
+     * the same group; the layer panel and the flat compositors skip it.
+     */
+    val surfaceViewOf: String? = null,
+    val surfaceView: com.hereliesaz.graffitixr.common.scene.SurfaceView? = null,
     @Serializable(with = FiniteFloatOrOneSerializer::class)
     val scale: Float = 1.0f,
     /**
