@@ -195,6 +195,26 @@ class SurfaceHull private constructor(
 
     private val caps: Map<SurfaceView, FloatArray> by lazy { buildCaps() }
 
+    /**
+     * The rectangle (left, top, right, bottom) a face occupies in [view]'s paint image: [region] 0 its sheet,
+     * `1 + face` one of its caps (see [PaintTarget.region]). It bounds what an image-wide tool (a flood
+     * fill) may reach from a touch on that face, so it never runs into the view's other faces, which
+     * share the image. Null when the view or region carries nothing.
+     */
+    fun regionRect(view: SurfaceView, region: Int): FloatArray? {
+        if (region <= 0) {
+            val (w, h) = paintSize(view) ?: return null
+            return floatArrayOf(0f, 0f, w, h)
+        }
+        val face = region - 1
+        if (wallIndex >= 0 || face !in 0..5) return null
+        val host = capHost(face / 2)
+        if (host.view != view) return null
+        val (p, q) = planeAxes(face / 2)
+        val x = capOffset(host, face)
+        return floatArrayOf(x, 0f, x + hi[p] - lo[p], hi[q] - lo[q])
+    }
+
     /** The view whose image holds the caps on [axis]: the one looking at them most squarely (its sweep most parallel to the axis), the earlier on a tie. */
     private fun capHost(axis: Int): Prism {
         var best = prisms[0]
@@ -292,9 +312,10 @@ class SurfaceHull private constructor(
      */
     private fun lineIntervals(p0: FloatArray, d: FloatArray, skip: Int): List<Iv> {
         var acc = boxInterval(p0, d)?.let { listOf(it) } ?: return emptyList()
+        val tol = TIE_EPS / sqrt(dot(d, d)).coerceAtLeast(1e-12f)
         for ((j, prism) in prisms.withIndex()) {
             if (j == skip || j == wallIndex) continue
-            acc = intersect(acc, prism.intervals(p0, d, strict = skip != NO_SKIP && skip != wallIndex && j < skip))
+            acc = intersect(acc, prism.intervals(p0, d, strict = skip != NO_SKIP && skip != wallIndex && j < skip), tol)
             if (acc.isEmpty()) return acc
         }
         return acc
@@ -329,20 +350,21 @@ class SurfaceHull private constructor(
      * a drawn outline's sheet beats the box's face, and the earlier outline (front, side, top) beats a
      * later one, so a ray hit is attributed to the view whose patch [meshByView] emits for that plane.
      */
-    private fun tie(xAt: Float, xSrc: Int, yAt: Float, ySrc: Int, xWins: Boolean): Int = when {
+    private fun tie(xAt: Float, xSrc: Int, yAt: Float, ySrc: Int, xWins: Boolean, tol: Float): Int = when {
+        // Two faces in one plane meet a slanted ray at parameters a rounding error apart: that is a tie
+        // too ([tol] is [TIE_EPS] in the ray's own units), or the hit and the patch would name different views.
+        abs(xAt - yAt) <= tol -> if (xSrc >= 0) xSrc else ySrc
         xWins -> xSrc
-        xAt != yAt -> ySrc
-        xSrc >= 0 -> xSrc
         else -> ySrc
     }
 
-    private fun intersect(a: List<Iv>, b: List<Iv>): List<Iv> {
+    private fun intersect(a: List<Iv>, b: List<Iv>, tol: Float): List<Iv> {
         val out = ArrayList<Iv>()
         for (x in a) for (y in b) {
             val l0 = max(x.lo, y.lo)
             val l1 = min(x.hi, y.hi)
             if (l1 > l0) {
-                out += Iv(l0, l1, tie(x.lo, x.loSrc, y.lo, y.loSrc, x.lo > y.lo), tie(x.hi, x.hiSrc, y.hi, y.hiSrc, x.hi < y.hi))
+                out += Iv(l0, l1, tie(x.lo, x.loSrc, y.lo, y.loSrc, x.lo > y.lo, tol), tie(x.hi, x.hiSrc, y.hi, y.hiSrc, x.hi < y.hi, tol))
             }
         }
         out.sortBy { it.lo }

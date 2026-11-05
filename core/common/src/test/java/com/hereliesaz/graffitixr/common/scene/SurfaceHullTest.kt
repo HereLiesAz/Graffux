@@ -284,10 +284,13 @@ class SurfaceHullTest {
         var hits = 0
         var capHits = 0
         repeat(400) {
-            val o = floatArrayOf(rnd.nextFloat() * 140f - 20f, rnd.nextFloat() * 140f - 20f, rnd.nextFloat() * 140f - 20f).let {
-                floatArrayOf(it[0] + 300f, it[1] + 300f, it[2] + 300f)
-            }
             val aim = floatArrayOf(rnd.nextFloat() * 100f, rnd.nextFloat() * 100f, rnd.nextFloat() * 40f - 20f)
+            // Half the rays look down the cap's axis, the rest come from anywhere round the solid.
+            val o = if (it % 2 == 0) {
+                floatArrayOf(aim[0] + rnd.nextFloat() * 60f - 30f, aim[1] + rnd.nextFloat() * 60f - 30f, 300f)
+            } else {
+                floatArrayOf(rnd.nextFloat() * 600f - 250f, rnd.nextFloat() * 600f - 250f, rnd.nextFloat() * 600f - 250f)
+            }
             val dir = FloatArray(3) { aim[it] - o[it] }
             val h = hull.hit(o, dir, near = 1f) ?: return@repeat
             hits++
@@ -297,7 +300,7 @@ class SurfaceHullTest {
             assertNotNull("every hit is paintable", hull.paintTarget(h))
         }
         assertTrue(hits > 100)
-        assertTrue("some rays land on the cap", capHits > 5)
+        assertTrue("some rays land on the cap, $capHits of $hits", capHits > 5)
         // Closed: every mesh vertex is in or on the solid.
         for (m in hull.capMeshByView().values) for (i in m.indices step 5) assertTrue(hull.contains(m[i], m[i + 1], m[i + 2]))
     }
@@ -316,5 +319,26 @@ class SurfaceHullTest {
         val width = hull.paintSize(SurfaceView.FRONT)!!.first
         val cap = hull.capMeshByView()[SurfaceView.FRONT]!!
         for (i in 3 until cap.size step 5) assertTrue(cap[i] > width)
+    }
+
+    @Test
+    fun `an oblique hit on a plane two views share is the view that draws it`() {
+        // Front, side and top boxes share their planes pairwise: a slanted ray meets each shared plane
+        // a rounding error apart through the two views' edges, so the nearer by a hair must not decide.
+        val hull = SurfaceHull.of(cube)!!
+        val mesh = hull.meshByView().mapValues { triangles(it.value) }
+        val rnd = java.util.Random(3)
+        var checked = 0
+        repeat(500) {
+            val aim = floatArrayOf(rnd.nextFloat() * 100f, rnd.nextFloat() * 100f, rnd.nextFloat() * 100f)
+            val dir = floatArrayOf(rnd.nextFloat() - 0.5f, rnd.nextFloat() - 0.5f, rnd.nextFloat() - 0.5f)
+            val o = FloatArray(3) { aim[it] - dir[it] * 600f }
+            val h = hull.hit(o, dir, near = 1f) ?: return@repeat
+            if (h.fromInside) return@repeat
+            checked++
+            assertNotNull("a hit on the cube is never a cap", h.view)
+            assertTrue("hit at (${h.x}, ${h.y}, ${h.z}) names ${h.view}, which draws no patch there", mesh[h.view]!!.any { t -> onTriangle(floatArrayOf(h.x, h.y, h.z), t, 0.5f) })
+        }
+        assertTrue(checked > 100)
     }
 }
