@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 11; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering the hull is still to come). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 11; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering and glTF export of the hull). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -462,9 +462,20 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     entries chained in `EditHistory` (`chainedToPrevious`), so undo and redo take the whole stroke. A
     single-view group and a flat layer take the old path unchanged. Not yet: duplicating a paint layer
     copies only its own image; co-op announces the image layers as ordinary layers; fill, clone and
-    lasso still use the front sheet; the images are not drawn until the hull render lands.
-  - *Rendering.* `SurfaceHull.meshByView` gives triangles (x, y, z, u, t) per view, exact for straight
-    trims; not wired into `DepthCompositor`, glTF or the editor yet (the next change).
+    lasso still use the front sheet.
+  - *Rendering the hull.* A paint layer on a group with a side or top view draws as one plane per
+    view image (`DepthScene.hullPlanes`), each on its view's patch of the hull: `SurfaceHull.meshByView`
+    triangles, with texture coordinates into the image from `SurfaceHullMesh.textured` (a vertex's
+    `(u, t)` goes through `SurfaceHull.paintPointAt`, the mapping a brush touch uses, then the image
+    layer's unroll and rect, so paint lands where it shows). The planes are depth-tested like any
+    surface paint and take the paint layer's colour, opacity and place in the group's order, so group
+    opacity, isolated compositing and depth against other layers and groups work as they do for a
+    sheet. A face two views share is one patch, the earlier view's, and a ray hit is attributed to that
+    same view. A group with one view renders exactly as before. The paint layer's own pixels (made on
+    the sheet before a side or top was drawn) are kept but not drawn on a hull. A cap (an axis no two
+    views bound) is not drawn: it has no image.
+  - *Export.* glTF gets one textured mesh per view image (`hullQuads`), the same triangle-list form as a
+    surface sheet; the no-GLES export fallback draws a patch triangle by triangle.
   - *Drawing the other views.* A group with a surface has "Draw side view" and "Draw top view" in its
     layer menu (labelled "Redraw ..." once drawn), and the "surface set" chip offers the same two
     buttons. Arming (`EditorViewModel.onArmSurfaceView`) turns the camera to look along the view

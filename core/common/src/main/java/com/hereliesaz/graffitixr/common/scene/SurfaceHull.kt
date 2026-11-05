@@ -153,8 +153,13 @@ class SurfaceHull private constructor(
      */
     fun paintPoint(hit: HullHit): Pair<Float, Float>? {
         val view = hit.view ?: return null
+        return paintPointAt(view, hit.u, hit.t)
+    }
+
+    /** [paintPoint] for unrolled coordinates ([u], [t]) of [view]'s sheet, as [meshByView] gives them. */
+    fun paintPointAt(view: SurfaceView, u: Float, t: Float): Pair<Float, Float>? {
         val prism = carrying(view) ?: return null
-        return hit.u to hit.t - sweepRange(prism).first
+        return u to t - sweepRange(prism).first
     }
 
     private fun carrying(view: SurfaceView): Prism? =
@@ -219,13 +224,25 @@ class SurfaceHull private constructor(
         return if (l1 > l0) Iv(l0, l1, s0, s1) else null
     }
 
+    /**
+     * The source of an interval end that [xWins] by position. On an exact tie (two faces in one plane)
+     * a drawn outline's sheet beats the box's face, and the earlier outline (front, side, top) beats a
+     * later one, so a ray hit is attributed to the view whose patch [meshByView] emits for that plane.
+     */
+    private fun tie(xAt: Float, xSrc: Int, yAt: Float, ySrc: Int, xWins: Boolean): Int = when {
+        xWins -> xSrc
+        xAt != yAt -> ySrc
+        xSrc >= 0 -> xSrc
+        else -> ySrc
+    }
+
     private fun intersect(a: List<Iv>, b: List<Iv>): List<Iv> {
         val out = ArrayList<Iv>()
         for (x in a) for (y in b) {
             val l0 = max(x.lo, y.lo)
             val l1 = min(x.hi, y.hi)
             if (l1 > l0) {
-                out += Iv(l0, l1, if (x.lo > y.lo) x.loSrc else y.loSrc, if (x.hi < y.hi) x.hiSrc else y.hiSrc)
+                out += Iv(l0, l1, tie(x.lo, x.loSrc, y.lo, y.loSrc, x.lo > y.lo), tie(x.hi, x.hiSrc, y.hi, y.hiSrc, x.hi < y.hi))
             }
         }
         out.sortBy { it.lo }

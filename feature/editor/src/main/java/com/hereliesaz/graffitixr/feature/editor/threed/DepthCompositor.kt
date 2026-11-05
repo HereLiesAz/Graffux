@@ -77,6 +77,11 @@ class DepthCompositor : GLSurfaceView.Renderer {
         val surfaceIndex: Int = 0,
         /** Whether the owning group's profile is straight (one plane). */
         val surfaceFlat: Boolean = true,
+        /**
+         * [surface] is arbitrary triangles (a multi-view surface's patch), not the strips of one
+         * profile; only the no-GLES export fallback tells them apart.
+         */
+        val surfaceTriangles: Boolean = false,
     )
 
     /** A 3D strokes layer: its tubes and the map from stroke units into the scene. */

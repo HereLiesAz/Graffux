@@ -21,7 +21,7 @@ internal object DepthScene {
         fun of(layer: Layer): Pair<Bitmap, Long>?
     }
 
-    @Suppress("LongParameterList")
+    @Suppress("LongParameterList", "LongMethod")
     fun build(
         layers: List<Layer>,
         plan: DepthComposite,
@@ -66,6 +66,19 @@ internal object DepthScene {
                     model * SceneMath.strokeToLocal(width, height), alpha, key,
                 )
                 continue
+            }
+            if (owner != null && owner.profile.hasHull) {
+                val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile)
+                if (hull != null) {
+                    val siblings = plan.memberIds.filter {
+                        it in plan.surfaceIds &&
+                            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, it)?.group?.id == owner.group.id
+                    }
+                    planes += hullPlanes(
+                        layers, layer, owner, hull, width, height, pixels, alpha, key, siblings.indexOf(id).coerceAtLeast(0),
+                    )
+                    continue
+                }
             }
             val (bitmap, token, rect) = if (layer.shapes.isNotEmpty()) {
                 val image = vectors(layer) ?: continue
@@ -137,6 +150,45 @@ internal object DepthScene {
         if (inside.isEmpty()) return@mapNotNull null
         val key = if (activeId == null) null else listOf(g.groupId, g.opacity, byId[g.groupId]?.blendMode, inside.map { it.key })
         DepthCompositor.Group(g.groupId, inside.map { it.id }, g.opacity, key)
+    }
+
+    /**
+     * Paint on a multi-view surface (spec/3d-space.md, "Rendering the hull"): one plane per view
+     * image of [layer], each drawing its own paint on that view's patch of the intersected surface
+     * ([com.hereliesaz.graffitixr.common.scene.SurfaceHullMesh]). The planes take [layer]'s colour,
+     * opacity and place in the group's order, so opacity and isolated compositing work as for any
+     * paint on a surface. A view with no image yet draws nothing.
+     */
+    @Suppress("LongParameterList")
+    internal fun hullPlanes(
+        layers: List<Layer>,
+        layer: Layer,
+        owner: com.hereliesaz.graffitixr.common.scene.SurfaceOwner,
+        hull: com.hereliesaz.graffitixr.common.scene.SurfaceHull,
+        width: Float,
+        height: Float,
+        pixels: Pixels,
+        alpha: Float,
+        key: Any?,
+        surfaceIndex: Int,
+    ): List<DepthCompositor.Plane> {
+        val out = ArrayList<DepthCompositor.Plane>()
+        for (image in layers.filter { it.surfaceViewOf == layer.id }) {
+            val view = image.surfaceView ?: continue
+            val (bitmap, token) = pixels.of(image) ?: continue
+            val rect = DepthComposite.imageRect(image, bitmap.width, bitmap.height, width, height) ?: continue
+            val imageOwner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, image.id) ?: continue
+            val toBox = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                .boxToUnrolled(imageOwner.innerChain, width, height).inverse() ?: continue
+            val mesh = com.hereliesaz.graffitixr.common.scene.SurfaceHullMesh.textured(hull, view, toBox, rect) ?: continue
+            out += DepthCompositor.Plane(
+                image.id, bitmap, token, SceneMath.chainModel(owner.ownerChain, width, height), rect, colorMatrixOf(layer), alpha,
+                key?.let { listOf(it, image.id, view) },
+                surface = mesh, surfaceGroup = owner.group.id, surfaceIndex = surfaceIndex, surfaceFlat = false,
+                surfaceTriangles = true,
+            )
+        }
+        return out
     }
 
     /**

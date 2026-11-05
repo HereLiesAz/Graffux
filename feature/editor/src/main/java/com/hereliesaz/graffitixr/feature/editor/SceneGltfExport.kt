@@ -7,6 +7,7 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.isAdjustment
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.isSurfaceViewImage
 import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
 import com.hereliesaz.graffitixr.common.scene.SceneMath
 import com.hereliesaz.graffitixr.common.scene.planeChain
@@ -47,7 +48,7 @@ internal fun buildSceneGltf(
     val strokes = ArrayList<SceneGltfExporter.Strokes>()
     val models = ArrayList<SceneGltfExporter.Model>()
     for (layer in state.layers) {
-        if (layer.isContainer || !chainVisible(layer)) continue
+        if (layer.isContainer || layer.isSurfaceViewImage || !chainVisible(layer)) continue
         val model = SceneMath.chainModel(
             planeChain(state.layers, layer.id), w, h,
         )
@@ -73,6 +74,13 @@ internal fun buildSceneGltf(
             continue
         }
         if (layer.isAdjustment) continue
+        // Paint on a multi-view surface goes out as one mesh per view image, on that view's patch.
+        val hullOwner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id)
+            ?.takeIf { !layer.isContainer && !layer.isSurfaceViewImage && it.profile.hasHull }
+        if (hullOwner != null) {
+            quads += hullQuads(state.layers, layer, hullOwner, w, h, chainOpacity(layer))
+            continue
+        }
         // A vector layer goes out as its shapes rasterized by the canvas's own drawing code, on a
         // quad covering them (spec/3d-space.md, "Export", for why not tessellated).
         val vector = if (layer.shapes.isNotEmpty()) VectorRaster.rasterize(layer, w, h) else null
@@ -130,4 +138,43 @@ internal fun modelTexturePng(paint: Bitmap): ByteArray {
         out.compress(Bitmap.CompressFormat.PNG, 100, it)
         out.recycle()
     }.toByteArray()
+}
+
+/**
+ * [layer]'s paint on a multi-view surface as glTF meshes: for each view image, that view's patch of
+ * the intersected surface ([com.hereliesaz.graffitixr.common.scene.SurfaceHullMesh]) in scene
+ * pixels, textured with the image as a PNG. Pure geometry; a view with no image adds nothing.
+ */
+@Suppress("LongParameterList", "MaxLineLength")
+internal fun hullQuads(
+    layers: List<Layer>,
+    layer: Layer,
+    owner: com.hereliesaz.graffitixr.common.scene.SurfaceOwner,
+    w: Float,
+    h: Float,
+    opacity: Float,
+): List<SceneGltfExporter.Quad> {
+    val math = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+    val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile) ?: return emptyList()
+    val toScene = SceneMath.chainModel(owner.ownerChain, w, h)
+    val out = ArrayList<SceneGltfExporter.Quad>()
+    for (image in layers.filter { it.surfaceViewOf == layer.id }) {
+        val view = image.surfaceView ?: continue
+        val bitmap = image.bitmap?.takeUnless { it.isRecycled } ?: continue
+        val rect = com.hereliesaz.graffitixr.common.scene.DepthComposite.imageRect(image, bitmap.width, bitmap.height, w, h) ?: continue
+        val imageOwner = math.ownerOf(layers, image.id) ?: continue
+        val toBox = math.boxToUnrolled(imageOwner.innerChain, w, h).inverse() ?: continue
+        val mesh = com.hereliesaz.graffitixr.common.scene.SurfaceHullMesh.textured(hull, view, toBox, rect) ?: continue
+        var i = 0
+        while (i < mesh.size) {
+            toScene.apply(mesh[i], mesh[i + 1], mesh[i + 2]).copyInto(mesh, i)
+            i += com.hereliesaz.graffitixr.common.scene.SurfaceHullMesh.STRIDE
+        }
+        val png = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        val corners = listOf(
+            FloatArray(3), FloatArray(3), FloatArray(3), FloatArray(3),
+        )
+        out += SceneGltfExporter.Quad("${layer.name} (${view.name.lowercase()})", png, corners, opacity, mesh)
+    }
+    return out
 }

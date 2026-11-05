@@ -224,6 +224,10 @@ internal class SceneExport(private val manager: ExportManager) {
     ) {
         val bw = plane.bitmap.width.toFloat()
         val bh = plane.bitmap.height.toFloat()
+        if (plane.surfaceTriangles) {
+            drawTriangleFallback(canvas, plane, surface, cam, paint)
+            return
+        }
         var i = 0
         while (i + STRIP_FLOATS <= surface.size) {
             val src = FloatArray(8)
@@ -251,7 +255,45 @@ internal class SceneExport(private val manager: ExportManager) {
         }
     }
 
+    /** [drawSurfaceFallback] for a multi-view patch: each triangle maps its part of the image onto its projection. */
+    private fun drawTriangleFallback(
+        canvas: Canvas,
+        plane: com.hereliesaz.graffitixr.feature.editor.threed.DepthCompositor.Plane,
+        surface: FloatArray,
+        cam: com.hereliesaz.graffitixr.common.scene.CameraFrame,
+        paint: android.graphics.Paint,
+    ) {
+        val bw = plane.bitmap.width.toFloat()
+        val bh = plane.bitmap.height.toFloat()
+        var i = 0
+        while (i + TRIANGLE_FLOATS <= surface.size) {
+            val src = FloatArray(6)
+            val dst = FloatArray(6)
+            var inFront = true
+            for (k in 0..2) {
+                val o = i + k * VERTEX_FLOATS
+                val c = cam.toCamera(plane.model.apply(surface[o], surface[o + 1], surface[o + 2]))
+                if (c[2] <= NEAR) inFront = false
+                src[k * 2] = surface[o + 3] * bw
+                src[k * 2 + 1] = surface[o + 4] * bh
+                dst[k * 2] = cam.width / 2f + cam.focal * c[0] / c[2]
+                dst[k * 2 + 1] = cam.height / 2f + cam.focal * c[1] / c[2]
+            }
+            i += TRIANGLE_FLOATS
+            val m = Matrix()
+            if (!inFront || !m.setPolyToPoly(src, 0, dst, 0, 3)) continue
+            val clip = android.graphics.Path().apply {
+                moveTo(dst[0], dst[1]); lineTo(dst[2], dst[3]); lineTo(dst[4], dst[5]); close()
+            }
+            val save = canvas.save()
+            canvas.clipPath(clip)
+            canvas.drawBitmap(plane.bitmap, m, paint)
+            canvas.restoreToCount(save)
+        }
+    }
+
     companion object {
+        private const val TRIANGLE_FLOATS = 3 * 5
         private const val CLIP_EXTENT = 8f
         private const val VERTEX_FLOATS = 5
         private const val STRIP_FLOATS = 6 * VERTEX_FLOATS
