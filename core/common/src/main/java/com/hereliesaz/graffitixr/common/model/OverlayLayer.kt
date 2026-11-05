@@ -106,4 +106,8 @@ data class OverlayLayer(
     val model: com.hereliesaz.graffitixr.common.scene.ModelLayerContent? = null,
     // Format 9: a group's surface profile (spec/3d-space.md, "Group surfaces"). Absent: flat.
     val surface: com.hereliesaz.graffitixr.common.scene.SurfaceProfile? = null,
+    // Format 11: this layer is the paint image of one view of the paint layer `surfaceViewOf`
+    // (spec/3d-space.md, "Paint per view"). Absent from older saves: an ordinary layer.
+    val surfaceViewOf: String? = null,
+    val surfaceView: com.hereliesaz.graffitixr.common.scene.SurfaceView? = null,
 )

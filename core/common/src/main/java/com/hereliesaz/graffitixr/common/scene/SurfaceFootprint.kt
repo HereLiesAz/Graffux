@@ -45,6 +45,45 @@ object SurfaceFootprint {
     }
 
     /**
+     * [worldToFlat] for a group whose surface is drawn from more than one view ([SurfaceHull]): the
+     * view the touch lands on and the flat point in that view's paint image. The touch's own ray
+     * decides when it meets the surface; otherwise the footprint does, sampled: rings of rays at a
+     * third, two thirds and all of [radius] around the touch, and the closest ring that meets the
+     * surface wins (a sample on the surface's edge is not exact, which a brush the size of the
+     * footprint does not notice). Null when the footprint touches no paintable face (a cap is not
+     * paintable: it belongs to no view). [hull] is [SurfaceHull.of] of the profile, passed in so a
+     * stroke builds it once.
+     */
+    fun worldToViewFlat(
+        x: Float,
+        y: Float,
+        radius: Float,
+        owner: SurfaceOwner,
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+        hull: SurfaceHull? = SurfaceHull.of(owner.profile),
+    ): SurfaceMath.ViewFlat? {
+        if (hull == null || width <= 0f || height <= 0f) return null
+        SurfaceMath.worldToViewFlat(x, y, owner, camera, width, height, hull)?.let { return it }
+        if (radius <= 0f || !radius.isFinite()) return null
+        for (ring in 1..RINGS) {
+            val r = radius * ring / RINGS
+            for (k in 0 until RING_SAMPLES) {
+                val a = (2.0 * Math.PI * k / RING_SAMPLES).toFloat()
+                val hit = SurfaceMath.worldToViewFlat(
+                    x + r * kotlin.math.cos(a), y + r * kotlin.math.sin(a), owner, camera, width, height, hull,
+                )
+                if (hit != null) return hit
+            }
+        }
+        return null
+    }
+
+    private const val RINGS = 3
+    private const val RING_SAMPLES = 12
+
+    /**
      * A ray that misses every strip passes outside the surface's projected area, so the nearest
      * surface point on screen is on its outline: the profile at sweep 0 and the sweep line at each
      * profile vertex. Each is a straight 3D edge, clipped to the near plane and measured in pixels.

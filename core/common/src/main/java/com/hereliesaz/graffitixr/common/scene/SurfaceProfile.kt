@@ -359,13 +359,21 @@ object SurfaceMath {
      * This is the integration point for paint: map `(hit.view, hit.u, hit.t)` through the same
      * footprint mapping as [worldToFlat]'s `(u, t)`.
      */
-    fun worldToSurface(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): HullHit? {
+    fun worldToSurface(
+        x: Float,
+        y: Float,
+        owner: SurfaceOwner,
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+        hull: SurfaceHull? = null,
+    ): HullHit? {
         if (width <= 0f || height <= 0f || !owner.profile.hasHull) return null
-        val hull = SurfaceHull.of(owner.profile) ?: return null
+        val built = hull ?: SurfaceHull.of(owner.profile) ?: return null
         val cam = SceneMath.frame(camera, width, height)
         val inv = SceneMath.chainModel(owner.ownerChain, width, height).inverse() ?: return null
         val d = cam.rayDirection(x, y)
-        return hull.hit(
+        return built.hit(
             inv.apply(cam.eye[0], cam.eye[1], cam.eye[2]),
             inv.applyVector(d[0], d[1], d[2]),
             SceneMath.nearPlane(cam.focal),
@@ -381,10 +389,19 @@ object SurfaceMath {
      * view's own `(arc length, sweep distance from the solid's near end)` as the unrolled point. Null
      * on a miss, a cap, or a group with one view.
      */
-    fun worldToViewFlat(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): ViewFlat? {
-        val hit = worldToSurface(x, y, owner, camera, width, height) ?: return null
+    fun worldToViewFlat(
+        x: Float,
+        y: Float,
+        owner: SurfaceOwner,
+        camera: SceneCamera,
+        width: Float,
+        height: Float,
+        hull: SurfaceHull? = null,
+    ): ViewFlat? {
+        val built = hull ?: SurfaceHull.of(owner.profile) ?: return null
+        val hit = worldToSurface(x, y, owner, camera, width, height, built) ?: return null
         val view = hit.view ?: return null
-        val (u, t) = SurfaceHull.of(owner.profile)?.paintPoint(hit) ?: return null
+        val (u, t) = built.paintPoint(hit) ?: return null
         val flat = unrolledToFlat(u, t, owner.innerChain, width, height) ?: return null
         return ViewFlat(view, flat.first, flat.second)
     }

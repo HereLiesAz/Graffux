@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.model.isContainer
+import com.hereliesaz.graffitixr.common.model.isSurfaceViewImage
 import com.hereliesaz.graffitixr.common.model.withLayerProps
 import com.hereliesaz.graffitixr.common.azphalt.SubstratePreset
 import com.hereliesaz.graffitixr.common.model.ColorStyle
@@ -35,7 +36,14 @@ internal object EditorReducer {
      * highlighted row anywhere to explain why) until the user happens to tap something else.
      */
     private fun List<Layer>.firstDrawableId(): String? =
-        (firstOrNull { !it.isContainer } ?: firstOrNull())?.id
+        (firstOrNull { !it.isContainer && !it.isSurfaceViewImage } ?: firstOrNull { !it.isSurfaceViewImage })?.id
+
+    /**
+     * [layers] without [id] and without the per-view paint images that belong to it (project format
+     * 11): a view image has no life of its own, so it goes with the paint layer it is the image of.
+     */
+    private fun List<Layer>.withoutLayerAndViewImages(id: String): List<Layer> =
+        filterNot { it.id == id || it.surfaceViewOf == id }
 
     fun reduce(state: EditorUiState, intent: EditorIntent): EditorUiState {
         val next = reduceOnly(state, intent)
@@ -159,7 +167,7 @@ internal object EditorReducer {
         )
         is EditorIntent.RemoveLayer -> {
             val ungrouped = LayerListOps.ungroup(state.layers, intent.id)
-            val remaining = ungrouped.filter { it.id != intent.id }
+            val remaining = ungrouped.withoutLayerAndViewImages(intent.id)
             state.copy(
                 layers = remaining,
                 activeLayerId = if (state.activeLayerId == intent.id) remaining.firstDrawableId() else state.activeLayerId,
@@ -184,7 +192,7 @@ internal object EditorReducer {
         is EditorIntent.AppendLayer -> state.copy(layers = state.layers + intent.layer)
         is EditorIntent.RemoveLayerById -> {
             val ungrouped = LayerListOps.ungroup(state.layers, intent.id)
-            val remaining = ungrouped.filterNot { it.id == intent.id }
+            val remaining = ungrouped.withoutLayerAndViewImages(intent.id)
             state.copy(
                 layers = remaining,
                 activeLayerId = if (state.activeLayerId == intent.id) remaining.firstDrawableId() else state.activeLayerId,
