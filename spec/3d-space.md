@@ -314,9 +314,12 @@ plain world point.
 
 A Jetpack Ink stroke follows the same rule. Ink shows the stroke live in screen space (the viewport
 undone, nothing more), so it stays under the finger; when it lifts, `commitInkThroughPlane` casts each
-sample onto the plane through `ActivePlaneMapping`, cuts the stroke into the runs that hit
-(`planeSegments`, which is `PlaneStrokeFeed`), rebuilds an Ink stroke from each run's flat points and
-commits the runs as one undo step. An empty layer under a moved camera adopts the view plane first, as
+sample onto the plane through `ActivePlaneMapping` by the brush footprint (below: the ray, else the
+nearest surface point the brush radius reaches; `ActivePlaneMapping.inkSegments`), cuts the stroke into
+the runs that land (`planeSegments`, which is `PlaneStrokeFeed`), rebuilds an Ink stroke from each run's
+flat points and commits the runs as one undo step. On a multi-view hull the runs are per view image,
+cut at the creases exactly as `ViewStrokeFeed` cuts a Brush stroke, each committed into that view's
+paint image and chained into the one undo step. An empty layer under a moved camera adopts the view plane first, as
 for the other brushes, and a stroke with no hit commits nothing and puts the plane back. On a flat
 layer the stroke is committed as it was.
 
@@ -355,13 +358,18 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   surface's projected outline (`SurfaceFootprint`, used by `ActivePlaneMapping.toFlatByFootprint`),
   so the stroke is not dropped sample by sample near an edge or when the finger grazes the surface.
   Only a footprint that touches the surface nowhere is a miss. There is no threshold choosing
-  which plane a sample belongs to. Flat and 2D layers, and Ink (`planeSegments`, which still maps
-  by the touch ray), are unchanged.
+  which plane a sample belongs to. Ink maps the same way when it lifts (its footprint is the Ink
+  brush radius, world units), so a touch that just misses the surface keeps its samples. Flat and
+  2D layers are unchanged.
 - **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
   active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
   the group's space, so all its layers move with it.
-- **Guide grid.** Lines along the profile (at sweep distances 0, 64, 128... box units) and lines
-  along the sweep (every 64 units of arc length, and at the profile's end), projected through the
+- **Guide grid.** Lines along the profile (at sweep distances 0, 64, 128... box units, and closing at
+  the grid's extent) and lines along the sweep (every 64 units of arc length, and at the profile's
+  end). The grid is bounded to the surface: along the sweep it reaches the surface's box plus a margin
+  of 32 units (`SurfaceMath.gridExtent`: the hull's box for a multi-view group, else the profile's own
+  box, with a profile that has no depth given a cube's, its largest side), never to a far distance.
+  It is projected through the
   scene camera and clipped to the near plane (`SurfaceMath.gridLines`), so they curve and
   foreshorten with the view and the user can trace strokes along them in more than 2D without
   moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on

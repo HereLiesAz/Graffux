@@ -146,7 +146,7 @@ private const val LAYER_REACH = 4f
  * transform maps to, exactly what a flat layer would have received. With the layer on the 2D path
  * every map is the plain screen-to-world conversion.
  */
-@Suppress("LongParameterList", "ComplexCondition")
+@Suppress("LongParameterList", "ComplexCondition", "TooManyFunctions")
 internal class ActivePlaneMapping private constructor(
     private val viewportOffset: Offset,
     private val viewportZoom: Float,
@@ -173,14 +173,20 @@ internal class ActivePlaneMapping private constructor(
      * whose image the touch lands on and the flat point in it; null for a true miss (or a cap,
      * which has no image) and when the layer is not on a multi-view surface.
      */
-    fun toViewFlatByFootprint(screen: Offset, footprintRadius: Float): com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat? {
+    fun toViewFlatByFootprint(screen: Offset, footprintRadius: Float): com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat? =
+        worldToViewFlatByFootprint(world(screen), footprintRadius / viewportZoom.coerceAtLeast(MIN_ZOOM))
+
+    /** [toViewFlatByFootprint] for a world point and a footprint radius in world units (a finished Ink stroke's samples). */
+    fun worldToViewFlatByFootprint(w: Offset, footprint: Float): com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat? {
         val s = surface ?: return null
         val h = hull ?: return null
-        val w = world(screen)
         return com.hereliesaz.graffitixr.common.scene.SurfaceFootprint.worldToViewFlat(
-            w.x, w.y, footprintRadius / viewportZoom.coerceAtLeast(MIN_ZOOM), s, camera, width, height, h,
+            w.x, w.y, footprint, s, camera, width, height, h,
         )
     }
+
+    /** [toFlatByFootprint] for a world point and a footprint radius in world units. */
+    fun worldToFlatByFootprint(w: Offset, footprint: Float): Offset? = toFlatAt(w, footprint)
 
     private fun toFlatAt(w: Offset, footprint: Float = 0f): Offset? {
         val s = surface
@@ -472,4 +478,56 @@ internal fun ActivePlaneMapping.bridgeViews(
     ) { x, y -> toViewFlatByFootprint(Offset(x, y), 0f) }
     if (c.last === sm && c.first === tm) return null
     return prev.flat.copy(x = c.last.x, y = c.last.y) to next.flat.copy(x = c.first.x, y = c.first.y)
+}
+
+/** A run of an Ink stroke's samples (original index, flat point) on one surface image: [view] on a hull, else null. */
+internal class InkSegment(
+    val view: com.hereliesaz.graffitixr.common.scene.SurfaceView?,
+    val samples: List<Pair<Int, Offset>>,
+)
+
+/**
+ * A finished Ink stroke's world-space [path] mapped as the Brush maps its touches (spec/3d-space.md,
+ * "Painting by footprint"): each sample by the touch ray first, else the nearest point of the surface
+ * its [footprint] (the brush radius, world units) reaches, so a stroke that just misses the surface
+ * is not dropped sample by sample. On a multi-view surface the runs are per view image, cut at the
+ * crease exactly as [ViewStrokeFeed] cuts a Brush stroke; elsewhere [planeSegments] with the footprint.
+ * Empty when nothing lands.
+ */
+internal fun ActivePlaneMapping.inkSegments(path: List<Offset>, footprint: Float): List<InkSegment> {
+    if (!onHull) {
+        return planeSegments(path) { worldToFlatByFootprint(it, footprint) }.map { InkSegment(null, it) }
+    }
+    val done = ArrayList<InkSegment>()
+    var current = ArrayList<Pair<Int, Offset>>()
+    var currentView: com.hereliesaz.graffitixr.common.scene.SurfaceView? = null
+    fun close() {
+        if (current.isNotEmpty()) done += InkSegment(currentView, current)
+        current = ArrayList()
+    }
+    val feed = ViewStrokeFeed<Pair<Int, Offset>>(
+        toView = { raw ->
+            worldToViewFlatByFootprint(raw.second, footprint)?.let { ViewSample(it.view, raw, raw.first to Offset(it.x, it.y)) }
+        },
+        bridge = { a, b ->
+            val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(a.view, a.flat.second.x, a.flat.second.y)
+            val tm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(b.view, b.flat.second.x, b.flat.second.y)
+            val c = com.hereliesaz.graffitixr.common.scene.SurfaceViewStroke.crossing(
+                a.raw.second.x, a.raw.second.y, sm, b.raw.second.x, b.raw.second.y, tm,
+            ) { x, y -> worldToViewFlatByFootprint(Offset(x, y), 0f) }
+            if (c.last === sm && c.first === tm) {
+                null
+            } else {
+                (a.flat.first to Offset(c.last.x, c.last.y)) to (b.flat.first to Offset(c.first.x, c.first.y))
+            }
+        },
+        start = { view, sample -> currentView = view; current = arrayListOf(sample) },
+        point = { current += it },
+        end = ::close,
+        cancel = { current = ArrayList() },
+        segmentEnd = ::close,
+    )
+    path.forEachIndexed { i, p -> if (i == 0) feed.onStart(i to p) else feed.onPoint(i to p) }
+    feed.onEnd()
+    return done
 }
