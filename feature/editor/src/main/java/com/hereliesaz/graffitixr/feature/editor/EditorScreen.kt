@@ -637,7 +637,10 @@ fun EditorScreen(
             fun toWorldSample(sample: BrushSample): BrushSample? {
                 // Through the plane: a ray that misses a 3D layer's plane has no point on it.
                 val plane = strokePlane.value ?: activePlane
-                val world = plane.toFlat(Offset(sample.x, sample.y)) ?: return null
+                // The brush footprint, not the touch's own ray alone, decides whether and where the
+                // sample lands on a surface (the Brush and the Eraser both come through here).
+                val world = plane.toFlatByFootprint(Offset(sample.x, sample.y), uiState.effectiveScreenBrushSize() / 2f)
+                    ?: return null
                 // The nib was recorded as seen on screen; the layer sees it through the view's rotation.
                 val penAngle = nibLayerAngle(sample.telemetry.penAngleDegrees, uiState.viewportRotation)
                 return sample.copy(
@@ -1993,6 +1996,9 @@ private fun SurfaceGuideGrid(
     }
     val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
     Canvas(modifier) {
-        lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.45f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
+        // A dark under-line keeps the mesh readable over light artwork and a cyan line over dark;
+        // widths are screen pixels whatever the zoom. Overlay only: no hit-test, never painted or exported.
+        lines.forEach { l -> drawLine(Color.Black.copy(alpha = 0.55f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 3.5f / zoom) }
+        lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.9f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
     }
 }

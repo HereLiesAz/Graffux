@@ -157,11 +157,13 @@ internal class ActivePlaneMapping private constructor(
     /** The active layer's group surface, when it is paint on one (spec/3d-space.md, "Group surfaces"). */
     private val surface: com.hereliesaz.graffitixr.common.scene.SurfaceOwner? = null,
 ) {
-    private fun toFlatAt(w: Offset): Offset? {
+    private fun toFlatAt(w: Offset, footprint: Float = 0f): Offset? {
         val s = surface
         val c = chain ?: return w
         val p = if (s != null) {
-            com.hereliesaz.graffitixr.common.scene.SurfaceMath.worldToFlat(w.x, w.y, s, camera, width, height)
+            // By footprint: any point of the surface under the brush counts, not only the one the
+            // touch's own ray meets (spec/3d-space.md, "Painting by footprint").
+            com.hereliesaz.graffitixr.common.scene.SurfaceFootprint.worldToFlat(w.x, w.y, footprint, s, camera, width, height)
         } else {
             SceneMath.worldToLayerFlat(w.x, w.y, c, camera, width, height)
         }
@@ -181,6 +183,15 @@ internal class ActivePlaneMapping private constructor(
     fun toFlat(screen: Offset): Offset? {
         return toFlatAt(world(screen))
     }
+
+    /**
+     * [toFlat] for a brush or eraser touch: on a group surface the brush footprint (a circle of
+     * [footprintRadius] screen pixels) decides, so a touch whose own ray misses the surface but whose
+     * footprint reaches it still lands on it, and only a footprint that touches nothing is a miss.
+     * Anywhere else it is [toFlat].
+     */
+    fun toFlatByFootprint(screen: Offset, footprintRadius: Float): Offset? =
+        toFlatAt(world(screen), footprintRadius / viewportZoom.coerceAtLeast(MIN_ZOOM))
 
     /** A flat point back to where it shows in world space; null behind the eye. */
     fun flatToWorld(flat: Offset): Offset? {
@@ -213,6 +224,8 @@ internal class ActivePlaneMapping private constructor(
     }
 
     companion object {
+        private const val MIN_ZOOM = 0.01f
+
         fun of(state: com.hereliesaz.graffitixr.common.model.EditorUiState): ActivePlaneMapping {
             val id = state.activeLayerId
             val w = state.canvasSize.width.toFloat()

@@ -120,6 +120,33 @@ class Scene3DRailUiTest {
     }
 
     @Test
+    fun `the wire mesh toggle is on the rail for a layer on a surface, selected while the mesh shows`() {
+        val vm = realViewModel()
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
+        vm.setLayers(listOf(Layer("g", "G", type = LayerType.GROUP, surface = floor), Layer("a", "A", parentId = "g"), Layer("x", "X")))
+        vm.onLayerActivated("a")
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                val ui by vm.uiState.collectAsState()
+                ToolRail(vm.toolRailActions(), ui, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}))
+            }
+        }
+        val toggle = rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID")
+        toggle.assertExists()
+        assertEquals(false, vm.uiState.value.surfaceGridVisible)
+        toggle.performClick()
+        rule.waitForIdle()
+        assertEquals(true, vm.uiState.value.surfaceGridVisible)
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
+        // A flat layer has no mesh to show, so no toggle.
+        rule.runOnIdle { vm.onLayerActivated("x") }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+    }
+
+    @Test
     fun `the axis slot on an ungrouped layer only arms, the layers rail is unchanged and the slot reads Draw`() {
         val vm = realViewModel()
         org.robolectric.shadows.ShadowLooper.idleMainLooper()

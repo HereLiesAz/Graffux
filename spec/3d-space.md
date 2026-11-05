@@ -341,10 +341,22 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
 - **Painting.** A stroke paints the active layer, mapped onto its group's surface by ray
   intersection (`SurfaceMath.hit`, one planar strip per profile segment, the nearest hit in front
   of the near plane). Paint maps by arc length: the surface's unrolled coordinates `(u, t)` are the
-  group's flat box coordinates, so a stroke does not stretch however the profile bends. Samples that
-  miss the surface are skipped and a stroke with no hits is cancelled (`PlaneStrokeFeed`, as on a
-  tilted plane). Selection, tap-select and the lasso go through the same mapping
+  group's flat box coordinates, so a stroke does not stretch however the profile bends. See
+  "Painting by footprint" below for which samples land. A sample that misses the surface by more
+  than the brush footprint is skipped and a stroke with no hits is cancelled (`PlaneStrokeFeed`, as
+  on a tilted plane). Selection, tap-select and the lasso go through the same mapping
   (`ActivePlaneMapping`, `CanvasHitTest`). View-plane adoption never applies to paint on a surface.
+- **Painting by footprint.** The Brush and the Eraser do not choose a plane or a segment for a
+  stroke: wherever the brush footprint (a circle of the brush radius around the touch, on screen)
+  lies on the layer's surface, the paint or erase lands there. A touch whose ray meets the surface
+  maps exactly (any strip, across bends and creases; unrolled coordinates are continuous, so a
+  stroke crossing from one flat part of the profile to another is one unbroken segment). A touch
+  whose ray misses but whose footprint reaches the surface maps to the nearest point of the
+  surface's projected outline (`SurfaceFootprint`, used by `ActivePlaneMapping.toFlatByFootprint`),
+  so the stroke is not dropped sample by sample near an edge or when the finger grazes the surface.
+  Only a footprint that touches the surface nowhere is a miss. There is no threshold choosing
+  which plane a sample belongs to. Flat and 2D layers, and Ink (`planeSegments`, which still maps
+  by the touch ray), are unchanged.
 - **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
   active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
   the group's space, so all its layers move with it.
@@ -353,7 +365,9 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   scene camera and clipped to the near plane (`SurfaceMath.gridLines`), so they curve and
   foreshorten with the view and the user can trace strokes along them in more than 2D without
   moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on
-  one, toggles `EditorUiState.surfaceGridVisible` (view state, not history). Only the active
+  one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
+  while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
+  history or project data). It is drawn in a dark under-line and a cyan line over the artwork. Only the active
   layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
   overlay UI in the canvas's world space, never part of an export.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.

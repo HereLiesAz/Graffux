@@ -4,6 +4,7 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -70,6 +71,8 @@ internal interface ToolRailActions {
      * twist turns about; on a 2D layer, where it reads "3D", it makes the layer 3D.
      */
     fun onAxisSlotTapped() = Unit
+    /** The wire-mesh toggle: shows or hides the active group's surface mesh (view state). */
+    fun onToggleSurfaceGrid() = Unit
 }
 
 /** [ToolRailActions] on the real view-model. */
@@ -82,6 +85,7 @@ internal fun EditorViewModel.toolRailActions(): ToolRailActions = object : ToolR
     override fun setBrushSize(size: Float) = this@toolRailActions.setBrushSize(size)
     override fun setBrushFeathering(feathering: Float) = this@toolRailActions.setBrushFeathering(feathering)
     override fun onAxisSlotTapped() = this@toolRailActions.onAxisSlotTapped()
+    override fun onToggleSurfaceGrid() = this@toolRailActions.onToggleSurfaceGrid()
 }
 
 /** What the tool rail asks of the screen around it. */
@@ -255,6 +259,11 @@ internal fun ToolRail(
         // surface" on the layer's group.
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
         AxisButton(uiState.activeRotationAxis.takeIf { active3D }, armed = uiState.surfaceDrawArmed) { vm.onAxisSlotTapped() }
+        // The wire mesh of the active layer's group surface: a guide only, there while the layer is
+        // paint on a surface (spec/3d-space.md, "Guide grid").
+        if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null) {
+            SurfaceMeshButton(on = uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid() }
+        }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
             uiState.viewportRotation != 0f ||
@@ -377,6 +386,35 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, onClick: () 
         }
     }
 }
+
+/**
+ * The wire-mesh toggle: a filled disc and a selected state while the active group's surface mesh
+ * shows, so it reads on and off at a glance and to TalkBack.
+ */
+@Composable
+private fun SurfaceMeshButton(on: Boolean, onClick: () -> Unit) {
+    RailButton(
+        label = "Surface wire mesh",
+        testTag = "rail.$SURFACE_MESH_RAIL_ID",
+        onClick = onClick,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .semantics {
+                    selected = on
+                    stateDescription = if (on) "Shown" else "Hidden"
+                },
+        ) {
+            if (on) Box(Modifier.fillMaxSize().background(RailInk, CircleShape))
+        }
+        Text("#", color = if (on) AdjustOnInk else RailInk, fontSize = 18.sp,
+            fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
+    }
+}
+
+/** The wire-mesh toggle's rail id. */
+internal const val SURFACE_MESH_RAIL_ID = "view.surfaceMesh"
 
 /** The brush's long-press menu. */
 internal fun MenuBuilder.brushMenu(
