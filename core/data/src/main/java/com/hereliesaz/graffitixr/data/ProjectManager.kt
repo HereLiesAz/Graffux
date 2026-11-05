@@ -334,6 +334,7 @@ class ProjectManager @Inject constructor(
             migrated = migrateFloatingModelToLayer(migrated)
             version = FORMAT_MODEL_LAYERS
         }
+        if (version < FORMAT_MULTIVIEW_SURFACES) version = FORMAT_MULTIVIEW_SURFACES
         return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
 
@@ -865,3 +866,6 @@ private const val FORMAT_SCENE = 7
 
 /** 3D model layers: `OverlayLayer.model`; the floating window's model becomes one. */
 private const val FORMAT_MODEL_LAYERS = 8
+
+/** 9 -> 10 (side and top surface views) only records the version: absent views are single-view. */
+private const val FORMAT_MULTIVIEW_SURFACES = 10

@@ -627,13 +627,16 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
-- **Group surfaces (format 9).** A group owns an optional `Layer.surface` (`SurfaceProfile`,
+- **Group surfaces (format 9; format 10 adds side/top views).** A group owns an optional `Layer.surface` (`SurfaceProfile`,
   `SurfaceMath` in `:core:common`): a profile curve, drawn by "Draw surface" in the current view,
   swept without bound along the view direction. Its layers are paint on it: brushes map through
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
   misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
   rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
   A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
+  Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
+  intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.
+  Data, maths and persistence only so far; no drawing UI or render path (see spec/3d-space.md).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

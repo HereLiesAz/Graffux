@@ -27,6 +27,14 @@ data class SurfaceProfile(
     val sweepX: Float = 0f,
     val sweepY: Float = 0f,
     val sweepZ: Float = 1f,
+    /**
+     * The surface drawn from the group's SIDE view (project format 10), or null: not drawn, so the
+     * side does not constrain the shape. Only read on a group's own profile; a nested profile's own
+     * [side] and [top] are ignored. See [SurfaceHull].
+     */
+    val side: SurfaceProfile? = null,
+    /** The surface drawn from the group's TOP view (format 10); see [side]. */
+    val top: SurfaceProfile? = null,
 ) {
     val count: Int get() = points.size / 3
 
@@ -46,6 +54,29 @@ data class SurfaceProfile(
     }
 
     val length: Float get() = if (arcLengths.isEmpty()) 0f else arcLengths.last()
+
+    /** Whether the side or top view has been drawn: the surface is then the [SurfaceHull], not the sheet. */
+    val hasHull: Boolean get() = side != null || top != null
+
+    /** The profile drawn from [view]; for [SurfaceView.FRONT] this profile itself, without its other views. */
+    fun view(view: SurfaceView): SurfaceProfile? = when (view) {
+        SurfaceView.FRONT -> copy(side = null, top = null)
+        SurfaceView.SIDE -> side
+        SurfaceView.TOP -> top
+    }
+
+    /**
+     * This surface with [view] replaced by [drawn] (its own side and top are dropped): drawing a
+     * view again replaces it, and the front keeps the side and top already drawn.
+     */
+    fun withView(view: SurfaceView, drawn: SurfaceProfile): SurfaceProfile {
+        val flat = drawn.copy(side = null, top = null)
+        return when (view) {
+            SurfaceView.FRONT -> flat.copy(side = side, top = top)
+            SurfaceView.SIDE -> copy(side = flat)
+            SurfaceView.TOP -> copy(top = flat)
+        }
+    }
 
     /** A straight profile: the surface is one plane. */
     val isFlat: Boolean get() = count <= 2
@@ -319,6 +350,26 @@ object SurfaceMath {
         val model = SceneMath.chainModel(owner.ownerChain, width, height)
         val h = hit(x, y, owner.profile, model, cam) ?: return null
         return unrolledToFlat(h.u, h.t, owner.innerChain, width, height)
+    }
+
+    /**
+     * Multi-view surfaces (project format 10): the front-most point of [owner]'s intersected
+     * surface ([SurfaceHull]) under canvas point ([x], [y]), with its sheet's unrolled coordinates.
+     * Null on a miss, or when the group has no side or top view (use [worldToFlat], unchanged).
+     * This is the integration point for paint: map `(hit.view, hit.u, hit.t)` through the same
+     * footprint mapping as [worldToFlat]'s `(u, t)`.
+     */
+    fun worldToSurface(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): HullHit? {
+        if (width <= 0f || height <= 0f || !owner.profile.hasHull) return null
+        val hull = SurfaceHull.of(owner.profile) ?: return null
+        val cam = SceneMath.frame(camera, width, height)
+        val inv = SceneMath.chainModel(owner.ownerChain, width, height).inverse() ?: return null
+        val d = cam.rayDirection(x, y)
+        return hull.hit(
+            inv.apply(cam.eye[0], cam.eye[1], cam.eye[2]),
+            inv.applyVector(d[0], d[1], d[2]),
+            SceneMath.nearPlane(cam.focal),
+        )
     }
 
     /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */

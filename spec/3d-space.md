@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 9). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 10; the multi-view surface below is data model, maths and persistence only so far). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -409,7 +409,30 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   group: its materials blend primitive by primitive, so where a translucent group's layers overlap the
   viewer fades each one separately, as the canvas did before groups were isolated. Matching the unit
   would mean baking the group into one texture; not done.
-- **Persistence.** `OverlayLayer.surface`, project format 9.
+- **Persistence.** `OverlayLayer.surface`, project format 9; format 10 adds `SurfaceProfile.side` and
+  `.top` (below). A version 9 file has neither and loads as the single-view surface; the migration only
+  records the version.
+- **Multi-view surfaces (format 10; maths shipped, drawing and rendering not yet).** A group's surface can
+  also be drawn from its side and top. The three outlines combine by *intersection*, like silhouette
+  carving (`SurfaceHull`, `:core:common`): each drawn outline, closed by joining its last vertex to its
+  first, is swept along its own view direction into an infinite prism, and the solid is every point all
+  the prisms hold. The surface is that solid's boundary. The existing profile is the front view. A view
+  left undrawn, or drawn with no area (under three vertices, or collinear), does not constrain; drawing a
+  view again replaces it (`SurfaceProfile.withView`; redrawing the front keeps the side and top). Axes
+  only one prism bounds are clipped to the box of the drawn outlines' vertices (padded to the widest
+  side where an outline has no depth), so the solid spans a view only as far as the drawing does.
+  A group with no side or top is untouched: same sheet, same render and paint paths.
+  - *Painting.* `SurfaceHull.hit` returns the front-most surface point for a ray (entry, or the exit if
+    the ray starts inside) with the carrying outline's unrolled `(u, t)` (arc length round the closed
+    outline; signed distance along its sweep). `SurfaceMath.worldToSurface` is the world-to-surface API.
+    Integration point: where `EditorViewModel`'s paint mapping calls `SurfaceMath.worldToFlat`, a group
+    with `profile.hasHull` should call `worldToSurface` and feed `(view, u, t)` to the footprint mapping;
+    side and top patches need their own paint space (one atlas per view), which is not defined yet.
+  - *Rendering.* `SurfaceHull.meshByView` gives triangles (x, y, z, u, t) per view, exact for straight
+    trims; not wired into `DepthCompositor`, glTF or the editor yet.
+  - *Camera.* `SurfaceView.camera` is the preset that looks along each view (side: quarter turn; top:
+    the camera's pitch limit). Drawing UI (setup chip per view, done markers, returning the camera) is
+    not built.
 - **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
   (source-over) when its profile is curved, except that a layer's own blend or clip on a straight
   profile, and the group's blend on a straight profile, draw in the stack. glTF fades a translucent
