@@ -46,7 +46,10 @@ class ViewStrokeFeedTest {
             segmentEnd = { log.events += "segmentEnd" },
         )
         f.onStart(8f); f.onPoint(12f); f.onEnd()
-        assertEquals(listOf("start FRONT 8.0", "point 10.0", "segmentEnd", "start FRONT 50.0", "point 12.0", "end"), log.events)
+        assertEquals(
+            listOf("start FRONT 8.0", "point 10.0", "segmentEnd", "start FRONT 50.0", "point 12.0", "end"),
+            log.events,
+        )
     }
 
     @Test
