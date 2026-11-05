@@ -579,8 +579,13 @@ Full design: `spec/3d-space.md`. In short:
   layer (or, on a group surface, its group) as one undo step. Only on a 3D layer
   (`Layer.is3DIn`: paint on a group surface, 3D strokes or a model; the per-layer `plane3D` flag is
   retired and old projects load such layers flat); on a 2D layer a twist only rotates the canvas.
-  The rail's axis slot reads "3D" while the active layer's group is flat and arms "Draw surface" on
-  it; on a 3D layer it and a double-tap step the axis. The layers rail's 3D outlines follow groups.
+  The rail's axis slot reads "3D" while the active layer's group is flat; `onAxisSlotTapped` only
+  arms "Draw surface" (`surfaceDrawGroupId`, or `surfaceDrawWrapLayerId` for a layer in no group,
+  which `onSurfaceProfileDrawn` wraps in a new group in the same undo step as the profile) and
+  every refusal sets `surfaceDrawNotice`; `SurfacePromptChip` (`:app`) words both, from
+  `SurfaceStrings`. On a 3D layer the slot and a double-tap step the axis. The layers rail's 3D
+  outlines follow groups; its group rows are open unless the user collapsed them
+  (`groupExpanded`: nothing recorded means open).
   `Scene3DCanvas` is mounted only for the brush or eraser on a 3D strokes layer. The brush,
   fill and clone surfaces map each touch through `SceneMath.worldToLayerFlat` (ray-plane hit, then
   the layer's own flat 2D transform), so every tool works unchanged on a tilted plane.

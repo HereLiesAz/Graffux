@@ -290,3 +290,35 @@ fun rememberGestureHelpStrings(): GestureHelpStrings = GestureHelpStrings(
     hiddenUi = stringResource(R.string.gesture_help_hidden_ui),
     settings = stringResource(R.string.gesture_help_settings),
 )
+
+/** SurfaceStrings: the Draw-surface prompt chip and the 3D slot; see strings_chrome.xml. */
+data class SurfaceStrings(
+    val title: String,
+    val body: String,
+    val cancel: String,
+    val ok: String,
+    val done: String,
+    val noLayer: String,
+    val locked: String,
+    val unavailable: String,
+    val tooShort: String,
+    val slotArmed: String,
+    val slotArmedState: String,
+    val slotArmedDescription: String,
+)
+
+@Composable
+fun rememberSurfaceStrings(): SurfaceStrings = SurfaceStrings(
+    title = stringResource(R.string.surface_prompt_title),
+    body = stringResource(R.string.surface_prompt_body),
+    cancel = stringResource(R.string.surface_prompt_cancel),
+    ok = stringResource(R.string.surface_prompt_ok),
+    done = stringResource(R.string.surface_done),
+    noLayer = stringResource(R.string.surface_no_layer),
+    locked = stringResource(R.string.surface_locked),
+    unavailable = stringResource(R.string.surface_unavailable),
+    tooShort = stringResource(R.string.surface_too_short),
+    slotArmed = stringResource(R.string.surface_slot_armed),
+    slotArmedState = stringResource(R.string.surface_slot_armed_state),
+    slotArmedDescription = stringResource(R.string.surface_slot_armed_description),
+)

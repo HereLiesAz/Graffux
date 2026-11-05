@@ -134,8 +134,15 @@ private fun LayerTrash(hot: Boolean, onPlaced: (Rect) -> Unit) {
 }
 
 /**
+ * Whether the group with rail id [railId] is open: expanded unless the user collapsed it. Nothing
+ * recorded means open, so a new group and a group in a project that never toggled it show their
+ * layers; only an explicit `false` (a collapse the user made) stays closed.
+ */
+internal fun groupExpanded(expansion: Map<String, Boolean>, railId: String): Boolean = expansion[railId] != false
+
+/**
  * The rows the layers rail shows: [layerRailRows]'s depth-first, top-first order, with every row
- * under a collapsed group left out.
+ * under a collapsed group left out (groups are open by default, see [groupExpanded]).
  */
 internal fun visibleLayerRows(layers: List<Layer>, expansion: Map<String, Boolean>): List<LayerRailRow> {
     val byId = layers.associateBy { it.id }
@@ -143,7 +150,7 @@ internal fun visibleLayerRows(layers: List<Layer>, expansion: Map<String, Boolea
         var parent = layer.parentId?.let(byId::get)
         val seen = HashSet<String>()
         while (parent != null && seen.add(parent.id)) {
-            if (expansion[layerRailId(parent.id)] != true) return false
+            if (!groupExpanded(expansion, layerRailId(parent.id))) return false
             parent = parent.parentId?.let(byId::get)
         }
         return true
@@ -313,9 +320,12 @@ internal fun LayersRail(
             val layer = row.layer
             val id = layerRailId(layer.id)
             val isGroup = row.isGroup
-            val expanded = expansion[id] == true
+            val expanded = groupExpanded(expansion, id)
             val siblings = layers.filter { it.parentId == layer.parentId }.reversed().map { layerRailId(it.id) }
             val latestSiblings by rememberUpdatedState(siblings)
+            // The gesture's coroutine outlives recompositions: the parent it reorders within is read through
+            // this too, so a reparent (GroupLayers, a co-op move) mid-session is not acted on with the old one.
+            val latestParentId by rememberUpdatedState(layer.parentId)
             val tap: () -> Unit = {
                 when {
                     isGroup -> {
@@ -374,7 +384,7 @@ internal fun LayersRail(
                                 callbacks.onDelete(layer.id)
                             } else if (moved) {
                                 val order = droppedSiblingOrder(latestSiblings, id, drop, centers)
-                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                if (order != latestSiblings) callbacks.onRelocate(order, latestParentId)
                             } else {
                                 callbacks.onOpenMenu(layer.id)
                             }
@@ -392,12 +402,12 @@ internal fun LayersRail(
                             CustomAccessibilityAction("Layer menu") { callbacks.onOpenMenu(layer.id); true },
                             CustomAccessibilityAction("Move up") {
                                 val order = steppedSiblingOrder(latestSiblings, id, -1)
-                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                if (order != latestSiblings) callbacks.onRelocate(order, latestParentId)
                                 true
                             },
                             CustomAccessibilityAction("Move down") {
                                 val order = steppedSiblingOrder(latestSiblings, id, 1)
-                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                if (order != latestSiblings) callbacks.onRelocate(order, latestParentId)
                                 true
                             },
                             CustomAccessibilityAction("Delete layer") { callbacks.onDelete(layer.id); true },

@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
@@ -875,7 +876,7 @@ fun EditorScreen(
         // 3a-surface. "Draw surface" armed on a group (spec/3d-space.md, "Group surfaces"): the next
         // one-finger stroke is the group's profile, over every tool, and paints nothing.
         // Composed after every tool's input overlay, so it gets the pointer first.
-        if (uiState.surfaceDrawGroupId != null) {
+        if (uiState.surfaceDrawArmed) {
             SurfaceProfileCapture(
                 toWorld = activePlane::world,
                 onDrawn = { vm.onSurfaceProfileDrawn(it) },
@@ -1963,7 +1964,10 @@ private fun SurfaceProfileCapture(
             }
         },
     ) {
-        for (i in 1 until screen.size) drawLine(Color.Cyan, screen[i - 1], screen[i], strokeWidth = 3f)
+        // A dark under-stroke keeps the line readable over any artwork.
+        val under = Color.Black.copy(alpha = 0.6f)
+        for (i in 1 until screen.size) drawLine(under, screen[i - 1], screen[i], strokeWidth = 9f)
+        for (i in 1 until screen.size) drawLine(Color.Cyan, screen[i - 1], screen[i], strokeWidth = 5f)
     }
 }
 

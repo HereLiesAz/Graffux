@@ -221,6 +221,16 @@ data class Layer(
     val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment? = null,
 )
 
+/** The Draw-surface chip's one-off messages (the UI words them; see the chrome strings). */
+enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, DONE }
+
+/**
+ * Whether "Draw surface" is armed: on an existing group, or (see [EditorUiState.surfaceDrawWrapLayerId])
+ * on a layer to be grouped.
+ */
+val EditorUiState.surfaceDrawArmed: Boolean
+    get() = surfaceDrawGroupId != null || surfaceDrawWrapLayerId != null
+
 /** Whether this is a photo adjustment layer (see [Layer.adjustment]). */
 /** Placed in the 3D space: a depth or an X/Y tilt (spec/3d-space.md). No toggle sets this. */
 val Layer.isPlacedIn3D: Boolean
@@ -505,6 +515,17 @@ data class EditorUiState(
      * its profile instead of paint. Null = not armed.
      */
     val surfaceDrawGroupId: String? = null,
+    /**
+     * "Draw surface" armed on the layer [surfaceDrawWrapLayerId], which sits in no group: the group
+     * it needs is made only when the profile is captured (the wrap and the profile are one undo
+     * step), so arming and cancelling change nothing in the document. Null = not armed this way.
+     */
+    val surfaceDrawWrapLayerId: String? = null,
+    /**
+     * What the Draw-surface prompt chip says besides its prompt: why the 3D slot could not arm, why
+     * a captured line was refused, or that the surface is set. Null = nothing to say.
+     */
+    val surfaceDrawNotice: SurfaceDrawNotice? = null,
     /**
      * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Only the active layer's
      * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).

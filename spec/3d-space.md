@@ -41,14 +41,23 @@ then drawn through the scene as before, but it is not a 3D layer for the rail an
 
 On the layers rail the tile outline tells them apart: the active 2D layer wears the rail's
 selected-tool accent (pink), the active 3D layer cyan (the X-axis colour), any other 3D layer white,
-and any other 2D layer no outline. A profiled group's tile and every tile on its surface are 3D. A
-3D tile's TalkBack label also says "3D".
+and any other 2D layer no outline. A profiled group's tile and every tile on its surface are 3D. A 3D tile's
+TalkBack label also says "3D".
+
+Groups keep their tile on the layers rail, open by default (a new group, and a group in a project that never toggled it, show their layers; only a collapse the user made stays closed). Every tile on a profiled group's surface is 3D, and so is the group's own.
 
 The rail's **axis slot** (the slot the old 3D button had) is always there:
 
-- on a 2D layer (its group has no profile) it reads **3D**; a tap arms "Draw surface" on the
-  layer's group (the group itself when a group is active), and once that stroke is drawn the slot
-  shows the axis. A layer in no group has no surface to draw, and the tap does nothing;
+- on a 2D layer (its group has no profile) it reads **3D**; a tap arms "Draw surface" for the
+  layer's group (the group itself when a group is active). Arming changes nothing in the document:
+  the slot turns bright white and reads **Draw**, and a chip at the top of the canvas says "Set up
+  this 3D group: draw its shape. Drag one line across the canvas. That line becomes the group's 3D
+  surface. Your artwork is not changed." with a Cancel button, until a line is captured or the user cancels (Cancel, the Back key, or a tap on the slot).
+  A layer in no group is wrapped in a new group only when the line is captured, the wrap and the
+  profile together being one undo step. A line too short to be a curve leaves the chip up, says so,
+  and stays armed. Once captured the chip says the surface is set and how to undo it, and the slot
+  shows the axis. A tap that cannot arm (no layer, a locked layer, a layer that cannot take a
+  surface) says why and what to do in the same chip;
 - on a 3D layer it shows the current axis as its letter in the axis colour (X cyan, Y pink, Z
   green), so the user can always see which axis a twist turns about; a tap steps X -> Y -> Z,
   the same state a double-tap steps. An "Axis:" chip confirms a change briefly, then clears.
@@ -317,7 +326,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   onto the view plane (facing the camera through its orbit target, so at the default view it is the
   picture plane exactly under the stroke), simplified (Ramer-Douglas-Peucker, 1.5 px, at most 256
   vertices) and stored in the group's box-local space, with the view direction as the sweep. A
-  straight stroke is one plane; an L is two. One undo step. A tap (under 4 px) changes nothing.
+  straight stroke is one plane; an L is two. One undo step. A tap (under 4 px) changes nothing and the prompt stays up.
 - **No depth limit.** The surface is the profile swept along the view direction away from the
   viewer, `P(u) + t * sweep`, `t >= 0`, without bound. There is no extent or depth setting: distance
   is just zoom, and each layer's own pixel bounds limit what shows.

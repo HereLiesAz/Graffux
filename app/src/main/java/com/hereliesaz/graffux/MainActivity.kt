@@ -94,6 +94,7 @@ import com.hereliesaz.graffitixr.common.model.LayoutDirection
 import com.hereliesaz.graffitixr.common.model.BlendMode
 import com.hereliesaz.graffitixr.common.model.EditorPanel
 import com.hereliesaz.graffitixr.common.model.EditorUiState
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LinkOps
 import com.hereliesaz.graffitixr.common.model.supportsAlphaLock
@@ -1596,9 +1597,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
-            // Failures and confirmations, over the artwork, never blocking it.
-            MessageHost(
-                alerts,
+            // "Draw surface" prompt, then failures and confirmations, over the artwork, never blocking it.
+            NoticeStack(
+                armed = uiState.surfaceDrawArmed,
+                notice = uiState.surfaceDrawNotice,
+                onCancel = { vm.onCancelSurfaceDraw() },
+                alerts = alerts,
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
