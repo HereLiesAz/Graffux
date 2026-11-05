@@ -161,3 +161,109 @@ class PlaneStrokeFeedTest {
         assertEquals(touches.map { plane.toFlat(it) }, seg.map { it.second })
     }
 }
+
+/**
+ * Brush and Eraser strokes on a bent group surface map by footprint (spec/3d-space.md, "Painting by
+ * footprint"): no sample is dropped for where on the surface it lands, a stroke over a crease is one
+ * continuous segment touching both sides, and a footprint that reaches the surface is not a miss.
+ */
+class SurfaceFootprintStrokeTest {
+    private val w = 1000f
+    private val h = 800f
+    private val cam = SceneCamera()
+    private val identity = listOf(com.hereliesaz.graffitixr.common.scene.PlanePose())
+
+    private fun path(vararg p: Pair<Float, Float>) = p.toList()
+
+    private fun bent(): EditorUiState {
+        fun seg(a: Pair<Float, Float>, b: Pair<Float, Float>) = (0..40).map {
+            (a.first + (b.first - a.first) * it / 40f) to (a.second + (b.second - a.second) * it / 40f)
+        }
+        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            seg(200f to 200f, 200f to 600f) + seg(200f to 600f, 600f to 600f).drop(1), cam, w, h, identity,
+        )!!
+        val group = Layer("g", "G", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = profile)
+        val child = Layer("c", "C", parentId = "g")
+        return EditorUiState(
+            layers = listOf(group, child),
+            activeLayerId = "c",
+            canvasSize = IntSize(w.toInt(), h.toInt()),
+            sceneCamera = cam,
+            viewportOffset = Offset.Zero,
+            viewportZoom = 1f,
+            viewportRotation = 0f,
+        )
+    }
+
+    private val across = listOf(
+        Offset(215f, 500f), Offset(215f, 560f), Offset(215f, 590f),
+        Offset(235f, 597f), Offset(280f, 597f), Offset(340f, 597f),
+    )
+
+    private fun run(plane: ActivePlaneMapping, touches: List<Offset>, radius: Float): Triple<List<Offset>, Int, Int> {
+        val flat = mutableListOf<Offset>()
+        var segments = 0
+        var cancelled = 0
+        val feed = PlaneStrokeFeed<Offset>(
+            toLayer = { plane.toFlatByFootprint(it, radius) },
+            start = { flat += it },
+            point = { flat += it },
+            end = {},
+            cancel = { cancelled++ },
+            segmentEnd = { segments++ },
+        )
+        touches.forEachIndexed { i, t -> if (i == 0) feed.onStart(t) else feed.onPoint(t) }
+        feed.onEnd()
+        return Triple(flat, segments, cancelled)
+    }
+
+    @Test
+    fun `a stroke across the crease is one segment with a point per sample, on both legs`() {
+        val plane = ActivePlaneMapping.of(bent())
+        assertTrue(plane.onPlane)
+        val (flat, segments, cancelled) = run(plane, across, radius = 20f)
+        assertEquals(across.size, flat.size)
+        assertEquals(0, segments)
+        assertEquals(0, cancelled)
+        assertTrue("wall side", flat.first().x < 400f)
+        assertTrue("floor side", flat.last().x > 400f)
+    }
+
+    @Test
+    fun `an eraser stroke straddling the crease erases on both sides, whatever the radius`() {
+        val plane = ActivePlaneMapping.of(bent())
+        for (radius in listOf(1f, 10f, 40f)) {
+            val (flat, segments, _) = run(plane, across, radius)
+            assertEquals("radius $radius", across.size, flat.size)
+            assertEquals(0, segments)
+            assertTrue(flat.any { it.x < 400f } && flat.any { it.x > 400f })
+        }
+    }
+
+    @Test
+    fun `samples that graze the surface edge keep the stroke whole instead of breaking it`() {
+        val plane = ActivePlaneMapping.of(bent())
+        // The middle sample's ray misses (below the floor's near edge); its footprint still reaches.
+        val grazing = listOf(Offset(300f, 596f), Offset(340f, 612f), Offset(380f, 596f))
+        val (flat, segments, _) = run(plane, grazing, radius = 30f)
+        assertEquals(3, flat.size)
+        assertEquals(0, segments)
+    }
+
+    @Test
+    fun `a footprint that reaches nothing is still a miss, and a stroke of misses is cancelled`() {
+        val plane = ActivePlaneMapping.of(bent())
+        val (flat, _, cancelled) = run(plane, listOf(Offset(500f, 60f), Offset(520f, 70f)), radius = 15f)
+        assertTrue(flat.isEmpty())
+        assertEquals(1, cancelled)
+    }
+
+    @Test
+    fun `a flat layer's mapping is untouched by the footprint`() {
+        val plane = ActivePlaneMapping.of(
+            bent().copy(layers = listOf(Layer("f", "F")), activeLayerId = "f"),
+        )
+        assertTrue(!plane.onPlane)
+        assertEquals(Offset(420f, 700f), plane.toFlatByFootprint(Offset(420f, 700f), 80f))
+    }
+}
