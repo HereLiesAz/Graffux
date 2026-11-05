@@ -69,6 +69,15 @@ jobs:
   # green. The runner has no GPU, so Mesa's software Vulkan driver (lavapipe) is installed and
   # GRAFFUX_REQUIRE_GPU=vulkan makes a missing adapter a failure: without it the GPU tests skipped
   # themselves and this job passed having tested none of the shaders.
+  #
+  # RUST_TEST_THREADS=1: every GPU test builds its own wgpu Instance + Device, and the test harness
+  # runs them concurrently. On the ubuntu-26.04 image that `ubuntu-latest` moved to (Vulkan loader
+  # 1.4.341, Mesa/lavapipe 26.0.x) concurrent device create/destroy/vkSetDebugUtilsObjectName calls
+  # race and the test binary dies with SIGSEGV (observed in adjust, direct, engine, multipass; a
+  # gdb backtrace put the faulting thread inside libvulkan.so.1 under set_debug_utils_object_name
+  # while another test thread was in vkDestroyDevice). On ubuntu-24.04 (loader 1.3.275, Mesa 25.2)
+  # 6/6 runs pass; on 26.04 with one test thread 6/6 pass and with the default thread count the
+  # job crashes on most runs. Every test still runs, in a debug build, with the GPU required.
   wgpu-engine-tests:
     runs-on: ubuntu-latest
     permissions:
@@ -86,6 +95,7 @@ jobs:
         working-directory: core/wgpu-engine
         env:
           GRAFFUX_REQUIRE_GPU: vulkan
+          RUST_TEST_THREADS: '1'
         run: cargo test --locked
 
       - name: Upload test reports
