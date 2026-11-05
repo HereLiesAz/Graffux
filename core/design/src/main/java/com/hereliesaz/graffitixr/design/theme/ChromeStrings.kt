@@ -249,6 +249,7 @@ data class MessageStrings(
     val saveFailed: String,
     val couldntShare: String,
     val noAppAccepted: String,
+    val times: String,
 )
 
 @Composable
@@ -261,6 +262,7 @@ fun rememberMessageStrings(): MessageStrings = MessageStrings(
     saveFailed = stringResource(R.string.message_save_failed),
     couldntShare = stringResource(R.string.message_couldnt_share),
     noAppAccepted = stringResource(R.string.message_no_app_accepted),
+    times = stringResource(R.string.message_times),
 )
 
 /** GestureHelpStrings: see strings_chrome.xml. Fields with %s/%d are format patterns. */

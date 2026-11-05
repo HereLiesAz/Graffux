@@ -539,6 +539,13 @@ codebase is deferred scope or a real gap in the install-report flow.
   `Bitmap.generationId`) drops its overlay; `onTrimMemory` drops them all until the view zooms out. A GPU
   failure keeps the base path and is logged once. Switch the whole feature off with
   `HighResOverlayConfig.ENABLED = false`.
+- **Identical alerts merge into one.** The top-of-screen alerts (`MessageController` in
+  `app/.../ChromeMessages.kt`, fed by `EditorViewModel.notices` and the save-error flow) do not stack
+  a message that is already showing: same kind, title, text and action label raises a count on the
+  existing alert instead, which shows "×n" from 2 up and is announced as "<text> n times" (a polite
+  live region, so each change is spoken once). A merged NOTICE restarts its 4 s auto-dismiss; a
+  WARNING still waits for OK, and OK clears the merged alert whole. Different messages stack as before,
+  newest last, capped at three.
 
 
 ## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)

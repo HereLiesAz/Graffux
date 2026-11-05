@@ -116,6 +116,7 @@
     <string name="message_save_failed">Save failed</string>
     <string name="message_couldnt_share">Couldn\'t share</string>
     <string name="message_no_app_accepted">No app accepted the image.</string>
+    <string name="message_times">%d times</string>
     <!-- GestureHelpStrings -->
     <string name="gesture_help_title">Gestures</string>
     <string name="gesture_help_intro">Multi-finger gestures (change them in Settings → Gestures):</string>
