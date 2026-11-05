@@ -6,35 +6,24 @@ import android.app.Application
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import com.hereliesaz.graffitixr.common.model.EditorUiState
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
-import com.hereliesaz.graffitixr.design.theme.Amber
-import com.hereliesaz.graffitixr.design.theme.Cyan
-import com.hereliesaz.graffitixr.design.theme.HotPink
-import com.hereliesaz.graffitixr.design.theme.NeonGreen
-import com.hereliesaz.graffitixr.design.theme.White
-import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import kotlin.math.abs
 
-/**
- * Groups have no tile on the layers rail: every layer shows, flat, in stack order, whatever the
- * saved expansion says; membership is told by a colour band, only once there are two groups.
- */
+/** Groups on the layers rail: a host tile, open unless the user collapsed it. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w390dp-h844dp-xhdpi", application = Application::class)
 class LayersRailGroupsUiTest {
@@ -44,184 +33,56 @@ class LayersRailGroupsUiTest {
     private fun group(id: String, parent: String? = null) = Layer(id, id, type = LayerType.GROUP, parentId = parent)
     private fun leaf(id: String, parent: String? = null) = Layer(id, id, parentId = parent)
 
-    private fun show(layers: List<Layer>, expansion: Map<String, Boolean> = emptyMap()) {
+    private fun show(layers: List<Layer>, expansion: Map<String, Boolean> = emptyMap(), onExpand: (String, Boolean) -> Unit = { _, _ -> }) {
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 LayersRail(
                     layers = layers,
-                    activeLayerId = layers.firstOrNull { !it.isGroup() }?.id,
+                    activeLayerId = layers.firstOrNull { it.type != LayerType.GROUP }?.id,
                     secondary = emptySet(),
                     expansion = expansion,
-                    callbacks = LayersRailCallbacks({}, {}, { _, _ -> }, { _, _ -> }, {}),
+                    callbacks = LayersRailCallbacks({}, {}, onExpand, { _, _ -> }, {}),
                 )
             }
         }
     }
 
-    private fun Layer.isGroup() = type == LayerType.GROUP
-
-    private fun tiles(layers: List<Layer>) =
-        layers.count { rule.onAllNodes(hasTestTag("rail.${layerRailId(it.id)}")).fetchSemanticsNodes().isNotEmpty() }
-
-    private val none = listOf(leaf("a"), leaf("b"))
     private val one = listOf(leaf("a"), group("g1"), leaf("b", "g1"), leaf("c", "g1"))
-    private val two = listOf(group("g1"), leaf("a", "g1"), group("g2"), leaf("b", "g2"), leaf("c", "g2"), leaf("d"))
-    private val nested = listOf(group("g1"), group("h", "g1"), leaf("a", "h"), leaf("b", "g1"), group("g2"), leaf("c", "g2"))
 
     @Test
-    fun `the tile count equals the layer count for zero, one, two and nested groups`() {
-        listOf(none, one, two, nested).forEach { layers ->
-            val leaves = layers.filter { !it.isGroup() }
-            assertEquals(leaves.size, visibleLayerRows(layers, emptyMap()).size)
-            assertTrue(visibleLayerRows(layers, emptyMap()).none { it.layer.isGroup() })
-        }
-        show(two)
-        assertEquals(4, tiles(two))
-        two.filter { it.isGroup() }.forEach { rule.onAllNodes(hasTestTag("rail.${layerRailId(it.id)}")).assertCountEquals(0) }
-    }
-
-    @Test
-    fun `no group tile appears whether the group is saved collapsed or expanded`() {
-        listOf(emptyMap(), mapOf("layer.g1" to false), mapOf("layer.g1" to true, "layer.g2" to false)).forEach { exp ->
-            assertEquals(
-                two.filter { !it.isGroup() }.size,
-                visibleLayerRows(two, exp).size,
-            )
-            assertTrue(visibleLayerRows(two, exp).none { it.layer.isGroup() })
-        }
-        show(one, mapOf("layer.g1" to false))
-        assertEquals(3, tiles(one))
-    }
-
-    @Test
-    fun `one group shows nothing, two groups show two distinct bands`() {
-        assertTrue(layerGroupBands(none).isEmpty())
-        assertTrue(layerGroupBands(one).isEmpty())
-        val bands = layerGroupBands(two)
-        assertEquals(setOf("a", "b", "c"), bands.keys)
-        assertEquals(bands.getValue("b"), bands.getValue("c"))
-        assertNotEquals(bands.getValue("a").color, bands.getValue("b").color)
-        assertEquals(1, bands.getValue("a").number)
-        assertEquals(2, bands.getValue("b").number)
-        show(two)
-        listOf("a", "b", "c").forEach { rule.onNodeWithTag("rail.group.band.$it").assertExists() }
-        rule.onAllNodes(hasTestTag("rail.group.band.d")).assertCountEquals(0)
-        rule.onNodeWithTag("rail.${layerRailId("b")}").assertContentDescriptionContains("Group 2", substring = true)
-    }
-
-    @Test
-    fun `one group draws no band on screen`() {
+    fun `a new group, or one in a project that never toggled it, is open and shows its layers`() {
+        assertTrue(groupExpanded(emptyMap(), "layer.g1"))
+        assertEquals(listOf("g1", "c", "b", "a"), visibleLayerRows(one, emptyMap()).map { it.layer.id })
         show(one)
-        rule.onAllNodes(hasTestTag("rail.group.band.b")).assertCountEquals(0)
+        listOf("a", "g1", "b", "c").forEach { rule.onNodeWithTag("rail.layer.$it").assertExists() }
     }
 
     @Test
-    fun `nested groups take the colour of their top-level group`() {
-        val bands = layerGroupBands(nested)
-        assertEquals(bands.getValue("a"), bands.getValue("b"))
-        assertNotEquals(bands.getValue("a").color, bands.getValue("c").color)
-        assertEquals(setOf("a", "b", "c"), bands.keys)
+    fun `a collapse the user made sticks, and a layer under it is hidden`() {
+        assertFalse(groupExpanded(mapOf("layer.g1" to false), "layer.g1"))
+        assertEquals(listOf("g1", "a"), visibleLayerRows(one, mapOf("layer.g1" to false)).map { it.layer.id })
+        show(one, mapOf("layer.g1" to false))
+        rule.onAllNodes(hasTestTag("rail.layer.b")).assertCountEquals(0)
+        rule.onNodeWithTag("rail.layer.g1").assertExists()
     }
 
     @Test
-    fun `colours are stable for the same document and apart from each other and from the outlines`() {
-        assertEquals(layerGroupBands(two), layerGroupBands(two.toList()))
-        assertEquals(layerGroupBands(two), layerGroupBands(two.reversed().reversed()))
-        val reserved = listOf(HotPink, Cyan, White, Amber, NeonGreen)
-        fun luma(c: Color) = 0.2126f * c.red + 0.7152f * c.green + 0.0722f * c.blue
-        fun dist(a: Color, b: Color) = abs(a.red - b.red) + abs(a.green - b.green) + abs(a.blue - b.blue)
-        GROUP_PALETTE.forEach { c -> reserved.forEach { assertTrue("$c clashes with $it", dist(c, it) > 0.6f) } }
-        GROUP_PALETTE.forEachIndexed { i, a ->
-            GROUP_PALETTE.drop(i + 1).forEach { b -> assertTrue("$a vs $b", dist(a, b) > 0.45f || abs(luma(a) - luma(b)) > 0.12f) }
-        }
-        assertEquals(GROUP_PALETTE.size, GROUP_PALETTE.distinct().size)
+    fun `an explicit open stays open, and nested groups follow their own state`() {
+        val nested = listOf(group("g1"), group("h", "g1"), leaf("a", "h"))
+        assertEquals(listOf("g1", "h", "a"), visibleLayerRows(nested, emptyMap()).map { it.layer.id })
+        assertEquals(listOf("g1", "h"), visibleLayerRows(nested, mapOf("layer.h" to false)).map { it.layer.id })
+        assertEquals(listOf("g1"), visibleLayerRows(nested, mapOf("layer.g1" to false)).map { it.layer.id })
+        assertEquals(listOf("g1", "h", "a"), visibleLayerRows(nested, mapOf("layer.g1" to true, "layer.h" to true)).map { it.layer.id })
     }
 
     @Test
-    fun `a group whose topmost child is a group takes the first descendant tile's centre`() {
-        // g1 > [h (group, no tile) > a, b]; the top row under g1 is a (h has no centre).
-        val layers = listOf(group("g1"), leaf("b", "g1"), group("h", "g1"), leaf("a", "h"))
-        val centres = mapOf(layerRailId("a") to 200f, layerRailId("b") to 300f)
-        val out = siblingCenters(layers, centres)
-        assertEquals(200f, out.getValue(layerRailId("g1")))
-        assertEquals(200f, out.getValue(layerRailId("h")))
-        // Dropped above g1's first tile (150 < 200), "x" goes before it; it used to land after it.
-        assertEquals(listOf("x", "layer.g1"), droppedSiblingOrder(listOf("layer.g1", "x"), "x", 150f, out))
+    fun `tapping an open group's tile collapses it`() {
+        var asked: Pair<String, Boolean>? = null
+        show(one) { id, open -> asked = id to open }
+        rule.onNodeWithTag("rail.layer.g1").performTouchInputClick()
+        assertEquals("layer.g1" to false, asked)
     }
 
-    @Test
-    fun `a hidden group can be shown from a member's menu, and every group around it is offered`() {
-        val layers = listOf(group("g").copy(isVisible = false), group("h", "g"), leaf("a", "h"))
-        val ui = EditorUiState(layers = layers, activeLayerId = "a")
-        var rows: List<MenuRow> = emptyList()
-        var shown = ""
-        rule.setContent {
-            val strings = rememberAppStrings()
-            val vm = io.mockk.mockk<com.hereliesaz.graffitixr.feature.editor.EditorViewModel>(relaxed = true)
-            io.mockk.every { vm.onToggleVisibility(any()) } answers { shown += firstArg<String>() }
-            rows = MenuBuilder().apply { layerMenu(layers[2], ui, LayerMenuEnv(vm, strings, {}, {}, {})) }.rows
-        }
-        rule.waitForIdle()
-        val actions = rows.filterIsInstance<MenuRow.Action>()
-        val show = actions.first { it.text == "Show group g" }
-        assertTrue(actions.any { it.text == "Hide group h" })
-        show.onClick()
-        assertEquals("g", shown)
-        // And the rail still renders the member while the group is hidden: no group tile.
-        assertEquals(listOf("a"), visibleLayerRows(layers, emptyMap()).map { it.layer.id })
-    }
-
-    @Test
-    fun `a top-level group's frame pin is on its members' menus`() {
-        val layers = listOf(group("g").copy(isPinnedAcrossFrames = true), group("h", "g"), leaf("a", "h"))
-        val ui = EditorUiState(layers = layers, activeLayerId = "a")
-        var rows: List<MenuRow> = emptyList()
-        var toggled = ""
-        rule.setContent {
-            val strings = rememberAppStrings()
-            val vm = io.mockk.mockk<com.hereliesaz.graffitixr.feature.editor.EditorViewModel>(relaxed = true)
-            io.mockk.every { vm.onTogglePinnedAcrossFrames(any()) } answers { toggled += firstArg<String>() }
-            rows = MenuBuilder().apply { layerMenu(layers[2], ui, LayerMenuEnv(vm, strings, {}, {}, {})) }.rows
-        }
-        rule.waitForIdle()
-        val pin = rows.filterIsInstance<MenuRow.Check>().first { it.label == "Group g: show on every frame" }
-        assertTrue(pin.checked)
-        pin.onClick()
-        assertEquals("g", toggled)
-        // A member of a nested group does not get one for the nested group (only top-level layers pin).
-        assertTrue(rows.filterIsInstance<MenuRow.Check>().none { it.label.contains("Group h") })
-    }
-
-    @Test
-    fun `the drag reads the latest layers, so a group made meanwhile has a centre`() {
-        // After grouping a and b, the sibling "x" dragged above the new group g: g needs a centre.
-        val before = listOf(leaf("a"), leaf("b"), leaf("x"))
-        val after = listOf(group("g"), leaf("a", "g"), leaf("b", "g"), leaf("x"))
-        val centres = mapOf(layerRailId("a") to 300f, layerRailId("b") to 200f, layerRailId("x") to 100f)
-        assertTrue(layerRailId("g") !in siblingCenters(before, centres))
-        assertEquals(200f, siblingCenters(after, centres).getValue(layerRailId("g")))
-        assertEquals(
-            listOf("layer.x", "layer.g"),
-            droppedSiblingOrder(listOf("layer.x", "layer.g"), "layer.x", 50f, siblingCenters(after, centres)),
-        )
-    }
-
-    @Test
-    fun `a member's menu carries the group's actions`() {
-        val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
-        val layers = listOf(group("g").copy(surface = profile), leaf("a", "g"))
-        val ui = EditorUiState(layers = layers, activeLayerId = "a")
-        var rows: List<MenuRow> = emptyList()
-        rule.setContent {
-            val strings = rememberAppStrings()
-            val vm = io.mockk.mockk<com.hereliesaz.graffitixr.feature.editor.EditorViewModel>(relaxed = true)
-            rows = MenuBuilder().apply { layerMenu(layers[1], ui, LayerMenuEnv(vm, strings, {}, {}, {})) }.rows
-        }
-        rule.waitForIdle()
-        val labels = rows.filterIsInstance<MenuRow.Action>().map { it.text } + rows.filterIsInstance<MenuRow.Check>().map { it.label }
-        listOf("Draw surface", "Flatten surface", "Ungroup").forEach { want ->
-            assertTrue("$want in $labels", labels.any { it.contains(want, ignoreCase = true) })
-        }
-        assertTrue(labels.any { it.contains("grid", ignoreCase = true) })
-    }
+    private fun androidx.compose.ui.test.SemanticsNodeInteraction.performTouchInputClick() =
+        performTouchInput { click() }
 }

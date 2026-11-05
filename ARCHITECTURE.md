@@ -584,8 +584,8 @@ Full design: `spec/3d-space.md`. In short:
   which `onSurfaceProfileDrawn` wraps in a new group in the same undo step as the profile) and
   every refusal sets `surfaceDrawNotice`; `SurfacePromptChip` (`:app`) words both, from
   `SurfaceStrings`. On a 3D layer the slot and a double-tap step the axis. The layers rail's 3D
-  outlines follow groups; it has no group rows (`visibleLayerRows`), and `layerGroupBands` colours
-  members by top-level group when there are two or more groups.
+  outlines follow groups; its group rows are open unless the user collapsed them
+  (`groupExpanded`: nothing recorded means open).
   `Scene3DCanvas` is mounted only for the brush or eraser on a 3D strokes layer. The brush,
   fill and clone surfaces map each touch through `SceneMath.worldToLayerFlat` (ray-plane hit, then
   the layer's own flat 2D transform), so every tool works unchanged on a tilted plane.

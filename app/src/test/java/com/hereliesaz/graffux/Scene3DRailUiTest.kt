@@ -145,13 +145,14 @@ class Scene3DRailUiTest {
         assertEquals("a", vm.uiState.value.surfaceDrawWrapLayerId)
         rule.onNodeWithTag("rail.layer.a").assertExists()
         rule.onNodeWithText("Draw", useUnmergedTree = true).assertExists()
-        // The capture makes the group, invisible on the rail: still one tile.
+        // The capture makes the group: its tile joins the rail, open, with the layer's tile under it.
         rule.runOnIdle { vm.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600)) }
         rule.runOnIdle { vm.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f))) }
         rule.waitForIdle()
         assertEquals(LayerType.GROUP, vm.uiState.value.layers.first { it.id == vm.uiState.value.layers.first { l -> l.id == "a" }.parentId }.type)
         rule.onNodeWithTag("rail.layer.a").assertExists()
-        rule.onAllNodes(androidx.compose.ui.test.hasTestTag("rail.group.band.a")).assertCountEquals(0)
+        val groupId = vm.uiState.value.layers.first { it.id == "a" }.parentId!!
+        rule.onNodeWithTag("rail.layer.$groupId").assertExists()
     }
 
     @Test

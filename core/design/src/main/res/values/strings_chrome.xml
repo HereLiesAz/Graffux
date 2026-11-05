@@ -22,9 +22,6 @@
     <string name="layer_menu_move_up">Move up</string>
     <string name="layer_menu_move_down">Move down</string>
     <string name="layer_menu_ungroup">Ungroup</string>
-    <string name="layer_menu_group_every_frame">Group %s: show on every frame</string>
-    <string name="layer_menu_hide_group">Hide group %s</string>
-    <string name="layer_menu_show_group">Show group %s</string>
     <string name="layer_menu_group_with_above">Group with layer above</string>
     <string name="layer_menu_merge_down">Merge down</string>
     <string name="layer_menu_alpha_lock">Lock transparency</string>
@@ -130,8 +127,8 @@
     <string name="gesture_help_edge_swipe">Swipe up from the bottom edge for your shortcuts.</string>
     <string name="gesture_help_hidden_ui">While the interface is hidden, tap the button at the corner to bring it back.</string>
     <string name="gesture_help_settings">Open gesture settings</string>
-    <string name="surface_prompt_title">Draw the shape of this 3D surface</string>
-    <string name="surface_prompt_body">Drag one line across the canvas. Your artwork is not changed.</string>
+    <string name="surface_prompt_title">Set up this 3D group: draw its shape</string>
+    <string name="surface_prompt_body">Drag one line across the canvas. That line becomes the group\'s 3D surface. Your artwork is not changed.</string>
     <string name="surface_prompt_cancel">Cancel</string>
     <string name="surface_prompt_ok">OK</string>
     <string name="surface_done">3D surface set. Turn it with the X/Y/Z button. Undo removes it.</string>
@@ -140,5 +137,6 @@
     <string name="surface_unavailable">This layer can\'t have a 3D surface. Pick another layer, then tap 3D.</string>
     <string name="surface_too_short">That line was too short. Drag a longer line across the canvas.</string>
     <string name="surface_slot_armed">Draw</string>
+    <string name="surface_slot_armed_state">Setting up the 3D group</string>
     <string name="surface_slot_armed_description">Drawing the 3D surface. Tap to cancel.</string>
 </resources>

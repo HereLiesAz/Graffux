@@ -50,14 +50,6 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     // A group's surface (spec/3d-space.md, "Group surfaces"): the next stroke draws its profile.
     if (isGroup) listItem(m.drawSurface, on { vm.onArmSurfaceDraw(layer.id) })
     if (isGroup && layer.surface != null) listItem(m.flattenSurface, on { vm.onFlattenSurface(layer.id) })
-    // Groups have no tile on the rail, so their actions are on every member's menu as well.
-    val memberOf = layerGroupOf(uiState.layers, layer)
-    if (memberOf != null) {
-        listItem(m.drawSurface, on { vm.onArmSurfaceDraw(memberOf.id) })
-        com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id)?.let { owner ->
-            listItem(m.flattenSurface, on { vm.onFlattenSurface(owner.group.id) })
-        }
-    }
     // The guide grid: shown only for the active layer's group, so the row activates this layer.
     if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, layer.id) != null) {
         check(m.surfaceGrid, uiState.surfaceGridVisible, on { vm.onToggleSurfaceGrid() })
@@ -78,16 +70,6 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (isGroup) {
         listItem(m.ungroup) { vm.onUngroupLayer(layer.id) }
     } else {
-        if (memberOf != null) listItem(m.ungroup) { vm.onUngroupLayer(memberOf.id) }
-        // A top-level group is the frame-pinning candidate (only top-level layers can be pinned), and
-        // it has no tile of its own to carry that row.
-        topGroupOf(uiState.layers.associateBy { it.id }, layer)?.takeIf { it.parentId == null }?.let { top ->
-            check(m.groupEveryFrame.format(top.name), top.isPinnedAcrossFrames) { vm.onTogglePinnedAcrossFrames(top.id) }
-        }
-        // A group has no tile to hide or show it by, so each group around this layer is toggled here.
-        layerGroupsAround(uiState.layers, layer).forEach { g ->
-            listItem((if (g.isVisible) m.hideGroup else m.showGroup).format(g.name)) { vm.onToggleVisibility(g.id) }
-        }
         listItem(strings.editor.duplicate) { vm.onLayerDuplicated(layer.id) }
         listItem(m.groupWithAbove) { vm.onGroupWithLayerAbove(layer.id) }
         listItem(m.mergeDown) { vm.onMergeDown(layer.id) }
@@ -123,22 +105,6 @@ internal fun MenuBuilder.layerMenu(layer: Layer, uiState: EditorUiState, env: La
     if (!isGroup) destructiveItem(m.clear, on { vm.onClearLayer() })
     destructiveItem(strings.editor.delete) { if (isGroup) vm.onDeleteGroup(layer.id) else vm.onLayerRemoved(layer.id) }
 }
-
-/** The groups around [layer], nearest first: the ones whose visibility it is inside of. */
-internal fun layerGroupsAround(layers: List<Layer>, layer: Layer): List<Layer> {
-    val byId = layers.associateBy { it.id }
-    val out = mutableListOf<Layer>()
-    var parent = layer.parentId?.let(byId::get)
-    while (parent != null && out.none { it.id == parent!!.id }) {
-        if (parent.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP) out += parent
-        parent = parent.parentId?.let(byId::get)
-    }
-    return out
-}
-
-/** The group [layer] sits directly in (a member's menu acts on it), or null. */
-internal fun layerGroupOf(layers: List<Layer>, layer: Layer): Layer? =
-    if (layer.isContainer) null else layers.firstOrNull { it.id == layer.parentId && it.type == com.hereliesaz.graffitixr.common.model.LayerType.GROUP }
 
 /** [layer]'s siblings (itself included), top of the stack first, as rail ids. */
 internal fun layerSiblingsTopFirst(layers: List<Layer>, layer: Layer): List<String> =

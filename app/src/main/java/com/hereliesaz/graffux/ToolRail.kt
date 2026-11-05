@@ -4,6 +4,7 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -329,6 +330,10 @@ private fun ModeButton(
 
 private val AdjustOnInk = androidx.compose.ui.graphics.Color(0xFF0E0E0F)
 
+/** The 3D slot while "Draw surface" is armed: bright white fill, near-black label. */
+internal val AXIS_ARMED_FILL = androidx.compose.ui.graphics.Color.White
+internal val AXIS_ARMED_INK = androidx.compose.ui.graphics.Color(0xFF0E0E0F)
+
 /** The axis cycler's rail id. */
 internal const val AXIS_RAIL_ID = "view.axis"
 
@@ -357,8 +362,14 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, onClick: () 
         onClick = onClick,
     ) {
         if (armed) {
-            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary, CircleShape))
-            Text(surfaceStrings.slotArmed, color = MaterialTheme.colorScheme.onPrimary, fontSize = 13.sp,
+            // Setup is under way: the slot is bright white, filled, so the change is plain at a glance.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(AXIS_ARMED_FILL, CircleShape)
+                    .semantics { stateDescription = surfaceStrings.slotArmedState },
+            )
+            Text(surfaceStrings.slotArmed, color = AXIS_ARMED_INK, fontSize = 13.sp,
                 fontWeight = FontWeight.ExtraBold, fontFamily = RobotoCondensedFamily)
         } else {
             Text(axis?.name ?: "3D", color = axis?.railColor() ?: RailInk, fontSize = if (axis != null) 18.sp else 16.sp,

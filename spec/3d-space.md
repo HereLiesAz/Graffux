@@ -41,25 +41,18 @@ then drawn through the scene as before, but it is not a 3D layer for the rail an
 
 On the layers rail the tile outline tells them apart: the active 2D layer wears the rail's
 selected-tool accent (pink), the active 3D layer cyan (the X-axis colour), any other 3D layer white,
-and any other 2D layer no outline. Every tile on a profiled group's surface is 3D. A 3D tile's
+and any other 2D layer no outline. A profiled group's tile and every tile on its surface are 3D. A 3D tile's
 TalkBack label also says "3D".
 
-**Groups have no tile on the rail.** The rail lists layers only, flat and in stack order, whether or
-not they sit in a group and whatever a saved expansion state says (a design frame keeps its tile).
-Membership is shown by colour, and only when there are two or more groups holding layers: each
-group gets one of six fixed colours (apart in hue and lightness, none of the outline colours) in
-the order the groups sit in the document, drawn as a 4dp band on the leading edge of each member's
-tile and named in its TalkBack label ("Group 2"). A group inside a group takes its top-level group's
-colour. With one group, nothing is drawn. A group's actions (Draw surface, Flatten surface, Surface
-grid, Ungroup) are on each member layer's menu.
+Groups keep their tile on the layers rail, open by default (a new group, and a group in a project that never toggled it, show their layers; only a collapse the user made stays closed). Every tile on a profiled group's surface is 3D, and so is the group's own.
 
 The rail's **axis slot** (the slot the old 3D button had) is always there:
 
 - on a 2D layer (its group has no profile) it reads **3D**; a tap arms "Draw surface" for the
   layer's group (the group itself when a group is active). Arming changes nothing in the document:
-  the slot reads **Draw** (accent-filled), and a chip at the top of the canvas says "Draw the shape
-  of this 3D surface. Drag one line across the canvas. Your artwork is not changed." with a Cancel
-  button, until a line is captured or the user cancels (Cancel, the Back key, or a tap on the slot).
+  the slot turns bright white and reads **Draw**, and a chip at the top of the canvas says "Set up
+  this 3D group: draw its shape. Drag one line across the canvas. That line becomes the group's 3D
+  surface. Your artwork is not changed." with a Cancel button, until a line is captured or the user cancels (Cancel, the Back key, or a tap on the slot).
   A layer in no group is wrapped in a new group only when the line is captured, the wrap and the
   profile together being one undo step. A line too short to be a curve leaves the chip up, says so,
   and stays armed. Once captured the chip says the surface is set and how to undo it, and the slot

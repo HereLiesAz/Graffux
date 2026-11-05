@@ -52,11 +52,11 @@ class SurfacePromptUiTest {
     @Test
     fun `armed, the chip says plainly what to do and offers Cancel`() {
         showChip()
-        rule.onNodeWithText("Draw the shape of this 3D surface", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("Drag one line across the canvas. Your artwork is not changed.", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Set up this 3D group: draw its shape", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Drag one line across the canvas. That line becomes the group's 3D surface. Your artwork is not changed.", useUnmergedTree = true).assertExists()
         rule.onNodeWithTag("surface.prompt.cancel").assertExists()
         rule.onNodeWithText("Cancel", useUnmergedTree = true).assertExists()
-        rule.onNode(androidx.compose.ui.test.hasContentDescription("Draw the shape of this 3D surface. Drag one line across the canvas. Your artwork is not changed."), useUnmergedTree = true).assertExists()
+        rule.onNode(androidx.compose.ui.test.hasContentDescription("Set up this 3D group: draw its shape. Drag one line across the canvas. That line becomes the group's 3D surface. Your artwork is not changed."), useUnmergedTree = true).assertExists()
     }
 
     @Test
@@ -88,7 +88,7 @@ class SurfacePromptUiTest {
     fun `a too-short line is said in the chip while it stays armed`() {
         notice = SurfaceDrawNotice.TOO_SHORT
         showChip()
-        rule.onNodeWithText("Draw the shape of this 3D surface", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("Set up this 3D group: draw its shape", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("That line was too short. Drag a longer line across the canvas.", useUnmergedTree = true).assertExists()
         rule.onNodeWithText("Cancel", useUnmergedTree = true).assertExists()
     }
@@ -149,6 +149,9 @@ class SurfacePromptUiTest {
         rule.waitForIdle()
         assertEquals(1, taps)
         rule.onNodeWithText("Draw", useUnmergedTree = true).assertExists()
+        // Bright white while setup is going on, and its state is spoken.
+        assertEquals(androidx.compose.ui.graphics.Color.White, AXIS_ARMED_FILL)
+        rule.onNode(androidx.compose.ui.test.hasStateDescription("Setting up the 3D group"), useUnmergedTree = true).assertExists()
         rule.onNodeWithText("3D", useUnmergedTree = true).assertDoesNotExist()
         rule.onNodeWithTag("rail.$AXIS_RAIL_ID").assertContentDescriptionContains("cancel", substring = true, ignoreCase = true)
         // A tap on the armed slot is the toggle back.

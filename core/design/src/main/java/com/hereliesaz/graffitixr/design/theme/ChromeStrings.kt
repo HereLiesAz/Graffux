@@ -30,10 +30,6 @@ data class LayerMenuStrings(
     val moveUp: String,
     val moveDown: String,
     val ungroup: String,
-    /** Format patterns taking the group's name. */
-    val groupEveryFrame: String,
-    val hideGroup: String,
-    val showGroup: String,
     val groupWithAbove: String,
     val mergeDown: String,
     val alphaLock: String,
@@ -99,9 +95,6 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     moveUp = stringResource(R.string.layer_menu_move_up),
     moveDown = stringResource(R.string.layer_menu_move_down),
     ungroup = stringResource(R.string.layer_menu_ungroup),
-    groupEveryFrame = stringResource(R.string.layer_menu_group_every_frame),
-    hideGroup = stringResource(R.string.layer_menu_hide_group),
-    showGroup = stringResource(R.string.layer_menu_show_group),
     groupWithAbove = stringResource(R.string.layer_menu_group_with_above),
     mergeDown = stringResource(R.string.layer_menu_merge_down),
     alphaLock = stringResource(R.string.layer_menu_alpha_lock),
@@ -310,6 +303,7 @@ data class SurfaceStrings(
     val unavailable: String,
     val tooShort: String,
     val slotArmed: String,
+    val slotArmedState: String,
     val slotArmedDescription: String,
 )
 
@@ -325,5 +319,6 @@ fun rememberSurfaceStrings(): SurfaceStrings = SurfaceStrings(
     unavailable = stringResource(R.string.surface_unavailable),
     tooShort = stringResource(R.string.surface_too_short),
     slotArmed = stringResource(R.string.surface_slot_armed),
+    slotArmedState = stringResource(R.string.surface_slot_armed_state),
     slotArmedDescription = stringResource(R.string.surface_slot_armed_description),
 )

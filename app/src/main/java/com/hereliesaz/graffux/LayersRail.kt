@@ -72,7 +72,6 @@ import kotlinx.coroutines.isActive
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collectLatest
 import com.hereliesaz.graffitixr.common.model.Layer
-import com.hereliesaz.graffitixr.common.model.LayerType
 import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.RailIcons
@@ -135,10 +134,15 @@ private fun LayerTrash(hot: Boolean, onPlaced: (Rect) -> Unit) {
 }
 
 /**
- * The rows the layers rail shows: [layerRailRows]'s depth-first, top-first order. A [LayerType.GROUP]
- * has no row of its own and is never collapsed (its layers always show, flat, in stack order; group
- * membership is told by colour, see [layerGroupBands]); a design frame keeps its tile and its
- * collapse, with every row under a collapsed frame left out.
+ * Whether the group with rail id [railId] is open: expanded unless the user collapsed it. Nothing
+ * recorded means open, so a new group and a group in a project that never toggled it show their
+ * layers; only an explicit `false` (a collapse the user made) stays closed.
+ */
+internal fun groupExpanded(expansion: Map<String, Boolean>, railId: String): Boolean = expansion[railId] != false
+
+/**
+ * The rows the layers rail shows: [layerRailRows]'s depth-first, top-first order, with every row
+ * under a collapsed group left out (groups are open by default, see [groupExpanded]).
  */
 internal fun visibleLayerRows(layers: List<Layer>, expansion: Map<String, Boolean>): List<LayerRailRow> {
     val byId = layers.associateBy { it.id }
@@ -146,30 +150,12 @@ internal fun visibleLayerRows(layers: List<Layer>, expansion: Map<String, Boolea
         var parent = layer.parentId?.let(byId::get)
         val seen = HashSet<String>()
         while (parent != null && seen.add(parent.id)) {
-            if (parent.type != LayerType.GROUP && expansion[layerRailId(parent.id)] != true) return false
+            if (!groupExpanded(expansion, layerRailId(parent.id))) return false
             parent = parent.parentId?.let(byId::get)
         }
         return true
     }
-    return layerRailRows(layers).filter { it.layer.type != LayerType.GROUP && shown(it.layer) }
-}
-
-/**
- * [centers] plus a centre for every group, which has no tile: its topmost layer's. The siblings a
- * dragged layer is placed among can be groups, and a group has to sit where its layers do.
- */
-internal fun siblingCenters(layers: List<Layer>, centers: Map<String, Float>): Map<String, Float> {
-    val out = HashMap(centers)
-    val rows = layerRailRows(layers)
-    layers.filter { it.type == LayerType.GROUP }.forEach { g ->
-        // The first row under the group that has a tile (its topmost child can itself be a group).
-        val centre = rows.firstNotNullOfOrNull { row ->
-            val inside = generateSequence(row.layer) { l -> layers.firstOrNull { it.id == l.parentId } }.drop(1).any { it.id == g.id }
-            if (inside) centers[layerRailId(row.layer.id)] else null
-        }
-        if (centre != null) out[layerRailId(g.id)] = centre
-    }
-    return out
+    return layerRailRows(layers).filter { shown(it.layer) }
 }
 
 /**
@@ -224,14 +210,8 @@ internal fun layerOutline(is3D: Boolean, light: RailLight, accent: Color): Pair<
 }
 
 /** The TalkBack label of a layer's thumbnail: its name, then every state the thumbnail draws. */
-internal fun layerThumbLabel(
-    layer: Layer,
-    masked: Boolean,
-    expanded: Boolean,
-    is3D: Boolean = false,
-    groupNumber: Int? = null,
-): String =
-    layer.name + (if (groupNumber != null) ", Group $groupNumber" else "") + (if (layer.adjustment != null) " adjustment layer" else "") +
+internal fun layerThumbLabel(layer: Layer, masked: Boolean, expanded: Boolean, is3D: Boolean = false): String =
+    layer.name + (if (layer.adjustment != null) " adjustment layer" else "") +
         (if (is3D) ", 3D" else "") +
         (if (masked) ", masked" else "") +
         (if (layer.alphaLock) ", alpha locked" else "") +
@@ -270,7 +250,6 @@ internal fun LayersRail(
     val centers = remember { HashMap<String, Float>() }
     // Built once per layer list: is3DIn would otherwise index the document again for every tile.
     val layersById = remember(layers) { layers.associateBy { it.id } }
-    val bands = remember(layers) { layerGroupBands(layers) }
     var dragging by remember { mutableStateOf<String?>(null) }
     var dragDy by remember { mutableFloatStateOf(0f) }
     var dragDx by remember { mutableFloatStateOf(0f) }
@@ -341,11 +320,12 @@ internal fun LayersRail(
             val layer = row.layer
             val id = layerRailId(layer.id)
             val isGroup = row.isGroup
-            val expanded = expansion[id] == true
+            val expanded = groupExpanded(expansion, id)
             val siblings = layers.filter { it.parentId == layer.parentId }.reversed().map { layerRailId(it.id) }
             val latestSiblings by rememberUpdatedState(siblings)
-            // The drag's coroutine outlives recompositions: read the layers, as the siblings, through this.
-            val latestLayers by rememberUpdatedState(layers)
+            // The gesture's coroutine outlives recompositions: the parent it reorders within is read through
+            // this too, so a reparent (GroupLayers, a co-op move) mid-session is not acted on with the old one.
+            val latestParentId by rememberUpdatedState(layer.parentId)
             val tap: () -> Unit = {
                 when {
                     isGroup -> {
@@ -403,8 +383,8 @@ internal fun LayersRail(
                             if (trashed) {
                                 callbacks.onDelete(layer.id)
                             } else if (moved) {
-                                val order = droppedSiblingOrder(latestSiblings, id, drop, siblingCenters(latestLayers, centers))
-                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                val order = droppedSiblingOrder(latestSiblings, id, drop, centers)
+                                if (order != latestSiblings) callbacks.onRelocate(order, latestParentId)
                             } else {
                                 callbacks.onOpenMenu(layer.id)
                             }
@@ -422,12 +402,12 @@ internal fun LayersRail(
                             CustomAccessibilityAction("Layer menu") { callbacks.onOpenMenu(layer.id); true },
                             CustomAccessibilityAction("Move up") {
                                 val order = steppedSiblingOrder(latestSiblings, id, -1)
-                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                if (order != latestSiblings) callbacks.onRelocate(order, latestParentId)
                                 true
                             },
                             CustomAccessibilityAction("Move down") {
                                 val order = steppedSiblingOrder(latestSiblings, id, 1)
-                                if (order != latestSiblings) callbacks.onRelocate(order, layer.parentId)
+                                if (order != latestSiblings) callbacks.onRelocate(order, latestParentId)
                                 true
                             },
                             CustomAccessibilityAction("Delete layer") { callbacks.onDelete(layer.id); true },
@@ -438,10 +418,9 @@ internal fun LayersRail(
                     maskThumb = maskThumbs[layer.id]?.takeIf { layer.adjustment?.mask?.enabled == true },
                     layer = layer,
                     light = RailLight(active = layer.id == activeLayerId, secondary = id in secondary),
-                    nested = layersById[layer.parentId]?.type == LayerType.FRAME,
+                    nested = layer.parentId != null,
                     expanded = expanded,
                     is3D = layer.is3DIn(layersById),
-                    band = bands[layer.id],
                 )
             }
         } }
@@ -466,11 +445,9 @@ private fun LayerThumb(
     maskThumb: android.graphics.Bitmap? = null,
     /** On a group surface (or the profiled group itself), a 3D strokes or a model layer. */
     is3D: Boolean = false,
-    /** The layer's group colour, when the document has two or more groups. */
-    band: GroupBand? = null,
 ) {
     val isGroup = layer.isContainer
-    val label = layerThumbLabel(layer, masked = maskThumb != null, expanded = expanded, is3D = is3D, groupNumber = band?.number)
+    val label = layerThumbLabel(layer, masked = maskThumb != null, expanded = expanded, is3D = is3D)
     Box(contentAlignment = Alignment.CenterStart) {
         Box(
             modifier = Modifier
@@ -565,12 +542,8 @@ private fun LayerThumb(
                 )
             }
         }
-        if (band != null) {
-            // The layer's group, by colour: a thin band on the tile's leading edge.
-            Box(Modifier.width(GROUP_BAND_WIDTH).height(RailButtonSize - 16.dp).background(band.color, RoundedCornerShape(2.dp)).testTag("rail.group.band.${layer.id}"))
-        }
         if (nested) {
-            // A child of a frame: a short bar at the inner edge says it sits inside one.
+            // A child of a group: a short bar at the inner edge says it sits inside one.
             Box(Modifier.width(2.dp).height(20.dp).background(Amber.copy(alpha = 0.6f)))
         }
     }
@@ -601,7 +574,6 @@ private val MaskBadgeBorder = Color(0xFF8A8A90)
 private val EyeOffInk = Color(0xFFB4B4BA)
 private val EyeOffFill = Color(0xFF161618)
 
-private val GROUP_BAND_WIDTH = 4.dp
 private const val HIDDEN_ALPHA = 0.3f
 private const val GHOST_ALPHA = 0.9f
 private const val PLACEHOLDER_ALPHA = 0.35f
