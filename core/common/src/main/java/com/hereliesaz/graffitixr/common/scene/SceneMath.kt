@@ -352,18 +352,84 @@ object SceneMath {
         width: Float,
         height: Float,
         parentChain: List<PlanePose> = emptyList(),
+        pivot: FloatArray? = null,
     ): PlanePose? {
         val cam = frame(camera, width, height)
-        val s = camera.distanceScale
+        // Through the camera's target by default; through [pivot] (the orbit point,
+        // OrbitPivot) when given, scaled to that point's depth so pixels still show 1:1 there.
+        val through = pivot ?: cam.target
+        val s = if (pivot == null) camera.distanceScale else cam.toCamera(pivot)[2] / cam.focal
+        if (!s.isFinite() || s <= 0f) return null
         val cx = width / 2f
         val cy = height / 2f
         val m = FloatArray(12)
         val axes = arrayOf(cam.right, cam.down, cam.forward)
         for (row in 0..2) for (col in 0..2) m[row * 4 + col] = axes[col][row] * s
-        for (row in 0..2) m[row * 4 + 3] = cam.target[row] - (m[row * 4] * cx + m[row * 4 + 1] * cy)
+        for (row in 0..2) m[row * 4 + 3] = through[row] - (m[row * 4] * cx + m[row * 4 + 1] * cy)
         val world = Affine3(m)
         val local = (chainModel(parentChain, width, height).inverse() ?: return null) * world
         return poseOf(local, width, height)
+    }
+
+    /**
+     * The camera after turning about the scene point [pivot] by [deltaYaw] and [deltaPitch]
+     * radians (spec/3d-space.md, "The orbit point"). [SceneCamera.orbit] turns about the camera's
+     * own target; this keeps [pivot] at the same place on screen and the same distance from the eye,
+     * moving the target (the pan) to suit, so the scene revolves about the pivot and not about
+     * whatever the target happens to be.
+     */
+    fun orbitAbout(
+        camera: SceneCamera,
+        pivot: FloatArray,
+        deltaYaw: Float,
+        deltaPitch: Float,
+        width: Float,
+        height: Float,
+    ): SceneCamera {
+        val before = frame(camera, width, height)
+        val c = before.toCamera(pivot)
+        val turned = camera.orbit(deltaYaw, deltaPitch)
+        val after = frame(turned, width, height)
+        val distance = after.focal * turned.distanceScale
+        // eye' puts the pivot at camera coordinates c again; the target is distance ahead of it.
+        val eye = FloatArray(3) {
+            pivot[it] - (after.right[it] * c[0] + after.down[it] * c[1] + after.forward[it] * c[2])
+        }
+        val target = FloatArray(3) { eye[it] + after.forward[it] * distance }
+        return turned.copy(panX = target[0] - width / 2f, panY = target[1] - height / 2f, panZ = target[2])
+    }
+
+    /**
+     * The plane [pose] turned by [deltaDeg] about [axis] (as the slider's Euler angle on that axis
+     * moves) so that its box centre revolves about [pivot], a point in the same space as the pose
+     * (the layer's parent space). The pose's rotation is exactly what the slider reads; only its
+     * offset and depth change with it, so the layer's distance from [pivot] never changes.
+     */
+    fun rotatePoseAbout(
+        pose: PlanePose,
+        axis: com.hereliesaz.graffitixr.common.model.RotationAxis,
+        deltaDeg: Float,
+        pivot: FloatArray,
+        width: Float,
+        height: Float,
+    ): PlanePose {
+        val turned = when (axis) {
+            com.hereliesaz.graffitixr.common.model.RotationAxis.X -> pose.copy(rotationX = pose.rotationX + deltaDeg)
+            com.hereliesaz.graffitixr.common.model.RotationAxis.Y -> pose.copy(rotationY = pose.rotationY + deltaDeg)
+            com.hereliesaz.graffitixr.common.model.RotationAxis.Z -> pose.copy(rotationZ = pose.rotationZ + deltaDeg)
+        }
+        val old = rotation(pose.rotationX, pose.rotationY, pose.rotationZ)
+        val new = rotation(turned.rotationX, turned.rotationY, turned.rotationZ)
+        // Relative turn R = new * old^T (old is orthonormal), applied to the centre about the pivot.
+        val oldT = floatArrayOf(old[0], old[3], old[6], old[1], old[4], old[7], old[2], old[5], old[8])
+        val r = mul3(new, oldT)
+        val d = floatArrayOf(
+            width / 2f + pose.offsetX - pivot[0], height / 2f + pose.offsetY - pivot[1], pose.positionZ - pivot[2],
+        )
+        val nx = pivot[0] + r[0] * d[0] + r[1] * d[1] + r[2] * d[2]
+        val ny = pivot[1] + r[3] * d[0] + r[4] * d[1] + r[5] * d[2]
+        val nz = pivot[2] + r[6] * d[0] + r[7] * d[1] + r[8] * d[2]
+        return turned.copy(offsetX = nx - width / 2f, offsetY = ny - height / 2f, positionZ = nz)
     }
 
     /**

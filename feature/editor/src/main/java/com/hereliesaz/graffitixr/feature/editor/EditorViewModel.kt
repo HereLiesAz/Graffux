@@ -7,6 +7,8 @@ import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
 import com.hereliesaz.graffitixr.common.scene.planeChain
+import com.hereliesaz.graffitixr.common.scene.OrbitPivot
+import com.hereliesaz.graffitixr.common.scene.planePose
 
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
@@ -5270,10 +5272,8 @@ class EditorViewModel @Inject constructor(
             return
         }
         updateLinkedGroup(activeId) { layer ->
-            val rx = if (axis == RotationAxis.X) layer.rotationX + rotationDelta else layer.rotationX
-            val ry = if (axis == RotationAxis.Y) layer.rotationY + rotationDelta else layer.rotationY
-            val rz = if (axis == RotationAxis.Z) layer.rotationZ + rotationDelta else layer.rotationZ
-            layer.copy(scale = layer.scale * zoom, offset = layer.offset + pan, rotationX = rx, rotationY = ry, rotationZ = rz)
+            val turned = if (rotationDelta != 0f) turnedAboutPivot(layer, axis, rotationDelta) else layer
+            turned.copy(scale = layer.scale * zoom, offset = turned.offset + pan)
         }
         // Snap-to-guides only on a pure move (not resize/rotate) and only when the canvas size is known.
         if (canvasW > 0f && zoom == 1f && rotationDelta == 0f) applyMoveSnap(activeId, canvasW, canvasH)
@@ -5623,6 +5623,7 @@ class EditorViewModel @Inject constructor(
         if (rotationSliderValue() == null) return
         pushHistory()
         gestureStartLayers = _uiState.value.layers
+        gesturePivot = orbitPivot()
         dispatch(EditorIntent.SetGestureInProgress(true))
     }
 
@@ -5633,18 +5634,60 @@ class EditorViewModel @Inject constructor(
         val delta = if (current == null) 0f else degrees.coerceIn(-HALF_TURN_DEG, HALF_TURN_DEG) - current
         if (activeId == null || delta == 0f || !delta.isFinite()) return
         val axis = rotationSliderAxis()
-        updateLinkedGroup(activeId) { layer ->
-            when (axis) {
-                RotationAxis.X -> layer.copy(rotationX = layer.rotationX + delta)
-                RotationAxis.Y -> layer.copy(rotationY = layer.rotationY + delta)
-                RotationAxis.Z -> layer.copy(rotationZ = layer.rotationZ + delta)
-            }
+        updateLinkedGroup(activeId) { layer -> turnedAboutPivot(layer, axis, delta) }
+    }
+
+    /**
+     * The point everything revolves about (spec/3d-space.md, "The orbit point"), in scene pixels:
+     * the centre of the box that holds the content, [OrbitPivot]. Null until the canvas has a size.
+     */
+    fun orbitPivot(state: EditorUiState = _uiState.value): FloatArray? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        return OrbitPivot.of(state.layers, size.width.toFloat(), size.height.toFloat())
+    }
+
+    /**
+     * The pivot held for the length of one gesture, so it cannot move under the user's fingers while
+     * the layers it is measured from turn. Set where a slider drag or two-finger gesture begins.
+     */
+    private var gesturePivot: FloatArray? = null
+
+    /**
+     * [layer] turned by [delta] degrees about [axis] so that it revolves about the orbit pivot
+     * ([gesturePivot], else [orbitPivot]) rather than about its own centre: the slider's angle on
+     * [axis] moves by [delta] exactly as before, and the layer's offset and depth move with it. A
+     * flat layer's turn about Z stays in place, as a 2D layer's always did. Without a canvas size it
+     * is the plain angle change.
+     */
+    @Suppress("ReturnCount")
+    private fun turnedAboutPivot(layer: Layer, axis: RotationAxis, delta: Float): Layer {
+        val plain = when (axis) {
+            RotationAxis.X -> layer.copy(rotationX = layer.rotationX + delta)
+            RotationAxis.Y -> layer.copy(rotationY = layer.rotationY + delta)
+            RotationAxis.Z -> layer.copy(rotationZ = layer.rotationZ + delta)
         }
+        if (axis == RotationAxis.Z && !layer.isPlacedIn3D) return plain
+        val state = _uiState.value
+        val size = state.canvasSize
+        val world = gesturePivot ?: orbitPivot(state) ?: return plain
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val parent = SceneMath.chainModel(planeChain(state.layers, layer.id).dropLast(1), w, h).inverse()
+            ?: return plain
+        val pivot = parent.apply(world[0], world[1], world[2])
+        val pose = SceneMath.rotatePoseAbout(layer.planePose, axis, delta, pivot, w, h)
+        if (!pose.offsetX.isFinite() || !pose.offsetY.isFinite() || !pose.positionZ.isFinite()) return plain
+        return layer.copy(
+            offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
+            rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
+        )
     }
 
     /** The drag ends: saves and emits the co-op transform, as a transform gesture's end does. */
     fun onRotationSliderEnd() {
         if (gestureStartLayers == null) return
+        gesturePivot = null
         onGestureEnd()
     }
 
@@ -12054,6 +12097,7 @@ class EditorViewModel @Inject constructor(
             twoFingerTarget = TwoFingerTarget.VIEW
             twoFingerCameraBefore = st.sceneCamera
         }
+        gesturePivot = orbitPivot(st)
     }
 
     /**
@@ -12089,6 +12133,7 @@ class EditorViewModel @Inject constructor(
         twoFingerTarget = null
         twoFingerCameraBefore = null
         twoFingerLayerEdited = false
+        gesturePivot = null
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
@@ -12116,9 +12161,22 @@ class EditorViewModel @Inject constructor(
     private fun pinchNearer(actualDepth: Float, zoom: Float, minDepth: Float): Float =
         if (zoom == 1f) 0f else actualDepth - (actualDepth / zoom).coerceAtLeast(minDepth)
 
-    /** Turns the 3D camera about its target by [yaw] and [pitch] radians. */
+    /**
+     * Turns the 3D camera about the orbit pivot ([orbitPivot]) by [yaw] and [pitch] radians, so the
+     * scene revolves about the middle of the content's box and not about the picture plane.
+     */
     fun onSceneOrbit(yaw: Float, pitch: Float) {
-        updateUi { it.copy(sceneCamera = it.sceneCamera.orbit(yaw, pitch)) }
+        val pivot = gesturePivot ?: orbitPivot()
+        val size = _uiState.value.canvasSize
+        updateUi {
+            it.copy(
+                sceneCamera = if (pivot == null) {
+                    it.sceneCamera.orbit(yaw, pitch)
+                } else {
+                    SceneMath.orbitAbout(it.sceneCamera, pivot, yaw, pitch, size.width.toFloat(), size.height.toFloat())
+                },
+            )
+        }
     }
 
     /** A camera gesture ended: the view is part of the project, so it is saved (never history). */
@@ -12212,7 +12270,7 @@ class EditorViewModel @Inject constructor(
         val w = size.width.toFloat()
         val h = size.height.toFloat()
         val parents = planeChain(state.layers, id).dropLast(1)
-        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, parents) ?: return false
+        val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, parents, orbitPivot(state)) ?: return false
         pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
         applyPlane(id, pose)
         return true
