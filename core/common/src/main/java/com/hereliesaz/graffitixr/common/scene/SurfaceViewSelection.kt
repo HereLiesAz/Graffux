@@ -5,6 +5,8 @@
     "CyclomaticComplexMethod",
     "NestedBlockDepth",
     "LoopWithTooManyJumpStatements",
+    "ComplexCondition",
+    "MaxLineLength",
 )
 
 package com.hereliesaz.graffitixr.common.scene
@@ -38,16 +40,17 @@ object SurfaceViewSelection {
         camera: SceneCamera,
         width: Float,
         height: Float,
+        projection: SurfaceProjection? = null,
     ): Selection? {
         if (width <= 0f || height <= 0f) return null
-        val tris = triangles(view, owner, hull, camera, width, height)
+        val tris = (projection ?: SurfaceProjection.of(hull, owner, camera, width, height)).facing(view)
         if (tris.isEmpty()) return null
         val rings = ArrayList<SelectionRing>()
         var reached = false
         for (ring in selection.rings) {
             if (!ring.isUsable) continue
             for (t in tris) {
-                val clipped = clip(ring.path, t)
+                val clipped = clip(ring.path, t.sx, t.sy)
                 if (clipped.size < 3) continue
                 val flat = clipped.mapNotNull { t.paintAt(it) }
                     .mapNotNull { (px, py) -> SurfaceMath.unrolledToFlat(px, py, owner.innerChain, width, height) }
@@ -59,6 +62,44 @@ object SurfaceViewSelection {
         }
         if (!reached) return null
         return Selection(rings, selection.canvasSize, selection.inverted, selection.featherPx)
+    }
+
+    /**
+     * The inverse of [forView]: rings in [view]'s flat space (a wand region traced in its image, with the
+     * holes marked) as rings in world space. Each ring is cut to every triangle of the view's patches and
+     * caps and carried to the canvas through the triangle's own perspective mapping, so the result is the
+     * footprint the region has on screen. Only triangles that face the viewer count, so the far side of the
+     * solid is never selected through the near one; the triangle under [tappedAt] (the paint point the wand was
+     * tapped at) counts whichever way it faces. Same order and sense as the rings given.
+     */
+    fun fromView(
+        rings: List<SelectionRing>,
+        view: SurfaceView,
+        owner: SurfaceOwner,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+        tappedAt: Offset? = null,
+    ): List<SelectionRing> {
+        val tris = projection.triangles(view).filter { it.facing || (tappedAt != null && it.holdsPaint(tappedAt.x, tappedAt.y)) }
+        val out = ArrayList<SelectionRing>()
+        for (ring in rings) {
+            if (!ring.isUsable) continue
+            val paint = ring.path.map {
+                val (u, t) = SurfaceMath.flatToUnrolled(it.x, it.y, owner.innerChain, width, height)
+                Offset(u, t)
+            }
+            for (t in tris) {
+                val clipped = clip(paint, t.px, t.py)
+                if (clipped.size < 3) continue
+                val world = clipped.mapNotNull { t.screenAt(it.x, it.y) }
+                if (world.size < 3 || area(world) < MIN_AREA) continue
+                val mid = Offset(world.sumOf { it.x.toDouble() }.toFloat() / world.size, world.sumOf { it.y.toDouble() }.toFloat() / world.size)
+                if (t.facing && projection.sharedWithEarlier(t, mid)) continue
+                out += SelectionRing(world, ring.additive)
+            }
+        }
+        return out
     }
 
     /**
@@ -81,105 +122,14 @@ object SurfaceViewSelection {
         return Selection.ofPolygon(corners, canvasSize)
     }
 
-    /** A projected triangle with the paint coordinates of its corners, for perspective-correct mapping. */
-    private class Tri(
-        val sx: FloatArray,
-        val sy: FloatArray,
-        val invZ: FloatArray,
-        val px: FloatArray,
-        val py: FloatArray,
-    ) {
-        /** The paint point under the world point [p] inside this triangle (barycentric, divided by depth). */
-        fun paintAt(p: Offset): Pair<Float, Float>? {
-            val d = (sy[1] - sy[2]) * (sx[0] - sx[2]) + (sx[2] - sx[1]) * (sy[0] - sy[2])
-            if (abs(d) < 1e-12f) return null
-            val a = ((sy[1] - sy[2]) * (p.x - sx[2]) + (sx[2] - sx[1]) * (p.y - sy[2])) / d
-            val b = ((sy[2] - sy[0]) * (p.x - sx[2]) + (sx[0] - sx[2]) * (p.y - sy[2])) / d
-            val c = 1f - a - b
-            val wa = a * invZ[0]
-            val wb = b * invZ[1]
-            val wc = c * invZ[2]
-            val sum = wa + wb + wc
-            if (abs(sum) < 1e-12f) return null
-            return (wa * px[0] + wb * px[1] + wc * px[2]) / sum to (wa * py[0] + wb * py[1] + wc * py[2]) / sum
-        }
-    }
-
-    private fun triangles(
-        view: SurfaceView,
-        owner: SurfaceOwner,
-        hull: SurfaceHull,
-        camera: SceneCamera,
-        width: Float,
-        height: Float,
-    ): List<Tri> {
-        val cam = SceneMath.frame(camera, width, height)
-        val model = SceneMath.chainModel(owner.ownerChain, width, height)
-        val eye = model.inverse()?.apply(cam.eye[0], cam.eye[1], cam.eye[2])
-        val out = ArrayList<Tri>()
-        fun add(mesh: FloatArray, sheet: Boolean) {
-            var i = 0
-            while (i + 15 <= mesh.size) {
-                val sx = FloatArray(3)
-                val sy = FloatArray(3)
-                val iz = FloatArray(3)
-                val px = FloatArray(3)
-                val py = FloatArray(3)
-                var ok = true
-                for (k in 0..2) {
-                    val o = i + k * SurfaceHullMesh.STRIDE
-                    val p = model.apply(mesh[o], mesh[o + 1], mesh[o + 2])
-                    val screen = cam.project(p)
-                    val z = cam.toCamera(p)[2]
-                    if (screen == null || !(z > 0f)) { ok = false; break }
-                    val paint = if (sheet) {
-                        hull.paintPointAt(view, mesh[o + 3], mesh[o + 4])
-                    } else {
-                        mesh[o + 3] to mesh[o + 4]
-                    }
-                    if (paint == null) { ok = false; break }
-                    sx[k] = screen.first; sy[k] = screen.second; iz[k] = 1f / z
-                    px[k] = paint.first; py[k] = paint.second
-                }
-                if (ok && facesViewer(hull, mesh, i, eye)) out += Tri(sx, sy, iz, px, py)
-                i += 15
-            }
-        }
-        hull.meshByView()[view]?.let { add(it, true) }
-        hull.capMeshByView()[view]?.let { add(it, false) }
-        return out
-    }
-
-    /**
-     * Whether the triangle at [i] of [mesh] turns its outer side to [eye] (box space): a face facing away
-     * is never selected. Outer is the side of the triangle the solid is not on; a thin wall has no
-     * inside, so both its sides count as facing.
-     */
-    private fun facesViewer(hull: SurfaceHull, mesh: FloatArray, i: Int, eye: FloatArray?): Boolean {
-        if (eye == null || hull.wall != null) return true
-        fun v(k: Int, c: Int) = mesh[i + k * SurfaceHullMesh.STRIDE + c]
-        val e1 = FloatArray(3) { v(1, it) - v(0, it) }
-        val e2 = FloatArray(3) { v(2, it) - v(0, it) }
-        val n = SceneMath.cross(e1, e2)
-        val len = kotlin.math.sqrt(SceneMath.dot(n, n))
-        if (len < 1e-9f) return true
-        val c = FloatArray(3) { (v(0, it) + v(1, it) + v(2, it)) / 3f }
-        val unit = FloatArray(3) { n[it] / len }
-        // Step off the face by more than the hull's tie tolerance: still inside the solid means the normal points in.
-        val step = SurfaceHull.TIE_EPS * 10f
-        val inward = hull.contains(c[0] + unit[0] * step, c[1] + unit[1] * step, c[2] + unit[2] * step)
-        val outer = if (inward) FloatArray(3) { -unit[it] } else unit
-        return SceneMath.dot(outer, FloatArray(3) { eye[it] - c[it] }) > 0f
-    }
-
     /** Sutherland-Hodgman: [subject] cut to the (convex) triangle [t], in world space. */
-    private fun clip(subject: List<Offset>, t: Tri): List<Offset> {
-        val ccw = (t.sx[1] - t.sx[0]) * (t.sy[2] - t.sy[0]) - (t.sx[2] - t.sx[0]) * (t.sy[1] - t.sy[0]) > 0f
+    private fun clip(subject: List<Offset>, xs: FloatArray, ys: FloatArray): List<Offset> {
+        val ccw = (xs[1] - xs[0]) * (ys[2] - ys[0]) - (xs[2] - xs[0]) * (ys[1] - ys[0]) > 0f
         var poly = subject
         for (e in 0..2) {
             val a = e
             val b = (e + 1) % 3
-            val ax = t.sx[a]; val ay = t.sy[a]; val bx = t.sx[b]; val by = t.sy[b]
+            val ax = xs[a]; val ay = ys[a]; val bx = xs[b]; val by = ys[b]
             fun side(p: Offset): Float {
                 val s = (bx - ax) * (p.y - ay) - (by - ay) * (p.x - ax)
                 return if (ccw) s else -s

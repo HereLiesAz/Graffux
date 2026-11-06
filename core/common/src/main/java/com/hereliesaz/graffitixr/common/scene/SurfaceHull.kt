@@ -240,6 +240,16 @@ class SurfaceHull private constructor(
         out
     }
 
+    /**
+     * The region ([PaintTarget.region]) of the cap triangle at vertex offset [i] of a [capMeshByView] [mesh]
+     * (`1 + the box face` it lies on), so a caller walking the cap mesh can tell which face each triangle is.
+     */
+    fun capRegionAt(mesh: FloatArray, i: Int): Int {
+        val pts = FloatArray(9)
+        for (k in 0..2) for (c in 0..2) pts[k * 3 + c] = mesh[i + k * 5 + c]
+        return 1 + capFaceOf(pts)
+    }
+
     /** The box face (`axis * 2 + side`) all three corners of a cap triangle lie on. */
     private fun capFaceOf(pts: FloatArray): Int {
         for (axis in 0..2) for (side in 0..1) {

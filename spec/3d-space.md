@@ -516,12 +516,36 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     only inside a layer's frame, as for any layer. Clone's source is a point of a view image
     (`cloneSourceView`); a clone stroke copies within that image and a touch on another view is a miss. The
     clone reticle is drawn where that point is on the surface (`SurfaceHull.pointAt`, the inverse of
-    `paintTarget`). Not on a multi-view surface (the controls say so): moving a selection's pixels, and
-    Automatic (wand) selection. A wand region is pixels of view images including faces turned away, and the
-    selection is kept in world space: carried over, the far faces would select the screen area of the near
-    ones; keeping it per image instead changes `Selection`, its Add/Remove/invert/feather and the marching
-    ants, which cannot be checked without a device. A moved selection has no rigid meaning across a fold (the
-    flat delta differs per face) and would resample pixels between images.
+    `paintTarget`). Moving selected pixels and Automatic (wand) selection are covered in
+    *Selection on a multi-view surface* below.
+  - *Selection on a multi-view surface.* **Representation:** the selection stays what the lasso made it, rings in
+    world (canvas) space, so Add, Remove, invert, feather, saved selections, the marching ants and every
+    consumer of `Selection` are the code they were, and a flat layer never sees any of this. A wand region is
+    brought into that space as its *visible footprint*; each image's part is cut back out when used
+    (`SurfaceViewSelection.forView`). Per-image storage was weighed and not taken: it would change `Selection`
+    and every ring operation, and the ants would need re-projecting each frame. The price: like a lasso, the
+    footprint stays where it was on screen if the camera orbits afterwards, and is re-cut to whatever surface
+    is now under it. **Wand** (`EditorViewModel.onViewAutoSelect`): the flood runs in the image under the tap
+    and continues across creases exactly as a fill does (`SurfaceViewFlood.plan`, same tolerance, a view with
+    no image yet floods its whole face). Each flooded face is kept to its own rectangle of its image, traced
+    (holes marked), and carried to the canvas by `SurfaceViewSelection.fromView`: the ring is cut to every
+    triangle of the view (`SurfaceProjection`) and mapped through the triangle's perspective-correct inverse.
+    Only triangles facing the viewer count (the far side is never selected through the near one), except the
+    triangle under the tap; a copy of a surface that an earlier view's sheet already carries (two sheets in
+    one plane) is skipped, so the area is the earlier view's. Flooded faces turned away contribute nothing.
+    **Move** (`onSurfaceSelectionMove`, `SurfaceViewMove`): the selected paint slides over the surface as the
+    viewer sees it. Each image's selected pixels are lifted (its `forView` cut, feather included); every
+    pixel of every image receives what the surface shows `delta` behind it on the canvas (the nearest facing
+    triangle there, in whichever image it belongs to), so a drag across a crease is resampled into the
+    neighbouring image by the same mapping the surface is drawn with. A face square to the camera moves
+    rigidly in its image; on an oblique face the paint follows the finger, so it is not rigid in the image.
+    Edges: a pixel carried off the visible surface is lost (as one moved off a flat layer's edge), nothing
+    comes in from beyond the surface, a pixel can only land on a face that faces the viewer, and pasting is
+    inside the image's frame (it is grown to the visible canvas first), nearest-pixel sampling. Each image
+    records a self-contained command (`StrokeCommand.movePatch`: the pixels it receives, in frame-relative
+    coordinates, plus its lifted cut) so it replays without the others; the images are one gesture, so one
+    undo step takes all of them and the marquee (`StrokeCommand.marquee`) back. The marquee moves by the
+    drag. An inverted selection lifts everything outside the lasso and so moves the rest of the surface.
   - *Rendering the hull.* A paint layer on a group with a side or top view draws as one plane per
     view image (`DepthScene.hullPlanes`), each on its view's patch of the hull: `SurfaceHull.meshByView`
     triangles, with texture coordinates into the image from `SurfaceHullMesh.textured` (a vertex's
