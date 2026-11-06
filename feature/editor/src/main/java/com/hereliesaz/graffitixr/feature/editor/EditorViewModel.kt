@@ -6651,9 +6651,11 @@ class EditorViewModel @Inject constructor(
         return clip
     }
 
-    /** Moving a selection's pixels and Automatic selection read one layer's pixels; a multi-view surface has several. */
-    fun onMultiViewSelectionUnsupported() =
-        notify("Moving and Automatic selection are not available on a multi-view surface yet. Use the lasso.", NoticeKind.NOTICE)
+    /** Moving a selection's pixels and Automatic selection read one layer's pixels; a multi-view surface has more. */
+    fun onMultiViewSelectionUnsupported() = notify(
+        "Moving and Automatic selection are not available on a multi-view surface yet. Use the lasso.",
+        NoticeKind.NOTICE,
+    )
 
     /** Whether the active lasso leaves nothing of [view] to paint on: a touch there is a miss. */
     fun viewSelectionBlocks(primaryId: String, view: com.hereliesaz.graffitixr.common.scene.SurfaceView): Boolean =
