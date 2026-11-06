@@ -500,13 +500,28 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     as drawn) and cuts it to each image when used (`SurfaceViewSelection.forView`: the ring is clipped to every
     projected triangle of the view's patches and caps, carried into the image through the triangle's own
     perspective-correct mapping, so a point is selected in an image exactly when it is under the lasso on
-    the surface; a lasso crossing a crease is split across the images). Brush, eraser, clone and fill
+    the surface; a lasso crossing a crease is split across the images; triangles turned away from the viewer,
+    judged by the solid's outer side against the eye, are left out, so the far side is never selected through
+    the near one; a thin wall has no inside and keeps both sides. A face hidden behind another front-facing
+    one is still selected). Brush, eraser, clone and fill
     take that per-image selection; a lasso that reaches nothing of a view makes it a miss. Fill (`onViewFillTap`)
-    floods the view image under the tap from the tap's flat point and, with no lasso, is bounded to the face
-    tapped (`SurfaceViewSelection.faceRegion`), as one undo step. Clone's source is a point of a view image
-    (`cloneSourceView`); a clone stroke copies within that image and a touch on another view is a miss. Not
-    on a multi-view surface yet: moving a selection's pixels, Automatic (wand) selection, the clone reticle,
-    and a fill's flood continuing across a crease into the neighbouring image (each image floods on its own).
+    floods the view image under the tap and then **continues across creases**: `SurfaceHull.creaseLinks` pairs the
+    paint points on either side of every face boundary (an edge no triangle of the same face continues past,
+    in the image, so the two ends of a closed outline's unroll are linked too), and `SurfaceViewFlood.plan`
+    walks them breadth first: a face is entered when the flood in the face before reaches a link point and
+    the pixel on the far side (or within a pixel of it) is the colour being filled. Each face is flooded
+    once, in the image of its view, bounded to its own face (`SurfaceViewSelection.faceRegion`, or the lasso
+    cut to that view), and all of it is one gesture, so one undo step takes every image's part back. The
+    tapped face is always filled. A face in a view with no image yet floods whole; the engine still fills
+    only inside a layer's frame, as for any layer. Clone's source is a point of a view image
+    (`cloneSourceView`); a clone stroke copies within that image and a touch on another view is a miss. The
+    clone reticle is drawn where that point is on the surface (`SurfaceHull.pointAt`, the inverse of
+    `paintTarget`). Not on a multi-view surface (the controls say so): moving a selection's pixels, and
+    Automatic (wand) selection. A wand region is pixels of view images including faces turned away, and the
+    selection is kept in world space: carried over, the far faces would select the screen area of the near
+    ones; keeping it per image instead changes `Selection`, its Add/Remove/invert/feather and the marching
+    ants, which cannot be checked without a device. A moved selection has no rigid meaning across a fold (the
+    flat delta differs per face) and would resample pixels between images.
   - *Rendering the hull.* A paint layer on a group with a side or top view draws as one plane per
     view image (`DepthScene.hullPlanes`), each on its view's patch of the hull: `SurfaceHull.meshByView`
     triangles, with texture coordinates into the image from `SurfaceHullMesh.textured` (a vertex's

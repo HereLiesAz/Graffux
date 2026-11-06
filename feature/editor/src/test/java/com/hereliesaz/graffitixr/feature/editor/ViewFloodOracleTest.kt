@@ -32,8 +32,8 @@ class ViewFloodOracleTest {
         top = outline(floatArrayOf(0f, 1f, 0f)) { x, z -> floatArrayOf(x, 200f, z - 300f) },
     )
     // Big enough that every face's paint points land inside the images, as grown layers do on a device.
-    private val SIZE_W = 3000
-    private val SIZE_H = 2400
+    private val sizeW = 3000
+    private val sizeH = 2400
     private val hull = SurfaceHull.of(cube)!!
 
     init {
@@ -44,7 +44,8 @@ class ViewFloodOracleTest {
 
     private fun image(id: String, view: SurfaceView, paint: Int?) = Layer(
         id = id, name = id, parentId = "g", isVisible = false, surfaceViewOf = "p", surfaceView = view,
-        bitmap = Bitmap.createBitmap(SIZE_W, SIZE_H, Bitmap.Config.ARGB_8888).also { if (paint != null) it.eraseColor(paint) },
+        bitmap = Bitmap.createBitmap(sizeW, sizeH, Bitmap.Config.ARGB_8888)
+            .also { if (paint != null) it.eraseColor(paint) },
     )
 
     private val tapView = hull.meshByView().keys.first()
@@ -57,7 +58,7 @@ class ViewFloodOracleTest {
 
     private fun plan(othersPaint: Int?): List<com.hereliesaz.graffitixr.common.scene.PaintTarget> {
         val oracle = ViewFloodOracle(
-            layers(othersPaint), "p", hull, SIZE_W, SIZE_H, 0, { b, x, y, t -> MagicWand.mask(b, x, y, t) },
+            layers(othersPaint), "p", hull, sizeW, sizeH, 0, { b, x, y, t -> MagicWand.mask(b, x, y, t) },
         ) { EditorViewModel.ViewClip(false, null) }
         val tapFace = tapView
         val tri = hull.meshByView().getValue(tapFace)

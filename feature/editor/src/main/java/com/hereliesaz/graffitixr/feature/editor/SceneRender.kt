@@ -243,6 +243,20 @@ internal class ActivePlaneMapping private constructor(
     fun flatToWorldOrNull(): ((Offset) -> Offset?)? = if (chain == null || onHull) null else ::flatToWorld
 
     /**
+     * Where a point of [view]'s paint image shows in world space (the clone reticle on a multi-view
+     * surface); null off the surface or behind the eye.
+     */
+    fun viewFlatToWorld(view: com.hereliesaz.graffitixr.common.scene.SurfaceView, flat: Offset): Offset? {
+        val s = surface ?: return null
+        val h = hull ?: return null
+        val (ux, uy) = com.hereliesaz.graffitixr.common.scene.SurfaceMath.flatToUnrolled(flat.x, flat.y, s.innerChain, width, height)
+        val p = h.pointAt(view, ux, uy) ?: return null
+        val model = SceneMath.chainModel(s.ownerChain, width, height)
+        val at = model.apply(p[0], p[1], p[2])
+        return com.hereliesaz.graffitixr.common.scene.SceneMath.frame(camera, width, height).project(at)?.let { Offset(it.first, it.second) }
+    }
+
+    /**
      * A lasso point as the selection stores it: the flat point on the layer's plane, except on a
      * multi-view surface, where each view image has its own flat space, so the lasso stays in world
      * space and is cut to each image when used (`SurfaceViewSelection`, spec/3d-space.md).

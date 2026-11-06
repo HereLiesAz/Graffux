@@ -1,3 +1,11 @@
+@file:Suppress(
+    "ReturnCount",
+    "MagicNumber",
+    "CyclomaticComplexMethod",
+    "LongParameterList",
+    "LoopWithTooManyJumpStatements",
+)
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
@@ -35,16 +43,19 @@ internal class ViewFloodOracle(
 
     private fun flatOf(image: Layer, x: Float, y: Float): Offset? {
         val owner = SurfaceMath.ownerOf(layers, image.id) ?: return null
-        return SurfaceMath.unrolledToFlat(x, y, owner.innerChain, canvasW.toFloat(), canvasH.toFloat())?.let { Offset(it.first, it.second) }
+        val flat = SurfaceMath.unrolledToFlat(x, y, owner.innerChain, canvasW.toFloat(), canvasH.toFloat())
+        return flat?.let { Offset(it.first, it.second) }
     }
 
     /** The bitmap pixel of paint point ([x], [y]) in [image]. */
     private fun pixelOf(image: Layer, bmp: Bitmap, x: Float, y: Float): Pair<Int, Int>? {
         val flat = flatOf(image, x, y) ?: return null
         val p = ImageProcessor.mapScreenToBitmap(
-            listOf(flat), canvasW, canvasH, image.frame(bmp.width, bmp.height), image.scale, image.offset, image.rotationZ,
+            listOf(flat), canvasW, canvasH, image.frame(bmp.width, bmp.height),
+            image.scale, image.offset, image.rotationZ,
         ).firstOrNull() ?: return null
-        return Math.floor(p.x.toDouble()).toInt() to Math.floor(p.y.toDouble()).toInt()
+        return Math.floor(p.x.toDouble()).toInt() to
+            Math.floor(p.y.toDouble()).toInt()
     }
 
     private fun paintOf(image: Layer, bmp: Bitmap, px: Int, py: Int): Pair<Float, Float>? {

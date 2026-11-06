@@ -1,3 +1,5 @@
+@file:Suppress("LoopWithTooManyJumpStatements")
+
 package com.hereliesaz.graffitixr.common.scene
 
 /**
@@ -9,15 +11,20 @@ package com.hereliesaz.graffitixr.common.scene
  */
 object SurfaceViewFlood {
     interface Oracle {
-        /** Whether the flood from [seed] (a point of one face) reaches the paint point [x], [y] of that face; null if the seed floods nothing. */
+        /** The flood from [seed] as a test of paint points of its face; null if it floods nothing. */
         fun flood(seed: PaintTarget): ((Float, Float) -> Boolean)?
 
-        /** [target] moved to the nearest point on its face that is the colour being filled, or null if there is none near it. */
+        /** [target] moved to the nearest point on its face that is the colour being filled; null if none is near. */
         fun accept(target: PaintTarget): PaintTarget?
     }
 
-    /** The seeds to flood, [tap] first, one per face reached (a face is flooded once, from the first seed that reaches it). */
-    fun plan(hull: SurfaceHull, tap: PaintTarget, oracle: Oracle, links: List<CreaseLink> = hull.creaseLinks()): List<PaintTarget> {
+    /** The seeds to flood, [tap] first, one per face reached (a face floods once, from the first seed to reach it). */
+    fun plan(
+        hull: SurfaceHull,
+        tap: PaintTarget,
+        oracle: Oracle,
+        links: List<CreaseLink> = hull.creaseLinks(),
+    ): List<PaintTarget> {
         fun key(t: PaintTarget) = t.view to t.region
         val byFace = links.groupBy { key(it.from) }
         val seeds = ArrayList<PaintTarget>()

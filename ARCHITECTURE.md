@@ -651,7 +651,10 @@ Full design: `spec/3d-space.md`. In short:
   first second view is drawn, in `EditorViewModel.setSurface`'s undo step). `SurfaceViewSelection` cuts a
   world-space lasso to each image's faces (triangle clipping), used by strokes (`viewClip`), and bounds a
   fill to its face; `onViewFillTap` and the view-aware clone source (`EditorUiState.cloneSourceView`) route
-  Fill and Clone per image. Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
+  Fill and Clone per image. A fill continues across creases (`SurfaceHull.creaseLinks`, `facesAt`,
+  `SurfaceViewFlood.plan` over the pixels of `ViewFloodOracle`, one gesture), the lasso skips faces turned
+  away (`SurfaceViewSelection.facesViewer`), and the clone reticle uses `SurfaceHull.pointAt`. Moving
+  pixels and the wand are not offered on a multi-view surface (spec/3d-space.md says why). Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

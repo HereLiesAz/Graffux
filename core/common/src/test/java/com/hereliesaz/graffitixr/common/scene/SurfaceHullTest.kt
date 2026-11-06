@@ -386,4 +386,25 @@ class SurfaceHullTest {
         }
         assertEquals(1, SurfaceViewFlood.plan(hull, tap, wrongColour).size)
     }
+
+    @Test
+    fun `a paint point maps back to the surface point it came from`() {
+        for (profile in listOf(cube, capped)) {
+            val hull = SurfaceHull.of(profile)!!
+            val rnd = java.util.Random(11)
+            var n = 0
+            repeat(200) {
+                val aim = floatArrayOf(rnd.nextFloat() * 100f, rnd.nextFloat() * 100f, rnd.nextFloat() * 30f - 15f)
+                val h = hull.hit(floatArrayOf(aim[0] + 20f, aim[1] - 30f, 400f), FloatArray(3) { aim[it] - floatArrayOf(aim[0] + 20f, aim[1] - 30f, 400f)[it] }, 1f) ?: return@repeat
+                val target = hull.paintTarget(h) ?: return@repeat
+                val back = hull.pointAt(target.view, target.x, target.y) ?: return@repeat
+                n++
+                assertEquals(h.x, back[0], 0.5f)
+                assertEquals(h.y, back[1], 0.5f)
+                assertEquals(h.z, back[2], 0.5f)
+            }
+            assertTrue(n > 30)
+        }
+        assertNull(SurfaceHull.of(cube)!!.pointAt(SurfaceView.FRONT, -5000f, -5000f))
+    }
 }
