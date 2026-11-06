@@ -2448,7 +2448,7 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val at = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(SurfaceView.SIDE, 20f, 30f, 0)
         viewModel.onViewFillTap("a", at, androidx.compose.ui.unit.IntSize(1000, 1600))
-        testDispatcher.scheduler.runCurrent()
+        testDispatcher.scheduler.advanceUntilIdle()
         val image = viewModel.uiState.value.layers
             .single { it.surfaceViewOf == "a" && it.surfaceView == SurfaceView.SIDE }
         // Not on the paint layer's own sheet: on the side image, from the tapped flat point.
@@ -2466,7 +2466,7 @@ class EditorViewModelTest {
         assertTrue(viewModel.viewSelectionBlocks("a", SurfaceView.SIDE))
         val n = viewModel.recordedStrokesForTest(image.id).size
         viewModel.onViewFillTap("a", at, androidx.compose.ui.unit.IntSize(1000, 1600))
-        testDispatcher.scheduler.runCurrent()
+        testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(n, viewModel.recordedStrokesForTest(image.id).size)
     }
 }

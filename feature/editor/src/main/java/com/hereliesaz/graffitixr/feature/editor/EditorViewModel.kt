@@ -9365,17 +9365,62 @@ class EditorViewModel @Inject constructor(
     fun onViewFillTap(primaryId: String, at: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, canvasSize: IntSize) {
         val st = _uiState.value
         if (st.activeTool != Tool.FILL) return
-        val clip = viewClip(primaryId, at.view)
-        if (clip.blocked) return
-        val selection = clip.selection ?: run {
-            val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(st.layers, primaryId) ?: return
-            val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile) ?: return
-            com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection.faceRegion(
-                at, owner, hull, st.canvasSize, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
-            )
-        }
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(st.layers, primaryId) ?: return
+        val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile) ?: return
+        if (viewClip(primaryId, at.view).blocked) return
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
         val imageId = ensureViewImageLayer(primaryId, at.view) ?: return
-        fillOn(imageId, Offset(at.x, at.y), canvasSize, selection)
+        val layers = _uiState.value.layers
+        val tapImage = layers.firstOrNull { it.id == imageId } ?: return
+        val imageOwner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, imageId) ?: return
+        val (ux, uy) = com.hereliesaz.graffitixr.common.scene.SurfaceMath.flatToUnrolled(at.x, at.y, imageOwner.innerChain, w, h)
+        val tap = com.hereliesaz.graffitixr.common.scene.PaintTarget(at.view, ux, uy, at.region)
+        val tapBitmap = tapImage.bitmap
+        val tapColor = tapBitmap?.let { b ->
+            val p = ImageProcessor.mapScreenToBitmap(
+                listOf(Offset(at.x, at.y)), st.canvasSize.width, st.canvasSize.height, tapImage.frame(b.width, b.height),
+                tapImage.scale, tapImage.offset, tapImage.rotationZ,
+            ).firstOrNull()
+            p?.let { b.getPixel(it.x.toInt().coerceIn(0, b.width - 1), it.y.toInt().coerceIn(0, b.height - 1)) }
+        } ?: 0
+        val oracle = ViewFloodOracle(
+            layers, primaryId, hull, st.canvasSize.width, st.canvasSize.height, tapColor, wandMask,
+        ) { view -> viewClip(primaryId, view) }
+        viewModelScope.launch(dispatchers.default) {
+            // The tapped face floods; so does every face across a crease that the flood reaches, in the
+            // image of its own view (spec/3d-space.md, "Fill, Clone, lasso").
+            val seeds = com.hereliesaz.graffitixr.common.scene.SurfaceViewFlood.plan(hull, tap, oracle)
+            withContext(dispatchers.main) { fillSeeds(primaryId, hull, seeds, canvasSize) }
+        }
+    }
+
+    /** One fill per seed, as one gesture: a single undo step takes every image's part back. */
+    private fun fillSeeds(
+        primaryId: String,
+        hull: com.hereliesaz.graffitixr.common.scene.SurfaceHull,
+        seeds: List<com.hereliesaz.graffitixr.common.scene.PaintTarget>,
+        canvasSize: IntSize,
+    ) {
+        gestureOpen = true
+        try {
+            for (seed in seeds) {
+                val st = _uiState.value
+                val imageId = ensureViewImageLayer(primaryId, seed.view) ?: continue
+                val imageOwner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(_uiState.value.layers, imageId) ?: continue
+                val w = st.canvasSize.width.toFloat()
+                val h = st.canvasSize.height.toFloat()
+                val flat = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                    .unrolledToFlat(seed.x, seed.y, imageOwner.innerChain, w, h) ?: continue
+                val face = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(seed.view, flat.first, flat.second, seed.region)
+                val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(st.layers, primaryId) ?: continue
+                val selection = viewClip(primaryId, seed.view).selection
+                    ?: com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection.faceRegion(face, owner, hull, st.canvasSize, w, h)
+                fillOn(imageId, Offset(flat.first, flat.second), canvasSize, selection)
+            }
+        } finally {
+            closeGesture()
+        }
     }
 
     @Suppress("ReturnCount")
