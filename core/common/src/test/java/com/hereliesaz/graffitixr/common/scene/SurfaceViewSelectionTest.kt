@@ -100,4 +100,31 @@ class SurfaceViewSelectionTest {
         assertFalse(SelectionGeometry.contains(sel, Offset(pw + 5f, 5f)))
         assertNotNull(at)
     }
+
+    @Test
+    fun `a lasso over the whole picture leaves out the faces facing away`() {
+        val all = ring(-100f to -100f, 1100f to -100f, 1100f to 900f, -100f to 900f)
+        val cam = SceneMath.frame(camera, w, h)
+        val inv = SceneMath.chainModel(owner.ownerChain, w, h).inverse()!!
+        val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
+        var facing = 0
+        var away = 0
+        for ((view, mesh) in hull.meshByView()) {
+            val sel = SurfaceViewSelection.forView(all, view, owner, hull, camera, w, h)
+            for (t in 0 until mesh.size / 15) {
+                fun v(k: Int, c: Int) = mesh[t * 15 + k * 5 + c]
+                val c = FloatArray(3) { (v(0, it) + v(1, it) + v(2, it)) / 3f }
+                val paint = hull.paintPointAt(view, (v(0, 3) + v(1, 3) + v(2, 3)) / 3f, (v(0, 4) + v(1, 4) + v(2, 4)) / 3f)!!
+                // A cube is convex, so a face is facing the viewer exactly when the eye sees its centre first.
+                val dir = FloatArray(3) { c[it] - eye[it] }
+                val first = hull.hit(eye, dir, near = 0f)!!
+                val dist = kotlin.math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2])
+                val visible = first.distance * dist > dist - 0.5f
+                val selected = sel != null && SelectionGeometry.contains(sel, Offset(paint.first, paint.second))
+                if (visible) facing++ else away++
+                assertTrue("$view triangle $t: visible=$visible selected=$selected", visible == selected)
+            }
+        }
+        assertTrue(facing > 0 && away > 0)
+    }
 }
