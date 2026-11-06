@@ -115,6 +115,7 @@ object SurfaceViewSelection {
     ): List<Tri> {
         val cam = SceneMath.frame(camera, width, height)
         val model = SceneMath.chainModel(owner.ownerChain, width, height)
+        val eye = model.inverse()?.apply(cam.eye[0], cam.eye[1], cam.eye[2])
         val out = ArrayList<Tri>()
         fun add(mesh: FloatArray, sheet: Boolean) {
             var i = 0
@@ -140,13 +141,35 @@ object SurfaceViewSelection {
                     sx[k] = screen.first; sy[k] = screen.second; iz[k] = 1f / z
                     px[k] = paint.first; py[k] = paint.second
                 }
-                if (ok) out += Tri(sx, sy, iz, px, py)
+                if (ok && facesViewer(hull, mesh, i, eye)) out += Tri(sx, sy, iz, px, py)
                 i += 15
             }
         }
         hull.meshByView()[view]?.let { add(it, true) }
         hull.capMeshByView()[view]?.let { add(it, false) }
         return out
+    }
+
+    /**
+     * Whether the triangle at [i] of [mesh] turns its outer side to [eye] (box space): a face facing away
+     * is never selected. Outer is the side of the triangle the solid is not on; a thin wall has no
+     * inside, so both its sides count as facing.
+     */
+    private fun facesViewer(hull: SurfaceHull, mesh: FloatArray, i: Int, eye: FloatArray?): Boolean {
+        if (eye == null || hull.wall != null) return true
+        fun v(k: Int, c: Int) = mesh[i + k * SurfaceHullMesh.STRIDE + c]
+        val e1 = FloatArray(3) { v(1, it) - v(0, it) }
+        val e2 = FloatArray(3) { v(2, it) - v(0, it) }
+        val n = SceneMath.cross(e1, e2)
+        val len = kotlin.math.sqrt(SceneMath.dot(n, n))
+        if (len < 1e-9f) return true
+        val c = FloatArray(3) { (v(0, it) + v(1, it) + v(2, it)) / 3f }
+        val unit = FloatArray(3) { n[it] / len }
+        // Step off the face by more than the hull's tie tolerance: still inside the solid means the normal points in.
+        val step = SurfaceHull.TIE_EPS * 10f
+        val inward = hull.contains(c[0] + unit[0] * step, c[1] + unit[1] * step, c[2] + unit[2] * step)
+        val outer = if (inward) FloatArray(3) { -unit[it] } else unit
+        return SceneMath.dot(outer, FloatArray(3) { eye[it] - c[it] }) > 0f
     }
 
     /** Sutherland-Hodgman: [subject] cut to the (convex) triangle [t], in world space. */

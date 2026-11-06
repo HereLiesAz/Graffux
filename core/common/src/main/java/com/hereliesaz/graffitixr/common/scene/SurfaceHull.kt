@@ -65,6 +65,12 @@ class HullHit(
 class PaintTarget(val view: SurfaceView, val x: Float, val y: Float, val region: Int)
 
 /**
+ * Two paint points that are one point of the surface: [at] in the hull's box space, as [from] on one face
+ * and [to] on another (or on the far end of the same face's unrolled outline). See [SurfaceHull.creaseLinks].
+ */
+class CreaseLink(val at: FloatArray, val from: PaintTarget, val to: PaintTarget)
+
+/**
  * The surface of a group drawn from more than one view (spec/3d-space.md, "Group surfaces"),
  * combined by intersection, like silhouette carving: each drawn view's outline, closed by joining
  * its last vertex to its first, is swept through space along that view's direction into an infinite
@@ -194,6 +200,172 @@ class SurfaceHull private constructor(
     fun capMeshByView(): Map<SurfaceView, FloatArray> = caps
 
     private val caps: Map<SurfaceView, FloatArray> by lazy { buildCaps() }
+
+    /** One drawn triangle with the paint point of each corner: [pts] x, y, z per corner, [paint] x, y per corner. */
+    private class FaceTri(val view: SurfaceView, val region: Int, val pts: FloatArray, val paint: FloatArray)
+
+    private val faceTris: List<FaceTri> by lazy {
+        val out = ArrayList<FaceTri>()
+        for ((view, mesh) in meshByView()) {
+            var i = 0
+            while (i + 15 <= mesh.size) {
+                val pts = FloatArray(9)
+                val paint = FloatArray(6)
+                for (k in 0..2) {
+                    val o = i + k * 5
+                    for (c in 0..2) pts[k * 3 + c] = mesh[o + c]
+                    val pp = paintPointAt(view, mesh[o + 3], mesh[o + 4]) ?: break
+                    paint[k * 2] = pp.first
+                    paint[k * 2 + 1] = pp.second
+                }
+                out += FaceTri(view, 0, pts, paint)
+                i += 15
+            }
+        }
+        for ((view, mesh) in caps) {
+            var i = 0
+            while (i + 15 <= mesh.size) {
+                val pts = FloatArray(9)
+                val paint = FloatArray(6)
+                for (k in 0..2) {
+                    val o = i + k * 5
+                    for (c in 0..2) pts[k * 3 + c] = mesh[o + c]
+                    paint[k * 2] = mesh[o + 3]
+                    paint[k * 2 + 1] = mesh[o + 4]
+                }
+                out += FaceTri(view, 1 + capFaceOf(pts), pts, paint)
+                i += 15
+            }
+        }
+        out
+    }
+
+    /** The box face (`axis * 2 + side`) all three corners of a cap triangle lie on. */
+    private fun capFaceOf(pts: FloatArray): Int {
+        for (axis in 0..2) for (side in 0..1) {
+            val at = if (side == 0) lo[axis] else hi[axis]
+            if ((0..2).all { abs(pts[it * 3 + axis] - at) < TIE_EPS }) return axis * 2 + side
+        }
+        return 0
+    }
+
+    /** Barycentric coordinates of the point on triangle [t] nearest [p], and how far [p] is from the triangle's plane or edge. */
+    private fun nearestOn(t: FaceTri, p: FloatArray): Pair<FloatArray, Float> {
+        val a = t.pts.copyOfRange(0, 3)
+        val e1 = FloatArray(3) { t.pts[3 + it] - a[it] }
+        val e2 = FloatArray(3) { t.pts[6 + it] - a[it] }
+        val d11 = dot(e1, e1); val d12 = dot(e1, e2); val d22 = dot(e2, e2)
+        val ap = FloatArray(3) { p[it] - a[it] }
+        val det = d11 * d22 - d12 * d12
+        if (abs(det) < 1e-12f) return floatArrayOf(1f, 0f, 0f) to Float.MAX_VALUE
+        val v = (d22 * dot(ap, e1) - d12 * dot(ap, e2)) / det
+        val w = (d11 * dot(ap, e2) - d12 * dot(ap, e1)) / det
+        val cv = v.coerceIn(0f, 1f)
+        val cw = w.coerceIn(0f, 1f - cv)
+        val q = FloatArray(3) { a[it] + e1[it] * cv + e2[it] * cw }
+        val dist = sqrt(dot(FloatArray(3) { p[it] - q[it] }, FloatArray(3) { p[it] - q[it] }))
+        return floatArrayOf(1f - cv - cw, cv, cw) to dist
+    }
+
+    /**
+     * Every face (view image region) the surface point [p] (box space) is on, with its paint point there:
+     * one for a point inside a patch, two or more on a crease. A point near no drawn triangle is on none.
+     */
+    fun facesAt(p: FloatArray): List<PaintTarget> {
+        val out = ArrayList<PaintTarget>()
+        for (t in faceTris) {
+            val (b, dist) = nearestOn(t, p)
+            if (dist > TIE_EPS * 1.5f) continue
+            out += PaintTarget(
+                t.view,
+                b[0] * t.paint[0] + b[1] * t.paint[2] + b[2] * t.paint[4],
+                b[0] * t.paint[1] + b[1] * t.paint[3] + b[2] * t.paint[5],
+                t.region,
+            )
+        }
+        return out
+    }
+
+    /**
+     * The inverse of [paintTarget]: the point of the surface (box space) that is at ([x], [y]) in [view]'s
+     * paint image, on any of its faces (sheet or caps; their regions do not overlap). Null where the
+     * view's image has no surface (outside every patch).
+     */
+    fun pointAt(view: SurfaceView, x: Float, y: Float): FloatArray? {
+        for (t in faceTris) {
+            if (t.view != view) continue
+            val x0 = t.paint[0]; val y0 = t.paint[1]
+            val x1 = t.paint[2]; val y1 = t.paint[3]
+            val x2 = t.paint[4]; val y2 = t.paint[5]
+            val det = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            if (abs(det) < 1e-9f) continue
+            val a = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / det
+            val b = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / det
+            val c = 1f - a - b
+            if (a < -PAINT_EPS || b < -PAINT_EPS || c < -PAINT_EPS) continue
+            return FloatArray(3) { a * t.pts[it] + b * t.pts[3 + it] + c * t.pts[6 + it] }
+        }
+        return null
+    }
+
+    /**
+     * Where one face of the surface meets another (or the far end of its own unrolled outline): points
+     * along every boundary edge of every face (an edge no triangle of the same face continues past, in the
+     * image), sampled about every [spacing] box units, each with its paint point on the face it is on and on
+     * each other place it is (a flood fill, which spreads in images, follows these across a crease).
+     */
+    fun creaseLinks(spacing: Float = max(hi[0] - lo[0], max(hi[1] - lo[1], hi[2] - lo[2])) / 100f): List<CreaseLink> {
+        val out = ArrayList<CreaseLink>()
+        val byFace = faceTris.groupBy { it.view to it.region }
+        for (t in faceTris) {
+            val same = byFace.getValue(t.view to t.region)
+            for (e in 0..2) {
+                val j = (e + 1) % 3
+                val k = (e + 2) % 3
+                if (!isBoundary(t, e, j, k, same)) continue
+                val len = sqrt(dot(FloatArray(3) { t.pts[j * 3 + it] - t.pts[e * 3 + it] }, FloatArray(3) { t.pts[j * 3 + it] - t.pts[e * 3 + it] }))
+                val n = (len / spacing).toInt().coerceIn(1, MAX_LINK_SAMPLES)
+                for (s in 0..n) {
+                    val f = s.toFloat() / n
+                    val at = FloatArray(3) { t.pts[e * 3 + it] + (t.pts[j * 3 + it] - t.pts[e * 3 + it]) * f }
+                    val here = PaintTarget(
+                        t.view,
+                        t.paint[e * 2] + (t.paint[j * 2] - t.paint[e * 2]) * f,
+                        t.paint[e * 2 + 1] + (t.paint[j * 2 + 1] - t.paint[e * 2 + 1]) * f,
+                        t.region,
+                    )
+                    for (other in facesAt(at)) {
+                        val sameFace = other.view == here.view && other.region == here.region
+                        if (sameFace && abs(other.x - here.x) + abs(other.y - here.y) < SEAM_MIN) continue
+                        out += CreaseLink(at, here, other)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /** Whether edge [e]-[j] of [t] (opposite corner [k]) has no triangle of its own face across it in the image. */
+    private fun isBoundary(t: FaceTri, e: Int, j: Int, k: Int, same: List<FaceTri>): Boolean {
+        val ax = t.paint[e * 2]; val ay = t.paint[e * 2 + 1]
+        val bx = t.paint[j * 2]; val by = t.paint[j * 2 + 1]
+        val cx = t.paint[k * 2]; val cy = t.paint[k * 2 + 1]
+        val dx = bx - ax; val dy = by - ay
+        val len = sqrt(dx * dx + dy * dy)
+        if (len < 1e-6f) return false
+        // The edge's normal, turned away from the triangle's third corner.
+        var nx = -dy / len; var ny = dx / len
+        if ((cx - ax) * nx + (cy - ay) * ny > 0f) { nx = -nx; ny = -ny }
+        val qx = (ax + bx) / 2f + nx * PROBE
+        val qy = (ay + by) / 2f + ny * PROBE
+        return same.none { o -> o !== t && insidePaint(o, qx, qy) }
+    }
+
+    private fun insidePaint(o: FaceTri, x: Float, y: Float): Boolean {
+        fun side(i: Int, j: Int) = (o.paint[j * 2] - o.paint[i * 2]) * (y - o.paint[i * 2 + 1]) - (o.paint[j * 2 + 1] - o.paint[i * 2 + 1]) * (x - o.paint[i * 2])
+        val s0 = side(0, 1); val s1 = side(1, 2); val s2 = side(2, 0)
+        return (s0 >= 0f && s1 >= 0f && s2 >= 0f) || (s0 <= 0f && s1 <= 0f && s2 <= 0f)
+    }
 
     /**
      * The rectangle (left, top, right, bottom) a face occupies in [view]'s paint image: [region] 0 its sheet,
@@ -682,6 +854,10 @@ class SurfaceHull private constructor(
         private const val NO_SKIP = -1
         private const val LINEAR_TOL = 1e-3f
         private const val MAX_DEPTH = 8
+        private const val MAX_LINK_SAMPLES = 64
+        private const val PROBE = 0.05f
+        private const val PAINT_EPS = 1e-3f
+        private const val SEAM_MIN = 1f
 
         /** The gap between a view's sheet and its cap regions in its image, and between caps, as a fraction of the box's widest side. */
         private const val CAP_GAP_RATIO = 0.05f

@@ -787,10 +787,16 @@ fun EditorScreen(
                 onSelectionMove = { delta ->
                     if (!activePlane.onHull) {
                         vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
+                    } else {
+                        vm.onMultiViewSelectionUnsupported()
                     }
                 },
                 onAutoSelect = { at, size ->
-                    if (!activePlane.onHull) activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) }
+                    if (!activePlane.onHull) {
+                        activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) }
+                    } else {
+                        vm.onMultiViewSelectionUnsupported()
+                    }
                 },
                 onClearSelection = { vm.onClearSelection() },
                 // The rings are stored in the same space onSelectionEnd maps into, so the
@@ -829,8 +835,12 @@ fun EditorScreen(
         // view-model, so it is pushed back through the camera for display — the same
         // world-for-state, screen-for-display split as the warp handles and the marching ants.
         if (uiState.activeTool == Tool.CLONE) {
-            // A view image's flat point is not a place on screen, so a multi-view surface shows no reticle.
-            uiState.cloneSource?.takeIf { uiState.cloneSourceView == null }?.let { source ->
+            // On a multi-view surface the source is a point of a view image: shown where that point is on the surface.
+            val shown = uiState.cloneSource?.let { src ->
+                val view = uiState.cloneSourceView
+                if (view == null) src else activePlane.viewFlatToWorld(view, src)
+            }
+            shown?.let { source ->
                 val src = CanvasHitTest.worldToScreen(
                     source, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
                 )

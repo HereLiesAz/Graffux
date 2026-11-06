@@ -342,4 +342,69 @@ class SurfaceHullTest {
         }
         assertTrue(checked > 100)
     }
+
+    // ---- flood across creases ----
+
+    @Test
+    fun `crease links join faces at one point of the surface`() {
+        val hull = SurfaceHull.of(cube)!!
+        val links = hull.creaseLinks()
+        assertTrue(links.isNotEmpty())
+        for (l in links) {
+            assertTrue(hull.contains(l.at[0], l.at[1], l.at[2]))
+            val faces = hull.facesAt(l.at)
+            assertTrue(faces.any { it.view == l.from.view && it.region == l.from.region })
+            assertTrue(faces.any { it.view == l.to.view && it.region == l.to.region })
+        }
+        // The front and side patches of a cube meet along its edges, in both directions; a view whose
+        // planes all belong to earlier views (the cube's top) has no patch and so no crease.
+        val pairs = links.map { it.from.view to it.to.view }.toSet()
+        assertTrue(SurfaceView.FRONT to SurfaceView.SIDE in pairs && SurfaceView.SIDE to SurfaceView.FRONT in pairs)
+    }
+
+    @Test
+    fun `a flood walks from the tapped face to every face of the same colour across the creases`() {
+        val hull = SurfaceHull.of(cube)!!
+        val h = hull.hit(floatArrayOf(30f, 40f, -500f), floatArrayOf(0f, 0f, 1f), near = 1f)!!
+        val tap = hull.paintTarget(h)!!
+        val all = object : SurfaceViewFlood.Oracle {
+            override fun flood(seed: PaintTarget): ((Float, Float) -> Boolean)? = { _, _ -> true }
+            override fun accept(target: PaintTarget) = target
+        }
+        val seeds = SurfaceViewFlood.plan(hull, tap, all)
+        assertEquals(seeds.map { it.view to it.region }.toSet().size, seeds.size)
+        assertEquals(hull.meshByView().keys, seeds.map { it.view }.toSet())
+        // A face of another colour is not entered, and a flood that never reaches the crease stops at it.
+        val onlyTap = object : SurfaceViewFlood.Oracle {
+            override fun flood(seed: PaintTarget): ((Float, Float) -> Boolean)? = { _, _ -> false }
+            override fun accept(target: PaintTarget) = target
+        }
+        assertEquals(1, SurfaceViewFlood.plan(hull, tap, onlyTap).size)
+        val wrongColour = object : SurfaceViewFlood.Oracle {
+            override fun flood(seed: PaintTarget): ((Float, Float) -> Boolean)? = { _, _ -> true }
+            override fun accept(target: PaintTarget): PaintTarget? = null
+        }
+        assertEquals(1, SurfaceViewFlood.plan(hull, tap, wrongColour).size)
+    }
+
+    @Test
+    fun `a paint point maps back to the surface point it came from`() {
+        for (profile in listOf(cube, capped)) {
+            val hull = SurfaceHull.of(profile)!!
+            val rnd = java.util.Random(11)
+            var n = 0
+            repeat(200) {
+                val aim = floatArrayOf(rnd.nextFloat() * 100f, rnd.nextFloat() * 100f, rnd.nextFloat() * 30f - 15f)
+                val h = hull.hit(floatArrayOf(aim[0] + 20f, aim[1] - 30f, 400f), FloatArray(3) { aim[it] - floatArrayOf(aim[0] + 20f, aim[1] - 30f, 400f)[it] }, 1f) ?: return@repeat
+                val target = hull.paintTarget(h) ?: return@repeat
+                val back = hull.pointAt(target.view, target.x, target.y) ?: return@repeat
+                n++
+                assertEquals(h.x, back[0], 0.5f)
+                assertEquals(h.y, back[1], 0.5f)
+                assertEquals(h.z, back[2], 0.5f)
+            }
+            assertTrue(n > 30)
+        }
+        assertNull(SurfaceHull.of(cube)!!.pointAt(SurfaceView.FRONT, -5000f, -5000f))
+    }
 }
