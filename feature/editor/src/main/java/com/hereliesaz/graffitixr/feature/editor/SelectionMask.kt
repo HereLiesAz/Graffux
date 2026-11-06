@@ -391,6 +391,43 @@ internal object SelectionMask {
     }
 
     /**
+     * A surface move's result for one view image: the selected pixels cleared (in proportion to the
+     * feather, as [moveRegionSoft] does), then [patch], the pixels the surface carried here, put down over
+     * the result. The patch is in [frame]-relative pixels.
+     */
+    @Suppress("MaxLineLength")
+    fun pasteMove(
+        source: android.graphics.Bitmap,
+        clipPath: Path?,
+        featherRadius: Float,
+        patch: MovePatch,
+        frame: com.hereliesaz.graffitixr.common.model.LayerFrame,
+    ): android.graphics.Bitmap {
+        val out = SafeBitmap.copy(source) ?: return source
+        val canvas = Canvas(out)
+        if (clipPath != null) {
+            val mask = featherMask(clipPath, source.width, source.height, featherRadius)
+            if (mask != null) {
+                canvas.drawBitmap(mask, 0f, 0f, android.graphics.Paint().apply {
+                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+                })
+                mask.recycle()
+            } else {
+                canvas.save()
+                canvas.clipPath(clipPath)
+                canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+                canvas.restore()
+            }
+        }
+        if (patch.width > 0 && patch.height > 0 && patch.pixels.size >= patch.width * patch.height) {
+            val bits = android.graphics.Bitmap.createBitmap(patch.pixels, patch.width, patch.height, android.graphics.Bitmap.Config.ARGB_8888)
+            canvas.drawBitmap(bits, (patch.left + frame.originX).toFloat(), (patch.top + frame.originY).toFloat(), null)
+            bits.recycle()
+        }
+        return out
+    }
+
+    /**
      * [moveRegion] for a feathered selection: same lift-clear-stamp, but every step attenuated by
      * the mask's alpha instead of switched by a clip.
      *

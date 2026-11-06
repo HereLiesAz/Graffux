@@ -653,8 +653,12 @@ Full design: `spec/3d-space.md`. In short:
   fill to its face; `onViewFillTap` and the view-aware clone source (`EditorUiState.cloneSourceView`) route
   Fill and Clone per image. A fill continues across creases (`SurfaceHull.creaseLinks`, `facesAt`,
   `SurfaceViewFlood.plan` over the pixels of `ViewFloodOracle`, one gesture), the lasso skips faces turned
-  away (`SurfaceViewSelection.facesViewer`), and the clone reticle uses `SurfaceHull.pointAt`. Moving
-  pixels and the wand are not offered on a multi-view surface (spec/3d-space.md says why). Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
+  away (`SurfaceViewSelection.facesViewer`), and the clone reticle uses `SurfaceHull.pointAt`. The wand
+  (`EditorViewModel.onViewAutoSelect`) floods across creases and brings its region to world space as its visible
+  footprint (`SurfaceViewSelection.fromView`, via `SurfaceProjection`, the camera's view of every hull triangle);
+  moving selected pixels (`onSurfaceSelectionMove`, `SurfaceViewMove`) slides paint over the surface, resampling
+  across creases into a self-contained per-image `StrokeCommand.movePatch`, one undo step (spec/3d-space.md,
+  "Selection on a multi-view surface"). Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

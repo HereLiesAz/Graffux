@@ -44,6 +44,9 @@ android {
             // test inflates a real host Activity. Without this the gesture tests below cannot run at
             // all — they fail at setContent, long before they reach an assertion.
             isIncludeAndroidResources = true
+            // The multi-view surface tests hold several canvas-sized bitmaps each (ViewFloodOracleTest,
+            // SurfaceSelectionTest); the default heap runs out when they share a fork.
+            all { it.maxHeapSize = "2g" }
         }
     }
 }

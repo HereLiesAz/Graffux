@@ -782,20 +782,22 @@ fun EditorScreen(
                 onSelectionEnd = { pts, size ->
                     vm.onSelectionEnd(pts.mapNotNull(activePlane::toSelectionPoint), size)
                 },
-                // Moving a selection's pixels and the wand read one layer's own pixels; a multi-view
-                // surface paints into several images, so they are not offered there yet.
+                // On a multi-view surface the move slides the paint over the surface and the wand floods
+                // across its creases (spec/3d-space.md, "Selection on a multi-view surface").
                 onSelectionMove = { delta ->
                     if (!activePlane.onHull) {
                         vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
                     } else {
-                        vm.onMultiViewSelectionUnsupported()
+                        activePlane.layerId?.let { vm.onSurfaceSelectionMove(it, activePlane.worldDelta(delta)) }
                     }
                 },
                 onAutoSelect = { at, size ->
                     if (!activePlane.onHull) {
                         activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) }
                     } else {
-                        vm.onMultiViewSelectionUnsupported()
+                        val primary = activePlane.layerId
+                        val hit = activePlane.toViewFlatByFootprint(at, 0f)
+                        if (primary != null && hit != null) vm.onViewAutoSelect(primary, hit, size)
                     }
                 },
                 onClearSelection = { vm.onClearSelection() },
