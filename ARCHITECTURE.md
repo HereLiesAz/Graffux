@@ -643,6 +643,15 @@ Full design: `spec/3d-space.md`. In short:
   picks the view; `ViewStrokeFeed` cuts a stroke at the crease (`SurfaceViewStroke.crossing`) into segments
   that `EditorViewModel.onViewStrokeStart` paints into the right image, chained (`EditCommand.Draw.chainedToPrevious`)
   into one undo step. Format 10 shipped in 1.63.0, hence 11. The hull renders (`DepthScene.hullPlanes`, `SurfaceHullMesh`: a plane per view image on its patch, depth-correct, opacity and isolated groups as for a sheet) and exports to glTF (`hullQuads`). GPU path untested off-device (see spec/3d-space.md).
+  Caps and the rest of the per-view layer: `SurfaceHull.capMeshByView` tessellates the box faces no drawn outline
+  bounds (the same slab scan as a sheet, with no skipped prism) into the image of the view that looks at them
+  squarely, in a region right of its sheet (`PaintTarget.region`, `regionRect`); `ViewFlat.region` and
+  `ViewSample.region` make `ViewStrokeFeed` cut a stroke between faces of one image. `SurfaceViewImages`
+  holds the layer rules (duplicate a paint layer's images; carry sheet paint onto the front image when the
+  first second view is drawn, in `EditorViewModel.setSurface`'s undo step). `SurfaceViewSelection` cuts a
+  world-space lasso to each image's faces (triangle clipping), used by strokes (`viewClip`), and bounds a
+  fill to its face; `onViewFillTap` and the view-aware clone source (`EditorUiState.cloneSourceView`) route
+  Fill and Clone per image. Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

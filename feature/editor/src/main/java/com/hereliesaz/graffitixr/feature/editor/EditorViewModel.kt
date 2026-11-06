@@ -5948,6 +5948,7 @@ class EditorViewModel @Inject constructor(
                 uri = newUri,
                 heightMap = copiedHeight?.copyOf(),
             )
+            val viewCopies = duplicateViewImages(layer, duplicated, projectId)
 
             newBitmap?.let { bmp ->
                 putLayerBase(duplicated.id, bmp)
@@ -5966,6 +5967,7 @@ class EditorViewModel @Inject constructor(
             withContext(dispatchers.main) {
                 dispatch(EditorIntent.AddLayer(duplicated, resetActivePanel = false))
                 emitMembership(Op.LayerAdd(duplicated))
+                addViewImages(viewCopies)
                 // Queue the duplicate's material sidecar through the same retryable persistence
                 // unit as ordinary painting; a duplicate must survive reopen with identical relief.
                 if (newBitmap != null) scheduleDiskSave(duplicated.id, newBitmap, newUri)
@@ -5973,6 +5975,45 @@ class EditorViewModel @Inject constructor(
                 dispatch(EditorIntent.SetLoading(false))
             }
         }
+    }
+
+    /**
+     * A paint layer on a multi-view surface paints into view images of its own: each gets a copy for
+     * [duplicate] (new ids, linked to it, its own pixels, stroke log and file). Off the main thread.
+     */
+    private suspend fun duplicateViewImages(layer: Layer, duplicate: Layer, projectId: String): List<Layer> =
+        com.hereliesaz.graffitixr.common.scene.SurfaceViewImages
+            .duplicates(_uiState.value.layers, layer, duplicate) { UUID.randomUUID().toString() }
+            .map { (source, copy) ->
+                val pixels = source.bitmap?.let { SafeBitmap.copy(it, mutable = true) }
+                val copyUri = pixels?.let { bmp ->
+                    val name = "layer_dup_${UUID.randomUUID()}.png"
+                    val path = projectRepository.saveArtifact(projectId, name, ImageUtils.bitmapToByteArray(bmp))
+                    "file://$path".toUri()
+                } ?: source.uri
+                pixels?.let { putLayerBase(copy.id, it) }
+                layerStore.initStrokes(copy.id)
+                copy.copy(bitmap = pixels, uri = copyUri)
+            }
+
+    /** Adds [images] (view images of paint layers already in the document) beside their layers and announces them. */
+    private fun addViewImages(images: List<Layer>) {
+        if (images.isEmpty()) return
+        updateUi { s -> s.copy(layers = withImagesAfterPrimaries(s.layers, images)) }
+        images.forEach { c ->
+            emitMembership(Op.LayerAdd(c))
+            c.bitmap?.let { scheduleDiskSave(c.id, it, c.uri) }
+        }
+    }
+
+    /** [layers] with each of [images] placed right after the paint layer it is the view image of. */
+    private fun withImagesAfterPrimaries(layers: List<Layer>, images: List<Layer>): List<Layer> {
+        var out = layers
+        for (image in images) {
+            val at = out.indexOfFirst { it.id == image.surfaceViewOf }.let { if (it < 0) out.size else it + 1 }
+            out = out.toMutableList().apply { add(at, image) }
+        }
+        return out
     }
 
     override fun onLayerRenamed(id: String, name: String) {
@@ -6575,6 +6616,40 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** The active selection as a view image sees it: [selection], null for none, or [blocked] (reaches no face). */
+    internal class ViewClip(val blocked: Boolean, val selection: com.hereliesaz.graffitixr.common.model.Selection?)
+
+    private var clipMemo: Pair<List<Any?>, ViewClip>? = null
+
+    /**
+     * [SurfaceViewSelection.forView] of the active selection for [view] of the paint layer [primaryId]'s
+     * surface: a lasso is drawn in world space, each view image has its own flat space, so a region that
+     * crosses a crease is cut across the images. Remembered for the last question, as strokes ask per touch.
+     */
+    @Suppress("ReturnCount")
+    internal fun viewClip(primaryId: String, view: com.hereliesaz.graffitixr.common.scene.SurfaceView): ViewClip {
+        val st = _uiState.value
+        val selection = st.selection?.takeIf { it.isUsable } ?: return ViewClip(false, null)
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(st.layers, primaryId)
+            ?: return ViewClip(false, null)
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        val key = listOf(selection, view, st.sceneCamera, owner.profile, owner.ownerChain, owner.innerChain, w, h)
+        clipMemo?.takeIf { it.first == key }?.let { return it.second }
+        val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile)
+        val cut = hull?.let {
+            com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection
+                .forView(selection, view, owner, it, st.sceneCamera, w, h)
+        }
+        val clip = if (cut != null) ViewClip(false, cut) else ViewClip(hull != null, null)
+        clipMemo = key to clip
+        return clip
+    }
+
+    /** Whether the active lasso leaves nothing of [view] to paint on: a touch there is a miss. */
+    fun viewSelectionBlocks(primaryId: String, view: com.hereliesaz.graffitixr.common.scene.SurfaceView): Boolean =
+        viewClip(primaryId, view).blocked
+
     /** The paint layer and view whose image the next [onStrokeStart] paints into, while [onViewStrokeStart] runs. */
     private var strokeViewTarget: Pair<String, com.hereliesaz.graffitixr.common.scene.SurfaceView>? = null
 
@@ -6722,7 +6797,8 @@ class EditorViewModel @Inject constructor(
             GpuRetouchStroke.paint(state.activeTool, state.activeColor.toArgb(), LINE_TOOL_INTENSITY)
         }
         strokeOpacity = if (state.activeTool == Tool.BRUSH || stampErase) state.brushOpacity else 1f
-        strokeSelection = state.selection
+        strokeSelection = strokeViewTarget?.let { (primary, view) -> viewClip(primary, view).selection }
+            ?: state.selection
         lastSampleMs = 0L
         azphaltRenderCadence.reset()
         stampFrameRequestedFor = -1L
@@ -9276,8 +9352,41 @@ class EditorViewModel @Inject constructor(
      */
     fun onFillTap(position: Offset, canvasSize: IntSize) {
         val state = _uiState.value
+        fillOn(state.activeLayerId ?: return, position, canvasSize, state.selection)
+    }
+
+    /**
+     * A flood fill from a touch on a multi-view surface (spec/3d-space.md, "Paint per view"): it fills in
+     * the view image [at] names, from the touch's flat point, and stays on the face it was tapped on
+     * (the image's other faces share it) unless a lasso is active, which then clips it as it does a
+     * stroke, cut to this image ([viewClip]). One undo step, like any fill.
+     */
+    @Suppress("ReturnCount")
+    fun onViewFillTap(primaryId: String, at: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, canvasSize: IntSize) {
+        val st = _uiState.value
+        if (st.activeTool != Tool.FILL) return
+        val clip = viewClip(primaryId, at.view)
+        if (clip.blocked) return
+        val selection = clip.selection ?: run {
+            val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(st.layers, primaryId) ?: return
+            val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile) ?: return
+            com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection.faceRegion(
+                at, owner, hull, st.canvasSize, st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(),
+            )
+        }
+        val imageId = ensureViewImageLayer(primaryId, at.view) ?: return
+        fillOn(imageId, Offset(at.x, at.y), canvasSize, selection)
+    }
+
+    @Suppress("ReturnCount")
+    private fun fillOn(
+        layerId: String,
+        position: Offset,
+        canvasSize: IntSize,
+        selection: com.hereliesaz.graffitixr.common.model.Selection?,
+    ) {
+        val state = _uiState.value
         if (state.activeTool != Tool.FILL) return
-        val layerId = state.activeLayerId ?: return
         invalidateResident(layerId)
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
@@ -9294,7 +9403,7 @@ class EditorViewModel @Inject constructor(
             layerScale = layer.scale,
             layerOffset = layer.offset,
             layerRotationZ = layer.rotationZ,
-            selection = state.selection,
+            selection = selection,
         )
         layerStore.addStroke(layerId, command)
         pushDrawNotingInk(layerId, command)
@@ -10283,7 +10392,7 @@ class EditorViewModel @Inject constructor(
             ))
         }
         state.cloneSource?.let { src ->
-            dispatch(EditorIntent.SetCloneSource(reframe(listOf(src)).firstOrNull() ?: src))
+            dispatch(EditorIntent.SetCloneSource(reframedClone(state, src, ::reframe), state.cloneSourceView))
         }
         if (state.warpHandles.isNotEmpty()) {
             dispatch(EditorIntent.SetWarpHandles(reframe(state.warpHandles)))
@@ -10654,7 +10763,12 @@ class EditorViewModel @Inject constructor(
     // ── Clone ────────────────────────────────────────────────────────────────────────────────
 
     /** Aims the clone brush. A tap does this while the tool is armed but unaimed. */
-    fun onSetCloneSource(at: Offset) = dispatch(EditorIntent.SetCloneSource(at))
+    /** A view image's flat point has no screen reading to reframe; any other source follows the canvas. */
+    private fun reframedClone(state: EditorUiState, src: Offset, reframe: (List<Offset>) -> List<Offset>): Offset =
+        if (state.cloneSourceView != null) src else reframe(listOf(src)).firstOrNull() ?: src
+
+    fun onSetCloneSource(at: Offset, view: com.hereliesaz.graffitixr.common.scene.SurfaceView? = null) =
+        dispatch(EditorIntent.SetCloneSource(at, view))
 
     /** Forgets the source, so the next tap picks a new one. */
     fun onResetCloneSource() = dispatch(EditorIntent.SetCloneSource(null))
@@ -12700,9 +12814,81 @@ class EditorViewModel @Inject constructor(
 
     private fun setSurface(groupId: String, profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?) {
         pushHistory()
-        updateUi { s -> s.copy(layers = LayerListOps.mapLayer(s.layers, groupId) { it.copy(surface = profile) }) }
+        // The first time a second view is drawn, the paint made on the sheet comes with it (same step).
+        val carried = carryPaintOntoFront(groupId, profile)
+        updateUi { s ->
+            val layers = LayerListOps.mapLayer(s.layers, groupId) { it.copy(surface = profile) }
+            s.copy(layers = withImagesAfterPrimaries(layers, carried))
+        }
+        carried.forEach { emitMembership(Op.LayerAdd(it)) }
         _uiState.value.layers.firstOrNull { it.id == groupId }?.let { emitLayerProps(groupId, it.toLayerProps()) }
         saveProject()
+    }
+
+    /**
+     * Paint a layer made on the front sheet before a side or top view existed (spec/3d-space.md,
+     * "Paint per view"): when [profile] gives group [groupId] its first hull, each such layer's pixels
+     * are copied, as they are, into a front view image with the layer's transform and a shifted offset
+     * ([SurfaceViewImages.carryOffset]) that puts every pixel where it showed on the sheet. The layer
+     * keeps its own pixels, so flattening the surface brings them back unchanged. Returns the new
+     * (hidden) images, to be added in the same step; their pixel files are written in the background.
+     */
+    @Suppress("ReturnCount")
+    private fun carryPaintOntoFront(
+        groupId: String,
+        profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile?,
+    ): List<Layer> {
+        val state = _uiState.value
+        val before = state.layers.firstOrNull { it.id == groupId }?.surface
+        if (profile == null || !profile.hasHull || before?.hasHull == true) return emptyList()
+        val w = state.canvasSize.width.toFloat()
+        val h = state.canvasSize.height.toFloat()
+        if (w <= 0f || h <= 0f) return emptyList()
+        val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(profile) ?: return emptyList()
+        val after = state.layers.map { if (it.id == groupId) it.copy(surface = profile) else it }
+        return com.hereliesaz.graffitixr.common.scene.SurfaceViewImages.carryable(after, groupId)
+            .mapNotNull { carryOne(it, after, hull, w, h, state.projectId) }
+    }
+
+    /** The front image for [leaf] ([carryPaintOntoFront]); null when its pixels cannot be copied or placed. */
+    @Suppress("LongParameterList", "ReturnCount")
+    private fun carryOne(
+        leaf: Layer,
+        after: List<Layer>,
+        hull: com.hereliesaz.graffitixr.common.scene.SurfaceHull,
+        w: Float,
+        h: Float,
+        projectId: String?,
+    ): Layer? {
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(after, leaf.id) ?: return null
+        val shift = com.hereliesaz.graffitixr.common.scene.SurfaceViewImages
+            .carryOffset(owner, hull, w, h) ?: return null
+        val pixels = leaf.bitmap?.let { SafeBitmap.copy(it, mutable = true) } ?: return null
+        val filename = "layer_${UUID.randomUUID()}.png"
+        val uri = projectId?.let { "file://${java.io.File(context.filesDir, "projects/$it/$filename").path}".toUri() }
+        val image = leaf.copy(
+            id = UUID.randomUUID().toString(),
+            name = "${leaf.name} (front)",
+            bitmap = pixels,
+            uri = uri,
+            isVisible = false,
+            heightMap = null,
+            offset = Offset(leaf.offset.x + shift.first, leaf.offset.y + shift.second),
+            surfaceViewOf = leaf.id,
+            surfaceView = com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT,
+        )
+        putLayerBase(image.id, pixels)
+        layerStore.initStrokes(image.id)
+        if (projectId != null && uri != null) {
+            SafeBitmap.copy(pixels, mutable = false)?.let { copy ->
+                viewModelScope.launch(dispatchers.io) {
+                    val bytes = ImageUtils.bitmapToByteArray(copy)
+                    runCatching { projectRepository.saveArtifact(projectId, filename, bytes) }
+                    saveProject()
+                }
+            }
+        }
+        return image
     }
 
     /**

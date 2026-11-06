@@ -23,22 +23,45 @@ object SurfaceHullMesh {
         val r = rect[2]
         val b = rect[3]
         if (r <= l || b <= t) return null
-        val mesh = hull.meshByView()[view]?.copyOf() ?: return null
+        val sheet = hull.meshByView()[view]?.copyOf()
+        val caps = hull.capMeshByView()[view]?.copyOf()
+        if (sheet == null && caps == null) return null
         var i = 0
-        while (i + STRIDE <= mesh.size) {
-            val flat = hull.paintPointAt(view, mesh[i + 3], mesh[i + 4]) ?: return null
-            val box = toBox.apply(flat.first, flat.second, 0f)
-            mesh[i + 3] = (box[0] - l) / (r - l)
-            mesh[i + 4] = (box[1] - t) / (b - t)
+        while (sheet != null && i + STRIDE <= sheet.size) {
+            val flat = hull.paintPointAt(view, sheet[i + 3], sheet[i + 4]) ?: return null
+            place(sheet, i, flat.first, flat.second, toBox, l, t, r, b)
             i += STRIDE
         }
-        return mesh
+        i = 0
+        // A cap's vertices already carry its point in the view's image (its own region of it).
+        while (caps != null && i + STRIDE <= caps.size) {
+            place(caps, i, caps[i + 3], caps[i + 4], toBox, l, t, r, b)
+            i += STRIDE
+        }
+        return (sheet ?: FloatArray(0)) + (caps ?: FloatArray(0))
+    }
+
+    @Suppress("LongParameterList")
+    private fun place(
+        mesh: FloatArray,
+        i: Int,
+        fx: Float,
+        fy: Float,
+        toBox: Affine3,
+        l: Float,
+        t: Float,
+        r: Float,
+        b: Float,
+    ) {
+        val box = toBox.apply(fx, fy, 0f)
+        mesh[i + 3] = (box[0] - l) / (r - l)
+        mesh[i + 4] = (box[1] - t) / (b - t)
     }
 
     /** Every view of [hull] that carries surface, with its textured patch for the rect [rects] gives it. */
     fun all(hull: SurfaceHull, toBox: Affine3, rects: (SurfaceView) -> FloatArray?): Map<SurfaceView, FloatArray> {
         val out = LinkedHashMap<SurfaceView, FloatArray>()
-        for (view in hull.meshByView().keys) {
+        for (view in hull.meshByView().keys + hull.capMeshByView().keys) {
             val rect = rects(view) ?: continue
             textured(hull, view, toBox, rect)?.let { out[view] = it }
         }

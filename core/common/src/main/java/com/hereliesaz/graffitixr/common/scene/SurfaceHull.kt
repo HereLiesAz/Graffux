@@ -49,10 +49,20 @@ class HullHit(
     val t: Float,
     /** The ray started inside the solid, so this is where it leaves, seen from the inside. */
     val fromInside: Boolean,
+    /** For a [cap], the box face it lies on: `axis * 2 + side` (side 0 the low end); -1 on a drawn outline's sheet. */
+    val face: Int = -1,
 ) {
     /** The face is the box that closes an axis no pair of drawn views bounds, not a drawn outline. */
     val cap: Boolean get() = view == null
 }
+
+/**
+ * Where a touch lands in the paint images ([SurfaceHull.paintTarget]): the [view] whose image, the
+ * point ([x], [y]) in it, and the [region] of that image: 0 for the view's own sheet, `1 + face`
+ * for a cap. Two touches in different regions are on different faces, so a stroke between them is
+ * cut at the crease even though both paint the same image.
+ */
+class PaintTarget(val view: SurfaceView, val x: Float, val y: Float, val region: Int)
 
 /**
  * The surface of a group drawn from more than one view (spec/3d-space.md, "Group surfaces"),
@@ -162,6 +172,116 @@ class SurfaceHull private constructor(
         return u to t - sweepRange(prism).first
     }
 
+    /**
+     * [paintPoint] for any hit: a sheet hit lands in its view's image as [paintPoint] says (region 0); a
+     * cap hit lands in its host view's cap region ([capMeshByView]). Null only for a thin-wall hull's
+     * stray box hit, which does not occur.
+     */
+    fun paintTarget(hit: HullHit): PaintTarget? {
+        hit.view?.let { v -> return paintPointAt(v, hit.u, hit.t)?.let { PaintTarget(v, it.first, it.second, 0) } }
+        if (wallIndex >= 0 || hit.face < 0) return null
+        return capPaint(hit.face, hit.x, hit.y, hit.z)
+    }
+
+    /**
+     * The faces no drawn view bounds, as triangles per host view (spec/3d-space.md, "Caps"): where the
+     * solid is closed by the clip box instead of by a drawn outline's sheet (a tilted sweep leaves a
+     * sliver of box face; a lone closed outline leaves its two ends). Each vertex is x, y, z (box-local)
+     * then the point in the host view's paint image, already in [paintPoint]'s space (the cap's own
+     * region, right of the view's sheet). A face that coincides with a drawn sheet is that sheet's,
+     * not a cap. Empty for a thin wall.
+     */
+    fun capMeshByView(): Map<SurfaceView, FloatArray> = caps
+
+    private val caps: Map<SurfaceView, FloatArray> by lazy { buildCaps() }
+
+    /**
+     * The rectangle (left, top, right, bottom) a face occupies in [view]'s paint image: [region] 0 its sheet,
+     * `1 + face` one of its caps (see [PaintTarget.region]). It bounds what an image-wide tool (a flood
+     * fill) may reach from a touch on that face, so it never runs into the view's other faces, which
+     * share the image. Null when the view or region carries nothing.
+     */
+    fun regionRect(view: SurfaceView, region: Int): FloatArray? {
+        if (region <= 0) {
+            val (w, h) = paintSize(view) ?: return null
+            return floatArrayOf(0f, 0f, w, h)
+        }
+        val face = region - 1
+        if (wallIndex >= 0 || face !in 0..5) return null
+        val host = capHost(face / 2)
+        if (host.view != view) return null
+        val (p, q) = planeAxes(face / 2)
+        val x = capOffset(host, face)
+        return floatArrayOf(x, 0f, x + hi[p] - lo[p], hi[q] - lo[q])
+    }
+
+    /** The view whose image holds the caps on [axis]: the one looking at them most squarely (its sweep most parallel to the axis), the earlier on a tie. */
+    private fun capHost(axis: Int): Prism {
+        var best = prisms[0]
+        for (p in prisms) if (abs(p.s[axis]) > abs(best.s[axis]) + 1e-6f) best = p
+        return best
+    }
+
+    private fun planeAxes(axis: Int): Pair<Int, Int> = when (axis) {
+        0 -> 1 to 2
+        1 -> 0 to 2
+        else -> 0 to 1
+    }
+
+    private fun capGap(): Float = max(hi[0] - lo[0], max(hi[1] - lo[1], hi[2] - lo[2])) * CAP_GAP_RATIO
+
+    /** Where [face]'s region starts in its host's image: right of the sheet, faces in order, a gap between. */
+    private fun capOffset(host: Prism, face: Int): Float {
+        var x = host.cum[host.edges] + capGap()
+        for (g in 0 until face) {
+            if (capHost(g / 2) !== host) continue
+            val (p, _) = planeAxes(g / 2)
+            x += hi[p] - lo[p] + capGap()
+        }
+        return x
+    }
+
+    private fun capPaint(face: Int, x: Float, y: Float, z: Float): PaintTarget {
+        val axis = face / 2
+        val (p, q) = planeAxes(axis)
+        val pos = floatArrayOf(x, y, z)
+        val host = capHost(axis)
+        return PaintTarget(host.view, capOffset(host, face) + (pos[p] - lo[p]), pos[q] - lo[q], 1 + face)
+    }
+
+    private fun buildCaps(): Map<SurfaceView, FloatArray> {
+        if (wallIndex >= 0 || prisms.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<SurfaceView, ArrayList<Float>>()
+        for (face in 0 until 6) {
+            val axis = face / 2
+            val (p, q) = planeAxes(axis)
+            val origin = FloatArray(3)
+            origin[axis] = if (face % 2 == 0) lo[axis] else hi[axis]
+            origin[p] = lo[p]
+            origin[q] = lo[q]
+            val e = FloatArray(3)
+            e[p] = hi[p] - lo[p]
+            val s = FloatArray(3)
+            s[q] = 1f
+            val raw = ArrayList<Float>()
+            tessellate(NO_SKIP, origin, e, s) { af, t ->
+                val pos = FloatArray(3) { origin[it] + e[it] * af + s[it] * t }
+                raw += pos[0]; raw += pos[1]; raw += pos[2]
+                val target = capPaint(face, pos[0], pos[1], pos[2])
+                raw += target.x; raw += target.y
+            }
+            val host = capHost(axis).view
+            var i = 0
+            while (i + 15 <= raw.size) {
+                val c = FloatArray(3) { k -> (raw[i + k] + raw[i + 5 + k] + raw[i + 10 + k]) / 3f }
+                // Strictly inside every drawn outline: a point on one's boundary is that sheet's.
+                if (prisms.all { it.contains(c, strict = true) }) out.getOrPut(host) { ArrayList() }.addAll(raw.subList(i, i + 15))
+                i += 15
+            }
+        }
+        return out.mapValues { it.value.toFloatArray() }
+    }
+
     private fun carrying(view: SurfaceView): Prism? =
         prisms.withIndex().firstOrNull { (j, p) -> p.view == view && (wallIndex < 0 || j == wallIndex) }?.value
 
@@ -192,9 +312,10 @@ class SurfaceHull private constructor(
      */
     private fun lineIntervals(p0: FloatArray, d: FloatArray, skip: Int): List<Iv> {
         var acc = boxInterval(p0, d)?.let { listOf(it) } ?: return emptyList()
+        val tol = TIE_EPS / sqrt(dot(d, d)).coerceAtLeast(1e-12f)
         for ((j, prism) in prisms.withIndex()) {
             if (j == skip || j == wallIndex) continue
-            acc = intersect(acc, prism.intervals(p0, d, strict = skip != NO_SKIP && skip != wallIndex && j < skip))
+            acc = intersect(acc, prism.intervals(p0, d, strict = skip != NO_SKIP && skip != wallIndex && j < skip), tol)
             if (acc.isEmpty()) return acc
         }
         return acc
@@ -229,20 +350,21 @@ class SurfaceHull private constructor(
      * a drawn outline's sheet beats the box's face, and the earlier outline (front, side, top) beats a
      * later one, so a ray hit is attributed to the view whose patch [meshByView] emits for that plane.
      */
-    private fun tie(xAt: Float, xSrc: Int, yAt: Float, ySrc: Int, xWins: Boolean): Int = when {
+    private fun tie(xAt: Float, xSrc: Int, yAt: Float, ySrc: Int, xWins: Boolean, tol: Float): Int = when {
+        // Two faces in one plane meet a slanted ray at parameters a rounding error apart: that is a tie
+        // too ([tol] is [TIE_EPS] in the ray's own units), or the hit and the patch would name different views.
+        abs(xAt - yAt) <= tol -> if (xSrc >= 0) xSrc else ySrc
         xWins -> xSrc
-        xAt != yAt -> ySrc
-        xSrc >= 0 -> xSrc
         else -> ySrc
     }
 
-    private fun intersect(a: List<Iv>, b: List<Iv>): List<Iv> {
+    private fun intersect(a: List<Iv>, b: List<Iv>, tol: Float): List<Iv> {
         val out = ArrayList<Iv>()
         for (x in a) for (y in b) {
             val l0 = max(x.lo, y.lo)
             val l1 = min(x.hi, y.hi)
             if (l1 > l0) {
-                out += Iv(l0, l1, tie(x.lo, x.loSrc, y.lo, y.loSrc, x.lo > y.lo), tie(x.hi, x.hiSrc, y.hi, y.hiSrc, x.hi < y.hi))
+                out += Iv(l0, l1, tie(x.lo, x.loSrc, y.lo, y.loSrc, x.lo > y.lo, tol), tie(x.hi, x.hiSrc, y.hi, y.hiSrc, x.hi < y.hi, tol))
             }
         }
         out.sortBy { it.lo }
@@ -288,7 +410,7 @@ class SurfaceHull private constructor(
             val face = -1 - src
             val n = FloatArray(3)
             n[face / 2] = if (face % 2 == 0) -1f else 1f
-            return faced(HullHit(px, py, pz, n[0], n[1], n[2], s, null, -1, 0f, 0f, fromInside), dir)
+            return faced(HullHit(px, py, pz, n[0], n[1], n[2], s, null, -1, 0f, 0f, fromInside, face), dir)
         }
         val prism = prisms[src / EDGE_STRIDE]
         val edge = src % EDGE_STRIDE
@@ -305,7 +427,7 @@ class SurfaceHull private constructor(
     /** [hit] with its normal turned to face the ray's origin. */
     private fun faced(h: HullHit, dir: FloatArray): HullHit =
         if (h.nx * dir[0] + h.ny * dir[1] + h.nz * dir[2] > 0f) {
-            HullHit(h.x, h.y, h.z, -h.nx, -h.ny, -h.nz, h.distance, h.view, h.edge, h.u, h.t, h.fromInside)
+            HullHit(h.x, h.y, h.z, -h.nx, -h.ny, -h.nz, h.distance, h.view, h.edge, h.u, h.t, h.fromInside, h.face)
         } else {
             h
         }
@@ -316,7 +438,15 @@ class SurfaceHull private constructor(
         val p0 = prism.pts3[i]
         val p1 = prism.pts3[(i + 1) % prism.n]
         val e = FloatArray(3) { p1[it] - p0[it] }
-        val s = prism.s
+        tessellate(k, p0, e, prism.s) { af, t -> prism.vertex(i, p0, e, af, t, out) }
+    }
+
+    /**
+     * Triangles of the planar face `p0 + a e + t s` (a in 0..1, t over the sweep range that reaches the
+     * box) that lie in the solid and every prism but [skip], each corner reported to [vertex] as (a, t).
+     * A sheet is the face of a prism's edge with [skip] that prism; a cap is a face of the box with no skip.
+     */
+    private fun tessellate(skip: Int, p0: FloatArray, e: FloatArray, s: FloatArray, vertex: (Float, Float) -> Unit) {
         // The sweep range that reaches the box.
         var tLo = Float.POSITIVE_INFINITY
         var tHi = Float.NEGATIVE_INFINITY
@@ -341,7 +471,7 @@ class SurfaceHull private constructor(
             }
         }
         for ((j, other) in prisms.withIndex()) {
-            if (j == k || j == wallIndex) continue
+            if (j == skip || j == wallIndex) continue
             val q0x = dot(p0, other.a)
             val q0y = dot(p0, other.b)
             val ax = dot(e, other.a)
@@ -370,13 +500,13 @@ class SurfaceHull private constructor(
         val ts = cuts.filter { it.isFinite() && it >= tLo && it <= tHi }.sorted()
         val merged = ArrayList<Float>()
         for (t in ts) if (merged.isEmpty() || t - merged.last() > 1e-4f) merged += t
-        for (m in 0 until merged.size - 1) slab(k, prism, i, p0, e, merged[m], merged[m + 1], 0, out)
+        for (m in 0 until merged.size - 1) slab(skip, s, p0, e, merged[m], merged[m + 1], 0, vertex)
     }
 
     /** The face's inside spans along its edge (a in 0..1) at sweep distance [t], widest first dropped if empty. */
-    private fun scan(k: Int, p0: FloatArray, e: FloatArray, s: FloatArray, t: Float): List<Iv> {
+    private fun scan(skip: Int, p0: FloatArray, e: FloatArray, s: FloatArray, t: Float): List<Iv> {
         val origin = FloatArray(3) { p0[it] + s[it] * t }
-        return lineIntervals(origin, e, skip = k)
+        return lineIntervals(origin, e, skip = skip)
             .mapNotNull { iv ->
                 val a = max(iv.lo, 0f)
                 val b = min(iv.hi, 1f)
@@ -384,14 +514,14 @@ class SurfaceHull private constructor(
             }
     }
 
-    private fun slab(k: Int, prism: Prism, i: Int, p0: FloatArray, e: FloatArray, t0: Float, t1: Float, depth: Int, out: MutableList<Float>) {
+    private fun slab(skip: Int, s: FloatArray, p0: FloatArray, e: FloatArray, t0: Float, t1: Float, depth: Int, vertex: (Float, Float) -> Unit) {
         val h = t1 - t0
         if (h < 1e-5f) return
         val m1 = t0 + 0.25f * h
         val m2 = t0 + 0.75f * h
-        val a = scan(k, p0, e, prism.s, m1)
-        val b = scan(k, p0, e, prism.s, m2)
-        val c = scan(k, p0, e, prism.s, t0 + 0.5f * h)
+        val a = scan(skip, p0, e, s, m1)
+        val b = scan(skip, p0, e, s, m2)
+        val c = scan(skip, p0, e, s, t0 + 0.5f * h)
         var linear = a.size == b.size && a.size == c.size
         if (linear) {
             for (n in a.indices) {
@@ -401,8 +531,8 @@ class SurfaceHull private constructor(
         if (!linear) {
             if (depth < MAX_DEPTH) {
                 val mid = t0 + 0.5f * h
-                slab(k, prism, i, p0, e, t0, mid, depth + 1, out)
-                slab(k, prism, i, p0, e, mid, t1, depth + 1, out)
+                slab(skip, s, p0, e, t0, mid, depth + 1, vertex)
+                slab(skip, s, p0, e, mid, t1, depth + 1, vertex)
             }
             return
         }
@@ -413,7 +543,7 @@ class SurfaceHull private constructor(
             val l1 = at(a[n].lo, b[n].lo, t1)
             val h1 = at(a[n].hi, b[n].hi, t1)
             val quad = arrayOf(l0 to t0, h0 to t0, h1 to t1, l1 to t1)
-            fun v(q: Pair<Float, Float>) = prism.vertex(i, p0, e, q.first, q.second, out)
+            fun v(q: Pair<Float, Float>) = vertex(q.first, q.second)
             if (h0 - l0 > 1e-6f) { v(quad[0]); v(quad[1]); v(quad[2]) }
             if (h1 - l1 > 1e-6f) { v(quad[0]); v(quad[2]); v(quad[3]) }
         }
@@ -552,6 +682,9 @@ class SurfaceHull private constructor(
         private const val NO_SKIP = -1
         private const val LINEAR_TOL = 1e-3f
         private const val MAX_DEPTH = 8
+
+        /** The gap between a view's sheet and its cap regions in its image, and between caps, as a fraction of the box's widest side. */
+        private const val CAP_GAP_RATIO = 0.05f
 
         /** The src code of a box face: axis [k], low (0) or high (1) side. */
         private fun boxSrc(k: Int, side: Int) = -1 - (k * 2 + side)

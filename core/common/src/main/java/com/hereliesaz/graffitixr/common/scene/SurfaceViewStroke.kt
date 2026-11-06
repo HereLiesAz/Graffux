@@ -53,12 +53,12 @@ object SurfaceViewStroke {
             val m = map(ax + (bx - ax) * mid, ay + (by - ay) * mid)
             when {
                 m == null -> hi = mid
-                m.view == from.view -> {
+                m.sameFace(from) -> {
                     lo = mid
                     lastAt = mid
                     last = m
                 }
-                m.view == to.view -> {
+                m.sameFace(to) -> {
                     hi = mid
                     firstAt = mid
                     first = m
@@ -67,7 +67,7 @@ object SurfaceViewStroke {
             }
         }
         // The far side must really be `to`'s view at the bracket; else keep the touches.
-        val farOk = map(ax + (bx - ax) * hi, ay + (by - ay) * hi)?.view == to.view
+        val farOk = map(ax + (bx - ax) * hi, ay + (by - ay) * hi)?.sameFace(to) == true
         if (!farOk) return Crossing(ax, ay, from, bx, by, to)
         return Crossing(
             ax + (bx - ax) * lastAt, ay + (by - ay) * lastAt, last,

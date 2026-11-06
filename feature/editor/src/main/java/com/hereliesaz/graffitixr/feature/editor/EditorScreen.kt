@@ -667,11 +667,15 @@ fun EditorScreen(
                 val plane = strokePlane.value ?: activePlane
                 val radius = uiState.effectiveScreenBrushSize() / 2f
                 val vf = plane.toViewFlatByFootprint(Offset(sample.x, sample.y), radius)
+                    // A lasso reaching nothing of the view, or a clone stroke outside its source's image, is a miss.
+                    ?.takeIf { f -> plane.layerId?.let { id -> !vm.viewSelectionBlocks(id, f.view) } ?: true }
+                    ?.takeIf { f -> uiState.activeTool != Tool.CLONE || uiState.cloneSourceView == f.view }
                 vf?.let {
                     val penAngle = nibLayerAngle(sample.telemetry.penAngleDegrees, uiState.viewportRotation)
                     ViewSample(
                         it.view, sample,
                         sample.copy(x = it.x, y = it.y, telemetry = sample.telemetry.copy(penAngleDegrees = penAngle)),
+                        it.region,
                     )
                 }
             }
@@ -709,7 +713,7 @@ fun EditorScreen(
                     strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
                     strokeSize.value = size
                     strokeOnHull.value = (strokePlane.value ?: activePlane).onHull &&
-                        (uiState.activeTool == Tool.BRUSH || uiState.activeTool == Tool.ERASER)
+                        uiState.activeTool in HULL_STROKE_TOOLS
                     if (strokeOnHull.value) viewFeed.onStart(sample) else strokeFeed.onStart(sample)
                 },
                 onStrokePoint = { sample ->
@@ -723,9 +727,27 @@ fun EditorScreen(
                     if (strokeOnHull.value) viewFeed.onCancel() else strokeFeed.onCancel()
                     strokePlane.value = null
                 },
-                onFillTap = { offset, size -> vm.onFillTap(toWorld(offset), size) },
+                onFillTap = { offset, size ->
+                    // On a multi-view surface a fill lands in the image of the view under the tap.
+                    val onHull = activePlane.onHull
+                    val hit = if (onHull) activePlane.toViewFlatByFootprint(offset, 0f) else null
+                    val primary = activePlane.layerId
+                    if (!onHull) {
+                        vm.onFillTap(toWorld(offset), size)
+                    } else if (hit != null && primary != null) {
+                        vm.onViewFillTap(primary, hit, size)
+                    }
+                },
                 pickingCloneSource = uiState.activeTool == Tool.CLONE && uiState.cloneSource == null,
-                onPickCloneSource = { at -> vm.onSetCloneSource(toWorld(at)) },
+                onPickCloneSource = { at ->
+                    if (activePlane.onHull) {
+                        activePlane.toViewFlatByFootprint(at, 0f)?.let {
+                            vm.onSetCloneSource(Offset(it.x, it.y), it.view)
+                        }
+                    } else {
+                        vm.onSetCloneSource(toWorld(at))
+                    }
+                },
                 onEyedropStart = { size -> vm.onEyedropStart(size) },
                 // Eyedrop already does its own screen→world conversion inside the view-model
                 // (`onEyedropSample`'s doc comment says as much) — the raw screen point is also kept
@@ -757,15 +779,23 @@ fun EditorScreen(
                 // Through the active layer's plane: on a tilted layer each lasso point is where the
                 // ray meets it (a point off the plane is dropped), in the flat space the selection
                 // and its clip live in.
-                onSelectionEnd = { pts, size -> vm.onSelectionEnd(pts.mapNotNull(activePlane::toFlat), size) },
-                onSelectionMove = { delta ->
-                    vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
+                onSelectionEnd = { pts, size ->
+                    vm.onSelectionEnd(pts.mapNotNull(activePlane::toSelectionPoint), size)
                 },
-                onAutoSelect = { at, size -> activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) } },
+                // Moving a selection's pixels and the wand read one layer's own pixels; a multi-view
+                // surface paints into several images, so they are not offered there yet.
+                onSelectionMove = { delta ->
+                    if (!activePlane.onHull) {
+                        vm.onSelectionMove(activePlane.flatDelta(delta, uiState.selection?.outline))
+                    }
+                },
+                onAutoSelect = { at, size ->
+                    if (!activePlane.onHull) activePlane.toFlat(at)?.let { vm.onAutoSelect(it, size) }
+                },
                 onClearSelection = { vm.onClearSelection() },
                 // The rings are stored in the same space onSelectionEnd maps into, so the
                 // move-or-new decision tests the press there too.
-                toSelectionSpace = activePlane::toFlat,
+                toSelectionSpace = activePlane::toSelectionPoint,
             )
         }
 
@@ -799,7 +829,8 @@ fun EditorScreen(
         // view-model, so it is pushed back through the camera for display — the same
         // world-for-state, screen-for-display split as the warp handles and the marching ants.
         if (uiState.activeTool == Tool.CLONE) {
-            uiState.cloneSource?.let { source ->
+            // A view image's flat point is not a place on screen, so a multi-view surface shows no reticle.
+            uiState.cloneSource?.takeIf { uiState.cloneSourceView == null }?.let { source ->
                 val src = CanvasHitTest.worldToScreen(
                     source, uiState.viewportOffset, uiState.viewportZoom, uiState.viewportRotation,
                 )
@@ -2043,3 +2074,6 @@ private fun SurfaceGuideGrid(
         lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.9f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
     }
 }
+
+/** The tools whose strokes are painted per view image on a multi-view surface. */
+private val HULL_STROKE_TOOLS = setOf(Tool.BRUSH, Tool.ERASER, Tool.CLONE)

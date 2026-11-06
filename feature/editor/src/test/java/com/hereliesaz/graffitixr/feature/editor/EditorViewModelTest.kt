@@ -2352,4 +2352,121 @@ class EditorViewModelTest {
         coVerify(exactly = 0) { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) }
         coVerify(exactly = 0) { projectRepository.updateProject(any<GraffitiProject>()) }
     }
+
+    // ── Hull gaps: carry, duplicate, fill/clone/lasso on view images ──
+
+    private fun paintBitmap(): Bitmap = mockk<Bitmap>(relaxed = true).also {
+        every { it.width } returns 64
+        every { it.height } returns 64
+        every { it.copy(any(), any()) } returns it
+    }
+
+    /** A surface group "g" with paint layer "a" holding pixels, still seen from the front only. */
+    private fun paintedSurfaceVm(): Bitmap {
+        every { context.filesDir } returns java.io.File(System.getProperty("java.io.tmpdir"))
+        surfaceGroupVm()
+        val bmp = paintBitmap()
+        viewModel.setLayers(viewModel.uiState.value.layers.map { if (it.id == "a") it.copy(bitmap = bmp) else it })
+        testDispatcher.scheduler.advanceUntilIdle()
+        return bmp
+    }
+
+    private fun drawSide(g: String = "g") {
+        viewModel.onArmSurfaceView(g, SurfaceView.SIDE)
+        viewModel.onSurfaceProfileDrawn(
+            listOf(Offset(100f, 300f), Offset(500f, 300f), Offset(500f, 900f), Offset(100f, 900f)),
+        )
+        testDispatcher.scheduler.runCurrent()
+    }
+
+    @Test
+    fun `drawing the second view carries sheet paint onto the front image as one undo step`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        paintedSurfaceVm()
+        val undo = viewModel.uiState.value.undoCount
+        drawSide()
+        val st = viewModel.uiState.value
+        val image = st.layers.single { it.surfaceViewOf == "a" }
+        assertEquals(SurfaceView.FRONT, image.surfaceView)
+        assertEquals("g", image.parentId)
+        assertFalse(image.isVisible)
+        assertNotNull(image.bitmap)
+        // The layer keeps its own pixels; the image sits right after it in the stack.
+        assertNotNull(st.layers.first { it.id == "a" }.bitmap)
+        assertEquals(st.layers.indexOfFirst { it.id == "a" } + 1, st.layers.indexOfFirst { it.id == image.id })
+        assertEquals(undo + 1, st.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.none { it.surfaceViewOf != null })
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface!!.side)
+    }
+
+    @Test
+    fun `a surface that already had a second view, or a layer with no pixels, carries nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupVm()
+        drawSide()
+        assertTrue(viewModel.uiState.value.layers.none { it.surfaceViewOf != null })
+        // Redrawing a view once there is a hull is not a first view: nothing new is carried.
+        val bmp = paintBitmap()
+        viewModel.setLayers(viewModel.uiState.value.layers.map { if (it.id == "a") it.copy(bitmap = bmp) else it })
+        drawSide()
+        assertTrue(viewModel.uiState.value.layers.none { it.surfaceViewOf != null })
+    }
+
+    @Test
+    fun `duplicating a paint layer duplicates its view images, relinked, and undo takes them back`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        paintedSurfaceVm()
+        drawSide()
+        val source = viewModel.uiState.value.layers.single { it.surfaceViewOf == "a" }
+        viewModel.onLayerDuplicated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val layers = viewModel.uiState.value.layers
+        val copy = layers.single { it.name == "a Copy" }
+        val images = layers.filter { it.surfaceViewOf == copy.id }
+        assertEquals(1, images.size)
+        assertNotEquals(source.id, images.single().id)
+        assertEquals(SurfaceView.FRONT, images.single().surfaceView)
+        assertEquals(copy.parentId, images.single().parentId)
+        // The original's image is still its own.
+        assertEquals(1, layers.count { it.surfaceViewOf == "a" })
+        assertEquals(layers.indexOfFirst { it.id == copy.id } + 1, layers.indexOfFirst { it.id == images.single().id })
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.none { it.id == copy.id || it.surfaceViewOf == copy.id })
+        assertEquals(1, viewModel.uiState.value.layers.count { it.surfaceViewOf == "a" })
+    }
+
+    @Test
+    fun `a fill on a multi-view surface lands in the tapped view's image, bounded to its face, and a lasso clips it per image`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        paintedSurfaceVm()
+        drawSide()
+        viewModel.setActiveTool(Tool.FILL)
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val at = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(SurfaceView.SIDE, 20f, 30f, 0)
+        viewModel.onViewFillTap("a", at, androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.runCurrent()
+        val image = viewModel.uiState.value.layers
+            .single { it.surfaceViewOf == "a" && it.surfaceView == SurfaceView.SIDE }
+        // Not on the paint layer's own sheet: on the side image, from the tapped flat point.
+        assertTrue(viewModel.recordedStrokesForTest("a").none { it.tool == Tool.FILL })
+        val fill = viewModel.recordedStrokesForTest(image.id).single { it.tool == Tool.FILL }
+        assertEquals(listOf(Offset(20f, 30f)), fill.path)
+        // No lasso: the fill is held to the face (a one-ring region round it).
+        assertEquals(1, fill.selection!!.rings.size)
+        // A lasso that covers nothing of the surface blocks the fill.
+        viewModel.onSelectionEnd(
+            listOf(Offset(-500f, -500f), Offset(-400f, -500f), Offset(-400f, -400f)),
+            androidx.compose.ui.unit.IntSize(1000, 1600),
+        )
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(viewModel.viewSelectionBlocks("a", SurfaceView.SIDE))
+        val n = viewModel.recordedStrokesForTest(image.id).size
+        viewModel.onViewFillTap("a", at, androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(n, viewModel.recordedStrokesForTest(image.id).size)
+    }
 }

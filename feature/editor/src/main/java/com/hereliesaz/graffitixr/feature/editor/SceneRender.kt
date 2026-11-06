@@ -236,8 +236,18 @@ internal class ActivePlaneMapping private constructor(
         return p?.let { Offset(it.first, it.second) }
     }
 
-    /** [flatToWorld] when the layer is drawn in 3D, null (no mapping) when it is flat. */
-    fun flatToWorldOrNull(): ((Offset) -> Offset?)? = if (chain == null) null else ::flatToWorld
+    /**
+     * [flatToWorld] when the layer is drawn in 3D, null (no mapping) when it is flat. Null on a
+     * multi-view surface too: its selection is kept in world space ([toSelectionPoint]).
+     */
+    fun flatToWorldOrNull(): ((Offset) -> Offset?)? = if (chain == null || onHull) null else ::flatToWorld
+
+    /**
+     * A lasso point as the selection stores it: the flat point on the layer's plane, except on a
+     * multi-view surface, where each view image has its own flat space, so the lasso stays in world
+     * space and is cut to each image when used (`SurfaceViewSelection`, spec/3d-space.md).
+     */
+    fun toSelectionPoint(screen: Offset): Offset? = if (onHull) world(screen) else toFlat(screen)
 
     /**
      * A screen drag [delta] as a flat-space delta, measured at [around] (the selection, whose centroid
@@ -381,6 +391,8 @@ internal class ViewSample<S>(
     val view: com.hereliesaz.graffitixr.common.scene.SurfaceView,
     val raw: S,
     val flat: S,
+    /** The face of the view's image the touch is on (0 its sheet, else a cap); a change cuts the stroke like a change of view. */
+    val region: Int = 0,
 )
 
 /**
@@ -430,7 +442,7 @@ internal class ViewStrokeFeed<S>(
                 segmentEnd()
                 start(mapped.view, mapped.flat)
             }
-            prev.view != mapped.view -> {
+            (prev.view != mapped.view || prev.region != mapped.region) -> {
                 val cut = bridge(prev, mapped)
                 if (cut != null) point(cut.first)
                 segmentEnd()
@@ -459,8 +471,8 @@ internal fun ActivePlaneMapping.bridgeViews(
     prev: ViewSample<BrushSample>,
     next: ViewSample<BrushSample>,
 ): Pair<BrushSample, BrushSample>? {
-    val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(prev.view, prev.flat.x, prev.flat.y)
-    val tm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(next.view, next.flat.x, next.flat.y)
+    val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(prev.view, prev.flat.x, prev.flat.y, prev.region)
+    val tm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(next.view, next.flat.x, next.flat.y, next.region)
     val c = com.hereliesaz.graffitixr.common.scene.SurfaceViewStroke.crossing(
         prev.raw.x, prev.raw.y, sm, next.raw.x, next.raw.y, tm,
     ) { x, y -> toViewFlatByFootprint(Offset(x, y), 0f) }

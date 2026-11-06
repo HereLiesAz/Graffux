@@ -33,6 +33,26 @@ class ViewStrokeFeedTest {
     )
 
     @Test
+    fun `a stroke from a view's sheet onto its cap is cut like a change of view`() {
+        // Same image, two faces of it (region 0 its sheet, 1 a cap): painting across would draw a line over the gap.
+        val log = Log()
+        val f = ViewStrokeFeed<Float>(
+            toView = { x -> ViewSample(SurfaceView.FRONT, x, x, region = if (x < 10f) 0 else 1) },
+            bridge = { _, _ -> 10f to 50f },
+            start = { v, s -> log.events += "start $v $s" },
+            point = { log.events += "point $it" },
+            end = { log.events += "end" },
+            cancel = { log.events += "cancel" },
+            segmentEnd = { log.events += "segmentEnd" },
+        )
+        f.onStart(8f); f.onPoint(12f); f.onEnd()
+        assertEquals(
+            listOf("start FRONT 8.0", "point 10.0", "segmentEnd", "start FRONT 50.0", "point 12.0", "end"),
+            log.events,
+        )
+    }
+
+    @Test
     fun `a stroke inside one view is one segment`() {
         val log = Log()
         val f = feed(log)

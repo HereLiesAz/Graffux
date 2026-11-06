@@ -669,6 +669,9 @@ data class EditorUiState(
     // tap sets it, and until then a drag would have nothing to copy. Survives strokes, so a source
     // picked once serves every stroke after it until it is reset.
     val cloneSource: Offset? = null,
+    // On a multi-view surface the view image [cloneSource] is a flat point of (spec/3d-space.md, "Paint per
+    // view"); a clone stroke copies within that image only. Null on every other layer.
+    val cloneSourceView: com.hereliesaz.graffitixr.common.scene.SurfaceView? = null,
     // Whether Paste has anything to paste. The pixels themselves live in the ViewModel, not here —
     // a full-canvas bitmap in UiState would be compared on every recomposition for no gain, and
     // the UI only ever needs the yes/no.
