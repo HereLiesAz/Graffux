@@ -112,6 +112,16 @@ object SurfaceFootprint {
                 best = SurfaceHit(u, t, e.third)
             }
         }
+        profile.relief?.let { relief ->
+            for (line in ReliefMath.outline(relief)) {
+                for (k in 0 until line.size / 2 - 1) {
+                    val u0 = line[k * 2]; val t0 = line[k * 2 + 1]
+                    val u1 = line[k * 2 + 2]; val t1 = line[k * 2 + 3]
+                    consider(camAt(u0, t0), camAt(u1, t1)) { f -> (u0 + (u1 - u0) * f) to (t0 + (t1 - t0) * f) }
+                }
+            }
+            return best
+        }
         for (i in 0 until profile.count - 1) {
             val u0 = profile.arcLengths[i]
             val u1 = profile.arcLengths[i + 1]
