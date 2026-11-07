@@ -496,8 +496,9 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   - *Duplicating.* Duplicating a paint layer also duplicates its view images: new ids, linked to the copy
     (`surfaceViewOf`), placed after it, each with its own pixel file, stroke log and base
     (`SurfaceViewImages.duplicates`). One undo step takes the copy and its images back.
-  - *Fill, Clone, lasso.* A multi-view group keeps its lasso in world space (the marching ants are the lasso
-    as drawn) and cuts it to each image when used (`SurfaceViewSelection.forView`: the ring is clipped to every
+  - *Fill, Clone, lasso.* A lasso on a multi-view group is stored per view image (see *Selection on a multi-view
+    surface*); a plain world-space lasso (one that reached no facing face) is cut to each image when used
+    (`SurfaceViewSelection.forView`, which is also the cut a lasso is converted with: the ring is clipped to every
     projected triangle of the view's patches and caps, carried into the image through the triangle's own
     perspective-correct mapping, so a point is selected in an image exactly when it is under the lasso on
     the surface; a lasso crossing a crease is split across the images; triangles turned away from the viewer,
@@ -518,23 +519,38 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     clone reticle is drawn where that point is on the surface (`SurfaceHull.pointAt`, the inverse of
     `paintTarget`). Moving selected pixels and Automatic (wand) selection are covered in
     *Selection on a multi-view surface* below.
-  - *Selection on a multi-view surface.* **Representation:** a lasso stays what it was drawn as, rings in
-    world (canvas) space, so a lasso, and every selection on a flat layer, is the code it was. A **wand** selection
-    is stored per view image: `Selection.surface` (`SurfaceSelection`: the paint layer, and per flooded face a
-    `ViewSelection` of view, cap region and rings in that image's flat space, in recipe order). That is the
-    camera-independent truth that persists (saved selections, undo's marquee snapshots). `Selection.rings` is its
-    *footprint* for the current camera, so the marching ants, the clipping of flat layers and the hit test are
-    unchanged consumers. The footprint is re-derived (`SurfaceViewSelection.footprint`: each region cut to the
+  - *Selection on a multi-view surface.* **Representation:** a selection made on a multi-view surface (a **wand** tap
+    or a **lasso**, any shape) is stored per view image: `Selection.surface` (`SurfaceSelection`: the paint layer, and per
+    flooded face or lassoed view a `ViewSelection` of view, cap region and rings in that image's flat space, in recipe
+    order). That is the camera-independent truth that persists (saved selections, undo's marquee snapshots).
+    `Selection.rings` is its *footprint* for the current camera, so the marching ants, the clipping of flat layers and the
+    hit test are unchanged consumers. The footprint is re-derived (`SurfaceViewSelection.footprint`: each region cut to the
     facing triangles of its view and carried to the canvas) whenever the camera, the surface or the canvas changes
-    (`EditorViewModel`, one pass in flight, the newest pose wins; the projection of the last pose is remembered), so
-    the selection follows the surface when the camera orbits. A face that now turns away contributes nothing and
-    comes back when the camera does; the selection itself is kept. A face turned away when the wand was tapped was
-    never stored. Painting clips (`viewClip`) to the stored region of the view image cut to what faces the camera.
-    **Mixing with a lasso** (`SurfaceViewSelection.compose`): Add and Remove of a lasso onto a surface selection, or of
-    a wand onto a lasso, convert the lasso to per-image regions with the lasso-to-view cut (`forView`, faces turned
+    (`EditorViewModel`, one pass in flight, the newest pose wins; the projection of the last pose is remembered, and the
+    same camera again recomputes nothing), so the selection follows the surface when the camera orbits. A face that now
+    turns away contributes nothing and comes back when the camera does; the selection itself is kept. A face turned away
+    when the wand was tapped or the lasso was drawn was never stored. Painting clips (`viewClip`) to the stored region of the
+    view image cut to what faces the camera. Selections on a flat layer are not surface selections and are the code they
+    were.
+    **Lasso** (`EditorViewModel.onSelectionEnd`, `SurfaceViewSelection.composeLasso`): when the active layer is paint on a
+    multi-view surface drawn in 3D, the lasso (freehand, rectangle, ellipse) is cut into the view images at the moment it is
+    drawn with the lasso-to-view cut (`forView` per view that faces the camera, `fromLasso`) and folded in per image under
+    New, Add and Remove. Parts of the lasso on faces turned away at that moment, and parts off the surface, are dropped, as
+    for a wand (so a lasso is the part of the picture it covers on the surface, not its outline on the glass). A lasso that
+    reaches no facing face is kept as drawn, a plain world-space region (the flat code), and a base that is a plain region
+    (made on a flat layer, or such a lasso) stays plain under Add and Remove: only New, no selection, or a surface selection
+    of the same paint layer fold per image.
+    **Inverted** selections: an inverted selection is everything outside its recipe, so it is never a miss on a view. Its cut
+    for a view (`forView`, `viewCut`) is the view's facing triangles with the recipe complemented ring by ring (an Add ring
+    becomes a cut and a cut an Add), a plain selection bounded to what faces the camera like any other; a lasso that
+    covers a view entirely selects nothing there and one away from it selects all of what faces. (An earlier version judged
+    an inverted lasso by whether an additive ring reached the view, which it never does, so it was a miss on every view.)
+    A part of a lasso dropped as turned away counts as outside under inversion, so it is selected where it comes into view.
+    **Mixing** (`SurfaceViewSelection.compose`): Add and Remove of a lasso onto a surface selection, or of
+    a wand onto a plain lasso, convert the lasso to per-image regions with the lasso-to-view cut (`forView`, faces turned
     away dropped) and append the regions in order, a hole staying a hole and the sense flipping under an inverted base;
     inversion and feather are the base's. Invert and feather are flags on the whole. **Move** drops the image
-    regions (`translated`) and rebinds the moved marquee to the images (`rebind`), so a moved wand keeps following;
+    regions (`translated`) and rebinds the moved marquee to the images (`rebind`), so a moved wand or lasso keeps following;
     undo restores the stored selection. A tapped triangle that faces away counts only in the footprint made at the tap.
     **Wand** (`EditorViewModel.onViewAutoSelect`): the flood runs in the image under the tap
     and continues across creases exactly as a fill does (`SurfaceViewFlood.plan`, same tolerance, a view with
@@ -556,7 +572,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     records a self-contained command (`StrokeCommand.movePatch`: the pixels it receives, in frame-relative
     coordinates, plus its lifted cut) so it replays without the others; the images are one gesture, so one
     undo step takes all of them and the marquee (`StrokeCommand.marquee`) back. The marquee moves by the
-    drag. An inverted selection lifts everything outside the lasso and so moves the rest of the surface.
+    drag. An inverted selection lifts everything outside the lasso that faces the camera and so moves the rest of the visible surface.
   - *Rendering the hull.* A paint layer on a group with a side or top view draws as one plane per
     view image (`DepthScene.hullPlanes`), each on its view's patch of the hull: `SurfaceHull.meshByView`
     triangles, with texture coordinates into the image from `SurfaceHullMesh.textured` (a vertex's
