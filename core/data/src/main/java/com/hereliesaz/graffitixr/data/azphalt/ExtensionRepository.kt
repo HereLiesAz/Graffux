@@ -296,28 +296,65 @@ class ExtensionRepository @Inject constructor(
         val asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution,
     )
 
-    /** Every installed depth-model asset. Weights may not be downloaded; see [modelAssets]. */
-    fun installedDepthModels(): List<DepthModel> = _installed.value.flatMap { ext ->
-        ext.manifest.assets
-            .filter(com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport::isDepthModel)
-            .map { DepthModel(ext, it) }
-    }
+    /**
+     * Every installed depth-model asset, in `HostAssetSupport.DEPTH_PREFERENCE`
+     * order. Weights may not be downloaded; see [modelAssets].
+     */
+    fun installedDepthModels(): List<DepthModel> = com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport
+        .orderedByDepthPreference(
+            _installed.value.flatMap { ext ->
+                ext.manifest.assets
+                    .filter(com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport::isDepthModel)
+                    .map { DepthModel(ext, it) }
+            },
+        ) { it.extension.id }
 
     /**
-     * Downloads and verifies the weights of every host-supported model asset in [ext] (today: depth).
-     * Returns each asset's final state. Cancellable; a partial download resumes next call.
+     * Downloads and verifies the weights of every host-supported model asset in [ext] (today: depth),
+     * single files and multi-file bundles alike. Returns each asset's final state. Cancellable; a
+     * partial download resumes next call.
      */
     suspend fun prepareModelAssets(ext: InstalledExtension): List<ModelAssetCache.State> =
         ext.manifest.assets
             .filter(com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport::isDepthModel)
             .map { modelAssets.ensure(ext.id, it) }
 
+    /** A depth model whose weights are downloaded and verified: [file] is the graph to open. */
+    data class ReadyDepthModel(val model: DepthModel, val file: File)
+
     /**
-     * The verified depth weights to hand to `OnnxDepthEstimator`, or null if no installed depth model
-     * has completed its download and checksum. Never returns unverified bytes.
+     * The depth model to run, with verified weights, or null if none has finished downloading.
+     * [preferredId] (an installed extension id) wins if it is ready; otherwise, or when null, the first
+     * ready model in preference order. A preferred model that is not ready falls back rather than
+     * failing: compare `model.extension.id` with what was asked for. Never returns unverified bytes.
+     * Hashes weights the first time per process, so call off the main thread.
      */
-    fun depthModelFile(): File? =
-        installedDepthModels().firstNotNullOfOrNull { modelAssets.verifiedFile(it.extension.id, it.asset) }
+    fun readyDepthModel(preferredId: String? = null): ReadyDepthModel? {
+        val all = installedDepthModels()
+        val ordered = if (preferredId == null) all else all.sortedBy { if (it.extension.id == preferredId) 0 else 1 }
+        return ordered.firstNotNullOfOrNull { m ->
+            modelAssets.verifiedFile(m.extension.id, m.asset)?.let { ReadyDepthModel(m, it) }
+        }
+    }
+
+    /**
+     * The verified weights to hand to `OnnxDepthEstimator` (see [readyDepthModel]); for a multi-file
+     * bundle, the verified graph file (`model.onnx`) with its siblings beside it. Pair it with
+     * `OnnxDepthEstimator.forAsset(file, model.asset)` so the runtime is driven by that listing's `io`.
+     */
+    fun depthModelFile(preferredId: String? = null): File? = readyDepthModel(preferredId)?.file
+
+    /**
+     * Installed depth-model extensions whose weights are not yet verified on disk and are worth
+     * (re)trying: not already known this session to be un-fetchable (a listing with no checksum, a
+     * dead URL, an unsafe address -- retrying cannot fix those) and not mid-download.
+     */
+    fun pendingDepthModelInstalls(): List<InstalledExtension> =
+        installedDepthModels().filter { m ->
+            val st = modelAssets.stateOf(m.extension.id, m.asset)
+            st !is ModelAssetCache.State.Unavailable && st !is ModelAssetCache.State.Downloading &&
+                modelAssets.verifiedFile(m.extension.id, m.asset) == null
+        }.map { it.extension }.distinctBy { it.id }
 
     /**
      * Installed LUT asset extensions with a *usable* LUT. Only assets an asset host may use are counted:

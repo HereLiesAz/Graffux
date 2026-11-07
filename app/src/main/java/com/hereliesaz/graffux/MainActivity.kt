@@ -583,7 +583,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.flushPendingSaves()
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> vm.flushPendingSaves()
+                // Resume a depth-model download an offline start or a killed process left unfinished.
+                androidx.lifecycle.Lifecycle.Event.ON_START -> vm.retryModelDownloads()
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

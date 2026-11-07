@@ -1,9 +1,11 @@
 package com.hereliesaz.graffitixr.ml
 
+import ai.onnxruntime.OnnxJavaType
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import android.graphics.Bitmap
 import android.graphics.Rect
 import kotlinx.coroutines.CancellationException
@@ -16,11 +18,15 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.FloatBuffer
+import java.nio.ShortBuffer
 import kotlin.math.max
 
 /**
- * [DepthEstimator] backed by ONNX Runtime, for an `onnx`-type asset with role `depth` (MiDaS v2.1
- * small: fixed 256 px `input_image`, relative inverse depth out).
+ * [DepthEstimator] backed by ONNX Runtime, for an `onnx`-type asset with role `depth`. What the model
+ * wants (input name/rank/size/normalisation, which output is depth, its polarity) is the
+ * [DepthModelSpec], resolved from the listing's `io` block: use [forAsset]. The default spec is MiDaS
+ * v2.1 small. For a multi-file bundle pass the verified **graph** file (ONNX Runtime finds the
+ * `model.onnx_data` beside it).
  *
  * **Weights must already be verified.** This class takes a [File]; it does not check a checksum
  * itself. Obtain the file from `ModelAssetCache` (core:data), which refuses to hand out bytes that
@@ -39,6 +45,16 @@ class OnnxDepthEstimator(
     private val lock = Any()
     private var session: OrtSession? = null
     private var closed = false
+
+    companion object {
+        /** An estimator for [modelFile] driven by [asset]'s `io`. @throws DepthEstimationException.UnsupportedModel */
+        fun forAsset(modelFile: File,
+            asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): OnnxDepthEstimator =
+            OnnxDepthEstimator(modelFile, DepthModelSpecs.fromAsset(asset))
+
+        private const val PREFILTER_LONG_SIDE = 1024
+        private const val MAX_THREADS = 4
+    }
 
     override suspend fun estimate(source: Bitmap, region: Rect?): DepthMap {
         val area = validatedRegion(source, region)
@@ -166,26 +182,42 @@ class OnnxDepthEstimator(
         }
     }
 
-    /** One ONNX Runtime call per [run]. */
+    /** One ONNX Runtime call per [run]. Requests only the depth output (V3's confidence and pose heads never run). */
     private class OrtRunner(private val session: OrtSession, private val cancel: CancelHandle) : DepthModelRunner {
-        @Suppress("NestedBlockDepth")
-        override fun run(input: FloatArray, spec: DepthModelSpec): FloatArray {
+        @Suppress("NestedBlockDepth", "ThrowsCount", "CyclomaticComplexMethod")
+        override fun run(input: FloatArray, box: Letterbox, spec: DepthModelSpec): RawDepth {
             val env = OrtEnvironment.getEnvironment()
-            val inputName = session.inputNames.firstOrNull()
+            val inputName = spec.inputName ?: session.inputNames.firstOrNull()
                 ?: throw DepthEstimationException.UnexpectedOutput("The model declares no input")
-            val side = spec.inputSize.toLong()
-            val shape = longArrayOf(1, DepthModelSpec.CHANNELS.toLong(), side, side)
+            if (inputName !in session.inputNames) {
+                throw DepthEstimationException.ModelLoadFailed("The model has no input named '$inputName'")
+            }
+            val outputName = spec.outputName ?: session.outputNames.firstOrNull()
+                ?: throw DepthEstimationException.UnexpectedOutput("The model declares no output")
+            if (outputName !in session.outputNames) {
+                throw DepthEstimationException.UnexpectedOutput("The model has no output named '$outputName'")
+            }
+            val shape = spec.inputShape(box)
+            val half = (session.inputInfo[inputName]?.info as? TensorInfo)?.type == OnnxJavaType.FLOAT16
             try {
-                OnnxTensor.createTensor(env, FloatBuffer.wrap(input), shape).use { tensor ->
+                val tensor = if (half) {
+                    OnnxTensor.createTensor(env, ShortBuffer.wrap(Float16.toHalfArray(input)), shape,
+                        OnnxJavaType.FLOAT16)
+                } else {
+                    OnnxTensor.createTensor(env, FloatBuffer.wrap(input), shape)
+                }
+                tensor.use {
                     OrtSession.RunOptions().use { options ->
                         cancel.attach(options)
                         try {
                             if (cancel.isCancelled) throw CancellationException("Depth estimation cancelled")
-                            session.run(mapOf(inputName to tensor), options).use { result ->
-                                val out = result.get(0) as? OnnxTensor
+                            session.run(mapOf(inputName to tensor), setOf(outputName), options).use { result ->
+                                val out = result.get(outputName).orElse(null) as? OnnxTensor
                                     ?: throw DepthEstimationException.UnexpectedOutput("Output is not a tensor")
+                                // getFloatBuffer widens a float16 output to float32.
                                 val buf = out.floatBuffer
-                                return FloatArray(buf.remaining()).also { buf.get(it) }
+                                val values = FloatArray(buf.remaining()).also { buf.get(it) }
+                                return DepthPipeline.rawFromShape(values, out.info.shape)
                             }
                         } finally {
                             cancel.detach()
@@ -197,10 +229,5 @@ class OnnxDepthEstimator(
                 throw DepthEstimationException.InferenceFailed("Depth inference failed: ${e.message}", e)
             }
         }
-    }
-
-    private companion object {
-        const val PREFILTER_LONG_SIDE = 1024
-        const val MAX_THREADS = 4
     }
 }

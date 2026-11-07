@@ -53,11 +53,25 @@ suite in this repo *does* see, since it runs the identical brush-math tests agai
   `remoteUrl` into `filesDir/models/<ext>/<sha256>.bin`, resumable (`.part` + `Range`), atomic
   (rename after verification), with a `StateFlow` of progress. It refuses to download without a valid
   `sha256-<hex>` `checksum`, checks `byteSize` and the digest before the rename, and `verifiedFile()`
-  re-checks the digest before handing a file out. Install paths in `EditorViewModel` kick it off after
-  an install; `ExtensionRepository.depthModelFile()` is the only way to obtain weights.
-- `OnnxDepthEstimator` (`:core:ml`): takes that file. ONNX Runtime was chosen over LiteRT because the
-  listing ships an `.onnx` graph; LiteRT cannot load ONNX, so it would need an offline conversion
-  and a second published artifact. Cost: about +12.9 MB per-ABI download (arm64-v8a), see the PR.
+  re-checks the digest before handing a file out. A `files[]` bundle (Depth Anything V3: `model.onnx`
+  + `model.onnx_data`) goes to `<ext>/<bundleId>/<name>`: every member validated before any byte is
+  fetched, downloaded and verified one by one into `<bundleId>.part/` (Range per member), and the
+  directory renamed into place only when all are good, so the visible directory is never partial;
+  `verifiedFile()` returns the `.onnx` member. Install paths in `EditorViewModel` kick it off after an
+  install, and `retryModelDownloads()` runs on every `ON_START` of the main activity for installs still
+  pending (unverified, not known unfetchable, not downloading);
+  `ExtensionRepository.depthModelFile(preferredId)` / `readyDepthModel()` are the only ways to obtain weights.
+- `OnnxDepthEstimator` (`:core:ml`): takes that file plus a `DepthModelSpec` that
+  `DepthModelSpecs.fromAsset` builds from the manifest's `io` block, so nothing is hard-coded to one
+  model: input name, rank 4 or 5 (views axis of 1), fixed (letterboxed) or dynamic size (multiple of
+  N, long side capped at 518, floor 56, no upscaling), colour order, layout, `mean`/`std` or
+  `scale`/`bias`, the depth output among several (only it is requested), and polarity. Output is
+  always `DepthMap` = relative inverse depth, larger = nearer, finite; a depth-valued model (V3) is
+  inverted (`DepthPipeline.toNearerLarger`). `OnnxDepthEstimator.forAsset(file, asset)` wires the two.
+  A float16-input graph is fed half precision. Which spec fields come from the spec and which from
+  `decode`/`params` conventions: spec/package-format.md § 2.6.1. ONNX Runtime was chosen over LiteRT
+  because the listings ship `.onnx` graphs; LiteRT cannot load ONNX. Cost: about +12.9 MB per-ABI
+  download (arm64-v8a), see #726; this change adds no dependency.
 
 Nothing paints or displays depth yet; the relief surface builds on `DepthEstimator`.
 

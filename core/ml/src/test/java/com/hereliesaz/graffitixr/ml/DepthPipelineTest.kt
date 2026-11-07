@@ -6,7 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DepthPipelineTest {
-    private val spec = DepthModelSpec(inputSize = 8)
+    private val spec = DepthModelSpec(size = SizePolicy.Fixed(8, 8))
+    private fun prep(px: IntArray, w: Int, h: Int, sp: DepthModelSpec = spec) =
+        DepthPipeline.preprocess(px, w, h, sp, Letterbox.compute(w, h, sp.size))
 
     private fun argb(a: Int, r: Int, g: Int, b: Int) = (a shl 24) or (r shl 16) or (g shl 8) or b
 
@@ -38,7 +40,7 @@ class DepthPipelineTest {
     }
 
     @Test fun `tensor is CHW RGB scaled to 0 1`() {
-        val t = DepthPipeline.preprocess(solid(8, 8, argb(255, 255, 0, 51)), 8, 8, spec)
+        val t = prep(solid(8, 8, argb(255, 255, 0, 51)), 8, 8)
         assertEquals(3 * 64, t.size)
         assertEquals(1f, t.at(0, 3, 3), 1e-5f)
         assertEquals(0f, t.at(1, 3, 3), 1e-5f)
@@ -47,7 +49,7 @@ class DepthPipelineTest {
 
     @Test fun `padding is the fill colour and the image area is not`() {
         // 8x2 white image in an 8x8 input: rows 3..4 are image, the rest padding at 0.5.
-        val t = DepthPipeline.preprocess(solid(8, 2, argb(255, 255, 255, 255)), 8, 2, spec)
+        val t = prep(solid(8, 2, argb(255, 255, 255, 255)), 8, 2)
         assertEquals(0.5f, t.at(0, 0, 0), 1e-5f)
         assertEquals(0.5f, t.at(1, 7, 7), 1e-5f)
         assertEquals(1f, t.at(0, 0, 3), 1e-5f)
@@ -55,13 +57,13 @@ class DepthPipelineTest {
     }
 
     @Test fun `transparent pixels become the fill colour so alpha never reaches the model`() {
-        val t = DepthPipeline.preprocess(solid(8, 8, argb(0, 255, 0, 0)), 8, 8, spec)
+        val t = prep(solid(8, 8, argb(0, 255, 0, 0)), 8, 8)
         assertEquals(0.5f, t.at(0, 2, 2), 1e-5f)
         assertEquals(0.5f, t.at(1, 2, 2), 1e-5f)
     }
 
     @Test fun `half transparent pixels blend with the fill`() {
-        val t = DepthPipeline.preprocess(solid(8, 8, argb(128, 255, 255, 255)), 8, 8, spec)
+        val t = prep(solid(8, 8, argb(128, 255, 255, 255)), 8, 8)
         val a = 128 / 255f
         assertEquals(a + 0.5f * (1 - a), t.at(0, 4, 4), 1e-4f)
     }
@@ -69,7 +71,7 @@ class DepthPipelineTest {
     @Test fun `transparent neighbours do not bleed their colour into opaque ones when downscaling`() {
         // Left half opaque green, right half transparent red; shrink 8x1 -> 4x1 content.
         val px = IntArray(16 * 1) { x -> if (x < 8) argb(255, 0, 255, 0) else argb(0, 255, 0, 0) }
-        val t = DepthPipeline.preprocess(px, 16, 1, DepthModelSpec(inputSize = 4))
+        val t = prep(px, 16, 1, DepthModelSpec(size = SizePolicy.Fixed(4, 4)))
         // content is 4x1 at padY 1; pixel 0 covers only opaque green.
         assertEquals(0f, t.at(0, 0, 1, 4), 1e-5f)
         assertEquals(1f, t.at(1, 0, 1, 4), 1e-5f)
@@ -80,22 +82,23 @@ class DepthPipelineTest {
 
     @Test fun `mean and std are applied after scaling`() {
         val s = DepthModelSpec(
-            inputSize = 8, mean = floatArrayOf(0.5f, 0.5f, 0.5f), std = floatArrayOf(0.25f, 0.25f, 0.25f),
+            size = SizePolicy.Fixed(8, 8),
+            normalization = Normalization.meanStd(List(3) { 0.5f }, List(3) { 0.25f }),
         )
-        val t = DepthPipeline.preprocess(solid(8, 8, argb(255, 255, 255, 255)), 8, 8, s)
+        val t = prep(solid(8, 8, argb(255, 255, 255, 255)), 8, 8, s)
         assertEquals(2f, t.at(1, 1, 1), 1e-5f)
     }
 
     @Test fun `downscale averages the source footprint`() {
         // 16x16 checker of black/white -> mean grey after reduction to 8x8.
         val px = IntArray(256) { i -> if ((i % 16 + i / 16) % 2 == 0) argb(255, 0, 0, 0) else argb(255, 255, 255, 255) }
-        val t = DepthPipeline.preprocess(px, 16, 16, spec)
+        val t = prep(px, 16, 16)
         assertEquals(0.5f, t.at(0, 3, 3), 1e-5f)
     }
 
     @Test fun `upscale is smooth not blocky`() {
         val px = intArrayOf(argb(255, 0, 0, 0), argb(255, 255, 255, 255))
-        val t = DepthPipeline.preprocess(px, 2, 1, DepthModelSpec(inputSize = 8))
+        val t = prep(px, 2, 1, DepthModelSpec(size = SizePolicy.Fixed(8, 8)))
         // 2x1 -> 8x4 content; left edge black, right edge white, strictly increasing between.
         val row = (0 until 8).map { t.at(0, it, 4 - 1 + 0, 8) }
         assertTrue(row.zipWithNext().all { (a, b) -> b >= a })
@@ -106,25 +109,25 @@ class DepthPipelineTest {
         val size = 8
         val out = FloatArray(size * size) { (it / size).toFloat() } // value = row index
         val box = Letterbox.compute(8, 2, size)
-        val map = DepthPipeline.postprocess(out, box)
+        val map = DepthPipeline.postprocess(RawDepth(out, size, size), box, spec)
         assertEquals(8, map.width)
         assertEquals(2, map.height)
         assertEquals(3f, map[0, 0], 0f)
         assertEquals(4f, map[7, 1], 0f)
     }
 
-    @Test fun `postprocess rejects a wrong sized output`() {
+    @Test fun `postprocess rejects an output of the wrong aspect`() {
         val box = Letterbox.compute(8, 8, 8)
         assertThrows(DepthEstimationException.UnexpectedOutput::class.java) {
-            DepthPipeline.postprocess(FloatArray(63), box)
+            DepthPipeline.postprocess(RawDepth(FloatArray(8), 1, 8), box, spec)
         }
     }
 
     @Test fun `end to end with a fake runner maps the output back and resamples to layer size`() {
         // Runner returns a left-to-right ramp, so the map's x gradient survives the round trip.
-        val runner = DepthModelRunner { input, s ->
-            assertEquals(s.tensorSize, input.size)
-            FloatArray(s.inputSize * s.inputSize) { (it % s.inputSize).toFloat() }
+        val runner = DepthModelRunner { input, box, _ ->
+            assertEquals(3 * 8 * 8, input.size)
+            RawDepth(FloatArray(64) { (it % 8).toFloat() }, box.inputWidth, box.inputHeight)
         }
         val map = DepthPipeline.estimate(solid(16, 4, argb(255, 9, 9, 9)), 16, 4, spec, runner)
         assertEquals(8, map.width)
@@ -135,14 +138,15 @@ class DepthPipelineTest {
     }
 
     @Test fun `runner failure propagates`() {
-        val runner = DepthModelRunner { _, _ -> throw DepthEstimationException.InferenceFailed("boom") }
+        val runner = DepthModelRunner { _, _, _ -> throw DepthEstimationException.InferenceFailed("boom") }
         assertThrows(DepthEstimationException.InferenceFailed::class.java) {
             DepthPipeline.estimate(solid(8, 8, 0), 8, 8, spec, runner)
         }
     }
 
-    @Test fun `spec rejects bad statistics`() {
-        assertThrows(IllegalArgumentException::class.java) { DepthModelSpec(std = floatArrayOf(1f, 0f, 1f)) }
-        assertThrows(IllegalArgumentException::class.java) { DepthModelSpec(mean = floatArrayOf(0f)) }
+    @Test fun `normalization rejects bad statistics`() {
+        val zero = listOf(0f, 0f, 0f)
+        assertThrows(IllegalArgumentException::class.java) { Normalization.meanStd(zero, listOf(1f, 0f, 1f)) }
+        assertThrows(IllegalArgumentException::class.java) { Normalization.meanStd(listOf(0f), listOf(1f)) }
     }
 }

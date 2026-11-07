@@ -43,4 +43,17 @@ class HostAssetSupportTest {
         assertTrue(HostAssetSupport.isSupported(m.assets.single()))
         assertEquals(AssetType.ONNX, m.assets.single().type)
     }
+
+    @Test fun `depth models are ordered V2, V3, MiDaS, then unknown ids alphabetically`() {
+        val p = "com.hereliesaz.azphalt."
+        val ids = listOf("z.other", p + "midas", "a.other", p + "depth-anything-v3-small")
+            .plus(p + "depth-anything-v2-small")
+        assertEquals(
+            listOf(
+                "com.hereliesaz.azphalt.depth-anything-v2-small", "com.hereliesaz.azphalt.depth-anything-v3-small",
+                "com.hereliesaz.azphalt.midas", "a.other", "z.other",
+            ),
+            HostAssetSupport.orderedByDepthPreference(ids) { it },
+        )
+    }
 }
