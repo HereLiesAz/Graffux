@@ -90,6 +90,12 @@ class ModelAssetCache(
         "$extensionId|${asset.type.wire}|${asset.role.orEmpty()}|" +
             if (isBundle(asset)) "bundle:${bundleId(asset.files.orEmpty())}" else asset.remoteUrl.orEmpty()
 
+    /** What the download writes to: `<extension>/<digest>` or `<extension>/<bundleId>`; null if no valid digest. */
+    private fun lockKeyOf(extensionId: String, asset: AssetContribution): String? {
+        val id = if (isBundle(asset)) bundleId(asset.files.orEmpty()) else parseChecksum(asset.checksum)
+        return id?.let { "${safeName(extensionId)}|$it" }
+    }
+
     fun stateOf(extensionId: String, asset: AssetContribution): State =
         _states.value[keyOf(extensionId, asset)] ?: State.NotDownloaded
 
@@ -122,7 +128,9 @@ class ModelAssetCache(
      */
     suspend fun ensure(extensionId: String, asset: AssetContribution): State {
         val key = keyOf(extensionId, asset)
-        val lock = locks.getOrPut(key) { Mutex() }
+        // Serialize on the on-disk identity, not the progress key: two URLs with one checksum write the
+        // same `<digest>.part`, so they must not run side by side.
+        val lock = locks.getOrPut(lockKeyOf(extensionId, asset) ?: key) { Mutex() }
         return lock.withLock {
             val outcome = try {
                 withContext(Dispatchers.IO) { fetch(extensionId, asset, key) }
@@ -220,7 +228,7 @@ class ModelAssetCache(
                         if (!resumed) resumeFrom = 0 // a 200, or a range we did not ask for: start over
                         val remaining = r.contentLength.takeIf { it >= 0 }
                         val total = remaining?.let { it + resumeFrom } ?: declared
-                        if (total != null && total > maxBytes) return tooLarge()
+                        if (total != null && progress.done + total > maxBytes) return tooLarge()
                         val body = r.body ?: return State.Failed(Reason.NETWORK, "The server sent no data.")
                         return copyTo(body, part, resumed, resumeFrom, total, key, progress)
                     }
@@ -242,7 +250,8 @@ class ModelAssetCache(
                 val n = input.read(buf)
                 if (n < 0) break
                 written += n
-                if (written > maxBytes) {
+                // Whole-set cap: members finished ahead of this one count, so a bundle that omits sizes is bounded too.
+                if (progress.done + written > maxBytes) {
                     out.close()
                     part.delete()
                     return tooLarge()

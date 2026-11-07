@@ -206,4 +206,13 @@ class ModelAssetBundleTest {
         c.delete("x")
         assertNull(c.verifiedFile("x", bundle()))
     }
+
+    @Test fun `the byte limit covers the whole bundle even when a member omits its size`() = runBlocking {
+        // graph (5 000) + data (700 000) exceeds the cap, but neither member alone does and the
+        // listing leaves the data size out, so no aggregate can be computed up front.
+        val c = ModelAssetCache(root, Fake(served()), maxBytes = 703_000)
+        val r = c.ensure("x", bundle(dataSize = null))
+        assertTrue("$r", r is State.Failed && r.reason == Reason.TOO_LARGE)
+        assertNull(c.verifiedFile("x", bundle(dataSize = null)))
+    }
 }

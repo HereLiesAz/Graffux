@@ -151,15 +151,24 @@ class ExtensionRepository @Inject constructor(
     private val _installed = MutableStateFlow<List<InstalledExtension>>(emptyList())
     val installed: StateFlow<List<InstalledExtension>> = _installed.asStateFlow()
 
+    private val initialScan = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+    /** Suspends until the launch-time scan has published [installed] (it starts empty, then fills). */
+    suspend fun awaitInitialScan() = initialScan.await()
+
     init {
         ioScope.launch {
-            synchronized(lock) {
-                loadCachedTrust().let {
-                    trustStore = it.packages
-                    entitlementKeys = it.entitlementKeys
+            try {
+                synchronized(lock) {
+                    loadCachedTrust().let {
+                        trustStore = it.packages
+                        entitlementKeys = it.entitlementKeys
+                    }
+                    installer = AzpInstaller(extensionsRoot, trustStore)
+                    _installed.value = scanInstalled()
                 }
-                installer = AzpInstaller(extensionsRoot, trustStore)
-                _installed.value = scanInstalled()
+            } finally {
+                initialScan.complete(Unit)
             }
             refreshTrustStore()
         }

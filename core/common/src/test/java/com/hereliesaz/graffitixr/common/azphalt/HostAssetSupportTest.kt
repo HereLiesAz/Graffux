@@ -57,4 +57,10 @@ class HostAssetSupportTest {
             HostAssetSupport.orderedByDepthPreference(ids) { it },
         )
     }
+
+    @Test fun `a code-dependent depth model is not a host depth model`() {
+        val dependent = AssetContribution(type = AssetType.ONNX, path = "", role = "depth", standalone = false)
+        assertFalse(HostAssetSupport.isDepthModel(dependent))
+        assertFalse(HostAssetSupport.isSupported(dependent))
+    }
 }

@@ -4,6 +4,7 @@ import com.hereliesaz.graffitixr.common.azphalt.AssetContribution
 import com.hereliesaz.graffitixr.common.azphalt.AssetType
 import com.hereliesaz.graffitixr.data.azphalt.ModelAssetCache.Reason
 import com.hereliesaz.graffitixr.data.azphalt.ModelAssetCache.State
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -213,5 +214,29 @@ class ModelAssetCacheTest {
         assertEquals(digest, ModelAssetCache.parseChecksum("SHA256-${digest.uppercase()}"))
         assertNull(ModelAssetCache.parseChecksum(null))
         assertNull(ModelAssetCache.parseChecksum(""))
+    }
+
+    @Test fun `two urls with one checksum never download into the shared part file at once`() = runBlocking {
+        val inFlight = java.util.concurrent.atomic.AtomicInteger()
+        val maxSeen = java.util.concurrent.atomic.AtomicInteger()
+        val inner = FakeTransport(payload)
+        val slow = object : ModelTransport {
+            override fun open(url: URL, rangeStart: Long): ModelResponse {
+                val n = inFlight.incrementAndGet()
+                maxSeen.updateAndGet { maxOf(it, n) }
+                try { Thread.sleep(300) } finally { inFlight.decrementAndGet() }
+                return inner.open(url, rangeStart)
+            }
+        }
+        val c = cache(slow)
+        val a = async(kotlinx.coroutines.Dispatchers.Default) {
+            c.ensure("com.x.midas", asset(url = "https://one.example.test/midas.onnx"))
+        }
+        val b = async(kotlinx.coroutines.Dispatchers.Default) {
+            c.ensure("com.x.midas", asset(url = "https://two.example.test/midas.onnx"))
+        }
+        assertTrue(a.await() is State.Ready)
+        assertTrue(b.await() is State.Ready)
+        assertEquals(1, maxSeen.get())
     }
 }

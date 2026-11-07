@@ -5,6 +5,7 @@ import com.hereliesaz.graffitixr.common.DispatcherProvider
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -89,5 +90,28 @@ class ExtensionRepositoryTrustRefreshTest {
         assertTrue(repo.applyFetchedTrustStore("""{"signingKeys":[]}""", repo.currentMutationGeneration()))
         // ...so the old keys are no longer trusted: adopting them again is a change.
         assertTrue(repo.applyFetchedTrustStore(keysBody, repo.currentMutationGeneration()))
+    }
+
+    @Test
+    fun `awaitInitialScan returns once the launch-time scan has published`() {
+        val context = mockk<Context>()
+        every { context.filesDir } returns tmp.newFolder("files2")
+        every { context.cacheDir } returns tmp.newFolder("cache2")
+        val pool = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            val real = pool.asCoroutineDispatcher()
+            val dispatchers = object : DispatcherProvider {
+                override val main = real
+                override val io = real
+                override val default = real
+                override val unconfined = real
+            }
+            val repo = ExtensionRepository(context, dispatchers)
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeout(5_000) { repo.awaitInitialScan() }
+            }
+        } finally {
+            pool.shutdownNow()
+        }
     }
 }

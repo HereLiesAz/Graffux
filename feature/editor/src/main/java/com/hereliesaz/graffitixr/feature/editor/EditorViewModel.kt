@@ -12824,6 +12824,9 @@ class EditorViewModel @Inject constructor(
      */
     fun retryModelDownloads() {
         viewModelScope.launch(dispatchers.io) {
+            // Cold launch: the inventory starts empty and fills asynchronously; reading it first would
+            // find nothing pending and never retry.
+            extensionRepository.awaitInitialScan()
             extensionRepository.pendingDepthModelInstalls().forEach(::fetchModelWeights)
         }
     }

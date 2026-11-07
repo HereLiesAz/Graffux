@@ -9,9 +9,13 @@ object HostAssetSupport {
     /** Model role this host's depth runtime consumes (`ml` module, `OnnxDepthEstimator`). */
     const val DEPTH_ROLE = "depth"
 
-    /** An `onnx` model graph whose role routes it to the host's depth estimator. */
+    /**
+     * An `onnx` model graph whose role routes it to the host's depth estimator. A code-dependent asset
+     * (`standalone: false`) is excluded: it needs its package's code, which this host does not run
+     * (spec § Mixed-package asset independence), so it is neither downloaded nor exposed.
+     */
     fun isDepthModel(asset: AssetContribution): Boolean =
-        asset.type == AssetType.ONNX && asset.role.equals(DEPTH_ROLE, ignoreCase = true)
+        asset.type == AssetType.ONNX && asset.standalone && asset.role.equals(DEPTH_ROLE, ignoreCase = true)
 
     /**
      * Which installed depth model the host uses when the caller does not choose: the first of these
