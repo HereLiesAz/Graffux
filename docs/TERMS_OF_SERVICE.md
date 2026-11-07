@@ -137,9 +137,9 @@ gives you.
 - **Your local law.** Mandatory consumer-protection and data-protection rights where you live apply to
   you whatever these Terms say. Nothing here limits them or stops you from bringing a claim in the courts
   of your own country where the law gives you that right.
-- **Otherwise.** For anything those rules do not cover, these Terms are governed by the laws of the
-  developer's place of residence, without regard to its conflict-of-law rules, and disputes are decided in
-  the courts there.
+- **Otherwise.** These Terms do not choose a particular country's law or a particular court. Where
+  nothing in your local law decides it, a dispute is decided by the law and the courts that have
+  jurisdiction over it under the applicable rules.
 - **Talk to us first.** Before filing a claim, please contact us (section 15) and give us a chance to
   resolve it.
 
