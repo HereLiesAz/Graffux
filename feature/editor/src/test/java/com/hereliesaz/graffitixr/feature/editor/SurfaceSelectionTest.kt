@@ -5,6 +5,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
@@ -42,6 +43,7 @@ class SurfaceSelectionTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private lateinit var vm: EditorViewModel
     private var beforeFootprintPass: (() -> Unit)? = null
+    /** Runs once, from inside the flood plan (the wand stub below), i.e. while a fill is still being planned. */
     private var beforeFillPlan: (() -> Unit)? = null
 
     /** Stands in for the background dispatcher: runs [beforeFootprintPass] once, as the pass is handed off. */
@@ -50,9 +52,6 @@ class SurfaceSelectionTest {
         override fun dispatch(context: CoroutineContext, block: Runnable) {
             if (Throwable().stackTrace.any { it.methodName.startsWith("refreshFootprint") }) {
                 beforeFootprintPass?.also { beforeFootprintPass = null }?.invoke()
-            }
-            if (Throwable().stackTrace.any { it.methodName == "onViewFillTap" }) {
-                beforeFillPlan?.also { beforeFillPlan = null }?.invoke()
             }
             block.run()
         }
@@ -462,5 +461,30 @@ class SurfaceSelectionTest {
             "a neighbouring view created by the flood is filled too",
             (views - start).any { fillStrokes(it).isNotEmpty() },
         )
+    }
+
+    @Test
+    fun `a fill keeps the colour and tool it was tapped with while the flood plans in the background`() {
+        load(emptyMap())
+        val ts = touches().filter { it.second.region == 0 }
+        vm.wandMask = { b, _, _, _ ->
+            beforeFillPlan?.also { beforeFillPlan = null }?.invoke()
+            BooleanArray(b.width * b.height) { true }
+        }
+        vm.setActiveTool(Tool.FILL)
+        vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        // The user switches to a brush with another colour just after tapping, before the plan lands.
+        var switched = false
+        beforeFillPlan = {
+            switched = true
+            vm.setActiveColor(androidx.compose.ui.graphics.Color.Blue)
+            vm.setActiveTool(Tool.BRUSH)
+        }
+        val tap = ts.first().second
+        vm.onViewFillTap("p", tap, canvas)
+        assertTrue("the switch happened while the plan was pending", switched)
+        val fills = fillStrokes(tap.view)
+        assertTrue("the tapped fill is not lost to the tool switch", fills.isNotEmpty())
+        assertEquals(androidx.compose.ui.graphics.Color.Red.toArgb(), fills.first().brushColor)
     }
 }

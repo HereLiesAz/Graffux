@@ -9730,11 +9730,14 @@ class EditorViewModel @Inject constructor(
         val oracle = ViewFloodOracle(
             layers, primaryId, hull, st.canvasSize.width, st.canvasSize.height, tapColor, wandMask,
         ) { view -> viewClip(primaryId, view) }
+        // The gesture's own colour: the plan runs in the background, and a colour or tool change made meanwhile
+        // must neither recolour this fill nor drop it.
+        val fillColor = st.activeColor.toArgb()
         viewModelScope.launch(dispatchers.default) {
             // The tapped face floods; so does every face across a crease that the flood reaches, in the
             // image of its own view (spec/3d-space.md, "Fill, Clone, lasso").
             val seeds = SurfaceViewFlood.plan(hull, tap, oracle)
-            withContext(dispatchers.main) { fillSeeds(primaryId, hull, seeds, canvasSize) }
+            withContext(dispatchers.main) { fillSeeds(primaryId, hull, seeds, canvasSize, fillColor) }
         }
     }
 
@@ -9744,6 +9747,7 @@ class EditorViewModel @Inject constructor(
         hull: SurfaceHull,
         seeds: List<PaintTarget>,
         canvasSize: IntSize,
+        fillColor: Int,
     ) {
         gestureOpen = true
         try {
@@ -9763,7 +9767,7 @@ class EditorViewModel @Inject constructor(
                 val selection = viewClip(primaryId, seed.view).selection
                     ?: SurfaceViewSelection
                         .faceRegion(face, owner, hull, st.canvasSize, w, h)
-                fillOn(imageId, Offset(flat.first, flat.second), canvasSize, selection)
+                fillOn(imageId, Offset(flat.first, flat.second), canvasSize, selection, fillColor)
             }
         } finally {
             closeGesture()
@@ -9776,9 +9780,12 @@ class EditorViewModel @Inject constructor(
         position: Offset,
         canvasSize: IntSize,
         selection: com.hereliesaz.graffitixr.common.model.Selection?,
+        // Set for a fill whose tap was already accepted (a multi-view flood planned off the main thread): the
+        // tool and colour are then the tap's, not whatever is active when the plan lands.
+        tappedColor: Int? = null,
     ) {
         val state = _uiState.value
-        if (state.activeTool != Tool.FILL) return
+        if (tappedColor == null && state.activeTool != Tool.FILL) return
         invalidateResident(layerId)
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
@@ -9790,7 +9797,7 @@ class EditorViewModel @Inject constructor(
             canvasSize = canvasSize,
             tool = Tool.FILL,
             brushSize = 0f,
-            brushColor = state.activeColor.toArgb(),
+            brushColor = tappedColor ?: state.activeColor.toArgb(),
             intensity = 1f,
             layerScale = layer.scale,
             layerOffset = layer.offset,
