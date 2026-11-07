@@ -487,4 +487,26 @@ class SurfaceSelectionTest {
         assertTrue("the tapped fill is not lost to the tool switch", fills.isNotEmpty())
         assertEquals(androidx.compose.ui.graphics.Color.Red.toArgb(), fills.first().brushColor)
     }
+
+    @Test
+    fun `a surface selection whose faces have turned away still blocks flat layers instead of selecting nothing`() {
+        lassoOnFace()
+        vm.setSceneCameraForTest(SceneCamera(yaw = 0.6f + Math.PI.toFloat(), pitch = 0.3f))
+        val sel = vm.uiState.value.selection!!
+        assertTrue("its footprint is empty from behind", sel.rings.none { it.additive && it.isUsable })
+        assertTrue("but the stored regions are kept", sel.surface!!.isUsable)
+        val path = SelectionMask.bitmapPath(sel, 64, 64)
+        assertNotNull("a flat layer is confined, not left unclipped", path)
+        assertTrue("to nothing", path!!.isEmpty)
+    }
+
+    @Test
+    fun `an inverted surface selection with no footprint still selects everything on a flat layer`() {
+        lassoOnFace()
+        vm.onInvertSelection()
+        vm.setSceneCameraForTest(SceneCamera(yaw = 0.6f + Math.PI.toFloat(), pitch = 0.3f))
+        val sel = vm.uiState.value.selection!!
+        assertTrue(sel.inverted)
+        assertEquals(null, SelectionMask.bitmapPath(sel.copy(rings = emptyList()), 64, 64))
+    }
 }

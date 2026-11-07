@@ -9525,7 +9525,7 @@ class EditorViewModel @Inject constructor(
         engine: GpuStampEngine,
         command: StrokeCommand,
         prepared: GpuStrokeSelection.Prepared?,
-    ): Boolean = command.selection?.isUsable != true ||
+    ): Boolean = command.selection?.confines != true ||
         prepared != null && GpuStrokeSelection.confine(engine, prepared)
 
     /** A live Basic Brush stroke's GPU engine and unpainted runs, taken over by its commit. */
