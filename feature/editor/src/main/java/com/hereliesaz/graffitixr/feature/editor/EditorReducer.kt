@@ -492,7 +492,7 @@ internal object EditorReducer {
         // A polygon too small to enclose anything is a deselect, not a selection that silently
         // clips every subsequent stroke to nothing.
         is EditorIntent.SetSelection -> state.copy(
-            selection = intent.selection?.takeIf { it.isUsable }
+            selection = intent.selection?.takeIf { it.isUsable || it.surface?.isUsable == true }
         )
         EditorIntent.InvertSelection -> state.copy(
             selection = state.selection?.let { it.copy(inverted = !it.inverted) }

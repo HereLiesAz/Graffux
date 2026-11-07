@@ -7,13 +7,18 @@
     "LoopWithTooManyJumpStatements",
     "ComplexCondition",
     "MaxLineLength",
+    "TooManyFunctions",
 )
 
 package com.hereliesaz.graffitixr.common.scene
 
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.model.SelectionRing
+import com.hereliesaz.graffitixr.common.model.SurfaceSelection
+import com.hereliesaz.graffitixr.common.model.ViewSelection
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.abs
 
 /**
@@ -80,8 +85,12 @@ object SurfaceViewSelection {
         width: Float,
         height: Float,
         tappedAt: Offset? = null,
+        region: Int = ViewSelection.ANY_REGION,
     ): List<SelectionRing> {
-        val tris = projection.triangles(view).filter { it.facing || (tappedAt != null && it.holdsPaint(tappedAt.x, tappedAt.y)) }
+        val tris = projection.triangles(view).filter {
+            (region == ViewSelection.ANY_REGION || it.region == region) &&
+                (it.facing || (tappedAt != null && it.holdsPaint(tappedAt.x, tappedAt.y)))
+        }
         val out = ArrayList<SelectionRing>()
         for (ring in rings) {
             if (!ring.isUsable) continue
@@ -89,7 +98,10 @@ object SurfaceViewSelection {
                 val (u, t) = SurfaceMath.flatToUnrolled(it.x, it.y, owner.innerChain, width, height)
                 Offset(u, t)
             }
+            val loX = paint.minOf { it.x }; val hiX = paint.maxOf { it.x }
+            val loY = paint.minOf { it.y }; val hiY = paint.maxOf { it.y }
             for (t in tris) {
+                if (t.maxPx < loX || t.minPx > hiX || t.maxPy < loY || t.minPy > hiY) continue
                 val clipped = clip(paint, t.px, t.py)
                 if (clipped.size < 3) continue
                 val world = clipped.mapNotNull { t.screenAt(it.x, it.y) }
@@ -101,6 +113,179 @@ object SurfaceViewSelection {
         }
         return out
     }
+
+    /**
+     * The on-screen footprint of [surface] for the camera [projection] was built for: each stored region
+     * carried to the canvas through the facing triangles of its view (and cap region). Recomputed when the
+     * camera or surface changes; [checkpoint] is called between regions so a caller can abandon a stale pass.
+     */
+    fun footprint(
+        surface: SurfaceSelection,
+        owner: SurfaceOwner,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+        tappedAt: Offset? = null,
+        checkpoint: () -> Unit = {},
+    ): List<SelectionRing> {
+        val out = ArrayList<SelectionRing>()
+        for (v in surface.views) {
+            checkpoint()
+            out += fromView(v.rings, v.view, owner, projection, width, height, tappedAt, v.region)
+        }
+        return out
+    }
+
+    /** A wand's flooded [regions] as a surface selection; faces turned away from the viewer contribute nothing. Null if nothing is left. */
+    fun fromWand(
+        surfaceId: String,
+        regions: List<ViewSelection>,
+        owner: SurfaceOwner,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+        canvasSize: IntSize,
+        tappedAt: Offset?,
+    ): Selection? {
+        val kept = ArrayList<ViewSelection>()
+        val rings = ArrayList<SelectionRing>()
+        for (r in regions) {
+            val fp = fromView(r.rings, r.view, owner, projection, width, height, tappedAt, r.region)
+            if (fp.isEmpty()) continue
+            kept += r
+            rings += fp
+        }
+        val sel = Selection(rings, canvasSize, surface = SurfaceSelection(surfaceId, kept))
+        return sel.takeIf { it.isUsable }
+    }
+
+    /** [selection] with its footprint re-derived for [projection]'s camera; any other selection, untouched. */
+    fun refresh(
+        selection: Selection,
+        owner: SurfaceOwner,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+        checkpoint: () -> Unit = {},
+    ): Selection {
+        val s = selection.surface ?: return selection
+        val fp = footprint(s, owner, projection, width, height, null, checkpoint)
+        return if (fp == selection.rings) selection else selection.copy(rings = fp)
+    }
+
+    /**
+     * The part of [selection]'s stored regions a stroke on [view]'s image may paint, in that image's flat
+     * space: cut to the triangles facing the camera. Null when none of it is reachable (turned away, or the
+     * selection never reached the view); the caller decides whether that blocks (inverted: it does not).
+     */
+    fun viewCut(
+        selection: Selection,
+        view: SurfaceView,
+        owner: SurfaceOwner,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        val s = selection.surface ?: return null
+        val out = ArrayList<SelectionRing>()
+        for (v in s.views) {
+            if (v.view != view) continue
+            val tris = projection.facing(view).filter { v.region == ViewSelection.ANY_REGION || it.region == v.region }
+            for (ring in v.rings) {
+                if (!ring.isUsable) continue
+                val paint = ring.path.map {
+                    val (u, t) = SurfaceMath.flatToUnrolled(it.x, it.y, owner.innerChain, width, height)
+                    Offset(u, t)
+                }
+                val loX = paint.minOf { it.x }; val hiX = paint.maxOf { it.x }
+                val loY = paint.minOf { it.y }; val hiY = paint.maxOf { it.y }
+                for (t in tris) {
+                    if (t.maxPx < loX || t.minPx > hiX || t.maxPy < loY || t.minPy > hiY) continue
+                    val clipped = clip(paint, t.px, t.py)
+                    if (clipped.size < 3) continue
+                    val flat = clipped.mapNotNull { SurfaceMath.unrolledToFlat(it.x, it.y, owner.innerChain, width, height) }.map { Offset(it.first, it.second) }
+                    if (flat.size < 3 || area(flat) < MIN_AREA) continue
+                    out += SelectionRing(flat, ring.additive)
+                }
+            }
+        }
+        if (out.isEmpty() || (!selection.inverted && out.none { it.additive })) return null
+        return Selection(out, selection.canvasSize, selection.inverted, selection.featherPx)
+    }
+
+    /** A world-space [selection]'s rings as per-image regions (the lasso-to-view cut, [forView], for every facing view). */
+    private fun bind(
+        selection: Selection,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): List<ViewSelection> {
+        val plain = Selection(selection.rings, selection.canvasSize)
+        return SurfaceView.entries.filter { it in projection.facingViews }.mapNotNull { v ->
+            forView(plain, v, owner, hull, camera, width, height, projection)?.let { ViewSelection(v, ViewSelection.ANY_REGION, it.rings) }
+        }
+    }
+
+    /**
+     * Folds [incoming] (a wand's surface selection, or a lasso in world space) into [current] under [op].
+     * Defined result for mixes: whichever side is a world-space lasso is converted to per-image regions with
+     * the lasso-to-view cut ([forView]; parts on faces turned away are dropped), then the regions are
+     * concatenated in recipe order with the incoming rings' sense set as the flat Add/Remove would
+     * (a hole stays a hole; under an inverted base the sense flips). Inversion and feather are the base's.
+     * Null: Remove from nothing.
+     */
+    fun compose(
+        current: Selection?,
+        incoming: Selection,
+        op: SelectionOp,
+        surfaceId: String,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        val canvas = incoming.canvasSize
+        val inc = incoming.surface?.takeIf { it.surfaceId == surfaceId }?.views
+            ?: bind(incoming, owner, hull, camera, projection, width, height)
+        fun result(views: List<ViewSelection>, inverted: Boolean, feather: Float): Selection {
+            val surface = SurfaceSelection(surfaceId, views)
+            return Selection(footprint(surface, owner, projection, width, height), canvas, inverted, feather, surface)
+        }
+        if (op == SelectionOp.NEW) return result(inc, false, 0f)
+        val base = current?.takeIf { (it.isUsable || it.surface?.isUsable == true) && it.canvasSize == canvas }
+        if (base == null) {
+            return if (op == SelectionOp.ADD) result(inc, current?.inverted ?: false, current?.featherPx ?: 0f) else null
+        }
+        val have = base.surface?.takeIf { it.surfaceId == surfaceId }?.views
+            ?: bind(base, owner, hull, camera, projection, width, height)
+        val added = inc.map { v ->
+            v.copy(rings = v.rings.map { r ->
+                val eff = if (r.additive) op else SelectionOp.REMOVE
+                r.copy(additive = (eff == SelectionOp.ADD) != base.inverted)
+            })
+        }
+        return result(have + added, base.inverted, base.featherPx)
+    }
+
+    /**
+     * A surface selection that was moved ([Selection.translated] drops its image regions): the moved rings
+     * are the marquee as they are, and are cut to the images again so the result follows the surface.
+     */
+    fun rebind(
+        moved: Selection,
+        surfaceId: String,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection = moved.copy(surface = SurfaceSelection(surfaceId, bind(moved, owner, hull, camera, projection, width, height)))
 
     /**
      * The rectangle of the face a touch is on ([SurfaceMath.ViewFlat.region]) as a one-ring selection

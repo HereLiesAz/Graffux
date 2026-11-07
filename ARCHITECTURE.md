@@ -654,8 +654,8 @@ Full design: `spec/3d-space.md`. In short:
   Fill and Clone per image. A fill continues across creases (`SurfaceHull.creaseLinks`, `facesAt`,
   `SurfaceViewFlood.plan` over the pixels of `ViewFloodOracle`, one gesture), the lasso skips faces turned
   away (`SurfaceViewSelection.facesViewer`), and the clone reticle uses `SurfaceHull.pointAt`. The wand
-  (`EditorViewModel.onViewAutoSelect`) floods across creases and brings its region to world space as its visible
-  footprint (`SurfaceViewSelection.fromView`, via `SurfaceProjection`, the camera's view of every hull triangle);
+  (`EditorViewModel.onViewAutoSelect`) floods across creases and stores its regions per view image (`Selection.surface`, `SurfaceSelection`) and derives the on-screen footprint
+  from them for the current camera (`SurfaceViewSelection.footprint`/`fromView`, via `SurfaceProjection`), re-derived on every camera or surface change so the selection follows the surface (`SurfaceViewSelection.compose` mixes a lasso in, `rebind` after a move);
   moving selected pixels (`onSurfaceSelectionMove`, `SurfaceViewMove`) slides paint over the surface, resampling
   across creases into a self-contained per-image `StrokeCommand.movePatch`, one undo step (spec/3d-space.md,
   "Selection on a multi-view surface"). Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).

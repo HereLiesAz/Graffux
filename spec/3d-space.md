@@ -518,14 +518,25 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     clone reticle is drawn where that point is on the surface (`SurfaceHull.pointAt`, the inverse of
     `paintTarget`). Moving selected pixels and Automatic (wand) selection are covered in
     *Selection on a multi-view surface* below.
-  - *Selection on a multi-view surface.* **Representation:** the selection stays what the lasso made it, rings in
-    world (canvas) space, so Add, Remove, invert, feather, saved selections, the marching ants and every
-    consumer of `Selection` are the code they were, and a flat layer never sees any of this. A wand region is
-    brought into that space as its *visible footprint*; each image's part is cut back out when used
-    (`SurfaceViewSelection.forView`). Per-image storage was weighed and not taken: it would change `Selection`
-    and every ring operation, and the ants would need re-projecting each frame. The price: like a lasso, the
-    footprint stays where it was on screen if the camera orbits afterwards, and is re-cut to whatever surface
-    is now under it. **Wand** (`EditorViewModel.onViewAutoSelect`): the flood runs in the image under the tap
+  - *Selection on a multi-view surface.* **Representation:** a lasso stays what it was drawn as, rings in
+    world (canvas) space, so a lasso, and every selection on a flat layer, is the code it was. A **wand** selection
+    is stored per view image: `Selection.surface` (`SurfaceSelection`: the paint layer, and per flooded face a
+    `ViewSelection` of view, cap region and rings in that image's flat space, in recipe order). That is the
+    camera-independent truth that persists (saved selections, undo's marquee snapshots). `Selection.rings` is its
+    *footprint* for the current camera, so the marching ants, the clipping of flat layers and the hit test are
+    unchanged consumers. The footprint is re-derived (`SurfaceViewSelection.footprint`: each region cut to the
+    facing triangles of its view and carried to the canvas) whenever the camera, the surface or the canvas changes
+    (`EditorViewModel`, one pass in flight, the newest pose wins; the projection of the last pose is remembered), so
+    the selection follows the surface when the camera orbits. A face that now turns away contributes nothing and
+    comes back when the camera does; the selection itself is kept. A face turned away when the wand was tapped was
+    never stored. Painting clips (`viewClip`) to the stored region of the view image cut to what faces the camera.
+    **Mixing with a lasso** (`SurfaceViewSelection.compose`): Add and Remove of a lasso onto a surface selection, or of
+    a wand onto a lasso, convert the lasso to per-image regions with the lasso-to-view cut (`forView`, faces turned
+    away dropped) and append the regions in order, a hole staying a hole and the sense flipping under an inverted base;
+    inversion and feather are the base's. Invert and feather are flags on the whole. **Move** drops the image
+    regions (`translated`) and rebinds the moved marquee to the images (`rebind`), so a moved wand keeps following;
+    undo restores the stored selection. A tapped triangle that faces away counts only in the footprint made at the tap.
+    **Wand** (`EditorViewModel.onViewAutoSelect`): the flood runs in the image under the tap
     and continues across creases exactly as a fill does (`SurfaceViewFlood.plan`, same tolerance, a view with
     no image yet floods its whole face). Each flooded face is kept to its own rectangle of its image, traced
     (holes marked), and carried to the canvas by `SurfaceViewSelection.fromView`: the ring is cut to every

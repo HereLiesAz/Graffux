@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.serialization.IntSizeSerializer
 import com.hereliesaz.graffitixr.common.serialization.OffsetSerializer
+import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import kotlinx.serialization.Serializable
 
 /**
@@ -161,6 +162,13 @@ data class Selection(
     val canvasSize: IntSize,
     val inverted: Boolean = false,
     val featherPx: Float = 0f,
+    /**
+     * Set only for a wand selection on a multi-view surface: the camera-independent truth, the
+     * region in each view image. [rings] is then its *footprint* for the current camera, re-derived
+     * whenever the camera or surface changes. Null (every flat selection and every lasso) means
+     * [rings] is the selection.
+     */
+    val surface: SurfaceSelection? = null,
 ) {
     /** The [outline], under the single-polygon name path-only callers use. */
     val path: List<Offset> get() = outline
@@ -194,5 +202,32 @@ data class Selection(
 
     /** The same selection with every ring shifted by [delta] — how a moved selection travels. */
     fun translated(delta: Offset): Selection =
-        copy(rings = rings.map { ring -> ring.copy(path = ring.path.map { it + delta }) })
+        // Image-space regions do not move with a canvas-space shift: the moved footprint is a plain
+        // region until the caller rebinds it to the surface.
+        copy(rings = rings.map { ring -> ring.copy(path = ring.path.map { it + delta }) }, surface = null)
+}
+
+/**
+ * One face's part of a surface selection: [rings] in the flat space of view image [view] (same space
+ * and ring sense as a selection on that image), for the sheet or cap [region] of that image
+ * ([ANY_REGION]: every face of it).
+ */
+@Serializable
+data class ViewSelection(
+    val view: SurfaceView,
+    val region: Int = ANY_REGION,
+    val rings: List<SelectionRing>,
+) {
+    companion object {
+        const val ANY_REGION: Int = -1
+    }
+}
+
+/** A selection stored per view image of the multi-view surface of paint layer [surfaceId], in recipe order. */
+@Serializable
+data class SurfaceSelection(
+    val surfaceId: String,
+    val views: List<ViewSelection>,
+) {
+    val isUsable: Boolean get() = views.any { v -> v.rings.any { it.additive && it.isUsable } }
 }

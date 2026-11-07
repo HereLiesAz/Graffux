@@ -189,4 +189,60 @@ class SurfaceSelectionTest {
         assertEquals(canvas, sel!!.canvasSize)
         assertTrue(sel.rings.all { it.additive })
     }
+
+    private fun wandOn(view: SurfaceView? = null): Pair<SurfaceView, Selection> {
+        load(emptyMap())
+        val ts = touches().filter { it.second.region == 0 }
+        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        val tap = ts.first { view == null || it.second.view == view }.second
+        vm.onViewAutoSelect("p", tap, canvas)
+        return tap.view to vm.uiState.value.selection!!
+    }
+
+    private fun touchesAt(c: SceneCamera) = buildList {
+        var y = 0f
+        while (y < h) {
+            var x = 0f
+            while (x < w) {
+                SurfaceMath.worldToViewFlat(x, y, owner, c, w, h, hull)?.let { add(Offset(x, y) to it) }
+                x += 20f
+            }
+            y += 20f
+        }
+    }
+
+    @Test
+    fun `an orbit keeps the wand's image regions and moves its footprint with the surface`() {
+        val (view, first) = wandOn()
+        assertNotNull(first.surface)
+        val other = SceneCamera(yaw = -0.6f, pitch = 0.3f)
+        vm.setSceneCameraForTest(other)
+        val now = vm.uiState.value.selection!!
+        assertEquals(first.surface, now.surface)
+        assertTrue("footprint recomputed", now.rings != first.rings)
+        val own = touchesAt(other).filter { it.second.view == view && it.second.region == 0 }
+        assertTrue(own.isNotEmpty())
+        assertTrue("selected where the face now shows", own.count { now.holds(it.first) } > own.size / 2)
+        // Back again: the footprint is the one it was.
+        vm.setSceneCameraForTest(camera)
+        assertEquals(first.rings, vm.uiState.value.selection!!.rings)
+    }
+
+    @Test
+    fun `a lasso added onto a wand joins the image regions and undoing a move restores them`() {
+        val (_, first) = wandOn()
+        val ts = touches().filter { it.second.region == 0 }
+        val at = ts.first { it.second.view != first.surface!!.views.first().view }.first
+        vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.ADD))
+        vm.onSelectionEnd(listOf(at - Offset(20f, 20f), Offset(at.x + 20f, at.y - 20f), at + Offset(20f, 20f), Offset(at.x - 20f, at.y + 20f)), canvas)
+        val both = vm.uiState.value.selection!!
+        assertNotNull(both.surface)
+        assertTrue(both.surface!!.views.size > first.surface!!.views.size)
+        assertTrue(both.holds(at))
+        vm.onSurfaceSelectionMove("p", Offset(40f, 0f))
+        val moved = vm.uiState.value.selection!!
+        assertNotNull("a moved surface selection still follows the surface", moved.surface)
+        vm.onUndoClicked()
+        assertEquals(both.surface, vm.uiState.value.selection!!.surface)
+    }
 }

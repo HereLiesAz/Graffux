@@ -95,6 +95,11 @@ class SurfaceProjection private constructor(private val all: List<Tri>) {
             return if (inv > 0f) 1f / inv else Float.MAX_VALUE
         }
 
+        internal val minPx: Float get() = min(px[0], min(px[1], px[2]))
+        internal val maxPx: Float get() = max(px[0], max(px[1], px[2]))
+        internal val minPy: Float get() = min(py[0], min(py[1], py[2]))
+        internal val maxPy: Float get() = max(py[0], max(py[1], py[2]))
+
         internal fun paintArea(): Float =
             abs((px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0])) / 2f
 
@@ -119,7 +124,9 @@ class SurfaceProjection private constructor(private val all: List<Tri>) {
     fun facing(view: SurfaceView): List<Tri> = facingByView[view].orEmpty()
 
     /** Every triangle of [view], facing or not. */
-    fun triangles(view: SurfaceView): List<Tri> = all.filter { it.view == view }
+    fun triangles(view: SurfaceView): List<Tri> = byView[view].orEmpty()
+
+    private val byView: Map<SurfaceView, List<Tri>> by lazy { all.groupBy { it.view } }
 
     /** The views that have a triangle facing the viewer. */
     val facingViews: Set<SurfaceView> get() = facingByView.keys
