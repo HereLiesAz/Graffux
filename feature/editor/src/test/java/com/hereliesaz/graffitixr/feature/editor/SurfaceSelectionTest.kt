@@ -16,7 +16,9 @@ import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -39,6 +41,18 @@ class SurfaceSelectionTest {
     @Suppress("EXPERIMENTAL_API_USAGE")
     private val dispatcher = UnconfinedTestDispatcher()
     private lateinit var vm: EditorViewModel
+    private var beforeFootprintPass: (() -> Unit)? = null
+
+    /** Stands in for the background dispatcher: runs [beforeFootprintPass] once, as the pass is handed off. */
+    private val background = object : CoroutineDispatcher() {
+        override fun isDispatchNeeded(context: CoroutineContext) = true
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            if (Throwable().stackTrace.any { it.methodName.startsWith("refreshFootprint") }) {
+                beforeFootprintPass?.also { beforeFootprintPass = null }?.invoke()
+            }
+            block.run()
+        }
+    }
     private val canvas = IntSize(1700, 1200)
     private val w = canvas.width.toFloat()
     private val h = canvas.height.toFloat()
@@ -75,7 +89,7 @@ class SurfaceSelectionTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         RenderTestBase.stubNativeLibs()
-        vm = EditorViewModelFixture.build(dispatcher)
+        vm = EditorViewModelFixture.build(dispatcher, background = background)
         vm.dispatchForTest(EditorIntent.SetCanvasSize(canvas))
         vm.setSceneCameraForTest(camera)
     }
@@ -226,6 +240,22 @@ class SurfaceSelectionTest {
         // Back again: the footprint is the one it was.
         vm.setSceneCameraForTest(camera)
         assertEquals(first.rings, vm.uiState.value.selection!!.rings)
+    }
+
+    @Test
+    fun `a selection flag toggled during a footprint pass survives it and the rings are the new ones`() {
+        val (_, first) = wandOn()
+        assertTrue(!first.inverted && first.featherPx == 0f)
+        // The user flips invert and feather just as the background pass starts, after it snapshotted the selection.
+        beforeFootprintPass = {
+            vm.dispatchForTest(EditorIntent.InvertSelection)
+            vm.dispatchForTest(EditorIntent.SetSelectionFeather(7f))
+        }
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        val now = vm.uiState.value.selection!!
+        assertTrue("invert survives", now.inverted)
+        assertEquals("feather survives", 7f, now.featherPx, 0f)
+        assertTrue("rings are the new footprint", now.rings != first.rings)
     }
 
     @Test
