@@ -21,6 +21,7 @@ ksp = "2.3.12"
 kotlinxSerialization = "1.12.0"
 lifecycle = "2.11.0"
 litert = "2.3.2"
+onnxruntime = "1.31.1"
 mlkitSubjectSegmentation = "16.0.0-beta1" # ACCEPTED RISK: no stable release as of 2026-04-02
 navigation = "2.10.2"
 playServicesBase = "18.11.1"
@@ -99,6 +100,7 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-serialization-cbor = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-cbor", version.ref = "kotlinxSerialization" }
 litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
+onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android", version.ref = "onnxruntime" }
 mlkit-subject-segmentation = { group = "com.google.android.gms", name = "play-services-mlkit-subject-segmentation", version.ref = "mlkitSubjectSegmentation" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }

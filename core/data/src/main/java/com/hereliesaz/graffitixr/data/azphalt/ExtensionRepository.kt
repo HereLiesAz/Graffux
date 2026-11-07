@@ -59,6 +59,12 @@ class ExtensionRepository @Inject constructor(
     private val extensionsRoot = File(context.filesDir, "extensions")
 
     /**
+     * Verified-weights cache for not-bundled model assets (`onnx` + role `depth`). Lives beside, not
+     * inside, the unpacked tree so a reinstall or update of the package keeps the multi-MB download.
+     */
+    val modelAssets = ModelAssetCache(File(context.filesDir, "models"))
+
+    /**
      * Trust a published key only with the pinned root's endorsement for its purpose. Always true in a
      * release build; a debug build may opt out with `-Pgraffux.azphaltRootEnforcement=false`
      * (core/data/build.gradle.kts). A test seam, never changed at runtime by the app.
@@ -276,12 +282,42 @@ class ExtensionRepository @Inject constructor(
             _installed.value = scanInstalled()
             ext
         }
+        modelAssets.delete(id)
         // `removed` rather than forgetting it: a store can then offer a reinstall instead of a first
         // purchase, which is the whole reason the state is distinct from never having had it.
         if (removed != null) {
             stateStore.record(id, removed.manifest.version, ExtensionState.REMOVED, nowMs)
         }
     }
+
+    /** An installed package's depth-model asset (`onnx` + role `depth`), whether or not its weights are fetched yet. */
+    data class DepthModel(
+        val extension: InstalledExtension,
+        val asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution,
+    )
+
+    /** Every installed depth-model asset. Weights may not be downloaded; see [modelAssets]. */
+    fun installedDepthModels(): List<DepthModel> = _installed.value.flatMap { ext ->
+        ext.manifest.assets
+            .filter(com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport::isDepthModel)
+            .map { DepthModel(ext, it) }
+    }
+
+    /**
+     * Downloads and verifies the weights of every host-supported model asset in [ext] (today: depth).
+     * Returns each asset's final state. Cancellable; a partial download resumes next call.
+     */
+    suspend fun prepareModelAssets(ext: InstalledExtension): List<ModelAssetCache.State> =
+        ext.manifest.assets
+            .filter(com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport::isDepthModel)
+            .map { modelAssets.ensure(ext.id, it) }
+
+    /**
+     * The verified depth weights to hand to `OnnxDepthEstimator`, or null if no installed depth model
+     * has completed its download and checksum. Never returns unverified bytes.
+     */
+    fun depthModelFile(): File? =
+        installedDepthModels().firstNotNullOfOrNull { modelAssets.verifiedFile(it.extension.id, it.asset) }
 
     /**
      * Installed LUT asset extensions with a *usable* LUT. Only assets an asset host may use are counted:

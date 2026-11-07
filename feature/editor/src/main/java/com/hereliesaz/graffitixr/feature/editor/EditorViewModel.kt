@@ -50,6 +50,7 @@ import com.hereliesaz.graffitixr.common.util.ContourTrace
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
+import com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
@@ -12629,6 +12630,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
+                fetchModelWeights(installed)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e   // never swallow cancellation — let the coroutine unwind cooperatively
             } catch (e: Exception) {
@@ -12663,6 +12665,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
+                fetchModelWeights(installed)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -12764,6 +12767,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
+                fetchModelWeights(installed)
                 refreshStoreUpdates()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -12785,6 +12789,37 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Downloads and checksum-verifies the weights of any depth model [installed] declares, off the
+     * main thread, and reports the outcome. Re-installing (or calling [retryModelDownloads]) resumes a
+     * partial download. A listing with no checksum is reported, not fetched: unverified weights are
+     * never run.
+     */
+    private fun fetchModelWeights(installed: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension) {
+        if (installed.manifest.assets.none(HostAssetSupport::isDepthModel)) return
+        viewModelScope.launch(dispatchers.io) {
+            val name = installed.manifest.name
+            val results = extensionRepository.prepareModelAssets(installed)
+            val failure = results.firstNotNullOfOrNull {
+                when (it) {
+                    is com.hereliesaz.graffitixr.data.azphalt.ModelAssetCache.State.Unavailable -> it.message
+                    is com.hereliesaz.graffitixr.data.azphalt.ModelAssetCache.State.Failed -> it.message
+                    else -> null
+                }
+            }
+            withContext(dispatchers.main) {
+                if (failure != null) notify("$name depth model unavailable: $failure", NoticeKind.WARNING)
+                else notify("$name depth model ready", NoticeKind.NOTICE)
+            }
+        }
+    }
+
+    /** Resumes any depth-model download that did not finish (offline, app killed). Non-UI entry point. */
+    fun retryModelDownloads() {
+        extensionRepository.installedDepthModels()
+            .map { it.extension }.distinctBy { it.id }.forEach(::fetchModelWeights)
+    }
+
+    /**
      * What landed, and where the user will find it.
      *
      * "Installed X" alone is only half an answer: a package can contribute a brush, a colour grade, a
@@ -12803,8 +12838,10 @@ class EditorViewModel @Inject constructor(
             // only commands was announced as "nothing applies" and then appeared in the panel.
             if (surfacesInExtensionsPanel(installed)) add("Extensions")
         }.distinct()
+        val hasDepth = installed.manifest.assets.any(HostAssetSupport::isDepthModel)
 
         return when {
+            where.isEmpty() && hasDepth -> "Installed $name — fetching its depth model"
             where.isEmpty() ->
                 // Installed and verified, but nothing in it is something this host can apply — an
                 // asset type it doesn't support, or a code-only contribution it doesn't run. Saying
