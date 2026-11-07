@@ -27,14 +27,18 @@ import androidx.test.core.app.ApplicationProvider
  */
 internal object EditorViewModelFixture {
 
-    fun dispatchers(d: CoroutineDispatcher) = object : DispatcherProvider {
+    fun dispatchers(d: CoroutineDispatcher, background: CoroutineDispatcher = d) = object : DispatcherProvider {
         override val main = d
         override val io = d
-        override val default = d
+        override val default = background
         override val unconfined = d
     }
 
-    fun build(d: CoroutineDispatcher, customBrushRepository: CustomBrushRepository? = null): EditorViewModel {
+    fun build(
+        d: CoroutineDispatcher,
+        customBrushRepository: CustomBrushRepository? = null,
+        background: CoroutineDispatcher = d,
+    ): EditorViewModel {
         val settings = mockk<SettingsRepository>(relaxed = true) {
             every { backgroundColor } returns MutableStateFlow(0)
             every { inputSampleRateHz } returns MutableStateFlow(120)
@@ -65,7 +69,7 @@ internal object EditorViewModelFixture {
             exportManager = mockk(relaxed = true),
             context = ApplicationProvider.getApplicationContext<android.app.Application>(),
             liquifyEngine = mockk(relaxed = true),
-            dispatchers = dispatchers(d),
+            dispatchers = dispatchers(d, background),
             opEmitter = mockk(relaxed = true),
             extensionRepository = extensions,
             repositoryApiClient = mockk(relaxed = true),

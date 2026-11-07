@@ -6733,7 +6733,11 @@ class EditorViewModel @Inject constructor(
             SurfaceViewSelection.refresh(sel, ctx.owner, ctx.projection, ctx.w, ctx.h) { job?.ensureActive() }
         }
         if (next === sel) return
-        updateUi { s -> if (s.selection?.surface == key.surface) s.copy(selection = next) else s }
+        // Only the footprint is ours: flags the user changed during the pass (invert, feather) stay as they are now.
+        updateUi { s ->
+            val cur = s.selection?.takeIf { it.surface == key.surface }
+            if (cur == null) s else s.copy(selection = cur.copy(rings = next.rings))
+        }
     }
 
     /** [selection] moved by [delta]; a surface selection is rebound to the images so it keeps following. */
