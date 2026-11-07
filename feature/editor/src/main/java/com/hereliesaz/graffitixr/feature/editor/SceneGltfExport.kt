@@ -121,6 +121,7 @@ internal fun buildSceneGltf(
             ),
             chainOpacity(layer),
             surface,
+            sharedVertices = owner?.profile?.relief != null,
         )
     }
     return SceneGltfExporter.Scene(
