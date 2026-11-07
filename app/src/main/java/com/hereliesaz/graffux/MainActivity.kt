@@ -1316,6 +1316,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
+                // The wheel stays open with the brush sheet; it hides with the sheet while a stroke is drawn.
+                val sheetWheel = carouselUi.brushSheetUp(showCarousel, uiState.activeTool) &&
+                    !(chrome.hidden && !chrome.forcedOnly) && !strokeGate.strokeActive
+                LaunchedEffect(sheetWheel) { packWheel.pinTo(sheetWheel) }
                 if (packWheel.open) {
                     val packInputs = CarouselInputs(
                         activeTool = uiState.activeTool,

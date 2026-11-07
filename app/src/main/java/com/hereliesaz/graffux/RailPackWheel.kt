@@ -137,8 +137,20 @@ internal class PackWheelState {
     internal var radiusPx: Float = 0f
     internal var opensRight: Boolean = true
 
-    fun toggle() { open = !open }
-    fun close() { open = false }
+    /**
+     * Held up while the brush sheet is up (see [brushSheetUp]): the wheel stays open with the sheet,
+     * so the post-commit shut, an outside press and a second tap on the tool do not close it.
+     */
+    var pinned by mutableStateOf(false)
+
+    fun toggle() { if (open) close() else open = true }
+    fun close() { if (!pinned) open = false }
+
+    /** The sheet came up or went away: the wheel opens with it, or shuts with it. */
+    fun pinTo(sheetUp: Boolean) {
+        pinned = sheetUp
+        if (sheetUp) open = true else open = false
+    }
 
     fun anchor(tool: Tool, bounds: Rect) {
         when (tool) {
@@ -213,6 +225,30 @@ internal fun packSpokeDegrees(index: Int, position: Float, opensRight: Boolean):
 internal fun packIndexAt(degrees: Float, position: Float, opensRight: Boolean): Float =
     position + packDirection(opensRight) * angleDelta(packPointerDegrees(opensRight), degrees) / PACK_WEDGE_DEGREES
 
+/** [index] folded into `0 until count`: the wheel is a ring, so any integer names a pack. */
+internal fun wrapIndex(index: Int, count: Int): Int = Math.floorMod(index, count)
+
+/**
+ * How far pack [index] lies from the wheel at [position], in packs, taking the short way round the
+ * ring: always within half a turn of the pack count either side of the pointer.
+ */
+internal fun wrapOffset(index: Int, position: Float, count: Int): Float {
+    val d = index - position
+    return d - count * kotlin.math.round(d / count)
+}
+
+/** The spoke angle of pack [index] on the ring of [count] packs, with the wheel at [position]. */
+internal fun packSpokeDegreesWrapped(index: Int, position: Float, count: Int, opensRight: Boolean): Float =
+    packPointerDegrees(opensRight) + packDirection(opensRight) * wrapOffset(index, position, count) * PACK_WEDGE_DEGREES
+
+/** The whole-number position a release at [position] moving at [velocity] (packs/s) lands on, unbounded. */
+internal fun packSnapLanding(position: Float, velocity: Float): Int =
+    (position + velocity * FLING_SECONDS).roundToInt()
+
+/** The whole-number position, from [position], that reaches pack [index] by the shortest turn. */
+internal fun packLandingFor(index: Int, position: Float, count: Int): Int =
+    (position + wrapOffset(index, position, count)).roundToInt()
+
 /** A name's rotation on spoke [degrees]: along the spoke, and never upside down on either hand. */
 internal fun packTextRotation(degrees: Float, opensRight: Boolean): Float =
     if (opensRight) angleDelta(0f, degrees) else angleDelta(HALF_TURN, degrees)
@@ -251,8 +287,9 @@ private var SemanticsPropertyReceiver.packWheelRadiusPx by PackWheelRadiusPx
  * style; the spoke pointing straight out from the rail, marked by the pointer, is the active pack.
  * Favorites is the first pack.
  *
- * Drag around it to turn it; a release flings and snaps to a spoke with a tick at each one, bounded
- * at the first and last packs. A tap on a name commits it at once; after a drag or fling the pointed
+ * Drag around it to turn it; a release flings and snaps to a spoke with a tick at each one. It turns
+ * without end: past the last pack comes the first, and the other way round. A tap on a name commits
+ * it at once; after a drag or fling the pointed
  * pack is provisional (outlined) until the wheel has rested on it for [WHEEL_DWELL_MS]. After a
  * commit the wheel shuts [PACK_WHEEL_CLOSE_MS] later. It also shuts when [closeWhen] turns true (a
  * stroke starting) and, through [closesPackWheelOutside], on a press anywhere off it.
@@ -322,21 +359,24 @@ private fun PackWheelDisc(
     val currentSelected by rememberUpdatedState(selectedIndex)
     val motion = remember { PackMotion() }
 
-    fun commit(target: Int) {
-        currentSets.getOrNull(target)?.let(currentPick)
-        motion.committed = target
+    fun commit(index: Int) {
+        currentSets.getOrNull(index)?.let(currentPick)
+        motion.committed = index
     }
 
     // Turns to [target]. A tap commits at once (even the pack already pointed at: it brings the sheet
     // back on it); a drag or fling commits after the dwell, if it moved. Then, with [close], shuts.
-    fun settleTo(target: Int, commitNow: Boolean, close: Boolean = true) {
+    // [landing] is a position on the unbounded ring; the pack it names is [wrapIndex] of it.
+    fun settleTo(landing: Int, commitNow: Boolean, close: Boolean = true) {
         motion.job?.cancel()
+        val target = wrapIndex(landing, count)
         if (commitNow) commit(target)
         motion.job = scope.launch {
             val spec = spring<Float>(Spring.DampingRatioLowBouncy)
-            animate(position.floatValue, target.toFloat(), animationSpec = spec) { v, _ ->
+            animate(position.floatValue, landing.toFloat(), animationSpec = spec) { v, _ ->
                 position.floatValue = v
             }
+            position.floatValue = target.toFloat() // the same spot on the ring, kept small
             if (!commitNow) {
                 delay(WHEEL_DWELL_MS)
                 if (target != (motion.committed ?: currentSelected)) commit(target)
@@ -351,13 +391,14 @@ private fun PackWheelDisc(
     // A pack picked elsewhere turns the wheel to it.
     LaunchedEffect(selectedIndex) {
         motion.committed = null
-        if (!motion.dragging && motion.job?.isActive != true && position.floatValue.roundToInt() != selectedIndex) {
+        val resting = wrapIndex(position.floatValue.roundToInt(), count)
+        if (!motion.dragging && motion.job?.isActive != true && resting != selectedIndex) {
             position.floatValue = selectedIndex.toFloat()
         }
     }
     LaunchedEffect(count) {
         var last: Int? = null
-        snapshotFlow { position.floatValue.roundToInt().coerceIn(0, count - 1) }.collect { i ->
+        snapshotFlow { wrapIndex(position.floatValue.roundToInt(), count) }.collect { i ->
             if (last != null && last != i) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
             last = i
         }
@@ -388,9 +429,11 @@ private fun PackWheelDisc(
     fun onDisc(p: Offset) = onHalfDisc(p - hub, radius, opensRight)
     fun move(by: Int) {
         val from = motion.committed ?: currentSelected
-        val target = (from + by).coerceIn(0, count - 1)
+        val target = wrapIndex(from + by, count)
         // Stepped through with TalkBack: commits each, and stays up for the next step.
-        if (target != from) settleTo(target, commitNow = true, close = false)
+        if (target != from) {
+            settleTo(packLandingFor(target, position.floatValue, count), commitNow = true, close = false)
+        }
     }
     val boxPx = IntOffset(
         (layout.hub.x - if (opensRight) 0f else radius).roundToInt(),
@@ -438,22 +481,21 @@ private fun PackWheelDisc(
                         change.consume()
                         // The names follow the finger round the hub.
                         val delta = -packDirection(opensRight) * turned / PACK_WEDGE_DEGREES
-                        position.floatValue = wheelDragPosition(position.floatValue, delta, count)
+                        position.floatValue += delta
                         tracker.addDataPoint(change.uptimeMillis, position.floatValue)
                     }
                     turn(slop)
                     val completed = drag(slop.id) { turn(it) }
                     motion.dragging = false
                     val v = if (completed) tracker.calculateVelocity() else 0f
-                    val target = wheelSnapTarget(position.floatValue, if (v.isFinite()) v else 0f, count)
-                    settleTo(target, commitNow = false)
+                    settleTo(packSnapLanding(position.floatValue, if (v.isFinite()) v else 0f), commitNow = false)
                 }
             }
             .pointerInput(count, opensRight, radius) {
                 detectTapGestures { tap ->
                     if (!onDisc(tap) || hypot(tap.x - hub.x, tap.y - hub.y) < capPx) return@detectTapGestures
                     settleTo(
-                        packIndexAt(angleOf(tap), position.floatValue, opensRight).roundToInt().coerceIn(0, count - 1),
+                        packIndexAt(angleOf(tap), position.floatValue, opensRight).roundToInt(),
                         commitNow = true,
                     )
                 }
@@ -461,7 +503,7 @@ private fun PackWheelDisc(
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val pos = position.floatValue
-            val pointed = pos.roundToInt().coerceIn(0, count - 1)
+            val pointed = wrapIndex(pos.roundToInt(), count)
             val committed = pointed == selectedIndex
             val start = if (opensRight) -90f else 90f
             // The disc, the pointed wedge (filled once committed, outlined while provisional), the
@@ -480,7 +522,7 @@ private fun PackWheelDisc(
             val hair = 1.dp.toPx()
             // The spokes between names, turning with them.
             for (k in -5..4) {
-                val a = packSpokeDegrees(pointed, pos, opensRight) + (k + 0.5f) * PACK_WEDGE_DEGREES
+                val a = packSpokeDegreesWrapped(pointed, pos, count, opensRight) + (k + 0.5f) * PACK_WEDGE_DEGREES
                 if (abs(angleDelta(pointer, a)) > 90f) continue
                 val rad = a * PI.toFloat() / HALF_TURN
                 drawLine(
@@ -515,10 +557,10 @@ private fun PackWheelDisc(
                 strokeWidth = 3.dp.toPx(),
             )
             layouts.forEachIndexed { i, (plain, bold) ->
-                val spoke = packSpokeDegrees(i, pos, opensRight)
+                val spoke = packSpokeDegreesWrapped(i, pos, count, opensRight)
                 val off = abs(angleDelta(pointer, spoke))
                 if (off > PACK_VISIBLE_DEGREES) return@forEachIndexed
-                val lit = (i - pos) in -0.5f..0.5f
+                val lit = wrapOffset(i, pos, count) in -0.5f..0.5f
                 val text = if (lit) bold else plain
                 val fade = (1f - (off / PACK_VISIBLE_DEGREES).let { it * it } * 0.6f)
                 val color = if (lit) colors.onSurface else colors.onSurface.copy(alpha = DIM_ALPHA * fade)
@@ -539,7 +581,8 @@ private fun PackWheelDisc(
             Box(
                 Modifier
                     .offset {
-                        val spoke = packSpokeDegrees(i, position.floatValue, opensRight) * (PI / HALF_TURN).toFloat()
+                        val deg = packSpokeDegreesWrapped(i, position.floatValue, count, opensRight)
+                        val spoke = deg * (PI / HALF_TURN).toFloat()
                         IntOffset(
                             (hub.x + itemR * cos(spoke) - itemPx / 2).roundToInt(),
                             (hub.y + itemR * sin(spoke) - itemPx / 2).roundToInt(),
@@ -552,7 +595,10 @@ private fun PackWheelDisc(
                         role = Role.Tab
                         collectionItemInfo = CollectionItemInfo(i, 1, 0, 1)
                         packNameEllipsized = cut
-                        onClick(label = "Select") { settleTo(i, commitNow = true); true }
+                        onClick(label = "Select") {
+                            settleTo(packLandingFor(i, position.floatValue, count), commitNow = true)
+                            true
+                        }
                     }
                     .testTag("rail.packwheel.item"),
             )
