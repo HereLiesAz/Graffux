@@ -74,6 +74,7 @@ class PackRenderHarness {
             println("== ${dir.name}: ${brushes.size} brushes")
             val rendered = brushes.map { brush -> renderBrush(dir, brush, problems) }
             ImageIO.write(sheet(dir.name, brushes, rendered), "png", File(out, "${dir.name}.sheet.png"))
+            System.getProperty("graffux.packs.brushpreviews")?.let { exportBrushPreviews(File(it), dir.name, manifest, assets, brushes, rendered) }
             if (writePreviews) {
                 val card = card(brushes, dir)
                 File(dir, "assets").mkdirs()
@@ -84,6 +85,36 @@ class PackRenderHarness {
             println("PROBLEMS:\n" + problems.joinToString("\n") { " - $it" })
             throw AssertionError("pack problems:\n" + problems.joinToString("\n"))
         }
+    }
+
+    /**
+     * Per-brush store previews, for `tools/brush-previews.mjs ingest` in the azphalt repo
+     * (`-Pgraffux.packs.brushpreviews=<dir>`). Writes `<dir>/<pack id>/index.json` and one PNG per
+     * scenario under `<dir>/<pack id>/<NN>/`. A brush with a stroke program (kinetic) gets every
+     * scenario it was rendered with; a plain brush gets the first (the swoop). The store, not this
+     * harness, decides whether that is enough.
+     */
+    private fun exportBrushPreviews(outRoot: File, packDir: String, manifest: JsonObject, assets: List<JsonObject>, brushes: List<AzphaltBrush>, rendered: List<Rendered>) {
+        val packId = (manifest["id"] as JsonPrimitive).content
+        val strokeNames = strokes(Const.TILE_W.toFloat(), Const.TILE_H.toFloat()).map { it.name }
+        val base = File(outRoot, packId).apply { deleteRecursively(); mkdirs() }
+        val entries = brushes.indices.map { i ->
+            val r = rendered[i]
+            val kinetic = brushes[i].program != null
+            val names = r.names.ifEmpty { strokeNames }
+            val keep = if (kinetic) r.tiles.indices.toList() else listOf(0)
+            val dirName = "%02d".format(i + 1)
+            File(base, dirName).mkdirs()
+            val files = keep.map { k ->
+                val rel = "$dirName/%02d.png".format(k + 1)
+                ImageIO.write(r.tiles[k], "png", File(base, rel))
+                """{"file":"$rel","label":"${names[k]}"}"""
+            }
+            """{"asset":"${(assets[i]["path"] as JsonPrimitive).content}","strokes":[${files.joinToString(",")}]}"""
+        }
+        File(base, "index.json").writeText(
+            """{"pack":"$packId","renderer":{"engine":"graffux PackRenderHarness","seed":${Const.SEED},"diameterPx":${System.getProperty("graffux.packs.diameter") ?: Const.DIAMETER},"note":"CPU approximation of the GPU stamping; dab geometry and stroke programs are the real generators"},"brushes":[${entries.joinToString(",")}]}"""
+        )
     }
 
     // ---- test strokes ------------------------------------------------------------------------
