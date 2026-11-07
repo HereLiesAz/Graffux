@@ -332,7 +332,23 @@ Whatever the model, `DepthMap` is **relative inverse depth, larger = nearer, eve
 that goes negative). NaN/Inf samples become the far plane; an output with no finite sample is an error.
 Output shapes `[H,W]`, `[1,H,W]` and `[1,1,H,W]` are accepted. Which installed model runs: the caller's
 `preferredId` if its weights are ready, else the first ready one in `HostAssetSupport.DEPTH_PREFERENCE`
-(Depth Anything V2 small, V3 small, MiDaS), then other depth models by id.
+(Depth Anything V2 small, V3 small, MiDaS, MoGe-2 small), then other depth models by id.
+
+**Point-map models (MoGe-2 Small).** An asset whose `params.postprocess` is `"moge2-affine-pointmap"`
+is not read through a depth output. The host feeds `image` (`[1,3,H,W]`, RGB, 0..1, dynamic H/W,
+multiples of 14, long side at most 518) and the `int64` scalar `num_tokens` (`params.numTokens.default`,
+clamped to its min/max; 1800 if absent), and requests `points` (`[1,H,W,3]`, required), `mask`
+(`[1,H,W]`) and `scale` (`[1]`). `core:ml` `MoGeDepth` then does the shift solve: valid = `mask > 0.5`;
+a 64x64 nearest subsample at `floor(i*N/64)`; `uv = (pixel - (size-1)/2) * 2 / hypot(W,H)`;
+Levenberg-Marquardt on `sum |f*xy/(z+shift) - uv|^2` from shift 0, with the focal fitted jointly (the
+`DepthEstimator` API carries no camera focal yet, so it is always fitted). `depth = (z+shift)*scale`;
+masked, non-finite and non-positive depths take the far plane; the result is `1/depth` as a `DepthMap`
+(relative inverse depth, larger = nearer, finite). Refusals (`UnexpectedOutput`): fewer than 16 valid
+samples, a non-positive or non-finite `scale`, a wrong output size, no usable depth; an aspect ratio outside
+1:2..2:1 is `InvalidInput`. Behaviour of the other models is unchanged.
+
+Licensing note for this listing: the weights are labelled MIT, but the training data is academic-use only
+and is unaudited per dataset. The listing is free and is not sold; the owner has cleared it on that basis.
 
 For a `lut` asset, `params` may carry (§ 3, LUT application below):
 

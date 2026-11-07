@@ -18,6 +18,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.FloatBuffer
+import java.nio.LongBuffer
 import java.nio.ShortBuffer
 import kotlin.math.max
 
@@ -63,8 +64,12 @@ class OnnxDepthEstimator(
         return coroutineScope {
             val work = async(dispatcher) {
                 ensureActive()
-                val runner = OrtRunner(openSession(), cancel)
-                DepthPipeline.estimate(pixels, w, h, spec, runner)
+                val session = openSession()
+                if (spec.pointMap != null) {
+                    DepthPipeline.estimatePointMap(pixels, w, h, spec, OrtPointMapRunner(session, cancel))
+                } else {
+                    DepthPipeline.estimate(pixels, w, h, spec, OrtRunner(session, cancel))
+                }
             }
             try {
                 work.await()
@@ -229,5 +234,90 @@ class OnnxDepthEstimator(
                 throw DepthEstimationException.InferenceFailed("Depth inference failed: ${e.message}", e)
             }
         }
+    }
+
+    /** The MoGe-2 counterpart of [OrtRunner]. */
+    @Suppress("MagicNumber")
+    private class OrtPointMapRunner(
+        private val session: OrtSession, private val cancel: CancelHandle,
+    ) : PointMapRunner {
+    /**
+     * MoGe-2: feeds `image` and the int64 scalar `num_tokens`, requests only `points`, `mask` and
+     * `scale`. Not exercised off-device (see the instrumented test notes).
+     */
+    @Suppress("NestedBlockDepth", "ThrowsCount", "CyclomaticComplexMethod", "LongMethod")
+    override fun run(input: FloatArray, box: Letterbox, spec: DepthModelSpec): RawPointMap {
+        val pm = spec.pointMap ?: throw DepthEstimationException.UnsupportedModel("Not a point-map model")
+        val env = OrtEnvironment.getEnvironment()
+        val inputName = spec.inputName ?: session.inputNames.firstOrNull()
+            ?: throw DepthEstimationException.UnexpectedOutput("The model declares no input")
+        if (inputName !in session.inputNames) {
+            throw DepthEstimationException.ModelLoadFailed("The model has no input named '$inputName'")
+        }
+        val wanted = listOfNotNull(pm.pointsName, pm.maskName, pm.scaleName)
+        for (n in wanted) if (n !in session.outputNames) {
+            throw DepthEstimationException.UnexpectedOutput("The model has no output named '$n'")
+        }
+        val half = (session.inputInfo[inputName]?.info as? TensorInfo)?.type == OnnxJavaType.FLOAT16
+        val tensors = mutableListOf<OnnxTensor>()
+        try {
+            val image = if (half) {
+                OnnxTensor.createTensor(env, ShortBuffer.wrap(Float16.toHalfArray(input)), spec.inputShape(box),
+                    OnnxJavaType.FLOAT16)
+            } else {
+                OnnxTensor.createTensor(env, FloatBuffer.wrap(input), spec.inputShape(box))
+            }.also { tensors += it }
+            val feeds = mutableMapOf<String, OnnxTensor>(inputName to image)
+            val tokens = pm.numTokensName
+            if (tokens != null && tokens in session.inputNames) {
+                feeds[tokens] = OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(pm.numTokens.toLong())),
+                    longArrayOf()).also { tensors += it }
+            }
+            OrtSession.RunOptions().use { options ->
+                cancel.attach(options)
+                try {
+                    if (cancel.isCancelled) throw CancellationException("Depth estimation cancelled")
+                    session.run(feeds, wanted.toSet(), options).use { result ->
+                        fun floats(name: String): Pair<FloatArray, LongArray> {
+                            val t = result.get(name).orElse(null) as? OnnxTensor
+                                ?: throw DepthEstimationException.UnexpectedOutput("Output '$name' is not a tensor")
+                            val b = t.floatBuffer
+                            return FloatArray(b.remaining()).also { b.get(it) } to t.info.shape
+                        }
+                        val (pts, shape) = floats(pm.pointsName)
+                        // [1,H,W,3] (every leading dim before H must be 1)
+                        val ok = shape.size >= 3 && shape.last() == POINT_DIMS.toLong() &&
+                            shape.dropLast(3).all { it == 1L } && shape.all { it > 0 }
+                        if (!ok) {
+                            throw DepthEstimationException.UnexpectedOutput(
+                                "Unsupported points shape ${shape.joinToString("x")}; expected [1,H,W,3]",
+                            )
+                        }
+                        val h = shape[shape.size - 3].toInt()
+                        val w = shape[shape.size - 2].toInt()
+                        if (pts.size != w * h * POINT_DIMS) {
+                            throw DepthEstimationException.UnexpectedOutput(
+                                "Points hold ${pts.size} values for ${w}x$h",
+                            )
+                        }
+                        val mask = pm.maskName?.let { floats(it).first }
+                        val scale = pm.scaleName?.let { floats(it).first.firstOrNull() } ?: 1f
+                        return RawPointMap(pts, mask, scale, w, h)
+                    }
+                } finally {
+                    cancel.detach()
+                }
+            }
+        } catch (e: OrtException) {
+            if (cancel.isCancelled) throw CancellationException("Depth estimation cancelled")
+            throw DepthEstimationException.InferenceFailed("Depth inference failed: ${e.message}", e)
+        } finally {
+            tensors.forEach { it.close() }
+        }
+    }
+
+    private companion object {
+        const val POINT_DIMS = 3
+    }
     }
 }

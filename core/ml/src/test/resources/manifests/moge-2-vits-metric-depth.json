@@ -1,0 +1,105 @@
+{
+  "azphalt": "0.1",
+  "id": "com.hereliesaz.azphalt.models.moge-2-vits-metric-depth",
+  "name": "MoGe-2 Small (Metric Depth)",
+  "version": "1.0.0",
+  "kind": "asset",
+  "license": "MIT",
+  "compat": ">=0.1",
+  "description": "Monocular metric depth in meters from a single photo, indoors or outdoors, with the camera's field of view estimated as a by-product. MoGe-2 ViT-S (35M parameters) as the author-published ONNX export for ONNX Runtime. Two host-side steps are required (shift/focal solve and scale); a known focal length improves accuracy. See the README.",
+  "author": "HereLiesAz",
+  "homepage": "https://github.com/microsoft/MoGe",
+  "assets": [
+    {
+      "type": "onnx",
+      "role": "depth",
+      "path": "",
+      "remoteUrl": "https://huggingface.co/Ruicheng/moge-2-vits-normal-onnx/resolve/e50ffda41565591092adea54c6ac83d6212e1e23/model.onnx",
+      "checksum": "sha256-24eacb5dc7a2c54c7bc98f7de085ffbed79ad006ea5b664c2c2cdc02ff3a52f0",
+      "byteSize": 140852051,
+      "requirements": {
+        "runtime": "onnxruntime",
+        "formatVersion": ">=14",
+        "quantization": "float32",
+        "accelerator": "cpu",
+        "minRamMB": 2048
+      },
+      "params": {
+        "metric": true,
+        "units": "meters",
+        "domain": "general (indoor and outdoor, single model)",
+        "focalLength": "optional; improves accuracy when known",
+        "inputLongSide": { "default": 640, "max": 800 },
+        "numTokens": { "default": 1800, "min": 1200, "max": 3600 },
+        "aspectRatio": { "min": 0.5, "max": 2 },
+        "postprocess": "moge2-affine-pointmap"
+      },
+      "io": {
+        "inputs": [
+          {
+            "name": "image",
+            "shape": [-1, 3, -1, -1],
+            "dtype": "float32",
+            "layout": "NCHW",
+            "color": "RGB",
+            "normalization": { "mean": 0, "std": 1 }
+          },
+          {
+            "name": "num_tokens",
+            "shape": [],
+            "dtype": "int64"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "points",
+            "shape": [1, -1, -1, 3],
+            "dtype": "float32",
+            "decode": {
+              "layout": "NHWC",
+              "meaning": "affine point map in camera axes (x right, y down, z forward), same H and W as the input image; metric only after the shift and scale steps",
+              "depth": "(points[..., 2] + shift) * scale",
+              "shift": "least-squares fit of focal * points.xy / (points.z + shift) = uv on a 64x64 nearest-neighbour subsample of the pixels where mask > 0.5; uv = (pixel offset from the image centre) / (half the image diagonal in pixels)",
+              "focalRelative": "focal_px / (0.5 * hypot(width_px, height_px)); fixed when the camera focal length is known, otherwise fitted jointly with shift"
+            }
+          },
+          {
+            "name": "normal",
+            "shape": [1, -1, -1, 3],
+            "dtype": "float32",
+            "decode": { "layout": "NHWC", "meaning": "unit surface normals in camera axes; optional, not needed for depth" }
+          },
+          {
+            "name": "mask",
+            "semantics": "mask",
+            "shape": [1, -1, -1],
+            "dtype": "float32",
+            "decode": { "threshold": 0.5, "meaning": "probability that a pixel has valid geometry (false for sky and unreliable regions)" }
+          },
+          {
+            "name": "scale",
+            "shape": [1],
+            "dtype": "float32",
+            "decode": { "meaning": "the metric scale: multiplies (points.z + shift) to give meters", "units": "meters" }
+          }
+        ],
+        "quantization": { "type": "none" }
+      },
+      "modelLicense": {
+        "spdx": "MIT",
+        "commercialUse": true,
+        "attributionRequired": true,
+        "attribution": "MoGe-2 © Microsoft Corporation, MIT. Backbone DINOv2 © Meta Platforms, Inc. and affiliates, Apache-2.0.",
+        "url": "https://github.com/microsoft/MoGe/blob/74fbce054ebed49800de42d0ad0e83495065719a/LICENSE",
+        "sourceUrl": "https://huggingface.co/Ruicheng/moge-2-vits-normal"
+      },
+      "tags": [
+        "depth",
+        "metric-depth",
+        "monocular",
+        "ar",
+        "moge"
+      ]
+    }
+  ]
+}

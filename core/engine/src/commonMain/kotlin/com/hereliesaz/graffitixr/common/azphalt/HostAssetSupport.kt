@@ -17,12 +17,14 @@ object HostAssetSupport {
      * Which installed depth model the host uses when the caller does not choose: the first of these
      * that is installed **and has verified weights**, then any other depth model by id. Depth Anything
      * V2 first (best-validated relative inverse depth), then V3 (newer, polarity inverted by the host,
-     * least field-tested), then MiDaS v2.1 small (smallest, lowest quality, fixed 256 px).
+     * least field-tested), then MiDaS v2.1 small (smallest, lowest quality, fixed 256 px), then MoGe-2 small (metric point
+     * map, 141 MB and the heaviest to run; the host fits its shift, see `core:ml` `MoGeDepth`).
      */
     val DEPTH_PREFERENCE: List<String> = listOf(
         "com.hereliesaz.azphalt.depth-anything-v2-small",
         "com.hereliesaz.azphalt.depth-anything-v3-small",
         "com.hereliesaz.azphalt.midas",
+        "com.hereliesaz.azphalt.models.moge-2-vits-metric-depth",
     )
 
     /** Sort key for [DEPTH_PREFERENCE]: listed ids by position, unlisted ones after, ties by id. */
