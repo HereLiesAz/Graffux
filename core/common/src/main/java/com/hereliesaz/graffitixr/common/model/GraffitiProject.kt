@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 11
+const val CURRENT_FORMAT_VERSION = 12
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
@@ -71,6 +71,9 @@ data class GraffitiProject(
      * - 9: group surfaces (`OverlayLayer.surface`).
      * - 10: a surface may also be drawn from the side and top (`SurfaceProfile.side`, `.top`). A
      *   version 9 file has neither, which is the single-view surface; the step only records the version.
+     * - 11: a paint image per view of a multi-view surface (`Layer.surfaceViewOf`, `.surfaceView`).
+     * - 12: relief surfaces (`SurfaceProfile.relief`, a photo's depth grid). A version 11 file has none;
+     *   the step only records the version.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),

@@ -658,6 +658,11 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+- **Relief surfaces (format 12).** `SurfaceProfile.relief` (`ReliefSurface`, `ReliefMath` in `:core:common`) is a photo's depth map
+  as a grid of heights over the photo's plane; the photo is the single paint image and its pixels are the paint space. It is a group
+  surface like any other: `SurfaceMath.hit`/`mesh`/`gridLines`/`SurfaceFootprint` dispatch on it, so painting, ownership and undo are
+  the group-surface path. Built from a depth map by `ReliefSurface.build` (vertex cap 64k, quantile clamp, bilateral smoothing).
+  See spec/3d-space.md, "Relief surfaces".
 - **Group surfaces (format 9; format 10 adds side/top views).** A group owns an optional `Layer.surface` (`SurfaceProfile`,
   `SurfaceMath` in `:core:common`): a profile curve, drawn by "Draw surface" in the current view,
   swept without bound along the view direction. Its layers are paint on it: brushes map through

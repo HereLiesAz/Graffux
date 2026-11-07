@@ -35,6 +35,12 @@ data class SurfaceProfile(
     val side: SurfaceProfile? = null,
     /** The surface drawn from the group's TOP view (format 10); see [side]. */
     val top: SurfaceProfile? = null,
+    /**
+     * A relief (project format 12), or null: the surface is a photo's depth grid over the plane this
+     * profile's base line and sweep span ([ReliefSurface.toProfile]), not a swept curve. Ignores
+     * [side] and [top]. See [ReliefSurface].
+     */
+    val relief: ReliefSurface? = null,
 ) {
     val count: Int get() = points.size / 3
 
@@ -79,14 +85,15 @@ data class SurfaceProfile(
     }
 
     /** A straight profile: the surface is one plane. */
-    val isFlat: Boolean get() = count <= 2
+    val isFlat: Boolean get() = count <= 2 && relief == null
 
     val isValid: Boolean
         get() = count >= 2 && points.size % 3 == 0 && points.all { it.isFinite() } && length > 0f &&
-            sweepX.isFinite() && sweepY.isFinite() && sweepZ.isFinite()
+            sweepX.isFinite() && sweepY.isFinite() && sweepZ.isFinite() && (relief == null || relief.isValid)
 
     /** The surface point at arc length [u] (clamped to the profile) and sweep distance [t]. */
     fun at(u: Float, t: Float): FloatArray {
+        relief?.let { return it.at(u.coerceIn(0f, length), t.coerceAtLeast(0f)) }
         val i = segmentAt(u)
         val a = arcLengths[i]
         val seg = (arcLengths[i + 1] - a).coerceAtLeast(1e-9f)
@@ -263,6 +270,7 @@ object SurfaceMath {
         val dir = inv.applyVector(dirW[0], dirW[1], dirW[2])
         val d = profile.sweep
         val near = SceneMath.nearPlane(cam.focal)
+        profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
         var best: SurfaceHit? = null
         for (i in 0 until profile.count - 1) {
             val p = profile.point(i)
@@ -438,6 +446,7 @@ object SurfaceMath {
      * planar quads, so the texture is mapped exactly. Empty when the rectangle misses the surface.
      */
     fun mesh(profile: SurfaceProfile, uMin: Float, uMax: Float, tMin: Float, tMax: Float): FloatArray {
+        profile.relief?.let { return ReliefMath.mesh(it, uMin, uMax, tMin, tMax) }
         val u0 = uMin.coerceAtLeast(0f)
         val u1 = uMax.coerceAtMost(profile.length)
         val t0 = tMin.coerceAtLeast(0f)
@@ -476,6 +485,7 @@ object SurfaceMath {
         sweepExtent: Float = gridExtent(profile),
     ): List<FloatArray> {
         if (!profile.isValid || spacing <= 0f) return emptyList()
+        profile.relief?.let { return ReliefMath.gridLines(it, model, cam, spacing) }
         val out = ArrayList<FloatArray>()
         val far = SceneMath.farPlane(cam.focal) * 0.5f
         val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)

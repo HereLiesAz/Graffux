@@ -1,6 +1,6 @@
 # One 3D space: layers as planes, a scene camera, 3D strokes as a layer
 
-Status: implemented on Android (project format 11; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering and glTF export of the hull). The desktop app does not use `:core:common` or
+Status: implemented on Android (project format 12; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering and glTF export of the hull). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
 ## What the user sees
@@ -600,6 +600,51 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   profile, and the group's blend on a straight profile, draw in the stack. glTF fades a translucent
   group's layers one by one (see above). The export's no-GLES fallback composites an isolated group
   into a bitmap the size of the canvas, then draws it at the group's opacity.
+
+## Relief surfaces
+
+A relief is a group surface made from a photo's depth map: a grid of heights over the photo's plane, with
+the photo as the single paint image. It is the same kind of thing as a hand-drawn surface (not a model
+layer), so ownership, undo, the wire mesh, camera presets, glTF export and group opacity come from the
+group-surface path. Status: the data model, geometry and persistence (format 12) are implemented and tested on
+synthetic depth maps (ramp, sphere bump, step, noise); the editor action and the textured rendering follow in
+later stages (see Limits).
+
+- **Representation (decided).** `SurfaceProfile.relief: ReliefSurface?` (`:core:common`, `ReliefSurface.kt`),
+  not a sibling field on the layer. Every group-surface path keys on `Layer.surface` being a valid profile
+  (`SurfaceMath.ownerOf`, the layer menu, flatten, co-op `LayerExtProps.surface`, history), so a relief inside
+  the profile is found by all of them unchanged. `ReliefSurface.toProfile()` is a two-vertex base line along
+  box x (to the photo's right edge) swept along box y, so the unrolled `(u, t)` are the group's box `(x, y)`
+  and a point of the relief is `(u, t, z)`. `SurfaceProfile.isFlat` is false for a relief (the flat-surface
+  shortcuts never apply), `hasHull` is false, and `side`/`top` are ignored.
+- **Heights.** `cols x rows` samples, 0..1, 1 nearest, over the rectangle `left, top, spanU x spanT` of the
+  unrolled plane that the photo covers; `z = -(height - 0.5) * displacement` (scene z points away from the
+  viewer, so nearer is more negative, and a flat depth is the plane z = 0). `inverted` and `displacement`
+  apply on read, so the strength slider and the invert toggle never touch the data. Stored as 16-bit samples in
+  base64 (`heightData`): about 170 KB of JSON for a 64k-vertex grid.
+- **Paint space.** The photo's own pixels: `ReliefSurface.photoPixel(u, t)` / `unrolled(px, py)`. The mesh's
+  vertex UVs are photo pixel coordinates (`ReliefMath.photoMesh`); `ReliefMath.mesh` gives the same triangles
+  with `(u, t)` as `SurfaceMath.mesh` does for a strip, so `DepthScene.surfaceMesh` can place any layer on it.
+- **Resolution.** `ReliefSurface.gridSize`: the photo's aspect, at most `ReliefOptions.maxVertices` (65 536)
+  vertices, never more than the photo or the depth map has samples, at least 2 x 2.
+- **Building.** `ReliefSurface.build(depth, ...)` takes inverse depth of any scale (larger nearer; non-finite
+  samples count as the far plane), samples it at the grid's vertices (corner aligned), clamps the 2% / 98%
+  quantiles (`clipLow`/`clipHigh`) so outliers do not squash the rest, and smooths with a bilateral filter
+  (`smoothingRadius`, `edgeSigma`) so steps survive. A depth with no range is the flat plane. Null for an
+  empty or mismatched map, an empty photo or an empty rectangle.
+- **Triangles.** Each cell is cut along the diagonal across the smaller height difference
+  (`cutsAntiDiagonal`), so a step is not sliced across a cell; `heightAt`/`at` are exact on those triangles,
+  so a ray hit and the surface point it names agree to the pixel.
+- **Ray hit.** `SurfaceMath.hit` on a relief is `ReliefMath.hit`: a 2D DDA over the grid, clipped to the slab
+  the displacement spans, with a two-sided triangle test per cell. It returns `SurfaceHit(u, t, distance)` with
+  `(u, t)` the base-plane position, which is the paint space, so `SurfaceMath.worldToFlat`,
+  `SurfaceFootprint.worldToFlat` and `flatToWorld` work as for any surface. A footprint that misses maps to the
+  nearest point of the relief's projected outline (`ReliefMath.outline`: the photo's border plus a coarse net,
+  because a tall relief seen from the side projects outside its border).
+- **Wire mesh.** `SurfaceMath.gridLines` on a relief draws lines every 64 units across the photo, sampled
+  along the grid's vertices, so they follow the displacement.
+- **Persistence (format 12).** Format 11 shipped in 1.71.0, so `SurfaceProfile.relief` is format 12. Migration
+  11 -> 12 only records the version; 9, 10 and 11 files load unchanged.
 
 ## The orbit point
 
