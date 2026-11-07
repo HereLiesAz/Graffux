@@ -1,0 +1,71 @@
+{
+  "azphalt": "0.1",
+  "id": "com.hereliesaz.azphalt.midas",
+  "name": "MiDaS",
+  "version": "1.0.1",
+  "kind": "asset",
+  "license": "MIT",
+  "compat": ">=0.1",
+  "description": "Estimates a dense, relative depth map from a single image — no stereo or sensor needed. Uses: depth maps; 2.5D parallax / camera moves; depth-based bokeh & relighting; fog / atmosphere by depth.",
+  "author": "HereLiesAz",
+  "homepage": "https://github.com/HereLiesAz/azphalt-midas",
+  "assets": [
+    {
+      "type": "onnx",
+      "path": "",
+      "role": "depth",
+      "remoteUrl": "https://github.com/HereLiesAz/azphalt-midas/releases/download/v1.0.1/midas.onnx",
+      "checksum": "sha256-b0a5b3f12625137e626805167907fe0410665bec671685d59daaa2daab19f977",
+      "byteSize": 66389153,
+      "io": {
+        "inputs": [
+          {
+            "name": "input_image",
+            "shape": [1, 3, 256, 256],
+            "dtype": "float32",
+            "layout": "NCHW",
+            "color": "RGB",
+            "normalization": { "scale": 0.00392156862745098, "bias": 0 }
+          }
+        ],
+        "outputs": [
+          {
+            "name": "output_depth",
+            "semantics": "mask",
+            "shape": [1, 256, 256],
+            "dtype": "float32",
+            "decode": {
+              "kind": "relative-inverse-depth",
+              "higherIsNearer": true,
+              "metric": false,
+              "scaleShiftAmbiguous": true,
+              "rangeBounded": false,
+              "normalize": "per-image min-max before display"
+            }
+          }
+        ],
+        "quantization": { "type": "none" }
+      },
+      "requirements": {
+        "runtime": "onnxruntime",
+        "formatVersion": ">=15",
+        "quantization": "float32",
+        "accelerator": "cpu",
+        "minRamMB": 512
+      },
+      "modelLicense": {
+        "spdx": "MIT",
+        "commercialUse": true,
+        "attributionRequired": true,
+        "attribution": "MiDaS v2.1 small © 2019 Intel ISL (Intel Intelligent Systems Lab), MIT; ONNX conversion by julienkay (sentis-MiDaS), MIT",
+        "url": "https://github.com/isl-org/MiDaS/blob/master/LICENSE",
+        "sourceUrl": "https://huggingface.co/julienkay/sentis-MiDaS/blob/main/onnx/midas_v21_small_256.onnx"
+      },
+      "tags": [
+        "depth",
+        "3d",
+        "image"
+      ]
+    }
+  ]
+}

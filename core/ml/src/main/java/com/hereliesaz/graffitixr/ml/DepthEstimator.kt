@@ -17,8 +17,10 @@ interface DepthEstimator : AutoCloseable {
      * the whole bitmap). [source] is not modified or recycled.
      *
      * The result covers exactly the requested area, at the model's working resolution with the
-     * aspect ratio of that area preserved (the model's letterbox padding is already removed), and is
-     * **raw relative inverse depth**. To use it on a layer: `map.normalized().resampledTo(w, h)`.
+     * aspect ratio of that area preserved (letterbox padding is already removed), and is
+     * **raw relative inverse depth, larger = nearer, whatever the model's own polarity** (a model that
+     * emits depth is inverted into this convention, and every sample is finite). To use it on a layer:
+     * `map.normalized().resampledTo(w, h)`.
      * Transparent pixels contribute nothing (they are composited over neutral grey before the model
      * sees them), so depth inside a fully transparent area is the model's guess from its surroundings.
      *
@@ -32,6 +34,9 @@ interface DepthEstimator : AutoCloseable {
 sealed class DepthEstimationException(message: String, cause: Throwable? = null) : Exception(message, cause) {
     /** The weights are missing, unreadable, or not a model this runtime can open. */
     class ModelLoadFailed(message: String, cause: Throwable? = null) : DepthEstimationException(message, cause)
+
+    /** The listing's `io` describes a model this runtime cannot drive (see [DepthModelSpecs]); nothing was loaded. */
+    class UnsupportedModel(message: String) : DepthEstimationException(message)
 
     /** The caller passed a bitmap or region that cannot be processed. */
     class InvalidInput(message: String) : DepthEstimationException(message)

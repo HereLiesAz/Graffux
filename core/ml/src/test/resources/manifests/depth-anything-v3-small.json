@@ -1,0 +1,101 @@
+{
+  "azphalt": "0.1",
+  "id": "com.hereliesaz.azphalt.depth-anything-v3-small",
+  "name": "Depth Anything V3 Small",
+  "version": "1.0.0",
+  "kind": "asset",
+  "license": "Apache-2.0",
+  "compat": ">=0.1",
+  "description": "Estimates a dense, relative depth map from a single image (or several views of one scene). The output is DEPTH, not inverse depth: larger is farther, the opposite of Depth Anything V2 and MiDaS. Any image size that is a multiple of 14. Uses: depth maps; 2.5D parallax and camera moves; depth-based bokeh and relighting; fog and atmosphere by depth.",
+  "author": "HereLiesAz",
+  "homepage": "https://github.com/HereLiesAz/azphalt",
+  "assets": [
+    {
+      "type": "onnx",
+      "path": "",
+      "role": "depth",
+      "files": [
+        {
+          "name": "model.onnx",
+          "remoteUrl": "https://huggingface.co/onnx-community/depth-anything-v3-small/resolve/0b6a7f3bf5595f9950b91389e0da3a0de130324c/onnx/model.onnx",
+          "checksum": "sha256-396008798244a074297fd88e450433b1357fc687f534939375c804ded86e7b2a",
+          "byteSize": 640691,
+          "supportsRange": true
+        },
+        {
+          "name": "model.onnx_data",
+          "remoteUrl": "https://huggingface.co/onnx-community/depth-anything-v3-small/resolve/0b6a7f3bf5595f9950b91389e0da3a0de130324c/onnx/model.onnx_data",
+          "checksum": "sha256-802bb24741e67f5bb2b369fc64d40afe11439cc895d676d658d65cfb75c9860f",
+          "byteSize": 104702464,
+          "supportsRange": true
+        }
+      ],
+      "io": {
+        "inputs": [
+          {
+            "name": "pixel_values",
+            "shape": [-1, -1, 3, -1, -1],
+            "dtype": "float32",
+            "layout": "NCHW",
+            "color": "RGB",
+            "normalization": { "mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225] }
+          }
+        ],
+        "outputs": [
+          {
+            "name": "predicted_depth",
+            "semantics": "mask",
+            "shape": [-1, -1, -1, -1],
+            "dtype": "float32",
+            "decode": {
+              "kind": "relative-depth",
+              "higherIsNearer": false,
+              "metric": false,
+              "scaleShiftAmbiguous": true,
+              "rangeBounded": false,
+              "normalize": "per-image min-max before display; invert if a nearer-is-larger map is wanted",
+              "sizeMultipleOf": 14,
+              "outputSize": "same height and width as the input; pass multiples of 14"
+            }
+          },
+          {
+            "name": "confidence",
+            "semantics": "scores",
+            "shape": [-1, -1, -1, -1],
+            "dtype": "float32",
+            "decode": { "kind": "depth-confidence", "min": 1, "unbounded": true }
+          },
+          {
+            "name": "extrinsics",
+            "shape": [-1, -1, 3, 4],
+            "dtype": "float32",
+            "decode": { "kind": "camera-extrinsics", "verified": false }
+          },
+          {
+            "name": "intrinsics",
+            "shape": [-1, -1, 3, 3],
+            "dtype": "float32",
+            "decode": { "kind": "camera-intrinsics", "units": "pixels of the model input", "verified": false }
+          }
+        ],
+        "quantization": { "type": "none" }
+      },
+      "requirements": {
+        "runtime": "onnxruntime",
+        "formatVersion": ">=18",
+        "quantization": "float32",
+        "accelerator": "cpu",
+        "minRamMB": 512
+      },
+      "modelLicense": {
+        "spdx": "Apache-2.0",
+        "commercialUse": true,
+        "attributionRequired": true,
+        "attribution": "Depth Anything 3 Small © ByteDance Seed (Haotong Lin, Sili Chen, Jun Hao Liew, Donny Y. Chen, Zhenyu Li, Guang Shi, Jiashi Feng, Bingyi Kang), Apache-2.0; ONNX conversion by onnx-community, Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0",
+        "sourceUrl": "https://huggingface.co/onnx-community/depth-anything-v3-small"
+      },
+      "tags": ["depth", "monocular", "relative-depth", "3d", "image"]
+    }
+  ]
+}

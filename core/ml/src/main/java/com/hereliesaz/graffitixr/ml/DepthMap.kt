@@ -9,7 +9,8 @@ import kotlin.math.min
 /**
  * A dense single-channel depth map, row-major, [width] x [height] samples in [values].
  *
- * Semantics: **relative inverse depth** (what MiDaS-family models emit). A larger value is *nearer* to
+ * Semantics: **relative inverse depth** (what MiDaS and Depth Anything V2 emit; models that emit depth, like V3, are
+ * inverted on the way in). A larger value is *nearer* to
  * the camera. The scale and shift are arbitrary and differ from image to image, so a raw value means
  * nothing in metres and two maps are not comparable until each is passed through [normalized].
  */

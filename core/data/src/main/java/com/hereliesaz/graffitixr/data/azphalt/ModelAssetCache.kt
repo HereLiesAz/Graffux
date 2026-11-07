@@ -71,7 +71,7 @@ class ModelAssetCache(
 
     enum class Reason {
         NO_URL, INSECURE_URL, NO_CHECKSUM, BAD_CHECKSUM, NOT_FOUND, HTTP_ERROR, NETWORK, SIZE_MISMATCH,
-        CHECKSUM_MISMATCH, TOO_LARGE, STORAGE,
+        CHECKSUM_MISMATCH, TOO_LARGE, STORAGE, BAD_NAME,
     }
 
     private val _states = MutableStateFlow<Map<String, State>>(emptyMap())
@@ -87,7 +87,8 @@ class ModelAssetCache(
 
     /** Stable key for one asset of one extension. */
     fun keyOf(extensionId: String, asset: AssetContribution): String =
-        "$extensionId|${asset.type.wire}|${asset.role.orEmpty()}|${asset.remoteUrl.orEmpty()}"
+        "$extensionId|${asset.type.wire}|${asset.role.orEmpty()}|" +
+            if (isBundle(asset)) "bundle:${bundleId(asset.files.orEmpty())}" else asset.remoteUrl.orEmpty()
 
     fun stateOf(extensionId: String, asset: AssetContribution): State =
         _states.value[keyOf(extensionId, asset)] ?: State.NotDownloaded
@@ -98,6 +99,7 @@ class ModelAssetCache(
      * process already confirmed the same unchanged file.
      */
     fun verifiedFile(extensionId: String, asset: AssetContribution): File? {
+        if (isBundle(asset)) return verifiedBundle(extensionId, asset)
         val digest = parseChecksum(asset.checksum) ?: return null
         val file = finalFile(extensionId, digest)
         if (!file.isFile) return null
@@ -145,6 +147,7 @@ class ModelAssetCache(
     private fun publish(key: String, state: State) = _states.update { it + (key to state) }
 
     private suspend fun fetch(extensionId: String, asset: AssetContribution, key: String): State {
+        if (isBundle(asset)) return fetchBundle(extensionId, asset, key)
         if (asset.checksum.isNullOrBlank()) {
             return unavailable(
                 Reason.NO_CHECKSUM,
@@ -186,7 +189,11 @@ class ModelAssetCache(
     }
 
     /** Streams into [part], resuming if a partial file exists. Returns a terminal state on failure, null on success. */
-    private suspend fun download(url: URL, part: File, declared: Long?, key: String): State? {
+    private suspend fun download(
+        url: URL, part: File, declared: Long?, key: String, progress: Progress = Progress.NONE,
+            allowResume: Boolean = true,
+    ): State? {
+        if (!allowResume) part.delete()
         var resumeFrom = if (part.isFile) part.length() else 0L
         if (declared != null && resumeFrom > declared) {
             part.delete()
@@ -215,7 +222,7 @@ class ModelAssetCache(
                         val total = remaining?.let { it + resumeFrom } ?: declared
                         if (total != null && total > maxBytes) return tooLarge()
                         val body = r.body ?: return State.Failed(Reason.NETWORK, "The server sent no data.")
-                        return copyTo(body, part, resumed, resumeFrom, total, key)
+                        return copyTo(body, part, resumed, resumeFrom, total, key, progress)
                     }
                 }
             }
@@ -223,7 +230,7 @@ class ModelAssetCache(
     }
 
     private suspend fun copyTo(
-        input: InputStream, part: File, append: Boolean, startAt: Long, total: Long?, key: String,
+        input: InputStream, part: File, append: Boolean, startAt: Long, total: Long?, key: String, progress: Progress,
     ): State? {
         val ctx = currentCoroutineContext()
         var written = startAt
@@ -243,7 +250,8 @@ class ModelAssetCache(
                 out.write(buf, 0, n)
                 if (written - lastPublished >= PROGRESS_STEP) {
                     lastPublished = written
-                    publish(key, State.Downloading(written, total))
+                    publish(key, State.Downloading(progress.done + written,
+                        progress.total ?: total?.let { progress.done + it }))
                 }
             }
             out.fd.sync()
@@ -252,20 +260,151 @@ class ModelAssetCache(
     }
 
     /** Size then digest of the finished download; discards it and returns a failure if either is off. */
-    private fun verifyDownload(part: File, declared: Long?, digest: String): State? {
+    private fun verifyDownload(part: File, declared: Long?, digest: String, label: String = "model"): State? {
         if (declared != null && part.length() != declared) {
             val got = part.length()
             // Shorter = truncated (resumable); longer = the wrong file. The listing's size is the contract.
             if (got > declared) part.delete()
-            return State.Failed(Reason.SIZE_MISMATCH, "The downloaded model is $got bytes, the listing says $declared.")
+            return State.Failed(Reason.SIZE_MISMATCH,
+                "The downloaded $label is $got bytes, the listing says $declared.")
         }
         if (sha256Hex(part) != digest) {
             part.delete()
             return State.Failed(
                 Reason.CHECKSUM_MISMATCH,
-                "The downloaded model does not match the listing's checksum; discarded.",
+                "The downloaded $label does not match the listing's checksum; discarded.",
             )
         }
+        return null
+    }
+
+
+    // ---- multi-file bundles (`files[]`) ----
+
+    /** Bytes already finished ahead of the file being streamed, and the whole set's size, for aggregate progress. */
+    private class Progress(val done: Long, val total: Long?) {
+        companion object { val NONE = Progress(0, null) }
+    }
+
+    private class Member(val name: String, val url: URL, val digest: String, val size: Long?, val range: Boolean)
+
+    /**
+     * Downloads every member of a bundle into one directory under its exact name, all-or-nothing.
+     * Members land in a staging directory (`<bundleId>.part`), each verified (size, then SHA-256) and
+     * renamed into place as it completes; only when the whole set is verified is the staging directory
+     * renamed to `<bundleId>`. So the visible bundle directory is always complete. A failed member
+     * leaves the verified ones in staging (and the failed one's partial bytes, for Range resume): a
+     * retry re-fetches only what is missing or corrupt. Every member is validated *before* any byte is
+     * fetched, so a listing with one bad entry downloads nothing.
+     */
+    private suspend fun fetchBundle(extensionId: String, asset: AssetContribution, key: String): State {
+        val members = when (val plan = planBundle(asset)) {
+            is BundlePlan.Rejected -> return plan.state
+            is BundlePlan.Members -> plan.members
+        }
+        val sizes = members.map { it.size }
+        val total = if (sizes.all { it != null }) sizes.sumOf { it!! } else null
+        if (total != null && total > maxBytes) return tooLarge()
+        verifiedBundle(extensionId, asset)?.let { return State.Ready(it) }
+
+        val id = bundleId(asset.files.orEmpty())
+        val root = dirFor(extensionId)
+        val staging = File(root, "$id.part")
+        if (!staging.isDirectory && !staging.mkdirs()) return State.Failed(Reason.STORAGE,
+            "Could not create the model folder.")
+        return try {
+            var done = 0L
+            for ((index, m) in members.withIndex()) {
+                val target = File(staging, m.name)
+                if (target.isFile) {
+                    if (memberMatches(target, m)) { done += target.length(); continue }
+                    target.delete()
+                }
+                val part = File(staging, "$PART_PREFIX$index")
+                download(m.url, part, m.size, key, Progress(done, total), m.range)?.let { return it }
+                verifyDownload(part, m.size, m.digest, m.name)?.let { return it }
+                Files.move(part.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING)
+                done += target.length()
+            }
+            val names = members.map { it.name }.toSet()
+            staging.listFiles()?.filter { it.name !in names }?.forEach { it.deleteRecursively() }
+            val finalDir = File(root, id)
+            if (finalDir.exists()) finalDir.deleteRecursively()
+            Files.move(staging.toPath(), finalDir.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            members.forEach { m -> File(finalDir,
+                m.name).let { confirmed[it.path] = it.length() to it.lastModified() } }
+            State.Ready(File(finalDir, primaryMember(asset.files.orEmpty()).name))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            State.Failed(Reason.NETWORK, "Download interrupted (${e.message}). It will resume next time.")
+        }
+    }
+
+    private sealed interface BundlePlan {
+        class Rejected(val state: State) : BundlePlan
+        class Members(val members: List<Member>) : BundlePlan
+    }
+
+    private fun planBundle(asset: AssetContribution): BundlePlan {
+        val files = asset.files.orEmpty()
+        val names = HashSet<String>()
+        val members = ArrayList<Member>(files.size)
+        for (f in files) {
+            if (!isSafeMemberName(f.name) || !names.add(f.name)) {
+                return BundlePlan.Rejected(unavailable(Reason.BAD_NAME,
+                    "This listing names a model file '${f.name}' that cannot be stored safely; not downloading."))
+            }
+            if (f.checksum.isNullOrBlank()) {
+                return BundlePlan.Rejected(unavailable(Reason.NO_CHECKSUM,
+                    "This listing publishes no checksum for '${f.name}', so it cannot be verified; not downloading."))
+            }
+            val digest = parseChecksum(f.checksum) ?: return BundlePlan.Rejected(
+                unavailable(Reason.BAD_CHECKSUM,
+                    "The checksum for '${f.name}' is not a valid sha256-<hex> digest; not downloading."),
+            )
+            val raw = f.remoteUrl?.takeIf { it.isNotBlank() } ?: return BundlePlan.Rejected(
+                unavailable(Reason.NO_URL, "This listing gives no download address for '${f.name}'."),
+            )
+            val url = parseUrl(raw, transport.requireHttps) ?: return BundlePlan.Rejected(
+                unavailable(Reason.INSECURE_URL,
+                    "The address for '${f.name}' is not a plain https URL; not downloading."),
+            )
+            val declared = f.byteSize
+            if (declared != null && (declared <= 0 || declared > maxBytes)) return BundlePlan.Rejected(tooLarge())
+            members += Member(f.name, url, digest, f.byteSize, f.supportsRange != false)
+        }
+        if (members.isEmpty()) return BundlePlan.Rejected(unavailable(Reason.NO_URL,
+            "This listing's model bundle has no files."))
+        return BundlePlan.Members(members)
+    }
+
+    private fun memberMatches(file: File, m: Member): Boolean =
+        file.isFile && (m.size == null || file.length() == m.size) && sha256Hex(file) == m.digest
+
+    /**
+     * The graph file of a complete, intact bundle, or null. Re-hashes members unless this process
+     * already confirmed them unchanged. A member that fails is deleted and the rest of the bundle is
+     * moved back to staging, so the visible directory is never partial and only that member re-downloads.
+     */
+    private fun verifiedBundle(extensionId: String, asset: AssetContribution): File? {
+        val files = asset.files.orEmpty()
+        val plan = planBundle(asset) as? BundlePlan.Members ?: return null
+        val dir = File(dirFor(extensionId), bundleId(files))
+        if (!dir.isDirectory) return null
+        var intact = true
+        for (m in plan.members) {
+            val f = File(dir, m.name)
+            val stamp = if (f.isFile) f.length() to f.lastModified() else null
+            val ok = stamp != null && (confirmed[f.path] == stamp ||
+                ((m.size == null || f.length() == m.size) && sha256Hex(f) == m.digest))
+            if (ok) confirmed[f.path] = stamp!! else { f.delete(); confirmed.remove(f.path); intact = false }
+        }
+        if (intact) return File(dir, primaryMember(files).name)
+        val staging = File(dir.parentFile, "${dir.name}.part")
+        if (staging.exists()) dir.deleteRecursively() else Files.move(dir.toPath(), staging.toPath(),
+            StandardCopyOption.ATOMIC_MOVE)
         return null
     }
 
@@ -290,6 +429,34 @@ class ModelAssetCache(
         private const val HTTP_RANGE_NOT_SATISFIABLE = 416
         private const val SHA256_HEX_LENGTH = 64
         private const val PREFIX = "sha256-"
+
+        private const val PART_PREFIX = ".part-"
+
+        /** True when [asset] is a multi-file bundle (`files[]` non-empty); scalar url/checksum are then ignored. */
+        fun isBundle(asset: AssetContribution): Boolean = !asset.files.isNullOrEmpty()
+
+        /**
+         * The member a runtime opens: the first `*.onnx` (so `model.onnx`, not `model.onnx_data`), else
+         * the first listed. The others sit beside it under their exact names.
+         */
+        fun primaryMember(files: List<com.hereliesaz.graffitixr.common.azphalt.ModelFile>) =
+            files.firstOrNull { it.name.endsWith(".onnx", ignoreCase = true) } ?: files.first()
+
+        /** One path segment, no separators, not hidden (so never `.`/`..` or our `.part-` files). */
+        internal fun isSafeMemberName(name: String): Boolean =
+            name.isNotEmpty() && name.length <= MAX_NAME && !name.startsWith(".") &&
+                name.none { it == '/' || it == '\\' || it == '\u0000' || it.isISOControl() }
+
+        /** Stable directory name for a member set; a changed name or digest changes it, so stale bytes never match. */
+        internal fun bundleId(files: List<com.hereliesaz.graffitixr.common.azphalt.ModelFile>): String {
+            val md = MessageDigest.getInstance("SHA-256")
+            files.sortedBy { it.name }.forEach {
+                md.update("${it.name}\t${parseChecksum(it.checksum) ?: it.checksum}\n".toByteArray())
+            }
+            return "b_" + md.digest().joinToString("") { "%02x".format(it) }.take(BUNDLE_ID_HEX)
+        }
+        private const val BUNDLE_ID_HEX = 24
+        private const val MAX_NAME = 128
 
         /** `sha256-<64 hex>` (case-insensitive) -> lowercase hex; null for anything else. */
         fun parseChecksum(raw: String?): String? {

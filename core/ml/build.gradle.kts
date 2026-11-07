@@ -35,6 +35,9 @@ dependencies {
     // Host-side ML runtime for `onnx`-type assets (see ARCHITECTURE.md "Host ML runtime").
     // ONNX Runtime rather than LiteRT: the MiDaS listing ships an .onnx graph, and LiteRT cannot load one.
     implementation(libs.onnxruntime.android)
+    // AssetContribution / ModelIo: the depth runtime is driven by the manifest's `io` block.
+    implementation(project(":core:engine"))
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

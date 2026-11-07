@@ -12813,10 +12813,15 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** Resumes any depth-model download that did not finish (offline, app killed). Non-UI entry point. */
+    /**
+     * Resumes any depth-model download that did not finish (offline, app killed). Called each time the
+     * app comes to the foreground (`MainActivity`), so it only touches installs that are pending:
+     * weights not yet verified, not known to be unfetchable, not already downloading.
+     */
     fun retryModelDownloads() {
-        extensionRepository.installedDepthModels()
-            .map { it.extension }.distinctBy { it.id }.forEach(::fetchModelWeights)
+        viewModelScope.launch(dispatchers.io) {
+            extensionRepository.pendingDepthModelInstalls().forEach(::fetchModelWeights)
+        }
     }
 
     /**

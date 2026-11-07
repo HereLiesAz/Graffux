@@ -297,9 +297,42 @@ never in the extension sandbox and never off-device). The asset is a remote one 
 downloads `remoteUrl`, and per the verification rule above MUST match `checksum` (and `byteSize` when
 given) before the file is ever opened. A listing with no `checksum` is therefore *not downloaded and
 not run* — the host shows it as unavailable. Redirects may cross hosts but stay on https, since the
-digest, not the host, is the integrity gate. The expected graph is MiDaS v2.1 small: one
-`input_image` tensor `[1,3,256,256]` (NCHW, RGB, `[0,1]`) and one relative-inverse-depth output
-(`[1,256,256]`, larger = nearer, arbitrary scale/shift).
+digest, not the host, is the integrity gate.
+
+**Multi-file bundles.** An asset with a non-empty `files[]` (spec/extension-manifest.md § Multi-file
+model bundles) is a bundle; its scalar `remoteUrl`/`checksum` are then ignored. The host first validates
+every member (a safe single-segment `name`, an https `remoteUrl`, a valid `checksum`, `byteSize` within
+the cap) and downloads nothing if any fails. Members are fetched one at a time into a staging directory,
+each resumed with `Range` unless `supportsRange` is `false`, and each checked against its own `byteSize`
+and SHA-256; only when all are verified is the directory renamed to its final name, so a bundle is
+**all-or-nothing** and a corrupt member re-fetches only itself. Members keep their exact `name`s in one
+directory (ONNX Runtime finds `model.onnx_data` beside `model.onnx` by name). The file a runtime opens is
+the first member ending `.onnx`, else the first listed.
+
+**Model `io` drives the runtime.** The host reads the asset's `io` (spec/extension-manifest.md § Model
+IO) rather than assuming a model; `core:ml` `DepthModelSpecs` is the one reader. An asset with no `io`
+is the MiDaS v2.1 small contract. From the spec's own fields: the input `name`; `shape` (rank 4
+`[N,3,H,W]`, or rank 5 `[batch, views, 3, H, W]` of which the host sends one view; `-1` H and W = dynamic,
+positive H and W = fixed, letterboxed); `layout` (`NCHW`/`NHWC`); `color` (`RGB`/`BGR`); `dtype`
+(`float32`/`float16`); and `normalization` (`mean`/`std` or `scale`/`bias`, applied to 0..255; absent =
+raw 0..255). The depth output is the one whose `decode.kind` is a depth kind, else by conventional name,
+else the first `mask`; only that output is requested. The spec has no field for three things, so the
+listings use free-form JSON the spec already allows:
+
+| Need | Convention (on the depth output's `decode`, else the asset's `params`) |
+|---|---|
+| polarity | `decode.higherIsNearer` (bool); absent, inferred from `decode.kind` (`relative-inverse-depth` = nearer, `relative-depth`/`depth` = farther) |
+| size multiple | `decode.sizeMultipleOf` (int; `params.sizeMultipleOf` also read); absent: 32 |
+| max size | host policy: long side at most 518, short side at least 56, never upscaled; `params.maxLongSide` may only lower it |
+| inversion (optional) | `decode.invert`: `"reciprocal"` (default) or `"reflect"` |
+
+Whatever the model, `DepthMap` is **relative inverse depth, larger = nearer, every sample finite**. A
+`higherIsNearer: false` output (Depth Anything V3) is inverted on the way in: `1 / max(d, floor)` with
+`floor = max(1e-3 * maxDepth, 1e-6)` (or `min + max - d` for `"reflect"`, safe for a log-depth output
+that goes negative). NaN/Inf samples become the far plane; an output with no finite sample is an error.
+Output shapes `[H,W]`, `[1,H,W]` and `[1,1,H,W]` are accepted. Which installed model runs: the caller's
+`preferredId` if its weights are ready, else the first ready one in `HostAssetSupport.DEPTH_PREFERENCE`
+(Depth Anything V2 small, V3 small, MiDaS), then other depth models by id.
 
 For a `lut` asset, `params` may carry (§ 3, LUT application below):
 

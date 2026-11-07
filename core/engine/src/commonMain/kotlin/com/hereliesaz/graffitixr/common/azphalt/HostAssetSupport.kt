@@ -13,6 +13,25 @@ object HostAssetSupport {
     fun isDepthModel(asset: AssetContribution): Boolean =
         asset.type == AssetType.ONNX && asset.role.equals(DEPTH_ROLE, ignoreCase = true)
 
+    /**
+     * Which installed depth model the host uses when the caller does not choose: the first of these
+     * that is installed **and has verified weights**, then any other depth model by id. Depth Anything
+     * V2 first (best-validated relative inverse depth), then V3 (newer, polarity inverted by the host,
+     * least field-tested), then MiDaS v2.1 small (smallest, lowest quality, fixed 256 px).
+     */
+    val DEPTH_PREFERENCE: List<String> = listOf(
+        "com.hereliesaz.azphalt.depth-anything-v2-small",
+        "com.hereliesaz.azphalt.depth-anything-v3-small",
+        "com.hereliesaz.azphalt.midas",
+    )
+
+    /** Sort key for [DEPTH_PREFERENCE]: listed ids by position, unlisted ones after, ties by id. */
+    fun <T> orderedByDepthPreference(items: List<T>, idOf: (T) -> String): List<T> =
+        items.sortedWith(
+            compareBy<T> { DEPTH_PREFERENCE.indexOf(idOf(it)).let { i -> if (i < 0) DEPTH_PREFERENCE.size else i } }
+                .thenBy { idOf(it) },
+        )
+
     /** Whether the host consumes [asset]: brushes, LUTs and `onnx` + role `depth` models. */
     fun isSupported(asset: AssetContribution): Boolean = when (asset.type) {
         AssetType.BRUSH, AssetType.LUT -> true

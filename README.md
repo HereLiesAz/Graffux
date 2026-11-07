@@ -88,7 +88,7 @@ orchestrates side effects (history, persistence) around each dispatch.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence. |
 | `:core:design` | Design system: theme, strings, reusable components. |
-| `:core:ml` | Host-side ML runtime (ONNX Runtime): the `DepthEstimator` for `onnx` + role `depth` extension models, whose weights `:core:data` downloads and checksum-verifies. |
+| `:core:ml` | Host-side ML runtime (ONNX Runtime): the `DepthEstimator` for `onnx` + role `depth` extension models (MiDaS, Depth Anything V2 and V3 small), driven by each listing's `io` block, whose weights (one file or a multi-file bundle) `:core:data` downloads and checksum-verifies. |
 | `:core:nativebridge` | JNI bridge to the native world: the Liquify warper (`LiquifyEngine`) and the GPU brush engine. |
 
 Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app).
