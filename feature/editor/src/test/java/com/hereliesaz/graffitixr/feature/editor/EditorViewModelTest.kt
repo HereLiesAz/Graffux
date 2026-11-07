@@ -2469,4 +2469,20 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(n, viewModel.recordedStrokesForTest(image.id).size)
     }
+
+    @Test
+    fun `retryModelDownloads waits for the installed-extension scan before looking for pending downloads`() = runTest {
+        val scanDone = kotlinx.coroutines.CompletableDeferred<Unit>()
+        coEvery { extensionRepository.awaitInitialScan() } coAnswers { scanDone.await() }
+        every { extensionRepository.pendingDepthModelInstalls() } returns emptyList()
+
+        viewModel.retryModelDownloads()
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Cold launch: the scan has not published yet, so the inventory would read empty.
+        verify(exactly = 0) { extensionRepository.pendingDepthModelInstalls() }
+
+        scanDone.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 1) { extensionRepository.pendingDepthModelInstalls() }
+    }
 }
