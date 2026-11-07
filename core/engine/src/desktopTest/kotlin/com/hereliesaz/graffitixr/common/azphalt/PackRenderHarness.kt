@@ -3,6 +3,11 @@ package com.hereliesaz.graffitixr.common.azphalt
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.contentOrNull
 import java.awt.Color
 import java.awt.Font
@@ -52,6 +57,40 @@ class PackRenderHarness {
             render(File(args[0]), File(args[1]), args.getOrNull(2) == "previews")
         }
 
+        private val SAFE_ID = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+
+        /**
+         * The directory a pack's previews are written to, or null when [id] is not a plain name or the
+         * resolved directory is not strictly beneath [outRoot] (a `..`, a separator, or a symlink out).
+         * Nothing is deleted or created for a null.
+         */
+        internal fun packOutputDir(outRoot: File, id: String): File? {
+            if (!SAFE_ID.matches(id) || id == "." || id == "..") return null
+            val root = outRoot.canonicalFile
+            val dir = File(root, id).canonicalFile
+            return if (dir.path.startsWith(root.path + File.separator) && dir != root) File(root, id) else null
+        }
+
+        internal class IndexBrush(val asset: String, val strokes: List<Pair<String, String>>)
+
+        /** `index.json` for one pack, built with the JSON encoder so no path or label can break it. */
+        internal fun previewIndexJson(packId: String, seed: Long, diameterPx: Float, brushes: List<IndexBrush>): String =
+            buildJsonObject {
+                put("pack", packId)
+                putJsonObject("renderer") {
+                    put("engine", "graffux PackRenderHarness")
+                    put("seed", seed)
+                    put("diameterPx", diameterPx)
+                    put("note", "CPU approximation of the GPU stamping; dab geometry and stroke programs are the real generators")
+                }
+                putJsonArray("brushes") {
+                    for (b in brushes) add(buildJsonObject {
+                        put("asset", b.asset)
+                        put("strokes", buildJsonArray { for ((file, label) in b.strokes) add(buildJsonObject { put("file", file); put("label", label) }) })
+                    })
+                }
+            }.toString()
+
         private fun render(root: File, outDir: File, writePreviews: Boolean) = PackRenderHarness().render0(root, outDir, writePreviews)
     }
 
@@ -74,6 +113,7 @@ class PackRenderHarness {
             println("== ${dir.name}: ${brushes.size} brushes")
             val rendered = brushes.map { brush -> renderBrush(dir, brush, problems) }
             ImageIO.write(sheet(dir.name, brushes, rendered), "png", File(out, "${dir.name}.sheet.png"))
+            System.getProperty("graffux.packs.brushpreviews")?.let { exportBrushPreviews(File(it), dir.name, manifest, assets, brushes, rendered) }
             if (writePreviews) {
                 val card = card(brushes, dir)
                 File(dir, "assets").mkdirs()
@@ -84,6 +124,40 @@ class PackRenderHarness {
             println("PROBLEMS:\n" + problems.joinToString("\n") { " - $it" })
             throw AssertionError("pack problems:\n" + problems.joinToString("\n"))
         }
+    }
+
+    /**
+     * Per-brush store previews, for `tools/brush-previews.mjs ingest` in the azphalt repo
+     * (`-Pgraffux.packs.brushpreviews=<dir>`). Writes `<dir>/<pack id>/index.json` and one PNG per
+     * scenario under `<dir>/<pack id>/<NN>/`. A brush with a stroke program (kinetic) gets every
+     * scenario it was rendered with; a plain brush gets the first (the swoop). The store, not this
+     * harness, decides whether that is enough.
+     */
+    private fun exportBrushPreviews(outRoot: File, packDir: String, manifest: JsonObject, assets: List<JsonObject>, brushes: List<AzphaltBrush>, rendered: List<Rendered>) {
+        val packId = (manifest["id"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val base = packOutputDir(outRoot, packId)
+        if (base == null) {
+            println("  SKIPPED brush previews for $packDir: manifest id <$packId> is not a plain name inside the output folder")
+            return
+        }
+        val strokeNames = strokes(Const.TILE_W.toFloat(), Const.TILE_H.toFloat()).map { it.name }
+        base.apply { deleteRecursively(); mkdirs() }
+        val entries = brushes.indices.map { i ->
+            val r = rendered[i]
+            val kinetic = brushes[i].program != null
+            val names = r.names.ifEmpty { strokeNames }
+            val keep = if (kinetic) r.tiles.indices.toList() else listOf(0)
+            val dirName = "%02d".format(i + 1)
+            File(base, dirName).mkdirs()
+            val files = keep.map { k ->
+                val rel = "$dirName/%02d.png".format(k + 1)
+                ImageIO.write(r.tiles[k], "png", File(base, rel))
+                rel to names[k]
+            }
+            IndexBrush((assets[i]["path"] as JsonPrimitive).content, files)
+        }
+        val diameter = System.getProperty("graffux.packs.diameter")?.toFloatOrNull() ?: Const.DIAMETER
+        File(base, "index.json").writeText(previewIndexJson(packId, Const.SEED, diameter, entries))
     }
 
     // ---- test strokes ------------------------------------------------------------------------

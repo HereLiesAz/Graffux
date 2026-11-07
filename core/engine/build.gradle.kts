@@ -66,7 +66,7 @@ kotlin {
 
 // The pack render harness (src/desktopTest PackRenderHarness) reads these; unset, it does nothing.
 tasks.withType<Test>().configureEach {
-    listOf("graffux.packs", "graffux.packs.out", "graffux.packs.previews").forEach { key ->
+    listOf("graffux.packs", "graffux.packs.out", "graffux.packs.previews", "graffux.packs.brushpreviews").forEach { key ->
         providers.gradleProperty(key).orNull?.let { systemProperty(key, it) }
     }
 }
