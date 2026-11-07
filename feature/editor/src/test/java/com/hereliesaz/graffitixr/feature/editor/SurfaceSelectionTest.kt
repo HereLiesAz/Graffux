@@ -523,4 +523,16 @@ class SurfaceSelectionTest {
         assertEquals(followed.surface, loaded.surface)
         assertEquals("the ants are where the faces show now, not where they showed when it was saved", followed.rings, loaded.rings)
     }
+
+    @Test
+    fun `redoing a surface move after an orbit restores the regions the move produced`() {
+        lassoOnFace(r = 50f)
+        vm.onSurfaceSelectionMove("p", Offset(40f, 0f))
+        val moved = vm.uiState.value.selection!!
+        vm.onUndoClicked()
+        // Camera gestures are not history: the viewer can orbit between the undo and the redo.
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        vm.onRedoClicked()
+        assertEquals("the redone marquee is on the faces the move put it on", moved.surface, vm.uiState.value.selection!!.surface)
+    }
 }

@@ -214,6 +214,9 @@ data class StrokeCommand(
     // replays without the others.
     val movePatch: MovePatch? = null,
     val marquee: com.hereliesaz.graffitixr.common.model.Selection? = null,
+    // Set with [marquee] on a multi-view surface move: the selection the move left (its image regions are what
+    // redo restores; rebinding the moved rings under whatever camera redo runs at would bind other faces).
+    val movedMarquee: com.hereliesaz.graffitixr.common.model.Selection? = null,
     // Set only on a [Tool.CLONE] command: the screen-space vector from this stroke to the pixels it
     // copies, measured from the stroke's first point. Recorded rather than read at replay time
     // for the same reason `selection` is — the source can be moved or cleared afterwards, and an
@@ -2869,8 +2872,9 @@ class EditorViewModel @Inject constructor(
     private fun redoSelectionMove(stroke: StrokeCommand) {
         val delta = stroke.moveDelta
         if (stroke.tool == Tool.SELECT && delta != null) {
+            val moved = stroke.movedMarquee?.let(::footprintNow)
             val before = stroke.marquee ?: stroke.selection
-            dispatch(EditorIntent.SetSelection(before?.let { translatedSelection(it, delta) }))
+            dispatch(EditorIntent.SetSelection(moved ?: before?.let { translatedSelection(it, delta) }))
         }
     }
 
@@ -6944,6 +6948,8 @@ class EditorViewModel @Inject constructor(
         delta: Offset,
     ) {
         gestureOpen = true
+        // Bound once, at the camera the move was made under; redo restores exactly this.
+        val after = translatedSelection(selection, delta)
         try {
             for ((view, layerId) in ids) {
                 val cut = cuts[view]
@@ -6968,6 +6974,7 @@ class EditorViewModel @Inject constructor(
                         MovePatch(it.left - frame.originX, it.top - frame.originY, it.width, it.height, it.pixels)
                     } ?: MovePatch(0, 0, 0, 0, IntArray(0)),
                     marquee = selection,
+                    movedMarquee = after,
                 )
                 invalidateResident(layerId)
                 layerStore.addStroke(layerId, command)
@@ -6998,7 +7005,7 @@ class EditorViewModel @Inject constructor(
         } finally {
             closeGesture()
         }
-        dispatch(EditorIntent.SetSelection(translatedSelection(selection, delta)))
+        dispatch(EditorIntent.SetSelection(after))
     }
 
     /** Whether the active lasso leaves nothing of [view] to paint on: a touch there is a miss. */
