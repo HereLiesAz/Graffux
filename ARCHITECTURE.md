@@ -665,7 +665,8 @@ Full design: `spec/3d-space.md`. In short:
   The editor action is `EditorViewModel.onBuildSurfaceFromImage` (`ReliefBuild` plans and assembles, `ReliefDepthSource` /
   `InstalledDepthSource` runs the installed depth model through `:core:ml`'s `OnnxDepthEstimator` off the main thread; progress
   and Cancel on `ReliefChip`); strength and near/far edit the stored relief. Painting reuses the single-image footprint path.
-  See spec/3d-space.md, "Relief surfaces".
+  Rendering is the ordinary surface path (`DepthScene.surfaceMeshForPass` shares one mesh per relief; `DepthCompositor.surfaceVbo` keeps big
+  surface meshes on the GPU); glTF indexes surface meshes. See spec/3d-space.md, "Relief surfaces".
 - **Group surfaces (format 9; format 10 adds side/top views).** A group owns an optional `Layer.surface` (`SurfaceProfile`,
   `SurfaceMath` in `:core:common`): a profile curve, drawn by "Draw surface" in the current view,
   swept without bound along the view direction. Its layers are paint on it: brushes map through

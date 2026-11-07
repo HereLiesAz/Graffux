@@ -608,7 +608,7 @@ the photo as the single paint image. It is the same kind of thing as a hand-draw
 layer), so ownership, undo, the wire mesh, camera presets, glTF export and group opacity come from the
 group-surface path. Status: the data model, geometry and persistence (format 12) are implemented and tested on
 synthetic depth maps (ramp, sphere bump, step, noise); the editor action ("Build surface from image") is
-described under Editor below; the textured rendering and glTF export follow (see Limits).
+described under Editor below; rendering and glTF export are under Rendering and export below.
 
 - **Representation (decided).** `SurfaceProfile.relief: ReliefSurface?` (`:core:common`, `ReliefSurface.kt`),
   not a sibling field on the layer. Every group-surface path keys on `Layer.surface` being a valid profile
@@ -679,6 +679,21 @@ described under Editor below; the textured rendering and glTF export follow (see
   come from the group-surface path. Flat layers and hand-drawn surfaces take none of the new code (every relief
   branch is guarded by `SurfaceProfile.relief != null`).
 
+- **Rendering and export.** The photo is drawn by the ordinary surface path: `DepthScene.surfaceMesh` asks
+  `SurfaceMath.mesh`, which for a relief is `ReliefMath.mesh` (the grid's triangles with `(u, t)` mapped through
+  the leaf's box to the photo's texture coordinates), so it is textured with the photo, depth-tested against
+  itself and every other member, pulled toward the eye by its stack position, and takes the group's opacity
+  (including the isolated-group offscreen pass) exactly as paint on a drawn surface does. Differences: the plane
+  is `surfaceTriangles` (arbitrary triangles; the no-GLES export fallback draws it triangle by triangle) and is
+  never `surfaceFlat`. A relief mesh is ~130k triangles (~2M floats), so `DepthScene.surfaceMeshForPass` builds it once per
+  relief, photo rectangle and placement and hands the same array back until one changes (the strength slider and the
+  near/far swap do change the relief, so they rebuild it: about 20 ms on a desktop JVM), and `DepthCompositor`
+  keeps a mesh of 2000 triangles or more in a vertex buffer keyed by that array's identity (`surfaceVbo`, four kept)
+  instead of re-sending it each draw. glTF: the photo is one textured, double-sided mesh at the group's opacity;
+  `SceneGltfExporter` now indexes surface meshes (a vertex shared by triangles is written once), so a relief is
+  one vertex per grid point and six indices per cell. The export builds its own copy of the mesh (it moves vertices into scene
+  space in place), so it never touches the pass's. The wire mesh follows the displacement
+  (`ReliefMath.gridLines`); it is the same overlay as any surface's.
 - **Persistence (format 12).** Format 11 shipped in 1.71.0, so `SurfaceProfile.relief` is format 12. Migration
   11 -> 12 only records the version; 9, 10 and 11 files load unchanged.
 
@@ -844,3 +859,12 @@ finished stroke, not per dab. (Graffux has no co-op transport bound yet; this is
 - Animation Assist's onion-skin fading does not apply to depth-pass members.
 - A model layer has no pixels of its own, like a 3D strokes layer. Its blend mode is ignored
   (it is always in the depth pass), and the brush paints opaque round dabs in the active colour.
+- A relief is one photo, one depth estimate. It is not re-estimated when the photo is painted on or replaced
+  (build again from the layer after "Flatten surface"), and the paint does not move the geometry. A relief of a
+  rotated, mirrored or depth-placed photo is refused. The grid is capped at 64k vertices whatever the photo's size,
+  so fine detail in a large photo is in the paint, not the shape. A relief's blend mode is ignored like any curved
+  surface's. Changing the strength rebuilds the 130k-triangle mesh each step (the displacement is not applied in the
+  shader). The "nearest outline point" for a brush that misses is approximate on a tall relief seen edge-on.
+- Verified only in JVM tests: the geometry, mesh, UVs, glTF structure and the editor flow with a fake depth source.
+  Not verified off-device: the GL path (`surfaceVbo`, polygon offset on a displaced mesh), the real depth model's
+  output on real photos, and gesture feel while painting a relief.

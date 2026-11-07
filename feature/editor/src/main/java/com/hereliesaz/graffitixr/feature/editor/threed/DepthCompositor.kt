@@ -192,12 +192,38 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
     private class Mesh(val strokes: List<SpatialStroke>, val vbo: Int, val ibo: Int, val count: Int)
 
+    /** A large surface mesh (a relief) uploaded once: [source] is the array it was made from, compared by identity. */
+    private class SurfaceVbo(val source: FloatArray, val vbo: Int)
+
+    private val surfaceVbos = ArrayList<SurfaceVbo>()
+
+    /**
+     * The vertex buffer for [surface] when it is big enough to be worth keeping on the GPU (a relief is ~130k
+     * triangles; re-sending 8 MB from the CPU every frame would be the whole frame). [DepthScene.surfaceMeshForPass]
+     * hands the same array back until the relief changes, so the identity check is the cache key. Oldest evicted first.
+     */
+    private fun surfaceVbo(surface: FloatArray): Int {
+        val at = surfaceVbos.indexOfFirst { it.source === surface }
+        if (at >= 0) return surfaceVbos[at].also { surfaceVbos.removeAt(at); surfaceVbos.add(it) }.vbo
+        val data = ByteBuffer.allocateDirect(surface.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(surface); flip() }
+        val handle = IntArray(1)
+        GLES30.glGenBuffers(1, handle, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, handle[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, surface.size * 4, data, GLES30.GL_STATIC_DRAW)
+        surfaceVbos.add(SurfaceVbo(surface, handle[0]))
+        while (surfaceVbos.size > SURFACE_VBOS_KEPT) {
+            GLES30.glDeleteBuffers(1, intArrayOf(surfaceVbos.removeAt(0).vbo), 0)
+        }
+        return handle[0]
+    }
+
     private class ModelBuffers(val mesh: com.hereliesaz.graffitixr.common.mesh.Mesh, val vbo: Int, val ibo: Int, val count: Int)
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         // A new context: every old handle is gone.
         textures.clear()
         meshes.clear()
+        surfaceVbos.clear()
         modelMeshes.clear()
         modelTextures.clear()
         isoTargets.clear()
@@ -766,19 +792,27 @@ class DepthCompositor : GLSurfaceView.Renderer {
         GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL)
         val pull = -(p.surfaceIndex + 1).toFloat()
         GLES30.glPolygonOffset(pull, pull * SURFACE_OFFSET_UNITS)
-        val data = ByteBuffer.allocateDirect(surface.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(surface); flip() }
         val aPos = GLES30.glGetAttribLocation(surfaceProgram, "aPos")
         val aUv = GLES30.glGetAttribLocation(surfaceProgram, "aUv")
-        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
         GLES30.glEnableVertexAttribArray(aPos)
         GLES30.glEnableVertexAttribArray(aUv)
-        data.position(0)
-        GLES30.glVertexAttribPointer(aPos, 3, GLES30.GL_FLOAT, false, 5 * 4, data)
-        data.position(3)
-        GLES30.glVertexAttribPointer(aUv, 2, GLES30.GL_FLOAT, false, 5 * 4, data)
+        if (surface.size >= VBO_MIN_FLOATS) {
+            // A relief: kept on the GPU, drawn from the buffer.
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, surfaceVbo(surface))
+            GLES30.glVertexAttribPointer(aPos, 3, GLES30.GL_FLOAT, false, 5 * 4, 0)
+            GLES30.glVertexAttribPointer(aUv, 2, GLES30.GL_FLOAT, false, 5 * 4, 3 * 4)
+        } else {
+            val data = ByteBuffer.allocateDirect(surface.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(surface); flip() }
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
+            data.position(0)
+            GLES30.glVertexAttribPointer(aPos, 3, GLES30.GL_FLOAT, false, 5 * 4, data)
+            data.position(3)
+            GLES30.glVertexAttribPointer(aUv, 2, GLES30.GL_FLOAT, false, 5 * 4, data)
+        }
         GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, surface.size / 5)
         GLES30.glDisableVertexAttribArray(aPos)
         GLES30.glDisableVertexAttribArray(aUv)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, 0)
         GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
     }
 
@@ -1057,6 +1091,10 @@ class DepthCompositor : GLSurfaceView.Renderer {
 
         /** Polygon-offset units per stack step of paint on one surface. */
         private const val SURFACE_OFFSET_UNITS = 4f
+
+        /** A surface mesh of at least this many floats (2000 triangles) is kept on the GPU; smaller ones are sent per draw. */
+        private const val VBO_MIN_FLOATS = 30_000
+        private const val SURFACE_VBOS_KEPT = 4
 
         private const val SURFACE_VS = """#version 300 es
             uniform mat4 uMvp;

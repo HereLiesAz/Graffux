@@ -89,12 +89,14 @@ internal object DepthScene {
                 Triple(bmp, tok, r)
             }
             if (owner != null) {
-                val mesh = surfaceMesh(owner, rect, width, height) ?: continue
+                val mesh = surfaceMeshForPass(owner, rect, width, height) ?: continue
                 val siblings = plan.memberIds.filter { it in plan.surfaceIds && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(layers, it)?.group?.id == owner.group.id }
                 planes += DepthCompositor.Plane(
                     id, bitmap, token, SceneMath.chainModel(owner.ownerChain, width, height), rect, colorMatrixOf(layer), alpha, key,
                     surface = mesh, surfaceGroup = owner.group.id, surfaceIndex = siblings.indexOf(id).coerceAtLeast(0),
                     surfaceFlat = owner.profile.isFlat,
+                    // A relief is arbitrary triangles over a grid, not the strips of one profile.
+                    surfaceTriangles = owner.profile.relief != null,
                 )
                 continue
             }
@@ -216,6 +218,43 @@ internal object DepthScene {
         }
         return mesh
     }
+
+    /**
+     * [surfaceMesh] for the depth pass. A relief's mesh is ~130k triangles, far too many to rebuild (and for the
+     * compositor to re-upload) every frame, so it is built once per relief, photo rectangle and placement and the
+     * same array is handed back until one of them changes (the strength slider and the near/far swap change the
+     * relief, so they rebuild it). The array is shared: the pass only reads it, and the export, which moves its
+     * vertices into scene space in place, calls [surfaceMesh] and so gets its own copy. Other surfaces are cheap
+     * strips and are rebuilt as before.
+     */
+    internal fun surfaceMeshForPass(
+        owner: com.hereliesaz.graffitixr.common.scene.SurfaceOwner,
+        rect: FloatArray,
+        width: Float,
+        height: Float,
+    ): FloatArray? {
+        val relief = owner.profile.relief ?: return surfaceMesh(owner, rect, width, height)
+        val key = ReliefMeshKey(relief, rect.toList(), owner.innerChain, width, height)
+        synchronized(reliefMeshes) { reliefMeshes[key]?.let { return it } }
+        val mesh = surfaceMesh(owner, rect, width, height) ?: return null
+        synchronized(reliefMeshes) {
+            reliefMeshes[key] = mesh
+            while (reliefMeshes.size > RELIEF_MESHES_KEPT) reliefMeshes.remove(reliefMeshes.keys.first())
+        }
+        return mesh
+    }
+
+    private data class ReliefMeshKey(
+        val relief: com.hereliesaz.graffitixr.common.scene.ReliefSurface,
+        val rect: List<Float>,
+        val innerChain: List<com.hereliesaz.graffitixr.common.scene.PlanePose>,
+        val width: Float,
+        val height: Float,
+    )
+
+    // Insertion-ordered; the oldest goes first. A document has a handful of reliefs at most.
+    private val reliefMeshes = LinkedHashMap<ReliefMeshKey, FloatArray>()
+    private const val RELIEF_MESHES_KEPT = 4
 
     /** The canvas's colour adjustment for [layer]; null when it changes nothing. */
     fun colorMatrixOf(layer: Layer): FloatArray? {

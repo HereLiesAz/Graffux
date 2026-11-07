@@ -33,7 +33,39 @@ object SceneGltfExporter {
          * scene pixels then the image's u, v, emitted as a mesh in place of [corners]' quad.
          */
         val surface: FloatArray? = null,
+        /**
+         * Write each distinct vertex of [surface] once and index it (a relief's grid, where six triangles meet at a
+         * vertex), instead of three vertices per triangle. Off by default: the strips and patches of other surfaces
+         * export exactly as they always have.
+         */
+        val sharedVertices: Boolean = false,
     )
+
+    /**
+     * How [surface] (vertices of x, y, z, u, v) is indexed: each vertex's slot, and the source vertex of each slot.
+     * Without [shared] every vertex is its own slot; with it, equal vertices are one.
+     */
+    private fun indexVertices(surface: FloatArray, shared: Boolean): Pair<IntArray, List<Int>> {
+        val total = surface.size / 5
+        val order = IntArray(total)
+        val unique = ArrayList<Int>()
+        val slot = HashMap<VertexKey, Int>(if (shared) total / 3 + 16 else 16)
+        for (i in 0 until total) {
+            if (!shared) {
+                order[i] = unique.size
+                unique.add(i)
+                continue
+            }
+            val key = VertexKey(
+                surface[i * 5].toRawBits(), surface[i * 5 + 1].toRawBits(), surface[i * 5 + 2].toRawBits(),
+                surface[i * 5 + 3].toRawBits(), surface[i * 5 + 4].toRawBits(),
+            )
+            order[i] = slot.getOrPut(key) { unique.add(i); unique.size - 1 }
+        }
+        return order to unique
+    }
+
+    private data class VertexKey(val x: Int, val y: Int, val z: Int, val u: Int, val v: Int)
 
     /** A 3D strokes layer: its strokes and the map from stroke units to scene pixels. */
     class Strokes(val name: String, val strokes: List<SpatialStroke>, val strokeToScene: Affine3)
@@ -121,17 +153,20 @@ object SceneGltfExporter {
             val uv: Int
             val idx: Int
             if (surface != null) {
-                val n = surface.size / 5
+                // With sharedVertices, triangles that meet at a corner (a relief's grid) share one vertex: a sixth the size.
+                val total = surface.size / 5
+                val (order, unique) = indexVertices(surface, quad.sharedVertices)
+                val n = unique.size
                 val positions = FloatArray(n * 3)
                 val uvs = FloatArray(n * 2)
-                for (i in 0 until n) {
-                    point(floatArrayOf(surface[i * 5], surface[i * 5 + 1], surface[i * 5 + 2])).copyInto(positions, i * 3)
-                    uvs[i * 2] = surface[i * 5 + 3]
-                    uvs[i * 2 + 1] = surface[i * 5 + 4]
+                for ((k, i) in unique.withIndex()) {
+                    point(floatArrayOf(surface[i * 5], surface[i * 5 + 1], surface[i * 5 + 2])).copyInto(positions, k * 3)
+                    uvs[k * 2] = surface[i * 5 + 3]
+                    uvs[k * 2 + 1] = surface[i * 5 + 4]
                 }
                 pos = accessor(view(floats(positions), 34962), 5126, n, "VEC3", bounds(positions))
                 uv = accessor(view(floats(uvs), 34962), 5126, n, "VEC2")
-                idx = accessor(view(ints(IntArray(n) { it }), 34963), 5125, n, "SCALAR")
+                idx = accessor(view(ints(order), 34963), 5125, total, "SCALAR")
             } else {
                 require(quad.corners.size == 4) { "A layer quad has four corners" }
                 val positions = FloatArray(12).also { out ->
