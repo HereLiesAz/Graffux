@@ -19,6 +19,7 @@ import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.SurfaceSelection
 import com.hereliesaz.graffitixr.common.model.ViewSelection
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import kotlin.math.abs
 
 /**
@@ -189,6 +190,59 @@ object SurfaceViewSelection {
         }
         val sel = Selection(rings, canvasSize, surface = SurfaceSelection(surfaceId, kept))
         return sel.takeIf { it.isUsable }
+    }
+
+    /**
+     * A lasso drawn on a multi-view surface as a surface selection: [lasso]'s rings (world space) cut to the view
+     * images with the lasso-to-view cut ([forView]) at the time it is drawn, so it is camera independent from then
+     * on and follows the surface like a wand selection. Parts on faces turned away from the viewer now are dropped.
+     * Null when nothing of it is left (it reaches no face that faces the viewer): the caller keeps the lasso as drawn.
+     */
+    fun fromLasso(
+        surfaceId: String,
+        lasso: Selection,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        val surface = SurfaceSelection(surfaceId, bind(lasso, owner, hull, camera, projection, width, height))
+        if (!surface.isUsable) return null
+        return Selection(footprint(surface, owner, projection, width, height), lasso.canvasSize, lasso.inverted, lasso.featherPx, surface)
+    }
+
+    /**
+     * A lasso [polygon] (world space, as [SelectionGeometry.compose] takes it) folded into [current] under [op] on
+     * the multi-view surface [surfaceId]: the lasso is cut into the view images ([fromLasso]) and folded in per
+     * image ([compose]), so the result follows the surface. What stays exactly as it was (the flat compose):
+     * a base that is a plain region of something else (drawn on a flat layer, or a lasso that reached no face),
+     * and a lasso that reaches no facing face when there is no surface selection to fold it into. Remove from
+     * nothing is null, as everywhere; a ring too small to enclose anything leaves [current] alone.
+     */
+    fun composeLasso(
+        current: Selection?,
+        polygon: List<Offset>,
+        canvasSize: IntSize,
+        op: SelectionOp,
+        surfaceId: String,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        if (polygon.size < 3) return current
+        val foldsHere = op == SelectionOp.NEW || current == null || current.surface?.surfaceId == surfaceId
+        if (!foldsHere) return SelectionGeometry.compose(current, polygon, canvasSize, op)
+        val composed = compose(current, Selection.ofPolygon(polygon, canvasSize), op, surfaceId, owner, hull, camera, projection, width, height)
+        return if (composed?.surface?.isUsable == true || (composed == null && op == SelectionOp.REMOVE)) {
+            composed
+        } else {
+            SelectionGeometry.compose(current, polygon, canvasSize, op)
+        }
     }
 
     /** [selection] with its footprint re-derived for [projection]'s camera; any other selection, untouched. */
