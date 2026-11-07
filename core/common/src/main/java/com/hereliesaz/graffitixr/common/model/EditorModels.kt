@@ -234,6 +234,12 @@ data class Layer(
     val adjustment: com.hereliesaz.graffitixr.common.photo.PhotoAdjustment? = null,
 )
 
+/** Where "Build surface from image" is: looking for a depth model, running it, or building the surface. */
+enum class ReliefBuildStage { CHECKING, ESTIMATING, BUILDING }
+
+/** A relief surface being built from the photo layer [layerId] (view state: never history or project data). */
+data class ReliefBuildState(val layerId: String, val stage: ReliefBuildStage)
+
 /** The Draw-surface chip's one-off messages (the UI words them; see the chrome strings). */
 enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, DONE, VIEW_DONE }
 
@@ -552,6 +558,8 @@ data class EditorUiState(
      * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).
      */
     val surfaceGridVisible: Boolean = false,
+    /** "Build surface from image" in progress, for the chip's progress line and Cancel; null = not building. */
+    val reliefBuild: ReliefBuildState? = null,
     val undoCount: Int = 0,
     val redoCount: Int = 0,
     val isLoading: Boolean = false,

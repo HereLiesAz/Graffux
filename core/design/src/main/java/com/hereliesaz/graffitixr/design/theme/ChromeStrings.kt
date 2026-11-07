@@ -23,6 +23,8 @@ data class LayerMenuStrings(
     val drawSurface: String,
     /** A group's "Flatten surface": clears its profile. */
     val flattenSurface: String,
+    /** A photo layer: depth model to relief surface. */
+    val buildRelief: String,
     /** A group with a surface: draw its outline from the side / top (a full 3D model). */
     val drawSideView: String,
     val drawTopView: String,
@@ -94,6 +96,7 @@ fun rememberLayerMenuStrings(): LayerMenuStrings = LayerMenuStrings(
     resetPlane = stringResource(R.string.layer_menu_reset_plane),
     drawSurface = stringResource(R.string.layer_menu_draw_surface),
     flattenSurface = stringResource(R.string.layer_menu_flatten_surface),
+    buildRelief = stringResource(R.string.layer_menu_build_relief),
     drawSideView = stringResource(R.string.layer_menu_draw_side_view),
     drawTopView = stringResource(R.string.layer_menu_draw_top_view),
     redrawSideView = stringResource(R.string.layer_menu_redraw_side_view),
@@ -357,4 +360,32 @@ fun rememberSurfaceStrings(): SurfaceStrings = SurfaceStrings(
     drawTop = stringResource(R.string.surface_draw_top),
     redrawSide = stringResource(R.string.surface_redraw_side),
     redrawTop = stringResource(R.string.surface_redraw_top),
+)
+
+/** ReliefStrings: the "Build surface from image" chip and rail item; see strings_chrome.xml. */
+data class ReliefStrings(
+    val title: String,
+    val checking: String,
+    val estimating: String,
+    val building: String,
+    val readyTitle: String,
+    val readyHint: String,
+    val strength: String,
+    val invert: String,
+    val cancel: String,
+    val rail: String,
+)
+
+@Composable
+fun rememberReliefStrings(): ReliefStrings = ReliefStrings(
+    title = stringResource(R.string.relief_title),
+    checking = stringResource(R.string.relief_checking),
+    estimating = stringResource(R.string.relief_estimating),
+    building = stringResource(R.string.relief_building),
+    readyTitle = stringResource(R.string.relief_ready_title),
+    readyHint = stringResource(R.string.relief_ready_hint),
+    strength = stringResource(R.string.relief_strength),
+    invert = stringResource(R.string.relief_invert),
+    cancel = stringResource(R.string.relief_cancel),
+    rail = stringResource(R.string.relief_rail),
 )

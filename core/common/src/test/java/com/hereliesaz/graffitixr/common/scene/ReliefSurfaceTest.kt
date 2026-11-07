@@ -508,3 +508,29 @@ class ReliefSurfaceTest {
         assertTrue(ys.min() > rect[1] - 80f && ys.max() < rect[3] + 80f)
     }
 }
+
+class ReliefStrengthTest {
+    private fun relief(spanU: Float = 400f, spanT: Float = 300f) = ReliefSurface.build(
+        FloatArray(16) { (it % 4) / 3f }, 4, 4, 800, 600, 0f, 0f, spanU, spanT,
+    )!!
+
+    @Test fun strengthIsTheDisplacementAsAFractionOfTheLongerSide() {
+        val r = relief()
+        assertEquals(r.displacement / 400f, r.strength, 1e-6f)
+        assertEquals(0.25f, r.strength, 1e-6f)
+        assertEquals(0.5f * 400f, r.withStrength(0.5f).displacement, 1e-3f)
+        assertEquals(0.5f, r.withStrength(0.5f).strength, 1e-6f)
+    }
+
+    @Test fun strengthIsClampedAndKeptFinite() {
+        val r = relief()
+        assertEquals(0f, r.withStrength(-1f).displacement, 0f)
+        assertEquals(0f, r.withStrength(Float.NaN).displacement, 0f)
+        assertEquals(ReliefSurface.MAX_STRENGTH, r.withStrength(50f).strength, 1e-6f)
+    }
+
+    @Test fun strengthDoesNotTouchTheStoredHeights() {
+        val r = relief()
+        assertEquals(r.heightData, r.withStrength(0.4f).heightData)
+    }
+}

@@ -122,6 +122,13 @@ data class ReliefSurface(
 
     fun withDisplacement(value: Float): ReliefSurface = copy(displacement = if (value.isFinite()) max(value, 0f) else 0f)
 
+    /** [displacement] as a fraction of the photo's longer side: what the strength slider shows. */
+    val strength: Float get() = displacement / max(spanU, spanT)
+
+    /** The relief standing out by [fraction] (0..[MAX_STRENGTH]) of the photo's longer side. */
+    fun withStrength(fraction: Float): ReliefSurface =
+        withDisplacement(fraction.coerceIn(0f, MAX_STRENGTH) * max(spanU, spanT))
+
     fun withInverted(value: Boolean): ReliefSurface = copy(inverted = value)
 
     /** The group surface this relief is: a base line along box x, swept along box y, carrying the grid. */
@@ -131,6 +138,9 @@ data class ReliefSurface(
     companion object {
         /** The most grid vertices by default: a 64k-vertex mesh is 128k triangles and stays interactive. */
         const val MAX_VERTICES = 65_536
+
+        /** The strength slider's top: the relief stands out by the photo's whole longer side. */
+        const val MAX_STRENGTH = 1f
 
         /** The ~quarter of the photo's longer side a new relief stands out by. */
         fun defaultDisplacement(spanU: Float, spanT: Float): Float = 0.25f * max(spanU, spanT)

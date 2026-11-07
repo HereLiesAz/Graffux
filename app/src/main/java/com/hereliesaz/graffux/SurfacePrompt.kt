@@ -9,11 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,9 +29,13 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.ReliefBuildStage
+import com.hereliesaz.graffitixr.common.model.ReliefBuildState
 import com.hereliesaz.graffitixr.common.model.SurfaceDrawNotice
+import com.hereliesaz.graffitixr.common.scene.ReliefSurface
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.design.theme.Amber
+import com.hereliesaz.graffitixr.design.theme.ReliefStrings
 import com.hereliesaz.graffitixr.design.theme.SurfaceStrings
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 
@@ -112,6 +119,8 @@ internal fun SurfacePromptChip(
     views: SurfaceViewsStatus? = null,
     /** Starts drawing another view of the group; offered with the "set" message when given. */
     onDrawView: ((SurfaceView) -> Unit)? = null,
+    /** While armed, on a photo layer: build the surface from the image's depth instead of drawing it. */
+    onBuildFromImage: (() -> Unit)? = null,
 ) {
     val strings = rememberAppStrings().surface
     val content = surfacePromptContent(armed, notice, strings, view, views) ?: return
@@ -164,6 +173,16 @@ internal fun SurfacePromptChip(
                 }
             }
         }
+        if (armed && onBuildFromImage != null) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .clickable(role = Role.Button, onClick = onBuildFromImage)
+                    .padding(end = 14.dp)
+                    .testTag("surface.prompt.buildRelief"),
+            ) { Text(rememberAppStrings().relief.rail, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
+        }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -195,9 +214,15 @@ internal fun NoticeStack(
     view: SurfaceView = SurfaceView.FRONT,
     views: SurfaceViewsStatus? = null,
     onDrawView: ((SurfaceView) -> Unit)? = null,
+    /** "Build surface from image" in progress, and the active layer's relief; see [ReliefChip]. */
+    reliefBuild: ReliefBuildState? = null,
+    relief: ReliefSurface? = null,
+    reliefActions: ReliefChipActions? = null,
+    onBuildFromImage: (() -> Unit)? = null,
 ) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-        SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView)
+        SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
+        if (reliefActions != null) ReliefChip(reliefBuild, relief, reliefActions)
         MessageHost(alerts, okLabel = okLabel, countLabel = countLabel)
     }
 }
@@ -215,4 +240,123 @@ internal fun surfaceViewsStatus(state: com.hereliesaz.graffitixr.common.model.Ed
         side = surface.side?.isValid == true,
         top = surface.top?.isValid == true,
     )
+}
+
+/** What the relief chip can ask for. */
+internal class ReliefChipActions(
+    val onCancel: () -> Unit,
+    /** Live strength, a fraction of the photo's longer side. */
+    val onStrength: (Float) -> Unit,
+    val onStrengthDone: () -> Unit,
+    val onInvert: () -> Unit,
+)
+
+/** The relief chip's words: building progress (with Cancel), or the finished relief's hint. */
+internal data class ReliefChipContent(val title: String, val text: String, val building: Boolean)
+
+/** The chip's words, or null when it has nothing to say (no build under way, no relief active). */
+internal fun reliefChipContent(build: ReliefBuildState?, relief: ReliefSurface?, s: ReliefStrings): ReliefChipContent? = when {
+    build != null -> ReliefChipContent(
+        s.title,
+        when (build.stage) {
+            ReliefBuildStage.CHECKING -> s.checking
+            ReliefBuildStage.ESTIMATING -> s.estimating
+            ReliefBuildStage.BUILDING -> s.building
+        },
+        building = true,
+    )
+    relief != null -> ReliefChipContent(s.readyTitle, s.readyHint, building = false)
+    else -> null
+}
+
+/**
+ * The "Build surface from image" chip, in the setup chip's chrome. While the depth model runs it says which step
+ * it is on and offers Cancel (the UI never blocks); on an active relief it carries the live strength slider and the
+ * near/far swap. Each control is at least 48dp and named for TalkBack.
+ */
+@Suppress("LongMethod")
+@Composable
+internal fun ReliefChip(build: ReliefBuildState?, relief: ReliefSurface?, actions: ReliefChipActions, modifier: Modifier = Modifier) {
+    val strings = rememberAppStrings().relief
+    val content = reliefChipContent(build, relief, strings) ?: return
+    val shape = RoundedCornerShape(12.dp)
+    val colors = MaterialTheme.colorScheme
+    BackHandler(enabled = content.building, onBack = actions.onCancel)
+    Column(
+        modifier = modifier
+            .widthIn(max = 420.dp)
+            .clip(shape)
+            .background(RailFill)
+            .border(1.dp, colors.primary, shape)
+            .testTag("relief.chip")
+            .padding(start = 16.dp, top = 12.dp, end = 12.dp, bottom = 4.dp),
+    ) {
+        Column(
+            Modifier.clearAndSetSemantics {
+                contentDescription = "${content.title}. ${content.text}"
+                liveRegion = LiveRegionMode.Polite
+            },
+        ) {
+            Text(content.title, style = MaterialTheme.typography.titleSmall, color = colors.onSurface, modifier = Modifier.testTag("relief.chip.title"))
+            Text(content.text, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface, modifier = Modifier.testTag("relief.chip.text"))
+        }
+        if (content.building) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button, onClick = actions.onCancel)
+                    .padding(horizontal = 14.dp)
+                    .testTag("relief.chip.cancel"),
+            ) { Text(strings.cancel, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
+        } else if (relief != null) {
+            val label = strings.strength
+            Text(label, style = MaterialTheme.typography.labelMedium, color = colors.onSurface, modifier = Modifier.padding(top = 8.dp))
+            Slider(
+                value = relief.strength.coerceIn(0f, ReliefSurface.MAX_STRENGTH),
+                onValueChange = actions.onStrength,
+                onValueChangeFinished = actions.onStrengthDone,
+                valueRange = 0f..ReliefSurface.MAX_STRENGTH,
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .semantics { contentDescription = label }
+                    .testTag("relief.chip.strength"),
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.sizeIn(minHeight = 48.dp)) {
+                Text(strings.invert, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface, modifier = Modifier.weight(1f))
+                Switch(
+                    checked = relief.inverted,
+                    onCheckedChange = { actions.onInvert() },
+                    modifier = Modifier.semantics { contentDescription = strings.invert }.testTag("relief.chip.invert"),
+                )
+            }
+        }
+    }
+}
+
+/** The active layer's relief, when its surface is one (the chip's strength and swap act on it). */
+internal fun activeRelief(state: com.hereliesaz.graffitixr.common.model.EditorUiState): ReliefSurface? =
+    com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, state.activeLayerId)?.group?.surface?.relief
+
+/** The relief chip's controls on the real view-model. */
+internal fun reliefChipActions(
+    vm: com.hereliesaz.graffitixr.feature.editor.EditorViewModel,
+    state: com.hereliesaz.graffitixr.common.model.EditorUiState,
+): ReliefChipActions {
+    val group = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, state.activeLayerId)
+        ?.group?.takeIf { it.surface?.relief != null }?.id
+    return ReliefChipActions(
+        onCancel = { vm.onCancelReliefBuild() },
+        onStrength = { f -> group?.let { vm.onReliefStrength(it, f) } },
+        onStrengthDone = { vm.onReliefTuneDone() },
+        onInvert = { group?.let { vm.onReliefInvert(it) } },
+    )
+}
+
+/** Whether the active layer is a photo that "Build surface from image" can start on (the chip offers it while armed). */
+internal fun canBuildRelief(state: com.hereliesaz.graffitixr.common.model.EditorUiState): Boolean {
+    val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return false
+    return layer.type == com.hereliesaz.graffitixr.common.model.LayerType.RASTER && layer.bitmap != null &&
+        layer.surfaceViewOf == null && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id) == null
 }

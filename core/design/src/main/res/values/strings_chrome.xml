@@ -16,6 +16,7 @@
     <string name="layer_menu_reset_plane">Reset plane</string>
     <string name="layer_menu_draw_surface">Draw surface</string>
     <string name="layer_menu_flatten_surface">Flatten surface</string>
+    <string name="layer_menu_build_relief">Build surface from image</string>
     <string name="layer_menu_draw_side_view">Draw side view</string>
     <string name="layer_menu_draw_top_view">Draw top view</string>
     <string name="layer_menu_redraw_side_view">Redraw side view</string>
@@ -146,6 +147,16 @@
     <string name="surface_draw_top">Draw top view</string>
     <string name="surface_redraw_side">Redraw side view</string>
     <string name="surface_redraw_top">Redraw top view</string>
+    <string name="relief_title">Surface from image</string>
+    <string name="relief_checking">Looking for the depth model.</string>
+    <string name="relief_estimating">Reading the depth of your image. This can take a few seconds.</string>
+    <string name="relief_building">Building the surface.</string>
+    <string name="relief_ready_title">Relief surface</string>
+    <string name="relief_ready_hint">Change the view to see the depth. Paint on it as usual.</string>
+    <string name="relief_strength">Depth strength</string>
+    <string name="relief_invert">Swap near and far</string>
+    <string name="relief_cancel">Cancel</string>
+    <string name="relief_rail">Build surface from image</string>
     <string name="surface_prompt_cancel">Cancel</string>
     <string name="surface_prompt_ok">OK</string>
     <string name="surface_done">3D surface set. Turn it with the X/Y/Z button. Undo removes it.</string>

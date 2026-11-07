@@ -36,6 +36,7 @@ fun rememberAppStrings(): AppStrings {
         messages = rememberMessageStrings(),
         gestureHelp = rememberGestureHelpStrings(),
         surface = rememberSurfaceStrings(),
+        relief = rememberReliefStrings(),
     )
 }
 
@@ -50,6 +51,7 @@ data class AppStrings(
     val messages: MessageStrings,
     val gestureHelp: GestureHelpStrings,
     val surface: SurfaceStrings,
+    val relief: ReliefStrings,
 ) {
     data class Common(
         val cancel: String,
