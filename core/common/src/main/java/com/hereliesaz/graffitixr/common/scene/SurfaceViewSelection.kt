@@ -36,6 +36,11 @@ object SurfaceViewSelection {
     /**
      * [selection] (rings in world space) as a selection in [view]'s flat space: the same rings in the
      * same order and sense, each cut to the view's faces. Null when it reaches none of them.
+     *
+     * An **inverted** selection is everything outside its recipe, so it is never a miss: it is returned as the
+     * view's facing faces with the recipe taken out, a plain (not inverted) selection that is bounded to what
+     * faces the camera like any other. Complementing a recipe ring by ring is exact: an Add ring becomes a
+     * cut and a cut becomes an Add, starting from the whole facing area.
      */
     fun forView(
         selection: Selection,
@@ -62,11 +67,38 @@ object SurfaceViewSelection {
                     .map { Offset(it.first, it.second) }
                 if (flat.size < 3 || area(flat) < MIN_AREA) continue
                 rings += SelectionRing(flat, ring.additive)
-                if (ring.additive != selection.inverted) reached = true
+                if (ring.additive) reached = true
             }
         }
+        if (selection.inverted) return complemented(tris, rings, selection, owner, width, height)
         if (!reached) return null
         return Selection(rings, selection.canvasSize, selection.inverted, selection.featherPx)
+    }
+
+    /** The facing triangles [tris] of a view as rings in its flat space (the area a selection of that view may reach). */
+    private fun facingRings(tris: List<SurfaceProjection.Tri>, owner: SurfaceOwner, width: Float, height: Float): List<SelectionRing> =
+        tris.mapNotNull { t ->
+            val flat = (0..2).mapNotNull { SurfaceMath.unrolledToFlat(t.px[it], t.py[it], owner.innerChain, width, height) }
+                .map { Offset(it.first, it.second) }
+            flat.takeIf { it.size == 3 && area(it) >= MIN_AREA }?.let { SelectionRing(it, true) }
+        }
+
+    /**
+     * The complement of the recipe [rings] (cut to [tris], the facing triangles of one view) within those
+     * triangles, as a plain selection: the whole facing area, then each ring with its sense turned over.
+     * Null when nothing of the view faces the camera.
+     */
+    private fun complemented(
+        tris: List<SurfaceProjection.Tri>,
+        rings: List<SelectionRing>,
+        selection: Selection,
+        owner: SurfaceOwner,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        val whole = facingRings(tris, owner, width, height)
+        if (whole.isEmpty()) return null
+        return Selection(whole + rings.map { it.copy(additive = !it.additive) }, selection.canvasSize, false, selection.featherPx)
     }
 
     /**
@@ -176,7 +208,8 @@ object SurfaceViewSelection {
     /**
      * The part of [selection]'s stored regions a stroke on [view]'s image may paint, in that image's flat
      * space: cut to the triangles facing the camera. Null when none of it is reachable (turned away, or the
-     * selection never reached the view); the caller decides whether that blocks (inverted: it does not).
+     * selection never reached the view); the caller decides whether that blocks. An inverted selection is the facing
+     * area with the stored recipe taken out ([forView]), so it is null only when nothing of the view faces the camera.
      */
     fun viewCut(
         selection: Selection,
@@ -209,8 +242,10 @@ object SurfaceViewSelection {
                 }
             }
         }
-        if (out.isEmpty() || (!selection.inverted && out.none { it.additive })) return null
-        return Selection(out, selection.canvasSize, selection.inverted, selection.featherPx)
+        // Inverted: everything outside the stored recipe, bounded to the facing triangles like any other cut.
+        if (selection.inverted) return complemented(projection.facing(view), out, selection, owner, width, height)
+        if (out.isEmpty() || out.none { it.additive }) return null
+        return Selection(out, selection.canvasSize, false, selection.featherPx)
     }
 
     /** A world-space [selection]'s rings as per-image regions (the lasso-to-view cut, [forView], for every facing view). */
