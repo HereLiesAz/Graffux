@@ -287,10 +287,19 @@ drips). It is data, not code — the package stays `kind: "asset"` and nothing i
 `palette`, `image`, `video`, `font`, `audio`, `vector`, `template`, `overlay`, plus the AI-model
 family `tflite`, `litert`, `onnx`, `sherpa-bundle`, `model`, `task`, `vosk-bundle` (`isModel == true`
 for these seven), and `unknown` (a type this build doesn't recognize — the contribution is retained
-but not applied). Of these, this host only actually *consumes* `brush` and `lut` — see
-`ExtensionRepository.installedLuts()`/`installedBrushes()` and `StoreWindow`'s
-`SUPPORTED_ASSET_TYPES` — every other type parses and is retained on the manifest but has no
-consumer yet.
+but not applied). Of these, this host only actually *consumes* `brush`, `lut` and `onnx` with `role: "depth"` — see
+`ExtensionRepository.installedLuts()`/`installedBrushes()`/`installedDepthModels()` and
+`HostAssetSupport` (which `StoreWindow` reads for its badges) — every other type parses and is
+retained on the manifest but has no consumer yet.
+
+The `onnx` + `depth` consumer is a **host-side** monocular depth estimator (the model runs in the app,
+never in the extension sandbox and never off-device). The asset is a remote one (`path == ""`): the host
+downloads `remoteUrl`, and per the verification rule above MUST match `checksum` (and `byteSize` when
+given) before the file is ever opened. A listing with no `checksum` is therefore *not downloaded and
+not run* — the host shows it as unavailable. Redirects may cross hosts but stay on https, since the
+digest, not the host, is the integrity gate. The expected graph is MiDaS v2.1 small: one
+`input_image` tensor `[1,3,256,256]` (NCHW, RGB, `[0,1]`) and one relative-inverse-depth output
+(`[1,256,256]`, larger = nearer, arbitrary scale/shift).
 
 For a `lut` asset, `params` may carry (§ 3, LUT application below):
 

@@ -246,6 +246,7 @@ internal class DrawingEngine(
             return SelectionMask.feather(bitmap, target, clipPath, featherRadius)
         }
         if (stroke.tool == Tool.SELECT) {
+            stroke.movePatch?.let { return SelectionMask.pasteMove(bitmap, clipPath, featherRadius, it, lf) }
             val delta = stroke.moveDelta ?: return bitmap
             if (clipPath == null) return bitmap
             val d = SelectionMask.mapDelta(

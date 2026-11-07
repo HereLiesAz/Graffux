@@ -263,6 +263,9 @@ internal class ActivePlaneMapping private constructor(
      */
     fun toSelectionPoint(screen: Offset): Offset? = if (onHull) world(screen) else toFlat(screen)
 
+    /** A screen drag [delta] in world space, where a multi-view surface keeps its selection. */
+    fun worldDelta(delta: Offset): Offset = CanvasHitTest.screenDeltaToWorld(delta, viewportZoom, viewportRotation)
+
     /**
      * A screen drag [delta] as a flat-space delta, measured at [around] (the selection, whose centroid
      * anchors it; perspective makes a delta depend on where it is applied).

@@ -50,6 +50,7 @@ import com.hereliesaz.graffitixr.common.util.ContourTrace
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.common.util.ImageUtils
 import com.hereliesaz.graffitixr.common.util.decodeBoundedBitmap
+import com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport
 import com.hereliesaz.graffitixr.common.azphalt.AirbrushEngine
 import com.hereliesaz.graffitixr.common.azphalt.BrushSample
 import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
@@ -82,7 +83,9 @@ import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import com.hereliesaz.graffitixr.common.scene.PaintTarget
 import com.hereliesaz.graffitixr.common.scene.SurfaceHull
 import com.hereliesaz.graffitixr.common.scene.SurfaceMath
+import com.hereliesaz.graffitixr.common.scene.SurfaceProjection
 import com.hereliesaz.graffitixr.common.scene.SurfaceViewFlood
+import com.hereliesaz.graffitixr.common.scene.SurfaceViewMove
 import com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection
 import com.hereliesaz.graffitixr.common.util.SafeBitmap
 import com.hereliesaz.graffitixr.nativebridge.LiquifyEngine
@@ -202,6 +205,13 @@ data class StrokeCommand(
     // Set only on a [Tool.SELECT] command: the screen-space distance the selected pixels were
     // dragged. Makes a move a replayable command like any stroke — see [DrawingEngine].
     val moveDelta: Offset? = null,
+    // Set only on a [Tool.SELECT] command that moves pixels on a multi-view surface (spec/3d-space.md,
+    // "Selection on a multi-view surface"): what this view image receives, resampled from wherever the
+    // surface showed it, in the image's frame. [selection] is then the image's cut of the lasso (what is
+    // lifted from it) and [marquee] the world-space selection undo gives back. Self-contained, so the image
+    // replays without the others.
+    val movePatch: MovePatch? = null,
+    val marquee: com.hereliesaz.graffitixr.common.model.Selection? = null,
     // Set only on a [Tool.CLONE] command: the screen-space vector from this stroke to the pixels it
     // copies, measured from the stroke's first point. Recorded rather than read at replay time
     // for the same reason `selection` is — the source can be moved or cleared afterwards, and an
@@ -243,6 +253,12 @@ data class StrokeCommand(
     // it only affects a brush whose substrateResponse is above 0 (see StampSubstrate).
     val substrateId: String? = null,
 )
+
+/**
+ * Pixels a surface move pastes into one view image: [width] by [height] ARGB at ([left], [top]), measured
+ * from the layer frame's origin (not the bitmap's), so they stay put if the bitmap grows afterwards.
+ */
+class MovePatch(val left: Int, val top: Int, val width: Int, val height: Int, val pixels: IntArray)
 
 /** The Ink Eraser's live ghost: neutral mid-grey (its alpha comes from the brush opacity). */
 private const val INK_ERASE_PREVIEW_ARGB = 0x99808080.toInt()
@@ -2740,7 +2756,7 @@ class EditorViewModel @Inject constructor(
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
-                    dispatch(EditorIntent.SetSelection(command.command.selection))
+                    dispatch(EditorIntent.SetSelection(command.command.marquee ?: command.command.selection))
                 }
             }
             is EditCommand.PropertyChange -> {
@@ -2851,7 +2867,7 @@ class EditorViewModel @Inject constructor(
     private fun redoSelectionMove(stroke: StrokeCommand) {
         val delta = stroke.moveDelta
         if (stroke.tool == Tool.SELECT && delta != null) {
-            dispatch(EditorIntent.SetSelection(stroke.selection?.translated(delta)))
+            dispatch(EditorIntent.SetSelection((stroke.marquee ?: stroke.selection)?.translated(delta)))
         }
     }
 
@@ -6651,11 +6667,207 @@ class EditorViewModel @Inject constructor(
         return clip
     }
 
-    /** Moving a selection's pixels and Automatic selection read one layer's pixels; a multi-view surface has more. */
-    fun onMultiViewSelectionUnsupported() = notify(
-        "Moving and Automatic selection are not available on a multi-view surface yet. Use the lasso.",
-        NoticeKind.NOTICE,
-    )
+    /**
+     * Automatic (wand) selection on a multi-view surface (spec/3d-space.md, "Selection on a multi-view surface").
+     * The flood runs in the view image under the tap and continues across creases exactly as a fill does
+     * ([SurfaceViewFlood.plan], same tolerance). Each flooded face's region is traced in its image and carried
+     * to the canvas through the surface ([SurfaceViewSelection.fromView]): only what faces the viewer is
+     * selected, the tapped face whichever way it faces. The result is an ordinary world-space selection, so
+     * Add, Remove, invert, feather and the marching ants work as for a lasso. Off the main thread.
+     */
+    @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod", "MaxLineLength")
+    fun onViewAutoSelect(primaryId: String, at: SurfaceMath.ViewFlat, canvasSize: IntSize) {
+        val st = _uiState.value
+        val owner = SurfaceMath.ownerOf(st.layers, primaryId) ?: return
+        val hull = SurfaceHull.of(owner.profile) ?: return
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val layers = st.layers
+        val (ux, uy) = SurfaceMath.flatToUnrolled(at.x, at.y, owner.innerChain, w, h)
+        val tap = PaintTarget(at.view, ux, uy, at.region)
+        val tapImage = layers.firstOrNull { it.surfaceViewOf == primaryId && it.surfaceView == at.view && it.bitmap != null }
+        val tapColor = tapImage?.bitmap?.let { b ->
+            ImageProcessor.mapScreenToBitmap(
+                listOf(Offset(at.x, at.y)), st.canvasSize.width, st.canvasSize.height,
+                tapImage.frame(b.width, b.height), tapImage.scale, tapImage.offset, tapImage.rotationZ,
+            ).firstOrNull()?.let { b.getPixel(it.x.toInt().coerceIn(0, b.width - 1), it.y.toInt().coerceIn(0, b.height - 1)) }
+        } ?: 0
+        val oracle = ViewFloodOracle(
+            layers, primaryId, hull, st.canvasSize.width, st.canvasSize.height, tapColor, wandMask,
+        ) { ViewClip(false, null) }
+        val op = st.selectionOp
+        val camera = st.sceneCamera
+        val tracedOn = st.canvasSize
+        val previous = wandJob
+        wandJob = viewModelScope.launch(dispatchers.default) {
+            previous?.join()
+            val wand = try {
+                val seeds = SurfaceViewFlood.plan(hull, tap, oracle)
+                val projection = SurfaceProjection.of(hull, owner, camera, w, h)
+                val rings = ArrayList<com.hereliesaz.graffitixr.common.model.SelectionRing>()
+                seeds.forEachIndexed { i, seed ->
+                    val flat = oracle.wandRings(seed, tracedOn) ?: return@forEachIndexed
+                    rings += SurfaceViewSelection.fromView(
+                        flat, seed.view, owner, projection, w, h, tappedAt = Offset(ux, uy).takeIf { i == 0 },
+                    )
+                }
+                Selection(rings, tracedOn).takeIf { it.isUsable }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                android.util.Log.w("EditorViewModel", "Magic wand ran out of memory", e)
+                withContext(dispatchers.main) { notify("This layer is too large for Automatic selection", NoticeKind.WARNING) }
+                return@launch
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                android.util.Log.w("EditorViewModel", "Magic wand failed", e)
+                withContext(dispatchers.main) { notify("Automatic selection failed", NoticeKind.WARNING) }
+                return@launch
+            }
+            withContext(dispatchers.main) {
+                if (_uiState.value.canvasSize != tracedOn) {
+                    notify("The canvas changed while selecting. Tap again.", NoticeKind.NOTICE)
+                } else if (wand == null) {
+                    notify("Nothing facing you there to select", NoticeKind.NOTICE)
+                } else {
+                    dispatch(EditorIntent.SetSelection(composeTraced(wand, op, _uiState.value.selection)))
+                }
+            }
+        }
+    }
+
+    /**
+     * Moves the selected pixels by [delta] (canvas space) on a multi-view surface (spec/3d-space.md, "Selection
+     * on a multi-view surface"). The selected paint slides over the surface as the viewer sees it
+     * ([SurfaceViewMove]): each view image's selected pixels are lifted, and every image gets the pixels the
+     * surface shows [delta] behind each of its own, so a move across a crease is resampled into the
+     * neighbouring image. Each image records a self-contained command ([StrokeCommand.movePatch]); the images
+     * are one gesture, so one undo step takes them all (and the marquee) back.
+     */
+    @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod", "MaxLineLength")
+    fun onSurfaceSelectionMove(primaryId: String, delta: Offset) {
+        val st = _uiState.value
+        val selection = st.selection?.takeIf { it.isUsable } ?: return
+        if (delta.getDistance() < 1f) return
+        val owner = SurfaceMath.ownerOf(st.layers, primaryId) ?: return
+        val hull = SurfaceHull.of(owner.profile) ?: return
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        if (w <= 0f || h <= 0f) return
+        val projection = SurfaceProjection.of(hull, owner, st.sceneCamera, w, h)
+        val views = projection.facingViews.toList()
+        if (views.isEmpty()) return
+        val ids = LinkedHashMap<com.hereliesaz.graffitixr.common.scene.SurfaceView, String>()
+        for (v in views) ids[v] = ensureViewImageLayer(primaryId, v) ?: return
+        ids.values.forEach { growLayerToView(it, st.canvasSize, _uiState.value) }
+        val layers = _uiState.value.layers
+        val source = if (selection.inverted) {
+            androidx.compose.ui.geometry.Rect(0f, 0f, w, h)
+        } else {
+            val pts = selection.rings.filter { it.additive }.flatMap { it.path }
+            val pad = selection.featherPx * 2f + 2f
+            androidx.compose.ui.geometry.Rect(
+                pts.minOf { it.x } - pad, pts.minOf { it.y } - pad, pts.maxOf { it.x } + pad, pts.maxOf { it.y } + pad,
+            )
+        }
+        val cuts = views.associateWith { viewClip(primaryId, it).selection }
+        viewModelScope.launch(dispatchers.default) {
+            val patches = try {
+                val images = LinkedHashMap<com.hereliesaz.graffitixr.common.scene.SurfaceView, ViewImageSpace>()
+                for (v in views) {
+                    val layer = layers.firstOrNull { it.id == ids[v] } ?: continue
+                    val bmp = layer.bitmap ?: continue
+                    val imgOwner = SurfaceMath.ownerOf(layers, layer.id) ?: continue
+                    val frame = layer.frame(bmp.width, bmp.height)
+                    val lifted = cuts[v]?.let { cut ->
+                        SelectionMask.bitmapPath(cut, frame, layer.scale, layer.offset, layer.rotationZ)?.let { path ->
+                            SelectionMask.lift(bmp, path, SelectionMask.featherRadius(cut, frame, layer.scale))
+                        }
+                    }
+                    val pixels = lifted?.let { l ->
+                        IntArray(l.width * l.height).also { l.getPixels(it, 0, l.width, 0, 0, l.width, l.height) }
+                            .also { l.recycle() }
+                    }
+                    images[v] = ViewImageSpace(layer, bmp, imgOwner, st.canvasSize.width, st.canvasSize.height, pixels)
+                }
+                SurfaceViewMove.plan(projection, images, delta, source)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: OutOfMemoryError) {
+                android.util.Log.w("EditorViewModel", "Surface move ran out of memory", e)
+                withContext(dispatchers.main) { notify("This surface is too large to move a selection on", NoticeKind.WARNING) }
+                return@launch
+            }
+            withContext(dispatchers.main) { commitSurfaceMove(ids, cuts, patches, selection, delta) }
+        }
+    }
+
+    /** One command per view image that loses or gains pixels in a surface move, as one gesture. */
+    @Suppress("LongParameterList", "CyclomaticComplexMethod", "MaxLineLength")
+    private fun commitSurfaceMove(
+        ids: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, String>,
+        cuts: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, Selection?>,
+        patches: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, SurfaceViewMove.Patch>,
+        selection: Selection,
+        delta: Offset,
+    ) {
+        gestureOpen = true
+        try {
+            for ((view, layerId) in ids) {
+                val cut = cuts[view]
+                val patch = patches[view]
+                if (cut == null && patch == null) continue
+                val layer = _uiState.value.layers.find { it.id == layerId } ?: continue
+                val base = layer.bitmap ?: continue
+                val frame = layer.frame(base.width, base.height)
+                val command = StrokeCommand(
+                    path = selection.outline,
+                    canvasSize = selection.canvasSize,
+                    tool = Tool.SELECT,
+                    brushSize = 0f,
+                    brushColor = 0,
+                    intensity = 0f,
+                    layerScale = layer.scale,
+                    layerOffset = layer.offset,
+                    layerRotationZ = layer.rotationZ,
+                    selection = cut,
+                    moveDelta = delta,
+                    movePatch = patch?.let {
+                        MovePatch(it.left - frame.originX, it.top - frame.originY, it.width, it.height, it.pixels)
+                    } ?: MovePatch(0, 0, 0, 0, IntArray(0)),
+                    marquee = selection,
+                )
+                invalidateResident(layerId)
+                layerStore.addStroke(layerId, command)
+                pushDrawNotingInk(layerId, command)
+                updateHistoryCounts()
+                maybeBakeOldStrokes(layerId)
+                launchLayerCommit(layerId) {
+                    val from = publishedBitmap(layerId) ?: base
+                    val target = try {
+                        drawingEngine.applySingleStroke(from, command, frame = layer.frame(from.width, from.height))
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (@Suppress("TooGenericExceptionCaught") e: Throwable) {
+                        withContext(kotlinx.coroutines.NonCancellable + dispatchers.main) {
+                            abandonFailedCommit(layerId, command, e)
+                        }
+                        return@launchLayerCommit
+                    }
+                    withContext(dispatchers.main) {
+                        updateUi { s -> s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = target) else it }) }
+                        scheduleDiskSave(layerId, target, layer.uri)
+                    }
+                    if (opEmitter.isActive) {
+                        opEmitter.emit(Op.LayerBitmapReplace(layerId, ImageUtils.bitmapToByteArray(target)))
+                    }
+                }
+            }
+        } finally {
+            closeGesture()
+        }
+        dispatch(EditorIntent.SetSelection(selection.translated(delta)))
+    }
 
     /** Whether the active lasso leaves nothing of [view] to paint on: a touch there is a miss. */
     fun viewSelectionBlocks(primaryId: String, view: com.hereliesaz.graffitixr.common.scene.SurfaceView): Boolean =
@@ -10265,25 +10477,7 @@ class EditorViewModel @Inject constructor(
         bitmap: Bitmap,
         canvasSize: IntSize,
     ): Selection? {
-        val traced = ContourTrace.contours(mask, mw, mh)
-        if (traced.isEmpty()) return null
-        val sx = bitmap.width.toFloat() / mw
-        val sy = bitmap.height.toFloat() / mh
-        val rings = traced.map { ring ->
-            val inBitmap = if (sx == 1f && sy == 1f) ring.path else ring.path.map { Offset(it.x * sx, it.y * sy) }
-            ring.copy(
-                path = SelectionGeometry.simplify(
-                    ImageProcessor.mapBitmapToScreen(
-                        inBitmap, canvasSize.width, canvasSize.height,
-                        layer.frame(bitmap.width, bitmap.height), layer.scale, layer.offset, layer.rotationZ,
-                    ),
-                    // Gentler than a traced lasso's thinning. The wand's vertices are already
-                    // only the turns, so anything aggressive here rounds off the corners that
-                    // are the whole reason the region was traced rather than boxed.
-                    minSpacing = 1.5f,
-                ),
-            )
-        }.filter { it.isUsable }
+        val rings = traceMaskRings(mask, mw, mh, layer, bitmap, canvasSize)
         return Selection(rings, canvasSize).takeIf { it.isUsable }
     }
 
@@ -12286,6 +12480,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
+                fetchModelWeights(installed)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e   // never swallow cancellation — let the coroutine unwind cooperatively
             } catch (e: Exception) {
@@ -12320,6 +12515,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
+                fetchModelWeights(installed)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -12421,6 +12617,7 @@ class EditorViewModel @Inject constructor(
                 withContext(dispatchers.main) {
                     notify(installedMessage(installed), NoticeKind.NOTICE)
                 }
+                fetchModelWeights(installed)
                 refreshStoreUpdates()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -12442,6 +12639,37 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
+     * Downloads and checksum-verifies the weights of any depth model [installed] declares, off the
+     * main thread, and reports the outcome. Re-installing (or calling [retryModelDownloads]) resumes a
+     * partial download. A listing with no checksum is reported, not fetched: unverified weights are
+     * never run.
+     */
+    private fun fetchModelWeights(installed: com.hereliesaz.graffitixr.data.azphalt.InstalledExtension) {
+        if (installed.manifest.assets.none(HostAssetSupport::isDepthModel)) return
+        viewModelScope.launch(dispatchers.io) {
+            val name = installed.manifest.name
+            val results = extensionRepository.prepareModelAssets(installed)
+            val failure = results.firstNotNullOfOrNull {
+                when (it) {
+                    is com.hereliesaz.graffitixr.data.azphalt.ModelAssetCache.State.Unavailable -> it.message
+                    is com.hereliesaz.graffitixr.data.azphalt.ModelAssetCache.State.Failed -> it.message
+                    else -> null
+                }
+            }
+            withContext(dispatchers.main) {
+                if (failure != null) notify("$name depth model unavailable: $failure", NoticeKind.WARNING)
+                else notify("$name depth model ready", NoticeKind.NOTICE)
+            }
+        }
+    }
+
+    /** Resumes any depth-model download that did not finish (offline, app killed). Non-UI entry point. */
+    fun retryModelDownloads() {
+        extensionRepository.installedDepthModels()
+            .map { it.extension }.distinctBy { it.id }.forEach(::fetchModelWeights)
+    }
+
+    /**
      * What landed, and where the user will find it.
      *
      * "Installed X" alone is only half an answer: a package can contribute a brush, a colour grade, a
@@ -12460,8 +12688,10 @@ class EditorViewModel @Inject constructor(
             // only commands was announced as "nothing applies" and then appeared in the panel.
             if (surfacesInExtensionsPanel(installed)) add("Extensions")
         }.distinct()
+        val hasDepth = installed.manifest.assets.any(HostAssetSupport::isDepthModel)
 
         return when {
+            where.isEmpty() && hasDepth -> "Installed $name — fetching its depth model"
             where.isEmpty() ->
                 // Installed and verified, but nothing in it is something this host can apply — an
                 // asset type it doesn't support, or a code-only contribution it doesn't run. Saying

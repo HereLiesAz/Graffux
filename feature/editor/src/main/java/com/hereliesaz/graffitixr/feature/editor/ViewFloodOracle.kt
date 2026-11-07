@@ -4,6 +4,8 @@
     "CyclomaticComplexMethod",
     "LongParameterList",
     "LoopWithTooManyJumpStatements",
+    "ComplexCondition",
+    "MaxLineLength",
 )
 
 package com.hereliesaz.graffitixr.feature.editor
@@ -12,6 +14,7 @@ import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.frame
 import com.hereliesaz.graffitixr.common.scene.PaintTarget
 import com.hereliesaz.graffitixr.common.scene.SurfaceHull
@@ -118,6 +121,41 @@ internal class ViewFloodOracle(
             if (inFace(target, x, y)) return PaintTarget(target.view, x, y, target.region)
         }
         return null
+    }
+
+    /**
+     * The wand's region on the face [seed] is on, as rings in its view image's flat space (holes marked): the
+     * pixels the flood from the seed reaches (same tolerance as the bucket), kept to the face's rectangle of
+     * the image since the image's other faces share it. A view with no image yet is blank, so its whole face.
+     * Null when nothing was reached.
+     */
+    fun wandRings(seed: PaintTarget, canvas: androidx.compose.ui.unit.IntSize): List<SelectionRing>? {
+        val rect = hull.regionRect(seed.view, seed.region) ?: return null
+        val img = image(seed.view)
+        val bmp = img?.bitmap
+        if (img == null || bmp == null) {
+            val owner = SurfaceMath.ownerOf(layers, primaryId) ?: return null
+            val corners = listOf(rect[0] to rect[1], rect[2] to rect[1], rect[2] to rect[3], rect[0] to rect[3]).map { (x, y) ->
+                val f = SurfaceMath.unrolledToFlat(x, y, owner.innerChain, canvasW.toFloat(), canvasH.toFloat()) ?: return null
+                Offset(f.first, f.second)
+            }
+            return listOf(SelectionRing(corners))
+        }
+        val imgOwner = SurfaceMath.ownerOf(layers, img.id) ?: return null
+        val (sx, sy) = pixelOf(img, bmp, seed.x, seed.y) ?: return null
+        val flood = mask(bmp, sx, sy, TOLERANCE) ?: return null
+        val space = ViewImageSpace(img, bmp, imgOwner, canvasW, canvasH)
+        val kept = BooleanArray(flood.size)
+        var any = false
+        for (i in flood.indices) {
+            if (!flood[i]) continue
+            val (x, y) = space.paintOf(i % bmp.width + 0.5f, i / bmp.width + 0.5f)
+            if (x < rect[0] - SLACK || x > rect[2] + SLACK || y < rect[1] - SLACK || y > rect[3] + SLACK) continue
+            kept[i] = true
+            any = true
+        }
+        if (!any) return null
+        return traceMaskRings(kept, bmp.width, bmp.height, img, bmp, canvas).takeIf { it.isNotEmpty() }
     }
 
     /** The flat point of [t] in its view image (a blank view's own flat space is the unrolled one). */

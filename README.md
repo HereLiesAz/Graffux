@@ -39,7 +39,7 @@ consumes the same modules for its 2D work and adds AR on top.
   into a profile curve swept into depth, and the group's layers are painted on that shape
   ("Flatten surface" makes it flat again). Its guide grid follows the shape in perspective, so
   strokes can be traced in depth without moving the view. Groups keep their tile on the layers rail,
-  open by default. See `spec/3d-space.md`. (A group's surface can also be drawn from the side and top; the outlines intersect into one 3D shape. You can paint on every face: each view has its own paint image, and a stroke that crosses from one face to another is one undo step. The faces a drawn view does not bound (caps) are drawn and paintable too, paint you made on the flat surface before drawing a second view is carried onto the shape, duplicating a layer copies its view paint, and Fill (which spreads across creases), Clone (with its reticle) and the lasso (which skips faces turned away) work on the right face. Moving a selection's pixels and Automatic selection are not offered on these shapes yet. The painted shape shows in the canvas and exports to glTF with its textures.)
+  open by default. See `spec/3d-space.md`. (A group's surface can also be drawn from the side and top; the outlines intersect into one 3D shape. You can paint on every face: each view has its own paint image, and a stroke that crosses from one face to another is one undo step. The faces a drawn view does not bound (caps) are drawn and paintable too, paint you made on the flat surface before drawing a second view is carried onto the shape, duplicating a layer copies its view paint, and Fill (which spreads across creases), Clone (with its reticle) and the lasso (which skips faces turned away) work on the right face. Automatic selection floods across creases and selects only what faces you, and moving a selection's pixels slides the paint over the shape, into the next face across a crease, as one undo step. The painted shape shows in the canvas and exports to glTF with its textures.)
 - **3D strokes layers** — draw real XYZ pressure-sensitive curves against adjustable camera-facing
   planes, anchored planes, cylinders and spheres, in a layer of the stack composited with the paint
   layers (View → 3D → New 3D strokes layer). Missing a bounded guide ends that segment rather than
@@ -87,6 +87,7 @@ orchestrates side effects (history, persistence) around each dispatch.
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence. |
 | `:core:design` | Design system: theme, strings, reusable components. |
+| `:core:ml` | Host-side ML runtime (ONNX Runtime): the `DepthEstimator` for `onnx` + role `depth` extension models, whose weights `:core:data` downloads and checksum-verifies. |
 | `:core:nativebridge` | JNI bridge to the native world: the Liquify warper (`LiquifyEngine`) and the GPU brush engine. |
 
 Brushes paint on the GPU through the wgpu engine (`core/wgpu-engine`, shared with the desktop app).

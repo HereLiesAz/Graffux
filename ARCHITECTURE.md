@@ -29,6 +29,7 @@ Read before proposing structural changes. Never recalled — opened.
 | `:core:common` | Models (`Layer`, `EditorUiState`, `GraffitiProject`), pure ops (`LayerListOps`, `LinkOps`), serialization, the `azphalt` extension format's Android-free types (`AzphaltManifest`, `CubeLut`, `TrustStore`). |
 | `:core:domain` | Repository interfaces. |
 | `:core:data` | Project + settings persistence, the `azphalt` runtime: `AzpInstaller`, `ExtensionRepository`, `ExtensionStateStore`/`ExtensionStateProvider` (state-reporting persistence and its exported, read-only `ContentProvider` — `spec/state-reporting.md`), and the Chicory-based sandboxes (`JsSandbox`, `WasmSandbox`). |
+| `:core:ml` | Host-side ML runtime (ONNX Runtime Android). `DepthEstimator` / `OnnxDepthEstimator`: bitmap (or a region of it) in, `DepthMap` out (raw relative inverse depth; `normalized()` and `resampledTo()` helpers), run off the main thread and cancellable. The letterbox/alpha/tensor math lives in `DepthPipeline` with no `android.*` so it is JVM-tested. Only ever handed weights that `:core:data`'s `ModelAssetCache` verified. |
 | `:core:design` | Design system: theme, `AppStrings`, reusable components (the adaptive tool-surface containers in `AdaptiveSurfaces.kt`, `AdjustmentsPanel`, `ConfirmDialog`, etc.). |
 | `:core:nativebridge` | JNI bridge to the native (GLES/wgpu) world used by Liquify (`LiquifyEngine`, `ImageWarper.cpp`), drawing, and GPU compositing. Hosts the GPU stamp engine behind `StampEngine.h`: the adapter over the wgpu engine (the Vulkan and OpenGL ES engines were retired). |
 | `core/wgpu-engine` | Not a Gradle module: the Rust crate of the wgpu GPU stamp engine (WGSL compute), built by cargo from `:core:nativebridge` (Android, arm64-v8a and armeabi-v7a) and `:desktop` (host). Exposes a C ABI for the C++ adapter and JNI for `core:engine`'s `WgpuStampEngine`. |
@@ -43,6 +44,22 @@ CI can see that — and, for `:core:engine` specifically, a change the desktop a
 suite in this repo *does* see, since it runs the identical brush-math tests against both targets.
 
 ---
+
+### Host ML runtime (depth)
+
+`onnx` assets with `role: "depth"` are consumed on-device by the host. Two pieces, deliberately split:
+
+- `ModelAssetCache` (`:core:data`, owned by `ExtensionRepository.modelAssets`): fetches the manifest's
+  `remoteUrl` into `filesDir/models/<ext>/<sha256>.bin`, resumable (`.part` + `Range`), atomic
+  (rename after verification), with a `StateFlow` of progress. It refuses to download without a valid
+  `sha256-<hex>` `checksum`, checks `byteSize` and the digest before the rename, and `verifiedFile()`
+  re-checks the digest before handing a file out. Install paths in `EditorViewModel` kick it off after
+  an install; `ExtensionRepository.depthModelFile()` is the only way to obtain weights.
+- `OnnxDepthEstimator` (`:core:ml`): takes that file. ONNX Runtime was chosen over LiteRT because the
+  listing ships an `.onnx` graph; LiteRT cannot load ONNX, so it would need an offline conversion
+  and a second published artifact. Cost: about +12.9 MB per-ABI download (arm64-v8a), see the PR.
+
+Nothing paints or displays depth yet; the relief surface builds on `DepthEstimator`.
 
 ## Invariants
 
@@ -653,8 +670,12 @@ Full design: `spec/3d-space.md`. In short:
   fill to its face; `onViewFillTap` and the view-aware clone source (`EditorUiState.cloneSourceView`) route
   Fill and Clone per image. A fill continues across creases (`SurfaceHull.creaseLinks`, `facesAt`,
   `SurfaceViewFlood.plan` over the pixels of `ViewFloodOracle`, one gesture), the lasso skips faces turned
-  away (`SurfaceViewSelection.facesViewer`), and the clone reticle uses `SurfaceHull.pointAt`. Moving
-  pixels and the wand are not offered on a multi-view surface (spec/3d-space.md says why). Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
+  away (`SurfaceViewSelection.facesViewer`), and the clone reticle uses `SurfaceHull.pointAt`. The wand
+  (`EditorViewModel.onViewAutoSelect`) floods across creases and brings its region to world space as its visible
+  footprint (`SurfaceViewSelection.fromView`, via `SurfaceProjection`, the camera's view of every hull triangle);
+  moving selected pixels (`onSurfaceSelectionMove`, `SurfaceViewMove`) slides paint over the surface, resampling
+  across creases into a self-contained per-image `StrokeCommand.movePatch`, one undo step (spec/3d-space.md,
+  "Selection on a multi-view surface"). Hit attribution on a plane two views share uses a tolerance (`SurfaceHull.tie`).
 
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading

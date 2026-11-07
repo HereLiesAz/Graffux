@@ -224,6 +224,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:design"))
     implementation(project(":core:nativebridge"))
+    implementation(project(":core:ml"))
 
     implementation(libs.androidx.core.ktx)
 
