@@ -59,6 +59,8 @@ dependencies {
     implementation(project(":core:design"))
 
     implementation(project(":core:nativebridge"))
+    // The depth model runtime: "Build surface from image" (spec/3d-space.md, "Relief surfaces").
+    implementation(project(":core:ml"))
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.ui)

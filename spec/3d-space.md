@@ -607,8 +607,8 @@ A relief is a group surface made from a photo's depth map: a grid of heights ove
 the photo as the single paint image. It is the same kind of thing as a hand-drawn surface (not a model
 layer), so ownership, undo, the wire mesh, camera presets, glTF export and group opacity come from the
 group-surface path. Status: the data model, geometry and persistence (format 12) are implemented and tested on
-synthetic depth maps (ramp, sphere bump, step, noise); the editor action and the textured rendering follow in
-later stages (see Limits).
+synthetic depth maps (ramp, sphere bump, step, noise); the editor action ("Build surface from image") is
+described under Editor below; the textured rendering and glTF export follow (see Limits).
 
 - **Representation (decided).** `SurfaceProfile.relief: ReliefSurface?` (`:core:common`, `ReliefSurface.kt`),
   not a sibling field on the layer. Every group-surface path keys on `Layer.surface` being a valid profile
@@ -643,6 +643,42 @@ later stages (see Limits).
   because a tall relief seen from the side projects outside its border).
 - **Wire mesh.** `SurfaceMath.gridLines` on a relief draws lines every 64 units across the photo, sampled
   along the grid's vertices, so they follow the displacement.
+- **Editor: "Build surface from image".** On a photo layer: the layer menu row of that name, and the 3D slot's
+  Draw-surface chip, which offers it beside Cancel while the active layer is a photo not yet on a surface (the
+  rail gained no slot: its layout is pinned by the mockup test). Cancel while building is the chip's and the Back key. `EditorViewModel.onBuildSurfaceFromImage` (the active layer when none is named):
+  1. `ReliefBuild.plan` checks the layer and works out where the photo will sit on the new group's plane: its
+     image rectangle (`DepthComposite.imageRect`) through its own flat 2D pose. A layer that is a group, vector,
+     text, model, 3D ink, adjustment or per-view image, is locked, is already on a surface, is placed in depth, or is
+     rotated or mirrored is refused with a notice that says what to change (the grid is an axis-aligned rectangle
+     and the depth is sampled over exactly the photo).
+  2. The depth model is looked for (`ReliefDepthSource.availability`, which reads `ExtensionRepository`): none
+     installed, still downloading (with the percentage when known) or unusable as listed each give a notice and
+     change nothing. The install flow itself is the existing one (Store, `fetchModelWeights`, `retryModelDownloads`).
+  3. `InstalledDepthSource` runs `OnnxDepthEstimator.forAsset` on a copy of the photo off the main thread. The
+     chip shows the step (`EditorUiState.reliefBuild`: checking, reading depth, building) with Cancel (the chip and the
+     Back key); cancelling stops inference and changes nothing. The UI is never blocked.
+  4. `ReliefSurface.build` samples the raw inverse depth straight onto the grid (no resample to the layer's pixels
+     first; the grid is the cap), then the layer is checked again: if it moved, was locked or removed while the
+     model ran, nothing is changed and a notice says so.
+  5. `ReliefBuild.assemble` wraps the photo in a new group "Relief" (taking the photo's place in the stack and
+     its folder) carrying the relief, as ONE undo step (`pushHistory`, `emitMembership`, `emitGeometryChanges`).
+  The relief chip (`ReliefChip`, in the Draw-surface chip's chrome) is shown for the active layer's relief group:
+  a **strength** slider (live; `ReliefSurface.strength` is the displacement as a fraction of the photo's longer
+  side, 0 to 1, default 0.25; a drag is one undo step, opened by its first change) and a **swap near and far**
+  switch (`ReliefSurface.inverted`, one undo step). Both edit the stored relief and never rebuild or re-run the model.
+  A relief group's menu has no side or top view (they do not apply); "Flatten surface" removes the relief and the
+  photo is a plain layer again; "Draw surface" on the group replaces the relief with a drawn profile.
+- **Painting on a relief (what is reused).** A relief has ONE image, the photo's own, so nothing multi-view
+  applies: `SurfaceProfile.hasHull` is false, `ActivePlaneMapping.onHull` is false, and the per-view crease logic
+  (`ViewStrokeFeed`, `SurfaceViewStroke`, per-view images) is never entered. Every tool goes through the single-image
+  footprint path that curved drawn surfaces already use: Brush and Eraser (`toFlatByFootprint` ->
+  `SurfaceFootprint.worldToFlat`), Fill, Clone (reticle through `flatToWorld`) and the Lasso and Wand (`toFlat`,
+  and the selection follows the camera through `flatToWorldOrNull`). The flat point they get is the relief hit's
+  `(u, t)`, which is the photo's plane, so the leaf's own 2D transform maps it to the photo's pixels exactly as on a flat
+  layer. Undo, the layer's stroke log and bitmap file are the ordinary per-layer ones; group opacity and the wire mesh
+  come from the group-surface path. Flat layers and hand-drawn surfaces take none of the new code (every relief
+  branch is guarded by `SurfaceProfile.relief != null`).
+
 - **Persistence (format 12).** Format 11 shipped in 1.71.0, so `SurfaceProfile.relief` is format 12. Migration
   11 -> 12 only records the version; 9, 10 and 11 files load unchanged.
 

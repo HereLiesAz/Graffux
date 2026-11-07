@@ -212,3 +212,68 @@ class SurfacePromptUiTest {
         assertEquals(listOf(com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE), drawn)
     }
 }
+
+/** The "Build surface from image" chip: progress with Cancel, then the strength slider and the near/far swap. */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w390dp-h844dp-xhdpi", application = Application::class)
+class ReliefChipUiTest {
+    @get:Rule
+    val rule = createAndroidComposeRule<ComponentActivity>()
+
+    private var cancels = 0
+    private var strengths = mutableListOf<Float>()
+    private var dones = 0
+    private var inverts = 0
+
+    private val actions = ReliefChipActions({ cancels++ }, { strengths += it }, { dones++ }, { inverts++ })
+
+    private fun relief() = com.hereliesaz.graffitixr.common.scene.ReliefSurface.build(
+        FloatArray(16) { (it % 4) / 3f }, 4, 4, 400, 300, 0f, 0f, 400f, 300f,
+    )!!
+
+    private fun show(build: com.hereliesaz.graffitixr.common.model.ReliefBuildState?, relief: com.hereliesaz.graffitixr.common.scene.ReliefSurface?) {
+        rule.setContent { MaterialTheme(colorScheme = darkColorScheme()) { ReliefChip(build, relief, actions) } }
+    }
+
+    @Test
+    fun `while the model runs the chip names the step and offers Cancel`() {
+        show(com.hereliesaz.graffitixr.common.model.ReliefBuildState("p", com.hereliesaz.graffitixr.common.model.ReliefBuildStage.ESTIMATING), null)
+        rule.onNodeWithText("Reading the depth of your image. This can take a few seconds.", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("relief.chip.strength").assertDoesNotExist()
+        rule.onNodeWithTag("relief.chip.cancel").performClick()
+        assertEquals(1, cancels)
+    }
+
+    @Test
+    fun `on a relief the chip has the strength slider and the swap`() {
+        show(null, relief())
+        rule.onNodeWithTag("relief.chip.strength").assertExists()
+        rule.onNodeWithTag("relief.chip.invert").performClick()
+        assertEquals(1, inverts)
+        rule.onNodeWithTag("relief.chip.cancel").assertDoesNotExist()
+    }
+
+    @Test
+    fun `with nothing building and no relief the chip is absent`() {
+        show(null, null)
+        rule.onNodeWithTag("relief.chip").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the armed Draw-surface chip offers to build from the image on a photo`() {
+        var built = 0
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                SurfacePromptChip(true, null, onCancel = {}, onBuildFromImage = { built++ })
+            }
+        }
+        rule.onNodeWithTag("surface.prompt.buildRelief").performClick()
+        assertEquals(1, built)
+    }
+
+    @Test
+    fun `without a photo the armed chip has no build row`() {
+        rule.setContent { MaterialTheme(colorScheme = darkColorScheme()) { SurfacePromptChip(true, null, onCancel = {}) } }
+        rule.onNodeWithTag("surface.prompt.buildRelief").assertDoesNotExist()
+    }
+}

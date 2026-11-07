@@ -662,6 +662,9 @@ Full design: `spec/3d-space.md`. In short:
   as a grid of heights over the photo's plane; the photo is the single paint image and its pixels are the paint space. It is a group
   surface like any other: `SurfaceMath.hit`/`mesh`/`gridLines`/`SurfaceFootprint` dispatch on it, so painting, ownership and undo are
   the group-surface path. Built from a depth map by `ReliefSurface.build` (vertex cap 64k, quantile clamp, bilateral smoothing).
+  The editor action is `EditorViewModel.onBuildSurfaceFromImage` (`ReliefBuild` plans and assembles, `ReliefDepthSource` /
+  `InstalledDepthSource` runs the installed depth model through `:core:ml`'s `OnnxDepthEstimator` off the main thread; progress
+  and Cancel on `ReliefChip`); strength and near/far edit the stored relief. Painting reuses the single-image footprint path.
   See spec/3d-space.md, "Relief surfaces".
 - **Group surfaces (format 9; format 10 adds side/top views).** A group owns an optional `Layer.surface` (`SurfaceProfile`,
   `SurfaceMath` in `:core:common`): a profile curve, drawn by "Draw surface" in the current view,

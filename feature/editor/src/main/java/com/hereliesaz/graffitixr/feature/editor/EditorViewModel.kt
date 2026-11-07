@@ -13251,6 +13251,158 @@ class EditorViewModel @Inject constructor(
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
     fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
 
+    // ── Relief surfaces: "Build surface from image" (spec/3d-space.md, "Relief surfaces") ──
+
+    /** Where a photo's depth comes from; the installed depth model, unless a test supplies another. */
+    internal var reliefDepthSource: ReliefDepthSource = InstalledDepthSource(extensionRepository)
+
+    private var reliefBuildJob: Job? = null
+
+    /** Whether the current strength-slider drag has already opened its undo step. */
+    private var reliefTuneOpen = false
+
+    /**
+     * Builds a relief surface from the photo layer [layerId] (the active layer when null): the installed depth
+     * model estimates its depth off the main thread (progress and Cancel on the chip), and when it is done the
+     * photo becomes the only paint of a new group whose surface is the depth grid, as one undo step. Every way it
+     * can not happen says so in a notice: no depth model installed, one still downloading or unusable, a layer
+     * that cannot become a relief, a layer that changed while the model ran.
+     */
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "ReturnCount", "MaxLineLength")
+    fun onBuildSurfaceFromImage(layerId: String? = null) {
+        val st = _uiState.value
+        if (st.reliefBuild != null) {
+            notify("A surface is already being built. Cancel it first.", NoticeKind.WARNING)
+            return
+        }
+        // Offered from the armed "Draw surface" chip: the user chose the image over drawing a line.
+        if (st.surfaceDrawArmed) onCancelSurfaceDraw()
+        val id = layerId ?: st.activeLayerId
+        val bitmap = st.layers.firstOrNull { it.id == id }?.bitmap
+        val canvasW = st.canvasSize.width.toFloat()
+        val canvasH = st.canvasSize.height.toFloat()
+        val first = if (id == null) {
+            ReliefPlan.Refused(ReliefRefusal.NO_LAYER)
+        } else {
+            ReliefBuild.plan(st.layers, id, bitmap?.width ?: 0, bitmap?.height ?: 0, canvasW, canvasH)
+        }
+        if (first !is ReliefPlan.Ok || id == null || bitmap == null) {
+            notify(reliefRefusalMessage((first as? ReliefPlan.Refused)?.reason ?: ReliefRefusal.NO_PIXELS), NoticeKind.WARNING)
+            return
+        }
+        reliefBuildJob = viewModelScope.launch {
+            try {
+                updateUi { it.copy(reliefBuild = ReliefBuildState(id, ReliefBuildStage.CHECKING)) }
+                when (val available = reliefDepthSource.availability()) {
+                    ReliefDepthAvailability.Ready -> Unit
+                    ReliefDepthAvailability.NoModel -> {
+                        notify(
+                            "No depth model is installed. Install a depth model package from the Store, " +
+                                "then build the surface again.",
+                            NoticeKind.WARNING,
+                        )
+                        return@launch
+                    }
+                    is ReliefDepthAvailability.Downloading -> {
+                        val done = available.percent?.let { " ($it%)" }.orEmpty()
+                        notify("The depth model is still downloading$done. Try again when it is ready.", NoticeKind.WARNING)
+                        return@launch
+                    }
+                    is ReliefDepthAvailability.Unavailable -> {
+                        notify("The depth model is unavailable: ${available.message}", NoticeKind.WARNING)
+                        return@launch
+                    }
+                }
+                // The model reads its own copy, so painting on the photo while it runs cannot tear the input.
+                val input = withContext(dispatchers.default) { SafeBitmap.copy(bitmap, mutable = false) }
+                if (input == null) {
+                    notify("This image could not be read.", NoticeKind.WARNING)
+                    return@launch
+                }
+                updateUi { it.copy(reliefBuild = ReliefBuildState(id, ReliefBuildStage.ESTIMATING)) }
+                val relief = try {
+                    ReliefBuild.estimate(reliefDepthSource, input, first, com.hereliesaz.graffitixr.common.scene.ReliefOptions())
+                        .also { updateUi { s -> s.copy(reliefBuild = ReliefBuildState(id, ReliefBuildStage.BUILDING)) } }
+                } finally {
+                    if (input !== bitmap) input.recycle()
+                }
+                // The photo may have moved, been rotated, locked or removed while the model ran.
+                val now = _uiState.value
+                val again = ReliefBuild.plan(
+                    now.layers, id, now.layers.firstOrNull { it.id == id }?.bitmap?.width ?: 0,
+                    now.layers.firstOrNull { it.id == id }?.bitmap?.height ?: 0,
+                    now.canvasSize.width.toFloat(), now.canvasSize.height.toFloat(),
+                )
+                if (again != first) {
+                    notify("The layer changed while the surface was being built. Nothing was changed.", NoticeKind.WARNING)
+                    return@launch
+                }
+                val group = UUID.randomUUID().toString()
+                val before = now.layers
+                pushHistory()
+                updateUi { s -> s.copy(layers = ReliefBuild.assemble(s.layers, id, group, relief)) }
+                _uiState.value.layers.firstOrNull { it.id == group }?.let { emitMembership(Op.LayerAdd(it)) }
+                emitGeometryChanges(before, _uiState.value.layers)
+                saveProject()
+                notify("Surface built. Change the view to see the depth, and paint on it as usual.", NoticeKind.NOTICE)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: ReliefDepthException) {
+                notify(e.message ?: "The surface could not be built.", NoticeKind.WARNING)
+            } finally {
+                updateUi { it.copy(reliefBuild = null) }
+            }
+        }
+    }
+
+    /** Stops a running "Build surface from image"; nothing is changed. */
+    fun onCancelReliefBuild() {
+        if (_uiState.value.reliefBuild == null) return
+        reliefBuildJob?.cancel()
+        notify("Surface build cancelled.", NoticeKind.NOTICE)
+    }
+
+    /**
+     * Live strength of relief group [groupId], [fraction] of the photo's longer side (the slider). The drag is one
+     * undo step: its first change opens it, [onReliefTuneDone] closes it and saves.
+     */
+    fun onReliefStrength(groupId: String, fraction: Float) {
+        val current = _uiState.value.layers.firstOrNull { it.id == groupId }?.surface?.relief ?: return
+        if (current.withStrength(fraction) == current) return
+        if (!reliefTuneOpen) {
+            pushHistory()
+            reliefTuneOpen = true
+        }
+        updateUi { s -> s.copy(layers = ReliefBuild.tuned(s.layers, groupId) { it.withStrength(fraction) }) }
+    }
+
+    /** The strength slider was let go: the drag's undo step is closed and the project saved. */
+    fun onReliefTuneDone() {
+        if (!reliefTuneOpen) return
+        reliefTuneOpen = false
+        saveProject()
+    }
+
+    /** Swaps near and far on relief group [groupId], as one undo step. */
+    fun onReliefInvert(groupId: String) {
+        if (_uiState.value.layers.firstOrNull { it.id == groupId }?.surface?.relief == null) return
+        pushHistory()
+        updateUi { s -> s.copy(layers = ReliefBuild.tuned(s.layers, groupId) { it.withInverted(!it.inverted) }) }
+        saveProject()
+    }
+
+    @Suppress("MaxLineLength")
+    private fun reliefRefusalMessage(reason: ReliefRefusal): String = when (reason) {
+        ReliefRefusal.NO_LAYER -> "Select a photo layer first."
+        ReliefRefusal.NOT_A_PHOTO -> "Only a photo or painted layer can become a surface."
+        ReliefRefusal.LOCKED -> "Unlock this layer to build a surface from it."
+        ReliefRefusal.NO_PIXELS -> "This layer has no image yet."
+        ReliefRefusal.NO_CANVAS -> "The canvas is not ready yet."
+        ReliefRefusal.ON_SURFACE -> "This layer is already on a surface. Flatten the surface first."
+        ReliefRefusal.PLACED_IN_3D -> "Reset this layer's plane first, then build the surface."
+        ReliefRefusal.ROTATED -> "Turn this layer back upright first: the surface follows the photo exactly."
+    }
+
     /** "Flatten surface": the group's profile is cleared and its layers are flat 2D again. */
     fun onFlattenSurface(groupId: String) {
         if (_uiState.value.layers.firstOrNull { it.id == groupId }?.surface == null) return

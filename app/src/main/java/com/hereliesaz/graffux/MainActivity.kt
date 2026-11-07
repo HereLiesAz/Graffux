@@ -1615,6 +1615,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     val group = SurfaceMath.ownerOf(layers, uiState.activeLayerId)?.group
                     group?.let { g -> { v: SurfaceView -> vm.onArmSurfaceView(g.id, v) } }
                 },
+                reliefBuild = uiState.reliefBuild,
+                relief = activeRelief(uiState),
+                reliefActions = reliefChipActions(vm, uiState),
+                onBuildFromImage = if (canBuildRelief(uiState)) ({ vm.onBuildSurfaceFromImage() }) else null,
                 alerts = alerts,
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
