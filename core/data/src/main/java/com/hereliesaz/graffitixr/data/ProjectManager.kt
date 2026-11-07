@@ -309,8 +309,8 @@ class ProjectManager @Inject constructor(
      * defaulting to the original view plane. Neither step moves existing XYZ ink. 6 -> 7 moves the
      * project-level spatial ink into a 3D strokes layer ([migrateSpatialSketchToLayer]). 7 -> 8
      * moves the floating-window model into a 3D model layer ([migrateFloatingModelToLayer]). 8 -> 9
-     * (surface profiles), 9 -> 10 (side and top views) and 10 -> 11 (per-view paint images) add only
-     * optional fields, so they record the version and change nothing else.
+     * (surface profiles), 9 -> 10 (side and top views), 10 -> 11 (per-view paint images) and 11 -> 12 (relief
+     * surfaces) add only optional fields, so they record the version and change nothing else.
      * Never lowers a newer version.
      */
     internal fun migrateFormat(project: GraffitiProject, fromVersion: Int): GraffitiProject {
@@ -338,6 +338,7 @@ class ProjectManager @Inject constructor(
         }
         if (version < FORMAT_MULTIVIEW_SURFACES) version = FORMAT_MULTIVIEW_SURFACES
         if (version < FORMAT_VIEW_IMAGES) version = FORMAT_VIEW_IMAGES
+        if (version < FORMAT_RELIEF) version = FORMAT_RELIEF
         return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
 
@@ -879,3 +880,4 @@ private const val FORMAT_MULTIVIEW_SURFACES = 10
  * without them is an ordinary layer, which is what every format 10 layer is.
  */
 private const val FORMAT_VIEW_IMAGES = 11
+private const val FORMAT_RELIEF = 12
