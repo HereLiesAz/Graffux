@@ -2033,14 +2033,16 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             }
 
             if (showSettings) {
-                SettingsScreen(
-                    vm = settingsVm,
-                    appVersion = BuildConfig.VERSION_NAME,
-                    onClose = { showSettings = false },
-                    onDocumentSize = { showSettings = false; showDocDialog = true },
-                    onBackground = { showSettings = false; showBgDialog = true },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                SettingsTheme {
+                    SettingsScreen(
+                        vm = settingsVm,
+                        appVersion = BuildConfig.VERSION_NAME,
+                        onClose = { showSettings = false },
+                        onDocumentSize = { showSettings = false; showDocDialog = true },
+                        onBackground = { showSettings = false; showBgDialog = true },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             uiState.brushStudioDraft?.let { draft ->

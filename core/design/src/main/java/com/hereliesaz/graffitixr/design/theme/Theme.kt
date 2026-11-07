@@ -23,7 +23,7 @@ import androidx.core.view.WindowCompat
 // Collapsing all four onto Black/White (as this scheme originally did) removes every one of those
 // distinctions at once, which does not read as a dark theme so much as a missing one. The variants
 // are therefore near-black and near-white rather than identical to their partners.
-private val DarkColorScheme = darkColorScheme(
+val DarkColorScheme = darkColorScheme(
     primary = HotPink,
     secondary = Cyan,
     tertiary = NeonGreen,
