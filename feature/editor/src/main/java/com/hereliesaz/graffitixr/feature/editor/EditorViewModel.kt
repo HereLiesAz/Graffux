@@ -6740,6 +6740,19 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * [selection] with its footprint derived for the camera as it is now. A saved surface selection carries the
+     * rings of the pose it was saved at, and the live footprint pass only runs when its key (regions, camera,
+     * surface) changes, so loading one whose regions match the current selection would otherwise keep the old pose.
+     */
+    private fun footprintNow(selection: Selection?): Selection? {
+        val id = selection?.surface?.surfaceId ?: return selection
+        val st = _uiState.value
+        if (selection.canvasSize != st.canvasSize) return selection
+        val ctx = surfaceCtx(st, id) ?: return selection
+        return SurfaceViewSelection.refresh(selection, ctx.owner, ctx.projection, ctx.w, ctx.h)
+    }
+
     /** [selection] moved by [delta]; a surface selection is rebound to the images so it keeps following. */
     @Suppress("ReturnCount")
     private fun translatedSelection(selection: Selection, delta: Offset): Selection {
@@ -11162,12 +11175,12 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val saved = state.savedSelections.find { it.name == name } ?: return
         if (state.selectionOp == SelectionOp.NEW) {
-            dispatch(EditorIntent.SetSelection(saved.selection))
+            dispatch(EditorIntent.SetSelection(footprintNow(saved.selection)))
         } else {
             // No `?: saved.selection` fallback -- same reasoning as onAutoSelect: compose()
             // returning null (Remove with nothing selected) must stay a no-op, not silently load
             // the whole saved selection as if New had been picked.
-            dispatch(EditorIntent.SetSelection(composeTraced(saved.selection, state.selectionOp, state.selection)))
+            dispatch(EditorIntent.SetSelection(footprintNow(composeTraced(saved.selection, state.selectionOp, state.selection))))
         }
     }
 

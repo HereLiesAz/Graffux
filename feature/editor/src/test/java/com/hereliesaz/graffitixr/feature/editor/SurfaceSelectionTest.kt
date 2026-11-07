@@ -509,4 +509,18 @@ class SurfaceSelectionTest {
         assertTrue(sel.inverted)
         assertEquals(null, SelectionMask.bitmapPath(sel.copy(rings = emptyList()), 64, 64))
     }
+
+    @Test
+    fun `loading a saved surface selection re-derives its footprint for the camera it is loaded at`() {
+        lassoOnFace()
+        vm.onSaveSelection("s")
+        // Orbit with the selection still on: it follows the camera, so loading the saved one changes neither its
+        // image regions nor the footprint key the live footprint pass watches.
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        val followed = vm.uiState.value.selection!!
+        vm.onLoadSelection("s")
+        val loaded = vm.uiState.value.selection!!
+        assertEquals(followed.surface, loaded.surface)
+        assertEquals("the ants are where the faces show now, not where they showed when it was saved", followed.rings, loaded.rings)
+    }
 }
