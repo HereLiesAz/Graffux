@@ -133,7 +133,7 @@ class SurfaceSelectionTest {
         val ts = touches().filter { it.second.region == 0 }
         val views = ts.map { it.second.view }.distinct()
         assertTrue("views $views", views.size >= 2)
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         val tap = ts.first { it.second.view == views[0] }.second
         vm.onViewAutoSelect("p", tap, canvas)
         val all = vm.uiState.value.selection!!
@@ -145,7 +145,7 @@ class SurfaceSelectionTest {
         // A face painted another colour is not entered.
         vm.onClearSelection()
         load(mapOf(views[1] to Color.RED))
-        vm.wandMask = { b, x, y, _ ->
+        vm.wandMask = { b, x, y, _, _ ->
             val c = b.getPixel(x, y)
             BooleanArray(b.width * b.height) { b.getPixel(it % b.width, it / b.width) == c }
         }
@@ -199,7 +199,7 @@ class SurfaceSelectionTest {
         val layer = Layer(id = "f", name = "F", bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888))
         vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
         vm.dispatchForTest(EditorIntent.ActivateLayer("f"))
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { i -> (i % b.width) in 20 until 40 && (i / b.width) in 20 until 40 } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { i -> (i % b.width) in 20 until 40 && (i / b.width) in 20 until 40 } }
         vm.onAutoSelect(Offset(850f, 600f), canvas)
         val sel = vm.uiState.value.selection
         assertNotNull(sel)
@@ -210,7 +210,7 @@ class SurfaceSelectionTest {
     private fun wandOn(view: SurfaceView? = null): Pair<SurfaceView, Selection> {
         load(emptyMap())
         val ts = touches().filter { it.second.region == 0 }
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         val tap = ts.first { view == null || it.second.view == view }.second
         vm.onViewAutoSelect("p", tap, canvas)
         return tap.view to vm.uiState.value.selection!!
@@ -383,7 +383,7 @@ class SurfaceSelectionTest {
         assertTrue(!cut.holds(at) && cut.holds(there) && cut.holds(at + Offset(30f, 0f)))
         // A wand added on top of the lasso regions keeps them.
         vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.ADD))
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         val third = views.firstOrNull { it != first.surface!!.views.first().view && it != otherView }
         val tap = touches().first { it.second.region == 0 && it.second.view == (third ?: otherView) }.second
         vm.onViewAutoSelect("p", tap, canvas)
@@ -453,7 +453,7 @@ class SurfaceSelectionTest {
         // Start from a shown view that has an image; the rest have none.
         val start = SurfaceView.FRONT.takeIf { it in views } ?: views[0]
         if (start != SurfaceView.FRONT) loadOnly(start)
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         vm.setActiveTool(Tool.FILL)
         vm.onViewFillTap("p", ts.first { it.second.view == start }.second, canvas)
         assertTrue("the tapped view is filled", fillStrokes(start).isNotEmpty())
@@ -467,7 +467,7 @@ class SurfaceSelectionTest {
     fun `a fill keeps the colour and tool it was tapped with while the flood plans in the background`() {
         load(emptyMap())
         val ts = touches().filter { it.second.region == 0 }
-        vm.wandMask = { b, _, _, _ ->
+        vm.wandMask = { b, _, _, _, _ ->
             beforeFillPlan?.also { beforeFillPlan = null }?.invoke()
             BooleanArray(b.width * b.height) { true }
         }

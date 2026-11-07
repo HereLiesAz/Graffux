@@ -9729,6 +9729,7 @@ class EditorViewModel @Inject constructor(
         } ?: 0
         val oracle = ViewFloodOracle(
             layers, primaryId, hull, st.canvasSize.width, st.canvasSize.height, tapColor, wandMask,
+            confineToFace = true,
         ) { view -> viewClip(primaryId, view) }
         // The gesture's own colour: the plan runs in the background, and a colour or tool change made meanwhile
         // must neither recolour this fill nor drop it.
@@ -10585,7 +10586,7 @@ class EditorViewModel @Inject constructor(
                     listOf(at), canvasSize.width, canvasSize.height, layer.frame(bitmap.width, bitmap.height),
                     layer.scale, layer.offset, layer.rotationZ,
                 ).firstOrNull() ?: return@launch
-                val mask = wandMask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance) ?: return@launch
+                val mask = wandMask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance, null) ?: return@launch
                 traceSelection(mask, bitmap.width, bitmap.height, layer, bitmap, canvasSize) ?: return@launch
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -10617,7 +10618,8 @@ class EditorViewModel @Inject constructor(
     private var wandJob: Job? = null
 
     /** The wand's flood fill; tests put a fake here. */
-    internal var wandMask: (Bitmap, Int, Int, Int) -> BooleanArray? = { b, x, y, t -> MagicWand.mask(b, x, y, t) }
+    internal var wandMask: (Bitmap, Int, Int, Int, ((Int, Int) -> Boolean)?) -> BooleanArray? =
+        { b, x, y, t, clip -> MagicWand.mask(b, x, y, t, clip) }
 
     /**
      * A pixel [mask] of [layer]'s [bitmap], traced at [mw]×[mh] (the bitmap's own size, or a

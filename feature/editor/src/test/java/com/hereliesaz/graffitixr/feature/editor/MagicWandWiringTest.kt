@@ -52,7 +52,7 @@ class MagicWandWiringTest {
     fun tearDown() = Dispatchers.resetMain()
 
     /** A filled square of the bitmap from [x0] to [x1] on both axes. */
-    private fun square(x0: Int, x1: Int): (Bitmap, Int, Int, Int) -> BooleanArray? = { b, _, _, _ ->
+    private fun square(x0: Int, x1: Int): (Bitmap, Int, Int, Int, ((Int, Int) -> Boolean)?) -> BooleanArray? = { b, _, _, _, _ ->
         BooleanArray(b.width * b.height) { i -> (i % b.width) in x0 until x1 && (i / b.width) in x0 until x1 }
     }
 
@@ -65,10 +65,10 @@ class MagicWandWiringTest {
     fun `an Add tap keeps a selection that changed while it was tracing`() {
         vm.dispatchForTest(EditorIntent.SetSelectionOp(SelectionOp.ADD))
         val trace = square(20, 40)
-        vm.wandMask = { b, x, y, t ->
+        vm.wandMask = { b, x, y, t, clip ->
             // Another tap's region lands while this one is still working.
             vm.dispatchForTest(EditorIntent.SetSelection(elsewhere))
-            trace(b, x, y, t)
+            trace(b, x, y, t, clip)
         }
         vm.onAutoSelect(Offset(100f, 100f), canvas)
         val rings = vm.uiState.value.selection!!.rings
@@ -78,9 +78,9 @@ class MagicWandWiringTest {
     @Test
     fun `a result traced against a resized canvas is dropped`() {
         val trace = square(20, 40)
-        vm.wandMask = { b, x, y, t ->
+        vm.wandMask = { b, x, y, t, clip ->
             vm.dispatchForTest(EditorIntent.SetCanvasSize(IntSize(300, 120)))
-            trace(b, x, y, t)
+            trace(b, x, y, t, clip)
         }
         vm.onAutoSelect(Offset(100f, 100f), canvas)
         assertNull(vm.uiState.value.selection)
@@ -88,7 +88,7 @@ class MagicWandWiringTest {
 
     @Test
     fun `running out of memory leaves the selection alone instead of crashing`() {
-        vm.wandMask = { _, _, _, _ -> throw OutOfMemoryError("flood") }
+        vm.wandMask = { _, _, _, _, _ -> throw OutOfMemoryError("flood") }
         vm.onAutoSelect(Offset(100f, 100f), canvas)
         assertNull(vm.uiState.value.selection)
         // And the wand still works afterwards.

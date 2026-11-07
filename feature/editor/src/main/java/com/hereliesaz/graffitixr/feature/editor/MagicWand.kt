@@ -20,8 +20,12 @@ internal object MagicWand {
      * Returns a mask the size of [bitmap], or null when the seed is off the bitmap. Alpha counts as
      * a channel, so tapping transparent space selects the transparent space rather than everything
      * that happens to share its RGB.
+     *
+     * [allowed], when given, is a per-pixel clip applied during the spread (as the bucket's clip region is):
+     * a pixel it rejects is never entered, so the region cannot connect through it. A seed it rejects
+     * yields an empty mask.
      */
-    fun mask(bitmap: Bitmap, x: Int, y: Int, tolerance: Int = 32): BooleanArray? {
+    fun mask(bitmap: Bitmap, x: Int, y: Int, tolerance: Int = 32, allowed: ((Int, Int) -> Boolean)? = null): BooleanArray? {
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return null
@@ -40,10 +44,12 @@ internal object MagicWand {
         }
 
         val out = BooleanArray(w * h)
+        if (allowed != null && !allowed(x, y)) return out
         // Scanline flood, mirroring the bucket's. `out` doubles as the visited set, which is why a
         // pixel is tested against it as well as against the colour — without that the run-walk
         // re-enters spans it has already claimed and the stack grows without bound.
-        fun open(px: Int, py: Int): Boolean = !out[py * w + px] && matches(pixels[py * w + px])
+        fun open(px: Int, py: Int): Boolean =
+            !out[py * w + px] && matches(pixels[py * w + px]) && (allowed == null || allowed(px, py))
 
         val stack = ArrayDeque<Int>()
         stack.addLast(y * w + x)
