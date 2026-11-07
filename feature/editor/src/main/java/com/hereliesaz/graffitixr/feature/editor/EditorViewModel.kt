@@ -10500,11 +10500,12 @@ class EditorViewModel @Inject constructor(
      * (`ActivePlaneMapping.onHull`), which is what decides that the lasso points arrive in world space.
      */
     private fun lassoSurfaceId(st: com.hereliesaz.graffitixr.common.model.EditorUiState): String? {
-        val id = st.activeLayerId ?: return null
-        val flat = com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isLayerFlat(st.layers, id, st.sceneCamera)
-        if (flat || com.hereliesaz.graffitixr.common.scene.planeChain(st.layers, id).isEmpty()) return null
-        if (!SurfaceMath.isOnSurface(st.layers, id)) return null
-        return id.takeIf { SurfaceMath.ownerOf(st.layers, id)?.profile?.hasHull == true }
+        val id = st.activeLayerId
+        val in3d = id != null &&
+            !com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isLayerFlat(st.layers, id, st.sceneCamera) &&
+            com.hereliesaz.graffitixr.common.scene.planeChain(st.layers, id).isNotEmpty() &&
+            SurfaceMath.isOnSurface(st.layers, id)
+        return id?.takeIf { in3d && SurfaceMath.ownerOf(st.layers, id)?.profile?.hasHull == true }
     }
 
     /**
@@ -10521,7 +10522,8 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val current = state.selection
         // A lasso drawn on a multi-view surface is cut into the view images as it is drawn and folded in per
-        // image, so it follows the surface like a wand selection (spec/3d-space.md, "Selection on a multi-view surface").
+        // image, so it follows the surface like a wand selection (spec/3d-space.md, "Selection on a multi-view
+        // surface").
         val ctx = if (simplified.size >= 3 && canvasSize == state.canvasSize) {
             lassoSurfaceId(state)?.let { surfaceCtx(state, it) }
         } else {
