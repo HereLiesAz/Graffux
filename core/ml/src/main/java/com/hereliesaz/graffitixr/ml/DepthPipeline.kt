@@ -198,6 +198,39 @@ object DepthPipeline {
         return postprocess(runner.run(input, box, spec), box, spec)
     }
 
+    /**
+     * The point-map path (MoGe-2): place, preprocess, run, then [MoGeDepth] turns the affine point map
+     * into a [DepthMap] (relative inverse depth, larger = nearer, finite). [focalRelative] is
+     * `focal_px / (0.5 * hypot(W, H))` of the model-resolution image when the camera's focal is known;
+     * null fits it. The model accepts aspect ratios between 1:2 and 2:1 only.
+     *
+     * @throws DepthEstimationException.InvalidInput for an aspect ratio outside that range.
+     * @throws DepthEstimationException.UnexpectedOutput if the output disagrees with the input size or has no
+     * usable depth.
+     */
+    fun estimatePointMap(
+        pixels: IntArray, width: Int, height: Int, spec: DepthModelSpec, runner: PointMapRunner,
+        focalRelative: Float? = null,
+    ): DepthMap {
+        val ratio = width.toDouble() / height
+        if (ratio < MOGE_MIN_ASPECT || ratio > MOGE_MAX_ASPECT) {
+            throw DepthEstimationException.InvalidInput(
+                "This depth model needs an aspect ratio between 1:2 and 2:1, got ${width}x$height",
+            )
+        }
+        val box = Letterbox.compute(width, height, spec.size)
+        val raw = runner.run(preprocess(pixels, width, height, spec, box), box, spec)
+        if (raw.width != box.inputWidth || raw.height != box.inputHeight) {
+            throw DepthEstimationException.UnexpectedOutput(
+                "Expected ${box.inputWidth}x${box.inputHeight} points, the model produced ${raw.width}x${raw.height}",
+            )
+        }
+        return MoGeDepth.estimate(raw.points, raw.mask, raw.width, raw.height, raw.scale, focalRelative)
+    }
+
+    private const val MOGE_MIN_ASPECT = 0.5
+    private const val MOGE_MAX_ASPECT = 2.0
+
     /** One output pixel's alpha-weighted colour (r,g,b in 0..1 *not* premultiplied) and mean alpha into [out]. */
     private fun sample(
         px: IntArray, w: Int, h: Int, dx: Int, dy: Int, scaleX: Double, scaleY: Double, out: FloatArray,

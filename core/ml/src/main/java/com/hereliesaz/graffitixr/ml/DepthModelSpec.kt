@@ -12,6 +12,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlin.math.min
 
 /** Channel order the model's input tensor expects. */
 enum class ColorOrder { RGB, BGR }
@@ -127,8 +128,11 @@ data class DepthModelSpec(
     val inversion: Inversion = Inversion.RECIPROCAL,
     /** Grey level (0..1) transparent and padded pixels are composited onto before inference. */
     val fill: Float = 0.5f,
+    /** Non-null for a point-map model (MoGe-2): see [PointMapSpec] and [DepthPipeline.estimatePointMap]. */
+    val pointMap: PointMapSpec? = null,
 ) {
     init {
+        require(pointMap == null || rank == RANK_IMAGE) { "A point-map model takes a 4-D image input" }
         require(rank == RANK_IMAGE || rank == RANK_VIEWS) { "rank must be 4 (image) or 5 (views)" }
         require(fill in 0f..1f) { "fill must be a 0..1 grey level" }
     }
@@ -180,6 +184,8 @@ object DepthModelSpecs {
         "relative-inverse-depth", "inverse-depth", "relative-depth", "depth", "metric-depth",
     )
     private val INVERSE_KINDS = setOf("relative-inverse-depth", "inverse-depth")
+    private const val MOGE_POSTPROCESS = "moge2-affine-pointmap"
+    private const val MOGE_MULTIPLE = 14
     private val DEPTH_NAMES = setOf("predicted_depth", "output_depth", "depth", "inverse_depth")
 
     /** @throws DepthEstimationException.UnsupportedModel when the declared io cannot be driven by this runtime. */
@@ -187,6 +193,7 @@ object DepthModelSpecs {
         val io = asset.io
         val inputs = io?.inputs.orEmpty()
         if (inputs.isEmpty()) return DepthModelSpec()
+        if (isPointMapModel(asset)) return pointMapSpec(asset)
         if (inputs.size > 1) unsupported("it declares ${inputs.size} inputs; the depth runtime feeds exactly one image")
         val input = inputs.single()
         val output = pickDepthOutput(io?.outputs.orEmpty())
@@ -206,6 +213,60 @@ object DepthModelSpecs {
             inversion = if (decode?.string("invert").equals("reflect",
                 true)) Inversion.REFLECT else Inversion.RECIPROCAL,
         )
+    }
+
+    /** The listing says so itself: `params.postprocess == "moge2-affine-pointmap"`. Nothing is guessed from names. */
+    internal fun isPointMapModel(asset: AssetContribution): Boolean =
+        asset.params?.string("postprocess").equals(MOGE_POSTPROCESS, ignoreCase = true)
+
+    /**
+     * MoGe-2: input `image` (4-D, dynamic H/W, the host's 518 cap, multiples of 14) plus an `int64`
+     * `num_tokens` scalar; outputs `points` (required), `mask`, `scale` by name. The depth itself is
+     * produced by [MoGeDepth], not read from an output.
+     */
+    private fun pointMapSpec(asset: AssetContribution): DepthModelSpec {
+        val io = checkNotNull(asset.io)
+        val inputs = io.inputs.orEmpty()
+        val tokensInput = inputs.firstOrNull { it.name.equals("num_tokens", true) }
+        val image = inputs.firstOrNull { it !== tokensInput }
+        if (image == null || inputs.size > 2 || (inputs.size == 2 && tokensInput == null)) {
+            unsupported("a point-map model needs one image input and optionally num_tokens")
+        }
+        val rank = rankOf(image)
+        if (rank != DepthModelSpec.RANK_IMAGE) unsupported("its image input is not 4-D")
+        val layout = layoutOf(image)
+        checkDtype(image.dtype)
+        val outputs = io.outputs.orEmpty()
+        val points = outputs.firstOrNull { it.name.equals("points", true) }
+            ?: unsupported("it declares no 'points' output")
+        val sizeParams = JsonObject(
+            (asset.params?.toMap().orEmpty()) + mapOf("sizeMultipleOf" to JsonPrimitive(MOGE_MULTIPLE)),
+        )
+        val size = sizeOf(image, rank, layout, null, sizeParams) as? SizePolicy.Dynamic
+            ?: unsupported("its image input has a fixed size")
+        return DepthModelSpec(
+            inputName = image.name,
+            rank = rank,
+            layout = layout,
+            colorOrder = colorOf(image),
+            size = size,
+            normalization = normalizationOf(image.normalization),
+            outputName = points.name,
+            pointMap = PointMapSpec(
+                numTokens = numTokensOf(asset.params),
+                numTokensName = tokensInput?.name,
+                pointsName = checkNotNull(points.name) { "points output has a name" },
+                maskName = outputs.firstOrNull { it.name.equals("mask", true) }?.name,
+                scaleName = outputs.firstOrNull { it.name.equals("scale", true) }?.name,
+            ),
+        )
+    }
+
+    private fun numTokensOf(params: JsonObject?): Int {
+        val o = params?.get("numTokens") as? JsonObject ?: return PointMapSpec.DEFAULT_NUM_TOKENS
+        val lo = o.int("min") ?: 1
+        val hi = o.int("max") ?: Int.MAX_VALUE
+        return (o.int("default") ?: PointMapSpec.DEFAULT_NUM_TOKENS).coerceIn(min(lo, hi).coerceAtLeast(1), hi)
     }
 
     /** The depth output: by `decode.kind`, then conventional name, then the first `mask`, then the first. */
