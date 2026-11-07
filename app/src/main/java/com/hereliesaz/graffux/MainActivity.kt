@@ -1623,7 +1623,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .fillMaxSize()
                     .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
             )
         }
