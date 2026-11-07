@@ -48,6 +48,7 @@ import coil.compose.AsyncImage
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.azphalt.AssetType
+import com.hereliesaz.graffitixr.common.azphalt.HostAssetSupport
 import com.hereliesaz.graffitixr.common.azphalt.PackageSummary
 import com.hereliesaz.graffitixr.common.azphalt.SignatureStatus
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
@@ -638,23 +639,27 @@ private fun SignatureBadge(status: SignatureStatus) {
     )
 }
 
-private val SUPPORTED_ASSET_TYPES = setOf(AssetType.BRUSH, AssetType.LUT)
-
 @Composable
 private fun rememberExtensionCapabilities(extension: InstalledExtension): List<String> {
     val m = extension.manifest
     return remember(extension.id) {
         buildList {
-            val assetTypes = m.assets.map { it.type }.distinct()
-            for (type in assetTypes) {
-                if (type in SUPPORTED_ASSET_TYPES) add(type.wire.replaceFirstChar { it.uppercase() })
+            // Per asset, not per type: `onnx` is supported only with role `depth`.
+            for (asset in m.assets.filter(HostAssetSupport::isSupported)) {
+                val label = if (asset.type == AssetType.ONNX) {
+                    "Depth"
+                } else {
+                    asset.type.wire.replaceFirstChar { it.uppercase() }
+                }
+                if (label !in this) add(label)
             }
             m.contributes?.let { c ->
                 if (c.filters.isNotEmpty()) add("Filter")
                 if (c.tools.isNotEmpty()) add("Tool")
                 if (c.commands.isNotEmpty()) add("Command")
             }
-            val unsupported = assetTypes.filter { it !in SUPPORTED_ASSET_TYPES && it != AssetType.UNKNOWN }
+            val unsupported = m.assets.filter { !HostAssetSupport.isSupported(it) && it.type != AssetType.UNKNOWN }
+                .map { it.type }.distinct()
             if (unsupported.isNotEmpty()) {
                 add("(${unsupported.joinToString { it.wire }} not supported)")
             }

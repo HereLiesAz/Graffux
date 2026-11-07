@@ -23,7 +23,7 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Graffux"
 include(":app")
-include(":core:common", ":core:domain", ":core:data", ":core:nativebridge", ":core:design", ":core:engine")
+include(":core:common", ":core:domain", ":core:data", ":core:nativebridge", ":core:design", ":core:engine", ":core:ml")
 include(":feature:editor")
 include(":tools:hotreload-preview")
 include(":desktop")
