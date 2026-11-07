@@ -42,6 +42,7 @@ class SurfaceSelectionTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private lateinit var vm: EditorViewModel
     private var beforeFootprintPass: (() -> Unit)? = null
+    private var beforeFillPlan: (() -> Unit)? = null
 
     /** Stands in for the background dispatcher: runs [beforeFootprintPass] once, as the pass is handed off. */
     private val background = object : CoroutineDispatcher() {
@@ -49,6 +50,9 @@ class SurfaceSelectionTest {
         override fun dispatch(context: CoroutineContext, block: Runnable) {
             if (Throwable().stackTrace.any { it.methodName.startsWith("refreshFootprint") }) {
                 beforeFootprintPass?.also { beforeFootprintPass = null }?.invoke()
+            }
+            if (Throwable().stackTrace.any { it.methodName == "onViewFillTap" }) {
+                beforeFillPlan?.also { beforeFillPlan = null }?.invoke()
             }
             block.run()
         }
@@ -423,5 +427,40 @@ class SurfaceSelectionTest {
         assertEquals(SelectionGeometry.compose(null, SelectionGeometry.simplify(pts), canvas, com.hereliesaz.graffitixr.common.model.SelectionOp.NEW), sel)
         vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
         assertTrue("a flat selection is not re-derived", sel === vm.uiState.value.selection)
+    }
+
+    // ── Fill across creases (Codex review of the flood fill) ─────────────────────────────────────────
+
+    /** Only [view]'s image exists; every other view is blank-by-absence, as on a fresh multi-view surface. */
+    private fun loadOnly(view: SurfaceView) {
+        val group = Layer("g", "G", type = LayerType.GROUP, surface = cube)
+        val leaf = Layer("p", "P", parentId = "g")
+        val img = image(view, null)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, leaf, img)))
+        vm.dispatchForTest(EditorIntent.ActivateLayer("p"))
+        vm.putLayerBaseForTest(img.id, img.bitmap!!.copy(Bitmap.Config.ARGB_8888, true))
+    }
+
+    private fun fillStrokes(view: SurfaceView) =
+        vm.uiState.value.layers.filter { it.surfaceViewOf == "p" && it.surfaceView == view }
+            .flatMap { vm.recordedStrokesForTest(it.id) }.filter { it.tool == Tool.FILL }
+
+    @Test
+    fun `a flood that reaches a view with no image yet fills it in the same gesture`() {
+        loadOnly(SurfaceView.FRONT)
+        val ts = touches().filter { it.second.region == 0 }
+        val views = ts.map { it.second.view }.distinct()
+        assertTrue("views $views", views.size >= 2)
+        // Start from a shown view that has an image; the rest have none.
+        val start = SurfaceView.FRONT.takeIf { it in views } ?: views[0]
+        if (start != SurfaceView.FRONT) loadOnly(start)
+        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.setActiveTool(Tool.FILL)
+        vm.onViewFillTap("p", ts.first { it.second.view == start }.second, canvas)
+        assertTrue("the tapped view is filled", fillStrokes(start).isNotEmpty())
+        assertTrue(
+            "a neighbouring view created by the flood is filled too",
+            (views - start).any { fillStrokes(it).isNotEmpty() },
+        )
     }
 }

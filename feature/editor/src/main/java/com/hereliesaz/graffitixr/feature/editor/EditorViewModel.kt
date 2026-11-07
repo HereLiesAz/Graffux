@@ -9748,8 +9748,9 @@ class EditorViewModel @Inject constructor(
         gestureOpen = true
         try {
             for (seed in seeds) {
-                val st = _uiState.value
                 val imageId = ensureViewImageLayer(primaryId, seed.view) ?: continue
+                // Read after ensuring: a view image created just now is not in an earlier snapshot.
+                val st = _uiState.value
                 val imageOwner = SurfaceMath.ownerOf(st.layers, imageId) ?: continue
                 val w = st.canvasSize.width.toFloat()
                 val h = st.canvasSize.height.toFloat()
