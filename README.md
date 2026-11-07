@@ -22,7 +22,7 @@ consumes the same modules for its 2D work and adds AR on top.
 - **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, Subject (ML Kit
   subject isolation, on the device and offline), add/remove/replace,
   save named selections, colour-fill/copy/cut/paste within a selection. On a multi-view 3D surface a
-  magic-wand selection follows the surface as the camera orbits.
+  magic-wand or lasso selection follows the surface as the camera orbits.
 - **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.
 - **Text** — parametric text layers with Google Fonts.
 - **Vector shapes** — rectangle, ellipse, line, and regular polygons as their own editable layers.

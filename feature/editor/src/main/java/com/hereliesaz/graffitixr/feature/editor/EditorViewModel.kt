@@ -10495,6 +10495,20 @@ class EditorViewModel @Inject constructor(
     // ── Selection (Procreate's lasso and its modes) ───────────────────────────────────────────
 
     /**
+     * The paint layer whose multi-view surface a lasso is drawn on: the active layer when it is paint on a
+     * group drawn from more than one view and drawn in 3D. The same condition as the capture layer's
+     * (`ActivePlaneMapping.onHull`), which is what decides that the lasso points arrive in world space.
+     */
+    private fun lassoSurfaceId(st: com.hereliesaz.graffitixr.common.model.EditorUiState): String? {
+        val id = st.activeLayerId
+        val in3d = id != null &&
+            !com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isLayerFlat(st.layers, id, st.sceneCamera) &&
+            com.hereliesaz.graffitixr.common.scene.planeChain(st.layers, id).isNotEmpty() &&
+            SurfaceMath.isOnSurface(st.layers, id)
+        return id?.takeIf { in3d && SurfaceMath.ownerOf(st.layers, id)?.profile?.hasHull == true }
+    }
+
+    /**
      * Folds the region the finger just drew into the selection, under the current
      * [EditorUiState.selectionOp].
      *
@@ -10507,12 +10521,17 @@ class EditorViewModel @Inject constructor(
         val simplified = SelectionGeometry.simplify(points)
         val state = _uiState.value
         val current = state.selection
-        val bound = current?.surface?.takeIf { state.selectionOp != SelectionOp.NEW && simplified.size >= 3 }
-        // A lasso drawn onto a wand selection on a multi-view surface is cut into the view images and folded in.
-        val ctx = bound?.let { surfaceCtx(state, it.surfaceId) }
+        // A lasso drawn on a multi-view surface is cut into the view images as it is drawn and folded in per
+        // image, so it follows the surface like a wand selection (spec/3d-space.md, "Selection on a multi-view
+        // surface").
+        val ctx = if (simplified.size >= 3 && canvasSize == state.canvasSize) {
+            lassoSurfaceId(state)?.let { surfaceCtx(state, it) }
+        } else {
+            null
+        }
         val composed = if (ctx != null) {
-            SurfaceViewSelection.compose(
-                current, Selection.ofPolygon(simplified, canvasSize), state.selectionOp,
+            SurfaceViewSelection.composeLasso(
+                current, simplified, canvasSize, state.selectionOp,
                 ctx.id, ctx.owner, ctx.hull, ctx.camera, ctx.projection, ctx.w, ctx.h,
             )
         } else {

@@ -19,6 +19,7 @@ import com.hereliesaz.graffitixr.common.model.SelectionRing
 import com.hereliesaz.graffitixr.common.model.SurfaceSelection
 import com.hereliesaz.graffitixr.common.model.ViewSelection
 import androidx.compose.ui.unit.IntSize
+import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import kotlin.math.abs
 
 /**
@@ -36,6 +37,11 @@ object SurfaceViewSelection {
     /**
      * [selection] (rings in world space) as a selection in [view]'s flat space: the same rings in the
      * same order and sense, each cut to the view's faces. Null when it reaches none of them.
+     *
+     * An **inverted** selection is everything outside its recipe, so it is never a miss: it is returned as the
+     * view's facing faces with the recipe taken out, a plain (not inverted) selection that is bounded to what
+     * faces the camera like any other. Complementing a recipe ring by ring is exact: an Add ring becomes a
+     * cut and a cut becomes an Add, starting from the whole facing area.
      */
     fun forView(
         selection: Selection,
@@ -62,11 +68,38 @@ object SurfaceViewSelection {
                     .map { Offset(it.first, it.second) }
                 if (flat.size < 3 || area(flat) < MIN_AREA) continue
                 rings += SelectionRing(flat, ring.additive)
-                if (ring.additive != selection.inverted) reached = true
+                if (ring.additive) reached = true
             }
         }
+        if (selection.inverted) return complemented(tris, rings, selection, owner, width, height)
         if (!reached) return null
         return Selection(rings, selection.canvasSize, selection.inverted, selection.featherPx)
+    }
+
+    /** The facing triangles [tris] of a view as rings in its flat space (the area a selection of that view may reach). */
+    private fun facingRings(tris: List<SurfaceProjection.Tri>, owner: SurfaceOwner, width: Float, height: Float): List<SelectionRing> =
+        tris.mapNotNull { t ->
+            val flat = (0..2).mapNotNull { SurfaceMath.unrolledToFlat(t.px[it], t.py[it], owner.innerChain, width, height) }
+                .map { Offset(it.first, it.second) }
+            flat.takeIf { it.size == 3 && area(it) >= MIN_AREA }?.let { SelectionRing(it, true) }
+        }
+
+    /**
+     * The complement of the recipe [rings] (cut to [tris], the facing triangles of one view) within those
+     * triangles, as a plain selection: the whole facing area, then each ring with its sense turned over.
+     * Null when nothing of the view faces the camera.
+     */
+    private fun complemented(
+        tris: List<SurfaceProjection.Tri>,
+        rings: List<SelectionRing>,
+        selection: Selection,
+        owner: SurfaceOwner,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        val whole = facingRings(tris, owner, width, height)
+        if (whole.isEmpty()) return null
+        return Selection(whole + rings.map { it.copy(additive = !it.additive) }, selection.canvasSize, false, selection.featherPx)
     }
 
     /**
@@ -159,6 +192,59 @@ object SurfaceViewSelection {
         return sel.takeIf { it.isUsable }
     }
 
+    /**
+     * A lasso drawn on a multi-view surface as a surface selection: [lasso]'s rings (world space) cut to the view
+     * images with the lasso-to-view cut ([forView]) at the time it is drawn, so it is camera independent from then
+     * on and follows the surface like a wand selection. Parts on faces turned away from the viewer now are dropped.
+     * Null when nothing of it is left (it reaches no face that faces the viewer): the caller keeps the lasso as drawn.
+     */
+    fun fromLasso(
+        surfaceId: String,
+        lasso: Selection,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        val surface = SurfaceSelection(surfaceId, bind(lasso, owner, hull, camera, projection, width, height))
+        if (!surface.isUsable) return null
+        return Selection(footprint(surface, owner, projection, width, height), lasso.canvasSize, lasso.inverted, lasso.featherPx, surface)
+    }
+
+    /**
+     * A lasso [polygon] (world space, as [SelectionGeometry.compose] takes it) folded into [current] under [op] on
+     * the multi-view surface [surfaceId]: the lasso is cut into the view images ([fromLasso]) and folded in per
+     * image ([compose]), so the result follows the surface. What stays exactly as it was (the flat compose):
+     * a base that is a plain region of something else (drawn on a flat layer, or a lasso that reached no face),
+     * and a lasso that reaches no facing face when there is no surface selection to fold it into. Remove from
+     * nothing is null, as everywhere; a ring too small to enclose anything leaves [current] alone.
+     */
+    fun composeLasso(
+        current: Selection?,
+        polygon: List<Offset>,
+        canvasSize: IntSize,
+        op: SelectionOp,
+        surfaceId: String,
+        owner: SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        projection: SurfaceProjection,
+        width: Float,
+        height: Float,
+    ): Selection? {
+        if (polygon.size < 3) return current
+        val foldsHere = op == SelectionOp.NEW || current == null || current.surface?.surfaceId == surfaceId
+        if (!foldsHere) return SelectionGeometry.compose(current, polygon, canvasSize, op)
+        val composed = compose(current, Selection.ofPolygon(polygon, canvasSize), op, surfaceId, owner, hull, camera, projection, width, height)
+        return if (composed?.surface?.isUsable == true || (composed == null && op == SelectionOp.REMOVE)) {
+            composed
+        } else {
+            SelectionGeometry.compose(current, polygon, canvasSize, op)
+        }
+    }
+
     /** [selection] with its footprint re-derived for [projection]'s camera; any other selection, untouched. */
     fun refresh(
         selection: Selection,
@@ -176,7 +262,8 @@ object SurfaceViewSelection {
     /**
      * The part of [selection]'s stored regions a stroke on [view]'s image may paint, in that image's flat
      * space: cut to the triangles facing the camera. Null when none of it is reachable (turned away, or the
-     * selection never reached the view); the caller decides whether that blocks (inverted: it does not).
+     * selection never reached the view); the caller decides whether that blocks. An inverted selection is the facing
+     * area with the stored recipe taken out ([forView]), so it is null only when nothing of the view faces the camera.
      */
     fun viewCut(
         selection: Selection,
@@ -209,8 +296,10 @@ object SurfaceViewSelection {
                 }
             }
         }
-        if (out.isEmpty() || (!selection.inverted && out.none { it.additive })) return null
-        return Selection(out, selection.canvasSize, selection.inverted, selection.featherPx)
+        // Inverted: everything outside the stored recipe, bounded to the facing triangles like any other cut.
+        if (selection.inverted) return complemented(projection.facing(view), out, selection, owner, width, height)
+        if (out.isEmpty() || out.none { it.additive }) return null
+        return Selection(out, selection.canvasSize, false, selection.featherPx)
     }
 
     /** A world-space [selection]'s rings as per-image regions (the lasso-to-view cut, [forView], for every facing view). */
