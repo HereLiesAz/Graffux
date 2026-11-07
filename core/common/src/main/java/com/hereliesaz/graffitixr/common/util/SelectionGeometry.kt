@@ -173,10 +173,10 @@ object SelectionGeometry {
             // lasso elsewhere without deselecting first, and the new region silently inherited both.
             SelectionOp.NEW -> Selection(listOf(ring), canvasSize)
             SelectionOp.ADD -> base?.let {
-                it.copy(rings = it.rings + ring.copy(additive = !it.inverted))
+                it.copy(rings = it.rings + ring.copy(additive = !it.inverted), surface = null)
             } ?: fresh
             SelectionOp.REMOVE -> base?.let {
-                it.copy(rings = it.rings + ring.copy(additive = it.inverted))
+                it.copy(rings = it.rings + ring.copy(additive = it.inverted), surface = null)
             }
         }
     }

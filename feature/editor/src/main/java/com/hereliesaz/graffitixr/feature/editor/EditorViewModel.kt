@@ -108,6 +108,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -2867,7 +2869,8 @@ class EditorViewModel @Inject constructor(
     private fun redoSelectionMove(stroke: StrokeCommand) {
         val delta = stroke.moveDelta
         if (stroke.tool == Tool.SELECT && delta != null) {
-            dispatch(EditorIntent.SetSelection((stroke.marquee ?: stroke.selection)?.translated(delta)))
+            val before = stroke.marquee ?: stroke.selection
+            dispatch(EditorIntent.SetSelection(before?.let { translatedSelection(it, delta) }))
         }
     }
 
@@ -6642,6 +6645,106 @@ class EditorViewModel @Inject constructor(
 
     private var clipMemo: Pair<List<Any?>, ViewClip>? = null
 
+    /** Everything needed to project one surface for the current camera. */
+    @Suppress("LongParameterList")
+    internal class SurfaceCtx(
+        val id: String,
+        val owner: com.hereliesaz.graffitixr.common.scene.SurfaceOwner,
+        val hull: SurfaceHull,
+        val projection: SurfaceProjection,
+        val camera: SceneCamera,
+        val w: Float,
+        val h: Float,
+    )
+
+    @Volatile
+    private var projectionMemo: Pair<List<Any?>, SurfaceProjection>? = null
+
+    /** The projection of [hull] for [camera], remembered for the last pose: camera, surface and canvas are the key. */
+    private fun projectionFor(
+        owner: com.hereliesaz.graffitixr.common.scene.SurfaceOwner,
+        hull: SurfaceHull,
+        camera: SceneCamera,
+        w: Float,
+        h: Float,
+    ): SurfaceProjection {
+        val key = listOf(owner.profile, owner.ownerChain, owner.innerChain, camera, w, h)
+        projectionMemo?.takeIf { it.first == key }?.let { return it.second }
+        return SurfaceProjection.of(hull, owner, camera, w, h).also { projectionMemo = key to it }
+    }
+
+    @Suppress("ReturnCount")
+    private fun surfaceCtx(st: EditorUiState, id: String): SurfaceCtx? {
+        val owner = SurfaceMath.ownerOf(st.layers, id) ?: return null
+        val hull = SurfaceHull.of(owner.profile) ?: return null
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        if (w <= 0f || h <= 0f) return null
+        return SurfaceCtx(id, owner, hull, projectionFor(owner, hull, st.sceneCamera, w, h), st.sceneCamera, w, h)
+    }
+
+    private data class FootprintKey(
+        val surface: com.hereliesaz.graffitixr.common.model.SurfaceSelection,
+        val camera: SceneCamera,
+        val profile: Any?,
+        val ownerChain: Any?,
+        val innerChain: Any?,
+        val canvas: IntSize,
+        val selectionCanvas: IntSize,
+    )
+
+    init {
+        // A wand selection on a multi-view surface is stored per view image; its footprint (marching ants,
+        // clipping of flat layers, hit-testing) is re-derived whenever the camera or the surface changes.
+        // Only the latest pose is computed: an orbit supersedes the pass in flight.
+        viewModelScope.launch(dispatchers.main) {
+            _uiState
+                .map { st ->
+                    val sel = st.selection
+                    val surface = sel?.surface ?: return@map null
+                    val owner = SurfaceMath.ownerOf(st.layers, surface.surfaceId)
+                    FootprintKey(
+                        surface, st.sceneCamera, owner?.profile, owner?.ownerChain, owner?.innerChain,
+                        st.canvasSize, sel.canvasSize,
+                    )
+                }
+                .distinctUntilChanged()
+                .collectLatest { key -> key?.let { refreshFootprint(it) } }
+        }
+    }
+
+    @Suppress("ReturnCount")
+    private suspend fun refreshFootprint(key: FootprintKey) {
+        val st = _uiState.value
+        val sel = st.selection ?: return
+        if (sel.surface != key.surface) return
+        val ctx = surfaceCtx(st, key.surface.surfaceId)
+        if (ctx == null) {
+            // The surface is gone: what is left is the footprint it last had, a plain region.
+            updateUi { s ->
+                val cur = s.selection?.takeIf { it.surface == key.surface }
+                if (cur == null) s else s.copy(selection = cur.copy(surface = null))
+            }
+            return
+        }
+        if (key.selectionCanvas != key.canvas) return
+        val job = currentCoroutineContext()[Job]
+        val next = withContext(dispatchers.default) {
+            SurfaceViewSelection.refresh(sel, ctx.owner, ctx.projection, ctx.w, ctx.h) { job?.ensureActive() }
+        }
+        if (next === sel) return
+        updateUi { s -> if (s.selection?.surface == key.surface) s.copy(selection = next) else s }
+    }
+
+    /** [selection] moved by [delta]; a surface selection is rebound to the images so it keeps following. */
+    @Suppress("ReturnCount")
+    private fun translatedSelection(selection: Selection, delta: Offset): Selection {
+        val moved = selection.translated(delta)
+        val id = selection.surface?.surfaceId ?: return moved
+        val ctx = surfaceCtx(_uiState.value, id) ?: return moved
+        return SurfaceViewSelection.rebind(moved, id, ctx.owner, ctx.hull, ctx.camera, ctx.projection, ctx.w, ctx.h)
+    }
+
     /**
      * [SurfaceViewSelection.forView] of the active selection for [view] of the paint layer [primaryId]'s
      * surface: a lasso is drawn in world space, each view image has its own flat space, so a region that
@@ -6650,7 +6753,8 @@ class EditorViewModel @Inject constructor(
     @Suppress("ReturnCount")
     internal fun viewClip(primaryId: String, view: com.hereliesaz.graffitixr.common.scene.SurfaceView): ViewClip {
         val st = _uiState.value
-        val selection = st.selection?.takeIf { it.isUsable } ?: return ViewClip(false, null)
+        val selection = st.selection?.takeIf { it.isUsable || it.surface?.isUsable == true }
+            ?: return ViewClip(false, null)
         val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(st.layers, primaryId)
             ?: return ViewClip(false, null)
         val w = st.canvasSize.width.toFloat()
@@ -6658,6 +6762,18 @@ class EditorViewModel @Inject constructor(
         val key = listOf(selection, view, st.sceneCamera, owner.profile, owner.ownerChain, owner.innerChain, w, h)
         clipMemo?.takeIf { it.first == key }?.let { return it.second }
         val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(owner.profile)
+        if (selection.surface?.surfaceId == primaryId && hull != null) {
+            // Stored per view image: the clip is the image's own region, restricted to what faces the camera.
+            val projection = projectionFor(owner, hull, st.sceneCamera, w, h)
+            val own = SurfaceViewSelection.viewCut(selection, view, owner, projection, w, h)
+            val clip = when {
+                own != null -> ViewClip(false, own)
+                selection.inverted -> ViewClip(false, null)
+                else -> ViewClip(true, null)
+            }
+            clipMemo = key to clip
+            return clip
+        }
         val cut = hull?.let {
             com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection
                 .forView(selection, view, owner, it, st.sceneCamera, w, h)
@@ -6704,15 +6820,14 @@ class EditorViewModel @Inject constructor(
             previous?.join()
             val wand = try {
                 val seeds = SurfaceViewFlood.plan(hull, tap, oracle)
-                val projection = SurfaceProjection.of(hull, owner, camera, w, h)
-                val rings = ArrayList<com.hereliesaz.graffitixr.common.model.SelectionRing>()
-                seeds.forEachIndexed { i, seed ->
-                    val flat = oracle.wandRings(seed, tracedOn) ?: return@forEachIndexed
-                    rings += SurfaceViewSelection.fromView(
-                        flat, seed.view, owner, projection, w, h, tappedAt = Offset(ux, uy).takeIf { i == 0 },
-                    )
+                val projection = projectionFor(owner, hull, camera, w, h)
+                val regions = ArrayList<com.hereliesaz.graffitixr.common.model.ViewSelection>()
+                seeds.forEach { seed ->
+                    val flat = oracle.wandRings(seed, tracedOn) ?: return@forEach
+                    regions += com.hereliesaz.graffitixr.common.model.ViewSelection(seed.view, seed.region, flat)
                 }
-                Selection(rings, tracedOn).takeIf { it.isUsable }
+                // Stored per view image; its footprint for this camera is derived from it (and again on every camera change).
+                SurfaceViewSelection.fromWand(primaryId, regions, owner, projection, w, h, tracedOn, Offset(ux, uy))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: OutOfMemoryError) {
@@ -6866,7 +6981,7 @@ class EditorViewModel @Inject constructor(
         } finally {
             closeGesture()
         }
-        dispatch(EditorIntent.SetSelection(selection.translated(delta)))
+        dispatch(EditorIntent.SetSelection(translatedSelection(selection, delta)))
     }
 
     /** Whether the active lasso leaves nothing of [view] to paint on: a touch there is a miss. */
@@ -10381,6 +10496,20 @@ class EditorViewModel @Inject constructor(
     // ── Selection (Procreate's lasso and its modes) ───────────────────────────────────────────
 
     /**
+     * The paint layer whose multi-view surface a lasso is drawn on: the active layer when it is paint on a
+     * group drawn from more than one view and drawn in 3D. The same condition as the capture layer's
+     * (`ActivePlaneMapping.onHull`), which is what decides that the lasso points arrive in world space.
+     */
+    private fun lassoSurfaceId(st: com.hereliesaz.graffitixr.common.model.EditorUiState): String? {
+        val id = st.activeLayerId
+        val in3d = id != null &&
+            !com.hereliesaz.graffitixr.common.scene.SceneRenderPath.isLayerFlat(st.layers, id, st.sceneCamera) &&
+            com.hereliesaz.graffitixr.common.scene.planeChain(st.layers, id).isNotEmpty() &&
+            SurfaceMath.isOnSurface(st.layers, id)
+        return id?.takeIf { in3d && SurfaceMath.ownerOf(st.layers, id)?.profile?.hasHull == true }
+    }
+
+    /**
      * Folds the region the finger just drew into the selection, under the current
      * [EditorUiState.selectionOp].
      *
@@ -10392,9 +10521,24 @@ class EditorViewModel @Inject constructor(
     fun onSelectionEnd(points: List<Offset>, canvasSize: IntSize) {
         val simplified = SelectionGeometry.simplify(points)
         val state = _uiState.value
-        dispatch(EditorIntent.SetSelection(
-            SelectionGeometry.compose(state.selection, simplified, canvasSize, state.selectionOp)
-        ))
+        val current = state.selection
+        // A lasso drawn on a multi-view surface is cut into the view images as it is drawn and folded in per
+        // image, so it follows the surface like a wand selection (spec/3d-space.md, "Selection on a multi-view
+        // surface").
+        val ctx = if (simplified.size >= 3 && canvasSize == state.canvasSize) {
+            lassoSurfaceId(state)?.let { surfaceCtx(state, it) }
+        } else {
+            null
+        }
+        val composed = if (ctx != null) {
+            SurfaceViewSelection.composeLasso(
+                current, simplified, canvasSize, state.selectionOp,
+                ctx.id, ctx.owner, ctx.hull, ctx.camera, ctx.projection, ctx.w, ctx.h,
+            )
+        } else {
+            SelectionGeometry.compose(current, simplified, canvasSize, state.selectionOp)
+        }
+        dispatch(EditorIntent.SetSelection(composed))
     }
 
     /**
@@ -10488,7 +10632,19 @@ class EditorViewModel @Inject constructor(
      * own documented contract -- a fallback here used to substitute the whole freshly-traced region
      * instead, silently turning a Remove-from-nothing into a de facto New.
      */
-    private fun composeTraced(traced: Selection, op: SelectionOp, current: Selection?): Selection? =
+    private fun composeTraced(traced: Selection, op: SelectionOp, current: Selection?): Selection? {
+        // Either side bound to a multi-view surface: fold per view image (SurfaceViewSelection.compose).
+        val id = traced.surface?.surfaceId ?: current?.surface?.surfaceId
+        val ctx = id?.takeIf { op != SelectionOp.NEW }?.let { surfaceCtx(_uiState.value, it) }
+        if (ctx != null) {
+            return SurfaceViewSelection.compose(
+                current, traced, op, ctx.id, ctx.owner, ctx.hull, ctx.camera, ctx.projection, ctx.w, ctx.h,
+            )
+        }
+        return composeTracedFlat(traced, op, current)
+    }
+
+    private fun composeTracedFlat(traced: Selection, op: SelectionOp, current: Selection?): Selection? =
         if (op == SelectionOp.NEW) {
             traced
         } else {
@@ -10997,13 +11153,7 @@ class EditorViewModel @Inject constructor(
             // No `?: saved.selection` fallback -- same reasoning as onAutoSelect: compose()
             // returning null (Remove with nothing selected) must stay a no-op, not silently load
             // the whole saved selection as if New had been picked.
-            val composed = saved.selection.rings.fold(state.selection) { acc, ring ->
-                SelectionGeometry.compose(
-                    acc, ring.path, saved.selection.canvasSize,
-                    if (ring.additive) state.selectionOp else SelectionOp.REMOVE,
-                )
-            }
-            dispatch(EditorIntent.SetSelection(composed))
+            dispatch(EditorIntent.SetSelection(composeTraced(saved.selection, state.selectionOp, state.selection)))
         }
     }
 
@@ -11112,7 +11262,7 @@ class EditorViewModel @Inject constructor(
                 updateUi { s ->
                     s.copy(layers = s.layers.map { if (it.id == layerId) it.copy(bitmap = moved) else it })
                 }
-                dispatch(EditorIntent.SetSelection(selection.translated(delta)))
+                dispatch(EditorIntent.SetSelection(translatedSelection(selection, delta)))
                 scheduleDiskSave(layerId, moved, layer.uri)
             }
             // Not in the co-op stroke vocabulary; peers get the finished pixels instead.

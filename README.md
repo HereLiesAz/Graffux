@@ -21,7 +21,8 @@ consumes the same modules for its 2D work and adds AR on top.
   wraparound painting mode. Brush Studio for building custom brushes.
 - **Selection** — freehand/rectangle/ellipse/automatic (magic-wand) selection, Subject (ML Kit
   subject isolation, on the device and offline), add/remove/replace,
-  save named selections, colour-fill/copy/cut/paste within a selection.
+  save named selections, colour-fill/copy/cut/paste within a selection. On a multi-view 3D surface a
+  magic-wand or lasso selection follows the surface as the camera orbits.
 - **Effects** — Canny edge outline, sketch, ML Kit subject isolation, multi-layer stencil generation.
 - **Text** — parametric text layers with Google Fonts.
 - **Vector shapes** — rectangle, ellipse, line, and regular polygons as their own editable layers.

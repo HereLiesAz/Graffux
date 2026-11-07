@@ -189,4 +189,209 @@ class SurfaceSelectionTest {
         assertEquals(canvas, sel!!.canvasSize)
         assertTrue(sel.rings.all { it.additive })
     }
+
+    private fun wandOn(view: SurfaceView? = null): Pair<SurfaceView, Selection> {
+        load(emptyMap())
+        val ts = touches().filter { it.second.region == 0 }
+        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        val tap = ts.first { view == null || it.second.view == view }.second
+        vm.onViewAutoSelect("p", tap, canvas)
+        return tap.view to vm.uiState.value.selection!!
+    }
+
+    private fun touchesAt(c: SceneCamera) = buildList {
+        var y = 0f
+        while (y < h) {
+            var x = 0f
+            while (x < w) {
+                SurfaceMath.worldToViewFlat(x, y, owner, c, w, h, hull)?.let { add(Offset(x, y) to it) }
+                x += 20f
+            }
+            y += 20f
+        }
+    }
+
+    @Test
+    fun `an orbit keeps the wand's image regions and moves its footprint with the surface`() {
+        val (view, first) = wandOn()
+        assertNotNull(first.surface)
+        val other = SceneCamera(yaw = -0.6f, pitch = 0.3f)
+        vm.setSceneCameraForTest(other)
+        val now = vm.uiState.value.selection!!
+        assertEquals(first.surface, now.surface)
+        assertTrue("footprint recomputed", now.rings != first.rings)
+        val own = touchesAt(other).filter { it.second.view == view && it.second.region == 0 }
+        assertTrue(own.isNotEmpty())
+        assertTrue("selected where the face now shows", own.count { now.holds(it.first) } > own.size / 2)
+        // Back again: the footprint is the one it was.
+        vm.setSceneCameraForTest(camera)
+        assertEquals(first.rings, vm.uiState.value.selection!!.rings)
+    }
+
+    @Test
+    fun `a lasso added onto a wand joins the image regions and undoing a move restores them`() {
+        val (_, first) = wandOn()
+        val ts = touches().filter { it.second.region == 0 }
+        val at = ts.first { it.second.view != first.surface!!.views.first().view }.first
+        vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.ADD))
+        vm.onSelectionEnd(listOf(at - Offset(20f, 20f), Offset(at.x + 20f, at.y - 20f), at + Offset(20f, 20f), Offset(at.x - 20f, at.y + 20f)), canvas)
+        val both = vm.uiState.value.selection!!
+        assertNotNull(both.surface)
+        assertTrue(both.surface!!.views.size > first.surface!!.views.size)
+        assertTrue(both.holds(at))
+        vm.onSurfaceSelectionMove("p", Offset(40f, 0f))
+        val moved = vm.uiState.value.selection!!
+        assertNotNull("a moved surface selection still follows the surface", moved.surface)
+        vm.onUndoClicked()
+        assertEquals(both.surface, vm.uiState.value.selection!!.surface)
+    }
+
+    // ── A plain lasso on a multi-view surface follows the surface, like the wand ──────────────────────
+
+    private fun box(c: Offset, r: Float) = listOf(Offset(c.x - r, c.y - r), Offset(c.x + r, c.y - r), Offset(c.x + r, c.y + r), Offset(c.x - r, c.y + r))
+
+    private fun middleOf(view: SurfaceView): Offset {
+        val own = touches().filter { it.second.view == view && it.second.region == 0 && interior(it.first, it.second) }.map { it.first }
+        val m = Offset(own.sumOf { it.x.toDouble() }.toFloat() / own.size, own.sumOf { it.y.toDouble() }.toFloat() / own.size)
+        return own.minBy { (it - m).getDistance() }
+    }
+
+    private fun lassoOnFace(view: SurfaceView? = null, r: Float = 60f): Pair<Offset, Selection> {
+        load(colours)
+        val v = view ?: touches().first { it.second.region == 0 }.second.view
+        val at = middleOf(v)
+        vm.onSelectionEnd(box(at, r), canvas)
+        return at to vm.uiState.value.selection!!
+    }
+
+    @Test
+    fun `a lasso drawn on the surface is stored per view image and follows an orbit`() {
+        val (at, first) = lassoOnFace()
+        assertNotNull("the lasso is a surface selection", first.surface)
+        assertEquals("p", first.surface!!.surfaceId)
+        assertTrue(first.holds(at))
+        val other = SceneCamera(yaw = -0.6f, pitch = 0.3f)
+        vm.setSceneCameraForTest(other)
+        val now = vm.uiState.value.selection!!
+        assertEquals("the image regions are what was drawn", first.surface, now.surface)
+        assertTrue("footprint recomputed for the new camera", now.rings != first.rings)
+        // Same camera again: nothing to recompute, the selection is the very same value.
+        vm.setSceneCameraForTest(other)
+        assertTrue(now === vm.uiState.value.selection)
+        // Back: the footprint is the one drawn.
+        vm.setSceneCameraForTest(camera)
+        assertEquals(first.rings, vm.uiState.value.selection!!.rings)
+    }
+
+    @Test
+    fun `a lasso clips painting per view image, follows the camera and is a miss on views it never reached`() {
+        val (_, first) = lassoOnFace()
+        val reached = first.surface!!.views.map { it.view }.toSet()
+        assertTrue(reached.isNotEmpty())
+        val seen = touches().filter { it.second.region == 0 }.map { it.second.view }.distinct()
+        for (v in seen) {
+            val clip = vm.viewClip("p", v)
+            if (v in reached) {
+                assertTrue("$v is reached", !clip.blocked && clip.selection != null)
+            } else {
+                assertTrue("$v was never reached by the lasso: a miss", clip.blocked)
+            }
+        }
+        // A small orbit: the same walls still face the camera, so the lasso still clips them, wherever they now show.
+        vm.setSceneCameraForTest(SceneCamera(yaw = 0.45f, pitch = 0.3f))
+        for (v in reached) {
+            val clip = vm.viewClip("p", v)
+            assertTrue("$v still reached after the orbit", !clip.blocked && clip.selection != null)
+        }
+        // Seen from behind, what the lasso covered turns away: nothing of it can be painted.
+        vm.setSceneCameraForTest(SceneCamera(yaw = 0.6f + Math.PI.toFloat(), pitch = 0.3f))
+        for (v in reached) assertTrue("$v turned away", vm.viewClip("p", v).blocked)
+    }
+
+    @Test
+    fun `an inverted lasso selects everything outside it on every view the surface shows`() {
+        val (at, first) = lassoOnFace()
+        vm.onInvertSelection()
+        val inverted = vm.uiState.value.selection!!
+        assertTrue(inverted.inverted)
+        assertEquals(first.surface, inverted.surface)
+        val shown = touches().filter { it.second.region == 0 }.map { it.second.view }.distinct()
+        assertTrue(shown.size >= 2)
+        var outside = 0
+        for (v in shown) {
+            val clip = vm.viewClip("p", v)
+            assertTrue("inverted is not a miss on $v", !clip.blocked && clip.selection != null)
+            for ((p, f) in touches().filter { it.second.view == v && it.second.region == 0 && interior(it.first, it.second) }) {
+                val under = kotlin.math.abs(p.x - at.x) < 50f && kotlin.math.abs(p.y - at.y) < 50f
+                val near = kotlin.math.abs(p.x - at.x) < 72f && kotlin.math.abs(p.y - at.y) < 72f
+                if (!under && near) continue
+                assertEquals("$p on $v", !under, clip.selection!!.holds(Offset(f.x, f.y)))
+                if (!under) outside++
+            }
+        }
+        assertTrue(outside > 100)
+    }
+
+    @Test
+    fun `lassos fold per image under New, Add and Remove, and combine with a wand`() {
+        val (at, first) = lassoOnFace(r = 40f)
+        val views = touches().filter { it.second.region == 0 }.map { it.second.view }.distinct()
+        val otherView = views.first { it != first.surface!!.views.first().view }
+        val there = middleOf(otherView)
+        vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.ADD))
+        vm.onSelectionEnd(box(there, 40f), canvas)
+        val added = vm.uiState.value.selection!!
+        assertNotNull(added.surface)
+        assertTrue(added.holds(at) && added.holds(there))
+        assertTrue(added.surface!!.views.map { it.view }.containsAll(listOf(first.surface!!.views.first().view, otherView)))
+        vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.REMOVE))
+        vm.onSelectionEnd(box(at, 15f), canvas)
+        val cut = vm.uiState.value.selection!!
+        assertTrue(!cut.holds(at) && cut.holds(there) && cut.holds(at + Offset(30f, 0f)))
+        // A wand added on top of the lasso regions keeps them.
+        vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.ADD))
+        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        val third = views.firstOrNull { it != first.surface!!.views.first().view && it != otherView }
+        val tap = touches().first { it.second.region == 0 && it.second.view == (third ?: otherView) }.second
+        vm.onViewAutoSelect("p", tap, canvas)
+        val mixed = vm.uiState.value.selection!!
+        assertTrue(mixed.holds(there) && mixed.holds(at + Offset(30f, 0f)) && !mixed.holds(at))
+        // Replacing: New is just the new lasso.
+        vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.NEW))
+        vm.onSelectionEnd(box(there, 30f), canvas)
+        val fresh = vm.uiState.value.selection!!
+        assertTrue(fresh.holds(there) && !fresh.holds(at + Offset(30f, 0f)))
+    }
+
+    @Test
+    fun `a moved lasso keeps following and undo restores its image regions, saved lassos load back`() {
+        val (_, first) = lassoOnFace(r = 50f)
+        vm.onSurfaceSelectionMove("p", Offset(40f, 0f))
+        val moved = vm.uiState.value.selection!!
+        assertNotNull("a moved lasso still follows the surface", moved.surface)
+        assertTrue(moved.rings != first.rings)
+        vm.onUndoClicked()
+        assertEquals(first.surface, vm.uiState.value.selection!!.surface)
+        assertEquals(first.rings, vm.uiState.value.selection!!.rings)
+        vm.onSaveSelection("lasso")
+        vm.onClearSelection()
+        vm.onLoadSelection("lasso")
+        assertEquals(first, vm.uiState.value.selection)
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        assertEquals(first.surface, vm.uiState.value.selection!!.surface)
+    }
+
+    @Test
+    fun `a lasso on a flat layer is unchanged`() {
+        val layer = Layer(id = "f", name = "F", bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888))
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
+        vm.dispatchForTest(EditorIntent.ActivateLayer("f"))
+        val pts = box(Offset(850f, 600f), 100f)
+        vm.onSelectionEnd(pts, canvas)
+        val sel = vm.uiState.value.selection!!
+        assertEquals(null, sel.surface)
+        assertEquals(SelectionGeometry.compose(null, SelectionGeometry.simplify(pts), canvas, com.hereliesaz.graffitixr.common.model.SelectionOp.NEW), sel)
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        assertTrue("a flat selection is not re-derived", sel === vm.uiState.value.selection)
+    }
 }
