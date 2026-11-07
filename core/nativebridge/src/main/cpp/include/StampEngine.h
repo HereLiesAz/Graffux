@@ -297,6 +297,10 @@ StampTuning& stampTuning();
 // created after the call. Loads the wgpu library; a no-op when it or the symbol is missing.
 void setPipelineCacheDir(const char* dir);
 
+// Why the last engine creation failed: the library's load failure, or the Rust report (adapters seen,
+// limits, device error, wgpu log). Empty when nothing has been attempted.
+std::string wgpuLastInitReport();
+
 // Allocates an uninitialized engine (the wgpu adapter).
 StampEngine* createStampEngine();
 

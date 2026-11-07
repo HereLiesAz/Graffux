@@ -61,11 +61,7 @@ object GpuStampEngineSelfTest {
         val red = 0xFFFF0000.toInt()
         val bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
         return when {
-            !engine.init(SIZE, SIZE) -> failure(
-                "init() failed — the wgpu engine found no usable GPU adapter (or the library is " +
-                    "missing from this build). Strokes draw on the CPU on this device. Check " +
-                    "logcat tag WgpuStampEngine for the reason.",
-            )
+            !engine.init(SIZE, SIZE) -> failure(GpuInitReport.failureMessage(GpuStampEngine.lastInitReport()))
             !engine.stampDabs(dabs, red, hardness = 0.4f) -> failure(
                 "stampDabs() failed after a successful init() — the dispatch itself was " +
                     "rejected. Check logcat tag WgpuStampEngine.",

@@ -8,6 +8,7 @@
 
 pub mod adjust;
 pub mod capi;
+pub mod diag;
 pub mod draft;
 pub mod engine;
 pub mod jni_api;

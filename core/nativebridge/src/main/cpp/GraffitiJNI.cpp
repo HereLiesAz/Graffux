@@ -803,6 +803,14 @@ Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeSetPipelineCach
     JNI_CATCH()
 }
 
+// Why the last engine creation failed, for the Settings test and the crash breadcrumbs.
+JNIEXPORT jstring JNICALL
+Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeLastInitReport(JNIEnv* env, jobject) {
+    JNI_TRY
+    return env->NewStringUTF(graffux::wgpuLastInitReport().c_str());
+    JNI_CATCH(jstring())
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_hereliesaz_graffitixr_nativebridge_GpuStampEngine_nativeGpuInfo(JNIEnv* env, jobject, jlong handle) {
     JNI_TRY

@@ -89,6 +89,25 @@ pub extern "C" fn gfx_wgpu_create_tuned(
     })
 }
 
+/// Writes the most recent engine creation's report (every adapter considered, why each was
+/// passed over, the limits, the device error and wgpu's own explanatory log lines) as
+/// NUL-terminated UTF-8; returns the full length. Meaningful after `gfx_wgpu_create*` returned null.
+///
+/// # Safety
+/// `out` must point to `capacity` writable bytes (or be null with capacity 0).
+#[no_mangle]
+pub unsafe extern "C" fn gfx_wgpu_last_init_report(out: *mut c_char, capacity: usize) -> usize {
+    guard(0, || {
+        let text = crate::diag::last_report();
+        if !out.is_null() && capacity > 0 {
+            let n = text.len().min(capacity - 1);
+            std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, n);
+            *out.add(n) = 0;
+        }
+        text.len()
+    })
+}
+
 /// Writes NUL-terminated `key=value` lines describing the adapter (see `Engine::gpu_info`);
 /// returns the full length.
 ///
