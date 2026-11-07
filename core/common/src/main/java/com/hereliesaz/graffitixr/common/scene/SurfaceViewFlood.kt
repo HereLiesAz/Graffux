@@ -1,4 +1,4 @@
-@file:Suppress("LoopWithTooManyJumpStatements")
+@file:Suppress("LoopWithTooManyJumpStatements", "CyclomaticComplexMethod")
 
 package com.hereliesaz.graffitixr.common.scene
 

@@ -6,6 +6,7 @@
     "LoopWithTooManyJumpStatements",
     "ComplexCondition",
     "MaxLineLength",
+    "TooManyFunctions",
 )
 
 package com.hereliesaz.graffitixr.feature.editor

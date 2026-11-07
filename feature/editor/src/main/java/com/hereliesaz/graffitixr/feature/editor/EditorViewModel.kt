@@ -6750,11 +6750,14 @@ class EditorViewModel @Inject constructor(
      * surface) changes, so loading one whose regions match the current selection would otherwise keep the old pose.
      */
     private fun footprintNow(selection: Selection?): Selection? {
-        val id = selection?.surface?.surfaceId ?: return selection
         val st = _uiState.value
-        if (selection.canvasSize != st.canvasSize) return selection
-        val ctx = surfaceCtx(st, id) ?: return selection
-        return SurfaceViewSelection.refresh(selection, ctx.owner, ctx.projection, ctx.w, ctx.h)
+        val surface = selection?.surface?.takeIf { selection.canvasSize == st.canvasSize }
+        val ctx = surface?.let { surfaceCtx(st, it.surfaceId) }
+        return if (selection == null || ctx == null) {
+            selection
+        } else {
+            SurfaceViewSelection.refresh(selection, ctx.owner, ctx.projection, ctx.w, ctx.h)
+        }
     }
 
     /** [selection] moved by [delta]; a surface selection is rebound to the images so it keeps following. */
@@ -6939,7 +6942,7 @@ class EditorViewModel @Inject constructor(
     }
 
     /** One command per view image that loses or gains pixels in a surface move, as one gesture. */
-    @Suppress("LongParameterList", "CyclomaticComplexMethod", "MaxLineLength")
+    @Suppress("LongParameterList", "CyclomaticComplexMethod", "MaxLineLength", "LongMethod")
     private fun commitSurfaceMove(
         ids: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, String>,
         cuts: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, Selection?>,
@@ -11187,7 +11190,8 @@ class EditorViewModel @Inject constructor(
             // No `?: saved.selection` fallback -- same reasoning as onAutoSelect: compose()
             // returning null (Remove with nothing selected) must stay a no-op, not silently load
             // the whole saved selection as if New had been picked.
-            dispatch(EditorIntent.SetSelection(footprintNow(composeTraced(saved.selection, state.selectionOp, state.selection))))
+            val composed = composeTraced(saved.selection, state.selectionOp, state.selection)
+            dispatch(EditorIntent.SetSelection(footprintNow(composed)))
         }
     }
 
