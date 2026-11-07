@@ -13,6 +13,7 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
+use crate::diag;
 use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
 use crate::timing::{GpuTimer, PassKind};
 
@@ -653,6 +654,15 @@ pub const STAMP_WGSL: &str = include_str!("shaders/stamp.wgsl");
 pub const STAMP_MASKED_WGSL: &str = include_str!("shaders/stamp_masked.wgsl");
 pub const COLOR_SMUDGE_WGSL: &str = include_str!("shaders/color_smudge.wgsl");
 
+/// Why one creation attempt ended (the detail is in the [`diag::Report`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InitFailure {
+    /// No adapter with compute support was exposed.
+    NoAdapter,
+    /// An adapter was found but unusable (limits, device refused, bad size).
+    Other,
+}
+
 impl Engine {
     /// `StampEngine::init`. `None` when there is no usable adapter (no GPU, no compute support,
     /// the layer does not fit the device's limits, or device creation failed): the desktop
@@ -689,25 +699,83 @@ impl Engine {
         Self::with_backends_and_options(width, height, backends, EngineOptions::default())
     }
 
-    /// [`Engine::with_backends`] with per-device tuning.
+    /// [`Engine::with_backends`] with per-device tuning. `None` leaves the reason in
+    /// [`crate::diag::last_report`].
     pub fn with_backends_and_options(
         width: i32,
         height: i32,
         backends: wgpu::Backends,
         options: EngineOptions,
     ) -> Option<Engine> {
+        let mut report = diag::Report::default();
+        diag::begin(&mut report);
+        report.note(format!(
+            "requested backends={backends:?} layer={width}x{height} stamp_tile={} timestamps={}",
+            options.stamp_tile, options.timestamps
+        ));
+        let mut result = Self::try_create(width, height, backends, options, false, &mut report);
+        // Only when the strict pass found no adapter at all: wgpu-hal hides a Vulkan driver whose
+        // conformance version reads 0 (vulkan/adapter.rs, "Adapter is not Vulkan compliant, hiding
+        // adapter") unless ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER is set. Devices that already
+        // start never take this path, so none changes behaviour.
+        if matches!(result, Err(InitFailure::NoAdapter)) && backends.contains(wgpu::Backends::VULKAN)
+        {
+            report.note("retrying with ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER (non-conformant Vulkan drivers allowed)");
+            result = Self::try_create(width, height, backends, options, true, &mut report);
+        }
+        diag::end();
+        let engine = match result {
+            Ok(e) => {
+                report.note(format!("ok: {}", e.adapter_description()));
+                Some(e)
+            }
+            Err(f) => {
+                report.note(format!("FAILED: {f:?}"));
+                None
+            }
+        };
+        report.publish();
+        engine
+    }
+
+    fn try_create(
+        width: i32,
+        height: i32,
+        backends: wgpu::Backends,
+        options: EngineOptions,
+        allow_noncompliant: bool,
+        report: &mut diag::Report,
+    ) -> Result<Engine, InitFailure> {
         if width <= 0 || height <= 0 {
-            return None;
+            report.note("layer size must be positive");
+            return Err(InitFailure::Other);
         }
         let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
         instance_desc.backends = backends;
+        if allow_noncompliant {
+            instance_desc.flags |= wgpu::InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER;
+        }
         let instance = wgpu::Instance::new(instance_desc);
         // Prefer a non-GL adapter when several are available (Auto); fall back to anything.
         let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+        if adapters.is_empty() {
+            report.note("enumerate_adapters returned no adapters");
+        }
         let mut best: Option<wgpu::Adapter> = None;
-        for adapter in adapters {
+        for (index, adapter) in adapters.into_iter().enumerate() {
             let caps = adapter.get_downlevel_capabilities();
-            if !caps.flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS) {
+            let compute = caps.flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS);
+            let i = adapter.get_info();
+            report.note(diag::adapter_line(
+                index,
+                &format!("{:?}", i.backend),
+                &i.name,
+                &format!("{:?}", i.device_type),
+                &i.driver,
+                &i.driver_info,
+                compute,
+            ));
+            if !compute {
                 continue;
             }
             let rank = |a: &wgpu::Adapter| -> i32 {
@@ -727,18 +795,12 @@ impl Engine {
                 best = Some(adapter);
             }
         }
-        let adapter = best?;
+        let Some(adapter) = best else {
+            return Err(InitFailure::NoAdapter);
+        };
         let limits = adapter.limits();
         let layer_bytes = width as u64 * height as u64 * 4;
         let state_bytes = layer_bytes * 2;
-        if state_bytes > limits.max_storage_buffer_binding_size as u64
-            || state_bytes > limits.max_buffer_size
-        {
-            log::warn!(
-                "graffux-wgpu: {width}x{height} exceeds this adapter's storage buffer limits"
-            );
-            return None;
-        }
         let fits = |tile: u32| {
             limits.max_compute_invocations_per_workgroup >= tile * tile
                 && limits.max_compute_workgroup_size_x >= tile
@@ -750,8 +812,25 @@ impl Engine {
             DEFAULT_STAMP_TILE
         };
         let stamp_tile = if fits(wanted) { wanted } else { 8 };
+        report.note(diag::limits_line(
+            state_bytes,
+            limits.max_storage_buffer_binding_size as u64,
+            limits.max_buffer_size,
+            limits.max_storage_buffers_per_shader_stage,
+            limits.max_compute_invocations_per_workgroup,
+            limits.max_compute_workgroup_size_x,
+            limits.max_compute_workgroup_size_y,
+            stamp_tile,
+        ));
+        if state_bytes > limits.max_storage_buffer_binding_size as u64
+            || state_bytes > limits.max_buffer_size
+        {
+            report.note("layer does not fit the adapter's storage buffer limits");
+            return Err(InitFailure::Other);
+        }
         if !fits(stamp_tile) || limits.max_storage_buffers_per_shader_stage < 3 {
-            return None;
+            report.note("adapter limits below the stamp shader's needs");
+            return Err(InitFailure::Other);
         }
         // Timestamps only when the adapter offers them; fp16 (SHADER_F16) is reported, never
         // requested -- there is no f16 shader path yet (Kotlin GpuTierTable keeps it off).
@@ -764,13 +843,21 @@ impl Engine {
         };
         let shader_f16 = adapter.features().contains(wgpu::Features::SHADER_F16);
         let cache_feature = pcache::feature(&adapter);
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        let required_features = timing_features | cache_feature;
+        let (device, queue) = match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("graffux-wgpu"),
-            required_features: timing_features | cache_feature,
+            required_features,
             required_limits: limits.clone(),
             ..Default::default()
-        }))
-        .ok()?;
+        })) {
+            Ok(dq) => dq,
+            Err(e) => {
+                report.note(format!(
+                    "request_device failed: {e} (required_features={required_features:?}, limits = the adapter's own)"
+                ));
+                return Err(InitFailure::Other);
+            }
+        };
         let error = Arc::new(AtomicBool::new(false));
         let disk_cache = pcache::DiskCache::open(&adapter, &device);
         {
@@ -797,7 +884,7 @@ impl Engine {
         engine.save_pipeline_cache();
         engine.instance = Some(instance);
         engine.adapter = Some(adapter);
-        Some(engine)
+        Ok(engine)
     }
 
     fn build(

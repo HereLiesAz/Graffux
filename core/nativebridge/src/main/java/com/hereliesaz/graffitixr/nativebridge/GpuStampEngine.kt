@@ -315,6 +315,23 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             runCatching { helper().nativeSetPipelineCacheDir(dir?.absolutePath) }
         }
 
+        /**
+         * Why the most recent engine creation failed (adapters seen, limits, device error, wgpu's own
+         * log lines, or the library load failure); empty if the native call itself fails.
+         */
+        @JvmStatic
+        fun lastInitReport(): String = runCatching { helper().nativeLastInitReport() }.getOrNull().orEmpty()
+
+        @Volatile private var lastRecordedInitFailure: String? = null
+
+        /** One breadcrumb per distinct failure (every stroke retries init; the ring is only 30). */
+        private fun recordInitFailure() {
+            val report = GpuInitReport.compact(lastInitReport())
+            if (report == lastRecordedInitFailure) return
+            lastRecordedInitFailure = report
+            runCatching { com.hereliesaz.graffitixr.common.crash.Breadcrumbs.record("GPU engine init failed: $report") }
+        }
+
         @JvmStatic
         fun applyTuning(stampTile: Int, timestamps: Boolean) {
             runCatching { helper().nativeSetStampTuning(stampTile, timestamps) }
@@ -541,7 +558,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
             }
             handle
         }
-        if (created != 0L) onCreated(created)
+        if (created != 0L) onCreated(created) else recordInitFailure()
         nativeHandle = created
         poolKey = if (created != 0L) key else null
         healthy = created != 0L
@@ -1272,6 +1289,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     private external fun nativeDeviceLost(handle: Long): Boolean
     private external fun nativeSetStampTuning(stampTile: Int, timestamps: Boolean)
     private external fun nativeSetPipelineCacheDir(dir: String?)
+    private external fun nativeLastInitReport(): String?
     private external fun nativeGpuInfo(handle: Long): String?
     private external fun nativeTakePassTimings(handle: Long): LongArray?
     private external fun nativeDirectCapabilities(handle: Long): Int

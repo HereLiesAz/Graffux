@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <string>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -46,6 +47,7 @@ struct Api {
                         float, const uint8_t*, int32_t, int32_t);
     void (*benchmarkInfo)(GfxWgpuEngine*, uint32_t*, uint64_t*);
     bool (*readback)(GfxWgpuEngine*, uint8_t*, size_t);
+    size_t (*lastInitReport)(char*, size_t);
     size_t (*adapterDescription)(GfxWgpuEngine*, char*, size_t);
     // Optional (resident layers, rectangle readback): a library without them still loads; the
     // adapter then falls back to StampEngine's defaults (no residency, whole-layer rect reports).
@@ -121,6 +123,7 @@ struct Api {
 };
 
 std::once_flag gLoadOnce;
+std::string gLoadFailure;  // why libgraffux_wgpu.so did not load (set once, before gLoaded)
 Api gApi{};
 bool gLoaded = false;
 
@@ -142,7 +145,9 @@ void load() {
     const char* override = std::getenv("GRAFFUX_WGPU_LIB");
     void* lib = dlopen(override != nullptr ? override : "libgraffux_wgpu.so", RTLD_NOW | RTLD_LOCAL);
     if (lib == nullptr) {
-        WGPU_LOGW("libgraffux_wgpu.so unavailable: %s", dlerror());
+        const char* err = dlerror();
+        gLoadFailure = std::string("libgraffux_wgpu.so did not load: ") + (err != nullptr ? err : "unknown dlopen error");
+        WGPU_LOGW("%s", gLoadFailure.c_str());
         return;
     }
     Api a{};
@@ -156,7 +161,9 @@ void load() {
               resolve(lib, "gfx_wgpu_benchmark_info", a.benchmarkInfo) &&
               resolve(lib, "gfx_wgpu_readback", a.readback) &&
               resolve(lib, "gfx_wgpu_adapter_description", a.adapterDescription);
+    if (!gLoaded) gLoadFailure = "libgraffux_wgpu.so loaded but a required symbol is missing (see logcat WgpuStampEngine)";
     if (gLoaded) {
+        optional(lib, "gfx_wgpu_last_init_report", a.lastInitReport);
         optional(lib, "gfx_wgpu_readback_rect", a.readbackRect);
         optional(lib, "gfx_wgpu_device_lost", a.deviceLost);
         const bool resident = optional(lib, "gfx_wgpu_bind_layer", a.bindLayer) &&
@@ -231,6 +238,16 @@ bool WgpuStampEngine::libraryAvailable() {
     return gLoaded;
 }
 
+std::string wgpuLastInitReport() {
+    if (!WgpuStampEngine::libraryAvailable()) return gLoadFailure;
+    if (gApi.lastInitReport == nullptr) return "libgraffux_wgpu.so predates init reports (no gfx_wgpu_last_init_report)";
+    const size_t n = gApi.lastInitReport(nullptr, 0);
+    std::string text(n + 1, '\0');
+    gApi.lastInitReport(text.data(), text.size());
+    text.resize(n);
+    return text;
+}
+
 void setPipelineCacheDir(const char* dir) {
     if (WgpuStampEngine::libraryAvailable() && gApi.setPipelineCacheDir != nullptr) gApi.setPipelineCacheDir(dir);
 }
@@ -245,7 +262,7 @@ bool WgpuStampEngine::init(int width, int height) {
                   ? gApi.createTuned(width, height, 0, tuning.stampTile.load(), tuning.timestamps.load())
                   : gApi.create(width, height, 0);
     if (engine_ == nullptr) {
-        WGPU_LOGW("no wgpu adapter with compute support");
+        WGPU_LOGW("wgpu engine init failed: %s", wgpuLastInitReport().c_str());
         return false;
     }
     width_ = width;

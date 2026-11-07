@@ -63,6 +63,8 @@ bool gfx_wgpu_color_smudge(GfxWgpuEngine* e, const void* dabs, size_t count, int
 void gfx_wgpu_benchmark_info(GfxWgpuEngine* e, uint32_t* ids, uint64_t* nanos);
 bool gfx_wgpu_readback(GfxWgpuEngine* e, uint8_t* out, size_t capacity);
 size_t gfx_wgpu_adapter_description(GfxWgpuEngine* e, char* out, size_t capacity);
+// Why the last gfx_wgpu_create* failed (adapters seen, limits, device error, wgpu log); returns the full length.
+size_t gfx_wgpu_last_init_report(char* out, size_t capacity);
 
 // Dirty-rect readback: gfx_wgpu_readback plus the rectangle copied, rect = {x, y, w, h} (zeros when
 // nothing was dirty). Only that rectangle crosses from the GPU.
