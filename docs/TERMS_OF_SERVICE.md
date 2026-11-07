@@ -131,11 +131,17 @@ services. Sections 3, 4, 8, 10, 11, 13 and 14 survive termination.
 
 ## 13. Governing Law and Disputes
 
-These Terms are governed by the laws of the State of Louisiana, United States, without regard to its
-conflict-of-law rules. Courts located in Orleans Parish, Louisiana, have jurisdiction over disputes,
-except that where the law of your country gives you the right to bring a claim in your home courts, that
-right is not affected. Before filing a claim, please contact us (section 15) and give us a chance to
-resolve it.
+The App is used worldwide, and these Terms do not take away protections the law of your own country
+gives you.
+
+- **Your local law.** Mandatory consumer-protection and data-protection rights where you live apply to
+  you whatever these Terms say. Nothing here limits them or stops you from bringing a claim in the courts
+  of your own country where the law gives you that right.
+- **Otherwise.** For anything those rules do not cover, these Terms are governed by the laws of the
+  developer's place of residence, without regard to its conflict-of-law rules, and disputes are decided in
+  the courts there.
+- **Talk to us first.** Before filing a claim, please contact us (section 15) and give us a chance to
+  resolve it.
 
 ## 14. General
 
