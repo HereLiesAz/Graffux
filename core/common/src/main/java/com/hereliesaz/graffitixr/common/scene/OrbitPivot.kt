@@ -144,19 +144,18 @@ object OrbitPivot {
             val near = SceneMath.nearPlane(cam.focal)
             val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
             val point: FloatArray
-            val distance: Float
             if (hull != null) {
                 val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
                 val d = inv.applyVector(dir[0], dir[1], dir[2])
                 val hit = hull.hit(eye, d, near) ?: continue
                 point = model.apply(hit.x, hit.y, hit.z)
-                distance = SceneMath.dot(cam.toCamera(point), floatArrayOf(0f, 0f, 1f))
             } else {
                 val hit = SurfaceMath.hit(x, y, profile, model, cam) ?: continue
                 val local = profile.at(hit.u, hit.t)
                 point = model.apply(local[0], local[1], local[2])
-                distance = hit.distance
             }
+            // Both branches compare the same thing: the (squared) straight distance from the eye to the hit.
+            val distance = FloatArray(3) { point[it] - cam.eye[it] }.let { SceneMath.dot(it, it) }
             if (distance < bestDistance) { bestDistance = distance; best = point }
         }
         best?.let { return it }

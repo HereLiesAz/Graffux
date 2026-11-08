@@ -153,4 +153,23 @@ class OrbitPivotTest {
         assertEquals(700f, back.first, 0.5f)
         assertEquals(300f, back.second, 0.5f)
     }
+
+    @Test
+    fun `a sheet in front wins over a hull behind it, off the image centre`() {
+        // Tap at (1000, 800) on a 1000 x 1600 canvas, default camera: the sheet at z = 0 is nearer along
+        // the ray than the hull whose front face is at z = 40, though that hull's camera depth is smaller.
+        val sheet = group("sheet", 0f, 0f, 0f, 1200f, 0f, 0f).let {
+            it.copy(surface = it.surface!!.copy(sweepX = 0f, sweepY = 1f, sweepZ = 0f))
+        }
+        val square = listOf(950f to 750f, 1050f to 750f, 1050f to 850f, 950f to 850f)
+        val front = SurfaceProfile(square.flatMap { listOf(it.first, it.second, 0f) }, 0f, 0f, 1f)
+        val sideView = SurfaceProfile(listOf(0f, 750f, 40f, 0f, 750f, 140f, 0f, 850f, 140f, 0f, 850f, 40f), 1f, 0f, 0f)
+        val topView = SurfaceProfile(listOf(950f, 0f, 40f, 1050f, 0f, 40f, 1050f, 0f, 140f, 950f, 0f, 140f), 0f, 1f, 0f)
+        val hull = Layer(
+            id = "hull", name = "hull", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            surface = front.copy(side = sideView, top = topView),
+        )
+        val p = OrbitPivot.pick(listOf(hull, sheet), SceneCamera(), 1000f, 800f, w, h, floatArrayOf(500f, 800f, 400f))
+        assertEquals(0f, p[2], 0.5f)
+    }
 }
