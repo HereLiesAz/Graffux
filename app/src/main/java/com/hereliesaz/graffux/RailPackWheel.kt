@@ -237,6 +237,31 @@ internal fun wrapOffset(index: Int, position: Float, count: Int): Float {
     return d - count * kotlin.math.round(d / count)
 }
 
+/**
+ * The slots drawn with the wheel at [position]: whole-number places on the unbounded ring within
+ * the drawing window of the pointer. A pack is [wrapIndex] of its slot, so with few packs the same
+ * pack shows in more than one slot, and each slot moves continuously as the wheel turns.
+ */
+internal fun packVisibleSlots(position: Float): IntRange {
+    val reach = PACK_VISIBLE_DEGREES / PACK_WEDGE_DEGREES
+    return kotlin.math.ceil(position - reach).toInt()..kotlin.math.floor(position + reach).toInt()
+}
+
+/** The spoke angle of slot [slot] (an unwrapped place on the ring) with the wheel at [position]. */
+internal fun packSlotDegrees(slot: Int, position: Float, opensRight: Boolean): Float =
+    packSpokeDegrees(slot, position, opensRight)
+
+/**
+ * Where pack [index]'s accessibility node sits: its copy in `[-reach, count - reach)` of the
+ * pointer, with the reach of the drawing window. It only changes copy at the window's edge, where
+ * the name is not drawn, so it follows the name instead of crossing the disc.
+ */
+internal fun packNodeOffset(index: Int, position: Float, count: Int): Float {
+    val reach = maxOf(count / 2f, PACK_VISIBLE_DEGREES / PACK_WEDGE_DEGREES)
+    val d = index - position
+    return d - count * kotlin.math.floor((d + reach) / count)
+}
+
 /** The spoke angle of pack [index] on the ring of [count] packs, with the wheel at [position]. */
 internal fun packSpokeDegreesWrapped(index: Int, position: Float, count: Int, opensRight: Boolean): Float =
     packPointerDegrees(opensRight) + packDirection(opensRight) * wrapOffset(index, position, count) * PACK_WEDGE_DEGREES
@@ -522,7 +547,7 @@ private fun PackWheelDisc(
             val hair = 1.dp.toPx()
             // The spokes between names, turning with them.
             for (k in -5..4) {
-                val a = packSpokeDegreesWrapped(pointed, pos, count, opensRight) + (k + 0.5f) * PACK_WEDGE_DEGREES
+                val a = packSlotDegrees(pos.roundToInt(), pos, opensRight) + (k + 0.5f) * PACK_WEDGE_DEGREES
                 if (abs(angleDelta(pointer, a)) > 90f) continue
                 val rad = a * PI.toFloat() / HALF_TURN
                 drawLine(
@@ -556,11 +581,12 @@ private fun PackWheelDisc(
                 colors.primary, Offset(hub.x + out * capPx, hub.y), Offset(hub.x + out * (textIn - 6.dp.toPx()), hub.y),
                 strokeWidth = 3.dp.toPx(),
             )
-            layouts.forEachIndexed { i, (plain, bold) ->
-                val spoke = packSpokeDegreesWrapped(i, pos, count, opensRight)
+            for (slot in packVisibleSlots(pos)) {
+                val (plain, bold) = layouts[wrapIndex(slot, count)]
+                val spoke = packSlotDegrees(slot, pos, opensRight)
                 val off = abs(angleDelta(pointer, spoke))
-                if (off > PACK_VISIBLE_DEGREES) return@forEachIndexed
-                val lit = wrapOffset(i, pos, count) in -0.5f..0.5f
+                if (off > PACK_VISIBLE_DEGREES) continue
+                val lit = (slot - pos) in -0.5f..0.5f
                 val text = if (lit) bold else plain
                 val fade = (1f - (off / PACK_VISIBLE_DEGREES).let { it * it } * 0.6f)
                 val color = if (lit) colors.onSurface else colors.onSurface.copy(alpha = DIM_ALPHA * fade)
@@ -581,7 +607,9 @@ private fun PackWheelDisc(
             Box(
                 Modifier
                     .offset {
-                        val deg = packSpokeDegreesWrapped(i, position.floatValue, count, opensRight)
+                        val deg = packPointerDegrees(opensRight) +
+                            packDirection(opensRight) * packNodeOffset(i, position.floatValue, count) *
+                            PACK_WEDGE_DEGREES
                         val spoke = deg * (PI / HALF_TURN).toFloat()
                         IntOffset(
                             (hub.x + itemR * cos(spoke) - itemPx / 2).roundToInt(),

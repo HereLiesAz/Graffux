@@ -75,4 +75,32 @@ class PackWheelWrapTest {
         state.close()
         assertFalse(state.open)
     }
+
+    @Test
+    fun brushSheetStaysUpOnEveryBrushContextPack() {
+        for (c in listOf(CarouselCategory.FAVORITES, CarouselCategory.BRUSHES, CarouselCategory.INK)) {
+            assertTrue(c.name, CarouselUi(c, sheetOpen = true).brushSheetUp(true, Tool.BRUSH))
+        }
+        assertFalse(CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true).brushSheetUp(true, Tool.BRUSH))
+    }
+
+    @Test
+    fun slotAngleIsContinuousAcrossTheOldFoldPoint() {
+        // Three packs: pack 2's single folded copy used to jump from -35.76 to +35.76 at 0.5.
+        val before = packSlotDegrees(2, 0.49f, true)
+        val after = packSlotDegrees(2, 0.51f, true)
+        assertTrue(kotlin.math.abs(after - before) < 1f)
+        // Both copies of pack 2 (slots -1 and 2) are drawn at once, at distinct angles.
+        val slots = packVisibleSlots(0.5f).filter { wrapIndex(it, 3) == 2 }
+        assertEquals(listOf(-1, 2), slots)
+    }
+
+    @Test
+    fun visibleSlotsStayInsideTheDrawingWindow() {
+        for (pos in listOf(0f, 0.3f, 2.5f, -7.2f)) {
+            for (n in packVisibleSlots(pos)) {
+                assertTrue(kotlin.math.abs(n - pos) * PACK_WEDGE_DEGREES <= 84f + 1e-3f)
+            }
+        }
+    }
 }

@@ -45,8 +45,10 @@ internal fun CarouselUi.afterCanvasTouch(activeTool: Tool): CarouselUi {
 }
 
 /**
- * Whether the brush sheet is up: shown, open, on the Brushes page, with the brush or eraser in hand.
+ * Whether the brush sheet is up: shown, open, on a brush-context page (Favorites, Brushes, Ink),
+ * with the brush or eraser in hand.
  * The pack wheel stays open exactly while this holds.
  */
 internal fun CarouselUi.brushSheetUp(showCarousel: Boolean, activeTool: Tool): Boolean =
-    showCarousel && sheetOpen && !photo && category == CarouselCategory.BRUSHES && activeTool in PACK_WHEEL_TOOLS
+    showCarousel && sheetOpen && !photo && carouselContextOf(category) == CarouselContext.BRUSHES &&
+        activeTool in PACK_WHEEL_TOOLS
