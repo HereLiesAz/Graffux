@@ -2238,9 +2238,89 @@ class EditorViewModelTest {
         assertEquals(RotationAxis.Y, viewModel.rotationSliderAxis())
         sliderDrag(-60f)
         val layer = viewModel.uiState.value.layers.single()
-        assertEquals(-60f, layer.rotationY, 0.01f)
-        assertEquals(10f, layer.rotationX, 0.01f)
-        assertEquals(0f, layer.rotationZ, 0.01f)
+        // Body-fixed: the layer was turned 60 about its OWN Y, after the 10 about its X.
+        assertEquals(-60f, viewModel.rotationSliderValue()!!, 0.01f)
+        val expected = SceneMath.mul3(SceneMath.rotation(10f, 0f, 0f), SceneMath.axisRotation(RotationAxis.Y, -60f))
+        val got = SceneMath.rotation(layer.rotationX, layer.rotationY, layer.rotationZ)
+        for (i in 0..8) assertEquals("m[$i]", expected[i], got[i], 1e-4f)
+    }
+
+    private fun bodyLine(axis: RotationAxis): FloatArray {
+        val l = viewModel.uiState.value.layers.single()
+        val r = SceneMath.rotation(l.rotationX, l.rotationY, l.rotationZ)
+        val c = axis.ordinal
+        return floatArrayOf(r[c], r[3 + c], r[6 + c])
+    }
+
+    private fun assertLine(msg: String, a: FloatArray, b: FloatArray) {
+        for (i in 0..2) assertEquals("$msg[$i]", a[i], b[i], 1e-3f)
+    }
+
+    private fun threeDLayer() = pivotSetup(lyr("a").copy(positionZ = 1f))
+
+    @Test
+    fun `Z 90 then the X slider turns about the line through sides 1 and 3`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        threeDLayer()
+        setAxis(RotationAxis.Z)
+        sliderDrag(90f)
+        // Sides 1 and 3 are now where 2 and 4 began: the object's X line is the scene's vertical.
+        assertLine("X line", floatArrayOf(0f, 1f, 0f), bodyLine(RotationAxis.X))
+        setAxis(RotationAxis.X)
+        val sideEnd = boxPoint("a", 1000f, 800f, 0f) // the +X end of the layer's centre line
+        val centre = boxPoint("a", 500f, 800f, 0f)
+        sliderDrag(40f)
+        assertLine("X line after the X turn", floatArrayOf(0f, 1f, 0f), bodyLine(RotationAxis.X))
+        assertEquals(40f, viewModel.rotationSliderValue()!!, 0.01f)
+        // The line is the axis of this turn about the pivot, so its direction is unchanged even
+        // though the layer swung round the pivot.
+        val after = boxPoint("a", 1000f, 800f, 0f).zip(boxPoint("a", 500f, 800f, 0f)) { e, c -> e - c }
+        val before = sideEnd.zip(centre) { e, c -> e - c }
+        assertEquals(before.map { it * it }.sum(), after.map { it * it }.sum(), 1f)
+        assertEquals(1f, (0..2).sumOf { (after[it] * bodyLine(RotationAxis.X)[it]).toDouble() }.toFloat() / 500f, 1e-3f)
+    }
+
+    @Test
+    fun `X then Y then X turns about the object's own lines, and returning to X continues from where it was`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        threeDLayer()
+        for ((axis, to) in listOf(RotationAxis.X to 30f, RotationAxis.Y to 50f, RotationAxis.X to 55f)) {
+            setAxis(axis)
+            val own = bodyLine(axis)
+            val start = viewModel.rotationSliderValue()!!
+            sliderDrag(to)
+            assertLine("$axis line", own, bodyLine(axis))
+            assertEquals("$axis reading", to, viewModel.rotationSliderValue()!!, 0.01f)
+            assertTrue(start != to)
+        }
+    }
+
+    @Test
+    fun `a body-axis turn is one undo step, and undo and redo restore the exact pose`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        threeDLayer()
+        setAxis(RotationAxis.X)
+        sliderDrag(30f)
+        setAxis(RotationAxis.Y)
+        val posed = viewModel.uiState.value.layers.single()
+        val undo = viewModel.uiState.value.undoCount
+        sliderDrag(20f, 50f)
+        val turned = viewModel.uiState.value.layers.single()
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undone = viewModel.uiState.value.layers.single()
+        assertEquals(posed.rotationX, undone.rotationX, 1e-4f)
+        assertEquals(posed.rotationY, undone.rotationY, 1e-4f)
+        assertEquals(posed.rotationZ, undone.rotationZ, 1e-4f)
+        assertEquals(posed.offset, undone.offset)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val redone = viewModel.uiState.value.layers.single()
+        assertEquals(turned.rotationX, redone.rotationX, 1e-4f)
+        assertEquals(turned.rotationY, redone.rotationY, 1e-4f)
+        assertEquals(turned.rotationZ, redone.rotationZ, 1e-4f)
+        assertEquals(50f, viewModel.rotationSliderValue()!!, 0.01f)
     }
 
     @Test

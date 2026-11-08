@@ -658,6 +658,11 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+- **Body-fixed rotation axes.** A layer's or group's X/Y/Z are lines of the object. `SceneMath.rotatePoseAbout`
+  (used by the rotation slider, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
+  result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
+  projects (format unchanged) read what they always did. The slider thumb is `SceneMath.bodyAngle`, a stateless function
+  of the orientation. See spec/3d-space.md, "Body-fixed axes".
 - **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
   layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
