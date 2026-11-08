@@ -443,15 +443,25 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 1d. The surface guide grid (spec/3d-space.md, "Guide grid"): the active layer's group's
-        // surface in perspective, overlay only (never exported). World space, like the guides.
-        val gridGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId(
-            uiState.layers, uiState.activeLayerId, uiState.surfaceGridVisible,
-        )
-        if (gridGroup != null && boxWidth > 0f && boxHeight > 0f) {
-            SurfaceGuideGrid(
-                uiState, gridGroup, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.surfaceGrid"),
+        // 1d. The surface wire mesh (spec/3d-space.md, "Guide grid"): every visible group's surface in
+        // perspective, overlay only (never exported). World space, like the guides.
+        if (boxWidth > 0f && boxHeight > 0f) {
+            // Animation Assist hides inactive frames (the layer stack skips them), so their meshes go too;
+            // pinned-across-frames layers stay at 1.
+            val gridGroups = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupIds(
+                uiState.layers, uiState.surfaceGridVisible,
+                if (!uiState.isAnimationMode) emptyMap() else AnimationFrames.effectiveOpacities(
+                    uiState.layers, uiState.activeFrameIndex, uiState.onionSkinEnabled,
+                    uiState.onionSkinPastCount, uiState.onionSkinFutureCount,
+                ),
             )
+            for (gridGroup in gridGroups) {
+                key(gridGroup) {
+                    SurfaceGuideGrid(
+                        uiState, gridGroup, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.surfaceGrid"),
+                    )
+                }
+            }
         }
         } // end infinite-canvas camera container
 

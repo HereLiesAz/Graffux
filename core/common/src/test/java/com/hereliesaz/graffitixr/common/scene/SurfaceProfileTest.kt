@@ -205,18 +205,40 @@ class SurfaceProfileTest {
     }
 
     @Test
-    fun `only the active layer's group shows its grid, and only while the toggle is on`() {
+    fun `every visible group shows its grid, and only while the toggle is on`() {
         val floor = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)
         val layers = listOf(
             Layer("a", "A", type = LayerType.GROUP, surface = floor), Layer("a1", "A1", parentId = "a"),
             Layer("b", "B", type = LayerType.GROUP, surface = floor), Layer("b1", "B1", parentId = "b"),
+            Layer("hid", "Hidden", type = LayerType.GROUP, surface = floor, isVisible = false),
+            Layer("zero", "Zero", type = LayerType.GROUP, surface = floor, opacity = 0f),
+            Layer("under", "Under", type = LayerType.GROUP, surface = floor, parentId = "hid"),
+            Layer("noSurface", "Plain", type = LayerType.GROUP),
             Layer("flat", "Flat"),
         )
-        assertEquals("a", SurfaceMath.gridGroupId(layers, "a1", visible = true))
-        assertEquals("b", SurfaceMath.gridGroupId(layers, "b1", visible = true))
-        assertEquals("b", SurfaceMath.gridGroupId(layers, "b", visible = true))
-        assertNull(SurfaceMath.gridGroupId(layers, "flat", visible = true))
-        assertNull(SurfaceMath.gridGroupId(layers, "a1", visible = false))
+        assertEquals(listOf("a", "b"), SurfaceMath.gridGroupIds(layers, visible = true))
+        assertEquals(emptyList<String>(), SurfaceMath.gridGroupIds(layers, visible = false))
+    }
+
+    @Test
+    fun `each group's mesh follows its own surface, photo depth over skin over sheet`() {
+        fun rect(a: Float) = listOf(0f to 0f, a to 0f, a to a, 0f to a)
+        fun prof(sweep: FloatArray, place: (Float, Float) -> FloatArray) =
+            SurfaceProfile(rect(100f).flatMap { place(it.first, it.second).toList() }, sweep[0], sweep[1], sweep[2])
+        val front = prof(floatArrayOf(0f, 0f, 1f)) { x, y -> floatArrayOf(x, y, 0f) }
+        val sheet = SurfaceMath.capture(line(200f to 600f, 800f to 600f), camera, w, h, identity)!!
+        val skin = front.copy(side = prof(floatArrayOf(1f, 0f, 0f)) { z, y -> floatArrayOf(0f, y, z) })
+        val cam = SceneMath.frame(camera, w, h)
+        fun lines(p: SurfaceProfile) = SurfaceMath.gridLines(p, Affine3.IDENTITY, cam).map { it.toList() }
+        // A single profile is its swept sheet (a hull would stop at its 100-unit box); the same front
+        // with a side drawn is the hull's skin. Each is computed from its own profile alone.
+        val sheetLines = lines(sheet)
+        val frontLines = lines(front)
+        val skinLines = lines(skin)
+        assertTrue(sheetLines.isNotEmpty() && frontLines.isNotEmpty() && skinLines.isNotEmpty())
+        assertTrue(frontLines != skinLines)
+        assertEquals(sheetLines, lines(sheet))
+        assertEquals(skinLines, lines(skin))
     }
 
     @Test
@@ -283,7 +305,125 @@ class SurfaceProfileTest {
         // The side view is 300 deep along the front's sweep: the grid reaches the solid's far end.
         assertEquals(300f + SurfaceMath.GRID_MARGIN, extent, 2f)
         assertTrue(extent < SurfaceMath.GRID_MAX_LINES * SurfaceMath.GRID_SPACING)
+        // The mesh is the solid's own faces: it no longer runs past the hull on the front sheet's sweep.
         val lines = SurfaceMath.gridLines(hull, Affine3.IDENTITY, SceneMath.frame(camera, w, h))
-        assertTrue(sweepEnd(hull, lines, extent))
+        assertTrue(lines.isNotEmpty())
+    }
+
+    private fun box(a: Float, b: Float) = listOf(0f to 0f, a to 0f, a to b, 0f to b)
+    private fun view(sweep: FloatArray, pts: List<Pair<Float, Float>>, place: (Float, Float) -> FloatArray) =
+        SurfaceProfile(pts.flatMap { place(it.first, it.second).toList() }, sweep[0], sweep[1], sweep[2])
+
+    @Test
+    fun `the wire mesh of a multi-view group covers the faces every view draws`() {
+        val front = view(floatArrayOf(0f, 0f, 1f), box(200f, 200f)) { x, y -> floatArrayOf(x, y, 0f) }
+        val side = view(floatArrayOf(1f, 0f, 0f), box(200f, 200f)) { z, y -> floatArrayOf(0f, y, z) }
+        val top = view(floatArrayOf(0f, 1f, 0f), box(200f, 200f)) { x, z -> floatArrayOf(x, 0f, z) }
+        fun onPlane(segs: List<FloatArray>, axis: Int, at: Float) =
+            segs.any { s -> abs(s[axis] - at) < 0.5f && abs(s[axis + 3] - at) < 0.5f }
+
+        val frontOnly = SurfaceHullGrid.segments(SurfaceHull.of(front)!!)
+        assertTrue("front sheet is z = 0", onPlane(frontOnly, 2, 0f))
+
+        val cube = front.copy(side = side, top = top)
+        val segs = SurfaceHullGrid.segments(SurfaceHull.of(cube)!!)
+        assertTrue("front face z = 0", onPlane(segs, 2, 0f))
+        assertTrue("side face x = 0", onPlane(segs, 0, 0f))
+        assertTrue("top face y = 0", onPlane(segs, 1, 0f))
+        assertTrue("far cap z = 200", onPlane(segs, 2, 200f))
+        assertTrue("far cap x = 200", onPlane(segs, 0, 200f))
+        assertTrue("bottom y = 200", onPlane(segs, 1, 200f))
+        // Nothing past the solid.
+        assertTrue(segs.all { s -> s.all { it in -0.5f..200.5f } })
+
+        // The projected mesh (what the canvas draws) follows the same hull.
+        val cam = SceneMath.frame(camera, w, h)
+        val projected = SurfaceMath.gridLines(cube, Affine3.IDENTITY, cam)
+        assertTrue(projected.size > SurfaceMath.gridLines(front, Affine3.IDENTITY, cam).size)
+    }
+
+    @Test
+    fun `the wire mesh is the outer skin of the one solid the three views define`() {
+        // Front: an L (notch cut from the top right); side and top: squares. One solid, one skin.
+        val l = listOf(0f to 0f, 200f to 0f, 200f to 100f, 100f to 100f, 100f to 200f, 0f to 200f)
+        val front = view(floatArrayOf(0f, 0f, 1f), l) { x, y -> floatArrayOf(x, y, 0f) }
+        val side = view(floatArrayOf(1f, 0f, 0f), box(200f, 200f)) { z, y -> floatArrayOf(0f, y, z) }
+        val top = view(floatArrayOf(0f, 1f, 0f), box(200f, 200f)) { x, z -> floatArrayOf(x, 0f, z) }
+        val hull = SurfaceHull.of(front.copy(side = side, top = top))!!
+        val segs = SurfaceHullGrid.segments(hull)
+        assertTrue(segs.isNotEmpty())
+
+        fun inside(x: Float, y: Float, z: Float) = hull.contains(x, y, z)
+        val probe = 1.5f
+        for (s in segs) {
+            val pts = listOf(
+                floatArrayOf(s[0], s[1], s[2]), floatArrayOf(s[3], s[4], s[5]),
+                floatArrayOf((s[0] + s[3]) / 2, (s[1] + s[4]) / 2, (s[2] + s[5]) / 2),
+            )
+            for (p in pts) {
+                // Consistent with all three profiles: in the solid (on its boundary).
+                assertTrue("vertex ${p.toList()} is outside the solid", inside(p[0], p[1], p[2]))
+                // On the skin, not an interior sheet: some step off it leaves the solid.
+                val dirs = (-1..1).flatMap { a -> (-1..1).flatMap { b -> (-1..1).map { c -> intArrayOf(a, b, c) } } }
+                val leaves = dirs.any { d ->
+                    (d[0] != 0 || d[1] != 0 || d[2] != 0) &&
+                        !inside(p[0] + d[0] * probe, p[1] + d[1] * probe, p[2] + d[2] * probe)
+                }
+                assertTrue("vertex ${p.toList()} is interior, not on the skin", leaves)
+            }
+        }
+        // No sheet drawn twice.
+        val keys = segs.map { s ->
+            val a = s.take(3).map { Math.round(it) }
+            val b = s.drop(3).map { Math.round(it) }
+            if (a.toString() <= b.toString()) "$a$b" else "$b$a"
+        }
+        assertEquals("duplicated segments", keys.size, keys.toSet().size)
+    }
+
+    // A flat tessellated patch: x, y, z, u, t per corner, triangles in a list.
+    private fun tri(vararg c: FloatArray): FloatArray = c.flatMap { it.toList() }.toFloatArray()
+    private fun vtx(x: Float, y: Float, z: Float, u: Float, t: Float) = floatArrayOf(x, y, z, u, t)
+
+    @Test
+    fun `a grid line along a tessellation edge is kept, continuous across slabs`() {
+        // One face split into slabs at u = 0, 64, 128: the line at 64 is the slabs' shared edge.
+        fun quad(u0: Float, u1: Float) = tri(
+            vtx(u0, 0f, 0f, u0, 0f), vtx(u1, 0f, 0f, u1, 0f), vtx(u1, 50f, 0f, u1, 50f),
+            vtx(u0, 0f, 0f, u0, 0f), vtx(u1, 50f, 0f, u1, 50f), vtx(u0, 50f, 0f, u0, 50f),
+        )
+        val mesh = quad(0f, 64f) + quad(64f, 128f)
+        val segs = SurfaceHullGrid.fromMeshes(listOf(mesh), 64f)
+        val at64 = segs.filter { abs(it[0] - 64f) < 0.2f && abs(it[3] - 64f) < 0.2f }
+        assertEquals("one interior line at u = 64", 1, at64.size)
+        assertEquals(50f, abs(at64[0][1] - at64[0][4]), 0.2f)
+    }
+
+    @Test
+    fun `a crease between two faces of one mesh is kept and a triangulation diagonal is not`() {
+        // Floor (z = 0) and wall (y = 50, rising in z) share the edge y = 50, z = 0, in ONE mesh.
+        val floor = tri(vtx(0f, 0f, 0f, 0f, 0f), vtx(50f, 0f, 0f, 50f, 0f), vtx(50f, 50f, 0f, 50f, 50f)) +
+            tri(vtx(0f, 0f, 0f, 0f, 0f), vtx(50f, 50f, 0f, 50f, 50f), vtx(0f, 50f, 0f, 0f, 50f))
+        val wall = tri(vtx(0f, 50f, 0f, 0f, 60f), vtx(50f, 50f, 0f, 50f, 60f), vtx(50f, 50f, 50f, 50f, 110f)) +
+            tri(vtx(0f, 50f, 0f, 0f, 60f), vtx(50f, 50f, 50f, 50f, 110f), vtx(0f, 50f, 50f, 0f, 110f))
+        val segs = SurfaceHullGrid.fromMeshes(listOf(floor + wall), 640f)
+        fun has(a: FloatArray, b: FloatArray) = segs.any { s ->
+            (a.indices.all { abs(s[it] - a[it]) < 0.2f } && b.indices.all { abs(s[3 + it] - b[it]) < 0.2f }) ||
+                (a.indices.all { abs(s[3 + it] - a[it]) < 0.2f } && b.indices.all { abs(s[it] - b[it]) < 0.2f })
+        }
+        assertTrue("the crease", has(floatArrayOf(0f, 50f, 0f), floatArrayOf(50f, 50f, 0f)))
+        assertFalse("floor diagonal", has(floatArrayOf(0f, 0f, 0f), floatArrayOf(50f, 50f, 0f)))
+        assertFalse("wall diagonal", has(floatArrayOf(0f, 50f, 0f), floatArrayOf(50f, 50f, 50f)))
+    }
+
+    @Test
+    fun `a square front outline keeps its longitudinal corners`() {
+        val side = 200f
+        val sq = listOf(0f to 0f, side to 0f, side to side, 0f to side)
+        val front = SurfaceProfile(sq.flatMap { listOf(it.first, it.second, 0f) }, 0f, 0f, 1f)
+        val hull = SurfaceHull.of(front.copy(side = SurfaceProfile(sq.flatMap { listOf(0f, it.second, it.first) }, 1f, 0f, 0f)))!!
+        val segs = SurfaceHullGrid.segments(hull)
+        // The corner at (200, 200) runs the whole depth, 64 not dividing 200: only a crease puts it there.
+        assertTrue(segs.any { s -> abs(s[0] - side) < 0.5f && abs(s[1] - side) < 0.5f && abs(s[3] - side) < 0.5f && abs(s[4] - side) < 0.5f && abs(s[2] - s[5]) > 100f })
     }
 }

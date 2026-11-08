@@ -249,4 +249,21 @@ class AnimationFramesTest {
         val stillOpenEnded = EditorReducer.reduce(s, EditorIntent.SetAnimationRange(2, -1))
         assertEquals(-1, stillOpenEnded.animationRangeEnd)
     }
+
+    @Test
+    fun `the wire mesh skips groups in frames the animation hides but keeps pinned ones`() {
+        val surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
+            listOf(0f, 0f, 0f, 100f, 0f, 0f), 0f, 0f, 1f,
+        )
+        fun group(id: String, pinned: Boolean = false) =
+            Layer(id = id, name = id, type = LayerType.GROUP, surface = surface, isPinnedAcrossFrames = pinned)
+        val layers = listOf(group("f0"), group("f1"), group("pin", pinned = true))
+        fun shown(active: Int, onion: Boolean) = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupIds(
+            layers, true, AnimationFrames.effectiveOpacities(layers, active, onion, 1, 1),
+        )
+        assertEquals(listOf("f0", "pin"), shown(0, onion = false))
+        assertEquals(listOf("f1", "pin"), shown(1, onion = false))
+        // An onion-skinned neighbour is drawn faintly, so it is meshed too.
+        assertEquals(listOf("f0", "f1", "pin"), shown(0, onion = true))
+    }
 }

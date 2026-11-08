@@ -4,14 +4,14 @@ buildscript {
     val commonForcedDependencies = listOf(
         "commons-beanutils:commons-beanutils:1.11.0",
         "org.jdom:jdom2:2.0.6.1",
-        "io.netty:netty-codec:4.2.19.Final",
-        "io.netty:netty-codec-http2:4.2.19.Final",
-        "io.netty:netty-handler:4.2.19.Final",
-        "io.netty:netty-handler-proxy:4.2.19.Final",
+        "io.netty:netty-codec:4.2.20.Final",
+        "io.netty:netty-codec-http2:4.2.20.Final",
+        "io.netty:netty-handler:4.2.20.Final",
+        "io.netty:netty-handler-proxy:4.2.20.Final",
         "org.bitbucket.b_c:jose4j:0.9.7",
         "org.apache.commons:commons-lang3:3.21.0",
         "org.apache.httpcomponents:httpclient:4.5.14",
-        "com.google.guava:guava:33.7.2-jre",
+        "com.google.guava:guava:33.8.0-jre",
         "com.google.android.gms:play-services-basement:18.12.0",
         // Bouncy Castle: 1.79 (transitive, via the build + app classpaths) is vulnerable to
         // a covert timing channel (HIGH), LDAP injection, and a risky-crypto-algo issue in
