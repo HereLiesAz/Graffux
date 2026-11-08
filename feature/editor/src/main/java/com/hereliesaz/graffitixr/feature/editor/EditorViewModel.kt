@@ -6096,6 +6096,8 @@ class EditorViewModel @Inject constructor(
 
     /** Puts the scene camera where a test needs it (no intent moves it). */
     @androidx.annotation.VisibleForTesting
+    fun setManualPivotForTest(pivot: List<Float>?) = updateUi { it.copy(manualPivot = pivot) }
+
     internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
 
     /** The commands recorded for [layerId] — what an undo/redo would replay. */

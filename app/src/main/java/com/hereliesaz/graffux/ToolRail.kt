@@ -262,8 +262,12 @@ internal fun ToolRail(
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
         AxisButton(uiState.activeRotationAxis.takeIf { active3D }, armed = uiState.surfaceDrawArmed) { vm.onAxisSlotTapped() }
         // The wire mesh of the active layer's group surface: a guide only, there while the layer is
-        // paint on a surface (spec/3d-space.md, "Guide grid").
-        if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null) {
+        // paint on a surface (spec/3d-space.md, "Guide grid"), or while a rotation point is placed, so that
+        // its "Reset to automatic" is never stranded when the last surface goes (the choice is kept, not
+        // silently discarded: it is still a valid point for the plane layers).
+        val onSurface =
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
+        if (onSurface || uiState.manualPivot != null) {
             SurfaceMeshButton(on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||

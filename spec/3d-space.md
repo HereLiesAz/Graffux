@@ -735,7 +735,7 @@ plane passes through. It is the centre of the box that holds the content.
 - **Placed by hand.** The wire-mesh button's long-press menu has "Relocate rotation point": the next tap
   in the scene sets `EditorUiState.manualPivot` to the surface point under it (`OrbitPivot.pick`: the
   first surface the ray meets, else the point at the current pivot's depth), and "Reset rotation point
-  to automatic" clears it. While set it replaces the automatic point everywhere (`OrbitPivot.resolve`).
+  to automatic" clears it. The "#" button stays on the rail while a point is placed, even with no surface under the active layer, so Reset is never stranded; removing the last surface does not discard the choice (it is still a valid point for plane layers). While set it replaces the automatic point everywhere (`OrbitPivot.resolve`).
   It is saved as `GraffitiProject.orbitPivot` (format 13); view state, not history.
 - **Orientation per axis.** The camera's orientation is two independent, persisted angles, `yaw` (the Y
   axis) and `pitch` (the X axis), composed as pitch about the screen's horizontal after yaw about the
