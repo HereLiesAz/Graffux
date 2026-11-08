@@ -19,9 +19,6 @@ object SurfaceStrokeGuard {
     /** Pixels of slack beyond the footprint: float error and the footprint's ring sampling. */
     const val SLACK = 2f
 
-    /** A join may deviate by this fraction of the step between its touches (perspective bends a midpoint). */
-    const val STEP_SLACK = 0.25f
-
     private val droppedSamples = AtomicLong()
     private val cutJoins = AtomicLong()
 
@@ -40,12 +37,16 @@ object SurfaceStrokeGuard {
 
     /**
      * Whether the stroke from touch ([ax], [ay]) to ([bx], [by]) stays on the surface between them: the
-     * midpoint of the joining flat stroke shows at ([mx], [my]), which must be near the touches' midpoint.
+     * midpoint of the joining flat stroke shows at ([mx], [my]), which must lie within [radius] of the
+     * touch segment. Perspective does not preserve midpoints, so the distance is to the segment, not to
+     * the touches' midpoint: a valid stroke on one planar face projects onto the segment exactly.
      */
     fun joinOk(ax: Float, ay: Float, bx: Float, by: Float, mx: Float, my: Float, radius: Float): Boolean {
-        val step = hypot(bx - ax, by - ay)
-        val ok = mx.isFinite() && my.isFinite() &&
-            hypot(mx - (ax + bx) / 2f, my - (ay + by) / 2f) <= radius + SLACK + STEP_SLACK * step
+        val dx = bx - ax
+        val dy = by - ay
+        val len2 = dx * dx + dy * dy
+        val s = if (len2 < 1e-12f) 0f else (((mx - ax) * dx + (my - ay) * dy) / len2).coerceIn(0f, 1f)
+        val ok = mx.isFinite() && my.isFinite() && hypot(mx - (ax + dx * s), my - (ay + dy * s)) <= radius + SLACK
         if (!ok) cutJoins.incrementAndGet()
         return ok
     }

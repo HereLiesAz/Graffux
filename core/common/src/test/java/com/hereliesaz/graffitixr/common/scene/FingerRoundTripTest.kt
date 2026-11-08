@@ -141,3 +141,18 @@ class SilhouetteJumpTest {
         assertTrue("and cuts no smooth step ($falseCut)", falseCut == 0)
     }
 }
+
+class StrokeGuardPerspectiveTest {
+    @Test
+    fun `a valid fast stroke whose midpoint projects off the touch midpoint but on the touch segment is kept`() {
+        // Layer turned 80 degrees about Y, eye close: flat (500,400)->(100,400) shows at x=500 -> 363.25,
+        // and the flat midpoint at 385.74 (Codex review of #757): 45.88 from the touch midpoint, on the segment.
+        assertTrue(SurfaceStrokeGuard.joinOk(500f, 400f, 363.25f, 400f, 385.74f, 400f, 5f))
+    }
+
+    @Test
+    fun `a midpoint off the touch segment is cut`() {
+        assertTrue(!SurfaceStrokeGuard.joinOk(500f, 400f, 363.25f, 400f, 430f, 460f, 5f))
+        assertTrue(!SurfaceStrokeGuard.joinOk(500f, 400f, 363.25f, 400f, 600f, 400f, 5f))
+    }
+}

@@ -400,8 +400,9 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
 - **A stroke lands under the finger (invariant).** Every sample a stroke accepts on a surface must
   show on the canvas, with the camera it was mapped with, within the brush footprint (plus 2 px) of
   its touch, and the stretch of stroke joining two accepted samples must too: the midpoint of the
-  straight flat segment between them shows near the midpoint of the two touches (a quarter of the
-  step of slack for perspective). `SurfaceStrokeGuard` states it; `PlaneStrokeFeed` and
+  straight flat segment between them shows within the footprint of the segment between the two touches
+  (distance to the segment, not to its midpoint: perspective moves a midpoint along the segment, never off it).
+  `SurfaceStrokeGuard` states it; `PlaneStrokeFeed` and
   `ViewStrokeFeed` enforce it (`sampleOk`, `joinOk`). A failing sample is dropped like a miss; a
   failing join cuts the stroke there (a new segment starts at the sample), never painting across the
   part of the surface between. The cause it closes: a ray that skims a silhouette or fold hits a near
