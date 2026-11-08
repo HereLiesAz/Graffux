@@ -5704,10 +5704,13 @@ class EditorViewModel @Inject constructor(
         // A locked layer does not turn: no slider.
         val layer = state.layers.firstOrNull { it.id == state.transformTargetId() }
             ?.takeUnless { it.isImageLocked } ?: return null
-        val raw = when (rotationSliderAxis(state)) {
-            RotationAxis.X -> layer.rotationX
-            RotationAxis.Y -> layer.rotationY
-            RotationAxis.Z -> layer.rotationZ
+        // Body-fixed: how far the layer has been turned about its OWN axis, a pure function of its
+        // orientation (SceneMath.bodyAngle). A flat layer's Z is its stored angle, as ever.
+        val axis = rotationSliderAxis(state)
+        val raw = if (axis == RotationAxis.Z && !layer.isPlacedIn3D) {
+            layer.rotationZ
+        } else {
+            SceneMath.bodyAngle(layer.planePose, axis)
         }
         return wrapDegrees(raw)
     }
@@ -5759,10 +5762,13 @@ class EditorViewModel @Inject constructor(
      */
     @Suppress("ReturnCount")
     private fun turnedAboutPivot(layer: Layer, axis: RotationAxis, delta: Float): Layer {
-        val plain = when (axis) {
-            RotationAxis.X -> layer.copy(rotationX = layer.rotationX + delta)
-            RotationAxis.Y -> layer.copy(rotationY = layer.rotationY + delta)
-            RotationAxis.Z -> layer.copy(rotationZ = layer.rotationZ + delta)
+        // Without a pivot the turn is still about the body axis: R * Ra(delta), stored as Euler.
+        val plain = if (axis == RotationAxis.Z && !layer.isPlacedIn3D) {
+            layer.copy(rotationZ = layer.rotationZ + delta)
+        } else {
+            val r = SceneMath.rotation(layer.rotationX, layer.rotationY, layer.rotationZ)
+            val e = SceneMath.eulerOf(SceneMath.mul3(r, SceneMath.axisRotation(axis, delta)))
+            layer.copy(rotationX = e[0], rotationY = e[1], rotationZ = e[2])
         }
         if (axis == RotationAxis.Z && !layer.isPlacedIn3D) return plain
         val state = _uiState.value

@@ -110,7 +110,7 @@ picture plane.
 
 - **Layer plane.** A layer's existing `offset` (x, y), `scale` and `rotationX/Y/Z` (degrees), plus
   a new `positionZ`. A point `L` of the layer's full-canvas box maps to the scene as
-  `P = C + (ox, oy, z) + R * scale * (L - C)`, `C` the box centre, `R = Rz * Ry * Rx`. With
+  `P = C + (ox, oy, z) + R * scale * (L - C)`, `C` the box centre, `R = Rz * Ry * Rx` (the stored form; the sliders turn about the body axes, see "Body-fixed axes"). With
   `z = rx = ry = 0` this is exactly the 2D transform the layer always had. Groups compose: a
   child's plane is its parent's model times its own.
 - **Scene camera** (`SceneCamera`): `yaw`, `pitch` (radians), `distanceScale` and a target offset
@@ -742,8 +742,25 @@ plane passes through. It is the centre of the box that holds the content.
   vertical (`SceneMath.frame`). Turning X, then Y, then X again therefore gives the same view as turning
   X by the sum and Y once, in any interleaving, and the X turn keeps its own axis (the camera's `right`
   never depends on pitch). Recomputing the pivot does not touch the angles; `orbitAbout` only moves the
-  target so the pivot stays put on screen. A layer's own rotation sliders are Euler angles composed
-  `Rz * Ry * Rx` and are unchanged by this.
+  target so the pivot stays put on screen. A layer's rotation is separate: it is body-fixed (see "Body-fixed axes").
+- **Body-fixed axes.** X, Y and Z name lines of the OBJECT (the layer or surface group), not of the screen
+  or the camera. The line through a square's sides 1 and 3 is X for ever; turn the square 90 degrees about Z and
+  sides 1 and 3 stand where 2 and 4 began, and the X slider still turns about the line between them. Each
+  slider turns the object about `R * e_axis`, its own line in the scene: `R' = R * Ra(delta)`
+  (`SceneMath.rotatePoseAbout`, the one place every slider drag, two-finger twist and handle turn goes
+  through). The result is stored back as the same `rotationX/Y/Z` (`SceneMath.eulerOf`, `Rz * Ry * Rx`), so
+  the GPU scene, the 2D Compose fallback, glTF export, the wire mesh and hull placement and saved projects
+  read exactly what they always read; nothing is migrated and the project format stays 13. The slider's
+  thumb is no longer the raw stored angle but `SceneMath.bodyAngle`: how far the object has been turned about
+  that own axis, the angle of the Euler decomposition with that axis innermost (`Rz*Ry*Rx` for X,
+  `Rz*Rx*Ry` for Y, `Rx*Ry*Rz` for Z). It is a pure function of the orientation, so it needs no stored state,
+  survives save, load, undo and redo, and moves by exactly the dragged amount. X reads as it always did; a
+  flat layer's Z is its stored angle. Turning about a body axis moves the other sliders' readings
+  (they measure turns about lines that moved), which is the price of the lines being the object's. The
+  pivot (above) is unchanged: the turn is applied about it. Before this, a stored angle was incremented, which
+  is body-fixed for X alone: Y turned about the line left after Z only, and Z about the scene's z.
+  Typed angles in the Transform panel still set the stored Euler angle. At gimbal (Y at 90 degrees) the Z
+  turn folds into X.
 - **Before this**, the pivot was the scene camera's target: the canvas centre ON layer 1's plane
   (depth 0), and layers turned about their own centres, so an X or Y turn tilted the layer in place
   while the camera swung about a point on the plane.
