@@ -11,6 +11,7 @@ import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.planePose
 
+import com.hereliesaz.graffitixr.common.model.importance
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.common.model.isAdjustment
@@ -214,6 +215,9 @@ data class StrokeCommand(
     // replays without the others.
     val movePatch: MovePatch? = null,
     val marquee: com.hereliesaz.graffitixr.common.model.Selection? = null,
+    // Set with [marquee] on a multi-view surface move: the selection the move left (its image regions are what
+    // redo restores; rebinding the moved rings under whatever camera redo runs at would bind other faces).
+    val movedMarquee: com.hereliesaz.graffitixr.common.model.Selection? = null,
     // Set only on a [Tool.CLONE] command: the screen-space vector from this stroke to the pixels it
     // copies, measured from the stroke's first point. Recorded rather than read at replay time
     // for the same reason `selection` is — the source can be moved or cleared afterwards, and an
@@ -865,7 +869,7 @@ class EditorViewModel @Inject constructor(
         private const val LUMA_G = 0.7152f
         private const val LUMA_B = 0.0722f
         private const val HUD_MS = 700L
-        private const val SURFACE_NOTICE_MS = 4_000L
+        private const val SURFACE_NOTICE_MS = 6_000L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
          * Whether the host shows the mandatory project dialog ([projectGate]) instead of silently
@@ -2507,7 +2511,12 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModelLayers(project.id, layers)
-                        updateUi { it.copy(sceneCamera = project.sceneCamera) }
+                        updateUi {
+                            it.copy(
+                                sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
+                                pivotPickArmed = false,
+                            )
+                        }
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -2869,8 +2878,9 @@ class EditorViewModel @Inject constructor(
     private fun redoSelectionMove(stroke: StrokeCommand) {
         val delta = stroke.moveDelta
         if (stroke.tool == Tool.SELECT && delta != null) {
+            val moved = stroke.movedMarquee?.let(::footprintNow)
             val before = stroke.marquee ?: stroke.selection
-            dispatch(EditorIntent.SetSelection(before?.let { translatedSelection(it, delta) }))
+            dispatch(EditorIntent.SetSelection(moved ?: before?.let { translatedSelection(it, delta) }))
         }
     }
 
@@ -4789,6 +4799,7 @@ class EditorViewModel @Inject constructor(
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
                 sceneCamera = _uiState.value.sceneCamera,
+                orbitPivot = _uiState.value.manualPivot,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4810,6 +4821,7 @@ class EditorViewModel @Inject constructor(
                     spatialStrokes = emptyList(),
                     spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
                     sceneCamera = _uiState.value.sceneCamera,
+                    orbitPivot = _uiState.value.manualPivot,
                     // Format 8: the model lives in a 3D model layer.
                     modelPath = null,
                     modelName = null,
@@ -5236,10 +5248,15 @@ class EditorViewModel @Inject constructor(
 
     private var surfaceNoticeJob: Job? = null
 
-    /** A message in the Draw-surface chip while unarmed; it clears itself after a few seconds (OK clears it now). */
+    /**
+     * A message in the Draw-surface chip while unarmed. A transient one (a refusal) clears itself after a few
+     * seconds; an important one (the "surface set" confirmation, which offers Draw side/top view) stays until the
+     * user acts, since it would otherwise vanish before they could use it. OK clears either now.
+     */
     private fun showSurfaceNotice(notice: SurfaceDrawNotice) {
         surfaceNoticeJob?.cancel()
         updateUi { it.copy(surfaceDrawNotice = notice) }
+        if (notice.importance == com.hereliesaz.graffitixr.common.model.PopupImportance.IMPORTANT) return
         surfaceNoticeJob = viewModelScope.launch(dispatchers.main) {
             kotlinx.coroutines.delay(SURFACE_NOTICE_MS)
             if (!_uiState.value.surfaceDrawArmed) updateUi { it.copy(surfaceDrawNotice = null) }
@@ -5687,10 +5704,13 @@ class EditorViewModel @Inject constructor(
         // A locked layer does not turn: no slider.
         val layer = state.layers.firstOrNull { it.id == state.transformTargetId() }
             ?.takeUnless { it.isImageLocked } ?: return null
-        val raw = when (rotationSliderAxis(state)) {
-            RotationAxis.X -> layer.rotationX
-            RotationAxis.Y -> layer.rotationY
-            RotationAxis.Z -> layer.rotationZ
+        // Body-fixed: how far the layer has been turned about its OWN axis, a pure function of its
+        // orientation (SceneMath.bodyAngle). A flat layer's Z is its stored angle, as ever.
+        val axis = rotationSliderAxis(state)
+        val raw = if (axis == RotationAxis.Z && !layer.isPlacedIn3D) {
+            layer.rotationZ
+        } else {
+            SceneMath.bodyAngle(layer.planePose, axis)
         }
         return wrapDegrees(raw)
     }
@@ -5724,7 +5744,7 @@ class EditorViewModel @Inject constructor(
     fun orbitPivot(state: EditorUiState = _uiState.value): FloatArray? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
-        return OrbitPivot.of(state.layers, size.width.toFloat(), size.height.toFloat())
+        return OrbitPivot.resolve(state.layers, size.width.toFloat(), size.height.toFloat(), state.manualPivot)
     }
 
     /**
@@ -5742,10 +5762,13 @@ class EditorViewModel @Inject constructor(
      */
     @Suppress("ReturnCount")
     private fun turnedAboutPivot(layer: Layer, axis: RotationAxis, delta: Float): Layer {
-        val plain = when (axis) {
-            RotationAxis.X -> layer.copy(rotationX = layer.rotationX + delta)
-            RotationAxis.Y -> layer.copy(rotationY = layer.rotationY + delta)
-            RotationAxis.Z -> layer.copy(rotationZ = layer.rotationZ + delta)
+        // Without a pivot the turn is still about the body axis: R * Ra(delta), stored as Euler.
+        val plain = if (axis == RotationAxis.Z && !layer.isPlacedIn3D) {
+            layer.copy(rotationZ = layer.rotationZ + delta)
+        } else {
+            val r = SceneMath.rotation(layer.rotationX, layer.rotationY, layer.rotationZ)
+            val e = SceneMath.eulerOf(SceneMath.mul3(r, SceneMath.axisRotation(axis, delta)))
+            layer.copy(rotationX = e[0], rotationY = e[1], rotationZ = e[2])
         }
         if (axis == RotationAxis.Z && !layer.isPlacedIn3D) return plain
         val state = _uiState.value
@@ -6079,6 +6102,8 @@ class EditorViewModel @Inject constructor(
 
     /** Puts the scene camera where a test needs it (no intent moves it). */
     @androidx.annotation.VisibleForTesting
+    fun setManualPivotForTest(pivot: List<Float>?) = updateUi { it.copy(manualPivot = pivot) }
+
     internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
 
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
@@ -6740,6 +6765,22 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * [selection] with its footprint derived for the camera as it is now. A saved surface selection carries the
+     * rings of the pose it was saved at, and the live footprint pass only runs when its key (regions, camera,
+     * surface) changes, so loading one whose regions match the current selection would otherwise keep the old pose.
+     */
+    private fun footprintNow(selection: Selection?): Selection? {
+        val st = _uiState.value
+        val surface = selection?.surface?.takeIf { selection.canvasSize == st.canvasSize }
+        val ctx = surface?.let { surfaceCtx(st, it.surfaceId) }
+        return if (selection == null || ctx == null) {
+            selection
+        } else {
+            SurfaceViewSelection.refresh(selection, ctx.owner, ctx.projection, ctx.w, ctx.h)
+        }
+    }
+
     /** [selection] moved by [delta]; a surface selection is rebound to the images so it keeps following. */
     @Suppress("ReturnCount")
     private fun translatedSelection(selection: Selection, delta: Offset): Selection {
@@ -6922,7 +6963,7 @@ class EditorViewModel @Inject constructor(
     }
 
     /** One command per view image that loses or gains pixels in a surface move, as one gesture. */
-    @Suppress("LongParameterList", "CyclomaticComplexMethod", "MaxLineLength")
+    @Suppress("LongParameterList", "CyclomaticComplexMethod", "MaxLineLength", "LongMethod")
     private fun commitSurfaceMove(
         ids: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, String>,
         cuts: Map<com.hereliesaz.graffitixr.common.scene.SurfaceView, Selection?>,
@@ -6931,6 +6972,8 @@ class EditorViewModel @Inject constructor(
         delta: Offset,
     ) {
         gestureOpen = true
+        // Bound once, at the camera the move was made under; redo restores exactly this.
+        val after = translatedSelection(selection, delta)
         try {
             for ((view, layerId) in ids) {
                 val cut = cuts[view]
@@ -6955,6 +6998,7 @@ class EditorViewModel @Inject constructor(
                         MovePatch(it.left - frame.originX, it.top - frame.originY, it.width, it.height, it.pixels)
                     } ?: MovePatch(0, 0, 0, 0, IntArray(0)),
                     marquee = selection,
+                    movedMarquee = after,
                 )
                 invalidateResident(layerId)
                 layerStore.addStroke(layerId, command)
@@ -6985,7 +7029,7 @@ class EditorViewModel @Inject constructor(
         } finally {
             closeGesture()
         }
-        dispatch(EditorIntent.SetSelection(translatedSelection(selection, delta)))
+        dispatch(EditorIntent.SetSelection(after))
     }
 
     /** Whether the active lasso leaves nothing of [view] to paint on: a touch there is a miss. */
@@ -9525,7 +9569,7 @@ class EditorViewModel @Inject constructor(
         engine: GpuStampEngine,
         command: StrokeCommand,
         prepared: GpuStrokeSelection.Prepared?,
-    ): Boolean = command.selection?.isUsable != true ||
+    ): Boolean = command.selection?.confines != true ||
         prepared != null && GpuStrokeSelection.confine(engine, prepared)
 
     /** A live Basic Brush stroke's GPU engine and unpainted runs, taken over by its commit. */
@@ -9729,12 +9773,16 @@ class EditorViewModel @Inject constructor(
         } ?: 0
         val oracle = ViewFloodOracle(
             layers, primaryId, hull, st.canvasSize.width, st.canvasSize.height, tapColor, wandMask,
+            confineToFace = true,
         ) { view -> viewClip(primaryId, view) }
+        // The gesture's own colour: the plan runs in the background, and a colour or tool change made meanwhile
+        // must neither recolour this fill nor drop it.
+        val fillColor = st.activeColor.toArgb()
         viewModelScope.launch(dispatchers.default) {
             // The tapped face floods; so does every face across a crease that the flood reaches, in the
             // image of its own view (spec/3d-space.md, "Fill, Clone, lasso").
             val seeds = SurfaceViewFlood.plan(hull, tap, oracle)
-            withContext(dispatchers.main) { fillSeeds(primaryId, hull, seeds, canvasSize) }
+            withContext(dispatchers.main) { fillSeeds(primaryId, hull, seeds, canvasSize, fillColor) }
         }
     }
 
@@ -9744,12 +9792,14 @@ class EditorViewModel @Inject constructor(
         hull: SurfaceHull,
         seeds: List<PaintTarget>,
         canvasSize: IntSize,
+        fillColor: Int,
     ) {
         gestureOpen = true
         try {
             for (seed in seeds) {
-                val st = _uiState.value
                 val imageId = ensureViewImageLayer(primaryId, seed.view) ?: continue
+                // Read after ensuring: a view image created just now is not in an earlier snapshot.
+                val st = _uiState.value
                 val imageOwner = SurfaceMath.ownerOf(st.layers, imageId) ?: continue
                 val w = st.canvasSize.width.toFloat()
                 val h = st.canvasSize.height.toFloat()
@@ -9762,7 +9812,7 @@ class EditorViewModel @Inject constructor(
                 val selection = viewClip(primaryId, seed.view).selection
                     ?: SurfaceViewSelection
                         .faceRegion(face, owner, hull, st.canvasSize, w, h)
-                fillOn(imageId, Offset(flat.first, flat.second), canvasSize, selection)
+                fillOn(imageId, Offset(flat.first, flat.second), canvasSize, selection, fillColor)
             }
         } finally {
             closeGesture()
@@ -9775,9 +9825,12 @@ class EditorViewModel @Inject constructor(
         position: Offset,
         canvasSize: IntSize,
         selection: com.hereliesaz.graffitixr.common.model.Selection?,
+        // Set for a fill whose tap was already accepted (a multi-view flood planned off the main thread): the
+        // tool and colour are then the tap's, not whatever is active when the plan lands.
+        tappedColor: Int? = null,
     ) {
         val state = _uiState.value
-        if (state.activeTool != Tool.FILL) return
+        if (tappedColor == null && state.activeTool != Tool.FILL) return
         invalidateResident(layerId)
         val layer = state.layers.find { it.id == layerId } ?: return
         val base = layer.bitmap ?: run {
@@ -9789,7 +9842,7 @@ class EditorViewModel @Inject constructor(
             canvasSize = canvasSize,
             tool = Tool.FILL,
             brushSize = 0f,
-            brushColor = state.activeColor.toArgb(),
+            brushColor = tappedColor ?: state.activeColor.toArgb(),
             intensity = 1f,
             layerScale = layer.scale,
             layerOffset = layer.offset,
@@ -10577,7 +10630,7 @@ class EditorViewModel @Inject constructor(
                     listOf(at), canvasSize.width, canvasSize.height, layer.frame(bitmap.width, bitmap.height),
                     layer.scale, layer.offset, layer.rotationZ,
                 ).firstOrNull() ?: return@launch
-                val mask = wandMask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance) ?: return@launch
+                val mask = wandMask(bitmap, seed.x.toInt(), seed.y.toInt(), tolerance, null) ?: return@launch
                 traceSelection(mask, bitmap.width, bitmap.height, layer, bitmap, canvasSize) ?: return@launch
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -10609,7 +10662,8 @@ class EditorViewModel @Inject constructor(
     private var wandJob: Job? = null
 
     /** The wand's flood fill; tests put a fake here. */
-    internal var wandMask: (Bitmap, Int, Int, Int) -> BooleanArray? = { b, x, y, t -> MagicWand.mask(b, x, y, t) }
+    internal var wandMask: (Bitmap, Int, Int, Int, ((Int, Int) -> Boolean)?) -> BooleanArray? =
+        { b, x, y, t, clip -> MagicWand.mask(b, x, y, t, clip) }
 
     /**
      * A pixel [mask] of [layer]'s [bitmap], traced at [mw]×[mh] (the bitmap's own size, or a
@@ -11152,12 +11206,13 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val saved = state.savedSelections.find { it.name == name } ?: return
         if (state.selectionOp == SelectionOp.NEW) {
-            dispatch(EditorIntent.SetSelection(saved.selection))
+            dispatch(EditorIntent.SetSelection(footprintNow(saved.selection)))
         } else {
             // No `?: saved.selection` fallback -- same reasoning as onAutoSelect: compose()
             // returning null (Remove with nothing selected) must stay a no-op, not silently load
             // the whole saved selection as if New had been picked.
-            dispatch(EditorIntent.SetSelection(composeTraced(saved.selection, state.selectionOp, state.selection)))
+            val composed = composeTraced(saved.selection, state.selectionOp, state.selection)
+            dispatch(EditorIntent.SetSelection(footprintNow(composed)))
         }
     }
 
@@ -13257,6 +13312,41 @@ class EditorViewModel @Inject constructor(
 
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
     fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
+
+    /** "Relocate rotation point": the next tap in the scene places the pivot (spec/3d-space.md, "The orbit point"). */
+    fun onArmPivotPick() = updateUi { it.copy(pivotPickArmed = true) }
+
+    /** Leaves "Relocate rotation point" without placing anything. */
+    fun onCancelPivotPick() {
+        if (_uiState.value.pivotPickArmed) updateUi { it.copy(pivotPickArmed = false) }
+    }
+
+    /**
+     * A tap at canvas point [world] while armed: the rotation point becomes the scene point under it
+     * ([OrbitPivot.pick]) and is saved with the project. Not history: like the camera, it is view state.
+     */
+    fun onPivotPicked(world: Offset) {
+        val st = _uiState.value
+        if (!st.pivotPickArmed) return
+        val size = st.canvasSize
+        val current = orbitPivot(st)
+        if (current == null || size.width <= 0 || size.height <= 0) {
+            updateUi { it.copy(pivotPickArmed = false) }
+            return
+        }
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val p = OrbitPivot.pick(st.layers, st.sceneCamera, world.x, world.y, w, h, current)
+        updateUi { it.copy(manualPivot = p.toList(), pivotPickArmed = false) }
+        saveProject()
+    }
+
+    /** "Reset to automatic": the rotation point is again the centre of every surface. */
+    fun onResetPivot() {
+        if (_uiState.value.manualPivot == null && !_uiState.value.pivotPickArmed) return
+        updateUi { it.copy(manualPivot = null, pivotPickArmed = false) }
+        saveProject()
+    }
 
     // ── Relief surfaces: "Build surface from image" (spec/3d-space.md, "Relief surfaces") ──
 
