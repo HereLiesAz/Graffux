@@ -1,6 +1,6 @@
 # 3D puppetry: rigid parts, joints, rigidity, and (later) soft bodies and keyframes
 
-Status: design only. Nothing here is implemented. **Revision 2** makes standard formats (glTF 2.0 skins,
+Status: design only. Nothing here is implemented. **Revision 3** brings CAD (STEP/IGES/DXF) back in scope as modeling input (0D). **Revision 2** makes standard formats (glTF 2.0 skins,
 nodes and animations) the backbone; sections 0A to 0C are new and win over any earlier text they contradict. Written against `origin/main` at 1.74.1.1 (project
 format 13), the open draft PR #753 (rotation triangle gizmo) and the in-progress mesh work on
 `claude/mesh-all-views` (no commits beyond main when this was written; every statement about it
@@ -38,14 +38,18 @@ recommendation is accepted. Section numbers point to the reasoning.
 | Q15 | Is glTF (nodes/skins/animations) the interchange and in-memory shape for rigs and clips, with our data only in `extras.GRAFFUX_joint`? | Yes (0B). | 0B |
 | Q16 | Support importing rigged glTF/GLB models as poseable model layers before authored joints? | Yes: PR 1.2 (import and pose) ships before PR 1.5 (authoring). | 12 |
 | Q17 | Extend the model layer to hold one `.glb` original plus a skeleton, and generalise `objFile` to `modelFile` (format 14)? | Yes, old name still read. | 0C |
+| Q18 | **Reopened (rev 3).** On-device formats: glTF/GLB, OBJ(+MTL), STL, plus CAD (STEP AP203/214/242, IGES, DXF); splats, point clouds, VDB/voxels, Alembic, USD, FBX etc. out of scope (convert externally) | Yes as stated; CAD import after glTF import, via OCCT only if the spike passes. | 0C, 0D |
 | Q19 | Parser library: jgltf (JVM) vs cgltf (native) vs hand-rolled? | jgltf, decided by the PR 1.0 spike (APK delta, 20 MB GLB parse time, licence check). | 0C |
 | Q20 | Export `.glb` in addition to `.gltf`, and validate our output with Khronos glTF-Validator in CI? | Yes to both. | 0C |
 | Q22 | glTF with external files: refuse until a folder/zip import exists, or add a zip import now? | Refuse with "save as .glb" now. | 0C |
 | Q23 | Compressed glTF extensions (meshopt, Draco) and KTX2 textures: refuse with a message in v1? | Yes. | 0C |
 | Q24 | Is `extras.GRAFFUX_joint` (unregistered, ignorable) acceptable, with `KHR_physics_rigid_bodies` joint limits as the future mapping once ratified? | Yes. | 0B |
+| Q26 | Accept an OCCT (LGPL-2.1 + exception) dependency as an on-demand module for STEP/IGES, or stay with external conversion? | Spike first (PR 1.10); adopt as an on-demand module only if size and licence review pass; external conversion meanwhile. | 0D.6 |
+| Q27 | CAD parts have no UVs: leave them unpaintable in v1, or add automatic UV unwrapping (also helps STL)? | Unpaintable in v1; unwrapping is a separate feature. | 0D.2 |
+| Q28 | DXF as surface-profile input (front/side/top views from one file) and as `3DFACE`/`MESH` import in v1, no DXF export? | Yes. | 0D.5 |
 | Q25 | Skinned models: GPU skinning in the depth-pass vertex shader with a CPU-skinned copy for picking and painting; cap 64 joints (uniform array) and 100k vertices on import? | Yes. | 3.8, 10 |
 
-Closed by the owner: Q18 and Q21 (formats: see "Formats on device (scope)" and "Out of scope, and why" in 0C).
+Closed by the owner: Q21 (no cloud conversion service as a default; a hosted option appears only as a rejected-by-default row in 0D.6). Q18 was closed in rev 2 and **reopened in rev 3** by the CAD correction, with a recommendation.
 
 ## 0A. What import and export exist today (audit, 2026-11)
 
@@ -239,21 +243,26 @@ Use tiny ones only (`SimpleSkin` is a few hundred bytes).
 | `KHR_materials_*` | Import base colour factor/texture only; ignore the rest | |
 | `KHR_mesh_quantization`, `KHR_texture_transform` | Quantised attributes: decode (accessor normalisation is already in the loader); texture transform: apply to UVs | simple |
 
-**On-device import and export is limited to glTF 2.0 (`.gltf` with embedded data, `.glb`), OBJ (+MTL) and
-STL.** (Owner decision, closes Q18 and Q21.) Only glTF carries skeletons, skins and animation, so only
-glTF is a rigging/animation format; OBJ and STL are static geometry (a posed or animated scene exports
-to glTF/GLB, and to OBJ/STL only as the current pose frozen, without skeleton, if at all).
+**On-device import and export is limited to two families.** (Owner decision, rev 3.)
+
+- **Mesh and animation formats:** glTF 2.0 (`.gltf` with embedded data, and `.glb`), OBJ (+MTL) and STL.
+  Only glTF carries skeletons, skins and animation, so only glTF is a rigging/animation format; OBJ and
+  STL are static geometry (a posed or animated scene exports to glTF/GLB, and to OBJ/STL only as the
+  current pose frozen, without skeleton, if at all).
+- **CAD modeling input (import only):** STEP (AP203, AP214, AP242) and IGES as the main exchange
+  formats, and DXF for 2D/3D drawing exchange. Specified in 0D. CAD is real modeling input for this app;
+  it is not a rigging format, and a CAD part is simply a rigid body (0D.4).
 
 ### Out of scope, and why
 
-FBX, USD/USDZ, Collada, 3DS, Blend, PLY, Alembic, CAD/STEP, splats, point clouds, VDB/voxels and any other
-format are **converted externally by another app** (for instance to glTF/GLB) and are not part of this
-work: no parser, converter, library, PR or open question exists for them here. They are explicitly out
-of scope for rigging and animation. At most, a later and separate feature might import such content as
-**scenery**: static, non-poseable, no skeleton, never part of a rig or clip; nothing in this spec
-depends on it. Heightmap/depth images are not a model format: they stay relief-surface input only, as
-`spec/3d-space.md` "Relief surfaces" already says (a photo and a depth estimate); this spec adds nothing
-to that.
+FBX, USD/USDZ, Collada, 3DS, Blend, PLY, Alembic, splats, point clouds, VDB/voxels and any other
+non-CAD format are **converted externally by another app** (for instance to glTF/GLB) and are not part
+of this work: no parser, converter, library, PR or open question exists for them here. They are explicitly
+out of scope for rigging and animation. At most, a later and separate feature might import such content
+as **scenery**: static, non-poseable, no skeleton, never part of a rig or clip; nothing in this spec
+depends on it. (CAD is *not* in this list: it is in scope, section 0D.) Heightmap/depth images are not a
+model format: they stay relief-surface input only, as `spec/3d-space.md` "Relief surfaces" already says;
+this spec adds nothing to that.
 
 ### Mesh model changes this implies (still no code)
 
@@ -266,6 +275,123 @@ and takes today's code path byte for byte. Imported base-colour textures and mul
 become several `ModelMesh` parts of one model layer (also a prerequisite for glTF with more than one
 material), which is a change to `ModelLayerContent` (format 14: `modelFile` generalises `objFile`,
 the old name read as before).
+
+## 0D. CAD input: STEP, IGES, DXF
+
+Rev 3. CAD is a modeling-input family, import only. STL and OBJ (already in) are the neutral mesh
+exchange for CAD users; this section is about the exact-geometry formats.
+
+### 0D.1 Formats
+
+| Format | Role | Notes |
+|---|---|---|
+| **STEP** (ISO 10303: AP203, AP214, AP242) `.step`/`.stp` | Main exchange. Bodies, faces, assemblies, names, colours, units | AP214 carries colours/layers/assembly structure well; AP242 is the successor (adds PMI/tessellated geometry, ignored); AP203 is geometry plus structure, often no colour |
+| **IGES** `.iges`/`.igs` | Legacy exchange | Surfaces and curves, often not solids; assembly structure weak; trimmed-surface quality varies; treat as best effort |
+| **DXF** (AutoCAD exchange) | 2D/3D drawing exchange | Curves and meshes, **not** B-rep solids; maps to surface profile curves (0D.5) |
+| STL / OBJ | Neutral mesh exchange | already in scope |
+
+### 0D.2 What STEP/IGES import produces
+
+- **Tessellation**: each B-rep **face** becomes a triangle mesh; each **body** (solid/shell) is a group of
+  face meshes. User setting **chord tolerance** (maximum deviation of the mesh from the true surface;
+  default 0.1% of the model's bounding-box diagonal, range 0.01% to 1%) and an **angular tolerance** (default
+  0.5 rad, range 0.1 to 1.0) so curved faces are smooth without runaway counts. A triangle budget of
+  **300,000 triangles / 150,000 vertices** per import: if the chosen tolerance exceeds it, the importer
+  coarsens it and says so (never silently truncates faces). Adjacent faces do not share vertices
+  (flat normals at sharp edges, smooth within a face), which is also how picking tells faces apart.
+- **Parts and assemblies**: the STEP product structure becomes a **node forest** (0B): an assembly is a node,
+  each component instance a child node with its **placement transform** as its local TRS, each distinct part
+  geometry instanced where the file instances it (shared mesh, many nodes). **Each leaf part (or each
+  body, when a part has several) becomes a separate rigid part** in the Stage 1 sense: its own node and mesh,
+  independently poseable as a rigid body (0D.4). A single-body file is one part.
+- **Units and axes**: STEP/IGES carry a length unit (mm, inch, m, ...) and are normally **Z-up,
+  right-handed**. The importer converts to metres (the glTF/scene convention) and then to the scene's frame
+  (x right, y down, z away, 3d-space.md "Data model") with the same half-turn used for OBJ/glTF (a proper
+  rotation, not a mirror; test: a handed object stays handed). A file with unknown units asks once, with
+  millimetres as the default. The unit and the source up-axis are stored so re-export is consistent.
+- **Metadata**: product/part/instance **names** become node names; **colours** (STEP colour styles per face or
+  body) become base colour factors per face mesh (faces of one body with different colours stay separate
+  primitives); layers and PMI/annotations are ignored in v1. Names are kept in `node.name` and the source id in
+  `node.extras.GRAFFUX_cad.sourceId` so a re-import can match pose entries (4.4).
+- **Exact curves are lost on tessellation.** The import keeps a **face-id map**: for each triangle, the id of the
+  source B-rep face (an `int` array parallel to the index buffer, plus a table of face id -> (body, source
+  entity id, surface type, area, bounding box)). It is stored beside the mesh (`CadFaceMap`) and is used for
+  **picking by face** (tapping a face highlights the whole B-rep face, not a triangle; joint placement can
+  snap to a face's centre or to a cylindrical face's axis, 0D.4) and for re-tessellating one face later. The
+  original file is stored unmodified in the project (4.4), so exact geometry is never discarded; v1 does not
+  edit B-reps, measure exact distances, or re-tessellate at a different tolerance without re-importing.
+- **Paint**: CAD faces have no UVs. Tessellation yields none, so imported CAD parts are not paintable in v1
+  (the same rule as STL, 0C); auto-UV unwrapping is a separate feature (Open question Q27).
+
+### 0D.3 Joints and mates
+
+STEP assembly constraints (mates, AP242 kinematics) are **not reliably present**: most exporters write only
+the placement of each component instance. v1 **ignores** any constraint or kinematic data, imports the
+assembly at the placements in the file (the rest pose), and the user adds joints with the normal Stage 1
+authoring flow (7.3). Future (not scheduled): read mates when present and propose joints (hinge for
+revolute, fixed for rigid, with limits), as suggestions the user confirms; AP242 kinematics are the likeliest
+source. A note in the import summary says "mates are not imported".
+
+### 0D.4 How a CAD part becomes a rigid puppet part
+
+A part is a group in 3d-space.md terms, but an imported CAD component is a **model-layer part with a node**
+(0B), not a drawn surface group. Stage 1 therefore treats "part" as either (a) a surface group (authored) or
+(b) a node-bearing mesh (imported glTF or CAD). Both are rigid bodies in the node forest, and joints
+connect any two parts; there is no CAD-specific kinematics. Joint placement on a CAD part uses the face-id map:
+tapping a cylindrical face offers "Hinge on this axis" (axis = the face's axis, position = its centre), a
+planar face offers "Fixed here"; otherwise the usual two-tap placement applies. Each component's local frame is
+its STEP placement, so anchors stay stable if the part is re-imported.
+
+### 0D.5 DXF
+
+DXF is read as **curves and meshes**, not solids.
+
+- **Entities in scope**: `LINE`, `ARC`, `CIRCLE`, `LWPOLYLINE` and `POLYLINE` (with bulge arcs), `SPLINE`
+  (flattened to a polyline within a chord tolerance), `3DFACE` (one triangle or quad), and `MESH` (the
+  subdivision mesh entity, level 0 only) and polyface/polygon `POLYLINE` meshes. `INSERT` (block
+  references) is expanded with its transform; layers become node names.
+- **Use 1: profile curves.** A chosen open or closed polyline (after joining touching `LINE`/`ARC`/`LWPOLYLINE`
+  end points within a tolerance) can become a **surface profile** (front, side or top view) for a group: it is
+  flattened and simplified exactly like a hand-drawn profile (Ramer-Douglas-Peucker, at most 256 vertices,
+  `SurfaceProfile`, 3d-space.md "Group surfaces"). One DXF can supply the three views (by layer name or by
+  choosing curves), which is the multi-view hull input; this is the direct CAD-to-surface path.
+- **Use 2: mesh.** `3DFACE`/`MESH` entities import as a static triangle mesh like an OBJ.
+- **Units**: from the `$INSUNITS` header variable, else ask once (default millimetres).
+- **Explicit non-goals**: no DXF export in v1 (STL/OBJ/glTF only); no `HATCH`, `DIMENSION`, `TEXT`/`MTEXT`,
+  `LEADER`, `IMAGE`, `VIEWPORT`, `3DSOLID`/`BODY`/`REGION` (ACIS solids: refused, "export STEP instead"),
+  `ELLIPSE` beyond flattening if cheap, `XLINE`/`RAY`, blocks with attributes, xrefs, paper space, or
+  non-uniform scaled inserts; no DWG (a proprietary format; convert to DXF externally); no parametric
+  or constraint data; no editing of the drawing.
+
+### 0D.6 Options for the geometry kernel (no hand-rolled B-rep)
+
+Parsing STEP/IGES and tessellating trimmed NURBS surfaces is a geometry kernel's work; writing one is
+months of specialist effort and the wrong place to spend them. Options:
+
+| Option | What | Licence | Binary size per ABI (indicative) | Build complexity | Tessellation on mobile | Privacy / cost | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Open CASCADE (OCCT) via JNI** | Full kernel: STEP/IGES readers (`STEPCAFControl`, `IGESCAFControl`), assembly/colour/name (XCAF), `BRepMesh_IncrementalMesh` tessellation | LGPL-2.1 **with the OCCT exception** (permits linking and distributing in an app if the licence text and OCCT source offer are honoured; legal review needed for an app store build, since LGPL on Android means dynamic linking and a relink path) | the readers-only subset (TKernel, TKMath, TKG2d/3d, TKGeomBase, TKBRep, TKGeomAlgo, TKTopAlgo, TKMesh, TKShHealing, TKXSBase, TKSTEP*/TKIGES, TKXCAF, TKCAF, TKLCAF, TKCDF) is on the order of **8-20 MB per ABI** after stripping and size optimisation (verify in the spike); two ABIs (arm64-v8a, armeabi-v7a) double it unless armeabi-v7a is dropped for this feature | High: large CMake build in the NDK, many toolkits, C++ exceptions/RTTI, a thin C ABI wrapper plus JNI, 64-bit only is far easier | Fast for typical parts (tens of ms to a few seconds for a 100k-triangle assembly on a mid-range arm64 phone; verify). Large assemblies are slow and memory-hungry; parsing runs off the main thread with a time and memory cap | On-device: files never leave the phone | **Technically the right kernel; heavy.** Best delivered as an optional **on-demand dynamic feature module** (Play Feature Delivery) so the base APK does not grow, if the owner accepts the size |
+| **occt-js / OCCT WASM** (`opencascade.js`, `occt-import-js`) | OCCT compiled to WebAssembly; `occt-import-js` is a ready STEP/IGES/BREP-to-triangle-mesh importer returning JSON with names, colours and meshes | the same OCCT licence (LGPL-2.1 + exception); the JS wrapper is MIT | WASM is ~**5-8 MB**; no per-ABI native build | Medium: needs a JS/WASM runtime on Android (a WebView, or an embedded engine such as QuickJS-with-WASM, or `wasmtime` via JNI). A WebView isolates it but adds a heavy hidden surface; no good headless engine is already in the app | Slower than native (a few times), memory-capped by the WASM heap (tens of MB for big assemblies) | On-device | Viable fallback if native build is rejected; extra runtime is the cost. Tessellation quality is OCCT's |
+| **External converter app** (user converts STEP to glTF/GLB/STL elsewhere: FreeCAD, Blender with a CAD importer, the CAD tool's own export, online services the *user* chooses) | We import glTF/STL/OBJ only (already in scope) | n/a | 0 | None | n/a | The user decides where the file goes; we ship nothing | **Zero cost baseline and the fallback for everything.** Loses assembly structure unless the converter writes glTF nodes; loses the face-id map; the user does the work |
+| **Hosted conversion service** (our worker runs OCCT/FreeCAD, returns glTF) | Upload STEP, receive GLB | OCCT licence applies to the server only | 0 | Medium: a container (the Cloudflare Worker in `workers/` cannot run OCCT; it needs a container host) | Server-side, fast | **Privacy**: the user's CAD file leaves the device (often confidential IP); needs a privacy statement, retention policy, auth and abuse limits; **cost**: compute and egress per conversion | **Not recommended** as the default; at most an opt-in later |
+
+**Recommendation.** Two-step, with an explicit decision gate:
+
+1. **v1 baseline (no kernel): external converter.** Document "convert STEP/IGES to GLB or STL in your CAD
+   tool, FreeCAD or Blender", and import those already-supported formats. This delivers CAD value
+   immediately, costs nothing, and exercises the rest of the pipeline (rigid parts from glTF nodes).
+2. **Spike, then decide on OCCT.** A spike PR (1.10, below) builds OCCT's STEP/IGES + XCAF + mesh
+   toolkits for arm64 under the existing CMake setup, measures stripped `.so` size, STEP-to-mesh time and
+   memory on a representative assembly (a 50-part, 100k-triangle model), checks the licence obligations with
+   counsel, and tests the dynamic-feature-module delivery. If size and legal are acceptable: **OCCT via JNI
+   as an on-demand module** (PR 1.11). If not: stay with the external converter (and consider occt-js/WASM
+   only if the owner insists on in-app import without a native build).
+3. DXF needs **no kernel**: a small reader (entities above) is hand-written or uses a small permissively
+   licensed library (evaluated in the spike; `kabeja` and `dxf-parser`-style libraries exist; check licence,
+   most are LGPL/MIT mixed), since DXF is a text format and the entity set here is small.
+
+Open question for the owner: Q26 (accept an OCCT dependency and its LGPL obligations and size, as an
+on-demand module, or stay external).
 
 ## 1. Concepts and vocabulary
 
@@ -1261,6 +1387,17 @@ Stage 1 (rigs: imported and authored):
 | 1.8 | OBJ+MTL materials, STL import, imported base-colour texture and multiple primitives per model | ~8 | ~600 | 1.2 |
 | 1.9 | Co-op guard, docs, flag removal, spec status | ~5 | ~150 | 1.5 |
 
+CAD input (parallel to Stage 1; each after glTF import, 1.2):
+
+| PR | Contents | Files | LOC | Depends on |
+|---|---|---|---|---|
+| 1.10 | **CAD import spike** (no dependency merged): build OCCT STEP/IGES + XCAF + mesh for arm64 under the existing CMake setup; measure stripped size per ABI, STEP-to-mesh time and memory on a 50-part model; licence review notes; test on-demand module delivery; evaluate occt-js/WASM as the fallback; decision recorded in this spec (Q26) | ~8 | ~300 | 1.2 |
+| 1.11 | **STEP/IGES import** (only if 1.10 passes): thin C ABI + JNI over OCCT, tessellation with chord/angular tolerance and triangle budget, assembly to node forest (parts as rigid parts), colours/names, units and axis conversion, `CadFaceMap`, import summary ("mates are not imported"); fuzzed and size-capped; static meshes first, poseable through 1.4/1.5 | ~20 | ~1800 | 1.4, 1.10 |
+| 1.12 | **Face picking and joint snap on CAD parts** (face-id map: tap a face, "Hinge on this axis", "Fixed here") | ~8 | ~600 | 1.5, 1.11 |
+| 1.13 | **DXF import**: entity reader (0D.5), curve joining and flattening, profile-curve import into `SurfaceProfile` (front/side/top), `3DFACE`/`MESH` mesh import; independent of OCCT | ~10 | ~900 | 1.1 (profile path needs none of the rig) |
+
+Until 1.11 lands, CAD users convert externally to GLB or STL (0D.6, baseline).
+
 Stage 2 (soft body, on the skinning runtime):
 
 | PR | Contents | Files | LOC |
@@ -1354,10 +1491,9 @@ them:
     for rigidity and limits; parser library after the spike; `.glb` export and glTF-Validator in CI;
     refusal of external-file glTF, compressed glTF extensions and KTX2 in v1.
 
-**Closed by owner decision:** Q18 (on-device formats are glTF/GLB, OBJ+MTL, STL; all other formats are
-converted externally and out of scope for rigging/animation, at most future scenery-only import) and Q21
-(no cloud conversion service). Removed from this spec with them: PLY, FBX, USD, Collada, VRM and Assimp
-rows, and the converter discussion.
+**Closed by owner decision:** Q21 (no cloud conversion service as default). **Reopened (rev 3):** Q18, now
+including CAD (0D). New: Q26 (OCCT dependency), Q27 (CAD paint/UV), Q28 (DXF scope). Non-CAD exotic formats
+(splats, point clouds, VDB/voxels, Alembic, USD, FBX, ...) remain out of scope with no open question.
 12. **Ordering**: confirm "import a rigged glTF and pose it" (PR 1.4) as the first user-visible puppetry
     milestone, with authored joints after it (PR 1.5).
 13. **Caps**: 64 joints per skin and 100,000 vertices per skinned import acceptable, and whether over-cap
