@@ -19,6 +19,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -199,5 +201,50 @@ class RotationGizmoUiTest {
         val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
         assertTrue("top ${b.top}", b.top >= 0f)
         assertTrue("height ${b.height}", b.height >= 96f * 1.5f)
+    }
+
+    @Test
+    fun `a sheet that appears after the triangle shrinks it, from the current sheet top not the first`() {
+        var sheetUp by androidx.compose.runtime.mutableStateOf(false)
+        rule.setContent {
+            // The lambda captures the value of this composition, as MainActivity's captures carouselOnScreen.
+            val top = if (sheetUp) 240f else Float.NaN
+            RotationGizmoDock(sheetTop = { top }, sideClearance = 0.dp) {
+                RotationGizmo({ _, _ -> }, {}, { _, _ -> }, scale = it)
+            }
+        }
+        rule.waitForIdle()
+        val full = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot.height
+        rule.runOnIdle { sheetUp = true }
+        rule.waitForIdle()
+        val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
+        assertTrue("shrunk from $full to ${b.height}", b.height < full)
+        assertTrue("top ${b.top}", b.top >= 0f)
+    }
+
+    @Test
+    fun `where the triangle overlaps the sheet it is above it, and the sheet still takes touches outside the bands`() {
+        var sheetDowns = 0
+        rule.setContent {
+            Box(Modifier.fillMaxSize()) {
+                // The sheet first, the dock after it, as MainActivity composes them.
+                Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); sheetDowns++ } })
+                RotationGizmoDock(sheetTop = { 100f }, sideClearance = 0.dp) {
+                    RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { _, _ -> }, scale = it)
+                }
+            }
+        }
+        rule.waitForIdle()
+        val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
+        assertTrue("overlaps the sheet", b.bottom > 100f)
+        rule.onNodeWithTag("rotationGizmo").performTouchInput {
+            down(Offset(width / 2f, height - 48f)); moveBy(Offset(60f, 0f)); up()
+        }
+        rule.waitForIdle()
+        assertEquals("the sheet did not take the band touch", 0, sheetDowns)
+        assertTrue(turns.isNotEmpty())
+        rule.onNodeWithTag("rotationGizmo").performTouchInput { down(Offset(4f, 4f)); up() }
+        rule.waitForIdle()
+        assertEquals(1, sheetDowns)
     }
 }

@@ -995,23 +995,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             }
         }
 
-        // The rotation triangle (spec/3d-space.md, "Rotation triangle"): only with an active 3D surface group,
-        // in the right corner on the top edge of the bottom sheet (the bottom safe area with none). Its
-        // three touch bands take input; the rest of it lets canvas strokes through.
-        if (vm.rotationGizmoVisible(uiState)) {
-            RotationGizmoDock(
-                sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
-                sideClearance = besideRail,
-            ) { gizmoScale ->
-                RotationGizmo(
-                    scale = gizmoScale,
-                    onTurn = vm::onRotationGizmoTurn,
-                    onEnd = vm::onRotationGizmoEnd,
-                    onStep = vm::onRotationGizmoStep,
-                )
-            }
-        }
-
         // The bottom carousel, centred on the whole screen and over the canvas. Only while it is
         // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
         // lying along the bottom edge as a pill to swipe up.
@@ -1309,6 +1292,24 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // The carousel's expanded ("More") hero card, in front of the carousel: it grows over the
             // neighbouring cards without the carousel's own layout moving at all.
             ExpandedHeroLayer(heroExpansion)
+        }
+
+        // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so where it overlaps
+        // the sheet (short window, full detent) it is above it in drawing and hit-testing. Only with an active 3D
+        // surface group, in the right corner on the top edge of the bottom sheet (the bottom safe area with none). Its
+        // three touch bands take input; the rest of it lets canvas strokes through.
+        if (vm.rotationGizmoVisible(uiState)) {
+            RotationGizmoDock(
+                sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
+                sideClearance = besideRail,
+            ) { gizmoScale ->
+                RotationGizmo(
+                    scale = gizmoScale,
+                    onTurn = vm::onRotationGizmoTurn,
+                    onEnd = vm::onRotationGizmoEnd,
+                    onStep = vm::onRotationGizmoStep,
+                )
+            }
         }
 
         // The onscreen chrome stays inside the safe drawing area; the canvas remains full bleed.

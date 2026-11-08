@@ -284,12 +284,17 @@ internal fun RotationGizmoDock(
     val gapPx = with(density) { GizmoSheetGap.toPx() }
     val legPx = with(density) { GizmoHeight.toPx() }
     val bandPx = with(density) { GizmoBand.toPx() }
-    fun place() = gizmoPlacement(
-        containerHeight, safeBottom.toFloat(), sheetTop() - originY, gapPx,
-        (topInset - originY).coerceAtLeast(0f), legPx, bandPx,
+    // One source of truth for the scale the content is composed with and the position the layout uses: both
+    // call this, and it reads the CURRENT sheetTop and insets (a remembered closure would keep the first
+    // composition's, e.g. from before the sheet opened).
+    val sheetTopNow by rememberUpdatedState(sheetTop)
+    val safeBottomNow by rememberUpdatedState(safeBottom.toFloat())
+    val topInsetNow by rememberUpdatedState(topInset.toFloat())
+    fun place(height: Float) = gizmoPlacement(
+        height, safeBottomNow, sheetTopNow() - originY, gapPx, (topInsetNow - originY).coerceAtLeast(0f), legPx, bandPx,
     )
     // Read here, the scale recomposes only when it changes; the position is read at layout time.
-    val scale by remember { derivedStateOf { if (containerHeight > 0f) place().scale else 1f } }
+    val scale by remember { derivedStateOf { if (containerHeight > 0f) place(containerHeight).scale else 1f } }
     Box(
         Modifier
             .fillMaxSize()
@@ -301,10 +306,7 @@ internal fun RotationGizmoDock(
                 val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                 layout(constraints.maxWidth, constraints.maxHeight) {
                     val x = constraints.maxWidth - placeable.width - with(density) { sideClearance.roundToPx() }
-                    val p = gizmoPlacement(
-                        constraints.maxHeight.toFloat(), safeBottom.toFloat(), sheetTop() - originY, gapPx,
-                        (topInset - originY).coerceAtLeast(0f), legPx, bandPx,
-                    )
+                    val p = place(constraints.maxHeight.toFloat())
                     placeable.place(max(0, x), (p.bottom - placeable.height).toInt())
                 }
             }
