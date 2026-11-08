@@ -18,6 +18,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import com.hereliesaz.graffitixr.common.model.RotationAxis
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -142,13 +143,61 @@ class RotationGizmoUiTest {
         )
     }
 
+    // xhdpi: legs 352 x 240 px, band 96, so the full box is 336 px tall.
+    private fun placement(container: Float, sheetTop: Float, topInset: Float = 48f) =
+        gizmoPlacement(container, safeBottomPx = 40f, sheetTop = sheetTop, gapPx = 16f, topInsetPx = topInset, legHeightPx = 240f, bandPx = 96f)
+
+    private fun assertOnScreen(p: GizmoPlacement, container: Float, topInset: Float) {
+        val boxH = 240f * p.scale + 96f
+        assertTrue("top ${p.bottom - boxH} below inset $topInset", p.bottom - boxH >= topInset - 0.01f)
+        assertTrue("bottom ${p.bottom} within $container", p.bottom <= container + 0.01f)
+        assertTrue("scale ${p.scale}", p.scale in GIZMO_MIN_SCALE..1f)
+    }
+
     @Test
-    fun `the triangle rides the sheet's top edge, and sits on the safe area with no sheet`() {
-        // 2000px tall, safe area 100px, gap 16px.
-        assertEquals(1900f, gizmoBottomY(2000f, 100f, Float.NaN, 16f), 0f)
-        assertEquals(1184f, gizmoBottomY(2000f, 100f, 1200f, 16f), 0f)
-        assertEquals(584f, gizmoBottomY(2000f, 100f, 600f, 16f), 0f)
-        // A sheet shut below the safe line never pushes it under it.
-        assertEquals(1900f, gizmoBottomY(2000f, 100f, 1990f, 16f), 0f)
+    fun `with room the triangle is full size on the sheet`() {
+        val p = placement(1600f, 1000f)
+        assertEquals(1f, p.scale, 0f)
+        assertEquals(984f, p.bottom, 0f)
+        // No sheet: the safe area (container less the bottom inset).
+        assertEquals(1560f, placement(1600f, Float.NaN).bottom, 0f)
+    }
+
+    @Test
+    fun `at the sheet's full detent in a 600dp window the triangle stays on screen`() {
+        // 600dp = 1200px; the grid alone is 80% of the height, so the sheet's top is at 240px.
+        val p = placement(1200f, 240f)
+        assertOnScreen(p, 1200f, 48f)
+        assertTrue("shrunk", p.scale < 1f)
+    }
+
+    @Test
+    fun `in landscape the triangle stays on screen, shrinking then overlapping the sheet`() {
+        // 360dp high = 720px, sheet top at 144px: no room above it at all.
+        val p = placement(720f, 144f)
+        assertOnScreen(p, 720f, 48f)
+        assertEquals(GIZMO_MIN_SCALE, p.scale, 0f)
+    }
+
+    @Test
+    fun `placement never leaves the screen for any sheet height`() {
+        for (container in listOf(600f, 720f, 1200f, 2400f)) {
+            for (sheetTop in 0..container.toInt() step 20) {
+                assertOnScreen(placement(container, sheetTop.toFloat()), container, 48f)
+            }
+        }
+    }
+
+    @Test
+    fun `the dock keeps the rendered triangle inside the window at the full detent`() {
+        rule.setContent {
+            RotationGizmoDock(sheetTop = { 240f }, sideClearance = 0.dp) {
+                RotationGizmo({ _, _ -> }, {}, { _, _ -> }, scale = it)
+            }
+        }
+        rule.waitForIdle()
+        val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
+        assertTrue("top ${b.top}", b.top >= 0f)
+        assertTrue("height ${b.height}", b.height >= 96f * 1.5f)
     }
 }

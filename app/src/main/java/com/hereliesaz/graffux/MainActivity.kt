@@ -1002,8 +1002,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             RotationGizmoDock(
                 sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
                 sideClearance = besideRail,
-            ) {
+            ) { gizmoScale ->
                 RotationGizmo(
+                    scale = gizmoScale,
                     onTurn = vm::onRotationGizmoTurn,
                     onEnd = vm::onRotationGizmoEnd,
                     onStep = vm::onRotationGizmoStep,

@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,14 +65,35 @@ internal val GizmoSheetGap = 8.dp
 /** The spoken name of an edge's axis, "Rotate X". */
 internal fun TriangleEdge.label(): String = "Rotate ${axis.name}"
 
+/** The smallest the legs shrink to (the 48dp bands never shrink). */
+internal const val GIZMO_MIN_SCALE = 0.6f
+
+/** Where the triangle goes: its box's bottom edge (container px) and the scale of its legs. */
+internal data class GizmoPlacement(val bottom: Float, val scale: Float)
+
 /**
- * Where the triangle's bottom edge sits (spec/3d-space.md, "Rotation triangle"): on the top edge of the
- * bottom sheet ([sheetTop], in the container's pixels, NaN when no sheet is shown) less [gapPx], but
- * never lower than the bottom safe area ([safeBottomPx] up from the container's bottom).
+ * Where the triangle goes (spec/3d-space.md, "Rotation triangle"). Ideally its bottom edge is [gapPx] above the
+ * top of the sheet ([sheetTop], container px, NaN with no sheet), and never lower than the bottom safe area.
+ * When that leaves less than its full height below the top inset ([topInsetPx]) (the sheet at its full detent, a
+ * short window, landscape) the legs shrink, down to [GIZMO_MIN_SCALE] (the [bandPx] touch bands stay full size);
+ * if even that does not fit, it is held at the top inset and overlaps the sheet's top, so it is always fully on
+ * screen and usable.
  */
-internal fun gizmoBottomY(containerHeight: Float, safeBottomPx: Float, sheetTop: Float, gapPx: Float): Float {
+internal fun gizmoPlacement(
+    containerHeight: Float,
+    safeBottomPx: Float,
+    sheetTop: Float,
+    gapPx: Float,
+    topInsetPx: Float,
+    legHeightPx: Float,
+    bandPx: Float,
+): GizmoPlacement {
     val floor = containerHeight - safeBottomPx
-    return if (sheetTop.isNaN()) floor else min(floor, sheetTop - gapPx)
+    val ideal = if (sheetTop.isNaN()) floor else min(floor, sheetTop - gapPx)
+    val scale = ((ideal - topInsetPx - bandPx) / legHeightPx).coerceIn(GIZMO_MIN_SCALE, 1f)
+    val boxHeight = legHeightPx * scale + bandPx
+    val bottom = max(ideal, topInsetPx + boxHeight).coerceAtMost(containerHeight)
+    return GizmoPlacement(bottom, scale)
 }
 
 /** The clip that makes only the touch bands take pointer input: their union as an outline. */
@@ -103,20 +127,22 @@ internal fun RotationGizmo(
     onEnd: () -> Unit,
     onStep: (RotationAxis, Float) -> Unit,
     modifier: Modifier = Modifier,
+    /** The legs' scale (1 = full size), from [gizmoPlacement]; the touch bands keep their size. */
+    scale: Float = 1f,
 ) {
     val density = LocalDensity.current
     val bandPx = with(density) { GizmoBand.toPx() }
     val inset = bandPx / 2f
-    val triangle = remember(density.density) {
-        RotationTriangle(with(density) { GizmoWidth.toPx() }, with(density) { GizmoHeight.toPx() }, bandPx)
+    val triangle = remember(density.density, scale) {
+        RotationTriangle(with(density) { GizmoWidth.toPx() } * scale, with(density) { GizmoHeight.toPx() } * scale, bandPx)
     }
     val turn by rememberUpdatedState(onTurn)
     val end by rememberUpdatedState(onEnd)
     var activeEdge by remember { mutableStateOf<TriangleEdge?>(null) }
     var readout by remember { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
-    val boxW = GizmoWidth + GizmoBand
-    val boxH = GizmoHeight + GizmoBand
+    val boxW = GizmoWidth * scale + GizmoBand
+    val boxH = GizmoHeight * scale + GizmoBand
     Box(modifier.size(boxW, boxH).testTag("rotationGizmo")) {
         // The look: three coloured edges (X cyan, Y pink, Z green, the rail's axis colours); the one in use
         // gets a wide faint halo showing its touch band.
@@ -245,26 +271,46 @@ private fun GizmoLetter(letter: String, at: IntOffset, edge: TriangleEdge) {
 internal fun RotationGizmoDock(
     sheetTop: () -> Float,
     sideClearance: Dp,
-    content: @Composable () -> Unit,
+    content: @Composable (scale: Float) -> Unit,
 ) {
     val density = LocalDensity.current
     val safeBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density) +
         with(density) { CarouselBottomInset.toPx() }
+    // Clear of the status bar and cutout, and a little below them.
+    val topInset = WindowInsets.statusBarsIgnoringVisibility.getTop(density) +
+        WindowInsets.displayCutout.getTop(density) + with(density) { GizmoTopMargin.toPx() }
     var originY by remember { mutableStateOf(0f) }
+    var containerHeight by remember { mutableStateOf(0f) }
+    val gapPx = with(density) { GizmoSheetGap.toPx() }
+    val legPx = with(density) { GizmoHeight.toPx() }
+    val bandPx = with(density) { GizmoBand.toPx() }
+    fun place() = gizmoPlacement(
+        containerHeight, safeBottom.toFloat(), sheetTop() - originY, gapPx,
+        (topInset - originY).coerceAtLeast(0f), legPx, bandPx,
+    )
+    // Read here, the scale recomposes only when it changes; the position is read at layout time.
+    val scale by remember { derivedStateOf { if (containerHeight > 0f) place().scale else 1f } }
     Box(
         Modifier
             .fillMaxSize()
-            .onGloballyPositioned { originY = it.positionInRoot().y }
+            .onGloballyPositioned {
+                originY = it.positionInRoot().y
+                containerHeight = it.size.height.toFloat()
+            }
             .layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                 layout(constraints.maxWidth, constraints.maxHeight) {
                     val x = constraints.maxWidth - placeable.width - with(density) { sideClearance.roundToPx() }
-                    val bottom = gizmoBottomY(
-                        constraints.maxHeight.toFloat(), safeBottom, sheetTop() - originY, with(density) { GizmoSheetGap.toPx() },
+                    val p = gizmoPlacement(
+                        constraints.maxHeight.toFloat(), safeBottom.toFloat(), sheetTop() - originY, gapPx,
+                        (topInset - originY).coerceAtLeast(0f), legPx, bandPx,
                     )
-                    placeable.place(max(0, x), (bottom - placeable.height).toInt())
+                    placeable.place(max(0, x), (p.bottom - placeable.height).toInt())
                 }
             }
             .testTag("rotationGizmo.dock"),
-    ) { content() }
+    ) { content(scale) }
 }
+
+/** Space kept between the triangle and the top inset when the sheet is tall. */
+internal val GizmoTopMargin = 8.dp
