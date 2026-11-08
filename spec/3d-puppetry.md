@@ -1,6 +1,7 @@
 # 3D puppetry: rigid parts, joints, rigidity, and (later) soft bodies and keyframes
 
-Status: design only. Nothing here is implemented. Written against `origin/main` at 1.74.1.1 (project
+Status: design only. Nothing here is implemented. **Revision 2** makes standard formats (glTF 2.0 skins,
+nodes and animations) the backbone; sections 0A to 0C are new and win over any earlier text they contradict. Written against `origin/main` at 1.74.1.1 (project
 format 13), the open draft PR #753 (rotation triangle gizmo) and the in-progress mesh work on
 `claude/mesh-all-views` (no commits beyond main when this was written; every statement about it
 below is an assumption to re-check, flagged "MESH:").
@@ -34,6 +35,232 @@ recommendation is accepted. Section numbers point to the reasoning.
 | Q12 | Is puppetry available on desktop? | No. Desktop does not use `:core:common` (3d-space.md header). Same exclusion as all 3D. | 5.7 |
 | Q13 | Do old readers have to open a project that has joints? | They open it read-only (existing `isNewerFormat` behaviour) and render the rest pose. Acceptable; no attempt to make them edit it. | 4.3 |
 | Q14 | Default mobile budget numbers (section 10) acceptable as hard limits (e.g. 32 joints per project, 4k vertices per soft body)? | Yes, enforced with a visible message, not silently. | 10 |
+| Q15 | Is glTF (nodes/skins/animations) the interchange and in-memory shape for rigs and clips, with our data only in `extras.GRAFFUX_joint`? | Yes (0B). | 0B |
+| Q16 | Support importing rigged glTF/GLB models as poseable model layers before authored joints? | Yes: PR 1.2 (import and pose) ships before PR 1.5 (authoring). | 12 |
+| Q17 | Extend the model layer to hold one `.glb` original plus a skeleton, and generalise `objFile` to `modelFile` (format 14)? | Yes, old name still read. | 0C |
+| Q18 | Which on-device formats: glTF/GLB, OBJ(+MTL), STL now; PLY later; FBX/USD/others by external conversion? | As in the 0C table. | 0C |
+| Q19 | Parser library: jgltf (JVM) vs cgltf (native) vs hand-rolled? | jgltf, decided by the PR 1.0 spike (APK delta, 20 MB GLB parse time, licence check). | 0C |
+| Q20 | Export `.glb` in addition to `.gltf`, and validate our output with Khronos glTF-Validator in CI? | Yes to both. | 0C |
+| Q21 | Cloud conversion service for FBX/USD? | No; document external converters. | 0C |
+| Q22 | glTF with external files: refuse until a folder/zip import exists, or add a zip import now? | Refuse with "save as .glb" now. | 0C |
+| Q23 | Compressed glTF (meshopt, Draco) and KTX2 textures: refuse in v1, meshopt first later? | Yes. | 0C |
+| Q24 | Is `extras.GRAFFUX_joint` (unregistered, ignorable) acceptable, with `KHR_physics_rigid_bodies` joint limits as the future mapping once ratified? | Yes. | 0B |
+| Q25 | Skinned models: GPU skinning in the depth-pass vertex shader with a CPU-skinned copy for picking and painting; cap 64 joints (uniform array) and 100k vertices on import? | Yes. | 3.8, 10 |
+
+## 0A. What import and export exist today (audit, 2026-11)
+
+Read from `origin/main` source, not from docs. Anything not listed here does not exist.
+
+**Import (one format).**
+
+- 3D models: **Wavefront OBJ only**, as text. Entry point `EditorViewModel.importModelLayer`
+  (`:feature:editor`), reached by the 3D toolbox's "Import 3D model", whose picker is
+  `OpenDocument` with `*/*` (any file is offered; a non-OBJ fails in the parser with "Couldn't read
+  that model"). `ObjParser.parse(String)` (`:core:common`, `common/mesh`) reads `v`, `vt`, `vn`, `f`
+  (all four corner spellings, negative indices, n-gons fan-triangulated) and **skips everything else**:
+  `mtllib`/`usemtl` (so no materials, no MTL colours or textures), `o`/`g` (no groups or object
+  names), `s`. Missing normals are generated; missing UVs become 0.
+- The result is `Mesh` (`Mesh.kt`): an interleaved `[px,py,pz, nx,ny,nz, u,v]` float array (8 floats a
+  vertex) plus an `IntArray` of triangle indices. **There is no place in `Mesh` for joints, weights,
+  node hierarchy, skins, animations, morph targets, vertex colours, a second UV set, or materials.**
+  `ModelMesh` wraps it with a bounding centre and radius. The OBJ bytes are copied unchanged into the
+  project folder as `model_<layerId>.obj` and re-parsed on load (`ModelLayerContent.objFile`);
+  an imported model has one mesh, one paint texture (`ModelTexture`, 1024 square by default, painted
+  over a flat base colour), and no imported texture.
+- Co-op carries the OBJ text deflated (`ModelCoopCodec`, 64 MB inflated cap, 4096-side texture cap).
+- Other 3D-ish inputs, unrelated to models: images (including to build a relief surface from a photo
+  via the depth model), vector shapes, and `.azp` extensions. No STL, PLY, glTF, GLB, FBX, USD, Collada.
+- No third-party mesh/glTF/model library is in `gradle/libs.versions.toml`, the Cargo manifest of
+  `core/wgpu-engine`, or the CMake of `core/nativebridge`. The only JSON stacks present are
+  `kotlinx-serialization-json` (used for projects) and `gson`.
+
+**Export (glTF 2.0 JSON only, write-only).**
+
+- `SceneGltfExporter` (`common/scene`): "Export 3D scene (glTF)", `CreateDocument("model/gltf+json")`.
+  One self-contained **`.gltf` (JSON with a base64 buffer), not `.glb`**. A **flat list of root nodes,
+  one per exported thing: no parent/child hierarchy, no `skins`, no `animations`, no morph targets,
+  no `extras`**. Contents: each paint layer a textured quad (PNG) or, on a group surface, its
+  strips/hull patches with UVs; each vector layer rasterised to a quad; each 3D strokes layer a tube
+  mesh (`SpatialGltfExporter.buildMesh`); each model layer its mesh (positions, normals, UVs, indices)
+  with the painted texture as base colour; optionally the camera. Materials use
+  `KHR_materials_unlit` for the paint quads. Axes y-up, metres, one metre = one spatial unit
+  (`F/3` scene px).
+- `SpatialGltfExporter` writes the same format for the strokes layer alone.
+- PNG / PDF / GIF / share go through `ExportManager` and `SceneExport` (rendered images). `AnimatedGifEncoder`
+  exists for animation frames.
+- Export is verified by JVM tests that decode the JSON and accessors (`ModelLayerTest`: "glTF export
+  carries the model's mesh and painted texture"); not opened in any external validator or viewer by CI.
+
+**Rendering of models.** The GLES 3 `DepthCompositor` (the depth pass) draws a model's mesh with a
+headlight shader, the paint texture over a base colour; the mesh is uploaded once per mesh, the
+texture once per revision. There is **no vertex skinning**, no per-vertex bone data, no joint
+uniform array. Picking and painting use CPU raycasts on the unskinned mesh (`ModelSpace.ray`,
+`MeshPicker.raycast`) and UVs.
+
+**Tests that cover this today.** `ModelLayerTest` (import placement, Move tool undo, UV painting,
+save/load of the texture, old floating-window migration, flatten, tap-select, glTF export, co-op
+model data), `ObjParser`/`Mesh` unit tests, glTF exporter tests. None involves a skin, a joint or an
+animation, because none exists.
+
+**Conclusion.** Today's "model" is *static geometry from OBJ*, and its export is a *flat scene dump*.
+Rigged models cannot be imported at all, and nothing we author can leave the app as a skeleton.
+That is exactly the gap puppetry should fill with the existing standard rather than a bespoke format.
+
+## 0B. Standards first: glTF is the interchange for rigs, poses and clips
+
+Principle: **where glTF 2.0 can express it, glTF is the format and the in-memory model mirrors
+glTF's own structures.** Our own data is a thin layer only for what glTF cannot say. Concretely:
+
+| Concern | Standard carrier | Our additions (only where glTF is silent) |
+|---|---|---|
+| Part hierarchy (parent/child, rest transform) | glTF **nodes** (`children`, local `translation`/`rotation`/`scale`) | none |
+| A skinned mesh and its deformation | glTF **skin** (`joints[]`, `inverseBindMatrices`, `skeleton`), primitive attributes **`JOINTS_0`/`WEIGHTS_0`** (`JOINTS_1`/`WEIGHTS_1` for 8 influences), linear blend skinning per the glTF spec | none |
+| A pose | Node local transforms (TRS), or `weights` for morph targets | pose persisted in our project (below) |
+| A clip | glTF **animation**: `channels[]` (target node, path `translation`/`rotation`/`scale`/`weights`) and `samplers[]` (`input` times, `output` values, `LINEAR`/`STEP`/`CUBICSPLINE`) | `animation.extras` for frame rate and our easing |
+| Rigid part moving with a joint | A mesh on a node. No skin is needed: glTF nodes are rigid-transformed | none |
+| Hinge / ball / fixed, axis, limits | **Nothing in core glTF.** `KHR_physics_rigid_bodies` (a Khronos extension in development at time of writing; check its status before relying on it) defines joints with per-axis limits and is the future mapping | `node.extras.GRAFFUX_joint` (below) |
+| Rigidity (stiffness) | Nothing (the nearest are physics/spring extensions, not an equivalent of our gain) | `node.extras.GRAFFUX_joint.rigidity` |
+| Soft-body control points and zones (Stage 2) | A **skin whose joints are the control point nodes**, with weights baked from our kernel (section 8) | `extras` with the kernel/zone parameters to re-edit |
+| Rigged humanoid semantics | VRM / `VRMC_vrm` (glTF-based) names humanoid bones | not in v1; imported as plain nodes |
+
+`extras` is the glTF-sanctioned place for application data (the spec requires other tools to ignore
+it and, ideally, preserve it). The JSON we put there is one namespaced object per node:
+
+~~~
+"extras": { "GRAFFUX_joint": {
+    "schema": 1, "kind": "HINGE" | "BALL" | "FIXED",
+    "axis": [x,y,z],                       // in the node's local frame
+    "limits": { "min": deg, "max": deg } | { "swing": deg, "twistMin": deg, "twistMax": deg },
+    "rigidity": 0..1 } }
+~~~
+
+We do not register an extension for this in v1 (a registered extension needs a Khronos process and
+buys nothing for a private semantic); `extensionsUsed` stays unchanged and every viewer ignores it.
+
+**Consequences for the design below (these supersede earlier text where they conflict):**
+
+1. **The in-memory rig is a glTF-shaped node forest**, not a bespoke joint list. A *rig* is a set of
+   **skeleton nodes** (name, parent, rest TRS, optional `GRAFFUX_joint` data) plus **skins**
+   (joint list + inverse bind matrices) plus **bindings** from meshes (or surface groups) to skins or
+   to single nodes. Section 2's `Joint` is then a *view* over a node with `GRAFFUX_joint` data: the
+   parent/child relation is the node's parent; `parentAnchor`/`childAnchor` are the node's translation
+   in the parent's frame and the child part's origin offset (a glTF node's origin *is* the joint
+   position, which removes the two-anchor redundancy and the "out of rest" case when the rig comes
+   from glTF; section 2.5 still applies to authored rigs on surface groups, whose anchors are expressed
+   by creating a node at the joint with both parts as its mesh-bearing descendants).
+2. **Imported rigged models are poseable with their own skeleton**, with no authoring. A glTF/GLB
+   with skins imports as a model layer carrying the skeleton; every skeleton node is a poseable joint
+   (default kind BALL, rigidity 0, unlimited, unless it carries `GRAFFUX_joint`, in which case the
+   authored kind, limits and rigidity are honoured, which makes our own exports round-trip).
+3. **Our authored joints export as a glTF skeleton and animation** through the existing
+   `SceneGltfExporter` (extended, not replaced): parts become nodes with `children`, each part's
+   surface mesh hangs on its node, joints carry `GRAFFUX_joint`, the current pose is the node local
+   rotation, clips become `animations`. Another tool (Blender, a game engine, `model-viewer`)
+   opens the result and poses/animates it. Rigid parts need no `skin`.
+4. **One skinning runtime serves three things**: imported skinned models, Stage 2 soft bodies
+   (authored weights over control-point nodes) and rigid parts (weight 1 to one node, if we ever
+   skin them instead of using `partModel`). The glTF skinning formula is the only deformation maths
+   added (section 3.8). Stage 2's "recommended" kernel becomes a *weight generator* feeding that
+   same runtime, not a separate solver.
+5. **Pose persistence** stays in our project (`GraffitiProject.rig`, format 14), because a glTF file
+   embedded as a model is not edited in place: the stored `.glb` is the unmodified original (so
+   re-export of the source is lossless and storage is the user's file), and the project holds only
+   the *delta*: pose per node (by node index, with node name as a fallback key), kind/limits/rigidity
+   overrides, and the animation clips we author. Section 4 is revised accordingly (section 4.4).
+
+## 0C. Libraries and formats: what does the work
+
+Constraints that decide: untrusted input from the file picker (memory safety matters); mobile size
+budget; the project already has a JVM (Kotlin) editor core, a CMake native module (OpenCV/engine
+glue, arm64-v8a and armeabi-v7a only) and a Rust wgpu crate that does not composite the 3D scene;
+no existing mesh library. Licence and size figures below are from the libraries' public
+documentation as I know them; **verify the current version, licence text, and size in a spike before
+adopting** (the spike is PR 1.0).
+
+### Import parsers evaluated
+
+| Library | What | Licence | Size / build cost | Native vs JVM | Skins/anims | Verdict |
+|---|---|---|---|---|---|---|
+| **jgltf** (`de.javagl:jgltf-model`) | glTF 2.0 reader/writer, GLB, typed model, accessor reading, validation helpers | MIT | small (a few hundred KB) plus Jackson (Apache-2.0) if not already present | **JVM**, no NDK | skins, animations, morph targets, extensions as data | **Recommended for import** (and for validating our own export in tests). Check Jackson size/R8 rules and maintenance status |
+| **cgltf** | single-header C glTF/GLB parser, no image decoding | MIT | ~7k lines C, tiny | native (JNI via existing CMake) | skins, animations, extensions | Good fallback if jgltf is rejected; native parse of untrusted files raises the memory-safety bar (fuzz it) |
+| **tinygltf** | C++ header-only reader and writer | MIT | needs nlohmann json + stb_image | native | yes | heavier than cgltf, no advantage here |
+| **Filament `gltfio`** | loader + animator + renderer integration | Apache-2.0 | several MB AARs; brings a second renderer | native + JVM | full | **Rejected**: it would own rendering, duplicating the depth pass and its occlusion/paint pipeline. Its skinning maths is not reusable without Filament |
+| **Assimp** | 40+ formats incl. FBX, OBJ, STL, PLY, Collada, 3DS, glTF | BSD-3-Clause | large (many MB per ABI), long NDK build | native | skeletons, animations (FBX lossy) | **Rejected for v1**: size and attack surface (a long CVE history in importers) for formats better converted ahead of time; keep as a later option for FBX if a converter service is declined |
+| **Hand-rolled glTF JSON reader on `kotlinx-serialization-json`** | the JSON is simple; accessors/bufferViews are ~300 lines | n/a | zero new dependency | JVM | whatever we write | Not preferred (the owner asked not to reinvent); the fallback if adding Jackson is unacceptable. Skinning maths is trivial either way |
+| **Khronos glTF-Validator** | schema/semantic validator | Apache-2.0 | dev tool (Dart/JS/CLI) | CI only | n/a | **Use in CI/tests** to validate every glTF our exporter writes; it exists precisely so we do not trust our own JSON |
+
+**Recommendation:** adopt **jgltf-model** (JVM) for import and for round-trip tests; keep
+`ObjParser` (OBJ is a useful, working path and its absence of a dependency is the original reason it
+exists); keep **hand-written JSON in `SceneGltfExporter`** and extend it with `children`, `skins`,
+`animations`, `extras` (the exporter already owns the scene-to-glTF mapping and unlit materials;
+jgltf's writer would not know our layers) and **run Khronos glTF-Validator over its output in a test or
+CI step**. Reading with a library and writing with our existing exporter keeps the diff small.
+Native parsers are held back until a measured JVM performance problem (a large GLB parse on a mid-range
+phone) exists. Decide jgltf vs cgltf in the spike with: APK delta, parse time for a 20 MB GLB, R8
+behaviour, licence file check (Open question Q19).
+
+### Skinning maths: nothing to invent
+
+The glTF 2.0 specification defines it and it is a few lines: for vertex `v` with joints
+`j0..j3` and weights `w0..w3`, `skinMatrix = sum_i w_i * jointMatrix[j_i]`, where `jointMatrix[j] =
+inverse(globalTransformOfNodeThatSkinIsOn) * globalJointTransform[j] * inverseBindMatrix[j]`;
+`position' = skinMatrix * position`, normals by the inverse-transpose (or the rotation part when
+uniform scale). Weights must sum to 1 within tolerance (normalise on load; the spec requires it).
+Max influences 4 per attribute set; we import `*_0` and `*_1` (8) and re-normalise to the 4
+largest. We implement exactly that, in one pure Kotlin function (`Skinning.kt`, `:core:common`) and
+the same formula in the GLES 3 vertex shader. The reference for tests is the spec's own sample
+models (Khronos `glTF-Sample-Assets`: `SimpleSkin`, `RiggedSimple`, `RiggedFigure`, `CesiumMan`, `Fox`, `BrainStem`;
+CC0/CC-BY/permissive per asset, check each licence before vendoring any into `src/test/resources`).
+Use tiny ones only (`SimpleSkin` is a few hundred bytes).
+
+### Where each stage gets its work from a standard
+
+- **Stage 1a (import and pose a rigged glTF):** glTF/GLB parsing (library), node hierarchy and TRS
+  (glTF), skinning (glTF spec formula), pose = node local rotations (glTF), quaternion maths (our
+  `Affine3` plus a small quaternion type). New: UI for posing, persistence of the pose delta.
+- **Stage 1b (authored joints on surface groups):** FK is the node-hierarchy product (glTF), export is
+  nodes + `extras` (glTF), limits and rigidity are our semantics (3.2, 3.4).
+- **Stage 2 (soft bodies):** deformation is **linear blend skinning with authored weights** (glTF);
+  control points are joint nodes; weights come from our kernel/zones (our authoring, section 8);
+  export is a standard skin. Morph targets (glTF) are the option for baked per-frame shape.
+- **Stage 3 (clips):** the clip **is** a glTF animation (samplers/channels); we add only the editing UI
+  and the extras for fps/easing; playback samples the same data an exported file contains; export to
+  glTF animation is direct, GIF/MP4 are renders of it. Interpolation `LINEAR`/`STEP`/`CUBICSPLINE` are
+  glTF's; our smoothstep ease bakes to `CUBICSPLINE` (with tangents) or extra `LINEAR` samples.
+
+### Other formats worth supporting, and via what
+
+| Format | Support | How |
+|---|---|---|
+| glTF 2.0 `.gltf` (embedded data URIs) and `.glb` | **First-class import and export** | jgltf; exporter (also add `.glb` output: one file, binary chunk, no base64 inflation) |
+| glTF with external `.bin`/image files | Import only via `.glb` or an embedded `.gltf`; a `.gltf` with external URIs is refused with "Save as .glb" until a folder/zip import exists | SAF returns one file URI; resolving siblings needs a tree grant (Open question Q22) |
+| OBJ (+MTL) | Keep; **add MTL** diffuse colour/texture so imported OBJs are not flat grey (small, not in glTF's way) | `ObjParser` extension |
+| STL (binary and ASCII) | Add; trivial, common from CAD/3D printing | ~100-line parser, or the library if it reads it; no UVs (paint disabled, auto-UV is a separate feature) |
+| PLY (scans) | Add, low priority | small parser; vertex colours become a base-colour texture bake |
+| FBX | **Convert**, do not parse | `FBX2glTF` (BSD-3, Meta; links the proprietary FBX SDK, so it is a build/CLI tool, never shipped in the app) or Blender CLI on the user's computer; the docs tell users to export glTF. Mixamo (FBX) is the main reason users ask |
+| USD / USDZ | **Convert** | Blender, Apple Reality Converter, or the `usd` toolchain; no on-device parser |
+| Collada, 3DS, Blend, etc. | **Convert** | Blender; Assimp only if a later decision accepts it |
+| VRM 1.0 | Import as glTF; ignore `VRMC_*` in v1, read humanoid bone names later | it is a glTF file |
+| Compressed glTF (`KHR_draco_mesh_compression`, `EXT_meshopt_compression`) | Detect and refuse with a message in v1; meshopt decoder (MIT, small) is the first to add because it is common in downloaded assets; Draco is large and last | library or vendored decoder |
+| `KHR_texture_basisu` (KTX2 textures) | Refuse or ignore the texture (use base colour), message | later |
+| `KHR_materials_*` | Import base colour factor/texture only; ignore the rest | |
+| `KHR_mesh_quantization`, `KHR_texture_transform` | Quantised attributes: decode (accessor normalisation is already in the loader); texture transform: apply to UVs | simple |
+
+A hosted converter (a Cloudflare worker exists in `workers/`) cannot run Blender or the FBX SDK;
+"convert in the cloud" is therefore out of scope and listed as an open question (Q21) only so the
+owner can decide not to.
+
+### Mesh model changes this implies (still no code)
+
+`Mesh` stays as is so every existing consumer (renderer, picker, painting, co-op, exporter) is
+untouched. Skin data travels beside it: `SkinnedMesh(mesh: Mesh, joints: ShortArray /*4 per vertex*/, weights: FloatArray
+/*4 per vertex*/, skin: Skin)`, where `Skin(jointNodes: IntArray, inverseBind: FloatArray /*16 per joint*/)`,
+and the node forest in `Skeleton(nodes: List<SkelNode>)` with `SkelNode(name, parent, restT, restR, restS,
+extras)`. A model layer holds `mesh` plus an optional `skeleton`/`skinned`. A static OBJ has neither
+and takes today's code path byte for byte. Imported base-colour textures and multiple primitives
+become several `ModelMesh` parts of one model layer (also a prerequisite for glTF with more than one
+material), which is a change to `ModelLayerContent` (format 14: `modelFile` generalises `objFile`,
+the old name read as before).
 
 ## 1. Concepts and vocabulary
 
@@ -79,6 +306,10 @@ skinned), "constraint" for a joint (reserved for the solver), "pin" (the orbit-p
 already uses "rotation point").
 
 ## 2. Data model
+
+Rev 2 note: read this section through 0B. For rigs that come from glTF, the node forest of 0B is the
+model and `Joint` is a view over a node with `GRAFFUX_joint` data. For authored rigs on surface
+groups the `Joint` below is kept as the editing model and is exported as nodes (0B.3).
 
 All in `:core:common`, package `com.hereliesaz.graffitixr.common.scene` (new file `Rig.kt`, plus
 `RigMath.kt` for kinematics). Pure Kotlin, no Android, like the rest of `scene/`.
@@ -396,6 +627,26 @@ Failure modes, and what the code does:
   start part (as the gizmo's drag "locks to its start edge", PR #753); hit-testing is only for
   picking the part at drag start.
 
+### 3.8 Skinning (imported rigs and Stage 2)
+
+Linear blend skinning exactly as the glTF 2.0 specification defines it (0C): per vertex up to 4
+influences, `skinMatrix = sum w_i * jointMatrix[j_i]`. Runtime split:
+
+- **GPU**: the depth pass vertex shader skins positions and normals; joint matrices upload as a
+  uniform array of 4x3 matrices (GLES 3.0 guarantees at least 224 vec4 vertex uniform vectors, so 64
+  joints at 3 vec4 each is safe; beyond that use a float texture fetch, which GLES 3 supports) once per
+  pose change, not per frame. Cap 64 joints per skin in v1; a skin with more is refused with a message
+  (or its 64 most-weighted joints kept: Open question Q25).
+- **CPU copy**: a CPU-skinned copy of the positions is computed on pose change only, for
+  picking, painting and the orbit pivot's bounds. Painting is unaffected by skinning in UV terms: the
+  texture coordinate is per vertex and does not move, so `MeshPicker.raycast` on the *skinned* positions
+  returns the correct UV and the brush paints where the user sees. This resolves the Stage 2 painting
+  risk (R8) for any skinned mesh, imported or soft-body, on single-surface meshes.
+- Vertex cap on import: 100,000 vertices per skinned model (CPU copy 1.2 MB of positions, skin in under
+  8 ms on a mid device is the budget; verify in the spike).
+- Pure Kotlin reference `Skinning.kt` (`:core:common`) used by tests and the CPU copy; the shader must
+  match it (a test compares both on `SimpleSkin`-style fixtures; the GLSL itself is verified on device only).
+
 ### 3.7 Numerical stability
 
 - Poses are stored as scalars/quaternions; matrices are rebuilt from them each frame; products are
@@ -459,6 +710,20 @@ read-only open of a newer file protects data in the common case).
   transform codec keeps its 16 floats (spec/3d-space.md "Co-op").
 - A `.fux` bundle: the rig lives in `project.json`, so it travels with the file.
 
+### 4.4 Rev 2: what the project stores for imported models
+
+- The original model file is stored unmodified in the project folder (today `model_<layerId>.obj`;
+  format 14 generalises `ModelLayerContent.objFile` to `modelFile`, the old name still read, so a
+  format 13 file loads as before). A `.glb` is one file, so it fits the existing `saveArtifact` path.
+- `GraffitiProject.rig` stores only **deltas against the source**: per layer, the pose as node index
+  -> local rotation/translation (name fallback when indices disagree after a re-import), `GRAFFUX_joint`
+  overrides, and authored clips. Opening the project never rewrites the user's source model.
+- Old readers (format < 14): read-only open, rest pose of the source (an old build cannot import a
+  `.glb` at all, so such a layer loads as an empty model layer, the same degrade as for any layer
+  type it does not know; the read-only open prevents it from being saved over).
+- Co-op: `ModelCoopCodec` carries OBJ text; a `.glb` needs its own op (bytes, same 64 MB cap and
+  validation). Out of scope until co-op has a transport; recorded in R7.
+
 ## 5. Interactions with the existing 3D system
 
 ### 5.1 Per-view paint (Q8)
@@ -520,6 +785,10 @@ layers; the "pick from the layers rail" fallback exists for buried parts (a join
 sheet is the equivalent for joints, 7.5).
 
 ### 5.5 glTF export
+
+Rev 2: superseded by 0B/0C. The hierarchy, `extras`, skins and animations are written by extending
+`SceneGltfExporter` (it writes a flat node list today), `.glb` output is added, and the result is checked
+by Khronos glTF-Validator. The text below is the original, narrower plan.
 
 `SceneGltfExporter` writes each layer quad/strip at its scene placement. Stage 1: export the
 **currently displayed pose** by feeding it posed models (same `modelOf` seam). No skins, no animation
@@ -724,6 +993,10 @@ Z green) kept everywhere an axis appears.
 
 ## 8. Stage 2: a bendable single surface (soft body)
 
+Rev 2 note: the deformation runtime is the glTF skinning of 3.8, not a separate solver. The kernel and
+rigidity zones below are the *weight generator*: they produce `JOINTS_0`/`WEIGHTS_0` over control-point
+nodes. Export is then a standard skinned mesh, and an imported skinned mesh is deformed by the same code.
+
 ### 8.1 Goal and scope
 
 One surface (a profiled group's sheet or hull, or a relief) deforms under user-placed **control
@@ -862,6 +1135,9 @@ orbit pivot is frozen.
 
 ### 9.4 Export (Q11)
 
+Rev 2: glTF animation is the clip format itself (0B), not an export step; items 1 and 2 below swap
+priority accordingly (glTF first, GIF/MP4 are renders of it). Open question Q11 stands.
+
 1. **GIF / MP4**: render N frames through the same off-screen depth pass used for PNG/PDF export
    (`OffscreenDepthRender` + `SceneExport`); `AnimatedGifEncoder.java` already exists in
    `common`; MP4 via `MediaCodec` + surface. Cost is N * (offscreen render + readback);
@@ -895,6 +1171,8 @@ Hard limits are enforced with a visible message, not silent truncation.
 | Control points per body | <= 32 | |
 | Soft bodies updating per frame | <= 2 | upload bandwidth: 2 * 8k * 12 B = 192 KB / frame |
 | Soft vertex upload | `glBufferSubData` dirty range only | |
+| Skinned model import | <= 64 joints per skin, <= 100,000 vertices, GLB <= 64 MB (the co-op cap) | uniform array limit; CPU copy cost |
+| Skin on pose change | CPU copy < 8 ms, joint upload < 0.2 ms | not per frame |
 | Clip | <= 240 frames, <= 128 tracks | |
 | GIF export | <= 120 frames, <= 720p side | 10 MB readback each |
 | No-allocation rule | FK, drag-follow, CCD, blend loops allocate nothing per frame (preallocated `FloatArray`s, as `Affine3` uses) | GC jank on drag |
@@ -954,53 +1232,66 @@ an isometry of its vertices (rigid zone does not shear); P15 offsets 0 => rest m
 Stage 3 adds: sampling is a pure function; key add/remove/move properties; slerp shortest-arc; export
 frame count and timing exact (integer frames).
 
-## 12. Staged PR breakdown
+## 12. Staged PR breakdown (rev 2)
 
-Constraint: each PR < 300 changed files. Realistically each is far smaller; the sizes below are
-estimates of changed files / lines (LOC excludes tests unless noted). All are independent branches
-off main unless stated, each ending green on the repo's usual checks, with a "verified only in JVM
-tests" note where a GL path is touched.
+Constraint: each PR < 300 changed files (every one is far smaller). Re-cut so that **importing a
+rigged glTF and posing it ships before, and independently of, authoring joints**; both then share
+the same node/pose/history code. Sizes are estimated files / LOC (excluding tests unless noted).
+"On-device only" means verified in JVM tests but not on a device, to be stated in each PR.
 
-Spec first:
+- **PR 0: this spec.** 3 files.
 
-- **PR 0: this spec.** 3 files (spec/3d-puppetry.md, spec/3d-space.md link, ARCHITECTURE.md link).
-
-Stage 1 (rigid parts and joints):
+Stage 1 (rigs: imported and authored):
 
 | PR | Contents | Files | LOC | Depends on |
 |---|---|---|---|---|
-| 1.1 | `Rig.kt`, `RigMath.kt`: data model, graph rules, `wouldCycle`, `sanitize`, FK (`partModel`), hinge/ball/fixed math, limits, rigidity gain. Pure Kotlin + P1-P11 tests. No wiring. | ~6 | ~900 + 700 tests | none |
-| 1.2 | Persistence: `GraffitiProject.rig`, `OverlayLayer` mapping, format 14, `migrateFormat` 13->14, tolerant decode, tests (round trip, 13 file, NaN). | ~8 | ~250 | 1.1 |
-| 1.3 | Seam: route per-part models through `partModel` in the scene renderer, `CanvasHitTest`, `DepthScene`, grid, glTF, `OrbitPivot`; cache key includes pose; no UI. Behaviour identical with no rig (assert). | ~15 | ~400 | 1.1 |
-| 1.4 | Editor state and history: `EditCommand.RigChange`, intents (add/edit/delete joint, set pose, reset, bake), `Rig.sanitize` in layer ops, one-drag-one-step. | ~8 | ~500 | 1.1, 1.2 |
-| 1.5 | UI A: edit-mode joint markers overlay, "Add joint" two-tap + list flow, joint sheet and list, a11y; behind a build flag until 1.6. | ~12 | ~1200 | 1.3, 1.4 |
-| 1.6 | UI B: pose mode, drag-follow, gizmo reuse (needs #753 merged), chips, TalkBack actions, limit feedback. | ~10 | ~900 | 1.5, #753 |
-| 1.7 | CCD pull handle + optional glTF node hierarchy export. | ~6 | ~500 | 1.6 |
-| 1.8 | Co-op guard (pose editing disabled), docs, remove flag, spec status update. | ~5 | ~150 | 1.6 |
+| 1.0 | **Spike** (no merge to main of the dependency until accepted): jgltf vs cgltf on APK delta, 20 MB GLB parse, R8, licences; Khronos glTF-Validator wired as a test/CI step on the *existing* exporter output; record findings in this spec | ~5 | ~150 | none |
+| 1.1 | Core model, pure Kotlin: `Skeleton`/`SkelNode`/`Skin`/`SkinnedMesh`, `Skinning.kt` (spec formula), quaternion type, FK over a node forest, pose delta, cycle/sanitise, limits and rigidity gain (3.2, 3.4); property tests P1-P12 + skinning fixtures | ~8 | ~1100 + 900 tests | none |
+| 1.2 | **Import glTF/GLB**: loader adapter (library from 1.0) to `SkinnedMesh` + `Skeleton`; model layer holds `modelFile` + optional skeleton (format 14 field, persistence); refuse list (external files, Draco, KTX2) with clear messages; one primitive and base colour first | ~12 | ~700 | 1.0, 1.1 |
+| 1.3 | **Render and pick skinned models**: GLES 3 vertex-shader skinning in the depth pass, joint upload on pose change, CPU-skinned copy for `MeshPicker`/`ModelSpace` picking and painting, pivot bounds from posed bounds; static models unchanged byte for byte. On-device only | ~10 | ~600 | 1.2 |
+| 1.4 | **Pose an imported rig**: history (`RigChange`, one drag = one step), joint selection by tapping the mesh (nearest dominant joint of the hit triangle) and by a joint list, pose mode UI (chips, drag-follow, rigidity gain), rotation gizmo reuse (needs #753), TalkBack actions, reset pose, numeric entry. The "import a rigged model and pose it" milestone | ~14 | ~1300 | 1.3, #753 |
+| 1.5 | **Authored joints on surface groups**: add-joint two-tap and list flows, joint sheet, markers overlay, `partModel` seam in renderer/hit-test/grid/pivot (rigid parts as nodes with meshes on them), project persistence | ~18 | ~1700 | 1.1, 1.4 |
+| 1.6 | **Export our rig as glTF**: extend `SceneGltfExporter` with node hierarchy, `children`, `extras.GRAFFUX_joint`, the current pose as node rotations; `.glb` output; validator in tests; re-import round trip (our export imports back with kinds/limits/rigidity intact) | ~7 | ~600 | 1.1, 1.5 (1.2 for the round trip) |
+| 1.7 | CCD pull handle (IK for chains of imported or authored joints) | ~6 | ~500 | 1.4 |
+| 1.8 | OBJ+MTL materials, STL import, imported base-colour texture and multiple primitives per model | ~8 | ~600 | 1.2 |
+| 1.9 | Co-op guard, docs, flag removal, spec status | ~5 | ~150 | 1.5 |
 
-Stage 2 (soft body), after Stage 1 ships and is used:
-
-| PR | Contents | Files | LOC |
-|---|---|---|---|
-| 2.1 | `SoftBody` model + blend kernel + rigid-zone Procrustes + tests P13-P16 | ~5 | ~800 |
-| 2.2 | Mesh integration: displaced vertices to `surfaceVbo` (sheet and relief), normals, vertex cap | ~8 | ~600 |
-| 2.3 | Picking and painting on the deformed sheet (mesh raycast, per-vertex `(u,t)`); hull gated | ~8 | ~700 |
-| 2.4 | Persistence (next format), history, glTF (baked vertices) | ~8 | ~400 |
-| 2.5 | UI: control point placement, zones, rigidity, a11y | ~12 | ~1100 |
-| 2.6 | (optional) Anchors on soft bodies; PBD secondary motion | ~6 | ~500 |
-
-Stage 3 (timeline), after Stage 2:
+Stage 2 (soft body, on the skinning runtime):
 
 | PR | Contents | Files | LOC |
 |---|---|---|---|
-| 3.1 | `Clip/Track/Key` model, sampling, tests | ~4 | ~500 |
-| 3.2 | Persistence (format bump), history | ~6 | ~300 |
-| 3.3 | Playback engine (Choreographer), pose application, cache interplay | ~6 | ~400 |
+| 2.1 | Weight generator: control points, rigidity field, kernel, normalised weights to `JOINTS_0`/`WEIGHTS_0`, rigid-zone transform; tests P13-P16 | ~5 | ~700 |
+| 2.2 | Surface group meshes as `SkinnedMesh` (sheet and relief) through the 1.3 runtime; vertex cap | ~8 | ~600 |
+| 2.3 | Paint and pick on the deformed sheet via skinned positions (hull gated) | ~8 | ~500 |
+| 2.4 | Persistence, history, glTF export as a skin of control-point nodes (re-import round trip) | ~8 | ~400 |
+| 2.5 | Control point and zone UI, a11y | ~12 | ~1100 |
+| 2.6 | (optional) secondary motion (PBD) | ~6 | ~500 |
+
+Stage 3 (clips, on glTF animation):
+
+| PR | Contents | Files | LOC |
+|---|---|---|---|
+| 3.1 | `Clip` = glTF animation (samplers/channels), sampling (`LINEAR`/`STEP`/`CUBICSPLINE`, slerp), import of an imported file's own animations, tests | ~5 | ~600 |
+| 3.2 | Persistence (clips, format bump), history | ~6 | ~300 |
+| 3.3 | Playback engine (Choreographer, frame skip, cache interplay) | ~6 | ~400 |
 | 3.4 | Timeline UI, auto-key, a11y | ~14 | ~1500 |
-| 3.5 | Export: GIF/MP4 | ~8 | ~600 |
-| 3.6 | Export: glTF animation | ~5 | ~500 |
+| 3.5 | Export glTF animation (reuses 1.6) and GIF/MP4 renders | ~8 | ~800 |
 
 ## 13. Risks
+
+- **R14 (rev 2): untrusted glTF.** A hostile or corrupt file (huge accessors, cycles in `children`,
+  out-of-range joint indices, NaN weights, bomb-sized buffers, external URIs). Mitigation: cap sizes
+  before decoding (64 MB, 100k vertices, 64 joints, 1,024 nodes), reject cycles and bad indices, never
+  resolve external URIs or `file:` URIs, run the parser off the main thread with a timeout, fuzz the
+  adapter. A native parser would need the same plus memory-safety tooling.
+- **R15 (rev 2): extras are not enforced.** Other tools may drop `GRAFFUX_joint` when re-saving; limits
+  and rigidity are then lost on re-import (geometry and animation survive). Accepted.
+- **R16 (rev 2): real-world rigs are messy** (hundreds of joints, non-uniform scale, negative scale,
+  skeleton root not under the skinned node, multiple skins/scenes). v1 supports one scene, uniform positive
+  scale, first skin per mesh; others are refused with a message.
+- **R17 (rev 2): the dependency.** jgltf (or cgltf) is a new supply-chain and maintenance dependency;
+  the spike records its licence, size and maintenance state, and the hand-rolled reader on
+  `kotlinx-serialization-json` stays the fallback.
 
 - **R1: nothing here is verified on a device.** GL paths are only JVM-tested in this project today;
   puppetry makes the seam changes (1.3) touch the depth pass. Mitigation: 1.3 changes models, not
@@ -1054,3 +1345,14 @@ them:
    hulls in v1 and support deformed single-view sheets only?
 9. Stage 3 **export priority**: GIF/MP4 first (proposed) or animated glTF first?
 10. Any **hard cap** on joints (32) or soft vertices (8,192) the owner wants different?
+11. **Standards backbone (Q15-Q25 in section 0)**: confirm glTF as the interchange and `extras.GRAFFUX_joint`
+    for rigidity and limits; parser library after the spike; formats supported on device vs converted
+    externally; `.glb` export and glTF-Validator in CI; refusal of external-file glTF, compressed glTF and
+    KTX2 in v1.
+12. **Ordering**: confirm "import a rigged glTF and pose it" (PR 1.4) as the first user-visible puppetry
+    milestone, with authored joints after it (PR 1.5).
+13. **Caps**: 64 joints per skin and 100,000 vertices per skinned import acceptable, and whether over-cap
+    models are refused or reduced.
+14. **Source of truth**: confirm that the imported file is stored unmodified and only the pose, overrides and
+    clips are saved in the project (4.4), at the cost that editing the source model elsewhere and
+    re-importing can orphan pose entries (name fallback only).
