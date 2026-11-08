@@ -546,6 +546,35 @@ object SurfaceMath {
         return maxOf(span, side) + GRID_MARGIN
     }
 
+    /**
+     * The box that holds [profile]'s surface, in the group's box-local space: (min x, y, z) to (max x, y, z).
+     * The surface is swept without bound, so it is cut where the guide grid stops ([gridExtent] less its
+     * margin): a hull is its clip box, a relief its photo's rectangle with the displacement either side
+     * of the plane, anything else its vertices and the same vertices swept that far. This is the extent
+     * [OrbitPivot] measures; null for a profile that is not [SurfaceProfile.isValid].
+     */
+    fun localBounds(profile: SurfaceProfile): Pair<FloatArray, FloatArray>? {
+        if (!profile.isValid) return null
+        profile.relief?.let {
+            val half = it.displacement / 2f
+            return floatArrayOf(it.left, it.top, -half) to floatArrayOf(it.left + it.spanU, it.top + it.spanT, half)
+        }
+        if (profile.hasHull) SurfaceHull.of(profile)?.let { return it.boundsMin to it.boundsMax }
+        val reach = (gridExtent(profile) - GRID_MARGIN).coerceAtLeast(0f)
+        val sweep = profile.sweep
+        val lo = FloatArray(3) { Float.MAX_VALUE }
+        val hi = FloatArray(3) { -Float.MAX_VALUE }
+        for (i in 0 until profile.count) {
+            val p = profile.point(i)
+            for (k in 0..2) {
+                val far = p[k] + sweep[k] * reach
+                lo[k] = minOf(lo[k], p[k], far)
+                hi[k] = maxOf(hi[k], p[k], far)
+            }
+        }
+        return lo to hi
+    }
+
     /** A scene segment on the canvas, clipped to the near plane; null when wholly behind it. */
     fun segment(a: FloatArray, b: FloatArray, cam: CameraFrame): FloatArray? {
         val near = SceneMath.nearPlane(cam.focal) * 2f

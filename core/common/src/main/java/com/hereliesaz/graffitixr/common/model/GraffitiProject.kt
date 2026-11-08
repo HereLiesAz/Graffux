@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 12
+const val CURRENT_FORMAT_VERSION = 13
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
@@ -74,6 +74,8 @@ data class GraffitiProject(
      * - 11: a paint image per view of a multi-view surface (`Layer.surfaceViewOf`, `.surfaceView`).
      * - 12: relief surfaces (`SurfaceProfile.relief`, a photo's depth grid). A version 11 file has none;
      *   the step only records the version.
+     * - 13: [orbitPivot], a rotation point the user placed. A version 12 file has none (automatic); the
+     *   step only records the version.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),
@@ -164,6 +166,9 @@ data class GraffitiProject(
     // The canvas's 3D camera (format 7). Absent = the default, which is the flat 2D view.
     val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =
         com.hereliesaz.graffitixr.common.scene.SceneCamera(),
+
+    // The user-placed rotation point, scene px x, y, z (format 13). Null = automatic (all surfaces).
+    val orbitPivot: List<Float>? = null,
 
     // The Crop tab's crop and geometry (format version 3). Non-destructive: the layers keep every
     // pixel; the canvas and the export draw them through this.

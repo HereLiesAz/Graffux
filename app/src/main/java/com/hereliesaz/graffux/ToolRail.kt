@@ -106,6 +106,8 @@ internal class ToolRailCallbacks(
     val onPackWheelOpen: () -> Unit = {},
     /** Where the Brush or Eraser item sits, in root coordinates: the pack wheel's anchor. */
     val onPackAnchor: (Tool, Rect) -> Unit = { _, _ -> },
+    /** A long-press on the wire-mesh button ("#"): its menu (mesh on/off, the rotation point). */
+    val onMeshMenu: () -> Unit = {},
 )
 
 /**
@@ -260,9 +262,13 @@ internal fun ToolRail(
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
         AxisButton(uiState.activeRotationAxis.takeIf { active3D }, armed = uiState.surfaceDrawArmed) { vm.onAxisSlotTapped() }
         // The wire mesh of the active layer's group surface: a guide only, there while the layer is
-        // paint on a surface (spec/3d-space.md, "Guide grid").
-        if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null) {
-            SurfaceMeshButton(on = uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid() }
+        // paint on a surface (spec/3d-space.md, "Guide grid"), or while a rotation point is placed, so that
+        // its "Reset to automatic" is never stranded when the last surface goes (the choice is kept, not
+        // silently discarded: it is still a valid point for the plane layers).
+        val onSurface =
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
+        if (onSurface || uiState.manualPivot != null) {
+            SurfaceMeshButton(on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
@@ -392,9 +398,10 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, onClick: () 
  * shows, so it reads on and off at a glance and to TalkBack.
  */
 @Composable
-private fun SurfaceMeshButton(on: Boolean, onClick: () -> Unit) {
+private fun SurfaceMeshButton(on: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
     RailButton(
         label = "Surface wire mesh",
+        onLongClick = onLongClick,
         testTag = "rail.$SURFACE_MESH_RAIL_ID",
         onClick = onClick,
     ) {
@@ -415,6 +422,17 @@ private fun SurfaceMeshButton(on: Boolean, onClick: () -> Unit) {
 
 /** The wire-mesh toggle's rail id. */
 internal const val SURFACE_MESH_RAIL_ID = "view.surfaceMesh"
+
+/**
+ * The wire-mesh button's long-press menu: the mesh on or off (the same flag the short press flips), and
+ * the point the scene revolves about. Placing it arms a tap in the scene ([PivotPromptChip]); "Reset to
+ * automatic" returns to the centre of every surface.
+ */
+internal fun MenuBuilder.meshMenu(vm: EditorViewModel, uiState: EditorUiState, onDone: () -> Unit) {
+    check("Wire mesh", uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid(); onDone() }
+    listItem("Relocate rotation point") { vm.onArmPivotPick(); onDone() }
+    if (uiState.manualPivot != null) listItem("Reset rotation point to automatic") { vm.onResetPivot(); onDone() }
+}
 
 /** The brush's long-press menu. */
 internal fun MenuBuilder.brushMenu(

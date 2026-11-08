@@ -557,7 +557,14 @@ data class EditorUiState(
      * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Only the active layer's
      * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).
      */
-    val surfaceGridVisible: Boolean = false,
+    val surfaceGridVisible: Boolean = true,
+    /**
+     * A rotation point the user placed (scene px x, y, z), or null = automatic: the centre of every
+     * surface ([com.hereliesaz.graffitixr.common.scene.OrbitPivot]). Saved with the project (format 13).
+     */
+    val manualPivot: List<Float>? = null,
+    /** "Relocate rotation point" is armed: the next tap in the scene places [manualPivot]. View state. */
+    val pivotPickArmed: Boolean = false,
     /** "Build surface from image" in progress, for the chip's progress line and Cancel; null = not building. */
     val reliefBuild: ReliefBuildState? = null,
     val undoCount: Int = 0,
