@@ -103,4 +103,59 @@ class PackWheelWrapTest {
             }
         }
     }
+
+    private val brushPage = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)
+
+    /** What MainActivity does each time the inputs change: the wheel follows the sheet's visibility. */
+    private fun sync(
+        state: PackWheelState, tool: Tool = Tool.BRUSH, show: Boolean = true, capture: Boolean = false,
+        docked: Boolean = false, panelOpen: Boolean = false, strokeOrChromeHidden: Boolean = false,
+        ui: CarouselUi = brushPage,
+    ) {
+        val onScreen = carouselVisible(show, capture, docked, panelOpen, ui.category.isToolGroup, false)
+        state.pinTo(ui.brushSheetUp(onScreen, tool) && !strokeOrChromeHidden)
+    }
+
+    @Test
+    fun wheelClosesWhenAPanelDisplacesTheSheet() {
+        val state = PackWheelState()
+        sync(state)
+        assertTrue(state.open)
+        sync(state, panelOpen = true) // showCarousel stays true; the sheet leaves the screen
+        assertFalse(state.open)
+        state.toggle() // unpinned now: a second tap can open and dismiss it
+        assertTrue(state.open)
+        state.close()
+        assertFalse(state.open)
+    }
+
+    @Test
+    fun wheelNeverStaysPinnedWithoutAVisibleSheet() {
+        val gone = listOf<(PackWheelState) -> Unit>(
+            { sync(it, panelOpen = true) },
+            { sync(it, capture = true) },
+            { sync(it, docked = true) },
+            { sync(it, show = false) },
+            { sync(it, strokeOrChromeHidden = true) },
+            { sync(it, tool = Tool.FILL) },
+            { sync(it, ui = brushPage.copy(sheetOpen = false)) },
+            { sync(it, ui = brushPage.copy(photo = true)) },
+            { sync(it, ui = brushPage.copy(category = CarouselCategory.EFFECTS)) },
+        )
+        for (change in gone) {
+            val state = PackWheelState()
+            sync(state)
+            assertTrue(state.open)
+            change(state)
+            assertFalse(state.open)
+            assertFalse(state.pinned)
+        }
+    }
+
+    @Test
+    fun aToolGroupOrDesignTabsShowOverAPanel() {
+        assertTrue(carouselVisible(true, false, false, panelOpen = true, toolGroup = true, designMode = false))
+        assertTrue(carouselVisible(true, false, false, panelOpen = true, toolGroup = false, designMode = true))
+        assertFalse(carouselVisible(true, false, false, panelOpen = true, toolGroup = false, designMode = false))
+    }
 }

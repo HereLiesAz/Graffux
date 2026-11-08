@@ -52,3 +52,18 @@ internal fun CarouselUi.afterCanvasTouch(activeTool: Tool): CarouselUi {
 internal fun CarouselUi.brushSheetUp(showCarousel: Boolean, activeTool: Tool): Boolean =
     showCarousel && sheetOpen && !photo && carouselContextOf(category) == CarouselContext.BRUSHES &&
         activeTool in PACK_WHEEL_TOOLS
+
+/**
+ * Whether the carousel sheet is actually on screen: wanted, not hidden for a capture or docked
+ * into a side panel, and not displaced by an open editor panel (a tool group or the design tabs
+ * show over one).
+ */
+@Suppress("LongParameterList")
+internal fun carouselVisible(
+    showCarousel: Boolean,
+    hideUiForCapture: Boolean,
+    panelDocked: Boolean,
+    panelOpen: Boolean,
+    toolGroup: Boolean,
+    designMode: Boolean,
+): Boolean = showCarousel && !hideUiForCapture && !panelDocked && (!panelOpen || toolGroup || designMode)
