@@ -135,13 +135,22 @@ class Scene3DRailUiTest {
         }
         val toggle = rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID")
         toggle.assertExists()
-        assertEquals(false, vm.uiState.value.surfaceGridVisible)
+        // On by default (a saved choice is not kept: the toggle is view state, never stored).
+        assertEquals(true, vm.uiState.value.surfaceGridVisible)
         toggle.performClick()
         rule.waitForIdle()
-        assertEquals(true, vm.uiState.value.surfaceGridVisible)
+        assertEquals(false, vm.uiState.value.surfaceGridVisible)
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
         // A flat layer has no mesh to show, so no toggle.
         rule.runOnIdle { vm.onLayerActivated("x") }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+        // A placed rotation point must stay reachable (its Reset lives on this button's menu) even
+        // with no surface under the active layer; once reset to automatic the button goes again.
+        rule.runOnIdle { vm.setManualPivotForTest(listOf(1f, 2f, 3f)) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
+        rule.runOnIdle { vm.onResetPivot() }
         rule.waitForIdle()
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
     }

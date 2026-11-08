@@ -658,6 +658,16 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+- **Body-fixed rotation axes.** A layer's or group's X/Y/Z are lines of the object. `SceneMath.rotatePoseAbout`
+  (used by the rotation slider, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
+  result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
+  projects (format unchanged) read what they always did. The slider thumb is `SceneMath.bodyAngle`, a stateless function
+  of the orientation. See spec/3d-space.md, "Body-fixed axes".
+- **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
+  holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
+  layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
+  menu, "Relocate rotation point") overrides it and is saved as `GraffitiProject.orbitPivot`; the field is new, hence format 13
+  (a 12 file has none: automatic). The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
 - **Relief surfaces (format 12).** `SurfaceProfile.relief` (`ReliefSurface`, `ReliefMath` in `:core:common`) is a photo's depth map
   as a grid of heights over the photo's plane; the photo is the single paint image and its pixels are the paint space. It is a group
   surface like any other: `SurfaceMath.hit`/`mesh`/`gridLines`/`SurfaceFootprint` dispatch on it, so painting, ownership and undo are

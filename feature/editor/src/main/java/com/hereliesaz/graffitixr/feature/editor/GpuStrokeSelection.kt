@@ -54,7 +54,7 @@ internal object GpuStrokeSelection {
         offset: Offset,
         rotationZ: Float,
     ): Prepared? {
-        val built = selection?.takeIf { it.isUsable }
+        val built = selection?.takeIf { it.confines }
             ?.let { coverage(Key(it, width, height, frame, scale, offset, rotationZ)) }
         val gpu = GpuSelection(engine)
         return built?.let { (coverage, feathered) ->

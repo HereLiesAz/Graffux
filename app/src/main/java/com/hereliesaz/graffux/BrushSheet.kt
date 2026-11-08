@@ -43,3 +43,27 @@ internal fun CarouselUi.afterCanvasTouch(activeTool: Tool): CarouselUi {
     val brushSheet = activeTool == Tool.BRUSH && !photo && category == CarouselCategory.BRUSHES
     return if (sheetOpen && !brushSheet) copy(sheetOpen = false, showingCarousel = false) else this
 }
+
+/**
+ * Whether the brush sheet is up: shown, open, on a brush-context page (Favorites, Brushes, Ink),
+ * with the brush or eraser in hand.
+ * The pack wheel stays open exactly while this holds.
+ */
+internal fun CarouselUi.brushSheetUp(showCarousel: Boolean, activeTool: Tool): Boolean =
+    showCarousel && sheetOpen && !photo && carouselContextOf(category) == CarouselContext.BRUSHES &&
+        activeTool in PACK_WHEEL_TOOLS
+
+/**
+ * Whether the carousel sheet is actually on screen: wanted, not hidden for a capture or docked
+ * into a side panel, and not displaced by an open editor panel (a tool group or the design tabs
+ * show over one).
+ */
+@Suppress("LongParameterList")
+internal fun carouselVisible(
+    showCarousel: Boolean,
+    hideUiForCapture: Boolean,
+    panelDocked: Boolean,
+    panelOpen: Boolean,
+    toolGroup: Boolean,
+    designMode: Boolean,
+): Boolean = showCarousel && !hideUiForCapture && !panelDocked && (!panelOpen || toolGroup || designMode)

@@ -1,9 +1,17 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.feature.editor
 
 import android.graphics.Bitmap
 import android.graphics.Color
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.Selection
+import com.hereliesaz.graffitixr.common.model.SelectionRing
+import com.hereliesaz.graffitixr.common.scene.PaintTarget
+import com.hereliesaz.graffitixr.common.scene.SurfaceMath
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.scene.SurfaceHull
 import com.hereliesaz.graffitixr.common.scene.SurfaceProfile
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
@@ -12,6 +20,7 @@ import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import io.mockk.every
 import io.mockk.mockkObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,7 +67,7 @@ class ViewFloodOracleTest {
 
     private fun plan(othersPaint: Int?): List<com.hereliesaz.graffitixr.common.scene.PaintTarget> {
         val oracle = ViewFloodOracle(
-            layers(othersPaint), "p", hull, sizeW, sizeH, 0, { b, x, y, t -> MagicWand.mask(b, x, y, t) },
+            layers(othersPaint), "p", hull, sizeW, sizeH, 0, { b, x, y, t, clip -> MagicWand.mask(b, x, y, t, clip) },
         ) { EditorViewModel.ViewClip(false, null) }
         val tapFace = tapView
         val tri = hull.meshByView().getValue(tapFace)
@@ -79,5 +88,40 @@ class ViewFloodOracleTest {
     @Test
     fun `a face already painted another colour is not entered`() {
         assertEquals(1, plan(Color.RED).size)
+    }
+
+    @Test
+    fun `a flood cannot connect through pixels the lasso excludes`() {
+        val rect = hull.regionRect(tapView, 0)!!
+        val owner = SurfaceMath.ownerOf(layers(null), "p")!!
+        fun flat(x: Float, y: Float) =
+            SurfaceMath.unrolledToFlat(x, y, owner.innerChain, sizeW.toFloat(), sizeH.toFloat())!!.let { Offset(it.first, it.second) }
+        fun square(cx: Float, cy: Float, r: Float) =
+            SelectionRing(listOf(flat(cx - r, cy - r), flat(cx + r, cy - r), flat(cx + r, cy + r), flat(cx - r, cy + r)))
+        val ax = rect[0] + (rect[2] - rect[0]) * 0.2f
+        val ay = rect[1] + (rect[3] - rect[1]) * 0.2f
+        val bx = rect[0] + (rect[2] - rect[0]) * 0.8f
+        val by = rect[1] + (rect[3] - rect[1]) * 0.8f
+        // Two selected areas of one blank face, with unselected face between them.
+        val selection = Selection(listOf(square(ax, ay, 15f), square(bx, by, 15f)), IntSize(sizeW, sizeH))
+        val oracle = ViewFloodOracle(
+            layers(null), "p", hull, sizeW, sizeH, 0, { b, x, y, t, clip -> MagicWand.mask(b, x, y, t, clip) },
+        ) { EditorViewModel.ViewClip(false, selection) }
+        val reach = oracle.flood(PaintTarget(tapView, ax, ay, 0))!!
+        assertTrue("the area tapped in is reached", reach(ax, ay))
+        assertFalse("the other selected area is not: the bucket cannot get there", reach(bx, by))
+    }
+
+    @Test
+    fun `a crease seed on a face boundary is accepted inside the clip so its flood is not empty`() {
+        // A cap region sits away from the image origin (padding to its left), so a pixel just outside it exists.
+        val rect = hull.regionRect(SurfaceView.FRONT, 5)!!
+        val oracle = ViewFloodOracle(
+            layers(null), "p", hull, sizeW, sizeH, 0, { b, x, y, t, clip -> MagicWand.mask(b, x, y, t, clip) },
+            confineToFace = true,
+        ) { EditorViewModel.ViewClip(false, null) }
+        val accepted = oracle.accept(PaintTarget(SurfaceView.FRONT, rect[0], rect[1] + 100f, 5))!!
+        val reach = oracle.flood(accepted)
+        assertTrue("the accepted seed floods something", reach != null && reach(rect[0] + 20f, rect[1] + 120f))
     }
 }
