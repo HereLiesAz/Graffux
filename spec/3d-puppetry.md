@@ -44,10 +44,10 @@ recommendation is accepted. Section numbers point to the reasoning.
 | Q22 | glTF with external files: refuse until a folder/zip import exists, or add a zip import now? | Refuse with "save as .glb" now. | 0C |
 | Q23 | Compressed glTF extensions (meshopt, Draco) and KTX2 textures: refuse with a message in v1? | Yes. | 0C |
 | Q24 | Is `extras.GRAFFUX_joint` (unregistered, ignorable) acceptable, with `KHR_physics_rigid_bodies` joint limits as the future mapping once ratified? | Yes. | 0B |
+| Q25 | Skinned models: GPU skinning in the depth-pass vertex shader with a CPU-skinned copy for picking and painting; cap 64 joints (uniform array) and 100k vertices on import? | Yes. | 3.8, 10 |
 | Q26 | Accept an OCCT (LGPL-2.1 + exception) dependency as an on-demand module for STEP/IGES, or stay with external conversion? | Spike first (PR 1.10); adopt as an on-demand module only if size and licence review pass; external conversion meanwhile. | 0D.6 |
 | Q27 | CAD parts have no UVs: leave them unpaintable in v1, or add automatic UV unwrapping (also helps STL)? | Unpaintable in v1; unwrapping is a separate feature. | 0D.2 |
 | Q28 | DXF as surface-profile input (front/side/top views from one file) and as `3DFACE`/`MESH` import in v1, no DXF export? | Yes. | 0D.5 |
-| Q25 | Skinned models: GPU skinning in the depth-pass vertex shader with a CPU-skinned copy for picking and painting; cap 64 joints (uniform array) and 100k vertices on import? | Yes. | 3.8, 10 |
 
 Closed by the owner: Q21 (no cloud conversion service as a default; a hosted option appears only as a rejected-by-default row in 0D.6). Q18 was closed in rev 2 and **reopened in rev 3** by the CAD correction, with a recommendation.
 
