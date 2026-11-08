@@ -111,4 +111,17 @@ class ViewFloodOracleTest {
         assertTrue("the area tapped in is reached", reach(ax, ay))
         assertFalse("the other selected area is not: the bucket cannot get there", reach(bx, by))
     }
+
+    @Test
+    fun `a crease seed on a face boundary is accepted inside the clip so its flood is not empty`() {
+        // A cap region sits away from the image origin (padding to its left), so a pixel just outside it exists.
+        val rect = hull.regionRect(SurfaceView.FRONT, 5)!!
+        val oracle = ViewFloodOracle(
+            layers(null), "p", hull, sizeW, sizeH, 0, { b, x, y, t, clip -> MagicWand.mask(b, x, y, t, clip) },
+            confineToFace = true,
+        ) { EditorViewModel.ViewClip(false, null) }
+        val accepted = oracle.accept(PaintTarget(SurfaceView.FRONT, rect[0], rect[1] + 100f, 5))!!
+        val reach = oracle.flood(accepted)
+        assertTrue("the accepted seed floods something", reach != null && reach(rect[0] + 20f, rect[1] + 120f))
+    }
 }

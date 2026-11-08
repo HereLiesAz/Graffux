@@ -101,7 +101,7 @@ internal class ViewFloodOracle(
         }
         if (img == null || bmp == null) return { x, y -> allowed(x, y) }
         val (sx, sy) = pixelOf(img, bmp, seed.x, seed.y) ?: return null
-        val region = clipRegion(seed, img, bmp, selection)
+        val region = regionOf(seed, img, bmp)
         val m = mask(bmp, sx, sy, TOLERANCE, region?.let { r -> { px: Int, py: Int -> r.contains(px, py) } }) ?: return null
         return { x, y ->
             val (px, py) = pixelOf(img, bmp, x, y) ?: (-1 to -1)
@@ -113,6 +113,15 @@ internal class ViewFloodOracle(
                 }
             }
         }
+    }
+
+    private val regions = HashMap<Pair<SurfaceView, Int>, android.graphics.Region?>()
+
+    /** [clipRegion] for the seed's face, built once per face: every link into it asks. */
+    private fun regionOf(seed: PaintTarget, img: Layer, bmp: Bitmap): android.graphics.Region? {
+        val key = seed.view to seed.region
+        if (!regions.containsKey(key)) regions[key] = clipRegion(seed, img, bmp, clip(seed.view).selection)
+        return regions[key]
     }
 
     /** The region the committed fill is clipped to in [bmp], as pixels: [selection], else the seed's face if confined. */
@@ -136,10 +145,13 @@ internal class ViewFloodOracle(
         val bmp = img?.bitmap
         if (img == null || bmp == null) return target.takeIf { matches(0) && !clip(target.view).blocked }
         val (px, py) = pixelOf(img, bmp, target.x, target.y) ?: return null
+        val region = regionOf(target, img, bmp)
         for (dy in -1..1) for (dx in -1..1) {
             val qx = px + dx
             val qy = py + dy
             if (qx !in 0 until bmp.width || qy !in 0 until bmp.height || !matches(bmp.getPixel(qx, qy))) continue
+            // A seed outside the clip would flood nothing: accept only a pixel the committed fill could enter.
+            if (region?.contains(qx, qy) == false) continue
             val (x, y) = paintOf(img, bmp, qx, qy) ?: continue
             if (inFace(target, x, y)) return PaintTarget(target.view, x, y, target.region)
         }
