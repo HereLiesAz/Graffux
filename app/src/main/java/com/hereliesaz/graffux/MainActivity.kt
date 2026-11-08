@@ -356,6 +356,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
     var showDocDialog by rememberSaveable { mutableStateOf(false) }
     var showBlendDialog by rememberSaveable { mutableStateOf(false) }
+    var showSurfacePicker by rememberSaveable { mutableStateOf(false) }
     var showCurvesDialog by rememberSaveable { mutableStateOf(false) }
     var activeShapeDialog by rememberSaveable { mutableStateOf<ShapeEditDialog?>(null) }
     var showBrushGallery by rememberSaveable { mutableStateOf(false) }
@@ -1460,6 +1461,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             ToolboxAction("New 3D strokes layer") { vm.addSpatialLayer() },
                             // An imported .obj is a 3D model layer in the same space (spec/3d-space.md).
                             ToolboxAction("Import 3D model") { modelPicker.launch(arrayOf("*/*")) },
+                            // A ready-made surface from an installed pack of surfaces becomes a new group.
+                            ToolboxAction("Insert surface") { showSurfacePicker = true },
                         ),
                     ).takeIf { showModelRail },
                     ToolboxSpec(
@@ -1682,6 +1685,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     confirmLabel = "Forget",
                     onConfirm = { vm.onDeleteSavedSelection(name); pendingForgetSelectionName = null },
                     onDismiss = { pendingForgetSelectionName = null },
+                )
+            }
+
+            if (showSurfacePicker) {
+                com.hereliesaz.graffitixr.feature.editor.SurfacePicker(
+                    vm = vm,
+                    onDismiss = { showSurfacePicker = false },
                 )
             }
 

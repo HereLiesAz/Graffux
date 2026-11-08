@@ -13488,6 +13488,56 @@ class EditorViewModel @Inject constructor(
         saveProject()
     }
 
+    // ── Ready-made surfaces: "Insert surface" (spec/3d-space.md, "Ready-made surfaces") ──
+
+    /** The surfaces bundled by installed packs of surfaces, for the picker. Cheap: reads manifests only. */
+    fun installedSurfaces(): List<com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.InstalledSurfaceAsset> =
+        extensionRepository.installedSurfaceAssets()
+
+    /** The validated payload of an installed surface, for the picker's thumbnail; a rejection says why. */
+    fun loadInstalledSurface(extensionId: String, assetIndex: Int) =
+        extensionRepository.loadSurface(extensionId, assetIndex)
+
+    /**
+     * Inserts installed surface [assetIndex] of pack [extensionId]; a payload that fails validation says so and
+     * changes nothing.
+     */
+    fun onInsertInstalledSurface(extensionId: String, assetIndex: Int) {
+        when (val parsed = extensionRepository.loadSurface(extensionId, assetIndex)) {
+            is com.hereliesaz.graffitixr.common.scene.SurfaceParse.Ok -> onInsertSurface(parsed.payload)
+            is com.hereliesaz.graffitixr.common.scene.SurfaceParse.Rejected ->
+                notify("This surface can't be used: ${parsed.reason}", NoticeKind.WARNING)
+        }
+    }
+
+    /**
+     * Puts [payload] in the project as a NEW top-level group with that surface, active, as one undo step. The
+     * group is an ordinary surface group afterwards (draw the side or top view, add layers to paint on it,
+     * flatten, delete). Nothing is replaced: the active layer and every existing group are left as they are.
+     * Returns whether a group was added.
+     */
+    fun onInsertSurface(payload: com.hereliesaz.graffitixr.common.scene.SurfacePayload): Boolean {
+        val st = _uiState.value
+        val profile = payload.toProfile(st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat())
+        if (profile == null) {
+            notify("The canvas is not ready yet.", NoticeKind.WARNING)
+            return false
+        }
+        // Inserting while "Draw surface" is armed would leave the capture surface over the new group.
+        if (st.surfaceDrawArmed) onCancelSurfaceDraw()
+        val group = Layer(
+            id = UUID.randomUUID().toString(), name = payload.name, type = LayerType.GROUP, surface = profile,
+        )
+        val before = _uiState.value.layers
+        pushHistory()
+        dispatch(EditorIntent.AddLayer(group))
+        emitMembership(Op.LayerAdd(group))
+        emitGeometryChanges(before, _uiState.value.layers)
+        saveProject()
+        notify("Inserted \"${payload.name}\". Add a layer to the group to paint on it.", NoticeKind.NOTICE)
+        return true
+    }
+
     @Suppress("MaxLineLength")
     private fun reliefRefusalMessage(reason: ReliefRefusal): String = when (reason) {
         ReliefRefusal.NO_LAYER -> "Select a photo layer first."

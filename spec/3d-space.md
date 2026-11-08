@@ -602,6 +602,41 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   group's layers one by one (see above). The export's no-GLES fallback composites an isolated group
   into a bitmap the size of the canvas, then draws it at the group's opacity.
 
+## Ready-made surfaces
+
+A pack of surfaces is an azphalt `kind: "asset"` package whose assets are `type: "surface"` (azphalt
+`spec/package-format.md`, "Surface format"). Each is a JSON file of profile curves only: a front
+outline and optionally a side and a top outline, as points in the unit box. There is no depth image,
+no texture and no paint, and no relief: a relief is a photo's baked depth grid, not parametric data, so
+it is not carried (a surface that needs one is built from the photo, "Relief surfaces" below).
+
+- **Discovery.** `HostAssetSupport.isSupported` is true for `AssetType.SURFACE`. `ExtensionRepository.installedSurfaceAssets()`
+  lists every standalone, bundled `*.json` surface asset of every installed extension, named by its
+  `params.name`; `loadSurface(id, index)` reads one through `ExtensionAssetReader` (digest-listed files only)
+  and returns `SurfaceParse`.
+- **Validation (untrusted input).** `SurfacePayload.parse` (`:core:common`) mirrors `@azphalt/azp` `parseSurface`
+  rule for rule: at most 65 536 bytes, valid UTF-8 and JSON, nesting at most 4 (a non-recursive scan before
+  parsing), no repeated top-level key, only the keys `format`, `version`, `name`, `front`, `side`, `top`,
+  `format` `"azphalt.surface"` and `version` 1, `name` 1 to 64 characters without control characters, 2 to 256
+  points a view, every number finite and within `[0, 1]`, and each view at least 0.01 long. A package's
+  signature is not a reason to skip it: the file is parsed again on every read.
+- **Insert surface.** "Insert surface" in the 3D toolbox (View, 3D) opens `SurfacePicker` (installed surfaces
+  with their front outline). Choosing one calls `EditorViewModel.onInsertSurface`: a NEW top-level group named
+  for the surface, with `SurfacePayload.toProfile` as its `surface`, made active, as one undo step (the same
+  history, co-op and save path as drawing a surface). Nothing existing is replaced. The group is then an
+  ordinary surface group: draw its side or top view, add layers to paint on it, flatten it, delete it.
+- **Placement.** The unit box is scaled uniformly to 0.7 of the canvas's shorter side and centred. `x` and `y`
+  map to the box's width and height (y down), `z` away from the viewer with the front at the picture plane.
+  The front outline is the profile (sweep +z); the side outline lies at the box's middle in x (sweep +x) and the
+  top outline at its middle in y (sweep +y), so the group is the same hull as one drawn by hand.
+- **glTF.** `SurfacePayload.exportTriangles` gives the surface's faces (the carved solid, else the swept sheet) in
+  the layout `SceneGltfExporter.Quad.surface` takes, so a surface exports through the existing scene exporter like
+  any other surface; the scene export of a group with paint layers is unchanged.
+- **Relation to models.** An imported `.obj` is a 3D model layer (`ModelLayer`, `ObjParser`): fixed geometry with
+  UVs. A store surface is editable profile data that becomes a surface group. They are different things on
+  purpose; a pack may later carry a GLB of the same shape as a reserved `alternate` (validated by azphalt,
+  ignored by hosts), and import of standard meshes stays one path (model layers), not a second one for surfaces.
+
 ## Relief surfaces
 
 A relief is a group surface made from a photo's depth map: a grid of heights over the photo's plane, with

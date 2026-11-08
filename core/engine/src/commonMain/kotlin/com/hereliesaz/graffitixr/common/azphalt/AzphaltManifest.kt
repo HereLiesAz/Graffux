@@ -298,6 +298,9 @@ enum class AssetType(val wire: String) {
     TEMPLATE("template"),
     OVERLAY("overlay"),
 
+    /** A ready-made 3D surface: front/side/top profile curves only (azphalt spec/package-format.md § Surface format). */
+    SURFACE("surface"),
+
     // AI model assets. Paired with AssetContribution.role (e.g. "depth", "segmentation") so a host
     // routes the model graph to the right on-device engine. MODEL/TASK/VOSK_BUNDLE are multi-file
     // bundles like SHERPA_BUNDLE (spec/extension-manifest.md § "AI Models").
