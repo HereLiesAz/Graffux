@@ -5215,6 +5215,13 @@ class EditorViewModel @Inject constructor(
             onCancelSurfaceDraw()
             return
         }
+        // On a surface group's layer the slot no longer picks an axis (the rotation triangle does the
+        // turning): it brings up the surface's drawings, front, side and top, to edit.
+        if (surfaceOwnerOfActive(st) != null) {
+            updateUi { it.copy(surfaceViewsMenuOpen = !it.surfaceViewsMenuOpen) }
+            return
+        }
+        // Any other 3D layer (tilted plane, 3D strokes, model) keeps the axis cycler and the slider.
         if (st.active3D()) {
             onCycleRotationAxis()
             return
@@ -5247,6 +5254,41 @@ class EditorViewModel @Inject constructor(
     }
 
     private var surfaceNoticeJob: Job? = null
+
+    /** The surface group the active layer is paint on (or is), or null: the 3D-surface-group test. */
+    private fun surfaceOwnerOfActive(state: EditorUiState) =
+        com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, state.activeLayerId)
+
+    /** One entry of the 3D button's chooser: a view of the surface and whether it has been drawn. */
+    data class SurfaceViewChoice(val view: SurfaceView, val drawn: Boolean)
+
+    /**
+     * The views the 3D button's chooser offers for the active surface group: front always, side and
+     * top unless the surface is a photo's relief (the layer menu hides them there too). Empty when
+     * the active layer is not on a surface.
+     */
+    fun surfaceViewChoices(state: EditorUiState = _uiState.value): List<SurfaceViewChoice> {
+        val surface = surfaceOwnerOfActive(state)?.group?.surface ?: return emptyList()
+        return buildList {
+            add(SurfaceViewChoice(SurfaceView.FRONT, true))
+            if (surface.relief == null) {
+                add(SurfaceViewChoice(SurfaceView.SIDE, surface.side != null))
+                add(SurfaceViewChoice(SurfaceView.TOP, surface.top != null))
+            }
+        }
+    }
+
+    /** A chooser entry picked: closes the chooser and enters that view's drawing (the existing flows). */
+    fun onPickSurfaceView(view: SurfaceView) {
+        val group = surfaceOwnerOfActive(_uiState.value)?.group
+        updateUi { it.copy(surfaceViewsMenuOpen = false) }
+        if (group != null && surfaceViewChoices().any { it.view == view }) onArmSurfaceView(group.id, view)
+    }
+
+    /** Closes the 3D button's chooser. */
+    fun onDismissSurfaceViews() {
+        if (_uiState.value.surfaceViewsMenuOpen) updateUi { it.copy(surfaceViewsMenuOpen = false) }
+    }
 
     /**
      * A message in the Draw-surface chip while unarmed. A transient one (a refusal) clears itself after a few
@@ -5700,8 +5742,11 @@ class EditorViewModel @Inject constructor(
         if (state.active3D()) state.activeRotationAxis else RotationAxis.Z
 
     /** The active layer's angle on [rotationSliderAxis], wrapped to -180..180, or null with no layer. */
+    @Suppress("ReturnCount")
     fun rotationSliderValue(state: EditorUiState = _uiState.value): Float? {
         // A locked layer does not turn: no slider.
+        // On a surface group's layer the rotation triangle turns it instead: no slider.
+        if (surfaceOwnerOfActive(state) != null) return null
         val layer = state.layers.firstOrNull { it.id == state.transformTargetId() }
             ?.takeUnless { it.isImageLocked } ?: return null
         // Body-fixed: how far the layer has been turned about its OWN axis, a pure function of its
@@ -5785,6 +5830,49 @@ class EditorViewModel @Inject constructor(
             offset = Offset(pose.offsetX, pose.offsetY), positionZ = pose.positionZ,
             rotationX = pose.rotationX, rotationY = pose.rotationY, rotationZ = pose.rotationZ,
         )
+    }
+
+    /**
+     * Whether the rotation triangle is up: only while the active layer is, or is paint on, a 3D surface
+     * group with a surface, and its group is not locked.
+     */
+    fun rotationGizmoVisible(state: EditorUiState = _uiState.value): Boolean {
+        if (surfaceOwnerOfActive(state) == null) return false
+        return state.layers.firstOrNull { it.id == state.transformTargetId() }?.isImageLocked == false
+    }
+
+    private var gizmoTurning = false
+
+    /**
+     * The rotation triangle turns the active surface group by [degrees] about its OWN [axis] through the
+     * orbit pivot (body-fixed, as the slider's turn was; positive is the slider's positive). No end stop:
+     * deltas compose. The first turn of a gesture is its one undo step ([onRotationGizmoEnd] closes it).
+     */
+    fun onRotationGizmoTurn(axis: RotationAxis, degrees: Float) {
+        if (!rotationGizmoVisible() || degrees == 0f || !degrees.isFinite()) return
+        val activeId = _uiState.value.transformTargetId() ?: return
+        if (!gizmoTurning) {
+            gizmoTurning = true
+            pushHistory()
+            gestureStartLayers = _uiState.value.layers
+            gesturePivot = orbitPivot()
+            dispatch(EditorIntent.SetGestureInProgress(true))
+        }
+        updateLinkedGroup(activeId) { layer -> turnedAboutPivot(layer, axis, degrees) }
+    }
+
+    /** The triangle drag ends (or is cancelled): saves and emits the co-op transform. */
+    fun onRotationGizmoEnd() {
+        if (!gizmoTurning) return
+        gizmoTurning = false
+        gesturePivot = null
+        onGestureEnd()
+    }
+
+    /** A whole accessibility step ([degrees] about [axis]) as one undo step. */
+    fun onRotationGizmoStep(axis: RotationAxis, degrees: Float) {
+        onRotationGizmoTurn(axis, degrees)
+        onRotationGizmoEnd()
     }
 
     /** The drag ends: saves and emits the co-op transform, as a transform gesture's end does. */

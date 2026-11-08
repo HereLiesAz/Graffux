@@ -3,6 +3,8 @@
 Status: implemented on Android (project format 12; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering and glTF export of the hull). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
+Posing groups like puppets (joints, rigidity, soft bodies, keyframes) is designed in `spec/3d-puppetry.md`; nothing there is implemented.
+
 ## What the user sees
 
 The canvas is one 3D space. Every layer is a flat plane. A layer that was never moved in 3D sits
@@ -56,11 +58,17 @@ The rail's **axis slot** (the slot the old 3D button had) is always there:
   A layer in no group is wrapped in a new group only when the line is captured, the wrap and the
   profile together being one undo step. A line too short to be a curve leaves the chip up, says so,
   and stays armed. Once captured the chip says the surface is set and how to undo it, and the slot
-  shows the axis. A tap that cannot arm (no layer, a locked layer, a layer that cannot take a
+  becomes the surface-drawings chooser (below). A tap that cannot arm (no layer, a locked layer, a layer that cannot take a
   surface) says why and what to do in the same chip;
-- on a 3D layer it shows the current axis as its letter in the axis colour (X cyan, Y pink, Z
-  green), so the user can always see which axis a twist turns about; a tap steps X -> Y -> Z,
-  the same state a double-tap steps. An "Axis:" chip confirms a change briefly, then clears.
+- on a layer of a **surface group** (the layer is paint on a group with a surface, or is that group) it
+  still reads **3D** but no longer chooses an axis: a tap opens the **Surface drawings** chooser
+  (`EditorUiState.surfaceViewsMenuOpen`), a menu of the surface's views, each entry entering that view's
+  drawing through the existing flows: "Draw surface" (front; `onArmSurfaceDraw`), and "Draw / Redraw side
+  view" and "Draw / Redraw top view" (`onArmSurfaceView`; not offered for a photo's relief surface, as in
+  the layer menu). The rotation triangle (below) turns the group;
+- on any other 3D layer (a tilted plane, 3D strokes, a model) it shows the current axis as its letter in
+  the axis colour (X cyan, Y pink, Z green); a tap steps X -> Y -> Z, the same state a double-tap steps. An
+  "Axis:" chip confirms a change briefly, then clears. The rotation slider stays for these layers.
 
 On a 2D layer the camera can still have been moved by 3D work elsewhere; the document renders
 through it as always, but a twist only ever rotates the canvas.
@@ -72,13 +80,41 @@ two-finger gesture on a layer is one undo step; view gestures are never history 
 saved with the project when the gesture ends). Every gesture follows the fingers continuously: the
 canvas gesture handlers are keyed so a state write on every step never restarts them.
 
+### Rotation triangle
+
+With an **active 3D surface group** (`EditorViewModel.rotationGizmoVisible`: the active layer is paint on, or
+is, a group with a surface, and it is not locked) a right triangle (`RotationGizmo`) sits in the right
+corner, on the top edge of the bottom sheet (`RotationGizmoDock`; the sheet reports its top edge through
+`CarouselSheet.onTopChanged`, so the triangle moves with the sheet as it opens, closes and is dragged) and on
+the bottom safe area, the slider's line, when no sheet is shown. It is in from the edge by a rail's width.
+Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical leg is Y** (pink), the
+**hypotenuse is Z** (green), the rail's axis colours.
+
+- Drag along an edge to turn the group about its **own** axis (body-fixed, through the orbit pivot:
+  `turnedAboutPivot`, `SceneMath.rotatePoseAbout`). Sign: right along the bottom, up the side and up-right
+  along the hypotenuse are **positive**, the same sense the slider's positive values had.
+- The angle is the finger's displacement projected on the edge's direction over the edge's length, times
+  180 degrees (`RotationTriangle.angle`): the full length is 180. There is no handle and no end stop, so
+  rotation accumulates across swipes (two swipes make 360); a backward drag reduces it.
+- A drag **locks** to the edge it began on. An ambiguous touch near a vertex picks the nearest edge by distance
+  to the edge segment (ties: bottom, side, hypotenuse).
+- Each edge has a touch band 48dp wide centred on it. Only the bands take pointer input (the input box is
+  clipped to their union): the interior and the rest of the box pass strokes through to the canvas.
+- A live readout ("X 37°", the drag's angle so far) shows while dragging.
+- A whole drag is one undo step (the first turn pushes history; the end saves and emits the co-op
+  transform), through `onRotationGizmoTurn` / `onRotationGizmoEnd`.
+- Accessibility: each edge is a node ("Rotate X" ...) with custom actions "+15°" and "-15°"
+  (`onRotationGizmoStep`, one undo step each).
+- The rotation slider is not shown for a surface group (`rotationSliderValue` is null there); it stays for
+  every other layer.
+
 ### Rotation slider
 
 Whenever the bottom sheet is closed, or hidden for drawing, a hairline slider (`RotationSlider`, in
 `RotationSliderDock`) is docked at the bottom of the screen: above the nav bar's inset and the
 bottom gesture strip, and in from both sides by a rail's width, so it is clear of the tool and layers
 rails on either hand. Opening the sheet takes it away. It rotates the **active layer**, not
-the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer
+the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer that is not on a surface group
 (`EditorViewModel.rotationSliderAxis`). It reads the layer's angle on that axis wrapped to
 -180..180°, with a centre tick at 0°, light haptic detents at 0 / ±45 / ±90 / ±180, a soft snap at
 0 only, and a degree readout only while dragging. A double-tap on the thumb resets to 0°. One drag
@@ -376,9 +412,23 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
   while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
   history or project data; on by default, and since it was never stored there is no saved choice to migrate). A long press on the "#"
-  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Only the active
-  layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
+  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Every visible
+  group's surface shows its mesh (`SurfaceMath.gridGroupIds`): a group is skipped when it or a group above it is hidden
+  or its opacity (times its enclosing groups') is zero, the orbit pivot's rule, and the mesh does not follow the active
+  layer. A group has exactly one surface, so one mesh. It is
   overlay UI in the canvas's world space, never part of an export.
+- **Wire mesh of a multi-view group.** The front profile's swept sheet is one face of a hull, so a group with a
+  side or top drawing meshes the hull itself (`SurfaceHullGrid.segments`, called by `SurfaceMath.gridLines`): the
+  iso-lines of every face's paint coordinates `(u, t)` at the grid spacing, over each view's sheet and the caps
+  (`SurfaceHull.meshByView`, `capMeshByView`), plus the faces' open edges (creases and the box's rim). It stops
+  at the solid and follows each view's drawing, not only the first plane's. Before, the mesh was always the front
+  profile's sheet swept to the hull's depth, so side and top drawings never showed in it. A single-view group
+  and a relief mesh as before. Every visible group shows its own mesh, each by this precedence on its own surface.
+  *Precedence* (`SurfaceMath.gridLines`): photo depth first (a relief, including every group made by
+  from a photo's depth estimate, `ReliefBuild.assemble`): its mesh is the relief's and the profile
+  hull is neither drawn over it nor mixed with it, even if side or top views were drawn; otherwise the multi-view
+  hull's skin (the one solid the three drawings define, each face trimmed by the other views, a shared crease
+  drawn once); otherwise the single profile's sheet. Tests: `SurfaceProfileTest`, `ReliefSurfaceTest`, `ReliefBuildTest`.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.
 - **Nesting.** A layer's surface is its nearest enclosing group with a profile; groups between
   it and that group compose flat (their 2D transforms, in unrolled space).

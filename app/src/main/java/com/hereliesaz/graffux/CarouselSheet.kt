@@ -43,7 +43,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
@@ -133,6 +135,9 @@ internal fun CarouselSheet(
     // Rides just above the sheet's top edge, moving with it between detents (the rotation slider).
     // Shown only while the sheet shows open.
     topAccessory: (@Composable () -> Unit)? = null,
+    // Told where the sheet's top edge is (root pixels) as it opens, closes and is dragged: the
+    // rotation triangle rides it.
+    onTopChanged: (Float) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val hideChrome by rememberUpdatedState(chromeHidden)
@@ -226,6 +231,7 @@ internal fun CarouselSheet(
                 Column(
                     modifier = Modifier
                         .offset { IntOffset(0, offset.value.roundToInt()) }
+                        .onGloballyPositioned { onTopChanged(it.positionInRoot().y) }
                         .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
                         .nestedScroll(nested),
                     horizontalAlignment = Alignment.CenterHorizontally,

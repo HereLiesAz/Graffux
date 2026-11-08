@@ -581,7 +581,7 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)
 
-Full design: `spec/3d-space.md`. In short:
+Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 14 proposed): `spec/3d-puppetry.md`. In short:
 
 - **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
@@ -614,7 +614,10 @@ Full design: `spec/3d-space.md`. In short:
   arms "Draw surface" (`surfaceDrawGroupId`, or `surfaceDrawWrapLayerId` for a layer in no group,
   which `onSurfaceProfileDrawn` wraps in a new group in the same undo step as the profile) and
   every refusal sets `surfaceDrawNotice`; `SurfacePromptChip` (`:app`) words both, from
-  `SurfaceStrings`. On a 3D layer the slot and a double-tap step the axis. The layers rail's 3D
+  `SurfaceStrings`. On a 3D layer that is not on a surface group the slot and a double-tap step the axis; on a
+  surface group's layer the slot opens the "Surface drawings" chooser (`surfaceViewsMenuOpen`,
+  `surfaceViewChoices`, `onPickSurfaceView`; entries reuse `onArmSurfaceDraw` / `onArmSurfaceView`) and the rotation
+  slider gives way to the rotation triangle (below). The layers rail's 3D
   outlines follow groups; its group rows are open unless the user collapsed them
   (`groupExpanded`: nothing recorded means open).
   `Scene3DCanvas` is mounted only for the brush or eraser on a 3D strokes layer. The brush,
@@ -658,8 +661,17 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+- **Rotation triangle.** `RotationTriangle` (`:core:common`, pure maths: nearest-edge hit test by distance to the
+  segment, edge lock, angle = displacement along the edge / edge length x 180, band outline) and `RotationGizmo` /
+  `RotationGizmoDock` (`:app`). Shown only while `EditorViewModel.rotationGizmoVisible` (the active layer is on a
+  group surface, not locked). The bottom leg is X, the vertical leg Y, the hypotenuse Z; right / up / up-right is
+  positive. The input box is clipped to the union of the three 48dp bands (`Modifier.clip` with an
+  `Outline.Generic`; Compose hit-tests the clip), so the interior lets strokes through to the canvas. Each
+  increment goes to `onRotationGizmoTurn(axis, delta)` (body-fixed through `turnedAboutPivot`, so turns accumulate
+  with no end stop); the first starts one undo step and `onRotationGizmoEnd` closes it. Placement: the dock rides the
+  sheet's top edge, reported by `CarouselSheet(onTopChanged)`, else the bottom safe area (`gizmoBottomY`).
 - **Body-fixed rotation axes.** A layer's or group's X/Y/Z are lines of the object. `SceneMath.rotatePoseAbout`
-  (used by the rotation slider, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
+  (used by the rotation slider, the rotation triangle, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
   result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
   projects (format unchanged) read what they always did. The slider thumb is `SceneMath.bodyAngle`, a stateless function
   of the orientation. See spec/3d-space.md, "Body-fixed axes".
@@ -690,7 +702,7 @@ Full design: `spec/3d-space.md`. In short:
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
   misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
   rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
-  A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
+  A toggle shows every visible group's wire mesh (`SurfaceMath.gridLines`, overlay only).
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.
   Shipped: data, maths, persistence, and the per-view drawing UI (`EditorViewModel.onArmSurfaceView`,
