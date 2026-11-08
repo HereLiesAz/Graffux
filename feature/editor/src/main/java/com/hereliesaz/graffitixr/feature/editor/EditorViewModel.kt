@@ -11,6 +11,7 @@ import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.planePose
 
+import com.hereliesaz.graffitixr.common.model.importance
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import com.hereliesaz.graffitixr.common.model.isAdjustment
@@ -865,7 +866,7 @@ class EditorViewModel @Inject constructor(
         private const val LUMA_G = 0.7152f
         private const val LUMA_B = 0.0722f
         private const val HUD_MS = 700L
-        private const val SURFACE_NOTICE_MS = 4_000L
+        private const val SURFACE_NOTICE_MS = 6_000L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
          * Whether the host shows the mandatory project dialog ([projectGate]) instead of silently
@@ -5236,10 +5237,15 @@ class EditorViewModel @Inject constructor(
 
     private var surfaceNoticeJob: Job? = null
 
-    /** A message in the Draw-surface chip while unarmed; it clears itself after a few seconds (OK clears it now). */
+    /**
+     * A message in the Draw-surface chip while unarmed. A transient one (a refusal) clears itself after a few
+     * seconds; an important one (the "surface set" confirmation, which offers Draw side/top view) stays until the
+     * user acts, since it would otherwise vanish before they could use it. OK clears either now.
+     */
     private fun showSurfaceNotice(notice: SurfaceDrawNotice) {
         surfaceNoticeJob?.cancel()
         updateUi { it.copy(surfaceDrawNotice = notice) }
+        if (notice.importance == com.hereliesaz.graffitixr.common.model.PopupImportance.IMPORTANT) return
         surfaceNoticeJob = viewModelScope.launch(dispatchers.main) {
             kotlinx.coroutines.delay(SURFACE_NOTICE_MS)
             if (!_uiState.value.surfaceDrawArmed) updateUi { it.copy(surfaceDrawNotice = null) }
