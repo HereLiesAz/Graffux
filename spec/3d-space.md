@@ -3,6 +3,8 @@
 Status: implemented on Android (project format 12; the multi-view surface below has its data model, maths, persistence, drawing UI and per-view paint; rendering and glTF export of the hull). The desktop app does not use `:core:common` or
 `:feature:editor`, so it is unaffected and has no 3D.
 
+Posing groups like puppets (joints, rigidity, soft bodies, keyframes) is designed in `spec/3d-puppetry.md`; nothing there is implemented.
+
 ## What the user sees
 
 The canvas is one 3D space. Every layer is a flat plane. A layer that was never moved in 3D sits
