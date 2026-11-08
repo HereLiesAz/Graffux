@@ -5,6 +5,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntSize
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.LayerType
@@ -42,6 +43,8 @@ class SurfaceSelectionTest {
     private val dispatcher = UnconfinedTestDispatcher()
     private lateinit var vm: EditorViewModel
     private var beforeFootprintPass: (() -> Unit)? = null
+    /** Runs once, from inside the flood plan (the wand stub below), i.e. while a fill is still being planned. */
+    private var beforeFillPlan: (() -> Unit)? = null
 
     /** Stands in for the background dispatcher: runs [beforeFootprintPass] once, as the pass is handed off. */
     private val background = object : CoroutineDispatcher() {
@@ -130,7 +133,7 @@ class SurfaceSelectionTest {
         val ts = touches().filter { it.second.region == 0 }
         val views = ts.map { it.second.view }.distinct()
         assertTrue("views $views", views.size >= 2)
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         val tap = ts.first { it.second.view == views[0] }.second
         vm.onViewAutoSelect("p", tap, canvas)
         val all = vm.uiState.value.selection!!
@@ -142,7 +145,7 @@ class SurfaceSelectionTest {
         // A face painted another colour is not entered.
         vm.onClearSelection()
         load(mapOf(views[1] to Color.RED))
-        vm.wandMask = { b, x, y, _ ->
+        vm.wandMask = { b, x, y, _, _ ->
             val c = b.getPixel(x, y)
             BooleanArray(b.width * b.height) { b.getPixel(it % b.width, it / b.width) == c }
         }
@@ -196,7 +199,7 @@ class SurfaceSelectionTest {
         val layer = Layer(id = "f", name = "F", bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888))
         vm.dispatchForTest(EditorIntent.SetLayers(listOf(layer)))
         vm.dispatchForTest(EditorIntent.ActivateLayer("f"))
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { i -> (i % b.width) in 20 until 40 && (i / b.width) in 20 until 40 } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { i -> (i % b.width) in 20 until 40 && (i / b.width) in 20 until 40 } }
         vm.onAutoSelect(Offset(850f, 600f), canvas)
         val sel = vm.uiState.value.selection
         assertNotNull(sel)
@@ -207,7 +210,7 @@ class SurfaceSelectionTest {
     private fun wandOn(view: SurfaceView? = null): Pair<SurfaceView, Selection> {
         load(emptyMap())
         val ts = touches().filter { it.second.region == 0 }
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         val tap = ts.first { view == null || it.second.view == view }.second
         vm.onViewAutoSelect("p", tap, canvas)
         return tap.view to vm.uiState.value.selection!!
@@ -380,7 +383,7 @@ class SurfaceSelectionTest {
         assertTrue(!cut.holds(at) && cut.holds(there) && cut.holds(at + Offset(30f, 0f)))
         // A wand added on top of the lasso regions keeps them.
         vm.dispatchForTest(EditorIntent.SetSelectionOp(com.hereliesaz.graffitixr.common.model.SelectionOp.ADD))
-        vm.wandMask = { b, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
         val third = views.firstOrNull { it != first.surface!!.views.first().view && it != otherView }
         val tap = touches().first { it.second.region == 0 && it.second.view == (third ?: otherView) }.second
         vm.onViewAutoSelect("p", tap, canvas)
@@ -423,5 +426,113 @@ class SurfaceSelectionTest {
         assertEquals(SelectionGeometry.compose(null, SelectionGeometry.simplify(pts), canvas, com.hereliesaz.graffitixr.common.model.SelectionOp.NEW), sel)
         vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
         assertTrue("a flat selection is not re-derived", sel === vm.uiState.value.selection)
+    }
+
+    // ── Fill across creases (Codex review of the flood fill) ─────────────────────────────────────────
+
+    /** Only [view]'s image exists; every other view is blank-by-absence, as on a fresh multi-view surface. */
+    private fun loadOnly(view: SurfaceView) {
+        val group = Layer("g", "G", type = LayerType.GROUP, surface = cube)
+        val leaf = Layer("p", "P", parentId = "g")
+        val img = image(view, null)
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, leaf, img)))
+        vm.dispatchForTest(EditorIntent.ActivateLayer("p"))
+        vm.putLayerBaseForTest(img.id, img.bitmap!!.copy(Bitmap.Config.ARGB_8888, true))
+    }
+
+    private fun fillStrokes(view: SurfaceView) =
+        vm.uiState.value.layers.filter { it.surfaceViewOf == "p" && it.surfaceView == view }
+            .flatMap { vm.recordedStrokesForTest(it.id) }.filter { it.tool == Tool.FILL }
+
+    @Test
+    fun `a flood that reaches a view with no image yet fills it in the same gesture`() {
+        loadOnly(SurfaceView.FRONT)
+        val ts = touches().filter { it.second.region == 0 }
+        val views = ts.map { it.second.view }.distinct()
+        assertTrue("views $views", views.size >= 2)
+        // Start from a shown view that has an image; the rest have none.
+        val start = SurfaceView.FRONT.takeIf { it in views } ?: views[0]
+        if (start != SurfaceView.FRONT) loadOnly(start)
+        vm.wandMask = { b, _, _, _, _ -> BooleanArray(b.width * b.height) { true } }
+        vm.setActiveTool(Tool.FILL)
+        vm.onViewFillTap("p", ts.first { it.second.view == start }.second, canvas)
+        assertTrue("the tapped view is filled", fillStrokes(start).isNotEmpty())
+        assertTrue(
+            "a neighbouring view created by the flood is filled too",
+            (views - start).any { fillStrokes(it).isNotEmpty() },
+        )
+    }
+
+    @Test
+    fun `a fill keeps the colour and tool it was tapped with while the flood plans in the background`() {
+        load(emptyMap())
+        val ts = touches().filter { it.second.region == 0 }
+        vm.wandMask = { b, _, _, _, _ ->
+            beforeFillPlan?.also { beforeFillPlan = null }?.invoke()
+            BooleanArray(b.width * b.height) { true }
+        }
+        vm.setActiveTool(Tool.FILL)
+        vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        // The user switches to a brush with another colour just after tapping, before the plan lands.
+        var switched = false
+        beforeFillPlan = {
+            switched = true
+            vm.setActiveColor(androidx.compose.ui.graphics.Color.Blue)
+            vm.setActiveTool(Tool.BRUSH)
+        }
+        val tap = ts.first().second
+        vm.onViewFillTap("p", tap, canvas)
+        assertTrue("the switch happened while the plan was pending", switched)
+        val fills = fillStrokes(tap.view)
+        assertTrue("the tapped fill is not lost to the tool switch", fills.isNotEmpty())
+        assertEquals(androidx.compose.ui.graphics.Color.Red.toArgb(), fills.first().brushColor)
+    }
+
+    @Test
+    fun `a surface selection whose faces have turned away still blocks flat layers instead of selecting nothing`() {
+        lassoOnFace()
+        vm.setSceneCameraForTest(SceneCamera(yaw = 0.6f + Math.PI.toFloat(), pitch = 0.3f))
+        val sel = vm.uiState.value.selection!!
+        assertTrue("its footprint is empty from behind", sel.rings.none { it.additive && it.isUsable })
+        assertTrue("but the stored regions are kept", sel.surface!!.isUsable)
+        val path = SelectionMask.bitmapPath(sel, 64, 64)
+        assertNotNull("a flat layer is confined, not left unclipped", path)
+        assertTrue("to nothing", path!!.isEmpty)
+    }
+
+    @Test
+    fun `an inverted surface selection with no footprint still selects everything on a flat layer`() {
+        lassoOnFace()
+        vm.onInvertSelection()
+        vm.setSceneCameraForTest(SceneCamera(yaw = 0.6f + Math.PI.toFloat(), pitch = 0.3f))
+        val sel = vm.uiState.value.selection!!
+        assertTrue(sel.inverted)
+        assertEquals(null, SelectionMask.bitmapPath(sel.copy(rings = emptyList()), 64, 64))
+    }
+
+    @Test
+    fun `loading a saved surface selection re-derives its footprint for the camera it is loaded at`() {
+        lassoOnFace()
+        vm.onSaveSelection("s")
+        // Orbit with the selection still on: it follows the camera, so loading the saved one changes neither its
+        // image regions nor the footprint key the live footprint pass watches.
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        val followed = vm.uiState.value.selection!!
+        vm.onLoadSelection("s")
+        val loaded = vm.uiState.value.selection!!
+        assertEquals(followed.surface, loaded.surface)
+        assertEquals("the ants are where the faces show now, not where they showed when it was saved", followed.rings, loaded.rings)
+    }
+
+    @Test
+    fun `redoing a surface move after an orbit restores the regions the move produced`() {
+        lassoOnFace(r = 50f)
+        vm.onSurfaceSelectionMove("p", Offset(40f, 0f))
+        val moved = vm.uiState.value.selection!!
+        vm.onUndoClicked()
+        // Camera gestures are not history: the viewer can orbit between the undo and the redo.
+        vm.setSceneCameraForTest(SceneCamera(yaw = -0.6f, pitch = 0.3f))
+        vm.onRedoClicked()
+        assertEquals("the redone marquee is on the faces the move put it on", moved.surface, vm.uiState.value.selection!!.surface)
     }
 }

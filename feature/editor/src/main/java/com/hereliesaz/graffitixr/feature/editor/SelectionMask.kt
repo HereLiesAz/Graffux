@@ -41,6 +41,7 @@ internal object SelectionMask {
         originX: Int = 0,
         originY: Int = 0,
     ): Path? {
+        if (selection?.blocksAll == true) return Path()
         if (selection == null || !selection.isUsable) return null
         if (bitmapWidth <= 0 || bitmapHeight <= 0) return null
 

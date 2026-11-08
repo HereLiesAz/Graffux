@@ -488,8 +488,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     }
     // Selecting a main-rail tool group must reveal its carousel, even if an editor panel is open.
     // The ordinary carousel pages retain the original hide-while-panel-open behavior.
-    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture && !panelDocked &&
-        (uiState.activePanel == EditorPanel.NONE || carouselUi.category.isToolGroup || designMode)
+    val carouselOnScreen = carouselVisible(
+        showCarousel, uiState.hideUiForCapture, panelDocked,
+        panelOpen = uiState.activePanel != EditorPanel.NONE, toolGroup = carouselUi.category.isToolGroup,
+        designMode = designMode,
+    )
     // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
     val heroExpansion = remember { HeroExpansion() }
     LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
@@ -1324,6 +1327,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
+                // The wheel stays open with the brush sheet; it hides with the sheet while a stroke is drawn.
+                val sheetWheel = carouselUi.brushSheetUp(carouselOnScreen, uiState.activeTool) &&
+                    !(chrome.hidden && !chrome.forcedOnly) && !strokeGate.strokeActive
+                LaunchedEffect(sheetWheel) { packWheel.pinTo(sheetWheel) }
                 if (packWheel.open) {
                     val packInputs = CarouselInputs(
                         activeTool = uiState.activeTool,
@@ -1648,7 +1655,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .fillMaxSize()
                     .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
             )
         }

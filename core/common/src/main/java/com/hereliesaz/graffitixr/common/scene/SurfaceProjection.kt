@@ -235,6 +235,7 @@ class SurfaceProjection private constructor(private val all: List<Tri>) {
             val cam = SceneMath.frame(camera, width, height)
             val model = SceneMath.chainModel(owner.ownerChain, width, height)
             val eye = model.inverse()?.apply(cam.eye[0], cam.eye[1], cam.eye[2])
+            val eyeInside = eye != null && hull.wall == null && hull.contains(eye[0], eye[1], eye[2])
             val out = ArrayList<Tri>()
             fun add(view: SurfaceView, mesh: FloatArray, sheet: Boolean) {
                 var i = 0
@@ -258,7 +259,7 @@ class SurfaceProjection private constructor(private val all: List<Tri>) {
                     }
                     if (ok) {
                         val region = if (sheet) 0 else hull.capRegionAt(mesh, i)
-                        out += Tri(view, region, facesViewer(hull, mesh, i, eye), sx, sy, iz, px, py)
+                        out += Tri(view, region, facesViewer(hull, mesh, i, eye, eyeInside), sx, sy, iz, px, py)
                     }
                     i += 15
                 }
@@ -272,7 +273,7 @@ class SurfaceProjection private constructor(private val all: List<Tri>) {
          * Whether the triangle at [i] of [mesh] turns its outer side to [eye] (box space). Outer is the side of
          * the triangle the solid is not on; a thin wall has no inside, so both its sides count as facing.
          */
-        private fun facesViewer(hull: SurfaceHull, mesh: FloatArray, i: Int, eye: FloatArray?): Boolean {
+        private fun facesViewer(hull: SurfaceHull, mesh: FloatArray, i: Int, eye: FloatArray?, eyeInside: Boolean): Boolean {
             if (eye == null || hull.wall != null) return true
             fun v(k: Int, c: Int) = mesh[i + k * SurfaceHullMesh.STRIDE + c]
             val e1 = FloatArray(3) { v(1, it) - v(0, it) }
@@ -286,7 +287,10 @@ class SurfaceProjection private constructor(private val all: List<Tri>) {
             val step = SurfaceHull.TIE_EPS * 10f
             val inward = hull.contains(c[0] + unit[0] * step, c[1] + unit[1] * step, c[2] + unit[2] * step)
             val outer = if (inward) FloatArray(3) { -unit[it] } else unit
-            return SceneMath.dot(outer, FloatArray(3) { eye[it] - c[it] }) > 0f
+            val toEye = SceneMath.dot(outer, FloatArray(3) { eye[it] - c[it] })
+            // An eye inside the solid sees the walls from within (the renderer draws both sides), so the side
+            // that faces it is the inner one: the outer normal points away from the eye.
+            return if (eyeInside) toEye < 0f else toEye > 0f
         }
     }
 }

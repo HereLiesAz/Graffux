@@ -2119,6 +2119,22 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `the surface-set confirmation offers Draw side and top view, so it stays until the user acts`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f)))
+        testDispatcher.scheduler.advanceTimeBy(10 * 60_000L)
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(SurfaceDrawNotice.DONE, viewModel.uiState.value.surfaceDrawNotice)
+        viewModel.onCancelSurfaceDraw()
+        assertNull(viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
     fun `the armed prompt has no timeout`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         tapSlot(listOf(lyr("a")), "a")
