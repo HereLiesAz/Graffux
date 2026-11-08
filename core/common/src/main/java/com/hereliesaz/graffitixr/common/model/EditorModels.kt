@@ -554,8 +554,8 @@ data class EditorUiState(
     /** The camera to put back when a side or top view is captured or cancelled; null = nothing to restore. */
     val surfaceReturnCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
     /**
-     * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Only the active layer's
-     * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).
+     * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Every visible group's
+     * surface shows its mesh ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupIds]).
      */
     val surfaceGridVisible: Boolean = true,
     /**

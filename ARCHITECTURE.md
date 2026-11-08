@@ -695,7 +695,7 @@ Full design: `spec/3d-space.md`. In short:
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
   misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
   rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
-  A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
+  A toggle shows every visible group's wire mesh (`SurfaceMath.gridLines`, overlay only).
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.
   Shipped: data, maths, persistence, and the per-view drawing UI (`EditorViewModel.onArmSurfaceView`,
