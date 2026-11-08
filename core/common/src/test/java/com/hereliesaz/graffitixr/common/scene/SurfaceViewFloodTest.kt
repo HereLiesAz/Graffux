@@ -59,4 +59,13 @@ class SurfaceViewFloodTest {
         )
         assertEquals(2, SurfaceViewFlood.plan(hull, tap, oracle(radius = 30f), links).size)
     }
+
+    @Test
+    fun `many links into one component do not use up the budget of another component`() {
+        val tap = at(SurfaceView.FRONT, 50f, 50f)
+        val into = (0 until 100).map { i -> link(at(SurfaceView.FRONT, 50f, 50f), at(SurfaceView.SIDE, 100f + i * 0.1f, 100f)) }
+        val other = link(at(SurfaceView.FRONT, 50f, 50f), at(SurfaceView.SIDE, 900f, 900f))
+        val seeds = SurfaceViewFlood.plan(hull, tap, oracle(radius = 30f), into + other)
+        assertEquals(listOf(50f, 100f, 900f), seeds.map { it.x }.map { if (it in 100f..110f) 100f else it })
+    }
 }

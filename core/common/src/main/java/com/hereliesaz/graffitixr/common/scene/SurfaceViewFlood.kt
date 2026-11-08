@@ -36,13 +36,15 @@ object SurfaceViewFlood {
         val seeds = ArrayList<PaintTarget>()
         // The floods already planned, per face: a point inside one of them is not a new component.
         val reached = HashMap<Pair<SurfaceView, Int>, MutableList<(Float, Float) -> Boolean>>()
-        val queued = HashMap<Pair<SurfaceView, Int>, Int>()
         val queue = ArrayDeque<PaintTarget>()
         queue += tap
         while (queue.isNotEmpty()) {
             val seed = queue.removeFirst()
             // Two links can lead into one component before either seed is flooded: the second is redundant.
             if (seeds.isNotEmpty() && reached[key(seed)].orEmpty().any { it(seed.x, seed.y) }) continue
+            // Bounded by floods actually run (after the dedupe above), not by links queued: many links into one
+            // component must not use up the budget of a second component.
+            if (seeds.isNotEmpty() && reached[key(seed)].orEmpty().size >= MAX_FLOODS_PER_FACE) continue
             val reach = oracle.flood(seed)
             // The tapped face is always filled (a seed the oracle cannot read is the engine's to judge).
             if (reach == null && seeds.isNotEmpty()) continue
@@ -53,8 +55,6 @@ object SurfaceViewFlood {
                 if (!reach(link.from.x, link.from.y)) continue
                 val next = oracle.accept(link.to) ?: continue
                 if (reached[key(next)].orEmpty().any { it(next.x, next.y) }) continue
-                val count = queued.merge(key(next), 1, Int::plus)!!
-                if (count > MAX_FLOODS_PER_FACE) continue
                 queue += next
             }
         }
