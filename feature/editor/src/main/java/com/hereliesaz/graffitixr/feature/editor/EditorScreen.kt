@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
@@ -442,15 +443,25 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 1d. The surface guide grid (spec/3d-space.md, "Guide grid"): the active layer's group's
-        // surface in perspective, overlay only (never exported). World space, like the guides.
-        val gridGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId(
-            uiState.layers, uiState.activeLayerId, uiState.surfaceGridVisible,
-        )
-        if (gridGroup != null && boxWidth > 0f && boxHeight > 0f) {
-            SurfaceGuideGrid(
-                uiState, gridGroup, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.surfaceGrid"),
+        // 1d. The surface wire mesh (spec/3d-space.md, "Guide grid"): every visible group's surface in
+        // perspective, overlay only (never exported). World space, like the guides.
+        if (boxWidth > 0f && boxHeight > 0f) {
+            // Animation Assist hides inactive frames (the layer stack skips them), so their meshes go too;
+            // pinned-across-frames layers stay at 1.
+            val gridGroups = com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupIds(
+                uiState.layers, uiState.surfaceGridVisible,
+                if (!uiState.isAnimationMode) emptyMap() else AnimationFrames.effectiveOpacities(
+                    uiState.layers, uiState.activeFrameIndex, uiState.onionSkinEnabled,
+                    uiState.onionSkinPastCount, uiState.onionSkinFutureCount,
+                ),
             )
+            for (gridGroup in gridGroups) {
+                key(gridGroup) {
+                    SurfaceGuideGrid(
+                        uiState, gridGroup, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.surfaceGrid"),
+                    )
+                }
+            }
         }
         } // end infinite-canvas camera container
 
@@ -968,6 +979,28 @@ fun EditorScreen(
                 toWorld = activePlane::world,
                 onDrawn = { vm.onSurfaceProfileDrawn(it) },
                 modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
+            )
+        }
+
+        // 3b-pivot. "Relocate rotation point" armed (spec/3d-space.md, "The orbit point"): the next tap
+        // places the point the scene revolves about, over every tool; it paints nothing.
+        if (uiState.pivotPickArmed) {
+            val toWorld = androidx.compose.runtime.rememberUpdatedState(activePlane::world)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .testTag("canvas.pivotPick")
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            down.consume()
+                            val up = waitForUpOrCancellation()
+                            if (up != null) {
+                                up.consume()
+                                vm.onPivotPicked(toWorld.value(down.position))
+                            }
+                        }
+                    },
             )
         }
 

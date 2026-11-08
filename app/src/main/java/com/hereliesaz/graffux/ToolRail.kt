@@ -67,8 +67,9 @@ internal interface ToolRailActions {
     fun setBrushSize(size: Float)
     fun setBrushFeathering(feathering: Float)
     /**
-     * The axis slot (spec/3d-space.md): on a 3D layer it steps X -> Y -> Z, the axis a two-finger
-     * twist turns about; on a 2D layer, where it reads "3D", it makes the layer 3D.
+     * The axis slot (spec/3d-space.md): on a surface group's layer it opens the chooser of the surface's
+     * drawings; on another 3D layer it steps X -> Y -> Z, the axis a two-finger twist turns about; on a 2D
+     * layer, where it reads "3D", it makes the layer 3D.
      */
     fun onAxisSlotTapped() = Unit
     /** The wire-mesh toggle: shows or hides the active group's surface mesh (view state). */
@@ -106,6 +107,8 @@ internal class ToolRailCallbacks(
     val onPackWheelOpen: () -> Unit = {},
     /** Where the Brush or Eraser item sits, in root coordinates: the pack wheel's anchor. */
     val onPackAnchor: (Tool, Rect) -> Unit = { _, _ -> },
+    /** A long-press on the wire-mesh button ("#"): its menu (mesh on/off, the rotation point). */
+    val onMeshMenu: () -> Unit = {},
 )
 
 /**
@@ -258,11 +261,22 @@ internal fun ToolRail(
         // GROUP has a surface (or it is 3D ink or a model); otherwise "3D", and a tap arms "Draw
         // surface" on the layer's group.
         val active3D = uiState.layers.firstOrNull { it.id == uiState.activeLayerId }?.is3DIn(uiState.layers) == true
-        AxisButton(uiState.activeRotationAxis.takeIf { active3D }, armed = uiState.surfaceDrawArmed) { vm.onAxisSlotTapped() }
+        // On a surface group it no longer picks an axis (the rotation triangle turns the group): it reads
+        // "3D" and opens the chooser of the surface's drawings. Other 3D layers keep the axis letter.
+        val onSurfaceGroup = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
+        AxisButton(
+            uiState.activeRotationAxis.takeIf { active3D && !onSurfaceGroup },
+            armed = uiState.surfaceDrawArmed,
+            surfaceViews = onSurfaceGroup,
+        ) { vm.onAxisSlotTapped() }
         // The wire mesh of the active layer's group surface: a guide only, there while the layer is
-        // paint on a surface (spec/3d-space.md, "Guide grid").
-        if (com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null) {
-            SurfaceMeshButton(on = uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid() }
+        // paint on a surface (spec/3d-space.md, "Guide grid"), or while a rotation point is placed, so that
+        // its "Reset to automatic" is never stranded when the last surface goes (the choice is kept, not
+        // silently discarded: it is still a valid point for the plane layers).
+        val onSurface =
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
+        if (onSurface || uiState.manualPivot != null) {
+            SurfaceMeshButton(on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
@@ -359,11 +373,12 @@ internal fun RotationAxis.railColor() = when (this) {
  * a tap cancels.
  */
 @Composable
-private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, onClick: () -> Unit) {
+private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, surfaceViews: Boolean = false, onClick: () -> Unit) {
     val surfaceStrings = com.hereliesaz.graffitixr.design.theme.rememberAppStrings().surface
     RailButton(
         label = when {
             armed -> surfaceStrings.slotArmedDescription
+            surfaceViews -> "3D surface drawings. Tap to edit the front, side and top views"
             axis != null -> "Rotation axis ${axis.name}. Tap to change"
             else -> "Make this layer 3D"
         },
@@ -392,9 +407,10 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, onClick: () 
  * shows, so it reads on and off at a glance and to TalkBack.
  */
 @Composable
-private fun SurfaceMeshButton(on: Boolean, onClick: () -> Unit) {
+private fun SurfaceMeshButton(on: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
     RailButton(
         label = "Surface wire mesh",
+        onLongClick = onLongClick,
         testTag = "rail.$SURFACE_MESH_RAIL_ID",
         onClick = onClick,
     ) {
@@ -415,6 +431,37 @@ private fun SurfaceMeshButton(on: Boolean, onClick: () -> Unit) {
 
 /** The wire-mesh toggle's rail id. */
 internal const val SURFACE_MESH_RAIL_ID = "view.surfaceMesh"
+
+/**
+ * The wire-mesh button's long-press menu: the mesh on or off (the same flag the short press flips), and
+ * the point the scene revolves about. Placing it arms a tap in the scene ([PivotPromptChip]); "Reset to
+ * automatic" returns to the centre of every surface.
+ */
+internal fun MenuBuilder.meshMenu(vm: EditorViewModel, uiState: EditorUiState, onDone: () -> Unit) {
+    check("Wire mesh", uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid(); onDone() }
+    listItem("Relocate rotation point") { vm.onArmPivotPick(); onDone() }
+    if (uiState.manualPivot != null) listItem("Reset rotation point to automatic") { vm.onResetPivot(); onDone() }
+}
+
+/**
+ * The 3D button's chooser on a surface group (the button no longer picks a rotation axis): the surface's
+ * views, each entering that view's drawing through the same flows as the layer menu's "Draw surface" and
+ * "Draw / Redraw side / top view". The views already drawn read "Redraw".
+ */
+internal fun MenuBuilder.surfaceViewsMenu(
+    vm: EditorViewModel,
+    uiState: EditorUiState,
+    m: com.hereliesaz.graffitixr.design.theme.LayerMenuStrings,
+) {
+    for (choice in vm.surfaceViewChoices(uiState)) {
+        val label = when (choice.view) {
+            com.hereliesaz.graffitixr.common.scene.SurfaceView.FRONT -> m.drawSurface
+            com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE -> if (choice.drawn) m.redrawSideView else m.drawSideView
+            com.hereliesaz.graffitixr.common.scene.SurfaceView.TOP -> if (choice.drawn) m.redrawTopView else m.drawTopView
+        }
+        listItem(label) { vm.onPickSurfaceView(choice.view) }
+    }
+}
 
 /** The brush's long-press menu. */
 internal fun MenuBuilder.brushMenu(

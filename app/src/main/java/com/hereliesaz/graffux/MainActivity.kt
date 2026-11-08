@@ -348,6 +348,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var posterChoices by rememberSaveable(stateSaver = PosterChoicesSaver) { mutableStateOf(PosterChoices()) }
     // The brush's long-press menu, a layer's menu (by layer id), and the About reader.
     var brushMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var meshMenuOpen by rememberSaveable { mutableStateOf(false) }
+    // The bottom sheet's top edge in root px, for the rotation triangle that rides it.
+    val sheetTopPx = remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showGestureHelp by rememberSaveable { mutableStateOf(false) }
@@ -487,8 +490,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     }
     // Selecting a main-rail tool group must reveal its carousel, even if an editor panel is open.
     // The ordinary carousel pages retain the original hide-while-panel-open behavior.
-    val carouselOnScreen = showCarousel && !uiState.hideUiForCapture && !panelDocked &&
-        (uiState.activePanel == EditorPanel.NONE || carouselUi.category.isToolGroup || designMode)
+    val carouselOnScreen = carouselVisible(
+        showCarousel, uiState.hideUiForCapture, panelDocked,
+        panelOpen = uiState.activePanel != EditorPanel.NONE, toolGroup = carouselUi.category.isToolGroup,
+        designMode = designMode,
+    )
     // The hero card "More" grew, shared by the carousel's page and the expanded card's page in front.
     val heroExpansion = remember { HeroExpansion() }
     LaunchedEffect(carouselOnScreen) { if (!carouselOnScreen) heroExpansion.collapse() }
@@ -528,6 +534,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         BackLayer(showViewMenu) { showViewMenu = false },
         BackLayer(menuOpen) { menuOpen = false },
         BackLayer(brushMenuOpen) { brushMenuOpen = false },
+        BackLayer(meshMenuOpen) { meshMenuOpen = false },
+        BackLayer(uiState.surfaceViewsMenuOpen) { vm.onDismissSurfaceViews() },
         BackLayer(layerMenuFor != null) { layerMenuFor = null },
         BackLayer(showAbout) { showAbout = false },
         BackLayer(showGestureHelp) { showGestureHelp = false },
@@ -861,6 +869,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         showViewMenu = false
         showPosterMenu = false
         brushMenuOpen = false
+        meshMenuOpen = false
+        vm.onDismissSurfaceViews()
         layerMenuFor = null
         packWheel.close()
         carouselUi = carouselUi.afterCanvasTouch(uiState.activeTool)
@@ -1027,6 +1037,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Clears the nav bar itself and keeps the grab pill off the screen's
                     // bottom edge, where system gestures would take its touches.
                     bottomInset = CarouselBottomInset,
+                    onTopChanged = { sheetTopPx.floatValue = it },
                 ) {
                     val carouselInputs = CarouselInputs(
                         groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
@@ -1283,6 +1294,24 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ExpandedHeroLayer(heroExpansion)
         }
 
+        // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so where it overlaps
+        // the sheet (short window, full detent) it is above it in drawing and hit-testing. Only with an active 3D
+        // surface group, in the right corner on the top edge of the bottom sheet (the bottom safe area with none). Its
+        // three touch bands take input; the rest of it lets canvas strokes through.
+        if (vm.rotationGizmoVisible(uiState)) {
+            RotationGizmoDock(
+                sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
+                sideClearance = besideRail,
+            ) { gizmoScale ->
+                RotationGizmo(
+                    scale = gizmoScale,
+                    onTurn = vm::onRotationGizmoTurn,
+                    onEnd = vm::onRotationGizmoEnd,
+                    onStep = vm::onRotationGizmoStep,
+                )
+            }
+        }
+
         // The onscreen chrome stays inside the safe drawing area; the canvas remains full bleed.
         Box(
             Modifier
@@ -1307,7 +1336,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 photo = false,
                             )
                         },
-                        onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
+                        onBrushMenu = {
+                            brushMenuOpen = true; meshMenuOpen = false; layerMenuFor = null; menuOpen = false
+                        },
+                        onMeshMenu = {
+                            meshMenuOpen = true; brushMenuOpen = false; layerMenuFor = null; menuOpen = false
+                        },
                         onAdjust = openAdjust,
                         onBrush = openBrushSheet,
                         onPackWheelToggle = packWheel::toggle,
@@ -1316,6 +1350,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     ),
                     modifier = Modifier.align(toolCorner).then(toolRailPadding),
                 )
+                // The wheel stays open with the brush sheet; it hides with the sheet while a stroke is drawn.
+                val sheetWheel = carouselUi.brushSheetUp(carouselOnScreen, uiState.activeTool) &&
+                    !(chrome.hidden && !chrome.forcedOnly) && !strokeGate.strokeActive
+                LaunchedEffect(sheetWheel) { packWheel.pinTo(sheetWheel) }
                 if (packWheel.open) {
                     val packInputs = CarouselInputs(
                         activeTool = uiState.activeTool,
@@ -1364,6 +1402,24 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         },
                         onDismiss = { brushMenuOpen = false },
                         title = uiState.activeBrushName ?: strings.nav.brush,
+                        modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
+                    )
+                }
+
+                if (meshMenuOpen) {
+                    MenuPanel(
+                        rows = buildMenu { meshMenu(vm, uiState) { meshMenuOpen = false } },
+                        onDismiss = { meshMenuOpen = false },
+                        title = "Wire mesh",
+                        modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
+                    )
+                }
+
+                if (uiState.surfaceViewsMenuOpen && vm.surfaceViewChoices(uiState).isNotEmpty()) {
+                    MenuPanel(
+                        rows = buildMenu { surfaceViewsMenu(vm, uiState, strings.layerMenu) },
+                        onDismiss = { vm.onDismissSurfaceViews() },
+                        title = "Surface drawings",
                         modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
                     )
                 }
@@ -1502,7 +1558,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onOpenChange = { open ->
                         menuOpen = open
                         if (!open) { showViewMenu = false; showPosterMenu = false }
-                        if (open) { brushMenuOpen = false; layerMenuFor = null }
+                        if (open) { brushMenuOpen = false; meshMenuOpen = false; layerMenuFor = null }
                     },
                     rows = buildMenu {
                         if (showPosterMenu) {
@@ -1604,6 +1660,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
+            // "Relocate rotation point": say what to do, and let Cancel (or Back) leave it.
+            if (uiState.pivotPickArmed) {
+                PivotPromptChip(
+                    onCancel = { vm.onCancelPivotPick() },
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp, start = 16.dp, end = 16.dp),
+                )
+            }
+
             // "Draw surface" prompt, then failures and confirmations, over the artwork, never blocking it.
             NoticeStack(
                 armed = uiState.surfaceDrawArmed,
@@ -1623,7 +1687,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .fillMaxSize()
                     .padding(top = RailEdgeGap, start = besideRail, end = besideRail),
             )
         }

@@ -178,11 +178,31 @@ object SurfaceMath {
     }
 
     /**
-     * The group whose guide grid shows: the active layer's surface group, while [visible] (the
-     * toggle) is on; null otherwise. At most one grid, and never another group's.
+     * The groups whose wire mesh shows: every group with a surface that the renderer draws, while
+     * [visible] (the toggle) is on. A group is not drawn when it, or a group above it, is hidden, or its
+     * opacity (its own times every enclosing group's) is zero: the rule the orbit pivot uses. Each group
+     * has exactly one surface, so each shows one mesh (see [gridLines] for what that mesh is).
+     * [frameAlphas] is Animation Assist's per-layer multiplier (absent = 1): a group in a frame the
+     * animation hides (0) is skipped, as the layer stack skips it.
      */
-    fun gridGroupId(layers: List<Layer>, activeId: String?, visible: Boolean): String? =
-        if (visible) ownerOf(layers, activeId)?.group?.id else null
+    fun gridGroupIds(layers: List<Layer>, visible: Boolean, frameAlphas: Map<String, Float> = emptyMap()): List<String> {
+        if (!visible) return emptyList()
+        val byId = layers.associateBy { it.id }
+        fun drawn(layer: Layer): Boolean {
+            var opacity = 1f
+            var current: Layer? = layer
+            val seen = HashSet<String>()
+            while (current != null && seen.add(current.id)) {
+                if (!current.isVisible) return false
+                opacity *= current.opacity
+                current = current.parentId?.let(byId::get)
+            }
+            return opacity > 0f
+        }
+        return layers.filter {
+            it.isContainer && it.surface?.isValid == true && (frameAlphas[it.id] ?: 1f) > 0f && drawn(it)
+        }.map { it.id }
+    }
 
     /** Every layer drawn on a group surface. */
     fun surfaceLayerIds(layers: List<Layer>): Set<String> {
@@ -485,7 +505,8 @@ object SurfaceMath {
         sweepExtent: Float = gridExtent(profile),
     ): List<FloatArray> {
         if (!profile.isValid || spacing <= 0f) return emptyList()
-        profile.relief?.let { return ReliefMath.gridLines(it, model, cam, spacing) }
+        // A group with a side or top drawing is the hull's solid, not the front sheet: mesh every face.
+        otherGridLines(profile, model, cam, spacing)?.let { return it }
         val out = ArrayList<FloatArray>()
         val far = SceneMath.farPlane(cam.focal) * 0.5f
         val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)
@@ -523,6 +544,14 @@ object SurfaceMath {
         return out
     }
 
+    private fun otherGridLines(profile: SurfaceProfile, model: Affine3, cam: CameraFrame, spacing: Float): List<FloatArray>? {
+        profile.relief?.let { return ReliefMath.gridLines(it, model, cam, spacing) }
+        val hull = (if (profile.hasHull) SurfaceHull.of(profile) else null) ?: return null
+        return SurfaceHullGrid.segments(hull, spacing).mapNotNull { s ->
+            segment(model.apply(s[0], s[1], s[2]), model.apply(s[3], s[4], s[5]), cam)
+        }
+    }
+
     /**
      * How far along the sweep the guide grid reaches, in box units: the surface's box plus
      * [GRID_MARGIN]. The box is the hull's (every drawn outline's vertices, spanning the sweep as far
@@ -544,6 +573,35 @@ object SurfaceMath {
         }
         val side = maxOf(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])
         return maxOf(span, side) + GRID_MARGIN
+    }
+
+    /**
+     * The box that holds [profile]'s surface, in the group's box-local space: (min x, y, z) to (max x, y, z).
+     * The surface is swept without bound, so it is cut where the guide grid stops ([gridExtent] less its
+     * margin): a hull is its clip box, a relief its photo's rectangle with the displacement either side
+     * of the plane, anything else its vertices and the same vertices swept that far. This is the extent
+     * [OrbitPivot] measures; null for a profile that is not [SurfaceProfile.isValid].
+     */
+    fun localBounds(profile: SurfaceProfile): Pair<FloatArray, FloatArray>? {
+        if (!profile.isValid) return null
+        profile.relief?.let {
+            val half = it.displacement / 2f
+            return floatArrayOf(it.left, it.top, -half) to floatArrayOf(it.left + it.spanU, it.top + it.spanT, half)
+        }
+        if (profile.hasHull) SurfaceHull.of(profile)?.let { return it.boundsMin to it.boundsMax }
+        val reach = (gridExtent(profile) - GRID_MARGIN).coerceAtLeast(0f)
+        val sweep = profile.sweep
+        val lo = FloatArray(3) { Float.MAX_VALUE }
+        val hi = FloatArray(3) { -Float.MAX_VALUE }
+        for (i in 0 until profile.count) {
+            val p = profile.point(i)
+            for (k in 0..2) {
+                val far = p[k] + sweep[k] * reach
+                lo[k] = minOf(lo[k], p[k], far)
+                hi[k] = maxOf(hi[k], p[k], far)
+            }
+        }
+        return lo to hi
     }
 
     /** A scene segment on the canvas, clipped to the near plane; null when wholly behind it. */
