@@ -38,9 +38,9 @@ object HostAssetSupport {
                 .thenBy { idOf(it) },
         )
 
-    /** Whether the host consumes [asset]: brushes, LUTs and `onnx` + role `depth` models. */
+    /** Whether the host consumes [asset]: brushes, LUTs, surfaces and `onnx` + role `depth` models. */
     fun isSupported(asset: AssetContribution): Boolean = when (asset.type) {
-        AssetType.BRUSH, AssetType.LUT -> true
+        AssetType.BRUSH, AssetType.LUT, AssetType.SURFACE -> true
         AssetType.ONNX -> isDepthModel(asset)
         else -> false
     }

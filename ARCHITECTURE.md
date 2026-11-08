@@ -680,6 +680,13 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
   menu, "Relocate rotation point") overrides it and is saved as `GraffitiProject.orbitPivot`; the field is new, hence format 13
   (a 12 file has none: automatic). The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
+- **Ready-made surfaces (store packs).** A `type: "surface"` asset of an installed azphalt pack is profile-only JSON
+  (front/side/top outlines in the unit box). `SurfacePayload` (`:core:common`, scene) is the strict parser and
+  `toProfile` the mapping into a group's `SurfaceProfile`; `ExtensionRepository.installedSurfaceAssets()` and
+  `loadSurface()` (`:core:data`) discover and read them; `EditorViewModel.onInsertSurface` adds a new surface
+  group as one undo step; `SurfacePicker` (`:feature:editor`) is the picker, opened from the 3D toolbox in
+  `MainActivity`. No relief and no pixels are carried; `exportTriangles` feeds `SceneGltfExporter`. See
+  spec/3d-space.md, "Ready-made surfaces".
 - **Relief surfaces (format 12).** `SurfaceProfile.relief` (`ReliefSurface`, `ReliefMath` in `:core:common`) is a photo's depth map
   as a grid of heights over the photo's plane; the photo is the single paint image and its pixels are the paint space. It is a group
   surface like any other: `SurfaceMath.hit`/`mesh`/`gridLines`/`SurfaceFootprint` dispatch on it, so painting, ownership and undo are

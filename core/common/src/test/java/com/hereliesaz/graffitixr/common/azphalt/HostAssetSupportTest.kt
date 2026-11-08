@@ -24,6 +24,17 @@ class HostAssetSupportTest {
         }
     }
 
+    @Test fun `surfaces are supported`() {
+        assertTrue(HostAssetSupport.isSupported(asset(AssetType.SURFACE)))
+        val m = parseManifest(
+            """
+            {"azphalt":"0.1","id":"a.b","name":"n","version":"1.0.0","kind":"asset","license":"CC0-1.0","compat":">=0.1",
+             "assets":[{"type":"surface","path":"assets/a.json"}]}
+            """.trimIndent(),
+        )
+        assertEquals(AssetType.SURFACE, m.assets.single().type)
+    }
+
     @Test fun `brushes and luts remain supported, others not`() {
         assertTrue(HostAssetSupport.isSupported(asset(AssetType.BRUSH)))
         assertTrue(HostAssetSupport.isSupported(asset(AssetType.LUT)))

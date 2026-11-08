@@ -152,6 +152,7 @@ class ExtensionRepository @Inject constructor(
     val installed: StateFlow<List<InstalledExtension>> = _installed.asStateFlow()
 
     private val initialScan = kotlinx.coroutines.CompletableDeferred<Unit>()
+    private val scanned = MutableStateFlow(false)
 
     /** Suspends until the launch-time scan has published [installed] (it starts empty, then fills). */
     suspend fun awaitInitialScan() = initialScan.await()
@@ -168,6 +169,7 @@ class ExtensionRepository @Inject constructor(
                     _installed.value = scanInstalled()
                 }
             } finally {
+                scanned.value = true
                 initialScan.complete(Unit)
             }
             refreshTrustStore()
@@ -492,6 +494,66 @@ class ExtensionRepository @Inject constructor(
                 name = brushAssetName(ext, asset, index, usable.size),
             )
         }
+    }
+
+    /**
+     * One ready-made surface bundled by an installed "pack of surfaces" (azphalt `surface` assets). [assetIndex]
+     * is its position among that extension's usable surface assets, in manifest order -- what [loadSurface]
+     * needs alongside [extensionId].
+     */
+    data class InstalledSurfaceAsset(
+        val extensionId: String,
+        val packName: String,
+        val assetIndex: Int,
+        val name: String,
+    )
+
+    /** A surface asset this host can insert: standalone and bundled as a `.json` file (never fetched lazily). */
+    private fun isUsableSurface(asset: com.hereliesaz.graffitixr.common.azphalt.AssetContribution): Boolean =
+        asset.type == AssetType.SURFACE &&
+            asset.standalone &&
+            asset.remoteUrl == null &&
+            asset.path.endsWith(".json")
+
+    /** What a surface picker should show: still scanning at launch, or the surfaces that are installed. */
+    sealed interface SurfaceInventory {
+        data object Scanning : SurfaceInventory
+        data class Ready(val items: List<InstalledSurfaceAsset>) : SurfaceInventory
+    }
+
+    /**
+     * The installed surfaces as a live view: [SurfaceInventory.Scanning] until the launch-time scan has published
+     * [installed] (it starts empty and fills asynchronously), then [SurfaceInventory.Ready], re-emitted on every
+     * install and uninstall, so a picker opened early fills in and one left open follows the inventory.
+     */
+    val surfaceInventory: kotlinx.coroutines.flow.Flow<SurfaceInventory> =
+        kotlinx.coroutines.flow.combine(_installed, scanned) { list, done ->
+            if (done) SurfaceInventory.Ready(surfaceAssetsOf(list)) else SurfaceInventory.Scanning
+        }
+
+    /** Every usable surface asset bundled by every installed extension, named by its manifest `params.name`. */
+    fun installedSurfaceAssets(): List<InstalledSurfaceAsset> = surfaceAssetsOf(_installed.value)
+
+    private fun surfaceAssetsOf(list: List<InstalledExtension>): List<InstalledSurfaceAsset> = list.flatMap { ext ->
+        ext.manifest.assets.filter(::isUsableSurface).mapIndexed { index, asset ->
+            val declared = (asset.params?.get("name") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+            InstalledSurfaceAsset(ext.id, ext.manifest.name, index, declared ?: "${ext.manifest.name} ${index + 1}")
+        }
+    }
+
+    /**
+     * Reads and strictly validates surface [assetIndex] of installed extension [id] ([SurfacePayload.parse]; the
+     * file is untrusted whatever signed the package). A missing extension, asset or file is a rejection with a
+     * reason, never an exception.
+     */
+    @Suppress("ReturnCount")
+    fun loadSurface(id: String, assetIndex: Int): com.hereliesaz.graffitixr.common.scene.SurfaceParse {
+        val rejected = { why: String -> com.hereliesaz.graffitixr.common.scene.SurfaceParse.Rejected(why) }
+        val ext = _installed.value.find { it.id == id } ?: return rejected("That surface pack is not installed.")
+        val asset = ext.manifest.assets.filter(::isUsableSurface).getOrNull(assetIndex)
+            ?: return rejected("That surface is not in the pack.")
+        val bytes = ExtensionAssetReader(ext).read(asset.path) ?: return rejected("The surface file could not be read.")
+        return com.hereliesaz.graffitixr.common.scene.SurfacePayload.parse(bytes)
     }
 
     /**
