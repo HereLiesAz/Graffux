@@ -1593,8 +1593,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 if (checked) { storeTab = StoreTab.INSTALLED; showStore = true }
                             }
                         } else {
-                            page(strings.mainMenu.view) { showViewMenu = true }
-                            listItem(strings.nav.new) { vm.createNewProject() }
+                            mainMenuLead(
+                                strings.nav.new,
+                                strings.mainMenu.view,
+                                { vm.createNewProject() },
+                            ) { showViewMenu = true }
                             listItem(strings.mainMenu.open) { vm.refreshOpenScreen(); showOpenDialog = true }
                             listItem(strings.mainMenu.importFile) { importPicker.launch(arrayOf("*/*")) }
                             // Opens AddContentDialog (shapes + text as a new layer).
