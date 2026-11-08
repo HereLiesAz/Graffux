@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.scene.SurfaceParse
 import com.hereliesaz.graffitixr.common.scene.SurfacePayload
+import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository
 import com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.InstalledSurfaceAsset
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
@@ -37,9 +39,16 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun SurfacePicker(vm: EditorViewModel, onDismiss: () -> Unit) {
-    val items = remember { vm.installedSurfaces() }
+    val inventory by vm.surfaceInventory.collectAsState(initial = ExtensionRepository.SurfaceInventory.Scanning)
+    val items = (inventory as? ExtensionRepository.SurfaceInventory.Ready)?.items.orEmpty()
     ToolSurface(kind = SurfaceKind.PICKER, title = "Insert surface", onDismiss = onDismiss) {
-        if (items.isEmpty()) {
+        if (inventory is ExtensionRepository.SurfaceInventory.Scanning) {
+            Text(
+                "Looking for installed surfaces\u2026",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(vertical = 12.dp).testTag("surface.picker.scanning"),
+            )
+        } else if (items.isEmpty()) {
             Text(
                 "No surfaces installed. Install a pack of surfaces from the Store, then insert one here.",
                 style = MaterialTheme.typography.bodyMedium,

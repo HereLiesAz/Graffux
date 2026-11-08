@@ -152,6 +152,7 @@ class ExtensionRepository @Inject constructor(
     val installed: StateFlow<List<InstalledExtension>> = _installed.asStateFlow()
 
     private val initialScan = kotlinx.coroutines.CompletableDeferred<Unit>()
+    private val scanned = MutableStateFlow(false)
 
     /** Suspends until the launch-time scan has published [installed] (it starts empty, then fills). */
     suspend fun awaitInitialScan() = initialScan.await()
@@ -168,6 +169,7 @@ class ExtensionRepository @Inject constructor(
                     _installed.value = scanInstalled()
                 }
             } finally {
+                scanned.value = true
                 initialScan.complete(Unit)
             }
             refreshTrustStore()
@@ -513,8 +515,26 @@ class ExtensionRepository @Inject constructor(
             asset.remoteUrl == null &&
             asset.path.endsWith(".json")
 
+    /** What a surface picker should show: still scanning at launch, or the surfaces that are installed. */
+    sealed interface SurfaceInventory {
+        data object Scanning : SurfaceInventory
+        data class Ready(val items: List<InstalledSurfaceAsset>) : SurfaceInventory
+    }
+
+    /**
+     * The installed surfaces as a live view: [SurfaceInventory.Scanning] until the launch-time scan has published
+     * [installed] (it starts empty and fills asynchronously), then [SurfaceInventory.Ready], re-emitted on every
+     * install and uninstall, so a picker opened early fills in and one left open follows the inventory.
+     */
+    val surfaceInventory: kotlinx.coroutines.flow.Flow<SurfaceInventory> =
+        kotlinx.coroutines.flow.combine(_installed, scanned) { list, done ->
+            if (done) SurfaceInventory.Ready(surfaceAssetsOf(list)) else SurfaceInventory.Scanning
+        }
+
     /** Every usable surface asset bundled by every installed extension, named by its manifest `params.name`. */
-    fun installedSurfaceAssets(): List<InstalledSurfaceAsset> = _installed.value.flatMap { ext ->
+    fun installedSurfaceAssets(): List<InstalledSurfaceAsset> = surfaceAssetsOf(_installed.value)
+
+    private fun surfaceAssetsOf(list: List<InstalledExtension>): List<InstalledSurfaceAsset> = list.flatMap { ext ->
         ext.manifest.assets.filter(::isUsableSurface).mapIndexed { index, asset ->
             val declared = (asset.params?.get("name") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
             InstalledSurfaceAsset(ext.id, ext.manifest.name, index, declared ?: "${ext.manifest.name} ${index + 1}")

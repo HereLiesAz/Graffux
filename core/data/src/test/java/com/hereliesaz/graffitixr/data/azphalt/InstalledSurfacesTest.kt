@@ -8,7 +8,11 @@ import com.hereliesaz.graffitixr.common.scene.SurfaceParse
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -21,6 +25,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /** Packs of surfaces as an installed host sees them: discovery, and a strict read of each payload. */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class InstalledSurfacesTest {
     @get:Rule
     val tmp = TemporaryFolder()
@@ -87,5 +92,41 @@ class InstalledSurfacesTest {
             nowMs = 1L,
         )
         assertTrue(repo.installedSurfaceAssets().isEmpty())
+    }
+
+    @Test
+    fun `a picker opened before the launch scan finishes sees Scanning, then the installed surfaces`() = runTest {
+        val files = tmp.newFolder("files")
+        val cache = tmp.newFolder("cache")
+        fun repo(d: CoroutineDispatcher): ExtensionRepository {
+            val context = mockk<Context>()
+            every { context.filesDir } returns files
+            every { context.cacheDir } returns cache
+            val dp = object : DispatcherProvider {
+                override val main = d
+                override val io = d
+                override val default = d
+                override val unconfined = d
+            }
+            return ExtensionRepository(context, dp).also { it.enforceRootEndorsements = false }
+        }
+        // A first run installs a pack; the app is then "restarted" over the same storage.
+        val first = StandardTestDispatcher(testScheduler)
+        val before = repo(first)
+        advanceUntilIdle()
+        before.installFromStream(
+            ByteArrayInputStream(pack("com.x.later", """[{"type":"surface","path":"assets/slab.json","params":{"name":"Slab"}}]""", mapOf("assets/slab.json" to slab))),
+            nowMs = 1L,
+        )
+        val sched = kotlinx.coroutines.test.TestCoroutineScheduler()
+        val restarted = repo(StandardTestDispatcher(sched))
+        val seen = mutableListOf<ExtensionRepository.SurfaceInventory>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) { restarted.surfaceInventory.collect { seen += it } }
+        // Opened before the scan ran: not "none installed", just not known yet.
+        assertEquals(listOf<ExtensionRepository.SurfaceInventory>(ExtensionRepository.SurfaceInventory.Scanning), seen)
+        sched.advanceUntilIdle()
+        val ready = seen.last() as ExtensionRepository.SurfaceInventory.Ready
+        assertEquals(listOf("Slab"), ready.items.map { it.name })
+        job.cancel()
     }
 }

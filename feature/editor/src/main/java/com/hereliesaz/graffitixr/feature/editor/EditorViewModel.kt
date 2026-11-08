@@ -13490,9 +13490,8 @@ class EditorViewModel @Inject constructor(
 
     // ── Ready-made surfaces: "Insert surface" (spec/3d-space.md, "Ready-made surfaces") ──
 
-    /** The surfaces bundled by installed packs of surfaces, for the picker. Cheap: reads manifests only. */
-    fun installedSurfaces(): List<com.hereliesaz.graffitixr.data.azphalt.ExtensionRepository.InstalledSurfaceAsset> =
-        extensionRepository.installedSurfaceAssets()
+    /** The surfaces bundled by installed packs of surfaces, live: scanning at launch, then the current list. */
+    val surfaceInventory get() = extensionRepository.surfaceInventory
 
     /** The validated payload of an installed surface, for the picker's thumbnail; a rejection says why. */
     fun loadInstalledSurface(extensionId: String, assetIndex: Int) =
