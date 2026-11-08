@@ -559,6 +559,11 @@ data class EditorUiState(
      */
     val surfaceGridVisible: Boolean = true,
     /**
+     * The 3D button's chooser of the active surface group's views (front, side, top) is up. View
+     * state, never saved; see EditorViewModel.onAxisSlotTapped.
+     */
+    val surfaceViewsMenuOpen: Boolean = false,
+    /**
      * A rotation point the user placed (scene px x, y, z), or null = automatic: the centre of every
      * surface ([com.hereliesaz.graffitixr.common.scene.OrbitPivot]). Saved with the project (format 13).
      */
