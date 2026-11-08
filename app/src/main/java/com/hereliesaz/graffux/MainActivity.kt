@@ -348,6 +348,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var posterChoices by rememberSaveable(stateSaver = PosterChoicesSaver) { mutableStateOf(PosterChoices()) }
     // The brush's long-press menu, a layer's menu (by layer id), and the About reader.
     var brushMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var meshMenuOpen by rememberSaveable { mutableStateOf(false) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showGestureHelp by rememberSaveable { mutableStateOf(false) }
@@ -531,6 +532,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         BackLayer(showViewMenu) { showViewMenu = false },
         BackLayer(menuOpen) { menuOpen = false },
         BackLayer(brushMenuOpen) { brushMenuOpen = false },
+        BackLayer(meshMenuOpen) { meshMenuOpen = false },
         BackLayer(layerMenuFor != null) { layerMenuFor = null },
         BackLayer(showAbout) { showAbout = false },
         BackLayer(showGestureHelp) { showGestureHelp = false },
@@ -864,6 +866,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         showViewMenu = false
         showPosterMenu = false
         brushMenuOpen = false
+        meshMenuOpen = false
         layerMenuFor = null
         packWheel.close()
         carouselUi = carouselUi.afterCanvasTouch(uiState.activeTool)
@@ -1310,7 +1313,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 photo = false,
                             )
                         },
-                        onBrushMenu = { brushMenuOpen = true; layerMenuFor = null; menuOpen = false },
+                        onBrushMenu = {
+                            brushMenuOpen = true; meshMenuOpen = false; layerMenuFor = null; menuOpen = false
+                        },
+                        onMeshMenu = {
+                            meshMenuOpen = true; brushMenuOpen = false; layerMenuFor = null; menuOpen = false
+                        },
                         onAdjust = openAdjust,
                         onBrush = openBrushSheet,
                         onPackWheelToggle = packWheel::toggle,
@@ -1371,6 +1379,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         },
                         onDismiss = { brushMenuOpen = false },
                         title = uiState.activeBrushName ?: strings.nav.brush,
+                        modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
+                    )
+                }
+
+                if (meshMenuOpen) {
+                    MenuPanel(
+                        rows = buildMenu { meshMenu(vm, uiState) { meshMenuOpen = false } },
+                        onDismiss = { meshMenuOpen = false },
+                        title = "Wire mesh",
                         modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
                     )
                 }
@@ -1509,7 +1526,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onOpenChange = { open ->
                         menuOpen = open
                         if (!open) { showViewMenu = false; showPosterMenu = false }
-                        if (open) { brushMenuOpen = false; layerMenuFor = null }
+                        if (open) { brushMenuOpen = false; meshMenuOpen = false; layerMenuFor = null }
                     },
                     rows = buildMenu {
                         if (showPosterMenu) {
@@ -1609,6 +1626,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 ) {
                     Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
                 }
+            }
+
+            // "Relocate rotation point": say what to do, and let Cancel (or Back) leave it.
+            if (uiState.pivotPickArmed) {
+                PivotPromptChip(
+                    onCancel = { vm.onCancelPivotPick() },
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp, start = 16.dp, end = 16.dp),
+                )
             }
 
             // "Draw surface" prompt, then failures and confirmations, over the artwork, never blocking it.

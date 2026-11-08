@@ -193,4 +193,12 @@ class GraffitiProjectTest {
         assertEquals("smooth", decoded.canvasSubstrateId)
         assertEquals("smooth", GraffitiProject().canvasSubstrateId)
     }
+
+    @Test
+    fun `a placed rotation point round-trips and a file without one has none`() {
+        val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val text = json.encodeToString(GraffitiProject(id = "p", orbitPivot = listOf(1f, 2f, 3f)))
+        assertEquals(listOf(1f, 2f, 3f), json.decodeFromString<GraffitiProject>(text).orbitPivot)
+        assertEquals(null, json.decodeFromString<GraffitiProject>("""{"formatVersion":12,"id":"o"}""").orbitPivot)
+    }
 }
