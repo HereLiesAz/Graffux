@@ -6,6 +6,7 @@
     "LoopWithTooManyJumpStatements",
     "ComplexCondition",
     "MaxLineLength",
+    "TooManyFunctions",
 )
 
 package com.hereliesaz.graffitixr.feature.editor
@@ -21,6 +22,7 @@ import com.hereliesaz.graffitixr.common.scene.SurfaceHull
 import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.scene.SurfaceViewFlood
+import com.hereliesaz.graffitixr.common.scene.SurfaceViewSelection
 import com.hereliesaz.graffitixr.common.util.SelectionGeometry
 import com.hereliesaz.graffitixr.feature.editor.util.ImageProcessor
 import kotlin.math.abs
@@ -29,7 +31,9 @@ import kotlin.math.abs
  * The pixels behind [SurfaceViewFlood]: how a flood fill spreads in each view image of a paint layer
  * (spec/3d-space.md, "Fill, Clone, lasso"). A view with no image yet is blank, so its whole face floods.
  * [mask] is the flood (the magic wand's, same tolerance as the bucket), [clip] the lasso cut to a view
- * (null selection: none; blocked: the view is out of reach).
+ * (null selection: none; blocked: the view is out of reach). The flood is clipped as it spreads, by the same
+ * region the committed fill uses (the lasso's cut, else the tapped face when [confineToFace]), so it cannot
+ * connect through pixels the fill itself would never enter.
  */
 internal class ViewFloodOracle(
     private val layers: List<Layer>,
@@ -38,7 +42,9 @@ internal class ViewFloodOracle(
     private val canvasW: Int,
     private val canvasH: Int,
     private val tapColor: Int,
-    private val mask: (Bitmap, Int, Int, Int) -> BooleanArray?,
+    private val mask: (Bitmap, Int, Int, Int, ((Int, Int) -> Boolean)?) -> BooleanArray?,
+    /** A fill stays on the face it was tapped on (the image's other faces share it), as its committed clip does. */
+    private val confineToFace: Boolean = false,
     private val clip: (SurfaceView) -> EditorViewModel.ViewClip,
 ) : SurfaceViewFlood.Oracle {
     private fun image(view: SurfaceView): Layer? =
@@ -95,7 +101,8 @@ internal class ViewFloodOracle(
         }
         if (img == null || bmp == null) return { x, y -> allowed(x, y) }
         val (sx, sy) = pixelOf(img, bmp, seed.x, seed.y) ?: return null
-        val m = mask(bmp, sx, sy, TOLERANCE) ?: return null
+        val region = regionOf(seed, img, bmp)
+        val m = mask(bmp, sx, sy, TOLERANCE, region?.let { r -> { px: Int, py: Int -> r.contains(px, py) } }) ?: return null
         return { x, y ->
             val (px, py) = pixelOf(img, bmp, x, y) ?: (-1 to -1)
             allowed(x, y) && (-1..1).any { dy ->
@@ -108,15 +115,43 @@ internal class ViewFloodOracle(
         }
     }
 
+    private val regions = HashMap<Pair<SurfaceView, Int>, android.graphics.Region?>()
+
+    /** [clipRegion] for the seed's face, built once per face: every link into it asks. */
+    private fun regionOf(seed: PaintTarget, img: Layer, bmp: Bitmap): android.graphics.Region? {
+        val key = seed.view to seed.region
+        if (!regions.containsKey(key)) regions[key] = clipRegion(seed, img, bmp, clip(seed.view).selection)
+        return regions[key]
+    }
+
+    /** The region the committed fill is clipped to in [bmp], as pixels: [selection], else the seed's face if confined. */
+    private fun clipRegion(seed: PaintTarget, img: Layer, bmp: Bitmap, selection: Selection?): android.graphics.Region? {
+        val sel = selection ?: faceSelection(seed, img).takeIf { confineToFace } ?: return null
+        val path = SelectionMask.bitmapPath(sel, img.frame(bmp.width, bmp.height), img.scale, img.offset, img.rotationZ)
+        return SelectionMask.region(path, bmp.width, bmp.height)
+    }
+
+    private fun faceSelection(seed: PaintTarget, img: Layer): Selection? {
+        val flat = flatOf(img, seed.x, seed.y) ?: return null
+        val owner = SurfaceMath.ownerOf(layers, primaryId) ?: return null
+        return SurfaceViewSelection.faceRegion(
+            SurfaceMath.ViewFlat(seed.view, flat.x, flat.y, seed.region), owner, hull,
+            androidx.compose.ui.unit.IntSize(canvasW, canvasH), canvasW.toFloat(), canvasH.toFloat(),
+        )
+    }
+
     override fun accept(target: PaintTarget): PaintTarget? {
         val img = image(target.view)
         val bmp = img?.bitmap
         if (img == null || bmp == null) return target.takeIf { matches(0) && !clip(target.view).blocked }
         val (px, py) = pixelOf(img, bmp, target.x, target.y) ?: return null
+        val region = regionOf(target, img, bmp)
         for (dy in -1..1) for (dx in -1..1) {
             val qx = px + dx
             val qy = py + dy
             if (qx !in 0 until bmp.width || qy !in 0 until bmp.height || !matches(bmp.getPixel(qx, qy))) continue
+            // A seed outside the clip would flood nothing: accept only a pixel the committed fill could enter.
+            if (region?.contains(qx, qy) == false) continue
             val (x, y) = paintOf(img, bmp, qx, qy) ?: continue
             if (inFace(target, x, y)) return PaintTarget(target.view, x, y, target.region)
         }
@@ -143,7 +178,7 @@ internal class ViewFloodOracle(
         }
         val imgOwner = SurfaceMath.ownerOf(layers, img.id) ?: return null
         val (sx, sy) = pixelOf(img, bmp, seed.x, seed.y) ?: return null
-        val flood = mask(bmp, sx, sy, TOLERANCE) ?: return null
+        val flood = mask(bmp, sx, sy, TOLERANCE, null) ?: return null
         val space = ViewImageSpace(img, bmp, imgOwner, canvasW, canvasH)
         val kept = BooleanArray(flood.size)
         var any = false
