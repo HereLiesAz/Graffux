@@ -31,7 +31,7 @@ recommendation is accepted. Section numbers point to the reasoning.
 | Q8 | Per-view paint on a part: it rides the part rigidly (it is in the part's body frame), correct? | Yes. All paint of a part, every view image, moves with the part. Stage 2 is where paint stops being rigid. | 5.1 |
 | Q9 | Stage 2 model: which soft-body approach? | Control-point skinning (blend weights from a rigidity field) solved on the CPU as a small constraint relaxation, skinned in the vertex shader. Not FEM, not a GPU PBD. | 8 |
 | Q10 | Does Stage 3 animate only joint angles (and Stage 2 control points), or also camera, opacity, anything? | Joint angles, control-point offsets, and part root pose in v1 of the timeline. Camera and opacity later. | 9 |
-| Q11 | Export in Stage 3: video/GIF (rendered frames) vs animated glTF (skins and animations)? | Both, in that order: GIF/MP4 through the existing export path first, glTF animation second. | 9.4 |
+| Q11 | Export in Stage 3: video/GIF (rendered frames) vs animated glTF (skins and animations)? | Rev 2: glTF animation is the clip format itself (0B); GIF/MP4 are renders of it. | 9.4 |
 | Q12 | Is puppetry available on desktop? | No. Desktop does not use `:core:common` (3d-space.md header). Same exclusion as all 3D. | 5.7 |
 | Q13 | Do old readers have to open a project that has joints? | They open it read-only (existing `isNewerFormat` behaviour) and render the rest pose. Acceptable; no attempt to make them edit it. | 4.3 |
 | Q14 | Default mobile budget numbers (section 10) acceptable as hard limits (e.g. 32 joints per project, 4k vertices per soft body)? | Yes, enforced with a visible message, not silently. | 10 |
