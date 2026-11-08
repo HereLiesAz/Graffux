@@ -30,6 +30,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.common.model.PopupImportance
+import com.hereliesaz.graffitixr.common.model.PopupPolicy
 import com.hereliesaz.graffitixr.design.theme.Amber
 import kotlinx.coroutines.delay
 
@@ -47,6 +49,13 @@ internal data class ChromeMessage(
     /** How many identical messages this one stands for; shown as "×n" from 2 up. */
     val count: Int = 1,
 )
+
+/**
+ * A warning waits for OK and a message with an action asks for a decision, so both are IMPORTANT
+ * (centred, never timed out); a plain notice only reports and is TRANSIENT. See [PopupPolicy].
+ */
+internal val ChromeMessage.importance: PopupImportance
+    get() = PopupPolicy.importance(guidesNextStep = kind == MessageKind.WARNING, offersAction = actionLabel != null)
 
 /**
  * The app's transient messages: a failed save, a finished export, a store that couldn't be reached.
@@ -87,22 +96,30 @@ internal fun rememberMessageController(): MessageController = remember { Message
 
 private val MessageCardShape = RoundedCornerShape(12.dp)
 
-/** Draws [controller]'s messages, newest last. A NOTICE leaves after [NOTICE_MS]. */
+/**
+ * Draws [controller]'s messages (only those of [importance] when given), newest last. A TRANSIENT one leaves after a
+ * time in proportion to its text ([PopupPolicy.autoDismissMillis]); an IMPORTANT one stays until the user acts.
+ */
 @Suppress("FunctionNaming")
 @Composable
 internal fun MessageHost(controller: MessageController, modifier: Modifier = Modifier, okLabel: String = "OK",
     countLabel: (Int) -> String = { "$it times" },
+    importance: PopupImportance? = null,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier,
     ) {
-        controller.messages.forEach { message ->
-            if (message.kind == MessageKind.NOTICE) {
+        controller.messages.filter { importance == null || it.importance == importance }.forEach { message ->
+            val ms = PopupPolicy.autoDismissMillis(
+                (message.title?.length ?: 0) + message.text.length,
+                actionable = message.importance == PopupImportance.IMPORTANT,
+            )
+            if (ms != null) {
                 // Keyed on the count too: a merged message gets its full time again.
                 LaunchedEffect(message.id, message.count) {
-                    delay(NOTICE_MS)
+                    delay(ms)
                     controller.dismiss(message.id)
                 }
             }
@@ -182,4 +199,3 @@ private fun MessageButton(label: String, tag: String, onClick: () -> Unit) {
 }
 
 private const val MAX_SHOWN = 3
-private const val NOTICE_MS = 4_000L

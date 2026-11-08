@@ -399,11 +399,64 @@ object SceneMath {
         return turned.copy(panX = target[0] - width / 2f, panY = target[1] - height / 2f, panZ = target[2])
     }
 
+    /** The turn of [deg] degrees about one coordinate axis, as a row-major 3x3. */
+    fun axisRotation(axis: com.hereliesaz.graffitixr.common.model.RotationAxis, deg: Float): FloatArray =
+        when (axis) {
+            com.hereliesaz.graffitixr.common.model.RotationAxis.X -> rotation(deg, 0f, 0f)
+            com.hereliesaz.graffitixr.common.model.RotationAxis.Y -> rotation(0f, deg, 0f)
+            com.hereliesaz.graffitixr.common.model.RotationAxis.Z -> rotation(0f, 0f, deg)
+        }
+
     /**
-     * The plane [pose] turned by [deltaDeg] about [axis] (as the slider's Euler angle on that axis
-     * moves) so that its box centre revolves about [pivot], a point in the same space as the pose
-     * (the layer's parent space). The pose's rotation is exactly what the slider reads; only its
-     * offset and depth change with it, so the layer's distance from [pivot] never changes.
+     * Rz * Ry * Rx angles (degrees, Y within -90..90) of the rotation [r] (row-major 3x3): what the
+     * layer stores and every renderer consumes. At gimbal (Y at +-90) the Z turn folds into X.
+     */
+    fun eulerOf(r: FloatArray): FloatArray {
+        val ry = kotlin.math.asin((-r[6]).coerceIn(-1f, 1f))
+        val rx: Float
+        val rz: Float
+        if (abs(cos(ry)) > 1e-5f) {
+            rx = kotlin.math.atan2(r[7], r[8])
+            rz = kotlin.math.atan2(r[3], r[0])
+        } else {
+            rx = kotlin.math.atan2(-r[5], r[4])
+            rz = 0f
+        }
+        val deg = 180f / PI.toFloat()
+        return floatArrayOf(rx * deg, ry * deg, rz * deg)
+    }
+
+    /**
+     * How far the body has been turned about its own [axis]: the angle of that axis in the Euler
+     * decomposition with it innermost (Rz*Ry*Rx for X, Rz*Rx*Ry for Y, Rx*Ry*Rz for Z). Turning the
+     * body about its own axis (`R * Ra(d)`) changes exactly this angle, by exactly `d`, and no
+     * other axis's reading is a function of anything but the orientation, so it needs no stored
+     * state: it is what each rotation slider shows. Degrees.
+     */
+    fun bodyAngle(r: FloatArray, axis: com.hereliesaz.graffitixr.common.model.RotationAxis): Float {
+        val eps = 1e-5f
+        val rad = when (axis) {
+            com.hereliesaz.graffitixr.common.model.RotationAxis.X ->
+                if (kotlin.math.hypot(r[7], r[8]) > eps) kotlin.math.atan2(r[7], r[8]) else kotlin.math.atan2(-r[5], r[4])
+            com.hereliesaz.graffitixr.common.model.RotationAxis.Y ->
+                if (kotlin.math.hypot(r[6], r[8]) > eps) kotlin.math.atan2(-r[6], r[8]) else kotlin.math.atan2(r[2], r[0])
+            com.hereliesaz.graffitixr.common.model.RotationAxis.Z ->
+                if (kotlin.math.hypot(r[0], r[1]) > eps) kotlin.math.atan2(-r[1], r[0]) else kotlin.math.atan2(r[3], r[4])
+        }
+        return rad * 180f / PI.toFloat()
+    }
+
+    /** [bodyAngle] of a pose's rotation. */
+    fun bodyAngle(pose: PlanePose, axis: com.hereliesaz.graffitixr.common.model.RotationAxis): Float =
+        bodyAngle(rotation(pose.rotationX, pose.rotationY, pose.rotationZ), axis)
+
+    /**
+     * The plane [pose] turned by [deltaDeg] about its OWN [axis] (the body line `R * e_axis`, which
+     * is the same object line however the plane has been turned), so that its box centre revolves
+     * about [pivot], a point in the same space as the pose (the layer's parent space). The new
+     * rotation is `R * Ra(delta)`, stored back as the same Rz*Ry*Rx angles every renderer reads
+     * ([eulerOf]), so nothing downstream changes; only the offset and depth move with the turn, so
+     * the layer's distance from [pivot] never changes. See spec/3d-space.md, "Body-fixed axes".
      */
     fun rotatePoseAbout(
         pose: PlanePose,
@@ -413,14 +466,11 @@ object SceneMath {
         width: Float,
         height: Float,
     ): PlanePose {
-        val turned = when (axis) {
-            com.hereliesaz.graffitixr.common.model.RotationAxis.X -> pose.copy(rotationX = pose.rotationX + deltaDeg)
-            com.hereliesaz.graffitixr.common.model.RotationAxis.Y -> pose.copy(rotationY = pose.rotationY + deltaDeg)
-            com.hereliesaz.graffitixr.common.model.RotationAxis.Z -> pose.copy(rotationZ = pose.rotationZ + deltaDeg)
-        }
         val old = rotation(pose.rotationX, pose.rotationY, pose.rotationZ)
-        val new = rotation(turned.rotationX, turned.rotationY, turned.rotationZ)
-        // Relative turn R = new * old^T (old is orthonormal), applied to the centre about the pivot.
+        val new = mul3(old, axisRotation(axis, deltaDeg))
+        val e = eulerOf(new)
+        val turned = pose.copy(rotationX = e[0], rotationY = e[1], rotationZ = e[2])
+        // World turn W = new * old^T (old is orthonormal), applied to the centre about the pivot.
         val oldT = floatArrayOf(old[0], old[3], old[6], old[1], old[4], old[7], old[2], old[5], old[8])
         val r = mul3(new, oldT)
         val d = floatArrayOf(

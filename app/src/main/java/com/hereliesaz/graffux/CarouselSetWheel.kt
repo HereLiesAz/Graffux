@@ -143,7 +143,7 @@ internal fun wheelBandDepth(width: Dp): Dp {
 internal fun wheelVisibleArcDegrees(width: Dp): Float =
     2 * Math.toDegrees(asin((width.value / 2 / WheelArcRadius.value).toDouble())).toFloat()
 
-private const val FLING_SECONDS = 0.18f
+internal const val FLING_SECONDS = 0.18f
 private const val DIM_ALPHA = 0.5f
 private const val HALF_TURN = 180f
 private const val UP = 270f

@@ -56,11 +56,17 @@ The rail's **axis slot** (the slot the old 3D button had) is always there:
   A layer in no group is wrapped in a new group only when the line is captured, the wrap and the
   profile together being one undo step. A line too short to be a curve leaves the chip up, says so,
   and stays armed. Once captured the chip says the surface is set and how to undo it, and the slot
-  shows the axis. A tap that cannot arm (no layer, a locked layer, a layer that cannot take a
+  becomes the surface-drawings chooser (below). A tap that cannot arm (no layer, a locked layer, a layer that cannot take a
   surface) says why and what to do in the same chip;
-- on a 3D layer it shows the current axis as its letter in the axis colour (X cyan, Y pink, Z
-  green), so the user can always see which axis a twist turns about; a tap steps X -> Y -> Z,
-  the same state a double-tap steps. An "Axis:" chip confirms a change briefly, then clears.
+- on a layer of a **surface group** (the layer is paint on a group with a surface, or is that group) it
+  still reads **3D** but no longer chooses an axis: a tap opens the **Surface drawings** chooser
+  (`EditorUiState.surfaceViewsMenuOpen`), a menu of the surface's views, each entry entering that view's
+  drawing through the existing flows: "Draw surface" (front; `onArmSurfaceDraw`), and "Draw / Redraw side
+  view" and "Draw / Redraw top view" (`onArmSurfaceView`; not offered for a photo's relief surface, as in
+  the layer menu). The rotation triangle (below) turns the group;
+- on any other 3D layer (a tilted plane, 3D strokes, a model) it shows the current axis as its letter in
+  the axis colour (X cyan, Y pink, Z green); a tap steps X -> Y -> Z, the same state a double-tap steps. An
+  "Axis:" chip confirms a change briefly, then clears. The rotation slider stays for these layers.
 
 On a 2D layer the camera can still have been moved by 3D work elsewhere; the document renders
 through it as always, but a twist only ever rotates the canvas.
@@ -72,13 +78,41 @@ two-finger gesture on a layer is one undo step; view gestures are never history 
 saved with the project when the gesture ends). Every gesture follows the fingers continuously: the
 canvas gesture handlers are keyed so a state write on every step never restarts them.
 
+### Rotation triangle
+
+With an **active 3D surface group** (`EditorViewModel.rotationGizmoVisible`: the active layer is paint on, or
+is, a group with a surface, and it is not locked) a right triangle (`RotationGizmo`) sits in the right
+corner, on the top edge of the bottom sheet (`RotationGizmoDock`; the sheet reports its top edge through
+`CarouselSheet.onTopChanged`, so the triangle moves with the sheet as it opens, closes and is dragged) and on
+the bottom safe area, the slider's line, when no sheet is shown. It is in from the edge by a rail's width.
+Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical leg is Y** (pink), the
+**hypotenuse is Z** (green), the rail's axis colours.
+
+- Drag along an edge to turn the group about its **own** axis (body-fixed, through the orbit pivot:
+  `turnedAboutPivot`, `SceneMath.rotatePoseAbout`). Sign: right along the bottom, up the side and up-right
+  along the hypotenuse are **positive**, the same sense the slider's positive values had.
+- The angle is the finger's displacement projected on the edge's direction over the edge's length, times
+  180 degrees (`RotationTriangle.angle`): the full length is 180. There is no handle and no end stop, so
+  rotation accumulates across swipes (two swipes make 360); a backward drag reduces it.
+- A drag **locks** to the edge it began on. An ambiguous touch near a vertex picks the nearest edge by distance
+  to the edge segment (ties: bottom, side, hypotenuse).
+- Each edge has a touch band 48dp wide centred on it. Only the bands take pointer input (the input box is
+  clipped to their union): the interior and the rest of the box pass strokes through to the canvas.
+- A live readout ("X 37°", the drag's angle so far) shows while dragging.
+- A whole drag is one undo step (the first turn pushes history; the end saves and emits the co-op
+  transform), through `onRotationGizmoTurn` / `onRotationGizmoEnd`.
+- Accessibility: each edge is a node ("Rotate X" ...) with custom actions "+15°" and "-15°"
+  (`onRotationGizmoStep`, one undo step each).
+- The rotation slider is not shown for a surface group (`rotationSliderValue` is null there); it stays for
+  every other layer.
+
 ### Rotation slider
 
 Whenever the bottom sheet is closed, or hidden for drawing, a hairline slider (`RotationSlider`, in
 `RotationSliderDock`) is docked at the bottom of the screen: above the nav bar's inset and the
 bottom gesture strip, and in from both sides by a rail's width, so it is clear of the tool and layers
 rails on either hand. Opening the sheet takes it away. It rotates the **active layer**, not
-the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer
+the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer that is not on a surface group
 (`EditorViewModel.rotationSliderAxis`). It reads the layer's angle on that axis wrapped to
 -180..180°, with a centre tick at 0°, light haptic detents at 0 / ±45 / ±90 / ±180, a soft snap at
 0 only, and a degree readout only while dragging. A double-tap on the thumb resets to 0°. One drag
@@ -110,7 +144,7 @@ picture plane.
 
 - **Layer plane.** A layer's existing `offset` (x, y), `scale` and `rotationX/Y/Z` (degrees), plus
   a new `positionZ`. A point `L` of the layer's full-canvas box maps to the scene as
-  `P = C + (ox, oy, z) + R * scale * (L - C)`, `C` the box centre, `R = Rz * Ry * Rx`. With
+  `P = C + (ox, oy, z) + R * scale * (L - C)`, `C` the box centre, `R = Rz * Ry * Rx` (the stored form; the sliders turn about the body axes, see "Body-fixed axes"). With
   `z = rx = ry = 0` this is exactly the 2D transform the layer always had. Groups compose: a
   child's plane is its parent's model times its own.
 - **Scene camera** (`SceneCamera`): `yaw`, `pitch` (radians), `distanceScale` and a target offset
@@ -375,9 +409,24 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on
   one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
   while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
-  history or project data). It is drawn in a dark under-line and a cyan line over the artwork. Only the active
-  layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
+  history or project data; on by default, and since it was never stored there is no saved choice to migrate). A long press on the "#"
+  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Every visible
+  group's surface shows its mesh (`SurfaceMath.gridGroupIds`): a group is skipped when it or a group above it is hidden
+  or its opacity (times its enclosing groups') is zero, the orbit pivot's rule, and the mesh does not follow the active
+  layer. A group has exactly one surface, so one mesh. It is
   overlay UI in the canvas's world space, never part of an export.
+- **Wire mesh of a multi-view group.** The front profile's swept sheet is one face of a hull, so a group with a
+  side or top drawing meshes the hull itself (`SurfaceHullGrid.segments`, called by `SurfaceMath.gridLines`): the
+  iso-lines of every face's paint coordinates `(u, t)` at the grid spacing, over each view's sheet and the caps
+  (`SurfaceHull.meshByView`, `capMeshByView`), plus the faces' open edges (creases and the box's rim). It stops
+  at the solid and follows each view's drawing, not only the first plane's. Before, the mesh was always the front
+  profile's sheet swept to the hull's depth, so side and top drawings never showed in it. A single-view group
+  and a relief mesh as before. Every visible group shows its own mesh, each by this precedence on its own surface.
+  *Precedence* (`SurfaceMath.gridLines`): photo depth first (a relief, including every group made by
+  from a photo's depth estimate, `ReliefBuild.assemble`): its mesh is the relief's and the profile
+  hull is neither drawn over it nor mixed with it, even if side or top views were drawn; otherwise the multi-view
+  hull's skin (the one solid the three drawings define, each face trimmed by the other views, a shared crease
+  drawn once); otherwise the single profile's sheet. Tests: `SurfaceProfileTest`, `ReliefSurfaceTest`, `ReliefBuildTest`.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.
 - **Nesting.** A layer's surface is its nearest enclosing group with a profile; groups between
   it and that group compose flat (their 2D transforms, in unrolled space).
@@ -719,6 +768,47 @@ plane passes through. It is the centre of the box that holds the content.
   and moves the layer's offset and depth so its centre revolves about the pivot at a constant
   distance. A Z turn of a flat layer (not placed in 3D) stays in place, as a 2D layer's always did;
   for layer 1 that is the same thing, since the pivot sits straight behind its centre.
+- **Surfaces (the rule once any group has a surface).** The pivot is the centre of the axis-aligned box
+  that holds, in world space, EVERY defined surface (`OrbitPivot.ofSurfaces`): each profiled group's
+  box (`SurfaceMath.localBounds`: a hull's clip box, a relief's photo rectangle with its displacement,
+  else the profile's vertices and the same vertices swept as far as the guide grid reaches) through its
+  group chain, plus the planes of any content layer that is not paint on a surface. Paint layers inside
+  a surface group are skipped: their own plane is flat paint space, not where the paint is drawn. This
+  replaces the plane-layer rule above as soon as one surface exists. The centre of the box was chosen over
+  a vertex or area centroid because it depends only on extent: it does not shift when a stroke is
+  simplified, a relief's grid is rebuilt, or one surface is tessellated finer than another, and it moves
+  only when a surface is added, removed, changed or moved. It is a pure function of the layers, so it is
+  recomputed at every use (so after any add, edit, undo, redo or removal) and held only for the length of
+  one gesture. With no surface it is the rule above, unchanged.
+- **Placed by hand.** The wire-mesh button's long-press menu has "Relocate rotation point": the next tap
+  in the scene sets `EditorUiState.manualPivot` to the surface point under it (`OrbitPivot.pick`: the
+  first surface the ray meets, else the point at the current pivot's depth), and "Reset rotation point
+  to automatic" clears it. The "#" button stays on the rail while a point is placed, even with no surface under the active layer, so Reset is never stranded; removing the last surface does not discard the choice (it is still a valid point for plane layers). While set it replaces the automatic point everywhere (`OrbitPivot.resolve`).
+  It is saved as `GraffitiProject.orbitPivot` (format 13); view state, not history.
+- **Orientation per axis.** The camera's orientation is two independent, persisted angles, `yaw` (the Y
+  axis) and `pitch` (the X axis), composed as pitch about the screen's horizontal after yaw about the
+  vertical (`SceneMath.frame`). Turning X, then Y, then X again therefore gives the same view as turning
+  X by the sum and Y once, in any interleaving, and the X turn keeps its own axis (the camera's `right`
+  never depends on pitch). Recomputing the pivot does not touch the angles; `orbitAbout` only moves the
+  target so the pivot stays put on screen. A layer's rotation is separate: it is body-fixed (see "Body-fixed axes").
+- **Body-fixed axes.** X, Y and Z name lines of the OBJECT (the layer or surface group), not of the screen
+  or the camera. The line through a square's sides 1 and 3 is X for ever; turn the square 90 degrees about Z and
+  sides 1 and 3 stand where 2 and 4 began, and the X slider still turns about the line between them. Each
+  slider turns the object about `R * e_axis`, its own line in the scene: `R' = R * Ra(delta)`
+  (`SceneMath.rotatePoseAbout`, the one place every slider drag, two-finger twist and handle turn goes
+  through). The result is stored back as the same `rotationX/Y/Z` (`SceneMath.eulerOf`, `Rz * Ry * Rx`), so
+  the GPU scene, the 2D Compose fallback, glTF export, the wire mesh and hull placement and saved projects
+  read exactly what they always read; nothing is migrated and the project format stays 13. The slider's
+  thumb is no longer the raw stored angle but `SceneMath.bodyAngle`: how far the object has been turned about
+  that own axis, the angle of the Euler decomposition with that axis innermost (`Rz*Ry*Rx` for X,
+  `Rz*Rx*Ry` for Y, `Rx*Ry*Rz` for Z). It is a pure function of the orientation, so it needs no stored state,
+  survives save, load, undo and redo, and moves by exactly the dragged amount. X reads as it always did; a
+  flat layer's Z is its stored angle. Turning about a body axis moves the other sliders' readings
+  (they measure turns about lines that moved), which is the price of the lines being the object's. The
+  pivot (above) is unchanged: the turn is applied about it. Before this, a stored angle was incremented, which
+  is body-fixed for X alone: Y turned about the line left after Z only, and Z about the scene's z.
+  Typed angles in the Transform panel still set the stored Euler angle. At gimbal (Y at 90 degrees) the Z
+  turn folds into X.
 - **Before this**, the pivot was the scene camera's target: the canvas centre ON layer 1's plane
   (depth 0), and layers turned about their own centres, so an X or Y turn tilted the layer in place
   while the camera swung about a point on the plane.

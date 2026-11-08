@@ -81,7 +81,7 @@ class Scene3DRailUiTest {
     }
 
     @Test
-    fun `the axis slot reads 3D while the layer's group is flat, the axis once it has a surface`() {
+    fun `the axis slot reads 3D while the layer's group is flat, and on a surface opens the views chooser instead of cycling`() {
         val vm = realViewModel()
         // Let the project load first, as the editor does, so it does not replace these layers.
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
@@ -107,15 +107,15 @@ class Scene3DRailUiTest {
         rule.waitForIdle()
         val layers = vm.uiState.value.layers
         assertTrue(layers.first { it.id == "a" }.is3DIn(layers))
-        rule.onNodeWithText("3D", useUnmergedTree = true).assertDoesNotExist()
-        val start = vm.uiState.value.activeRotationAxis
-        val seen = (0 until 3).map {
+        // On a surface the slot no longer shows or cycles an axis: it stays "3D" and a tap opens the chooser.
+        rule.onNodeWithText("3D", useUnmergedTree = true).assertExists()
+        val axis = vm.uiState.value.activeRotationAxis
+        repeat(3) {
             slot.performClick()
             rule.waitForIdle()
-            rule.onNodeWithText(vm.uiState.value.activeRotationAxis.name, useUnmergedTree = true).assertExists()
-            vm.uiState.value.activeRotationAxis
+            assertEquals(axis, vm.uiState.value.activeRotationAxis)
+            assertEquals(it % 2 == 0, vm.uiState.value.surfaceViewsMenuOpen)
         }
-        assertEquals((1..3).map { RotationAxis.entries[(start.ordinal + it) % 3] }, seen)
         assertEquals(androidx.compose.ui.graphics.Color(0xFF39FF14), RotationAxis.Z.railColor())
     }
 
@@ -135,13 +135,22 @@ class Scene3DRailUiTest {
         }
         val toggle = rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID")
         toggle.assertExists()
-        assertEquals(false, vm.uiState.value.surfaceGridVisible)
+        // On by default (a saved choice is not kept: the toggle is view state, never stored).
+        assertEquals(true, vm.uiState.value.surfaceGridVisible)
         toggle.performClick()
         rule.waitForIdle()
-        assertEquals(true, vm.uiState.value.surfaceGridVisible)
+        assertEquals(false, vm.uiState.value.surfaceGridVisible)
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
         // A flat layer has no mesh to show, so no toggle.
         rule.runOnIdle { vm.onLayerActivated("x") }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+        // A placed rotation point must stay reachable (its Reset lives on this button's menu) even
+        // with no surface under the active layer; once reset to automatic the button goes again.
+        rule.runOnIdle { vm.setManualPivotForTest(listOf(1f, 2f, 3f)) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
+        rule.runOnIdle { vm.onResetPivot() }
         rule.waitForIdle()
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
     }

@@ -614,7 +614,10 @@ Full design: `spec/3d-space.md`. In short:
   arms "Draw surface" (`surfaceDrawGroupId`, or `surfaceDrawWrapLayerId` for a layer in no group,
   which `onSurfaceProfileDrawn` wraps in a new group in the same undo step as the profile) and
   every refusal sets `surfaceDrawNotice`; `SurfacePromptChip` (`:app`) words both, from
-  `SurfaceStrings`. On a 3D layer the slot and a double-tap step the axis. The layers rail's 3D
+  `SurfaceStrings`. On a 3D layer that is not on a surface group the slot and a double-tap step the axis; on a
+  surface group's layer the slot opens the "Surface drawings" chooser (`surfaceViewsMenuOpen`,
+  `surfaceViewChoices`, `onPickSurfaceView`; entries reuse `onArmSurfaceDraw` / `onArmSurfaceView`) and the rotation
+  slider gives way to the rotation triangle (below). The layers rail's 3D
   outlines follow groups; its group rows are open unless the user collapsed them
   (`groupExpanded`: nothing recorded means open).
   `Scene3DCanvas` is mounted only for the brush or eraser on a 3D strokes layer. The brush,
@@ -658,6 +661,25 @@ Full design: `spec/3d-space.md`. In short:
   plane facing the camera through the orbit target (`SceneMath.viewPlanePose`), in the same undo
   entry as the stroke (`EditCommand.Draw.plane`).
 - **Co-op.** `LayerTransformCodec`: depth in slot 6 of the unchanged 16-float transform.
+- **Rotation triangle.** `RotationTriangle` (`:core:common`, pure maths: nearest-edge hit test by distance to the
+  segment, edge lock, angle = displacement along the edge / edge length x 180, band outline) and `RotationGizmo` /
+  `RotationGizmoDock` (`:app`). Shown only while `EditorViewModel.rotationGizmoVisible` (the active layer is on a
+  group surface, not locked). The bottom leg is X, the vertical leg Y, the hypotenuse Z; right / up / up-right is
+  positive. The input box is clipped to the union of the three 48dp bands (`Modifier.clip` with an
+  `Outline.Generic`; Compose hit-tests the clip), so the interior lets strokes through to the canvas. Each
+  increment goes to `onRotationGizmoTurn(axis, delta)` (body-fixed through `turnedAboutPivot`, so turns accumulate
+  with no end stop); the first starts one undo step and `onRotationGizmoEnd` closes it. Placement: the dock rides the
+  sheet's top edge, reported by `CarouselSheet(onTopChanged)`, else the bottom safe area (`gizmoBottomY`).
+- **Body-fixed rotation axes.** A layer's or group's X/Y/Z are lines of the object. `SceneMath.rotatePoseAbout`
+  (used by the rotation slider, the rotation triangle, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
+  result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
+  projects (format unchanged) read what they always did. The slider thumb is `SceneMath.bodyAngle`, a stateless function
+  of the orientation. See spec/3d-space.md, "Body-fixed axes".
+- **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
+  holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
+  layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
+  menu, "Relocate rotation point") overrides it and is saved as `GraffitiProject.orbitPivot`; the field is new, hence format 13
+  (a 12 file has none: automatic). The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
 - **Relief surfaces (format 12).** `SurfaceProfile.relief` (`ReliefSurface`, `ReliefMath` in `:core:common`) is a photo's depth map
   as a grid of heights over the photo's plane; the photo is the single paint image and its pixels are the paint space. It is a group
   surface like any other: `SurfaceMath.hit`/`mesh`/`gridLines`/`SurfaceFootprint` dispatch on it, so painting, ownership and undo are
@@ -673,7 +695,7 @@ Full design: `spec/3d-space.md`. In short:
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
   misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
   rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
-  A toggle shows the active layer's group's guide grid (`SurfaceMath.gridLines`, overlay only).
+  A toggle shows every visible group's wire mesh (`SurfaceMath.gridLines`, overlay only).
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.
   Shipped: data, maths, persistence, and the per-view drawing UI (`EditorViewModel.onArmSurfaceView`,

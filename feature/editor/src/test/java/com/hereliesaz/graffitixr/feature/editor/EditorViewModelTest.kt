@@ -1298,6 +1298,47 @@ class EditorViewModelTest {
     private fun pivotNow() =
         com.hereliesaz.graffitixr.common.scene.OrbitPivot.of(viewModel.uiState.value.layers, pivotW, pivotH)
 
+    private fun surfaceGroup(id: String, vararg pts: Float) = Layer(
+        id = id, name = id, type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+        surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(pts.toList(), 0f, 0f, 1f),
+    )
+
+    @Test
+    fun `the orbit pivot follows every surface and is recomputed as they come and go`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
+        val wall = surfaceGroup("w", 500f, 200f, 0f, 500f, 1000f, 0f)
+        val paintF = Layer(id = "pf", name = "pf", parentId = "f")
+        val paintW = Layer(id = "pw", name = "pw", parentId = "w")
+        pivotSetup(floor, paintF)
+        assertEquals(300f, viewModel.orbitPivot()!![2], 0.5f)
+        viewModel.setLayers(listOf(floor, paintF, wall, paintW))
+        assertEquals(600f, viewModel.orbitPivot()!![1], 0.5f)
+        assertEquals(400f, viewModel.orbitPivot()!![2], 0.5f)
+        viewModel.setLayers(listOf(floor, paintF))
+        assertEquals(1000f, viewModel.orbitPivot()!![1], 0.5f)
+    }
+
+    @Test
+    fun `a placed rotation point wins until reset to automatic`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
+        pivotSetup(floor, Layer(id = "pf", name = "pf", parentId = "f"))
+        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(10f, 10f))
+        assertEquals(null, viewModel.uiState.value.manualPivot)
+        viewModel.onArmPivotPick()
+        assertTrue(viewModel.uiState.value.pivotPickArmed)
+        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(500f, 1000f))
+        val placed = viewModel.uiState.value.manualPivot!!
+        assertEquals(0f, placed[2], 1f)
+        assertEquals(false, viewModel.uiState.value.pivotPickArmed)
+        assertEquals(1000f, placed[1], 1f)
+        assertEquals(placed[0], viewModel.orbitPivot()!![0], 0.01f)
+        viewModel.onResetPivot()
+        assertEquals(null, viewModel.uiState.value.manualPivot)
+        assertEquals(300f, viewModel.orbitPivot()!![2], 0.5f)
+    }
+
     private fun boxPoint(id: String, u: Float, v: Float, z: Float): FloatArray {
         val layers = viewModel.uiState.value.layers
         return SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, id), pivotW, pivotH)
@@ -1554,7 +1595,7 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `the surface grid toggle shows only the active layer's group's grid`() = runTest {
+    fun `the surface grid toggle shows every visible group's grid`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
             listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
@@ -1565,20 +1606,24 @@ class EditorViewModelTest {
         viewModel.onLayerActivated("c")
         fun grid() = viewModel.uiState.value.let {
             com.hereliesaz.graffitixr.common.scene.SurfaceMath
-                .gridGroupId(it.layers, it.activeLayerId, it.surfaceGridVisible)
+                .gridGroupIds(it.layers, it.surfaceGridVisible).firstOrNull()
         }
+        // On by default: the wire mesh shows without being asked for.
+        assertEquals("g", grid())
+        viewModel.onToggleSurfaceGrid()
         assertEquals(null, grid())
         viewModel.onToggleSurfaceGrid()
         assertEquals("g", grid())
+        // The mesh no longer follows the active layer: it stays on while a flat layer is active.
         viewModel.onLayerActivated("x")
-        assertEquals(null, grid())
+        assertEquals("g", grid())
         viewModel.onLayerActivated("c")
         viewModel.onToggleSurfaceGrid()
         assertEquals(null, grid())
     }
 
     @Test
-    fun `on a group surface the Move tool and the rotation slider move the group, not the layer`() = runTest {
+    fun `on a group surface the Move tool and the rotation triangle move the group, not the layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
             listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
@@ -1595,11 +1640,11 @@ class EditorViewModelTest {
         assertTrue(after.first { it.id == "g" }.offset.x > 1f)
         assertEquals(Offset.Zero, after.first { it.id == "c" }.offset)
         assertEquals(Offset.Zero, after.first { it.id == "d" }.offset)
-        viewModel.onRotationSliderStart()
-        viewModel.onRotationSliderChange(30f)
-        viewModel.onRotationSliderEnd()
+        // The slider is gone on a surface; the triangle turns the group by 30 about Z.
+        assertNull(viewModel.rotationSliderValue())
+        viewModel.onRotationGizmoTurn(RotationAxis.Z, 30f)
+        viewModel.onRotationGizmoEnd()
         val turned = viewModel.uiState.value.layers
-        assertEquals(30f, viewModel.rotationSliderValue()!!, 0.01f)
         assertEquals(0f, turned.first { it.id == "c" }.let { it.rotationX + it.rotationY + it.rotationZ }, 0f)
         assertTrue(turned.first { it.id == "g" }.let { it.rotationX + it.rotationY + it.rotationZ } != 0f)
     }
@@ -1827,7 +1872,7 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `the axis slot arms Draw surface on a 2D layer's group, and cycles on a surface`() = runTest {
+    fun `the axis slot arms Draw surface on a 2D layer's group, and opens the views chooser on a surface`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
         viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("lone")))
@@ -1842,7 +1887,9 @@ class EditorViewModelTest {
         assertTrue(layers.first { it.id == "c" }.is3DIn(layers))
         val axis = viewModel.uiState.value.activeRotationAxis
         viewModel.onAxisSlotTapped()
-        assertEquals(RotationAxis.entries[(axis.ordinal + 1) % 3], viewModel.uiState.value.activeRotationAxis)
+        // No axis choice any more: the tap brings up the surface's views instead.
+        assertEquals(axis, viewModel.uiState.value.activeRotationAxis)
+        assertTrue(viewModel.uiState.value.surfaceViewsMenuOpen)
     }
 
     @Test
@@ -1916,10 +1963,11 @@ class EditorViewModelTest {
         assertEquals(true, tapSlot(listOf(modelLyr("m")), "m").axisMoved)
         val ink = lyr("s").copy(spatial = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent())
         assertEquals(true, tapSlot(listOf(ink), "s").axisMoved)
-        // A layer whose group already has a surface: the axis steps.
+        // A layer whose group already has a surface: no axis step any more, the views chooser opens.
         val profile = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 100f, 0f, 0f))
         val surfaced = listOf(lyr("g").copy(type = groupType, surface = profile), lyr("a").copy(parentId = "g"))
-        assertEquals(true, tapSlot(surfaced, "a").axisMoved)
+        assertEquals(false, tapSlot(surfaced, "a").axisMoved)
+        assertTrue(viewModel.uiState.value.surfaceViewsMenuOpen)
     }
 
     @Test
@@ -2075,6 +2123,22 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `the surface-set confirmation offers Draw side and top view, so it stays until the user acts`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        viewModel.onSurfaceProfileDrawn(listOf(Offset(100f, 900f), Offset(400f, 700f), Offset(700f, 900f)))
+        testDispatcher.scheduler.advanceTimeBy(10 * 60_000L)
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(SurfaceDrawNotice.DONE, viewModel.uiState.value.surfaceDrawNotice)
+        viewModel.onCancelSurfaceDraw()
+        assertNull(viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
     fun `the armed prompt has no timeout`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         tapSlot(listOf(lyr("a")), "a")
@@ -2178,9 +2242,89 @@ class EditorViewModelTest {
         assertEquals(RotationAxis.Y, viewModel.rotationSliderAxis())
         sliderDrag(-60f)
         val layer = viewModel.uiState.value.layers.single()
-        assertEquals(-60f, layer.rotationY, 0.01f)
-        assertEquals(10f, layer.rotationX, 0.01f)
-        assertEquals(0f, layer.rotationZ, 0.01f)
+        // Body-fixed: the layer was turned 60 about its OWN Y, after the 10 about its X.
+        assertEquals(-60f, viewModel.rotationSliderValue()!!, 0.01f)
+        val expected = SceneMath.mul3(SceneMath.rotation(10f, 0f, 0f), SceneMath.axisRotation(RotationAxis.Y, -60f))
+        val got = SceneMath.rotation(layer.rotationX, layer.rotationY, layer.rotationZ)
+        for (i in 0..8) assertEquals("m[$i]", expected[i], got[i], 1e-4f)
+    }
+
+    private fun bodyLine(axis: RotationAxis): FloatArray {
+        val l = viewModel.uiState.value.layers.single()
+        val r = SceneMath.rotation(l.rotationX, l.rotationY, l.rotationZ)
+        val c = axis.ordinal
+        return floatArrayOf(r[c], r[3 + c], r[6 + c])
+    }
+
+    private fun assertLine(msg: String, a: FloatArray, b: FloatArray) {
+        for (i in 0..2) assertEquals("$msg[$i]", a[i], b[i], 1e-3f)
+    }
+
+    private fun threeDLayer() = pivotSetup(lyr("a").copy(positionZ = 1f))
+
+    @Test
+    fun `Z 90 then the X slider turns about the line through sides 1 and 3`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        threeDLayer()
+        setAxis(RotationAxis.Z)
+        sliderDrag(90f)
+        // Sides 1 and 3 are now where 2 and 4 began: the object's X line is the scene's vertical.
+        assertLine("X line", floatArrayOf(0f, 1f, 0f), bodyLine(RotationAxis.X))
+        setAxis(RotationAxis.X)
+        val sideEnd = boxPoint("a", 1000f, 800f, 0f) // the +X end of the layer's centre line
+        val centre = boxPoint("a", 500f, 800f, 0f)
+        sliderDrag(40f)
+        assertLine("X line after the X turn", floatArrayOf(0f, 1f, 0f), bodyLine(RotationAxis.X))
+        assertEquals(40f, viewModel.rotationSliderValue()!!, 0.01f)
+        // The line is the axis of this turn about the pivot, so its direction is unchanged even
+        // though the layer swung round the pivot.
+        val after = boxPoint("a", 1000f, 800f, 0f).zip(boxPoint("a", 500f, 800f, 0f)) { e, c -> e - c }
+        val before = sideEnd.zip(centre) { e, c -> e - c }
+        assertEquals(before.map { it * it }.sum(), after.map { it * it }.sum(), 1f)
+        assertEquals(1f, (0..2).sumOf { (after[it] * bodyLine(RotationAxis.X)[it]).toDouble() }.toFloat() / 500f, 1e-3f)
+    }
+
+    @Test
+    fun `X then Y then X turns about the object's own lines, and returning to X continues from where it was`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        threeDLayer()
+        for ((axis, to) in listOf(RotationAxis.X to 30f, RotationAxis.Y to 50f, RotationAxis.X to 55f)) {
+            setAxis(axis)
+            val own = bodyLine(axis)
+            val start = viewModel.rotationSliderValue()!!
+            sliderDrag(to)
+            assertLine("$axis line", own, bodyLine(axis))
+            assertEquals("$axis reading", to, viewModel.rotationSliderValue()!!, 0.01f)
+            assertTrue(start != to)
+        }
+    }
+
+    @Test
+    fun `a body-axis turn is one undo step, and undo and redo restore the exact pose`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        threeDLayer()
+        setAxis(RotationAxis.X)
+        sliderDrag(30f)
+        setAxis(RotationAxis.Y)
+        val posed = viewModel.uiState.value.layers.single()
+        val undo = viewModel.uiState.value.undoCount
+        sliderDrag(20f, 50f)
+        val turned = viewModel.uiState.value.layers.single()
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undone = viewModel.uiState.value.layers.single()
+        assertEquals(posed.rotationX, undone.rotationX, 1e-4f)
+        assertEquals(posed.rotationY, undone.rotationY, 1e-4f)
+        assertEquals(posed.rotationZ, undone.rotationZ, 1e-4f)
+        assertEquals(posed.offset, undone.offset)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val redone = viewModel.uiState.value.layers.single()
+        assertEquals(turned.rotationX, redone.rotationX, 1e-4f)
+        assertEquals(turned.rotationY, redone.rotationY, 1e-4f)
+        assertEquals(turned.rotationZ, redone.rotationZ, 1e-4f)
+        assertEquals(50f, viewModel.rotationSliderValue()!!, 0.01f)
     }
 
     @Test
@@ -2209,6 +2353,174 @@ class EditorViewModelTest {
         assertEquals(10f, viewModel.uiState.value.viewportRotation, 0.01f)
         assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
         assertEquals(0f, viewModel.uiState.value.layers.single().rotationY)
+    }
+
+    /** A surface group "g" with paint layers "c" and "d", "c" active, the canvas sized. */
+    private fun surfaceGroupSetup(locked: Boolean = false) {
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+            listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
+            listOf(com.hereliesaz.graffitixr.common.scene.PlanePose()),
+        )!!
+        val group = lyr("g").copy(type = groupType, surface = floor, isImageLocked = locked)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g"), lyr("d").copy(parentId = "g")))
+        viewModel.onLayerActivated("c")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    private fun groupBody(axis: RotationAxis): FloatArray {
+        val l = viewModel.uiState.value.layers.first { it.id == "g" }
+        val r = SceneMath.rotation(l.rotationX, l.rotationY, l.rotationZ)
+        val c = axis.ordinal
+        return floatArrayOf(r[c], r[3 + c], r[6 + c])
+    }
+
+    @Test
+    fun `the rotation triangle is up only with an active layer on a surface group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("flat")))
+        viewModel.onLayerActivated("flat")
+        assertFalse(viewModel.rotationGizmoVisible())
+        viewModel.setLayers(listOf(lyr("tilted").copy(rotationX = 10f)))
+        viewModel.onLayerActivated("tilted")
+        assertFalse("a tilted plane is 3D but has no surface", viewModel.rotationGizmoVisible())
+        assertNotNull("it keeps its slider", viewModel.rotationSliderValue())
+        surfaceGroupSetup()
+        assertTrue(viewModel.rotationGizmoVisible())
+        assertNull("the slider is gone on a surface", viewModel.rotationSliderValue())
+        viewModel.onLayerActivated("g")
+        assertTrue("the group itself counts", viewModel.rotationGizmoVisible())
+    }
+
+    @Test
+    fun `the rotation triangle is down for a locked surface group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup(locked = true)
+        assertFalse(viewModel.rotationGizmoVisible())
+        val before = viewModel.uiState.value.layers
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 30f)
+        viewModel.onRotationGizmoEnd()
+        assertEquals(before, viewModel.uiState.value.layers)
+    }
+
+    @Test
+    fun `triangle turns accumulate across swipes with no end stop, and a whole drag is one undo step`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup()
+        val undo = viewModel.uiState.value.undoCount
+        // Two swipes of 180 about the object's own Y: a full turn, back to the start.
+        repeat(2) {
+            viewModel.onRotationGizmoTurn(RotationAxis.Y, 90f)
+            viewModel.onRotationGizmoTurn(RotationAxis.Y, 90f)
+            viewModel.onRotationGizmoEnd()
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+        assertEquals(undo + 2, viewModel.uiState.value.undoCount)
+        val g = viewModel.uiState.value.layers.first { it.id == "g" }
+        val r = SceneMath.rotation(g.rotationX, g.rotationY, g.rotationZ)
+        val identity = SceneMath.rotation(0f, 0f, 0f)
+        for (i in 0..8) assertEquals("m[$i]", identity[i], r[i], 1e-3f)
+        // 135 + 135 is past a half turn and still moves: not clamped at 180.
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 135f); viewModel.onRotationGizmoEnd()
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 135f); viewModel.onRotationGizmoEnd()
+        val g2 = viewModel.uiState.value.layers.first { it.id == "g" }
+        val expected = SceneMath.axisRotation(RotationAxis.X, 270f)
+        val got = SceneMath.rotation(g2.rotationX, g2.rotationY, g2.rotationZ)
+        for (i in 0..8) assertEquals("x[$i]", expected[i], got[i], 1e-3f)
+    }
+
+    @Test
+    fun `undoing a triangle drag restores the pose, and the paint layers are never turned`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup()
+        val before = viewModel.uiState.value.layers
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 20f)
+        viewModel.onRotationGizmoTurn(RotationAxis.X, 25f)
+        viewModel.onRotationGizmoEnd()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val turned = viewModel.uiState.value.layers
+        assertEquals(0f, turned.first { it.id == "c" }.let { it.rotationX + it.rotationY + it.rotationZ }, 0f)
+        assertTrue(turned.first { it.id == "g" }.rotationX != 0f)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val restored = viewModel.uiState.value.layers.first { it.id == "g" }
+        assertEquals(before.first { it.id == "g" }.rotationX, restored.rotationX, 1e-4f)
+    }
+
+    @Test
+    fun `each triangle axis turns about the group's own line, in the slider's positive sense`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup()
+        viewModel.onRotationGizmoStep(RotationAxis.Y, 90f)
+        // Same result as composing R * Ry(90), what the slider's +90 on Y did.
+        val g = viewModel.uiState.value.layers.first { it.id == "g" }
+        val got = SceneMath.rotation(g.rotationX, g.rotationY, g.rotationZ)
+        val expected = SceneMath.axisRotation(RotationAxis.Y, 90f)
+        for (i in 0..8) assertEquals("m[$i]", expected[i], got[i], 1e-3f)
+        // X is then the scene's -Z/+Z line; the body X line is untouched by a turn about it.
+        val xLine = groupBody(RotationAxis.X)
+        viewModel.onRotationGizmoStep(RotationAxis.X, 40f)
+        for (i in 0..2) assertEquals("X line[$i]", xLine[i], groupBody(RotationAxis.X)[i], 1e-3f)
+    }
+
+    @Test
+    fun `an accessibility step is one undo step`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onRotationGizmoStep(RotationAxis.Z, 15f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `the 3D button on a surface no longer chooses an axis, it opens the views chooser`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup()
+        val axis = viewModel.uiState.value.activeRotationAxis
+        val layers = viewModel.uiState.value.layers
+        repeat(3) { viewModel.onAxisSlotTapped(); viewModel.onAxisSlotTapped() }
+        assertEquals(axis, viewModel.uiState.value.activeRotationAxis)
+        assertEquals(layers, viewModel.uiState.value.layers)
+        viewModel.onAxisSlotTapped()
+        assertTrue(viewModel.uiState.value.surfaceViewsMenuOpen)
+        assertEquals(
+            listOf(SurfaceView.FRONT, SurfaceView.SIDE, SurfaceView.TOP),
+            viewModel.surfaceViewChoices().map { it.view },
+        )
+    }
+
+    @Test
+    fun `picking a view in the chooser closes it and arms that view's drawing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        surfaceGroupSetup()
+        viewModel.onAxisSlotTapped()
+        viewModel.onPickSurfaceView(SurfaceView.SIDE)
+        val s = viewModel.uiState.value
+        assertFalse(s.surfaceViewsMenuOpen)
+        assertEquals("g", s.surfaceDrawGroupId)
+        assertEquals(SurfaceView.SIDE, s.surfaceDrawView)
+        viewModel.onCancelSurfaceDraw()
+        viewModel.onAxisSlotTapped()
+        viewModel.onPickSurfaceView(SurfaceView.FRONT)
+        assertEquals(SurfaceView.FRONT, viewModel.uiState.value.surfaceDrawView)
+        assertEquals("g", viewModel.uiState.value.surfaceDrawGroupId)
+        viewModel.onCancelSurfaceDraw()
+        viewModel.onAxisSlotTapped()
+        viewModel.onDismissSurfaceViews()
+        assertFalse(viewModel.uiState.value.surfaceViewsMenuOpen)
+    }
+
+    @Test
+    fun `the 3D button still cycles the axis on a tilted plane and still arms Draw surface on a flat layer`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a").copy(rotationX = 10f)))
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val before = viewModel.uiState.value.activeRotationAxis
+        viewModel.onAxisSlotTapped()
+        assertNotEquals(before, viewModel.uiState.value.activeRotationAxis)
+        assertFalse(viewModel.uiState.value.surfaceViewsMenuOpen)
     }
 
     @Test
