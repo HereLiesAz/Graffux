@@ -107,6 +107,7 @@ class PackWheelWrapTest {
     private val brushPage = CarouselUi(CarouselCategory.BRUSHES, sheetOpen = true)
 
     /** What MainActivity does each time the inputs change: the wheel follows the sheet's visibility. */
+    @Suppress("LongParameterList")
     private fun sync(
         state: PackWheelState, tool: Tool = Tool.BRUSH, show: Boolean = true, capture: Boolean = false,
         docked: Boolean = false, panelOpen: Boolean = false, strokeOrChromeHidden: Boolean = false,
