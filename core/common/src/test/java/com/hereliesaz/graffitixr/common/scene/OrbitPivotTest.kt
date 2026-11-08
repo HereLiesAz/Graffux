@@ -172,4 +172,29 @@ class OrbitPivotTest {
         val p = OrbitPivot.pick(listOf(hull, sheet), SceneCamera(), 1000f, 800f, w, h, floatArrayOf(500f, 800f, 400f))
         assertEquals(0f, p[2], 0.5f)
     }
+
+    private fun sheetAt(id: String, z: Float, parent: String? = null, visible: Boolean = true, opacity: Float = 1f) =
+        group(id, 0f, 0f, z, 1200f, 0f, z, parent = parent).let {
+            it.copy(
+                surface = it.surface!!.copy(sweepX = 0f, sweepY = 1f, sweepZ = 0f),
+                isVisible = visible, opacity = opacity,
+            )
+        }
+
+    private fun pickZ(vararg layers: Layer) =
+        OrbitPivot.pick(layers.toList(), SceneCamera(), 500f, 400f, w, h, floatArrayOf(500f, 800f, 400f))[2]
+
+    @Test
+    fun `a relief reaching into negative coordinates is picked where the ray meets it`() {
+        val relief = ReliefSurface(
+            cols = 2, rows = 2, heightData = ReliefSurface.encode(FloatArray(4) { 0.5f }),
+            left = -500f, top = -350f, spanU = 2000f, spanT = 1500f,
+            photoWidth = 100, photoHeight = 100, displacement = 100f,
+        )
+        val group = Layer(
+            id = "r", name = "r", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = relief.toProfile(),
+        )
+        val p = OrbitPivot.pick(listOf(group), SceneCamera(), -100f, -100f, w, h, floatArrayOf(500f, 800f, 400f))
+        assertPoint(-100f, -100f, 0f, p)
+    }
 }

@@ -143,20 +143,17 @@ object OrbitPivot {
             val inv = model.inverse() ?: continue
             val near = SceneMath.nearPlane(cam.focal)
             val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
-            val point: FloatArray
+            val s: Float
             if (hull != null) {
                 val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
                 val d = inv.applyVector(dir[0], dir[1], dir[2])
-                val hit = hull.hit(eye, d, near) ?: continue
-                point = model.apply(hit.x, hit.y, hit.z)
+                s = (hull.hit(eye, d, near) ?: continue).distance
             } else {
-                val hit = SurfaceMath.hit(x, y, profile, model, cam) ?: continue
-                val local = profile.at(hit.u, hit.t)
-                point = model.apply(local[0], local[1], local[2])
+                s = (SurfaceMath.hit(x, y, profile, model, cam) ?: continue).distance
             }
-            // Both branches compare the same thing: the (squared) straight distance from the eye to the hit.
-            val distance = FloatArray(3) { point[it] - cam.eye[it] }.let { SceneMath.dot(it, it) }
-            if (distance < bestDistance) { bestDistance = distance; best = point }
+            // The hit is read straight off the ray: both hits report the ray parameter, which an affine
+            // model leaves unchanged, so no (u, t) is rebuilt (that clamped a relief's negative coordinates).
+            if (s < bestDistance) { bestDistance = s; best = FloatArray(3) { cam.eye[it] + dir[it] * s } }
         }
         best?.let { return it }
         val depth = cam.toCamera(current)[2].coerceAtLeast(SceneMath.nearPlane(cam.focal) * 2f)
