@@ -554,10 +554,15 @@ data class EditorUiState(
     /** The camera to put back when a side or top view is captured or cancelled; null = nothing to restore. */
     val surfaceReturnCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera? = null,
     /**
-     * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Only the active layer's
-     * group ever shows its grid ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupId]).
+     * The surface guide grid toggle (spec/3d-space.md, "Guide grid"). Every visible group's
+     * surface shows its mesh ([com.hereliesaz.graffitixr.common.scene.SurfaceMath.gridGroupIds]).
      */
     val surfaceGridVisible: Boolean = true,
+    /**
+     * The 3D button's chooser of the active surface group's views (front, side, top) is up. View
+     * state, never saved; see EditorViewModel.onAxisSlotTapped.
+     */
+    val surfaceViewsMenuOpen: Boolean = false,
     /**
      * A rotation point the user placed (scene px x, y, z), or null = automatic: the centre of every
      * surface ([com.hereliesaz.graffitixr.common.scene.OrbitPivot]). Saved with the project (format 13).

@@ -113,6 +113,20 @@ class ReliefBuildTest {
         assertFalse(owner.profile.isFlat)
     }
 
+    @Test fun aPhotoDerivedGroupIsMeshedFromItsDepthEvenWithViewsDrawn() {
+        val out = ReliefBuild.assemble(listOf(photo), "photo", "relief", relief)
+        val profile = SurfaceMath.ownerOf(out, "photo")!!.profile
+        val square = listOf(0f, 0f, 0f, 100f, 0f, 0f, 100f, 100f, 0f, 0f, 100f, 0f)
+        val drawn = profile.copy(side = SurfaceProfile(square, 1f, 0f, 0f), top = SurfaceProfile(square, 0f, 1f, 0f))
+        val cam = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(com.hereliesaz.graffitixr.common.scene.SceneCamera(), 1000f, 800f)
+        val m = com.hereliesaz.graffitixr.common.scene.Affine3.IDENTITY
+        val expected = com.hereliesaz.graffitixr.common.scene.ReliefMath
+            .gridLines(profile.relief!!, m, cam, SurfaceMath.GRID_SPACING).map { it.toList() }
+        assertTrue(expected.isNotEmpty())
+        assertEquals(expected, SurfaceMath.gridLines(profile, m, cam).map { it.toList() })
+        assertEquals(expected, SurfaceMath.gridLines(drawn, m, cam).map { it.toList() })
+    }
+
     @Test fun assemblingForAMissingLayerChangesNothing() {
         val layers = listOf(photo)
         assertSame(layers, ReliefBuild.assemble(layers, "nope", "relief", relief))
