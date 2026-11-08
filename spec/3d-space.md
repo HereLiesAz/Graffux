@@ -397,6 +397,17 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   which plane a sample belongs to. Ink maps the same way when it lifts (its footprint is the Ink
   brush radius, world units), so a touch that just misses the surface keeps its samples. Flat and
   2D layers are unchanged.
+- **A stroke lands under the finger (invariant).** Every sample a stroke accepts on a surface must
+  show on the canvas, with the camera it was mapped with, within the brush footprint (plus 2 px) of
+  its touch, and the stretch of stroke joining two accepted samples must too: the midpoint of the
+  straight flat segment between them shows near the midpoint of the two touches (a quarter of the
+  step of slack for perspective). `SurfaceStrokeGuard` states it; `PlaneStrokeFeed` and
+  `ViewStrokeFeed` enforce it (`sampleOk`, `joinOk`). A failing sample is dropped like a miss; a
+  failing join cuts the stroke there (a new segment starts at the sample), never painting across the
+  part of the surface between. The cause it closes: a ray that skims a silhouette or fold hits a near
+  face on one sample and a far one on the next, and the straight stroke between the two hits is
+  painted across the surface between them, nowhere near the finger. `SurfaceStrokeGuard.dropped` and
+  `.cuts` count what it rejects (debug). Cap regions (no 2D map back) and flat layers are not checked.
 - **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
   active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
   the group's space, so all its layers move with it.
