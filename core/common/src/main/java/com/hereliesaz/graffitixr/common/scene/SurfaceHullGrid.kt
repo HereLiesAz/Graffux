@@ -6,34 +6,35 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.round
+import kotlin.math.sqrt
 
 /**
  * The wire mesh of a multi-view surface (spec/3d-space.md, "Guide grid"). The front profile's swept
- * sheet is only one face of a hull; the mesh of a group that has a side or top drawing is drawn on the
- * hull's own faces (every view's sheet and the caps), so it shows the solid the views carve out.
+ * sheet is only one face of a hull, so a group with a side or top drawing is meshed on the hull's own
+ * faces (every view's sheet and the caps), which is the outer skin of the one solid the views define.
  *
  * Lines are the iso-lines of each face's paint coordinates `(u, t)` at multiples of the spacing (arc
  * length round the carrying outline, sweep distance), the same lattice a single profile's grid uses,
- * plus the faces' open edges (creases and the box's rim), so the mesh closes where the surface ends.
+ * plus the faces' outline: edges only one triangle uses (where the surface ends) and creases (edges
+ * whose triangles lie in different planes, whether the faces belong to one view's mesh or to two).
  */
 object SurfaceHullGrid {
     private const val STRIDE = 5
     private const val EPS = 1e-4f
-
-    private data class VKey(val x: Long, val y: Long, val z: Long) {
-        fun order(): Triple<Long, Long, Long> = Triple(x, y, z)
-    }
-
-    private operator fun Triple<Long, Long, Long>.compareTo(o: Triple<Long, Long, Long>): Int =
-        compareValuesBy(this, o, { it.first }, { it.second }, { it.third })
+    private const val SAME_PLANE = 0.9999f
+    private const val QUANT = 10f
 
     /** Box-local segments `x0, y0, z0, x1, y1, z1` of [hull]'s wire mesh at [spacing] units. */
-    fun segments(hull: SurfaceHull, spacing: Float = SurfaceMath.GRID_SPACING): List<FloatArray> {
+    fun segments(hull: SurfaceHull, spacing: Float = SurfaceMath.GRID_SPACING): List<FloatArray> =
+        fromMeshes(hull.meshByView().values + hull.capMeshByView().values, spacing)
+
+    /**
+     * The wire mesh of triangle lists (`x, y, z, u, t` per corner, three corners per triangle), one list
+     * per patch of the surface. Exposed for tests; [segments] is the hull's.
+     */
+    internal fun fromMeshes(patches: Collection<FloatArray>, spacing: Float): List<FloatArray> {
         if (spacing <= 0f) return emptyList()
         val out = ArrayList<FloatArray>()
-        val patches = ArrayList<FloatArray>()
-        patches += hull.meshByView().values
-        patches += hull.capMeshByView().values
         for (mesh in patches) {
             var i = 0
             while (i + 3 * STRIDE <= mesh.size) {
@@ -41,46 +42,58 @@ object SurfaceHullGrid {
                 isoLines(mesh, i, 4, spacing, out)
                 i += 3 * STRIDE
             }
-            openEdges(mesh, out)
+            outline(mesh, out)
         }
         return distinct(out)
     }
 
-    /** Drops segments drawn twice: a crease is an open edge of both faces that meet there. */
+    private data class Q(val x: Long, val y: Long, val z: Long) : Comparable<Q> {
+        override fun compareTo(other: Q): Int = compareValuesBy(this, other, { it.x }, { it.y }, { it.z })
+    }
+
+    private fun q(v: Float) = round(v * QUANT).toLong()
+    private fun key(p: FloatArray, o: Int = 0) = Q(q(p[o]), q(p[o + 1]), q(p[o + 2]))
+
+    /** Drops segments drawn twice: a crease, or a grid line along a tessellation edge, is met by both sides. */
     private fun distinct(all: List<FloatArray>): List<FloatArray> {
-        fun q(v: Float) = round(v * 10f).toLong()
-        fun end(s: FloatArray, o: Int) = Triple(q(s[o]), q(s[o + 1]), q(s[o + 2]))
-        val seen = HashSet<Pair<Triple<Long, Long, Long>, Triple<Long, Long, Long>>>()
+        val seen = HashSet<Pair<Q, Q>>()
         return all.filter { s ->
-            val a = end(s, 0)
-            val b = end(s, 3)
-            seen.add(if (a <= b) a to b else b to a)
+            val a = key(s, 0)
+            val b = key(s, 3)
+            a != b && seen.add(if (a <= b) a to b else b to a)
         }
     }
 
-    /** The triangle at [base]'s crossings of the lines `component = k * spacing`, as segments in box space. */
+    /**
+     * The triangle at [base]'s part of each line `component = k * spacing`. A corner on the level counts
+     * (so a line along a tessellation edge or through a vertex is kept), a crossing between corners on
+     * either side is interpolated, and the touching points are deduplicated into a segment.
+     */
     private fun isoLines(m: FloatArray, base: Int, component: Int, spacing: Float, out: MutableList<FloatArray>) {
         val v = FloatArray(3) { m[base + it * STRIDE + component] }
         val lo = minOf(v[0], v[1], v[2])
         val hi = maxOf(v[0], v[1], v[2])
         if (hi - lo < EPS) return
-        var k = ceil(lo / spacing).toInt()
-        val last = floor(hi / spacing).toInt()
+        var k = ceil((lo - EPS) / spacing).toInt()
+        val last = floor((hi + EPS) / spacing).toInt()
         var n = 0
         while (k <= last && n < SurfaceMath.GRID_MAX_LINES) {
             val level = k * spacing
-            val pts = ArrayList<FloatArray>(2)
-            for (e in 0 until 3) {
-                val a = e
-                val b = (e + 1) % 3
+            val pts = ArrayList<FloatArray>(3)
+            fun add(p: FloatArray) {
+                if (pts.none { key(it) == key(p) }) pts += p
+            }
+            fun corner(c: Int) = FloatArray(3) { m[base + c * STRIDE + it] }
+            for (c in 0 until 3) if (abs(v[c] - level) <= EPS) add(corner(c))
+            for (a in 0 until 3) {
+                val b = (a + 1) % 3
                 val da = v[a] - level
                 val db = v[b] - level
-                if (da * db < 0f) {
+                if (abs(da) > EPS && abs(db) > EPS && da * db < 0f) {
                     val f = da / (da - db)
-                    pts += FloatArray(3) { c ->
-                        val pa = m[base + a * STRIDE + c]
-                        pa + (m[base + b * STRIDE + c] - pa) * f
-                    }
+                    val pa = corner(a)
+                    val pb = corner(b)
+                    add(FloatArray(3) { pa[it] + (pb[it] - pa[it]) * f })
                 }
             }
             if (pts.size == 2) out += pts[0] + pts[1]
@@ -89,26 +102,49 @@ object SurfaceHullGrid {
         }
     }
 
-    /** Edges only one triangle of the patch uses: where the face ends. */
-    private fun openEdges(m: FloatArray, out: MutableList<FloatArray>) {
-        val uses = HashMap<Pair<VKey, VKey>, IntArray>()
-        val ends = HashMap<Pair<VKey, VKey>, FloatArray>()
-        fun q(v: Float) = round(v * 100f).toLong()
-        fun key(i: Int) = VKey(q(m[i]), q(m[i + 1]), q(m[i + 2]))
+    private class EdgeUse(val ends: FloatArray, val normals: MutableList<FloatArray> = ArrayList())
+
+    /** Edges only one triangle uses (where a face ends) and edges between triangles in different planes (creases). */
+    private fun outline(m: FloatArray, out: MutableList<FloatArray>) {
+        val edges = HashMap<Pair<Q, Q>, EdgeUse>()
         var t = 0
         while (t + 3 * STRIDE <= m.size) {
+            val n = normal(m, t)
             for (e in 0 until 3) {
                 val a = t + e * STRIDE
                 val b = t + ((e + 1) % 3) * STRIDE
-                if (abs(m[a] - m[b]) + abs(m[a + 1] - m[b + 1]) + abs(m[a + 2] - m[b + 2]) < EPS) continue
-                val ka = key(a)
-                val kb = key(b)
-                val k = if (ka.order() <= kb.order()) ka to kb else kb to ka
-                uses.getOrPut(k) { IntArray(1) }[0]++
-                ends[k] = floatArrayOf(m[a], m[a + 1], m[a + 2], m[b], m[b + 1], m[b + 2])
+                val ka = key(m, a)
+                val kb = key(m, b)
+                if (ka == kb) continue
+                val id = if (ka <= kb) ka to kb else kb to ka
+                val use = edges.getOrPut(id) {
+                    EdgeUse(floatArrayOf(m[a], m[a + 1], m[a + 2], m[b], m[b + 1], m[b + 2]))
+                }
+                if (n != null) use.normals += n
             }
             t += 3 * STRIDE
         }
-        for ((k, n) in uses) if (n[0] == 1) ends[k]?.let(out::add)
+        for (use in edges.values) {
+            val first = use.normals.firstOrNull()
+            val crease = first != null && use.normals.any { abs(dot(first, it)) < SAME_PLANE }
+            if (use.normals.size <= 1 || crease) out += use.ends
+        }
+    }
+
+    private fun dot(a: FloatArray, b: FloatArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    /** The unit normal of the triangle at [t]; null for a degenerate one. */
+    private fun normal(m: FloatArray, t: Int): FloatArray? {
+        val ux = m[t + STRIDE] - m[t]
+        val uy = m[t + STRIDE + 1] - m[t + 1]
+        val uz = m[t + STRIDE + 2] - m[t + 2]
+        val vx = m[t + 2 * STRIDE] - m[t]
+        val vy = m[t + 2 * STRIDE + 1] - m[t + 1]
+        val vz = m[t + 2 * STRIDE + 2] - m[t + 2]
+        val nx = uy * vz - uz * vy
+        val ny = uz * vx - ux * vz
+        val nz = ux * vy - uy * vx
+        val len = sqrt(nx * nx + ny * ny + nz * nz)
+        return if (len < 1e-9f) null else floatArrayOf(nx / len, ny / len, nz / len)
     }
 }

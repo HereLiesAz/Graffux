@@ -380,4 +380,50 @@ class SurfaceProfileTest {
         }
         assertEquals("duplicated segments", keys.size, keys.toSet().size)
     }
+
+    // A flat tessellated patch: x, y, z, u, t per corner, triangles in a list.
+    private fun tri(vararg c: FloatArray): FloatArray = c.flatMap { it.toList() }.toFloatArray()
+    private fun vtx(x: Float, y: Float, z: Float, u: Float, t: Float) = floatArrayOf(x, y, z, u, t)
+
+    @Test
+    fun `a grid line along a tessellation edge is kept, continuous across slabs`() {
+        // One face split into slabs at u = 0, 64, 128: the line at 64 is the slabs' shared edge.
+        fun quad(u0: Float, u1: Float) = tri(
+            vtx(u0, 0f, 0f, u0, 0f), vtx(u1, 0f, 0f, u1, 0f), vtx(u1, 50f, 0f, u1, 50f),
+            vtx(u0, 0f, 0f, u0, 0f), vtx(u1, 50f, 0f, u1, 50f), vtx(u0, 50f, 0f, u0, 50f),
+        )
+        val mesh = quad(0f, 64f) + quad(64f, 128f)
+        val segs = SurfaceHullGrid.fromMeshes(listOf(mesh), 64f)
+        val at64 = segs.filter { abs(it[0] - 64f) < 0.2f && abs(it[3] - 64f) < 0.2f }
+        assertEquals("one interior line at u = 64", 1, at64.size)
+        assertEquals(50f, abs(at64[0][1] - at64[0][4]), 0.2f)
+    }
+
+    @Test
+    fun `a crease between two faces of one mesh is kept and a triangulation diagonal is not`() {
+        // Floor (z = 0) and wall (y = 50, rising in z) share the edge y = 50, z = 0, in ONE mesh.
+        val floor = tri(vtx(0f, 0f, 0f, 0f, 0f), vtx(50f, 0f, 0f, 50f, 0f), vtx(50f, 50f, 0f, 50f, 50f)) +
+            tri(vtx(0f, 0f, 0f, 0f, 0f), vtx(50f, 50f, 0f, 50f, 50f), vtx(0f, 50f, 0f, 0f, 50f))
+        val wall = tri(vtx(0f, 50f, 0f, 0f, 60f), vtx(50f, 50f, 0f, 50f, 60f), vtx(50f, 50f, 50f, 50f, 110f)) +
+            tri(vtx(0f, 50f, 0f, 0f, 60f), vtx(50f, 50f, 50f, 50f, 110f), vtx(0f, 50f, 50f, 0f, 110f))
+        val segs = SurfaceHullGrid.fromMeshes(listOf(floor + wall), 640f)
+        fun has(a: FloatArray, b: FloatArray) = segs.any { s ->
+            (a.indices.all { abs(s[it] - a[it]) < 0.2f } && b.indices.all { abs(s[3 + it] - b[it]) < 0.2f }) ||
+                (a.indices.all { abs(s[3 + it] - a[it]) < 0.2f } && b.indices.all { abs(s[it] - b[it]) < 0.2f })
+        }
+        assertTrue("the crease", has(floatArrayOf(0f, 50f, 0f), floatArrayOf(50f, 50f, 0f)))
+        assertFalse("floor diagonal", has(floatArrayOf(0f, 0f, 0f), floatArrayOf(50f, 50f, 0f)))
+        assertFalse("wall diagonal", has(floatArrayOf(0f, 50f, 0f), floatArrayOf(50f, 50f, 50f)))
+    }
+
+    @Test
+    fun `a square front outline keeps its longitudinal corners`() {
+        val side = 200f
+        val sq = listOf(0f to 0f, side to 0f, side to side, 0f to side)
+        val front = SurfaceProfile(sq.flatMap { listOf(it.first, it.second, 0f) }, 0f, 0f, 1f)
+        val hull = SurfaceHull.of(front.copy(side = SurfaceProfile(sq.flatMap { listOf(0f, it.second, it.first) }, 1f, 0f, 0f)))!!
+        val segs = SurfaceHullGrid.segments(hull)
+        // The corner at (200, 200) runs the whole depth, 64 not dividing 200: only a crease puts it there.
+        assertTrue(segs.any { s -> abs(s[0] - side) < 0.5f && abs(s[1] - side) < 0.5f && abs(s[3] - side) < 0.5f && abs(s[4] - side) < 0.5f && abs(s[2] - s[5]) > 100f })
+    }
 }

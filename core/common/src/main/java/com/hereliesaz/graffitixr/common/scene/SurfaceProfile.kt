@@ -182,8 +182,10 @@ object SurfaceMath {
      * [visible] (the toggle) is on. A group is not drawn when it, or a group above it, is hidden, or its
      * opacity (its own times every enclosing group's) is zero: the rule the orbit pivot uses. Each group
      * has exactly one surface, so each shows one mesh (see [gridLines] for what that mesh is).
+     * [frameAlphas] is Animation Assist's per-layer multiplier (absent = 1): a group in a frame the
+     * animation hides (0) is skipped, as the layer stack skips it.
      */
-    fun gridGroupIds(layers: List<Layer>, visible: Boolean): List<String> {
+    fun gridGroupIds(layers: List<Layer>, visible: Boolean, frameAlphas: Map<String, Float> = emptyMap()): List<String> {
         if (!visible) return emptyList()
         val byId = layers.associateBy { it.id }
         fun drawn(layer: Layer): Boolean {
@@ -197,7 +199,9 @@ object SurfaceMath {
             }
             return opacity > 0f
         }
-        return layers.filter { it.isContainer && it.surface?.isValid == true && drawn(it) }.map { it.id }
+        return layers.filter {
+            it.isContainer && it.surface?.isValid == true && (frameAlphas[it.id] ?: 1f) > 0f && drawn(it)
+        }.map { it.id }
     }
 
     /** Every layer drawn on a group surface. */
