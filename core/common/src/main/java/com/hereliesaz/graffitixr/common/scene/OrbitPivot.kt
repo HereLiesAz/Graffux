@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "ReturnCount")
+@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList", "CyclomaticComplexMethod", "LoopWithTooManyJumpStatements", "MaxLineLength")
 
 package com.hereliesaz.graffitixr.common.scene
 
@@ -32,8 +32,24 @@ object OrbitPivot {
     private fun contentLayers(layers: List<Layer>): List<Layer> =
         layers.filter { !it.isContainer && !it.isAdjustment }
 
-    /** The pivot for [layers] on a [width] by [height] canvas, in scene pixels (x, y, z). */
+    /**
+     * The pivot to use: the user's [manual] point when they have placed one, else the automatic
+     * [of]. A manual point that is not three finite numbers is ignored.
+     */
+    fun resolve(layers: List<Layer>, width: Float, height: Float, manual: List<Float>?): FloatArray =
+        if (manual != null && manual.size == 3 && manual.all { it.isFinite() }) {
+            floatArrayOf(manual[0], manual[1], manual[2])
+        } else {
+            of(layers, width, height)
+        }
+
+    /**
+     * The pivot for [layers] on a [width] by [height] canvas, in scene pixels (x, y, z): the centre
+     * of the box that holds every surface defined now (see [ofSurfaces]) when there is one, else
+     * the plane-layer box described on the object.
+     */
     fun of(layers: List<Layer>, width: Float, height: Float): FloatArray {
+        ofSurfaces(layers, width, height)?.let { return it }
         val d = assumedDepth(width, height)
         val content = contentLayers(layers)
         val base = content.firstOrNull() ?: return floatArrayOf(width / 2f, height / 2f, d / 2f)
@@ -61,5 +77,92 @@ object OrbitPivot {
         return FloatArray(3) { i ->
             if (abs(hi[i] - lo[i]) <= flat) (box.first[i] + box.second[i]) / 2f else (lo[i] + hi[i]) / 2f
         }
+    }
+
+    /**
+     * The pivot of the surfaces: the centre of the axis-aligned box that holds, in world space, the
+     * geometry of EVERY surface defined at this moment (each profiled group's [SurfaceMath.localBounds]
+     * through its group chain) together with the planes of any content layer that is not paint on a
+     * surface. Null when no group has a surface, which leaves the plane-layer rule above.
+     *
+     * The box's centre is used rather than a vertex or area centroid on purpose: it depends only on
+     * the extent of the geometry, so it does not shift when a stroke is simplified, a relief's grid is
+     * rebuilt or one surface is tessellated more finely than another, and it moves only when a surface
+     * is added, removed, changed or moved. Paint layers inside a surface group are skipped, because
+     * their own plane is the flat paint space, not where the paint is drawn. An axis the box is flat
+     * on keeps that flat position.
+     */
+    fun ofSurfaces(layers: List<Layer>, width: Float, height: Float): FloatArray? {
+        val surfaces = layers.filter { it.isContainer && it.surface?.isValid == true }
+        if (surfaces.isEmpty()) return null
+        val byId = layers.associateBy { it.id }
+        val lo = floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
+        val hi = floatArrayOf(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
+        fun grow(p: FloatArray) {
+            for (i in 0..2) { lo[i] = min(lo[i], p[i]); hi[i] = max(hi[i], p[i]) }
+        }
+        for (group in surfaces) {
+            val (a, b) = SurfaceMath.localBounds(group.surface!!) ?: continue
+            val m = SceneMath.chainModel(planeChain(layers, group.id), width, height)
+            for (mask in 0 until 8) {
+                grow(m.apply(if (mask and 1 == 0) a[0] else b[0], if (mask and 2 == 0) a[1] else b[1], if (mask and 4 == 0) a[2] else b[2]))
+            }
+        }
+        // Planes that are not paint on a surface (a layer beside the surfaces) are part of the content too.
+        for (layer in contentLayers(layers)) {
+            if (SurfaceMath.ownerOf(byId, layer.id) != null) continue
+            val m = SceneMath.chainModel(planeChain(layers, layer.id), width, height)
+            for ((u, v) in listOf(0f to 0f, width to 0f, 0f to height, width to height)) grow(m.apply(u, v, 0f))
+        }
+        if (lo[0] > hi[0]) return null
+        return FloatArray(3) { (lo[it] + hi[it]) / 2f }
+    }
+
+    /**
+     * The scene point a tap at canvas ([x], [y]) names, for "Relocate rotation point": where the ray
+     * from the eye first meets a surface (a hull by its solid, a relief or sheet by its strips), else
+     * the point on that ray at the depth of the [current] pivot, so the point sits under the finger
+     * at the depth the scene already revolves about. Never null.
+     */
+    fun pick(
+        layers: List<Layer>,
+        camera: SceneCamera,
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        current: FloatArray,
+    ): FloatArray {
+        val cam = SceneMath.frame(camera, width, height)
+        val dir = cam.rayDirection(x, y)
+        var best: FloatArray? = null
+        var bestDistance = Float.MAX_VALUE
+        for (group in layers.filter { it.isContainer && it.surface?.isValid == true }) {
+            val profile = group.surface!!
+            val model = SceneMath.chainModel(planeChain(layers, group.id), width, height)
+            val inv = model.inverse() ?: continue
+            val near = SceneMath.nearPlane(cam.focal)
+            val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
+            val point: FloatArray
+            val distance: Float
+            if (hull != null) {
+                val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
+                val d = inv.applyVector(dir[0], dir[1], dir[2])
+                val hit = hull.hit(eye, d, near) ?: continue
+                point = model.apply(hit.x, hit.y, hit.z)
+                distance = SceneMath.dot(cam.toCamera(point), floatArrayOf(0f, 0f, 1f))
+            } else {
+                val hit = SurfaceMath.hit(x, y, profile, model, cam) ?: continue
+                val local = profile.at(hit.u, hit.t)
+                point = model.apply(local[0], local[1], local[2])
+                distance = hit.distance
+            }
+            if (distance < bestDistance) { bestDistance = distance; best = point }
+        }
+        best?.let { return it }
+        val depth = cam.toCamera(current)[2].coerceAtLeast(SceneMath.nearPlane(cam.focal) * 2f)
+        // The ray's depth along the view axis is s * (dir . forward); solve for that depth.
+        val s = depth / SceneMath.dot(dir, cam.forward).coerceAtLeast(1e-6f)
+        return FloatArray(3) { cam.eye[it] + dir[it] * s }
     }
 }

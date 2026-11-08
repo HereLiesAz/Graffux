@@ -1298,6 +1298,47 @@ class EditorViewModelTest {
     private fun pivotNow() =
         com.hereliesaz.graffitixr.common.scene.OrbitPivot.of(viewModel.uiState.value.layers, pivotW, pivotH)
 
+    private fun surfaceGroup(id: String, vararg pts: Float) = Layer(
+        id = id, name = id, type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+        surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(pts.toList(), 0f, 0f, 1f),
+    )
+
+    @Test
+    fun `the orbit pivot follows every surface and is recomputed as they come and go`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
+        val wall = surfaceGroup("w", 500f, 200f, 0f, 500f, 1000f, 0f)
+        val paintF = Layer(id = "pf", name = "pf", parentId = "f")
+        val paintW = Layer(id = "pw", name = "pw", parentId = "w")
+        pivotSetup(floor, paintF)
+        assertEquals(300f, viewModel.orbitPivot()!![2], 0.5f)
+        viewModel.setLayers(listOf(floor, paintF, wall, paintW))
+        assertEquals(600f, viewModel.orbitPivot()!![1], 0.5f)
+        assertEquals(400f, viewModel.orbitPivot()!![2], 0.5f)
+        viewModel.setLayers(listOf(floor, paintF))
+        assertEquals(1000f, viewModel.orbitPivot()!![1], 0.5f)
+    }
+
+    @Test
+    fun `a placed rotation point wins until reset to automatic`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
+        pivotSetup(floor, Layer(id = "pf", name = "pf", parentId = "f"))
+        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(10f, 10f))
+        assertEquals(null, viewModel.uiState.value.manualPivot)
+        viewModel.onArmPivotPick()
+        assertTrue(viewModel.uiState.value.pivotPickArmed)
+        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(500f, 1000f))
+        val placed = viewModel.uiState.value.manualPivot!!
+        assertEquals(0f, placed[2], 1f)
+        assertEquals(false, viewModel.uiState.value.pivotPickArmed)
+        assertEquals(1000f, placed[1], 1f)
+        assertEquals(placed[0], viewModel.orbitPivot()!![0], 0.01f)
+        viewModel.onResetPivot()
+        assertEquals(null, viewModel.uiState.value.manualPivot)
+        assertEquals(300f, viewModel.orbitPivot()!![2], 0.5f)
+    }
+
     private fun boxPoint(id: String, u: Float, v: Float, z: Float): FloatArray {
         val layers = viewModel.uiState.value.layers
         return SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, id), pivotW, pivotH)
@@ -1567,6 +1608,9 @@ class EditorViewModelTest {
             com.hereliesaz.graffitixr.common.scene.SurfaceMath
                 .gridGroupId(it.layers, it.activeLayerId, it.surfaceGridVisible)
         }
+        // On by default: the wire mesh shows without being asked for.
+        assertEquals("g", grid())
+        viewModel.onToggleSurfaceGrid()
         assertEquals(null, grid())
         viewModel.onToggleSurfaceGrid()
         assertEquals("g", grid())

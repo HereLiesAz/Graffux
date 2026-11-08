@@ -59,4 +59,98 @@ class OrbitPivotTest {
     fun `flat layers in parallel planes leave the depth to layer 1's assumed box`() {
         assertPoint(500f, 800f, 800f, OrbitPivot.of(listOf(layer("a"), layer("b")), w, h))
     }
+
+    // ── Surfaces: the pivot follows ALL of them ──
+
+    private fun group(id: String, vararg pts: Float, parent: String? = null) = Layer(
+        id = id, name = id, type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, parentId = parent,
+        surface = SurfaceProfile(pts.toList(), 0f, 0f, 1f),
+    )
+
+    private val floor = group("floor", 200f, 1000f, 0f, 800f, 1000f, 0f)
+    private val wall = group("wall", 500f, 200f, 0f, 500f, 1000f, 0f)
+    private val post = group("post", 900f, 100f, 0f, 900f, 300f, 0f)
+
+    @Test
+    fun `one surface's pivot is the centre of its own box, not of the picture plane`() {
+        // x 200..800, y flat at 1000, z swept 0..600 (its width): (500, 1000, 300).
+        val paint = Layer(id = "paint", name = "paint", parentId = "floor")
+        assertPoint(500f, 1000f, 300f, OrbitPivot.of(listOf(floor, paint), w, h))
+    }
+
+    @Test
+    fun `two then three surfaces recompute the pivot from the union of all`() {
+        assertPoint(500f, 600f, 400f, OrbitPivot.of(listOf(floor, wall), w, h))
+        assertPoint(550f, 550f, 400f, OrbitPivot.of(listOf(floor, wall, post), w, h))
+    }
+
+    @Test
+    fun `removing a surface (undo) returns the earlier pivot, and none falls back to the plane rule`() {
+        assertPoint(500f, 600f, 400f, OrbitPivot.of(listOf(floor, wall, post).dropLast(1), w, h))
+        assertPoint(500f, 800f, 800f, OrbitPivot.of(listOf(Layer(id = "a", name = "a")), w, h))
+        assertPoint(500f, 800f, 800f, OrbitPivot.of(emptyList(), w, h))
+    }
+
+    @Test
+    fun `a manual pivot wins and a malformed one is ignored`() {
+        val layers = listOf(floor, wall)
+        assertPoint(1f, 2f, 3f, OrbitPivot.resolve(layers, w, h, listOf(1f, 2f, 3f)))
+        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h, null))
+        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h, listOf(1f, Float.NaN, 3f)))
+        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h, listOf(1f, 2f)))
+    }
+
+    // ── Orientation per axis ──
+
+    private fun turned(vararg steps: Pair<Char, Float>): SceneCamera {
+        var cam = SceneCamera()
+        val pivot = floatArrayOf(500f, 600f, 400f)
+        for ((axis, a) in steps) {
+            val (yaw, pitch) = if (axis == 'X') 0f to a else a to 0f
+            cam = SceneMath.orbitAbout(cam, pivot, yaw, pitch, w, h)
+        }
+        return cam
+    }
+
+    @Test
+    fun `X then Y then X more equals X by the sum with Y applied, whatever the interleaving`() {
+        val a = turned('X' to 0.2f, 'Y' to 0.5f, 'X' to 0.3f)
+        val b = turned('Y' to 0.5f, 'X' to 0.5f)
+        val c = turned('X' to 0.1f, 'X' to 0.4f, 'Y' to 0.25f, 'Y' to 0.25f)
+        for (cam in listOf(a, b, c)) {
+            assertEquals(0.5f, cam.yaw, 1e-5f)
+            assertEquals(0.5f, cam.pitch, 1e-5f)
+        }
+        // The pivot stays where it was on screen through every one of them.
+        val before = SceneMath.frame(SceneCamera(), w, h).project(floatArrayOf(500f, 600f, 400f))!!
+        for (cam in listOf(a, b, c)) {
+            val after = SceneMath.frame(cam, w, h).project(floatArrayOf(500f, 600f, 400f))!!
+            assertEquals(before.first, after.first, 0.1f)
+            assertEquals(before.second, after.second, 0.1f)
+        }
+    }
+
+    @Test
+    fun `the X turn keeps its own axis after a Y turn - the screen's horizontal`() {
+        val y = turned('Y' to 0.7f)
+        val yx = turned('Y' to 0.7f, 'X' to 0.4f)
+        val r0 = SceneMath.frame(y, w, h).right
+        val r1 = SceneMath.frame(yx, w, h).right
+        for (i in 0..2) assertEquals(r0[i], r1[i], 1e-5f)
+    }
+
+    @Test
+    fun `a tap picks the surface under it, else the point at the current pivot's depth`() {
+        val cam = SceneCamera()
+        // The floor at y = 1000 is under (500, 1000) at z = 0 (its front edge).
+        val onFloor = OrbitPivot.pick(listOf(floor), cam, 500f, 1000f, w, h, floatArrayOf(500f, 600f, 400f))
+        assertEquals(500f, onFloor[0], 1f)
+        assertEquals(1000f, onFloor[1], 1f)
+        // Over empty space: on the ray, at the pivot's depth (z = 400 at the default view).
+        val empty = OrbitPivot.pick(emptyList(), cam, 700f, 300f, w, h, floatArrayOf(500f, 600f, 400f))
+        assertEquals(400f, empty[2], 1f)
+        val back = SceneMath.frame(cam, w, h).project(empty)!!
+        assertEquals(700f, back.first, 0.5f)
+        assertEquals(300f, back.second, 0.5f)
+    }
 }

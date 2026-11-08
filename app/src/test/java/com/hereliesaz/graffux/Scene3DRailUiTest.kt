@@ -135,10 +135,11 @@ class Scene3DRailUiTest {
         }
         val toggle = rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID")
         toggle.assertExists()
-        assertEquals(false, vm.uiState.value.surfaceGridVisible)
+        // On by default (a saved choice is not kept: the toggle is view state, never stored).
+        assertEquals(true, vm.uiState.value.surfaceGridVisible)
         toggle.performClick()
         rule.waitForIdle()
-        assertEquals(true, vm.uiState.value.surfaceGridVisible)
+        assertEquals(false, vm.uiState.value.surfaceGridVisible)
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
         // A flat layer has no mesh to show, so no toggle.
         rule.runOnIdle { vm.onLayerActivated("x") }

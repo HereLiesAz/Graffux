@@ -375,7 +375,8 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on
   one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
   while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
-  history or project data). It is drawn in a dark under-line and a cyan line over the artwork. Only the active
+  history or project data; on by default, and since it was never stored there is no saved choice to migrate). A long press on the "#"
+  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Only the active
   layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
   overlay UI in the canvas's world space, never part of an export.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.
@@ -719,6 +720,30 @@ plane passes through. It is the centre of the box that holds the content.
   and moves the layer's offset and depth so its centre revolves about the pivot at a constant
   distance. A Z turn of a flat layer (not placed in 3D) stays in place, as a 2D layer's always did;
   for layer 1 that is the same thing, since the pivot sits straight behind its centre.
+- **Surfaces (the rule once any group has a surface).** The pivot is the centre of the axis-aligned box
+  that holds, in world space, EVERY defined surface (`OrbitPivot.ofSurfaces`): each profiled group's
+  box (`SurfaceMath.localBounds`: a hull's clip box, a relief's photo rectangle with its displacement,
+  else the profile's vertices and the same vertices swept as far as the guide grid reaches) through its
+  group chain, plus the planes of any content layer that is not paint on a surface. Paint layers inside
+  a surface group are skipped: their own plane is flat paint space, not where the paint is drawn. This
+  replaces the plane-layer rule above as soon as one surface exists. The centre of the box was chosen over
+  a vertex or area centroid because it depends only on extent: it does not shift when a stroke is
+  simplified, a relief's grid is rebuilt, or one surface is tessellated finer than another, and it moves
+  only when a surface is added, removed, changed or moved. It is a pure function of the layers, so it is
+  recomputed at every use (so after any add, edit, undo, redo or removal) and held only for the length of
+  one gesture. With no surface it is the rule above, unchanged.
+- **Placed by hand.** The wire-mesh button's long-press menu has "Relocate rotation point": the next tap
+  in the scene sets `EditorUiState.manualPivot` to the surface point under it (`OrbitPivot.pick`: the
+  first surface the ray meets, else the point at the current pivot's depth), and "Reset rotation point
+  to automatic" clears it. While set it replaces the automatic point everywhere (`OrbitPivot.resolve`).
+  It is saved as `GraffitiProject.orbitPivot` (format 13); view state, not history.
+- **Orientation per axis.** The camera's orientation is two independent, persisted angles, `yaw` (the Y
+  axis) and `pitch` (the X axis), composed as pitch about the screen's horizontal after yaw about the
+  vertical (`SceneMath.frame`). Turning X, then Y, then X again therefore gives the same view as turning
+  X by the sum and Y once, in any interleaving, and the X turn keeps its own axis (the camera's `right`
+  never depends on pitch). Recomputing the pivot does not touch the angles; `orbitAbout` only moves the
+  target so the pivot stays put on screen. A layer's own rotation sliders are Euler angles composed
+  `Rz * Ry * Rx` and are unchanged by this.
 - **Before this**, the pivot was the scene camera's target: the canvas centre ON layer 1's plane
   (depth 0), and layers turned about their own centres, so an X or Y turn tilted the layer in place
   while the camera swung about a point on the plane.

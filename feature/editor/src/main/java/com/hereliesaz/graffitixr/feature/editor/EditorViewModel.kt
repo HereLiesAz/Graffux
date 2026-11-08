@@ -2507,7 +2507,12 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModelLayers(project.id, layers)
-                        updateUi { it.copy(sceneCamera = project.sceneCamera) }
+                        updateUi {
+                            it.copy(
+                                sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
+                                pivotPickArmed = false,
+                            )
+                        }
 
                         val layersToLoad = layers.filter { it.bitmap == null && it.uri != null }
                         if (layersToLoad.isNotEmpty()) {
@@ -4789,6 +4794,7 @@ class EditorViewModel @Inject constructor(
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
                 sceneCamera = _uiState.value.sceneCamera,
+                orbitPivot = _uiState.value.manualPivot,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -4810,6 +4816,7 @@ class EditorViewModel @Inject constructor(
                     spatialStrokes = emptyList(),
                     spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
                     sceneCamera = _uiState.value.sceneCamera,
+                    orbitPivot = _uiState.value.manualPivot,
                     // Format 8: the model lives in a 3D model layer.
                     modelPath = null,
                     modelName = null,
@@ -5724,7 +5731,7 @@ class EditorViewModel @Inject constructor(
     fun orbitPivot(state: EditorUiState = _uiState.value): FloatArray? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
-        return OrbitPivot.of(state.layers, size.width.toFloat(), size.height.toFloat())
+        return OrbitPivot.resolve(state.layers, size.width.toFloat(), size.height.toFloat(), state.manualPivot)
     }
 
     /**
@@ -13257,6 +13264,41 @@ class EditorViewModel @Inject constructor(
 
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
     fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
+
+    /** "Relocate rotation point": the next tap in the scene places the pivot (spec/3d-space.md, "The orbit point"). */
+    fun onArmPivotPick() = updateUi { it.copy(pivotPickArmed = true) }
+
+    /** Leaves "Relocate rotation point" without placing anything. */
+    fun onCancelPivotPick() {
+        if (_uiState.value.pivotPickArmed) updateUi { it.copy(pivotPickArmed = false) }
+    }
+
+    /**
+     * A tap at canvas point [world] while armed: the rotation point becomes the scene point under it
+     * ([OrbitPivot.pick]) and is saved with the project. Not history: like the camera, it is view state.
+     */
+    fun onPivotPicked(world: Offset) {
+        val st = _uiState.value
+        if (!st.pivotPickArmed) return
+        val size = st.canvasSize
+        val current = orbitPivot(st)
+        if (current == null || size.width <= 0 || size.height <= 0) {
+            updateUi { it.copy(pivotPickArmed = false) }
+            return
+        }
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val p = OrbitPivot.pick(st.layers, st.sceneCamera, world.x, world.y, w, h, current)
+        updateUi { it.copy(manualPivot = p.toList(), pivotPickArmed = false) }
+        saveProject()
+    }
+
+    /** "Reset to automatic": the rotation point is again the centre of every surface. */
+    fun onResetPivot() {
+        if (_uiState.value.manualPivot == null && !_uiState.value.pivotPickArmed) return
+        updateUi { it.copy(manualPivot = null, pivotPickArmed = false) }
+        saveProject()
+    }
 
     // ── Relief surfaces: "Build surface from image" (spec/3d-space.md, "Relief surfaces") ──
 
