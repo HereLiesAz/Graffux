@@ -1595,7 +1595,7 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun `the surface grid toggle shows only the active layer's group's grid`() = runTest {
+    fun `the surface grid toggle shows every visible group's grid`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
             listOf(200f to 1000f, 800f to 1000f), SceneCamera(), 1000f, 1600f,
@@ -1606,7 +1606,7 @@ class EditorViewModelTest {
         viewModel.onLayerActivated("c")
         fun grid() = viewModel.uiState.value.let {
             com.hereliesaz.graffitixr.common.scene.SurfaceMath
-                .gridGroupId(it.layers, it.activeLayerId, it.surfaceGridVisible)
+                .gridGroupIds(it.layers, it.surfaceGridVisible).firstOrNull()
         }
         // On by default: the wire mesh shows without being asked for.
         assertEquals("g", grid())
@@ -1614,8 +1614,9 @@ class EditorViewModelTest {
         assertEquals(null, grid())
         viewModel.onToggleSurfaceGrid()
         assertEquals("g", grid())
+        // The mesh no longer follows the active layer: it stays on while a flat layer is active.
         viewModel.onLayerActivated("x")
-        assertEquals(null, grid())
+        assertEquals("g", grid())
         viewModel.onLayerActivated("c")
         viewModel.onToggleSurfaceGrid()
         assertEquals(null, grid())

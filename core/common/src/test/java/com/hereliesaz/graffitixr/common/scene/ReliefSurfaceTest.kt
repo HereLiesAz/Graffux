@@ -488,6 +488,23 @@ class ReliefSurfaceTest {
 
     // --- the wire mesh ------------------------------------------------------------------------
 
+    @Test fun aPhotoDepthSurfaceIsMeshedFromTheReliefNotTheDrawnViews() {
+        // Precedence: photo depth (relief) > multi-view hull > single-profile sheet.
+        fun sq(place: (Float, Float) -> FloatArray) =
+            listOf(0f to 0f, 100f to 0f, 100f to 100f, 0f to 100f).flatMap { place(it.first, it.second).toList() }
+        val relief = build(bump()).toProfile()
+        val withViews = relief.copy(
+            side = SurfaceProfile(sq { z, y -> floatArrayOf(0f, y, z) }, 1f, 0f, 0f),
+            top = SurfaceProfile(sq { x, z -> floatArrayOf(x, 0f, z) }, 0f, 1f, 0f),
+        )
+        assertTrue(withViews.hasHull)
+        val cam = SceneMath.frame(SceneCamera(yaw = 0.4f, pitch = -0.2f), w, h)
+        val model = SceneMath.chainModel(identity, w, h)
+        fun flat(l: List<FloatArray>) = l.map { it.toList() }
+        assertEquals(flat(SurfaceMath.gridLines(relief, model, cam)), flat(SurfaceMath.gridLines(withViews, model, cam)))
+        assertEquals(flat(ReliefMath.gridLines(relief.relief!!, model, cam, SurfaceMath.GRID_SPACING)), flat(SurfaceMath.gridLines(withViews, model, cam)))
+    }
+
     @Test fun theWireMeshFollowsTheRelief() {
         val tilted = SceneMath.frame(SceneCamera(yaw = 0.5f, pitch = -0.3f), w, h)
         val model = SceneMath.chainModel(identity, w, h)

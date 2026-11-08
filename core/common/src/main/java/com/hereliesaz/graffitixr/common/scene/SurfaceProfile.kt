@@ -178,11 +178,27 @@ object SurfaceMath {
     }
 
     /**
-     * The group whose guide grid shows: the active layer's surface group, while [visible] (the
-     * toggle) is on; null otherwise. At most one grid, and never another group's.
+     * The groups whose wire mesh shows: every group with a surface that the renderer draws, while
+     * [visible] (the toggle) is on. A group is not drawn when it, or a group above it, is hidden, or its
+     * opacity (its own times every enclosing group's) is zero: the rule the orbit pivot uses. Each group
+     * has exactly one surface, so each shows one mesh (see [gridLines] for what that mesh is).
      */
-    fun gridGroupId(layers: List<Layer>, activeId: String?, visible: Boolean): String? =
-        if (visible) ownerOf(layers, activeId)?.group?.id else null
+    fun gridGroupIds(layers: List<Layer>, visible: Boolean): List<String> {
+        if (!visible) return emptyList()
+        val byId = layers.associateBy { it.id }
+        fun drawn(layer: Layer): Boolean {
+            var opacity = 1f
+            var current: Layer? = layer
+            val seen = HashSet<String>()
+            while (current != null && seen.add(current.id)) {
+                if (!current.isVisible) return false
+                opacity *= current.opacity
+                current = current.parentId?.let(byId::get)
+            }
+            return opacity > 0f
+        }
+        return layers.filter { it.isContainer && it.surface?.isValid == true && drawn(it) }.map { it.id }
+    }
 
     /** Every layer drawn on a group surface. */
     fun surfaceLayerIds(layers: List<Layer>): Set<String> {
@@ -485,7 +501,8 @@ object SurfaceMath {
         sweepExtent: Float = gridExtent(profile),
     ): List<FloatArray> {
         if (!profile.isValid || spacing <= 0f) return emptyList()
-        profile.relief?.let { return ReliefMath.gridLines(it, model, cam, spacing) }
+        // A group with a side or top drawing is the hull's solid, not the front sheet: mesh every face.
+        otherGridLines(profile, model, cam, spacing)?.let { return it }
         val out = ArrayList<FloatArray>()
         val far = SceneMath.farPlane(cam.focal) * 0.5f
         val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)
@@ -521,6 +538,14 @@ object SurfaceMath {
         us += profile.length
         for (a in us) segment(scene(a, 0f), scene(a, reach), cam)?.let(out::add)
         return out
+    }
+
+    private fun otherGridLines(profile: SurfaceProfile, model: Affine3, cam: CameraFrame, spacing: Float): List<FloatArray>? {
+        profile.relief?.let { return ReliefMath.gridLines(it, model, cam, spacing) }
+        val hull = (if (profile.hasHull) SurfaceHull.of(profile) else null) ?: return null
+        return SurfaceHullGrid.segments(hull, spacing).mapNotNull { s ->
+            segment(model.apply(s[0], s[1], s[2]), model.apply(s[3], s[4], s[5]), cam)
+        }
     }
 
     /**

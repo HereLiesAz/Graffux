@@ -376,9 +376,23 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
   while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
   history or project data; on by default, and since it was never stored there is no saved choice to migrate). A long press on the "#"
-  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Only the active
-  layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
+  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Every visible
+  group's surface shows its mesh (`SurfaceMath.gridGroupIds`): a group is skipped when it or a group above it is hidden
+  or its opacity (times its enclosing groups') is zero, the orbit pivot's rule, and the mesh does not follow the active
+  layer. A group has exactly one surface, so one mesh. It is
   overlay UI in the canvas's world space, never part of an export.
+- **Wire mesh of a multi-view group.** The front profile's swept sheet is one face of a hull, so a group with a
+  side or top drawing meshes the hull itself (`SurfaceHullGrid.segments`, called by `SurfaceMath.gridLines`): the
+  iso-lines of every face's paint coordinates `(u, t)` at the grid spacing, over each view's sheet and the caps
+  (`SurfaceHull.meshByView`, `capMeshByView`), plus the faces' open edges (creases and the box's rim). It stops
+  at the solid and follows each view's drawing, not only the first plane's. Before, the mesh was always the front
+  profile's sheet swept to the hull's depth, so side and top drawings never showed in it. A single-view group
+  and a relief mesh as before. Every visible group shows its own mesh, each by this precedence on its own surface.
+  *Precedence* (`SurfaceMath.gridLines`): photo depth first (a relief, including every group made by
+  from a photo's depth estimate, `ReliefBuild.assemble`): its mesh is the relief's and the profile
+  hull is neither drawn over it nor mixed with it, even if side or top views were drawn; otherwise the multi-view
+  hull's skin (the one solid the three drawings define, each face trimmed by the other views, a shared crease
+  drawn once); otherwise the single profile's sheet. Tests: `SurfaceProfileTest`, `ReliefSurfaceTest`, `ReliefBuildTest`.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.
 - **Nesting.** A layer's surface is its nearest enclosing group with a profile; groups between
   it and that group compose flat (their 2D transforms, in unrolled space).
