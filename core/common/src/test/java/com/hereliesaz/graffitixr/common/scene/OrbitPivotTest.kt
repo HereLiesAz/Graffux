@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.hereliesaz.graffitixr.common.scene
 
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -183,6 +185,23 @@ class OrbitPivotTest {
 
     private fun pickZ(vararg layers: Layer) =
         OrbitPivot.pick(layers.toList(), SceneCamera(), 500f, 400f, w, h, floatArrayOf(500f, 800f, 400f))[2]
+
+    @Test
+    fun `a hidden surface, or one under a hidden group, or one at zero opacity, is not picked`() {
+        val far = sheetAt("far", 100f)
+        assertEquals(0f, pickZ(sheetAt("near", 0f), far), 0.5f)
+        assertEquals(100f, pickZ(sheetAt("near", 0f, visible = false), far), 0.5f)
+        val hiddenParent = Layer(id = "p", name = "p", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, isVisible = false)
+        assertEquals(100f, pickZ(hiddenParent, sheetAt("near", 0f, parent = "p"), far), 0.5f)
+        assertEquals(100f, pickZ(sheetAt("near", 0f, opacity = 0f), far), 0.5f)
+    }
+
+    @Test
+    fun `a sheet is not picked past the extent the mesh and the pivot box stop at`() {
+        // Its width is 1200 so it reaches t = 1200 (+ the grid's margin); y = 1500 is beyond it.
+        val p = OrbitPivot.pick(listOf(sheetAt("s", 0f)), SceneCamera(), 500f, 1500f, w, h, floatArrayOf(500f, 800f, 400f))
+        assertEquals(400f, p[2], 1f)
+    }
 
     @Test
     fun `a relief reaching into negative coordinates is picked where the ray meets it`() {

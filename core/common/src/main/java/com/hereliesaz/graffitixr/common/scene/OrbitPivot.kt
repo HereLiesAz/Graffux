@@ -137,7 +137,21 @@ object OrbitPivot {
         val dir = cam.rayDirection(x, y)
         var best: FloatArray? = null
         var bestDistance = Float.MAX_VALUE
-        for (group in layers.filter { it.isContainer && it.surface?.isValid == true }) {
+        val byId = layers.associateBy { it.id }
+        // What the renderer draws: not hidden itself or under a hidden group, and not at zero opacity
+        // (its own times every enclosing group's), as DepthComposite.plan and the layer stack skip them.
+        fun drawn(layer: Layer): Boolean {
+            var opacity = 1f
+            var current: Layer? = layer
+            val seen = HashSet<String>()
+            while (current != null && seen.add(current.id)) {
+                if (!current.isVisible) return false
+                opacity *= current.opacity
+                current = current.parentId?.let(byId::get)
+            }
+            return opacity > 0f
+        }
+        for (group in layers.filter { it.isContainer && it.surface?.isValid == true && drawn(it) }) {
             val profile = group.surface!!
             val model = SceneMath.chainModel(planeChain(layers, group.id), width, height)
             val inv = model.inverse() ?: continue
@@ -149,7 +163,10 @@ object OrbitPivot {
                 val d = inv.applyVector(dir[0], dir[1], dir[2])
                 s = (hull.hit(eye, d, near) ?: continue).distance
             } else {
-                s = (SurfaceMath.hit(x, y, profile, model, cam) ?: continue).distance
+                val hit = SurfaceMath.hit(x, y, profile, model, cam) ?: continue
+                // The sheet is swept without bound, but is drawn and boxed only as far as the guide grid reaches.
+                if (profile.relief == null && hit.t > SurfaceMath.gridExtent(profile)) continue
+                s = hit.distance
             }
             // The hit is read straight off the ray: both hits report the ray parameter, which an affine
             // model leaves unchanged, so no (u, t) is rebuilt (that clamped a relief's negative coordinates).
