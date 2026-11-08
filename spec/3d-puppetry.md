@@ -38,14 +38,14 @@ recommendation is accepted. Section numbers point to the reasoning.
 | Q15 | Is glTF (nodes/skins/animations) the interchange and in-memory shape for rigs and clips, with our data only in `extras.GRAFFUX_joint`? | Yes (0B). | 0B |
 | Q16 | Support importing rigged glTF/GLB models as poseable model layers before authored joints? | Yes: PR 1.2 (import and pose) ships before PR 1.5 (authoring). | 12 |
 | Q17 | Extend the model layer to hold one `.glb` original plus a skeleton, and generalise `objFile` to `modelFile` (format 14)? | Yes, old name still read. | 0C |
-| Q18 | Which on-device formats: glTF/GLB, OBJ(+MTL), STL now; PLY later; FBX/USD/others by external conversion? | As in the 0C table. | 0C |
 | Q19 | Parser library: jgltf (JVM) vs cgltf (native) vs hand-rolled? | jgltf, decided by the PR 1.0 spike (APK delta, 20 MB GLB parse time, licence check). | 0C |
 | Q20 | Export `.glb` in addition to `.gltf`, and validate our output with Khronos glTF-Validator in CI? | Yes to both. | 0C |
-| Q21 | Cloud conversion service for FBX/USD? | No; document external converters. | 0C |
 | Q22 | glTF with external files: refuse until a folder/zip import exists, or add a zip import now? | Refuse with "save as .glb" now. | 0C |
-| Q23 | Compressed glTF (meshopt, Draco) and KTX2 textures: refuse in v1, meshopt first later? | Yes. | 0C |
+| Q23 | Compressed glTF extensions (meshopt, Draco) and KTX2 textures: refuse with a message in v1? | Yes. | 0C |
 | Q24 | Is `extras.GRAFFUX_joint` (unregistered, ignorable) acceptable, with `KHR_physics_rigid_bodies` joint limits as the future mapping once ratified? | Yes. | 0B |
 | Q25 | Skinned models: GPU skinning in the depth-pass vertex shader with a CPU-skinned copy for picking and painting; cap 64 joints (uniform array) and 100k vertices on import? | Yes. | 3.8, 10 |
+
+Closed by the owner: Q18 and Q21 (formats: see "Formats on device (scope)" and "Out of scope, and why" in 0C).
 
 ## 0A. What import and export exist today (audit, 2026-11)
 
@@ -121,7 +121,6 @@ glTF's own structures.** Our own data is a thin layer only for what glTF cannot 
 | Hinge / ball / fixed, axis, limits | **Nothing in core glTF.** `KHR_physics_rigid_bodies` (a Khronos extension in development at time of writing; check its status before relying on it) defines joints with per-axis limits and is the future mapping | `node.extras.GRAFFUX_joint` (below) |
 | Rigidity (stiffness) | Nothing (the nearest are physics/spring extensions, not an equivalent of our gain) | `node.extras.GRAFFUX_joint.rigidity` |
 | Soft-body control points and zones (Stage 2) | A **skin whose joints are the control point nodes**, with weights baked from our kernel (section 8) | `extras` with the kernel/zone parameters to re-edit |
-| Rigged humanoid semantics | VRM / `VRMC_vrm` (glTF-based) names humanoid bones | not in v1; imported as plain nodes |
 
 `extras` is the glTF-sanctioned place for application data (the spec requires other tools to ignore
 it and, ideally, preserve it). The JSON we put there is one namespaced object per node:
@@ -185,7 +184,6 @@ adopting** (the spike is PR 1.0).
 | **cgltf** | single-header C glTF/GLB parser, no image decoding | MIT | ~7k lines C, tiny | native (JNI via existing CMake) | skins, animations, extensions | Good fallback if jgltf is rejected; native parse of untrusted files raises the memory-safety bar (fuzz it) |
 | **tinygltf** | C++ header-only reader and writer | MIT | needs nlohmann json + stb_image | native | yes | heavier than cgltf, no advantage here |
 | **Filament `gltfio`** | loader + animator + renderer integration | Apache-2.0 | several MB AARs; brings a second renderer | native + JVM | full | **Rejected**: it would own rendering, duplicating the depth pass and its occlusion/paint pipeline. Its skinning maths is not reusable without Filament |
-| **Assimp** | 40+ formats incl. FBX, OBJ, STL, PLY, Collada, 3DS, glTF | BSD-3-Clause | large (many MB per ABI), long NDK build | native | skeletons, animations (FBX lossy) | **Rejected for v1**: size and attack surface (a long CVE history in importers) for formats better converted ahead of time; keep as a later option for FBX if a converter service is declined |
 | **Hand-rolled glTF JSON reader on `kotlinx-serialization-json`** | the JSON is simple; accessors/bufferViews are ~300 lines | n/a | zero new dependency | JVM | whatever we write | Not preferred (the owner asked not to reinvent); the fallback if adding Jackson is unacceptable. Skinning maths is trivial either way |
 | **Khronos glTF-Validator** | schema/semantic validator | Apache-2.0 | dev tool (Dart/JS/CLI) | CI only | n/a | **Use in CI/tests** to validate every glTF our exporter writes; it exists precisely so we do not trust our own JSON |
 
@@ -228,7 +226,7 @@ Use tiny ones only (`SimpleSkin` is a few hundred bytes).
   glTF animation is direct, GIF/MP4 are renders of it. Interpolation `LINEAR`/`STEP`/`CUBICSPLINE` are
   glTF's; our smoothstep ease bakes to `CUBICSPLINE` (with tangents) or extra `LINEAR` samples.
 
-### Other formats worth supporting, and via what
+### Formats on device (scope)
 
 | Format | Support | How |
 |---|---|---|
@@ -236,19 +234,26 @@ Use tiny ones only (`SimpleSkin` is a few hundred bytes).
 | glTF with external `.bin`/image files | Import only via `.glb` or an embedded `.gltf`; a `.gltf` with external URIs is refused with "Save as .glb" until a folder/zip import exists | SAF returns one file URI; resolving siblings needs a tree grant (Open question Q22) |
 | OBJ (+MTL) | Keep; **add MTL** diffuse colour/texture so imported OBJs are not flat grey (small, not in glTF's way) | `ObjParser` extension |
 | STL (binary and ASCII) | Add; trivial, common from CAD/3D printing | ~100-line parser, or the library if it reads it; no UVs (paint disabled, auto-UV is a separate feature) |
-| PLY (scans) | Add, low priority | small parser; vertex colours become a base-colour texture bake |
-| FBX | **Convert**, do not parse | `FBX2glTF` (BSD-3, Meta; links the proprietary FBX SDK, so it is a build/CLI tool, never shipped in the app) or Blender CLI on the user's computer; the docs tell users to export glTF. Mixamo (FBX) is the main reason users ask |
-| USD / USDZ | **Convert** | Blender, Apple Reality Converter, or the `usd` toolchain; no on-device parser |
-| Collada, 3DS, Blend, etc. | **Convert** | Blender; Assimp only if a later decision accepts it |
-| VRM 1.0 | Import as glTF; ignore `VRMC_*` in v1, read humanoid bone names later | it is a glTF file |
 | Compressed glTF (`KHR_draco_mesh_compression`, `EXT_meshopt_compression`) | Detect and refuse with a message in v1; meshopt decoder (MIT, small) is the first to add because it is common in downloaded assets; Draco is large and last | library or vendored decoder |
 | `KHR_texture_basisu` (KTX2 textures) | Refuse or ignore the texture (use base colour), message | later |
 | `KHR_materials_*` | Import base colour factor/texture only; ignore the rest | |
 | `KHR_mesh_quantization`, `KHR_texture_transform` | Quantised attributes: decode (accessor normalisation is already in the loader); texture transform: apply to UVs | simple |
 
-A hosted converter (a Cloudflare worker exists in `workers/`) cannot run Blender or the FBX SDK;
-"convert in the cloud" is therefore out of scope and listed as an open question (Q21) only so the
-owner can decide not to.
+**On-device import and export is limited to glTF 2.0 (`.gltf` with embedded data, `.glb`), OBJ (+MTL) and
+STL.** (Owner decision, closes Q18 and Q21.) Only glTF carries skeletons, skins and animation, so only
+glTF is a rigging/animation format; OBJ and STL are static geometry (a posed or animated scene exports
+to glTF/GLB, and to OBJ/STL only as the current pose frozen, without skeleton, if at all).
+
+### Out of scope, and why
+
+FBX, USD/USDZ, Collada, 3DS, Blend, PLY, Alembic, CAD/STEP, splats, point clouds, VDB/voxels and any other
+format are **converted externally by another app** (for instance to glTF/GLB) and are not part of this
+work: no parser, converter, library, PR or open question exists for them here. They are explicitly out
+of scope for rigging and animation. At most, a later and separate feature might import such content as
+**scenery**: static, non-poseable, no skeleton, never part of a rig or clip; nothing in this spec
+depends on it. Heightmap/depth images are not a model format: they stay relief-surface input only, as
+`spec/3d-space.md` "Relief surfaces" already says (a photo and a depth estimate); this spec adds nothing
+to that.
 
 ### Mesh model changes this implies (still no code)
 
@@ -1346,9 +1351,13 @@ them:
 9. Stage 3 **export priority**: GIF/MP4 first (proposed) or animated glTF first?
 10. Any **hard cap** on joints (32) or soft vertices (8,192) the owner wants different?
 11. **Standards backbone (Q15-Q25 in section 0)**: confirm glTF as the interchange and `extras.GRAFFUX_joint`
-    for rigidity and limits; parser library after the spike; formats supported on device vs converted
-    externally; `.glb` export and glTF-Validator in CI; refusal of external-file glTF, compressed glTF and
-    KTX2 in v1.
+    for rigidity and limits; parser library after the spike; `.glb` export and glTF-Validator in CI;
+    refusal of external-file glTF, compressed glTF extensions and KTX2 in v1.
+
+**Closed by owner decision:** Q18 (on-device formats are glTF/GLB, OBJ+MTL, STL; all other formats are
+converted externally and out of scope for rigging/animation, at most future scenery-only import) and Q21
+(no cloud conversion service). Removed from this spec with them: PLY, FBX, USD, Collada, VRM and Assimp
+rows, and the converter discussion.
 12. **Ordering**: confirm "import a rigged glTF and pose it" (PR 1.4) as the first user-visible puppetry
     milestone, with authored joints after it (PR 1.5).
 13. **Caps**: 64 joints per skin and 100,000 vertices per skinned import acceptable, and whether over-cap
