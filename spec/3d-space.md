@@ -110,7 +110,7 @@ picture plane.
 
 - **Layer plane.** A layer's existing `offset` (x, y), `scale` and `rotationX/Y/Z` (degrees), plus
   a new `positionZ`. A point `L` of the layer's full-canvas box maps to the scene as
-  `P = C + (ox, oy, z) + R * scale * (L - C)`, `C` the box centre, `R = Rz * Ry * Rx`. With
+  `P = C + (ox, oy, z) + R * scale * (L - C)`, `C` the box centre, `R = Rz * Ry * Rx` (the stored form; the sliders turn about the body axes, see "Body-fixed axes"). With
   `z = rx = ry = 0` this is exactly the 2D transform the layer always had. Groups compose: a
   child's plane is its parent's model times its own.
 - **Scene camera** (`SceneCamera`): `yaw`, `pitch` (radians), `distanceScale` and a target offset
@@ -375,7 +375,8 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   moving the view. The "Surface grid" check in the menu of a group with a surface, or of a layer on
   one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
   while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
-  history or project data). It is drawn in a dark under-line and a cyan line over the artwork. Only the active
+  history or project data; on by default, and since it was never stored there is no saved choice to migrate). A long press on the "#"
+  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Only the active
   layer's group ever shows its grid (`SurfaceMath.gridGroupId`), so at most one is visible. It is
   overlay UI in the canvas's world space, never part of an export.
 - **Flatten surface** (the group's menu) clears the profile, as one undo step.
@@ -719,6 +720,47 @@ plane passes through. It is the centre of the box that holds the content.
   and moves the layer's offset and depth so its centre revolves about the pivot at a constant
   distance. A Z turn of a flat layer (not placed in 3D) stays in place, as a 2D layer's always did;
   for layer 1 that is the same thing, since the pivot sits straight behind its centre.
+- **Surfaces (the rule once any group has a surface).** The pivot is the centre of the axis-aligned box
+  that holds, in world space, EVERY defined surface (`OrbitPivot.ofSurfaces`): each profiled group's
+  box (`SurfaceMath.localBounds`: a hull's clip box, a relief's photo rectangle with its displacement,
+  else the profile's vertices and the same vertices swept as far as the guide grid reaches) through its
+  group chain, plus the planes of any content layer that is not paint on a surface. Paint layers inside
+  a surface group are skipped: their own plane is flat paint space, not where the paint is drawn. This
+  replaces the plane-layer rule above as soon as one surface exists. The centre of the box was chosen over
+  a vertex or area centroid because it depends only on extent: it does not shift when a stroke is
+  simplified, a relief's grid is rebuilt, or one surface is tessellated finer than another, and it moves
+  only when a surface is added, removed, changed or moved. It is a pure function of the layers, so it is
+  recomputed at every use (so after any add, edit, undo, redo or removal) and held only for the length of
+  one gesture. With no surface it is the rule above, unchanged.
+- **Placed by hand.** The wire-mesh button's long-press menu has "Relocate rotation point": the next tap
+  in the scene sets `EditorUiState.manualPivot` to the surface point under it (`OrbitPivot.pick`: the
+  first surface the ray meets, else the point at the current pivot's depth), and "Reset rotation point
+  to automatic" clears it. The "#" button stays on the rail while a point is placed, even with no surface under the active layer, so Reset is never stranded; removing the last surface does not discard the choice (it is still a valid point for plane layers). While set it replaces the automatic point everywhere (`OrbitPivot.resolve`).
+  It is saved as `GraffitiProject.orbitPivot` (format 13); view state, not history.
+- **Orientation per axis.** The camera's orientation is two independent, persisted angles, `yaw` (the Y
+  axis) and `pitch` (the X axis), composed as pitch about the screen's horizontal after yaw about the
+  vertical (`SceneMath.frame`). Turning X, then Y, then X again therefore gives the same view as turning
+  X by the sum and Y once, in any interleaving, and the X turn keeps its own axis (the camera's `right`
+  never depends on pitch). Recomputing the pivot does not touch the angles; `orbitAbout` only moves the
+  target so the pivot stays put on screen. A layer's rotation is separate: it is body-fixed (see "Body-fixed axes").
+- **Body-fixed axes.** X, Y and Z name lines of the OBJECT (the layer or surface group), not of the screen
+  or the camera. The line through a square's sides 1 and 3 is X for ever; turn the square 90 degrees about Z and
+  sides 1 and 3 stand where 2 and 4 began, and the X slider still turns about the line between them. Each
+  slider turns the object about `R * e_axis`, its own line in the scene: `R' = R * Ra(delta)`
+  (`SceneMath.rotatePoseAbout`, the one place every slider drag, two-finger twist and handle turn goes
+  through). The result is stored back as the same `rotationX/Y/Z` (`SceneMath.eulerOf`, `Rz * Ry * Rx`), so
+  the GPU scene, the 2D Compose fallback, glTF export, the wire mesh and hull placement and saved projects
+  read exactly what they always read; nothing is migrated and the project format stays 13. The slider's
+  thumb is no longer the raw stored angle but `SceneMath.bodyAngle`: how far the object has been turned about
+  that own axis, the angle of the Euler decomposition with that axis innermost (`Rz*Ry*Rx` for X,
+  `Rz*Rx*Ry` for Y, `Rx*Ry*Rz` for Z). It is a pure function of the orientation, so it needs no stored state,
+  survives save, load, undo and redo, and moves by exactly the dragged amount. X reads as it always did; a
+  flat layer's Z is its stored angle. Turning about a body axis moves the other sliders' readings
+  (they measure turns about lines that moved), which is the price of the lines being the object's. The
+  pivot (above) is unchanged: the turn is applied about it. Before this, a stored angle was incremented, which
+  is body-fixed for X alone: Y turned about the line left after Z only, and Z about the scene's z.
+  Typed angles in the Transform panel still set the stored Euler angle. At gimbal (Y at 90 degrees) the Z
+  turn folds into X.
 - **Before this**, the pivot was the scene camera's target: the canvas centre ON layer 1's plane
   (depth 0), and layers turned about their own centres, so an X or Y turn tilted the layer in place
   while the camera swung about a point on the plane.

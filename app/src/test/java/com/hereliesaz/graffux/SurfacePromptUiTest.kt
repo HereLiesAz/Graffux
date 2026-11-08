@@ -13,6 +13,9 @@ import androidx.compose.ui.test.assertContentDescriptionContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertCountEquals
@@ -170,13 +173,34 @@ class SurfacePromptUiTest {
                 androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, fontScale = 2f),
             ) {
                 MaterialTheme(colorScheme = darkColorScheme()) {
-                    NoticeStack(true, SurfaceDrawNotice.TOO_SHORT, {}, alerts, "OK", { "$it times" })
+                    NoticeStack(false, SurfaceDrawNotice.LOCKED, {}, alerts, "OK", { "$it times" })
                 }
             }
         }
         val chip = rule.onNodeWithTag("surface.prompt").fetchSemanticsNode().boundsInRoot
         val message = rule.onNodeWithTag("chrome.message").fetchSemanticsNode().boundsInRoot
         assertTrue("chip ${chip} message ${message}", message.top >= chip.bottom)
+    }
+
+    @Test
+    fun `the armed instruction and a warning sit in the centre, a plain notice at the top`() {
+        val alerts = MessageController().apply {
+            show(message = "Saved")
+            show(kind = MessageKind.WARNING, message = "No depth model is installed.")
+        }
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+                    NoticeStack(true, null, {}, alerts, "OK", { "$it times" }, modifier = androidx.compose.ui.Modifier.fillMaxSize())
+                }
+            }
+        }
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val prompt = rule.onNodeWithTag("surface.prompt").fetchSemanticsNode().boundsInRoot
+        val msgs = rule.onAllNodesWithTag("chrome.message").fetchSemanticsNodes().map { it.boundsInRoot }
+        assertTrue(kotlin.math.abs(prompt.center.y - root.center.y) < root.height * 0.2f)
+        assertTrue(msgs.any { it.top < root.height * 0.2f })
+        assertTrue(msgs.any { kotlin.math.abs(it.center.y - root.center.y) < root.height * 0.3f })
     }
 
     @Test

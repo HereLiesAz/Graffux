@@ -194,6 +194,18 @@ data class Selection(
             rings.any { it.additive && it.isUsable }
 
     /**
+     * A surface selection whose stored image regions are kept but whose on-screen footprint is empty (the selected
+     * faces have turned away from the camera). It is not [isUsable], yet it is not "no selection" either: a
+     * flat layer must be confined to nothing rather than left unclipped. An inverted one is everything, so it
+     * does not block.
+     */
+    val blocksAll: Boolean
+        get() = !inverted && !isUsable && canvasSize.width > 0 && canvasSize.height > 0 && surface?.isUsable == true
+
+    /** Whether a raster tool is confined by this selection at all: a region to stay in, or [blocksAll]. */
+    val confines: Boolean get() = isUsable || blocksAll
+
+    /**
      * A representative outline, for the places that want *a* polygon rather than the true region —
      * naming the selection in a recorded command, and the drag-ghost preview. The first additive
      * ring, because that is the one the user drew first.
