@@ -81,7 +81,7 @@ class Scene3DRailUiTest {
     }
 
     @Test
-    fun `the axis slot reads 3D while the layer's group is flat, the axis once it has a surface`() {
+    fun `the axis slot reads 3D while the layer's group is flat, and on a surface opens the views chooser instead of cycling`() {
         val vm = realViewModel()
         // Let the project load first, as the editor does, so it does not replace these layers.
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
@@ -107,15 +107,15 @@ class Scene3DRailUiTest {
         rule.waitForIdle()
         val layers = vm.uiState.value.layers
         assertTrue(layers.first { it.id == "a" }.is3DIn(layers))
-        rule.onNodeWithText("3D", useUnmergedTree = true).assertDoesNotExist()
-        val start = vm.uiState.value.activeRotationAxis
-        val seen = (0 until 3).map {
+        // On a surface the slot no longer shows or cycles an axis: it stays "3D" and a tap opens the chooser.
+        rule.onNodeWithText("3D", useUnmergedTree = true).assertExists()
+        val axis = vm.uiState.value.activeRotationAxis
+        repeat(3) {
             slot.performClick()
             rule.waitForIdle()
-            rule.onNodeWithText(vm.uiState.value.activeRotationAxis.name, useUnmergedTree = true).assertExists()
-            vm.uiState.value.activeRotationAxis
+            assertEquals(axis, vm.uiState.value.activeRotationAxis)
+            assertEquals(it % 2 == 0, vm.uiState.value.surfaceViewsMenuOpen)
         }
-        assertEquals((1..3).map { RotationAxis.entries[(start.ordinal + it) % 3] }, seen)
         assertEquals(androidx.compose.ui.graphics.Color(0xFF39FF14), RotationAxis.Z.railColor())
     }
 

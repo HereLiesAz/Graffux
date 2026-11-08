@@ -349,6 +349,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     // The brush's long-press menu, a layer's menu (by layer id), and the About reader.
     var brushMenuOpen by rememberSaveable { mutableStateOf(false) }
     var meshMenuOpen by rememberSaveable { mutableStateOf(false) }
+    // The bottom sheet's top edge in root px, for the rotation triangle that rides it.
+    val sheetTopPx = remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showGestureHelp by rememberSaveable { mutableStateOf(false) }
@@ -533,6 +535,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         BackLayer(menuOpen) { menuOpen = false },
         BackLayer(brushMenuOpen) { brushMenuOpen = false },
         BackLayer(meshMenuOpen) { meshMenuOpen = false },
+        BackLayer(uiState.surfaceViewsMenuOpen) { vm.onDismissSurfaceViews() },
         BackLayer(layerMenuFor != null) { layerMenuFor = null },
         BackLayer(showAbout) { showAbout = false },
         BackLayer(showGestureHelp) { showGestureHelp = false },
@@ -867,6 +870,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         showPosterMenu = false
         brushMenuOpen = false
         meshMenuOpen = false
+        vm.onDismissSurfaceViews()
         layerMenuFor = null
         packWheel.close()
         carouselUi = carouselUi.afterCanvasTouch(uiState.activeTool)
@@ -991,6 +995,22 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             }
         }
 
+        // The rotation triangle (spec/3d-space.md, "Rotation triangle"): only with an active 3D surface group,
+        // in the right corner on the top edge of the bottom sheet (the bottom safe area with none). Its
+        // three touch bands take input; the rest of it lets canvas strokes through.
+        if (vm.rotationGizmoVisible(uiState)) {
+            RotationGizmoDock(
+                sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
+                sideClearance = besideRail,
+            ) {
+                RotationGizmo(
+                    onTurn = vm::onRotationGizmoTurn,
+                    onEnd = vm::onRotationGizmoEnd,
+                    onStep = vm::onRotationGizmoStep,
+                )
+            }
+        }
+
         // The bottom carousel, centred on the whole screen and over the canvas. Only while it is
         // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
         // lying along the bottom edge as a pill to swipe up.
@@ -1033,6 +1053,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Clears the nav bar itself and keeps the grab pill off the screen's
                     // bottom edge, where system gestures would take its touches.
                     bottomInset = CarouselBottomInset,
+                    onTopChanged = { sheetTopPx.floatValue = it },
                 ) {
                     val carouselInputs = CarouselInputs(
                         groupEntries = if (carouselUi.category == CarouselCategory.FAVORITES) {
@@ -1388,6 +1409,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         rows = buildMenu { meshMenu(vm, uiState) { meshMenuOpen = false } },
                         onDismiss = { meshMenuOpen = false },
                         title = "Wire mesh",
+                        modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
+                    )
+                }
+
+                if (uiState.surfaceViewsMenuOpen && vm.surfaceViewChoices(uiState).isNotEmpty()) {
+                    MenuPanel(
+                        rows = buildMenu { surfaceViewsMenu(vm, uiState, strings.layerMenu) },
+                        onDismiss = { vm.onDismissSurfaceViews() },
+                        title = "Surface drawings",
                         modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
                     )
                 }
