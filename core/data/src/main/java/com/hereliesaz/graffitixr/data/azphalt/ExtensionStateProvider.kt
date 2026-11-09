@@ -19,12 +19,16 @@ import java.io.File
  * something is worse than one that knows it cannot.
  *
  * Access is gated by `azphalt.permission.READ_EXTENSION_STATE` (`android:readPermission` in the
- * manifest, protection level `normal`), and the authority is handed to the store on a browse request
+ * manifest, protection level `normal`). A `normal` permission is granted without a prompt to any installed
+ * app that declares it, so **any installed app can read these rows**: which extensions the user has, at what
+ * version and in what state. That is a disclosure (PRIVACY_POLICY.md § 6), not something this gate prevents.
+ * The authority is handed to the store on a browse request
  * via `azphalt.extra.STATE_AUTHORITY` — a store MUST NOT query an authority it was not given. Nothing
  * here enumerates other apps: this host reports its own extensions and nothing else, which is why no
  * `QUERY_ALL_PACKAGES` permission appears anywhere in this feature.
  *
- * Nothing in a row identifies a device, a user, or an install (spec § 2). The columns are exactly the
+ * No row identifies a device, a user, or an install (spec § 2), though the list of extensions is itself
+ * personal. The columns are exactly the
  * five the entry shape defines, all `TEXT`, with `at` as the ISO-8601 string rather than millis so a
  * row and a wire entry are the same thing.
  */

@@ -116,8 +116,10 @@ request being in flight.
     android:protectionLevel="normal" />
 ```
 
-`protectionLevel="normal"` — this is a low-sensitivity, install-time-granted permission, not a
-runtime-prompted one, matching the fact that what it gates (§ 2's state vocabulary plus a scrubbed
+`protectionLevel="normal"` — an install-time-granted permission, not a runtime-prompted one. **Any
+installed app can declare it and is granted it without a prompt**, so the rows (which extensions the
+user has, at what version and state) are readable by any installed app, not only a store the user
+chose; that is a disclosure, listed in the host's privacy policy. It is accepted as low-sensitivity, matching the fact that what it gates (§ 2's state vocabulary plus a scrubbed
 failure reason) contains no package contents, no signing material, and no unsanitized paths.
 
 **Contract**:
