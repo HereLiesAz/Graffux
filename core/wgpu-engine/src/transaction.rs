@@ -4,7 +4,6 @@
 //! used by the parity test against `tests/fixtures/transaction_golden.txt`; wiring it to the resident
 //! layer, the stamp pipeline and the editor is the remaining part of phase P5.
 
-use crate::gpu_wait::{map_read, READBACK_TIMEOUT};
 use crate::shared_gpu;
 
 pub const TRANSACTION_WGSL: &str = include_str!("shaders/transaction.wgsl");
@@ -155,7 +154,7 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &TransactionInput) -> Option<
     queue.submit([encoder.finish()]);
     let mut results: Vec<Vec<f32>> = Vec::new();
     for (staging, len) in &stagings {
-        let v = map_read(device, staging, 0..((*len).max(1) * 4) as u64, READBACK_TIMEOUT, |b| {
+        let v = gpu.read(staging, 0..((*len).max(1) * 4) as u64, |b| {
             bytemuck::cast_slice::<u8, f32>(b)[..*len].to_vec()
         })
         .ok()?;
