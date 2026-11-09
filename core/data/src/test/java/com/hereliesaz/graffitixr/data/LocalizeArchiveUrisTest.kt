@@ -86,10 +86,10 @@ class LocalizeArchiveUrisTest {
         }
     }
 
-    // User text is not a URI just because it looks like one: only Uri-typed fields are localized.
-    @Test fun `text that looks like a uri is kept outside uri fields`() {
-        val json = """{"name":"file: notes","textParams":{"text":"https://azphalt.store","fontName":"content:x"},""" +
-            """"layers":[{"name":"file:///etc/hosts","opacity":1.0}]}"""
+    // User text is not a URI just because it looks like one: only Uri-typed positions are localized.
+    @Test fun `text that looks like a uri is kept at known text positions`() {
+        val json = """{"name":"file: notes","layers":[{"name":"file:///etc/hosts","opacity":1.0,""" +
+            """"textParams":{"text":"https://azphalt.store","fontName":"content:x"}}]}"""
         assertEquals(json, localizeArchiveUris(json, root))
     }
 
@@ -104,9 +104,43 @@ class LocalizeArchiveUrisTest {
         assertEquals(expected, localizeArchiveUris(json, root))
     }
 
-    @Test fun `the known keys are found from the model, including nested user text`() {
-        val keys = MODEL_KEYS
-        assertTrue(keys.toString(), keys.containsAll(listOf("name", "textParams", "text", "fontName", "layers", "uri")))
+    @Test fun `a name the model uses elsewhere gains nothing under an unknown parent`() {
+        assertEquals(
+            """{"formatVersion":99,"extra":{"0":"","name":""}}""",
+            localizeArchiveUris(
+                """{"formatVersion":99,"extra":{"0":"file:///data/data/p/files/other.png","name":"../../x"}}""",
+                root,
+            ),
+        )
+        assertEquals(
+            """{"layerFiles":{"name":""}}""",
+            localizeArchiveUris("""{"layerFiles":{"name":"file:///etc/hosts"}}""", root),
+        )
+        assertEquals(
+            """{"unknownList":{"0":"","1":""},"also":[{"uri":"","text":""}]}""",
+            localizeArchiveUris(
+                """{"unknownList":{"0":"/etc/a","1":"../b"},"also":[{"uri":"/x","text":"../y"}]}""",
+                root,
+            ),
+        )
+    }
+
+    @Test fun `file references in unknown fields are caught in any spelling`() {
+        for (raw in listOf(
+            "%2e%2e%2f%2e%2e%2fother", "..%2fx", "a%2f..%2fb", "%2fetc%2fhosts", "%252e%252e%252fx",
+            "C:\\\\x", "c:/x", "\\\\\\\\host\\\\share", "a%00b", "a\\u0000b", "x/../y", "..\\\\y",
+        )) {
+            assertEquals(raw, """{"sourceImage":""}""", localizeArchiveUris("""{"sourceImage":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `web links and plain text in unknown fields are kept, a leading slash is the one tradeoff`() {
+        val kept = """{"helpUrl":"https://azphalt.store","docs":"HTTP://x.example/a/../b","note":"see you",""" +
+            """"ratio":"3/4","dots":"a..b","pct":"50%","partial":"%zz"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+        // Unknown text that starts with "/" cannot be told from an absolute path, so it is blanked from the
+        // installed copy: pinned here so the loss is a decision and not a surprise.
+        assertEquals("""{"note":""}""", localizeArchiveUris("""{"note":"/shrug"}""", root))
     }
 
     @Test fun `an unknown field naming a file inside the project is re-rooted`() = assertEquals(
@@ -123,35 +157,58 @@ class LocalizeArchiveUrisTest {
         )
     }
 
-    /** Every Uri-typed field of the real model, so a new one cannot be added without being localized. */
-    private fun uriFieldNames(): Set<String> {
-        val found = mutableSetOf<String>()
-        val seen = mutableSetOf<String>()
-        fun walk(d: kotlinx.serialization.descriptors.SerialDescriptor, name: String?) {
+    /** Every path through the real model's descriptors that ends at a Uri ("[]" is a list item). */
+    private fun uriPaths(): List<List<String>> {
+        val found = mutableListOf<List<String>>()
+        val kinds = mutableSetOf<Any>()
+        fun walk(d: kotlinx.serialization.descriptors.SerialDescriptor, path: List<String>, stack: Set<String>) {
+            kinds += d.kind
             if (d.serialName.removeSuffix("?") == "Uri") {
-                name?.let(found::add)
+                found += path
                 return
             }
-            val isClass = d.kind == kotlinx.serialization.descriptors.StructureKind.CLASS
-            if (isClass && !seen.add(d.serialName.removeSuffix("?") + name)) return
-            val list = d.kind == kotlinx.serialization.descriptors.StructureKind.LIST
-            for (i in 0 until d.elementsCount) {
-                walk(d.getElementDescriptor(i), if (list) name else d.getElementName(i))
+            val k = d.kind
+            val name = d.serialName.removeSuffix("?")
+            if (k == kotlinx.serialization.descriptors.StructureKind.CLASS) {
+                if (name in stack) return
+                for (i in 0 until d.elementsCount) {
+                    walk(d.getElementDescriptor(i), path + d.getElementName(i), stack + name)
+                }
+            } else if (k == kotlinx.serialization.descriptors.StructureKind.LIST) {
+                walk(d.getElementDescriptor(0), path + "[]", stack)
+            } else if (k == kotlinx.serialization.descriptors.StructureKind.MAP) {
+                walk(d.getElementDescriptor(1), path + "key", stack)
             }
         }
-        walk(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, null)
+        walk(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, emptyList(), emptySet())
+        // The lockstep walk understands classes, lists, maps and primitives; a polymorphic or contextual
+        // type in the model would be treated as unknown, so adding one must be a conscious change here.
+        assertTrue(kinds.toString(), kinds.none {
+            it is kotlinx.serialization.descriptors.PolymorphicKind ||
+                it == kotlinx.serialization.descriptors.SerialKind.CONTEXTUAL
+        })
         return found
     }
 
-    @Test fun `every uri field in the model is localized`() {
-        val names = uriFieldNames()
-        assertTrue("found only $names", names.containsAll(listOf("uri", "thumbnailUri", "targetImageUris")))
-        for (key in names) {
-            assertEquals(key, """{"$key":""}""", localizeArchiveUris("""{"$key":"file:///etc/hosts"}""", root))
+    private fun wrap(path: List<String>, leaf: String): String = when {
+        path.isEmpty() -> leaf
+        path[0] == "[]" -> "[" + wrap(path.drop(1), leaf) + "]"
+        else -> """{"${path[0]}":""" + wrap(path.drop(1), leaf) + "}"
+    }
+
+    @Test fun `every uri position in the model is localized there`() {
+        val paths = uriPaths()
+        val names = paths.map { it.last { p -> p != "[]" } }
+        assertTrue(names.toString(), names.containsAll(listOf("uri", "thumbnailUri", "targetImageUris")))
+        for (path in paths) {
+            // A web link is kept at an unknown position but is not a project file at a Uri one.
+            val blank = wrap(path, "\"\"")
+            assertEquals(path.toString(), blank, localizeArchiveUris(wrap(path, "\"https://x.example/a.png\""), root))
+            assertEquals(path.toString(), blank, localizeArchiveUris(wrap(path, "\"file:///etc/hosts\""), root))
             assertEquals(
-                key,
-                """{"$key":"${root}a.png"}""",
-                localizeArchiveUris("""{"$key":"file:///x/projects/old/a.png"}""", root),
+                path.toString(),
+                wrap(path, "\"${root}a.png\""),
+                localizeArchiveUris(wrap(path, "\"file:///x/projects/old/a.png\""), root),
             )
         }
     }

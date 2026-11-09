@@ -850,9 +850,6 @@ class ProjectManager @Inject constructor(
     }
 }
 
-/** A string that names a resource: any `scheme://`, or `file:` / `content:` / `android.resource:`. */
-private val URI_LIKE = Regex("""^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|(?:file|content|android\.resource):)""")
-
 /** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
 private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
 
@@ -862,59 +859,82 @@ private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
  * gains this device's root; every other URI becomes empty.
  *
  * Works on the parsed JSON, not on its text: a string can spell the same URI as `file:\/\/\/etc\/hosts` or
- * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. Only values under a key that
- * names a Uri ([namesUri]) are localized, so a scheme-less `/data/...` path there is dropped too, and
- * user text under a field this build's model has (a text layer reading `https://azphalt.store`, a name
- * like `file: notes`) is kept as written. A field the model does not have belongs to a newer format,
- * which is installed from this JSON as written and read later by a build that would open it: there
- * a URI is localized and a path-looking value is blanked ([localizeString]). Text that is not JSON is
- * returned as it came; decoding it fails the same way.
+ * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. The JSON is walked together
+ * with the model's serial descriptors, position by position (a class field leads to that field's
+ * descriptor, a list to its element's, a map to its value's):
+ *
+ * - where the model says `Uri`, the value is localized;
+ * - where it says anything else (a text layer reading `https://azphalt.store`, a name like
+ *   `file: notes`), the text is kept as written;
+ * - a field the model does not have, and everything below it, is *unknown*: it belongs to a newer
+ *   format, which is installed from this JSON as written and read later by a build that would open
+ *   it. A file reference there is neutralized ([localizeUnknown]) whatever the keys below it are
+ *   called, so a name the model uses elsewhere gains nothing under an unknown parent.
+ *
+ * Text that is not JSON is returned as it came; decoding it fails the same way.
  */
 internal fun localizeArchiveUris(projectJson: String, localRoot: String): String {
     val root = runCatching { Json.parseToJsonElement(projectJson) }.getOrNull() ?: return projectJson
-    return Json.encodeToString(JsonElement.serializer(), localizeNode(root, null, localRoot))
+    val node = localizeNode(root, GraffitiProject.serializer().descriptor, localRoot)
+    return Json.encodeToString(JsonElement.serializer(), node)
 }
 
-private fun localizeNode(node: JsonElement, key: String?, localRoot: String): JsonElement = when (node) {
-    is JsonObject -> JsonObject(node.mapValues { (k, v) -> localizeNode(v, k, localRoot) })
-    is JsonArray -> JsonArray(node.map { localizeNode(it, key, localRoot) })
-    is JsonPrimitive -> if (node.isString) JsonPrimitive(localizeString(node.content, key, localRoot)) else node
+/** [node] at a position whose model type is [d], or null when the model has nothing there. */
+@OptIn(ExperimentalSerializationApi::class)
+private fun localizeNode(node: JsonElement, d: SerialDescriptor?, localRoot: String): JsonElement = when (node) {
+    is JsonObject -> JsonObject(node.mapValues { (k, v) -> localizeNode(v, fieldDescriptor(d, k), localRoot) })
+    is JsonArray -> {
+        val item = if (d?.kind == StructureKind.LIST) d.getElementDescriptor(0) else null
+        JsonArray(node.map { localizeNode(it, item, localRoot) })
+    }
+    is JsonPrimitive -> when {
+        !node.isString -> node
+        d == null -> JsonPrimitive(localizeUnknown(node.content, localRoot))
+        d.serialName.removeSuffix("?") == URI_SERIAL_NAME -> JsonPrimitive(localizeUri(node.content, localRoot))
+        else -> node
+    }
 }
 
-private fun localizeString(value: String, key: String?, localRoot: String): String = when {
-    namesUri(key) -> localizeUri(value, localRoot)
-    key == null || key in MODEL_KEYS -> value
+/** The descriptor of field [key] of an object at [d]: a class's named field, a map's value, else unknown. */
+@OptIn(ExperimentalSerializationApi::class)
+private fun fieldDescriptor(d: SerialDescriptor?, key: String): SerialDescriptor? = when (d?.kind) {
+    StructureKind.CLASS -> d.getElementIndex(key).takeIf { it >= 0 }?.let(d::getElementDescriptor)
+    StructureKind.MAP -> d.getElementDescriptor(1)
+    else -> null
+}
+
+/** The serial name `UriSerializer` gives every Uri-typed field. */
+private const val URI_SERIAL_NAME = "Uri"
+
+/** A string that names a resource: any `scheme://`, or `file:` / `content:` / `android.resource:`. */
+private val URI_LIKE = Regex("""^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|(?:file|content|android\.resource):)""")
+
+private val WEB_LINK = Regex("^https?://", RegexOption.IGNORE_CASE)
+
+/** A Windows drive path (`C:\x`, `c:/x`). */
+private val DRIVE_PATH = Regex("^[a-zA-Z]:[/\\\\]")
+
+/**
+ * A string at a position the model does not know. A web link is not a local file and stays. Any other
+ * URI is localized; a value that reads as a filesystem path (absolute, rooted with `\`, a drive or UNC
+ * path, a `..` segment, a NUL, in any percent-encoding) is blanked. Plain text stays. The tradeoff, on
+ * purpose: unknown text that starts with `/` (`"/shrug"`) is blanked too, since it cannot be told from
+ * an absolute path; it is lost only from the installed copy of a newer-format file.
+ */
+private fun localizeUnknown(value: String, localRoot: String): String = when {
+    WEB_LINK.containsMatchIn(value) -> value
     URI_LIKE.containsMatchIn(value) -> localizeUri(value, localRoot)
-    value.startsWith("/") || value.split('/', '\\').any { it == ".." } -> ""
+    looksLikeLocalPath(value) -> ""
     else -> value
 }
 
-/** Every field name of the current model, found from its serial descriptors rather than listed by hand. */
-@OptIn(ExperimentalSerializationApi::class)
-internal val MODEL_KEYS: Set<String> by lazy {
-    val names = HashSet<String>()
-    val seen = HashSet<String>()
-    fun walk(d: SerialDescriptor) {
-        // Classes are visited once (they can nest themselves); lists and maps share a serial name
-        // whatever they hold, so those are always walked into.
-        if (d.kind == StructureKind.CLASS && !seen.add(d.serialName.removeSuffix("?"))) return
-        for (i in 0 until d.elementsCount) {
-            names += d.getElementName(i)
-            walk(d.getElementDescriptor(i))
-        }
+private fun looksLikeLocalPath(value: String): Boolean {
+    val forms = decodedForms(value) ?: return true
+    return forms.any { form ->
+        '\u0000' in form || form.startsWith("/") || form.startsWith("\\") || DRIVE_PATH.containsMatchIn(form) ||
+            form.split('/', '\\').any { it == ".." }
     }
-    walk(GraffitiProject.serializer().descriptor)
-    names
 }
-
-/**
- * Whether [key] is a field that holds a Uri: the model's are `uri`, `backgroundImageUri`,
- * `overlayImageUri`, `thumbnailUri`, `targetImageUris`, `evolutionImageUris`, ...
- * LocalizeArchiveUrisTest walks the real model's serial descriptors and fails if a Uri-typed field is
- * ever named otherwise. (A field of a newer format is handled by [localizeString] whatever its name.)
- */
-private fun namesUri(key: String?): Boolean =
-    key != null && (key == "uri" || key.endsWith("Uri") || key.endsWith("Uris"))
 
 private fun localizeUri(uri: String, localRoot: String): String {
     val inProject = IN_PROJECT.find(uri)?.groupValues?.get(1)
@@ -925,26 +945,27 @@ private fun localizeUri(uri: String, localRoot: String): String {
 /**
  * Whether one path segment of an archive URI stays inside its folder once opened. A raw `?` or `#`
  * ends the path when the URI is parsed (`..?x` is `..`), so those are refused as written. After that
- * Uri.getPath() percent-decodes, so `%2e%2e` or `..%2f` are parent references: the segment is decoded
- * until it stops changing (a double-encoded `%252e` too) and refused if any form is empty, `.`, `..`, or
- * holds a separator or NUL. A decoded `?`, `#` or `%` is only a filename character (`what%3F.png`,
- * `50%25.png`).
+ * Uri.getPath() percent-decodes, so `%2e%2e` or `..%2f` are parent references: every decoded form
+ * ([decodedForms]) is refused if it is empty, `.`, `..`, or holds a separator or NUL. A decoded `?`,
+ * `#` or `%` is only a filename character (`what%3F.png`, `50%25.png`).
  */
 private fun isSafeUriSegment(segment: String): Boolean {
-    if ('?' in segment || '#' in segment) return false
-    var current = segment
-    var safe = true
-    var settled = false
-    var rounds = 0
-    while (safe && !settled && rounds++ < MAX_URI_DECODES) {
-        if (current in URI_DOT_SEGMENTS || URI_UNSAFE_CHARS.containsMatchIn(current)) {
-            safe = false
-        } else {
-            val decoded = lenientPercentDecode(current)
-            if (decoded == current) settled = true else current = decoded
-        }
+    val forms = decodedForms(segment).takeIf { '?' !in segment && '#' !in segment } ?: return false
+    return forms.none { it in URI_DOT_SEGMENTS || URI_UNSAFE_CHARS.containsMatchIn(it) }
+}
+
+/**
+ * [text] and what it becomes under repeated lenient percent-decoding, until it stops changing (a
+ * double-encoded `%252e` too); null if it never settles within [MAX_URI_DECODES] rounds.
+ */
+private fun decodedForms(text: String): List<String>? {
+    val forms = mutableListOf(text)
+    repeat(MAX_URI_DECODES) {
+        val next = lenientPercentDecode(forms.last())
+        if (next == forms.last()) return forms
+        forms += next
     }
-    return safe && settled
+    return null
 }
 
 /**
