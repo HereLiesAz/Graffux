@@ -71,4 +71,106 @@ class PaletteBoardPersistenceTest {
         PaletteBoardPersistence.decodeBrushes(board, bad)
         assertEquals(before, board.brushes[0].amount[0], 1e-3f)
     }
+
+    @Test
+    fun aHandOutOfRangeIsRefusedAndTheBoardIsLeftAlone() {
+        val board = painted()
+        val bytes = PaletteBoardPersistence.encodeBrushes(board)
+        for (bad in listOf(2, -1, Int.MAX_VALUE)) {
+            val b = bytes.copyOf()
+            java.nio.ByteBuffer.wrap(b).putInt(8, bad) // magic, version, then hand
+            val target = newMixerBoard()
+            assertFalse("hand=$bad", PaletteBoardPersistence.decodeBrushes(target, b))
+            assertEquals(0, target.hand)
+            assertEquals(0f, target.brushes[0].amount[0], 0f)
+        }
+    }
+
+    @Test
+    fun brushConcentrationsAndAmountsAreRangeChecked() {
+        fun withFloat(offset: Int, v: Float): ByteArray =
+            PaletteBoardPersistence.encodeBrushes(painted()).also { java.nio.ByteBuffer.wrap(it).putFloat(offset, v) }
+        val amountOffset = 12 // magic, version, hand, then brush 0's amount
+        val concOffset = amountOffset + 4
+        for ((what, bytes) in listOf(
+            "amount above capacity" to withFloat(amountOffset, 5f),
+            "amount NaN" to withFloat(amountOffset, Float.NaN),
+            "negative amount" to withFloat(amountOffset, -0.5f),
+            "concentration above 1" to withFloat(concOffset, 3f),
+            "negative concentration" to withFloat(concOffset, -0.2f),
+            "NaN concentration" to withFloat(concOffset, Float.NaN),
+        )) {
+            val target = newMixerBoard()
+            assertFalse(what, PaletteBoardPersistence.decodeBrushes(target, bytes))
+            assertEquals(what, 0f, target.brushes[0].amount[0], 0f)
+        }
+        // a loaded brush whose recipe does not sum to 1 is not a recipe
+        val bytes = PaletteBoardPersistence.encodeBrushes(painted())
+        for (c in 0 until 16) java.nio.ByteBuffer.wrap(bytes).putFloat(16 + c * 4, 0.01f)
+        assertFalse(PaletteBoardPersistence.decodeBrushes(newMixerBoard(), bytes))
+    }
+
+    @Test
+    fun amountsAboveOneRoundTripLosslesslyUpToTheDocumentedCap() {
+        val board = newMixerBoard()
+        board.squeeze(2, 20f, 20f, 8f, 0.9f)
+        repeat(4) { board.squeeze(2, 20f, 20f, 8f, 0.9f) } // piles paint above 1
+        val peak = board.surface.amount.max()
+        assertTrue("a texel holds more than 1 ($peak)", peak > 1f)
+        assertTrue(peak <= PaletteBoardPersistence.MAX_AMOUNT)
+        val back = newMixerBoard()
+        val bytes = MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(board))
+        assertTrue(PaletteBoardPersistence.restore(back, requireNotNull(MaterialStateCodec.decode(bytes))))
+        for (i in board.surface.amount.indices) assertEquals(board.surface.amount[i], back.surface.amount[i], 0f)
+    }
+
+    @Test
+    fun amountsAboveTheCapAreCappedNotWrapped() {
+        val board = newMixerBoard()
+        board.squeeze(2, 20f, 20f, 8f, 0.9f)
+        board.surface.amount[20 * board.size + 20] = 100f
+        val back = newMixerBoard()
+        val bytes = MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(board))
+        assertTrue(PaletteBoardPersistence.restore(back, requireNotNull(MaterialStateCodec.decode(bytes))))
+        assertEquals(PaletteBoardPersistence.MAX_AMOUNT, back.surface.amount[20 * board.size + 20], 0f)
+    }
+
+    @Test
+    fun restoreRejectsNanNegativeAndHugeAmountsLeavingTheBoardUntouched() {
+        val snap = PaletteBoardPersistence.snapshot(painted())
+        for (bad in listOf(Float.NaN, -0.5f, Float.POSITIVE_INFINITY, 2f)) { // 2 x scale 8 = 16 > cap
+            val heights = snap.heightMap!!.copyOf().also { it[5] = bad }
+            val target = newMixerBoard().also { it.squeeze(4, 10f, 10f, 5f, 0.9f) }
+            val before = target.surface.amount.copyOf()
+            assertFalse("amount=$bad", PaletteBoardPersistence.restore(target, snap.copy(heightMap = heights)))
+            assertTrue(before.contentEquals(target.surface.amount))
+        }
+    }
+
+    @Test
+    fun aBrushFilledByTheTransactionToCapacitySurvivesTheRoundTripEvenIfItRoundsPastOne() {
+        val board = newMixerBoard()
+        board.squeeze(2, 20.008f, 20f, 7f, 0.9f)
+        board.dip(20.008f, 20f)
+        val held = board.brush.amount[0]
+        assertTrue("a full brush ($held)", held > 0.99f)
+        val bytes = PaletteBoardPersistence.encodeBrushes(board)
+        val fresh = newMixerBoard()
+        assertTrue("the file is accepted", PaletteBoardPersistence.decodeBrushes(fresh, bytes))
+        assertTrue(fresh.brush.amount[0] <= PaletteBoard.BRUSH_CAPACITY)
+        assertEquals(held, fresh.brush.amount[0], 1e-3f)
+        assertNotNull(fresh.brushLoad())
+    }
+
+    @Test
+    fun aRoundingStepOverCapacityIsAcceptedAndClampedButAnExcessiveAmountIsNot() {
+        fun amountBytes(v: Float): ByteArray =
+            PaletteBoardPersistence.encodeBrushes(painted()).also { java.nio.ByteBuffer.wrap(it).putFloat(12, v) }
+        val over = newMixerBoard()
+        assertTrue(PaletteBoardPersistence.decodeBrushes(over, amountBytes(1.00005f)))
+        assertEquals(PaletteBoard.BRUSH_CAPACITY, over.brushes[0].amount[0], 0f)
+        for (bad in listOf(1.01f, 5f, Float.NaN, -0.1f, Float.POSITIVE_INFINITY)) {
+            assertFalse("amount=$bad", PaletteBoardPersistence.decodeBrushes(newMixerBoard(), amountBytes(bad)))
+        }
+    }
 }

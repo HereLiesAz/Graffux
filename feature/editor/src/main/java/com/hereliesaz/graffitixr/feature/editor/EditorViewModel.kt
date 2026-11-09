@@ -2069,7 +2069,21 @@ class EditorViewModel @Inject constructor(
     // project (sidecar v4 + a small brush file) and restored on open; a painterly stroke starts from the
     // brush in hand's load and leaves what it did not spend.
     override val paletteBoard: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard = newMixerBoard()
-    private var paletteSaveJob: Job? = null
+    private val paletteSync = PaletteProjectSync(
+        board = paletteBoard,
+        scope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + dispatchers.main),
+        io = dispatchers.io,
+        store = object : PaletteProjectSync.Store {
+            override fun isReadOnly() = openProjectIsReadOnly()
+            override fun onError(error: Throwable) {
+                android.util.Log.e("EditorViewModel", "Failed to save the palette board", error)
+            }
+            override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
+                projectRepository.saveArtifact(projectId, file, bytes)
+            }
+            override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+        },
+    )
 
     // Persistent stamp-stroke capture (spec/painterly.md P7b): every committed stamp stroke is kept in a
     // serialisable record, saved with the project, so a demo can be replayed after reopen or shared.
@@ -2484,6 +2498,7 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.main) {
             projectRepository.currentProject.collect { project ->
+                if (project == null) paletteSync.close()
                 if (project != null) {
                     val projectIdChanged = _uiState.value.projectId != project.id
 
@@ -3807,37 +3822,10 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    override fun onPaletteChanged() {
-        val projectId = _uiState.value.projectId ?: return
-        paletteSaveJob?.cancel()
-        paletteSaveJob = viewModelScope.launch(dispatchers.main) {
-            kotlinx.coroutines.delay(1500)
-            // Snapshot on the main thread (the UI mutates the board there), encode and write off it.
-            val board = PaletteBoardPersistence.snapshot(paletteBoard)
-            val brushes = PaletteBoardPersistence.encodeBrushes(paletteBoard)
-            withContext(dispatchers.io) {
-                runCatching {
-                    val file = PaletteBoardPersistence.BOARD_FILE
-                    projectRepository.saveArtifact(projectId, file, MaterialStateCodec.encode(board))
-                    projectRepository.saveArtifact(projectId, PaletteBoardPersistence.BRUSH_FILE, brushes)
-                }.onFailure { android.util.Log.e("EditorViewModel", "Failed to save the palette board", it) }
-            }
-        }
-    }
+    override fun onPaletteChanged() = paletteSync.changed(_uiState.value.projectId)
 
     /** Loads the project's palette board and brush loads; an absent, corrupt or mismatched board leaves it empty. */
-    private fun restorePaletteBoard(projectId: String) {
-        viewModelScope.launch(dispatchers.io) {
-            val board = readProjectArtifact(projectId, PaletteBoardPersistence.BOARD_FILE)
-                ?.let { runCatching { MaterialStateCodec.decode(it) }.getOrNull() }
-            val brushes = readProjectArtifact(projectId, PaletteBoardPersistence.BRUSH_FILE)
-            withContext(dispatchers.main) {
-                paletteBoard.clear()
-                if (board != null && !PaletteBoardPersistence.restore(paletteBoard, board)) paletteBoard.clear()
-                if (brushes != null) PaletteBoardPersistence.decodeBrushes(paletteBoard, brushes)
-            }
-        }
-    }
+    private fun restorePaletteBoard(projectId: String) = paletteSync.open(projectId)
 
     private fun readProjectArtifact(projectId: String, filename: String): ByteArray? = runCatching {
         val root = File(context.filesDir, "projects").canonicalFile
