@@ -146,6 +146,13 @@ go can be completed there.
 
 Ticks and the lift step depend only on the recorded sample times, so replay takes the same ones.
 
+**Lift tail.** The lift step may `emit` dabs that lie *ahead* of the last sample, along the final
+heading, so a stroke can taper to a point as the pen leaves the surface even when the device reports no
+pressure fall (a finger). It is causal: the tail is made from the recorded lift-off sample, so live and
+replay agree, and it is painted once (a duplicate lift-off sample does not lay a second tail). Scale the
+reach by `speed`/`layerSpeed` so a pen lifted at rest leaves no tail. Tests: `StrokeProgramTest`
+(lift-off tail cases); worked example: `tools/painterly-poc`.
+
 ## Wet paint
 
 Programs cannot read the canvas, but they can read and write a coarse record of wet film: thickness in
