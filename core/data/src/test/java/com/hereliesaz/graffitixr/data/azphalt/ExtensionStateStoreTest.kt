@@ -133,4 +133,47 @@ class ExtensionStateStoreTest {
         assertTrue(store().all().isEmpty())
         assertNull(store().stateOf("com.example.never-seen"))
     }
+
+    private fun scrubbed(raw: String): String {
+        val s = store()
+        s.record("com.example.a", "1", ExtensionState.FAILED, atMs = 1L, reason = raw)
+        return s.stateOf("com.example.a")?.reason.orEmpty()
+    }
+
+    @Test
+    fun `paths, file names and addresses are replaced, token by token, and the rest is kept`() {
+        val expected = mapOf(
+            "azphalt-state.json: Permission denied" to "[redacted] Permission denied",
+            "open failed: extensions/com.example.a/manifest.json" to "open failed: [redacted]",
+            "cannot read C:\\Users\\me\\wall.png" to "cannot read [redacted]",
+            "no such file: layers/a.png" to "no such file: [redacted]",
+            "unlink failed for model_x.obj" to "unlink failed for [redacted]",
+            "content://media/external/images/1 revoked" to "[redacted] revoked",
+            "(content://x/y) gone" to "[redacted] gone",
+            "see ../x/y.obj now" to "see [redacted] now",
+            "/data/user/0/app/files/x failed" to "[redacted] failed",
+            "bad ~/notes/a.png here" to "bad [redacted] here",
+            "a/b/c is not here" to "[redacted] is not here",
+        )
+        for ((raw, want) in expected) assertEquals(raw, want, scrubbed(raw))
+    }
+
+    @Test
+    fun `ordinary diagnostics are not mistaken for paths`() {
+        for (raw in listOf(
+            "and/or", "retry 3/5", "1/2 done", "HTTP 404 / not found", "version 1.2.3", "2026-11-09",
+            "network/timeout", "io.error.log", "a.so", "http/2.0", "integrity-mismatch (digest)", "Mural: v2",
+        )) {
+            assertEquals(raw, raw, scrubbed(raw))
+        }
+    }
+
+    @Test(timeout = 5_000)
+    fun `a very long unspaced reason is cut before it is scanned, and stays quick`() {
+        // A backtracking pattern over a single long dotted or slashed token took seconds to minutes here.
+        val long = listOf(
+            "a.".repeat(50_000), "a.b.".repeat(25_000), "x".repeat(100_000), "/".repeat(100_000), "a/".repeat(50_000),
+        )
+        for (raw in long) assertTrue(scrubbed(raw).length <= 200)
+    }
 }
