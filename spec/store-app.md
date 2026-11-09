@@ -310,8 +310,7 @@ Key properties, all directly asserted in the code:
   proportion to what it buys."
 - **`reason` sanitization**: `reason` is free text sourced from a caught exception's raw `.message` —
   which can leak a `content://` URI or an absolute file path (e.g. from a revoked document-permission
-  grant). `ExtensionStateStore.sanitizeReason` strips anything matching a URI-or-absolute-path regex
-  to `"[redacted]"` and truncates to 200 characters, applied "once, at the one place every reason
+  grant). `ExtensionStateStore.sanitizeReason` scrubs it with a linear scan (spec/state-reporting.md § 3.1: tokens holding a URI, reading as a path, or naming a data file become `"[redacted]"`; the first 400 characters are read and the result is cut to 200), applied "once, at the one place every reason
   actually gets written, rather than trusting every future caller to remember to" — specifically
   because the provider's privacy promise ("nothing in a row identifies a device, a user, or an
   install") would otherwise be false for exactly the failure case most likely to occur under

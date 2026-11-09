@@ -86,9 +86,11 @@ emptyList())`, serialized as `{"entries": [...]}`.
 applied only when `state == FAILED`:
 
 - Truncated to `MAX_REASON_LENGTH = 200` characters.
-- Passed through `sanitizeReason()`, which replaces with `"[redacted]"` a URI (`scheme://...`), any
-  whitespace-delimited token that holds a path separator (absolute, relative or Windows), and a bare
-  file name with a known file extension (`azphalt-state.json`). Best effort: free text can still name
+- Passed through `sanitizeReason()`. Each whitespace-delimited token of the first 400 characters is replaced by `[redacted]` when it holds a URI
+  (`scheme://...`), reads as a path (it starts with `/`, `./`, `../`, `~/` or a drive letter such as `C:\`, has
+  two or more separators, or has one separator and ends in a file extension), or is a bare file name with a known
+  data-file extension (`json`, `png`, `obj`, ...; the list is `FILE_EXTENSIONS`). The result is cut to 200
+  characters. Short `word/word` text and numbers such as `3/5` stay. Best effort: free text can still name
   something in words.
 
 This exists because `reason` is populated from caught-exception messages, and an exported

@@ -101,10 +101,15 @@ class ExtensionStateDisclosureTest {
         for ((what, xml) in variants) {
             assertTrue("$what must be caught", providerProblems(xml).isNotEmpty())
         }
-        // The attribute text inside an XML comment is not a declaration.
+        // The attribute text inside an XML comment is not a declaration: the real attribute is gone, the
+        // same text survives only in a comment, and the parse must still see the provider without it.
         val commentOnly = manifest.replace(declared, "")
             .replace("<application", "<!-- $declared -->\n<application")
-        assertTrue("a comment is not a declaration", providerProblems(commentOnly).isNotEmpty())
+        assertTrue("the attribute text is still in the file, inside a comment", declared in commentOnly)
+        assertTrue(
+            "a comment is not a declaration: ${providerProblems(commentOnly)}",
+            "wrong readPermission" in providerProblems(commentOnly),
+        )
     }
 
     // ---- what the provider does -------------------------------------------------------------------

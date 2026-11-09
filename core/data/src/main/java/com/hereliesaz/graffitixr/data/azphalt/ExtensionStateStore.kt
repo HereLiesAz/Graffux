@@ -33,8 +33,14 @@ class ExtensionStateStore(private val file: File) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
     /**
-     * Strips anything that looks like a URI or absolute file path out of a failure [reason] before
-     * it's persisted. [ExtensionStateProvider] exposes this store's entries through an exported
+     * Strips URIs, paths and file names out of a failure [reason] before it's persisted. Each
+     * whitespace-delimited token of the first [MAX_SCAN_LENGTH] characters is replaced by `[redacted]` when
+     * it holds a URI (`scheme://...`), reads as a path (starts with `/`, `./`, `../`, `~/` or a drive letter,
+     * has two or more separators, or has one separator and ends in a file extension), or is a bare file name
+     * with a known data-file extension ([FILE_EXTENSIONS]); the result is cut to [MAX_REASON_LENGTH]. It is a
+     * linear scan over bounded input: this runs inside the lock the provider's reads share, so it must not
+     * be possible to make it slow. Best effort: free text can still name something in words.
+     * [ExtensionStateProvider] exposes this store's entries through an exported
      * `ContentProvider` gated only by a `normal`-level permission — any app can declare it and read
      * with no user prompt — and its own KDoc promises "nothing in a row identifies a device, a
      * user, or an install". [reason] comes from a caught exception's raw `.message` at every call
@@ -45,7 +51,7 @@ class ExtensionStateStore(private val file: File) {
      */
     private fun sanitizeReason(raw: String?): String? {
         if (raw == null) return null
-        return URI_OR_PATH.replace(raw, "[redacted]").take(MAX_REASON_LENGTH)
+        return scrub(raw.take(MAX_SCAN_LENGTH)).take(MAX_REASON_LENGTH)
     }
 
     /**
@@ -148,18 +154,67 @@ class ExtensionStateStore(private val file: File) {
 
         private const val TAG = "AzphaltState"
 
-        /**
-         * What [sanitizeReason] removes: a URI (`scheme://...`), any whitespace-delimited token that holds a
-         * path separator (absolute, relative, `a/b.png`, `C:\x\y`), and a bare file name with a known file
-         * extension (`azphalt-state.json`, `model_x.obj`). Best effort: free text can still name something in
-         * words, and the result is cut to [MAX_REASON_LENGTH].
-         */
-        private val URI_OR_PATH = Regex(
-            """[a-zA-Z][a-zA-Z0-9+.-]*://\S+|\S*[/\\]\S*""" +
-                """|[\w.\-]+\.(?:json|png|jpe?g|webp|txt|log|obj|mtl|gltf|glb|azp|cube|bak|tmp|corrupt|xml|""" +
-                """db|bin|so|apk|wasm|zip|pdf|fux|gxr|prefs)\b""",
-            RegexOption.IGNORE_CASE,
+        private const val REDACTED = "[redacted]"
+
+        /** How much of a reason is read at all: a diagnostic is a sentence, and the rest is dropped unread. */
+        private const val MAX_SCAN_LENGTH = 400
+
+        /** Extensions of the files this app keeps and reads: a bare name ending in one of these is a file name. */
+        private val FILE_EXTENSIONS = setOf(
+            "json", "png", "jpg", "jpeg", "webp", "obj", "mtl", "gltf", "glb", "azp", "cube", "bak", "tmp",
+            "corrupt", "xml", "fux", "gxr", "prefs", "pdf", "zip", "apk", "wasm",
         )
+
+        /** Two or more separators (three or more parts) read as a path whatever the parts are. */
+        private const val PATH_SEGMENTS = 3
+
+        private const val MAX_EXTENSION_LENGTH = 5
+
+        private const val EDGE_PUNCTUATION = "()[]{}<>\"',;:"
+
+        private val DRIVE_PATH = Regex("^[A-Za-z]:[/\\\\]")
+
+        /** [text] with each token that names a URI, path or file replaced by [REDACTED], spacing kept. */
+        private fun scrub(text: String): String {
+            val out = StringBuilder(text.length)
+            var i = 0
+            while (i < text.length) {
+                var end = i
+                val space = text[i].isWhitespace()
+                while (end < text.length && text[end].isWhitespace() == space) end++
+                val piece = text.substring(i, end)
+                out.append(if (!space && namesAFile(piece)) REDACTED else piece)
+                i = end
+            }
+            return out.toString()
+        }
+
+        private fun namesAFile(token: String): Boolean {
+            val core = token.trim { it in EDGE_PUNCTUATION }
+            val scheme = token.indexOf("://")
+            return core.isNotEmpty() &&
+                ((scheme > 0 && token[scheme - 1].isLetter()) || looksLikePath(core) || isDataFileName(core))
+        }
+
+        private fun looksLikePath(core: String): Boolean {
+            val rooted = (core.startsWith("/") && core.length > 1) || core.startsWith("./") ||
+                core.startsWith("../") || core.startsWith("~/") || DRIVE_PATH.containsMatchIn(core)
+            val parts = core.split('/', '\\')
+            return rooted || parts.size >= PATH_SEGMENTS || (parts.size == 2 && hasExtension(parts.last()))
+        }
+
+        /** `name.ext`, the extension short, alphanumeric and holding a letter (so not `2.0` or `1.2.3`). */
+        private fun hasExtension(name: String): Boolean {
+            val dot = name.lastIndexOf('.')
+            val ext = if (dot in 1 until name.length - 1) name.substring(dot + 1) else ""
+            val shortAndPlain = ext.length in 1..MAX_EXTENSION_LENGTH && ext.all { it.isLetterOrDigit() }
+            return shortAndPlain && ext.any { it.isLetter() }
+        }
+
+        private fun isDataFileName(core: String): Boolean {
+            val dot = core.lastIndexOf('.')
+            return dot > 0 && core.substring(dot + 1).lowercase() in FILE_EXTENSIONS
+        }
 
         /** A failure reason is a short diagnostic string, not a place for an exception's full
          *  stack-trace-adjacent detail to accumulate. */
