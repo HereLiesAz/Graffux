@@ -134,6 +134,32 @@ class SurfaceVisibilityTest {
         assertEquals(cuts0, SurfaceStrokeGuard.cuts)
     }
 
+    @Test fun `a sheet occludes as far as its child image is drawn, not only to the guide grid`() {
+        // A 100-wide sheet has a guide reach of ~132, but its full-height child image is drawn to y = 1600.
+        val near = Layer(
+            id = "near", name = "near", type = LayerType.GROUP,
+            surface = SurfaceProfile(listOf(450f, 0f, 0f, 550f, 0f, 0f), 0f, 1f, 0f),
+        )
+        val child = Layer("c", "c", parentId = "near")
+        val layers = listOf(near, child, sheet("far", 200f))
+        val behind = p(500f, 800f, 200f)
+        val full = { l: Layer -> if (l.id == "c") floatArrayOf(0f, 0f, w, h) else null }
+        assertFalse("the drawn image hides it", SurfaceVisibility.of(layers, SceneCamera(), w, h, imageRect = full).visible(behind))
+        assertTrue("the guide grid alone does not (the tap pick's extent)", SurfaceVisibility.of(layers, SceneCamera(), w, h, rendered = false, imageRect = full).visible(behind))
+        assertTrue("a sheet with no drawn image falls back to the guide extent", SurfaceVisibility.of(layers, SceneCamera(), w, h, imageRect = { null }).visible(behind))
+    }
+
+    @Test fun `a surface just inside the near plane on an off-axis ray is clipped and does not occlude`() {
+        val frame = SceneMath.frame(SceneCamera(), w, h)
+        val nearPlane = SceneMath.nearPlane(frame.focal)
+        fun wide(z: Float) = Layer("n", "n", type = LayerType.GROUP, surface = SurfaceProfile(listOf(0f, 0f, z, 6000f, 0f, z), 0f, 1f, 0f))
+        val target = p(5000f, 300f, 500f)
+        val clipped = wide(frame.eye[2] + 0.99f * nearPlane)
+        assertTrue("camera depth 0.99 near is clipped away", vis(listOf(clipped)).visible(target))
+        val drawn = wide(frame.eye[2] + 2f * nearPlane)
+        assertFalse("camera depth 2 near is drawn and hides it", vis(listOf(drawn)).visible(target))
+    }
+
     // ── Fuzz against an independent triangle oracle ──
 
     private class Tri(val a: FloatArray, val b: FloatArray, val c: FloatArray)

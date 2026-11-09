@@ -135,7 +135,7 @@ object OrbitPivot {
     ): FloatArray {
         val cam = SceneMath.frame(camera, width, height)
         val dir = cam.rayDirection(x, y)
-        val s0 = SurfaceVisibility.of(layers, camera, width, height).nearest(dir)
+        val s0 = SurfaceVisibility.of(layers, camera, width, height, rendered = false).nearest(dir)
         if (s0 != null) return FloatArray(3) { cam.eye[it] + dir[it] * s0 }
         val depth = cam.toCamera(current)[2].coerceAtLeast(SceneMath.nearPlane(cam.focal) * 2f)
         // The ray's depth along the view axis is s * (dir . forward); solve for that depth.

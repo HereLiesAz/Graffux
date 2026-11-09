@@ -287,13 +287,19 @@ object SurfaceMath {
         hitRay(cam.rayDirection(x, y), profile, model, cam)
 
     /** [hit] for the ray from the eye along the unit scene direction [dirW] (the one ray machinery the tap pick and the visibility test share). */
-    fun hitRay(dirW: FloatArray, profile: SurfaceProfile, model: Affine3, cam: CameraFrame): SurfaceHit? {
+    fun hitRay(
+        dirW: FloatArray,
+        profile: SurfaceProfile,
+        model: Affine3,
+        cam: CameraFrame,
+        /** The smallest ray parameter that counts; the default is the near plane's distance along an axial ray. */
+        near: Float = SceneMath.nearPlane(cam.focal),
+    ): SurfaceHit? {
         val inv = model.inverse() ?: return null
         val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
         val dir = inv.applyVector(dirW[0], dirW[1], dirW[2])
         val d = profile.sweep
-        val near = SceneMath.nearPlane(cam.focal)
-        profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
+                profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
         var best: SurfaceHit? = null
         for (i in 0 until profile.count - 1) {
             val p = profile.point(i)

@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList", "LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength")
+@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList", "LoopWithTooManyJumpStatements", "CyclomaticComplexMethod", "MaxLineLength", "NestedBlockDepth", "ComplexCondition")
 
 package com.hereliesaz.graffitixr.common.scene
 
@@ -32,6 +32,7 @@ class SurfaceVisibility private constructor(
         val hull: SurfaceHull?,
         val lo: FloatArray,
         val hi: FloatArray,
+        /** How far along the sweep the sheet is drawn (box units): the rendered images', else the guide grid's. */
         val gridReach: Float,
     )
 
@@ -45,7 +46,8 @@ class SurfaceVisibility private constructor(
      */
     fun nearest(dir: FloatArray, limit: Float = Float.POSITIVE_INFINITY): Float? {
         var best = Float.MAX_VALUE
-        val near = SceneMath.nearPlane(cam.focal)
+        // The depth pass clips by camera-space depth, so the near plane is a depth: along this ray it is farther.
+        val near = SceneMath.nearPlane(cam.focal) / SceneMath.dot(dir, cam.forward).coerceAtLeast(1e-6f)
         for (g in groups) {
             val eye = g.inverse.apply(cam.eye[0], cam.eye[1], cam.eye[2])
             val d = g.inverse.applyVector(dir[0], dir[1], dir[2])
@@ -57,7 +59,7 @@ class SurfaceVisibility private constructor(
             if (g.hull != null) {
                 s = (g.hull.hit(eye, d, near) ?: continue).distance
             } else {
-                val hit = SurfaceMath.hitRay(dir, g.profile, g.model, cam) ?: continue
+                val hit = SurfaceMath.hitRay(dir, g.profile, g.model, cam, near) ?: continue
                 // The sheet is swept without bound but drawn only as far as the guide grid reaches.
                 if (g.profile.relief == null && hit.t > g.gridReach) continue
                 s = hit.distance
@@ -130,8 +132,57 @@ class SurfaceVisibility private constructor(
             return opacity > 0f
         }
 
+        private fun defaultImageRect(layer: Layer, width: Float, height: Float): FloatArray? {
+            val bmp = layer.bitmap
+            return when {
+                bmp != null -> DepthComposite.imageRect(layer, bmp.width, bmp.height, width, height)
+                layer.shapes.isNotEmpty() -> floatArrayOf(0f, 0f, width, height)
+                else -> null
+            }
+        }
+
+        /**
+         * How far along the sweep the images painted on the sheet [group] are drawn (the farthest unrolled `t` of
+         * any drawn child's image rectangle, as `DepthScene.surfaceMesh` meshes it); null when none draws an image.
+         */
+        private fun renderedReach(
+            layers: List<Layer>,
+            byId: Map<String, Layer>,
+            group: Layer,
+            width: Float,
+            height: Float,
+            imageRect: (Layer) -> FloatArray?,
+        ): Float? {
+            var reach: Float? = null
+            for (child in layers) {
+                if (child.isContainer || child.spatial != null || child.model != null || child.surfaceViewOf != null) continue
+                if (!drawn(byId, child)) continue
+                val owner = SurfaceMath.ownerOf(byId, child.id)?.takeIf { it.group.id == group.id } ?: continue
+                val r = imageRect(child) ?: continue
+                val toUnrolled = SurfaceMath.boxToUnrolled(owner.innerChain, width, height)
+                val t = maxOf(
+                    toUnrolled.apply(r[0], r[1], 0f)[1], toUnrolled.apply(r[2], r[1], 0f)[1],
+                    toUnrolled.apply(r[2], r[3], 0f)[1], toUnrolled.apply(r[0], r[3], 0f)[1],
+                )
+                reach = maxOf(reach ?: 0f, t)
+            }
+            return reach
+        }
+
         /** The visibility of every drawn surface group of [layers] from [camera] on a [width] by [height] canvas. */
-        fun of(layers: List<Layer>, camera: SceneCamera, width: Float, height: Float): SurfaceVisibility {
+        fun of(
+            layers: List<Layer>,
+            camera: SceneCamera,
+            width: Float,
+            height: Float,
+            /**
+             * Cast sheets as far as their child images are drawn (what the depth pass meshes), not only as far as the
+             * guide grid; the tap pick passes false and keeps the guide extent.
+             */
+            rendered: Boolean = true,
+            /** A paint layer's drawn image rectangle in its box (left, top, right, bottom); null when it draws nothing. */
+            imageRect: (Layer) -> FloatArray? = { defaultImageRect(it, width, height) },
+        ): SurfaceVisibility {
             val cam = SceneMath.frame(camera, width, height)
             val byId = layers.associateBy { it.id }
             val groups = ArrayList<Group>()
@@ -140,14 +191,33 @@ class SurfaceVisibility private constructor(
                 val profile = layer.surface!!
                 val model = SceneMath.chainModel(planeChain(layers, layer.id), width, height)
                 val inv = model.inverse() ?: continue
-                val (lo, hi) = SurfaceMath.localBounds(profile) ?: continue
+                var (lo, hi) = SurfaceMath.localBounds(profile) ?: continue
+                var reach = SurfaceMath.gridExtent(profile)
+                var margin = if (profile.relief == null && !profile.hasHull) SurfaceMath.GRID_MARGIN else 0f
+                if (rendered && profile.relief == null && !profile.hasHull) {
+                    renderedReach(layers, byId, layer, width, height, imageRect)?.let { r ->
+                        val l = FloatArray(3) { Float.MAX_VALUE }
+                        val h2 = FloatArray(3) { -Float.MAX_VALUE }
+                        for (i in 0 until profile.count) {
+                            val q = profile.point(i)
+                            for (k in 0..2) {
+                                val far = q[k] + profile.sweep[k] * r
+                                l[k] = min(l[k], min(q[k], far))
+                                h2[k] = max(h2[k], max(q[k], far))
+                            }
+                        }
+                        lo = l
+                        hi = h2
+                        reach = r
+                        margin = 0f
+                    }
+                }
                 val pad = max(hi[0] - lo[0], max(hi[1] - lo[1], hi[2] - lo[2])) * 1e-3f + 1e-2f +
-                    // A sheet is cast as far as the guide grid reaches, margin included (as the tap pick always did).
-                    if (profile.relief == null && !profile.hasHull) SurfaceMath.GRID_MARGIN else 0f
+                    margin
                 val paddedLo = FloatArray(3) { lo[it] - pad }
                 val paddedHi = FloatArray(3) { hi[it] + pad }
                 val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
-                groups += Group(profile, model, inv, hull, paddedLo, paddedHi, SurfaceMath.gridExtent(profile))
+                groups += Group(profile, model, inv, hull, paddedLo, paddedHi, reach)
             }
             return SurfaceVisibility(cam, groups)
         }

@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "MaxLineLength")
+@file:Suppress("MagicNumber", "MaxLineLength", "ComplexCondition")
 
 package com.hereliesaz.graffitixr.feature.editor
 
@@ -173,5 +173,81 @@ class OccludedStrokeFeedTest {
         )
         assertTrue("a cap join is cut where a surface hides its middle", !join(p))
         assertTrue("and kept when nothing does", join(planeWith(strip.copy(isVisible = false))))
+    }
+
+    // ── A crease another surface hides is not bridged ──
+
+    private class Creased(val plane: ActivePlaneMapping, val a: Offset, val b: Offset)
+
+    private fun creased(hide: Boolean): Creased {
+        fun outline(sweep: FloatArray, place: (Float, Float) -> FloatArray) = SurfaceProfile(
+            listOf(300f to 200f, 700f to 200f, 700f to 600f, 300f to 600f).flatMap { place(it.first, it.second).toList() },
+            sweep[0], sweep[1], sweep[2],
+        )
+        val cubeProfile = outline(floatArrayOf(0f, 0f, 1f)) { x, y -> floatArrayOf(x, y, 0f) }.copy(
+            side = outline(floatArrayOf(1f, 0f, 0f)) { z, y -> floatArrayOf(0f, y, z - 300f) },
+            top = outline(floatArrayOf(0f, 1f, 0f)) { x, z -> floatArrayOf(x, 0f, z - 200f) },
+        )
+        for (yaw in listOf(0.7f, -0.7f)) for (cx in listOf(300f, 700f)) {
+            val cam = SceneCamera(yaw = yaw)
+            val frame = SceneMath.frame(cam, w, h)
+            val crease = floatArrayOf(cx, 400f, 0f)
+            val c = frame.project(crease)!!
+            val k = (-60f - frame.eye[2]) / (crease[2] - frame.eye[2])
+            val q = FloatArray(3) { frame.eye[it] + (crease[it] - frame.eye[it]) * k }
+            val strip = Layer(
+                id = "occ", name = "occ", type = LayerType.GROUP, isVisible = hide,
+                surface = SurfaceProfile(listOf(q[0] - 15f, q[1] - 10f, -60f, q[0] + 15f, q[1] - 10f, -60f), 0f, 1f, 0f),
+            )
+            val plane = ActivePlaneMapping.of(
+                EditorUiState(
+                    layers = listOf(strip, Layer("cube", "cube", type = LayerType.GROUP, surface = cubeProfile), Layer("leaf", "leaf", parentId = "cube")),
+                    activeLayerId = "leaf", canvasSize = IntSize(w.toInt(), h.toInt()), sceneCamera = cam,
+                    viewportOffset = Offset.Zero, viewportZoom = 1f, viewportRotation = 0f,
+                ),
+            )
+            val a = Offset(c.first - 40f, c.second)
+            val b = Offset(c.first + 40f, c.second)
+            val fa = plane.toViewFlatByFootprint(a, 0f)
+            val fb = plane.toViewFlatByFootprint(b, 0f)
+            if (fa != null && fb != null && fa.view != fb.view && fa.region == 0 && fb.region == 0) return Creased(plane, a, b)
+        }
+        error("no camera sees two faces of the box across a crease")
+    }
+
+    @Test fun `a crease another surface hides is cut, not bridged, for a raster stroke`() {
+        for (hide in listOf(true, false)) {
+            val (plane, a, b) = creased(hide).let { Triple(it.plane, it.a, it.b) }
+            var segments = 0
+            var points = 0
+            val feed = ViewStrokeFeed<com.hereliesaz.graffitixr.common.azphalt.BrushSample>(
+                toView = { s ->
+                    plane.toViewFlatByFootprint(Offset(s.x, s.y), 0f)?.let { f -> ViewSample(f.view, s, s.copy(x = f.x, y = f.y), f.region) }
+                },
+                bridge = { x, y -> plane.bridgeViews(x, y) },
+                start = { _, _ -> segments++ },
+                point = { points++ },
+                end = {}, cancel = {}, segmentEnd = {},
+                sampleOk = { v -> plane.viewFlatOnFinger(Offset(v.raw.x, v.raw.y), com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(v.view, v.flat.x, v.flat.y, v.region), 2f) },
+                joinOk = { x, y -> plane.viewJoinOnFinger(Offset(x.raw.x, x.raw.y), x, Offset(y.raw.x, y.raw.y), y, 2f) },
+            )
+            fun sample(o: Offset) = com.hereliesaz.graffitixr.common.azphalt.BrushSample(o.x, o.y)
+            feed.onStart(sample(a))
+            feed.onPoint(sample(b))
+            feed.onEnd()
+            assertEquals(2, segments)
+            if (hide) assertEquals("a hidden crease paints no bridge", 0, points) else assertTrue("a seen crease is bridged", points > 0)
+        }
+    }
+
+    @Test fun `a crease another surface hides is cut, not bridged, for a finished ink stroke`() {
+        val hidden = creased(true)
+        val cut = hidden.plane.inkSegments(listOf(hidden.a, hidden.b), 0f)
+        assertEquals(2, cut.size)
+        assertTrue(cut.all { it.samples.size == 1 })
+        val open = creased(false)
+        val bridged = open.plane.inkSegments(listOf(open.a, open.b), 0f)
+        assertEquals(2, bridged.size)
+        assertTrue(bridged.all { it.samples.size == 2 })
     }
 }

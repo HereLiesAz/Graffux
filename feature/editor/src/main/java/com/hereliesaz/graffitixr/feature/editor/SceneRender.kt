@@ -179,7 +179,8 @@ internal class ActivePlaneMapping private constructor(
         return sceneSeen(com.hereliesaz.graffitixr.common.scene.SurfaceMath.flatToScene(flat.x, flat.y, s, width, height))
     }
 
-    private fun viewFlatSeen(view: com.hereliesaz.graffitixr.common.scene.SurfaceView, flat: Offset): Boolean {
+    /** Whether the point of [view]'s paint image is in the camera's direct view (true off a group surface). */
+    internal fun viewFlatSeen(view: com.hereliesaz.graffitixr.common.scene.SurfaceView, flat: Offset): Boolean {
         val s = surface ?: return true
         val h = hull ?: return true
         return sceneSeen(com.hereliesaz.graffitixr.common.scene.SurfaceMath.viewFlatToScene(view, flat.x, flat.y, s, h, width, height))
@@ -605,6 +606,8 @@ internal fun ActivePlaneMapping.bridgeViews(
         prev.raw.x, prev.raw.y, sm, next.raw.x, next.raw.y, tm,
     ) { x, y -> toViewFlatByFootprint(Offset(x, y), 0f) }
     if (c.last === sm && c.first === tm) return null
+    // A crease another surface hides is not bridged: the stroke is cut there instead (a null bridge).
+    if (!viewFlatSeen(prev.view, Offset(c.last.x, c.last.y)) || !viewFlatSeen(next.view, Offset(c.first.x, c.first.y))) return null
     return prev.flat.copy(x = c.last.x, y = c.last.y) to next.flat.copy(x = c.first.x, y = c.first.y)
 }
 
@@ -649,6 +652,9 @@ internal fun ActivePlaneMapping.inkSegments(path: List<Offset>, footprint: Float
                 a.raw.second.x, a.raw.second.y, sm, b.raw.second.x, b.raw.second.y, tm,
             ) { x, y -> worldToViewFlatByFootprint(Offset(x, y), 0f) }
             if (c.last === sm && c.first === tm) {
+                null
+            } else if (!viewFlatSeen(a.view, Offset(c.last.x, c.last.y)) || !viewFlatSeen(b.view, Offset(c.first.x, c.first.y))) {
+                // A crease another surface hides is not bridged: the stroke is cut there.
                 null
             } else {
                 (a.flat.first to Offset(c.last.x, c.last.y)) to (b.flat.first to Offset(c.first.x, c.first.y))
