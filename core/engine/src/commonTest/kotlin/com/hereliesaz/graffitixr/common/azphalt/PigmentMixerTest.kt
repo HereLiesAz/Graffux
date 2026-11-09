@@ -109,12 +109,14 @@ class PigmentMixerTest {
         var seed = 12345L
         fun rnd(): Float { seed = seed * 6364136223846793005L + 1442695040888963407L; return ((seed ushr 33) % 1000) / 1000f }
         repeat(300) {
-            val c = FloatArray(PigmentConcentration.BOARD_TUBES) { if (rnd() < 0.5f) 0f else rnd() }
+            val c = FloatArray(PigmentConcentration.BOARD_CHANNELS) { if (rnd() < 0.5f) 0f else rnd() }
             if (c.all { it == 0f }) return@repeat
             val q = PigmentConcentration.quantize(c)
             assertEquals(255, q.sum())
-            val exact = PigmentMixer.mixSrgb8(c, set.pigments)
-            val quant = PigmentMixer.mixSrgb8(PigmentConcentration.dequantize(q), set.pigments)
+            // channels 0..11 are board tubes; 12..15 stand for the four basis pigments
+            val pigments = set.pigments + PigmentLookup.BASIS_IDS.map { id -> set.pigments.first { it.id == id } }
+            val exact = PigmentMixer.mixSrgb8(c, pigments)
+            val quant = PigmentMixer.mixSrgb8(PigmentConcentration.dequantize(q), pigments)
             for (k in 0 until 3) assertTrue(kotlin.math.abs(exact[k] - quant[k]) <= 3, "quantisation colour error ${exact.toList()} vs ${quant.toList()}")
         }
     }

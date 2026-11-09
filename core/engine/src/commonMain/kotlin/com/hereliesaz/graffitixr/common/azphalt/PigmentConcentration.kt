@@ -4,11 +4,17 @@ import kotlin.math.floor
 
 /**
  * Recipe-preserving concentration storage (spec/painterly.md 6.2 item 4). A palette-board texel holds
- * up to [BOARD_TUBES] tube concentrations as one byte each, always summing to exactly [SUM], rounded by
+ * [BOARD_CHANNELS] concentrations (12 tubes plus 4 basis) as one byte each, always summing to exactly [SUM], rounded by
  * a deterministic largest-remainder rule (ties to the lower slot) that the WGSL port repeats.
  */
 object PigmentConcentration {
     const val BOARD_TUBES = 12
+
+    /** Basis-origin channels: paint lifted from the canvas and brought back to the board keeps its place. */
+    const val BASIS_CHANNELS = 4
+
+    /** A board texel's channels: [BOARD_TUBES] tubes then [BASIS_CHANNELS] basis (16 x u8, jointly summing to [SUM]). */
+    const val BOARD_CHANNELS = BOARD_TUBES + BASIS_CHANNELS
     const val SUM = 255
 
     /** [concentration] (any non-negative scale) as bytes summing to [SUM]; all zero stays all zero. */
