@@ -30,6 +30,8 @@ up=$(line 'release upload'); mv_=$(line 'PATCH'); ed=$(line 'release edit')
 if ! { [ -n "$up" ] && [ -n "$mv_" ] && [ -n "$ed" ] && [ "$up" -lt "$mv_" ] && [ "$mv_" -lt "$ed" ]; }; then
   cat "$tmp/log"; echo "order must be upload < move tag < edit" >&2; exit 1
 fi
+# A draft left behind by an earlier failed run must be published even though the release already exists.
+grep -q 'release edit t .*--draft=false' "$tmp/log" || { cat "$tmp/log"; echo "an existing (draft) release must be published" >&2; exit 1; }
 grep -q 'delete-asset t App-1.2.3.3-debug.apk' "$tmp/log" || { echo "stale APK must be deleted" >&2; exit 1; }
 grep -q 'delete-asset t build-tools.zip' "$tmp/log" || { echo "retired build-tools.zip must be deleted" >&2; exit 1; }
 if grep -q 'delete-asset t App-1.2.3.4-debug.apk' "$tmp/log"; then echo "the new APK must not be deleted" >&2; exit 1; fi

@@ -199,6 +199,7 @@ jobs:
           scripts/ci/test-check-ignored-tests.sh
           scripts/ci/test-rolling-release.sh
           python3 scripts/ci/test_check_r8_keep_rules.py
+          python3 scripts/ci/test_merged_build_naming.py
 
       # A disabled test needs an issue reference on its own line (see scripts/ci/check-ignored-tests.sh).
       - name: No disabled test without an issue
@@ -293,7 +294,16 @@ jobs:
           prop() { grep "^$1=" version.properties | cut -d= -f2 | tr -d '\r '; }
           version="$(prop versionMajor).$(prop versionMinor).$(prop versionPatch).$(prop versionBuild)"
           tag="latest-debug-v$(prop versionMajor).$(prop versionMinor)"
-          app_name="$(sed -nE "s/^[[:space:]]*rootProject\.name[[:space:]]*=[[:space:]]*[\"']([^\"']+)[\"'].*/\1/p" settings.gradle.kts settings.gradle 2>/dev/null | head -1)"
+          # Pick the settings file that exists before calling sed: sed exits 2 for a missing input
+          # file even after printing, which kills the step under `pipefail`.
+          settings=""
+          for candidate in settings.gradle.kts settings.gradle; do
+            if [ -f "$candidate" ]; then settings="$candidate"; break; fi
+          done
+          app_name=""
+          if [ -n "$settings" ]; then
+            app_name="$(sed -nE "s/^[[:space:]]*rootProject\.name[[:space:]]*=[[:space:]]*[\"']([^\"']+)[\"'].*/\1/p" "$settings" | head -1)"
+          fi
           apk="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
           [ -n "$apk" ] || { echo "::error::No APK found to release" >&2; exit 1; }
           name="${app_name:-App}-${version}-debug.apk"
