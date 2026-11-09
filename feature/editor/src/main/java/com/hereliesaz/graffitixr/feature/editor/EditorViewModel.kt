@@ -2094,7 +2094,8 @@ class EditorViewModel @Inject constructor(
     private val strokeRecordSync = StrokeRecordSync(
         io = dispatchers.io,
         store = object : StrokeRecordSync.Store {
-            override fun isReadOnly() = openProjectIsReadOnly()
+            override fun isReadOnly(projectId: String) =
+                projectRepository.currentProject.value?.id == projectId && openProjectIsReadOnly()
             override fun onError(error: Throwable) {
                 android.util.Log.e("EditorViewModel", "Failed to save stroke records", error)
             }

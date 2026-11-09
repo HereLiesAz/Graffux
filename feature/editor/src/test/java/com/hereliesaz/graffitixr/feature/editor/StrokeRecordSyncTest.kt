@@ -27,20 +27,22 @@ class StrokeRecordSyncTest {
         val delays = ArrayDeque<Long>()
         var failBak = false
         var reads = 0
+        val readOnlyIds = HashSet<String>()
         var readDelayMs = 0L
     }
 
     private class Rig(
         scope: TestScope,
+        sharedDisk: Disk? = null,
         io: kotlinx.coroutines.CoroutineDispatcher? = null,
         decoder: ((String) -> StrokeRecording.Companion.Repaired?)? = null,
         val readOnly: () -> Boolean = { false },
     ) {
-        val disk = Disk()
+        val disk = sharedDisk ?: Disk()
         val sync = StrokeRecordSync(
             io = io ?: StandardTestDispatcher(scope.testScheduler),
             store = object : StrokeRecordSync.Store {
-                override fun isReadOnly() = readOnly()
+                override fun isReadOnly(projectId: String) = readOnly() || projectId in disk.readOnlyIds
                 override fun onUnreadable(projectId: String, dropped: Int, backedUp: Boolean) {
                     disk.unreadable += projectId to dropped
                     disk.backedUp += backedUp
@@ -66,6 +68,9 @@ class StrokeRecordSyncTest {
         brush = AzphaltBrush(name = "t"), seed = seed, diameterPx = 10f, colorArgb = 0,
         samples = BrushSampleBuilder().let { b -> (0..3).map { b.add(it * 3f, 4f, it * 8L, 0.5f) } },
     )
+
+    @org.junit.Before
+    fun resetQueue() = StrokeWriteQueue.reset()
 
     private val doc = StrokeRecordSync.Doc(300, 200, "paper")
     private fun file(r: Rig, id: String) =
@@ -299,5 +304,88 @@ class StrokeRecordSyncTest {
         r.sync.record("A", stroke(2), doc)
         advanceUntilIdle()
         assertEquals(listOf(1L, 2L), requireNotNull(file(r, "A")).strokes.map { it.seed })
+    }
+
+    @Test
+    fun theFinalFlushWaitsForADebouncedWriteAlreadyInFlight() = runTest {
+        val r = Rig(this)
+        r.disk.delays += 5_000L
+        r.sync.record("A", stroke(1), doc)
+        advanceTimeBy(2_100) // the debounce fired: the write has taken the snapshot and is waiting on IO
+        assertTrue(r.disk.files.isEmpty())
+        r.sync.flush() // onCleared
+        val seeds = requireNotNull(file(r, "A")).strokes.map { it.seed }
+        assertEquals("flush returned only after that write landed", listOf(1L), seeds)
+    }
+
+    @Test
+    fun aNewInstanceRestoresOnlyAfterTheOldInstancesWriteHasLanded() = runTest {
+        val first = Rig(this)
+        first.disk.delays += 5_000L
+        first.sync.record("A", stroke(1), doc)
+        advanceTimeBy(2_100) // the old ViewModel's write is in flight; it is cleared without waiting
+        val second = Rig(this, sharedDisk = first.disk) // the next ViewModel, a new sync on the same project
+        second.sync.open("A")
+        advanceUntilIdle()
+        assertEquals("it saw the previous session's stroke", listOf(1L), second.sync.current().map { it.seed })
+        second.sync.record("A", stroke(2), doc)
+        advanceUntilIdle()
+        assertEquals(listOf(1L, 2L), requireNotNull(file(second, "A")).strokes.map { it.seed })
+    }
+
+    @Test
+    fun aRestoreFinishingAfterASwitchToAReadOnlyProjectStillSavesTheWritableOnesEdits() = runTest {
+        val r = Rig(this)
+        r.disk.files["A/strokes.json"] = recording(1, 2).toByteArray()
+        r.disk.readDelayMs = 5_000
+        r.disk.readOnlyIds += "B"
+        r.sync.open("A")
+        r.sync.record("A", stroke(9), doc)
+        r.sync.open("B") // newer-format, read-only
+        advanceUntilIdle()
+        assertEquals(listOf(1L, 2L, 9L), requireNotNull(file(r, "A")).strokes.map { it.seed })
+        assertTrue("and nothing was written for the read-only one", r.disk.files.keys.none { it.startsWith("B/") })
+    }
+
+    @Test
+    fun aReadOnlyProjectStaysUnwrittenEvenAfterItIsNoLongerTheOpenOne() = runTest {
+        val r = Rig(this)
+        r.disk.readOnlyIds += "R"
+        r.sync.open("R")
+        advanceUntilIdle()
+        r.sync.record("R", stroke(1), doc)
+        r.sync.open("W")
+        advanceUntilIdle()
+        r.sync.flush()
+        assertTrue(r.disk.files.keys.none { it.startsWith("R/") })
+    }
+
+    @Test
+    fun directProjectSwitchesWithoutACloseDoNotGrowMemoryWithoutBound() = runTest {
+        val r = Rig(this)
+        (1..20).forEach { i ->
+            r.sync.open("P$i") // File > Open: a direct switch, never a close
+            advanceUntilIdle()
+            r.sync.record("P$i", stroke(i.toLong()), doc)
+            advanceUntilIdle()
+        }
+        assertTrue("states held: ${r.sync.stateCount}", r.sync.stateCount <= 5)
+        r.sync.flush()
+        // eviction lost nothing: every project's strokes are on disk
+        assertEquals(20, r.disk.files.keys.count { it.endsWith("/strokes.json") })
+    }
+
+    @Test
+    fun aProjectWithOutstandingWorkIsNeverEvicted() = runTest {
+        val r = Rig(this)
+        r.disk.files["A/strokes.json"] = recording(1).toByteArray()
+        r.disk.readDelayMs = 60_000
+        r.sync.open("A") // restoring for a long time
+        (1..10).forEach { r.sync.open("Q$it"); advanceTimeBy(10) }
+        assertTrue(r.sync.stateCount >= 2)
+        advanceUntilIdle()
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertEquals(listOf(1L), r.sync.current().map { it.seed })
     }
 }

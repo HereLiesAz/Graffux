@@ -3,6 +3,11 @@ package com.hereliesaz.graffitixr.feature.editor
 import com.hereliesaz.graffitixr.common.azphalt.StampStrokeRecord
 import com.hereliesaz.graffitixr.common.azphalt.StrokeRecording
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 
 /** The file side of [StrokeRecordSync]: reading and repairing `strokes.json`, keeping the original, and the cap. */
 internal object StrokeRecordFiles {
@@ -32,5 +37,54 @@ internal object StrokeRecordFiles {
     fun trim(list: MutableList<StampStrokeRecord>, limits: StrokeRecordSync.Limits) {
         var samples = list.sumOf { it.samples.size }
         while (list.size > limits.maxStrokes || samples > limits.maxSamples) samples -= list.removeAt(0).samples.size
+    }
+
+    /** Drops the oldest idle project states beyond [keep] (never [current], never one with outstanding work). */
+    fun evictIdle(states: MutableMap<String, *>, idle: (String) -> Boolean, current: String?, keep: Int) {
+        val candidates = states.keys.filter { it != current && idle(it) }
+        candidates.dropLast(keep).forEach { states.remove(it) }
+    }
+}
+
+/**
+ * The write side of stroke recording, shared by EVERY [StrokeRecordSync] in the process: a ViewModel being cleared and
+ * the next one being created overlap, and their writes to one project's file must stay ordered and visible to each
+ * other. One lock around encode and write; the newest snapshot (a process-wide sequence number) is the one that
+ * stays; a project whose original could not be preserved is refused; and every write in flight is registered by
+ * project so a final flush can wait for it and a restore can wait before it reads.
+ */
+internal object StrokeWriteQueue {
+    val lock = Mutex()
+    val lastWritten = ConcurrentHashMap<String, Long>()
+    val unpreserved: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val seq = AtomicLong()
+    private val active = ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>()
+
+    fun nextSeq(): Long = seq.incrementAndGet()
+
+    /** Registers a write of [projectId] that is about to start; call [finish] when it ends. */
+    fun begin(projectId: String): CompletableDeferred<Unit> =
+        CompletableDeferred<Unit>().also { active.getOrPut(projectId) { CopyOnWriteArrayList() } += it }
+
+    fun finish(projectId: String, mark: CompletableDeferred<Unit>) {
+        active[projectId]?.remove(mark)
+        mark.complete(Unit)
+    }
+
+    /** Waits for every write of [projectId] now in flight, from any sync instance. */
+    suspend fun awaitWrites(projectId: String) {
+        active[projectId]?.toList()?.forEach { it.await() }
+    }
+
+    /** Waits for every write in flight for any project. */
+    suspend fun awaitAll() {
+        active.values.toList().flatMap { it.toList() }.forEach { it.await() }
+    }
+
+    /** For tests: forgets everything. */
+    fun reset() {
+        lastWritten.clear()
+        unpreserved.clear()
+        active.clear()
     }
 }

@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.feature.editor
 import com.hereliesaz.graffitixr.common.azphalt.StampStrokeRecord
 import com.hereliesaz.graffitixr.common.azphalt.StrokeRecording
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -11,7 +12,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
@@ -45,7 +45,7 @@ internal class StrokeRecordSync(
     private val decoder: (String) -> StrokeRecording.Companion.Repaired? = StrokeRecording::fromJsonRepairing,
 ) {
     interface Store {
-        fun isReadOnly(): Boolean
+        fun isReadOnly(projectId: String): Boolean
         fun onError(error: Throwable) {}
 
         /**
@@ -74,6 +74,7 @@ internal class StrokeRecordSync(
         var saveJob: Job? = null
         var restoreJob: Job? = null
         var writes = 0
+        var readOnly = false
 
         fun takePending(): Snapshot? = pending.also { pending = null }
     }
@@ -82,12 +83,6 @@ internal class StrokeRecordSync(
     private val states = LinkedHashMap<String, PState>()
     private val anonymous = ArrayList<StampStrokeRecord>()
     private var current: String? = null
-    private var nextSeq = 0L
-
-    /** Held across encode and write, with [lastWritten]: writes happen one at a time, newest-wins. */
-    private val writeLock = Mutex()
-    private val lastWritten = HashMap<String, Long>()
-    private val unpreserved: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val detached = CoroutineScope(SupervisorJob() + io)
 
     /** The open project's strokes now (read-only copy; the held ones while its restore is out). */
@@ -108,6 +103,8 @@ internal class StrokeRecordSync(
             StrokeRecordFiles.trim(s.strokes, limits)
             s.doc = doc
             s.edited = true
+            // writability is a fact about THIS project, taken while it is the open one
+            if (store.isReadOnly(projectId)) s.readOnly = true
             if (s.loaded) snapshotAndSchedule(s)
         }
     }
@@ -115,23 +112,28 @@ internal class StrokeRecordSync(
     /** Takes the snapshot of a loaded project's strokes and schedules its debounced write. Call under [lock]. */
     private fun snapshotAndSchedule(s: PState) {
         val doc = s.doc ?: return
-        if (store.isReadOnly()) return
-        s.pending = Snapshot(s.projectId, s.strokes.toList(), doc, ++nextSeq)
+        if (s.readOnly) return
+        s.pending = Snapshot(s.projectId, s.strokes.toList(), doc, StrokeWriteQueue.nextSeq())
         s.saveJob?.cancel()
         s.saveJob = detached.launch {
             delay(debounceMs)
-            if (store.isReadOnly()) return@launch
+            if (s.readOnly) return@launch
             synchronized(lock) { s.takePending() }?.let { write(s, it) }
         }
     }
 
     /** Encode and write [snap], in order: never after a newer snapshot, never over an unsaved original. */
-    private suspend fun write(s: PState, snap: Snapshot) {
+    private suspend fun write(
+        s: PState,
+        snap: Snapshot,
+        mark: CompletableDeferred<Unit> = StrokeWriteQueue.begin(snap.projectId),
+    ) {
         synchronized(lock) { s.writes++ }
         try {
             withContext(NonCancellable + io) {
-                writeLock.withLock {
-                    if (snap.projectId in unpreserved || snap.seq < (lastWritten[snap.projectId] ?: 0L)) return@withLock
+                StrokeWriteQueue.lock.withLock {
+                    val stale = snap.seq < (StrokeWriteQueue.lastWritten[snap.projectId] ?: 0L)
+                    if (snap.projectId in StrokeWriteQueue.unpreserved || stale) return@withLock
                     runCatching {
                         val recording = StrokeRecording(
                             canvasWidth = snap.doc.width.coerceAtLeast(1),
@@ -140,14 +142,26 @@ internal class StrokeRecordSync(
                             strokes = snap.strokes,
                         )
                         store.write(snap.projectId, FILE, recording.toJson().toByteArray())
-                        lastWritten[snap.projectId] = snap.seq
+                        StrokeWriteQueue.lastWritten[snap.projectId] = snap.seq
                     }.onFailure { if (it is CancellationException) throw it else store.onError(it) }
                 }
             }
         } finally {
-            synchronized(lock) { s.writes-- }
+            StrokeWriteQueue.finish(snap.projectId, mark)
+            synchronized(lock) {
+                s.writes--
+                StrokeRecordFiles.evictIdle(states, isIdle, current, KEEP_CLOSED)
+            }
         }
     }
+
+    /** A project with no work outstanding, which may be dropped from memory (its file is the truth). */
+    private val isIdle: (String) -> Boolean = { id ->
+        states[id]?.let { it.loaded && it.pending == null && it.writes == 0 && it.restoreJob == null } == true
+    }
+
+    /** How many projects' states are held in memory (for tests: eviction must bound it). */
+    val stateCount: Int get() = synchronized(lock) { states.size }
 
     /** Writes every pending change now and waits: for the end of the ViewModel's life. Waits for restores first. */
     suspend fun flush() {
@@ -160,10 +174,8 @@ internal class StrokeRecordSync(
             }
         }
         work.forEach { (s, snap) -> write(s, snap) }
-        inFlight.toList().joinAll()
+        StrokeWriteQueue.awaitAll() // every write in flight, whoever started it
     }
-
-    private val inFlight = java.util.concurrent.CopyOnWriteArrayList<Job>()
 
     /** [flush] without waiting (the app going to the background). Nothing is written for a project still restoring. */
     fun flushAsync() {
@@ -174,12 +186,8 @@ internal class StrokeRecordSync(
         s.saveJob?.cancel()
         val snap = synchronized(lock) { s.takePending() } ?: return
         s.writes++ // counted from now, so the state cannot be dropped before the write has even started
-        val job = detached.launch { write(s, snap) }
-        inFlight += job
-        job.invokeOnCompletion {
-            inFlight -= job
-            synchronized(lock) { s.writes-- }
-        }
+        val mark = StrokeWriteQueue.begin(s.projectId) // registered now, so a final flush cannot miss it
+        detached.launch { write(s, snap, mark) }.invokeOnCompletion { synchronized(lock) { s.writes-- } }
     }
 
     /** The open project is going away: its last edit is saved under its own id. Its state stays for a quick reopen. */
@@ -187,9 +195,7 @@ internal class StrokeRecordSync(
         synchronized(lock) {
             current?.let { states[it]?.let(::flushLocked) }
             current = null
-            // keep the few most recently closed projects' states; drop older ones that have nothing left to do
-            val idle = states.values.filter { it.loaded && it.pending == null && it.writes == 0 }
-            idle.dropLast(KEEP_CLOSED).forEach { states.remove(it.projectId) }
+            StrokeRecordFiles.evictIdle(states, isIdle, current, KEEP_CLOSED)
         }
     }
 
@@ -197,13 +203,12 @@ internal class StrokeRecordSync(
     fun open(projectId: String) {
         synchronized(lock) {
             current?.let { states[it]?.let(::flushLocked) }
-            if (projectId in unpreserved) {
-                unpreserved -= projectId // reopening retries the backup
-                states.remove(projectId)
-            }
+            if (StrokeWriteQueue.unpreserved.remove(projectId)) states.remove(projectId) // reopening retries the backup
             val s = states.remove(projectId) ?: PState(projectId)
             states[projectId] = s // most recently opened goes last
             current = projectId
+            // a project switched to directly (no close in between) must not leave the old one in memory forever
+            StrokeRecordFiles.evictIdle(states, isIdle, current, KEEP_CLOSED)
             if (!s.loaded && s.restoreJob == null) s.restoreJob = detached.launch { restore(s) }
             anonymous.clear()
         }
@@ -212,6 +217,7 @@ internal class StrokeRecordSync(
     /** The initial read of [s]'s file: decode and repair, keep the original if anything was lost, then merge. */
     private suspend fun restore(s: PState) {
         val id = s.projectId
+        StrokeWriteQueue.awaitWrites(id) // another instance's write of this file may still be landing
         val loaded = runCatching { StrokeRecordFiles.load(store, id, decoder) }
             .onFailure { if (it is CancellationException) throw it else store.onError(it) }
         if (loaded.isFailure) {
@@ -223,7 +229,7 @@ internal class StrokeRecordSync(
         val repaired = read?.repaired
         if (read != null && read.needsBackup) {
             val kept = withContext(NonCancellable) { StrokeRecordFiles.keepOriginal(store, id, read.bytes) }
-            if (!kept) unpreserved += id
+            if (!kept) StrokeWriteQueue.unpreserved += id
             store.onUnreadable(id, repaired?.dropped ?: -1, kept)
         }
         synchronized(lock) {
@@ -235,6 +241,7 @@ internal class StrokeRecordSync(
             s.loaded = true
             s.restoreJob = null
             if (s.edited) snapshotAndSchedule(s) // the corrected snapshot, never the held-only one
+            StrokeRecordFiles.evictIdle(states, isIdle, current, KEEP_CLOSED)
         }
     }
 
