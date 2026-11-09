@@ -142,7 +142,8 @@ object ModelSpace {
     /**
      * Texture pixels per canvas pixel on triangle [triangle] as the camera sees it: how big a brush
      * of a given on-screen size is in the texture there. The square root of the triangle's texel
-     * area over its projected area; 1 when either is degenerate (edge-on, no UVs).
+     * area over its projected area; null when either is degenerate (edge-on, off-screen, no UVs), so
+     * the caller keeps the radius it already had instead of inventing a scale from nothing.
      */
     fun texelsPerPixel(
         mesh: ModelMesh,
@@ -151,16 +152,16 @@ object ModelSpace {
         frame: CameraFrame,
         textureWidth: Int,
         textureHeight: Int,
-    ): Float {
+    ): Float? {
         val m = mesh.mesh
         val stride = Mesh.FLOATS_PER_VERTEX
         val screen = ArrayList<Pair<Float, Float>>(3)
         val uv = ArrayList<Pair<Float, Float>>(3)
         for (corner in 0..2) {
-            val v = m.indices.getOrNull(triangle * 3 + corner) ?: return 1f
+            val v = m.indices.getOrNull(triangle * 3 + corner) ?: return null
             val o = v * stride
             val p = toScene.apply(m.vertices[o], m.vertices[o + 1], m.vertices[o + 2])
-            screen += frame.project(p) ?: return 1f
+            screen += frame.project(p) ?: return null
             uv += (m.vertices[o + Mesh.UV_OFFSET] * textureWidth) to (m.vertices[o + Mesh.UV_OFFSET + 1] * textureHeight)
         }
         fun area(t: List<Pair<Float, Float>>) = abs(
@@ -169,7 +170,7 @@ object ModelSpace {
         ) / 2f
         val screenArea = area(screen)
         val uvArea = area(uv)
-        if (screenArea < 1e-3f || uvArea < 1e-6f) return 1f
+        if (screenArea < 1e-3f || uvArea < 1e-6f) return null
         return sqrt(uvArea / screenArea).coerceIn(0.01f, 100f)
     }
 }

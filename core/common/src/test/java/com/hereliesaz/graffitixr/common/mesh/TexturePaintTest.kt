@@ -152,7 +152,7 @@ class TexturePaintTest {
     @Test
     fun `a fine brush on a large texture cannot produce unbounded work`() {
         val stamps = TexturePaint.stamps(0.26f, 0.26f, 0.5f, 0.5f, 8192, 8192, spacingPx = 0.5f)
-        assertTrue("produced ${stamps.size} stamps in one segment", stamps.size <= 512)
+        assertTrue("produced ${stamps.size} stamps in one segment", stamps.size <= TexturePaint.MAX_STAMPS_PER_SEGMENT)
         // Even capped, it must still end under the finger.
         assertEquals(0.5f * 8192, stamps.last().x, 1f)
     }
@@ -176,5 +176,45 @@ class TexturePaintTest {
         // 20 px of travel: about 10 stamps, all within 10 px of the u=0 / u=1 edge.
         assertTrue("got ${stamps.size} stamps", stamps.size <= 11)
         stamps.forEach { assertTrue("x=${it.x}", it.x >= 989f || it.x <= 11f) }
+    }
+
+    @Test
+    fun `a fast drag on a large texture is never drawn coarser than asked`() {
+        // The longest segment the seam rule lets through on an 8192 texture, at a 1 px brush's
+        // spacing: the old 512-stamp cap spaced it ~5 px apart, a visible string of dots.
+        val spacing = 1f
+        val stamps = TexturePaint.stamps(0.3f, 0.3f, 0.5f, 0.5f, 8192, 8192, spacingPx = spacing)
+        var prev = TexturePaint.toPixel(0.3f, 0.3f, 8192, 8192)
+        var widest = 0f
+        for (s in stamps) {
+            widest = maxOf(widest, hypot(s.x - prev.x, s.y - prev.y))
+            prev = s
+        }
+        assertTrue("widest gap $widest px for spacing $spacing", widest <= spacing * 1.01f)
+    }
+
+    // ── Brush radius ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `radius is half the brush size times the texel scale`() {
+        assertEquals(20f, TexturePaint.radiusTexels(20f, 2f, null, 512f)!!, 1e-4f)
+    }
+
+    @Test
+    fun `a surface with no usable scale keeps the previous radius`() {
+        assertEquals(7f, TexturePaint.radiusTexels(20f, null, 7f, 512f)!!, 1e-4f)
+        assertEquals(7f, TexturePaint.radiusTexels(20f, 0f, 7f, 512f)!!, 1e-4f)
+        assertEquals(7f, TexturePaint.radiusTexels(20f, Float.NaN, 7f, 512f)!!, 1e-4f)
+    }
+
+    @Test
+    fun `no scale and nothing to keep paints nothing`() {
+        assertEquals(null, TexturePaint.radiusTexels(20f, null, null, 512f))
+    }
+
+    @Test
+    fun `radius is clamped at both ends`() {
+        assertEquals(TexturePaint.MIN_RADIUS_TEXELS, TexturePaint.radiusTexels(0.01f, 0.01f, null, 512f)!!, 0f)
+        assertEquals(512f, TexturePaint.radiusTexels(1000f, 100f, null, 512f)!!, 0f)
     }
 }

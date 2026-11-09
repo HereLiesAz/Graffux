@@ -191,7 +191,7 @@ used to open the window, now imports into a layer.
   layer's mesh-to-scene map), finds the nearest triangle and its UV (`MeshPicker.raycast`), and
   stamps dabs from the previous UV (`TexturePaint.stamps`, which breaks the stroke at UV seams) into
   the texture (`PaintableTexture`). The brush's on-screen size is converted to texels at the hit
-  (`ModelSpace.texelsPerPixel`: the triangle's texel area over its projected area). A miss ends the
+  (`ModelSpace.texelsPerPixel`: the triangle's texel area over its projected area; where that is degenerate the stroke keeps its last radius, `TexturePaint.radiusTexels`). A miss ends the
   run. A second finger ends the stroke. The 2D paint pipeline is not touched.
 - **Selection.** Tap-select and the one-finger move's hit check cast the tap onto the model's
   surface (the same ray as painting), ranked by the depth of the surface hit; the selection outline

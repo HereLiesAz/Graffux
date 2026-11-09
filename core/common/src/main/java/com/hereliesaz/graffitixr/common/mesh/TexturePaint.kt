@@ -43,8 +43,16 @@ object TexturePaint {
      * A ceiling on the dabs one segment may produce, so a huge texture with a fine brush can't
      * stall a frame. Reaching it means the segment is being drawn more coarsely than asked, which
      * is a far better outcome than dropping frames mid-stroke.
+     *
+     * Sized so it is out of reach in practice: a segment is at most [SEAM_THRESHOLD] of an 8192
+     * texture (about 2900 px diagonal) and spacing is floored at [MIN_SPACING_PX], so the cap
+     * is only ever hit by a segment longer than the seam rule lets through. At 512 it was hit by a
+     * routine fast drag on a large texture, and the coarser spacing left a visible string of dots.
      */
-    private const val MAX_STAMPS_PER_SEGMENT = 512
+    const val MAX_STAMPS_PER_SEGMENT = 8192
+
+    /** The finest dab spacing honoured, in texture pixels. */
+    const val MIN_SPACING_PX = 0.5f
 
     /**
      * The pixel a UV coordinate names in a texture of [width]×[height].
@@ -95,7 +103,7 @@ object TexturePaint {
         val dx = du * width
         val dy = dv * height
         val distance = sqrt(dx * dx + dy * dy)
-        val spacing = spacingPx.coerceAtLeast(0.5f)
+        val spacing = spacingPx.coerceAtLeast(MIN_SPACING_PX)
         if (distance <= spacing) return listOf(end)
 
         val steps = ceil(distance / spacing).toInt().coerceAtMost(MAX_STAMPS_PER_SEGMENT)
@@ -107,6 +115,23 @@ object TexturePaint {
             if (i == steps) end else toPixel(fromU + du * t, fromV + dv * t, width, height)
         }
     }
+
+    /**
+     * The dab radius, in texels, of a brush [brushSizePx] across on the canvas, given the texels per
+     * canvas pixel under the finger ([texelsPerPixel]; null when the surface there has no usable
+     * scale). With no scale it keeps [previous] so the line does not change width across a degenerate
+     * triangle, and with nothing to keep it returns null: there is no honest radius to paint.
+     * Clamped to [MIN_RADIUS_TEXELS]..[maxRadius] so a tiny or huge triangle cannot make the brush
+     * vanish or flood the texture.
+     */
+    fun radiusTexels(brushSizePx: Float, texelsPerPixel: Float?, previous: Float?, maxRadius: Float): Float? {
+        val scale = texelsPerPixel?.takeIf { it.isFinite() && it > 0f }
+        val raw = if (scale != null) brushSizePx / 2f * scale else previous
+        return raw?.takeIf { it.isFinite() }?.coerceIn(MIN_RADIUS_TEXELS, maxRadius)
+    }
+
+    /** The smallest brush radius painted, in texels: below this a dab is sub-pixel and invisible. */
+    const val MIN_RADIUS_TEXELS = 0.5f
 
     /** Wraps into `[0,1)`, handling negatives the way a tiled texture needs (floor, not truncate). */
     private fun wrapUnit(value: Float): Float {

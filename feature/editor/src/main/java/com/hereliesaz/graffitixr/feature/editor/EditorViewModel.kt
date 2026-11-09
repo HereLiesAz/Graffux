@@ -14011,6 +14011,8 @@ class EditorViewModel @Inject constructor(
         val before: com.hereliesaz.graffitixr.common.scene.ModelTexture?,
     ) {
         var lastUv: Pair<Float, Float>? = null
+        /** The last radius painted, kept across a triangle with no usable texel scale. */
+        var lastRadius: Float? = null
         var edited = false
         var version = 0L
     }
@@ -14139,8 +14141,13 @@ class EditorViewModel @Inject constructor(
         val texels = com.hereliesaz.graffitixr.common.scene.ModelSpace.texelsPerPixel(
             mesh, hit.triangleIndex, toScene, frame, surface.width, surface.height,
         )
-        val radius = (st.brushSize / 2f / st.viewportZoom.coerceAtLeast(0.01f) * texels)
-            .coerceIn(0.5f, MAX_MODEL_BRUSH_TEXELS)
+        // The slider's size is on-screen pixels, so it is divided by zoom (the scene's 3D sketch
+        // brush does the same). A triangle with no usable texel scale keeps the radius the stroke
+        // already had; before, it fell back to a scale of 1 and the line jumped in width.
+        val radius = com.hereliesaz.graffitixr.common.mesh.TexturePaint.radiusTexels(
+            st.brushSize / st.viewportZoom.coerceAtLeast(0.01f), texels, stroke.lastRadius, MAX_MODEL_BRUSH_TEXELS,
+        ) ?: return
+        stroke.lastRadius = radius
         val from = stroke.lastUv ?: (hit.u to hit.v)
         val stamps = com.hereliesaz.graffitixr.common.mesh.TexturePaint.stamps(
             from.first, from.second, hit.u, hit.v, surface.width, surface.height, spacingPx = radius / 4f,
