@@ -283,9 +283,12 @@ object SurfaceMath {
      * (the owner's box-local to scene map): the nearest hit in front of the near plane, or null
      * when the ray misses every strip.
      */
-    fun hit(x: Float, y: Float, profile: SurfaceProfile, model: Affine3, cam: CameraFrame): SurfaceHit? {
+    fun hit(x: Float, y: Float, profile: SurfaceProfile, model: Affine3, cam: CameraFrame): SurfaceHit? =
+        hitRay(cam.rayDirection(x, y), profile, model, cam)
+
+    /** [hit] for the ray from the eye along the unit scene direction [dirW] (the one ray machinery the tap pick and the visibility test share). */
+    fun hitRay(dirW: FloatArray, profile: SurfaceProfile, model: Affine3, cam: CameraFrame): SurfaceHit? {
         val inv = model.inverse() ?: return null
-        val dirW = cam.rayDirection(x, y)
         val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
         val dir = inv.applyVector(dirW[0], dirW[1], dirW[2])
         val d = profile.sweep
@@ -439,14 +442,25 @@ object SurfaceMath {
         return ViewFlat(target.view, flat.first, flat.second, target.region)
     }
 
-    /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */
-    fun flatToWorld(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): Pair<Float, Float>? {
+    /** Where a flat point of [owner]'s leaf is in the scene (the point [flatToWorld] projects). */
+    fun flatToScene(x: Float, y: Float, owner: SurfaceOwner, width: Float, height: Float): FloatArray? {
         if (width <= 0f || height <= 0f) return null
         val (u, t) = flatToUnrolled(x, y, owner.innerChain, width, height)
-        val cam = SceneMath.frame(camera, width, height)
         val local = owner.profile.at(u, t.coerceAtLeast(0f))
-        val p = SceneMath.chainModel(owner.ownerChain, width, height).apply(local[0], local[1], local[2])
-        return cam.project(p)
+        return SceneMath.chainModel(owner.ownerChain, width, height).apply(local[0], local[1], local[2])
+    }
+
+    /** Where the point ([x], [y]) of [view]'s paint image is in the scene; null where the image has no surface. */
+    fun viewFlatToScene(view: SurfaceView, x: Float, y: Float, owner: SurfaceOwner, hull: SurfaceHull, width: Float, height: Float): FloatArray? {
+        val (ux, uy) = flatToUnrolled(x, y, owner.innerChain, width, height)
+        val p = hull.pointAt(view, ux, uy) ?: return null
+        return SceneMath.chainModel(owner.ownerChain, width, height).apply(p[0], p[1], p[2])
+    }
+
+    /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */
+    fun flatToWorld(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): Pair<Float, Float>? {
+        val p = flatToScene(x, y, owner, width, height) ?: return null
+        return SceneMath.frame(camera, width, height).project(p)
     }
 
     /** Camera depth of the surface hit for ([x], [y]); null on a miss. */

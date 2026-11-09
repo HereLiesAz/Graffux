@@ -159,7 +159,32 @@ internal class ActivePlaneMapping private constructor(
     private val surface: com.hereliesaz.graffitixr.common.scene.SurfaceOwner? = null,
     /** The active layer, the paint layer whose per-view images a hull stroke lands in. */
     val layerId: String? = null,
+    /** Every layer, for what the camera sees of the surfaces ([visibility]). */
+    private val layers: List<Layer> = emptyList(),
 ) {
+    /**
+     * What the camera sees of the surfaces (spec/3d-space.md, "Paint reaches only what the camera sees"), built
+     * once per mapping from the camera it holds, which is the one the stroke is mapped with. Null off a group surface.
+     */
+    private val visibility: com.hereliesaz.graffitixr.common.scene.SurfaceVisibility? by lazy {
+        if (surface == null) null else com.hereliesaz.graffitixr.common.scene.SurfaceVisibility.of(layers, camera, width, height)
+    }
+
+    private fun sceneSeen(p: FloatArray?): Boolean = com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.visibleOk(
+        p != null && visibility?.visible(p) != false,
+    )
+
+    private fun flatSeen(flat: Offset): Boolean {
+        val s = surface ?: return true
+        return sceneSeen(com.hereliesaz.graffitixr.common.scene.SurfaceMath.flatToScene(flat.x, flat.y, s, width, height))
+    }
+
+    private fun viewFlatSeen(view: com.hereliesaz.graffitixr.common.scene.SurfaceView, flat: Offset): Boolean {
+        val s = surface ?: return true
+        val h = hull ?: return true
+        return sceneSeen(com.hereliesaz.graffitixr.common.scene.SurfaceMath.viewFlatToScene(view, flat.x, flat.y, s, h, width, height))
+    }
+
     /** The intersected surface of a group drawn from more than one view, built once; null otherwise. */
     private val hull: com.hereliesaz.graffitixr.common.scene.SurfaceHull? by lazy {
         surface?.takeIf { it.profile.hasHull }?.let { com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(it.profile) }
@@ -235,15 +260,17 @@ internal class ActivePlaneMapping private constructor(
         if (chain == null) return true
         val t = world(touch)
         val b = flatToWorld(flat) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx))
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx)) &&
+            flatSeen(flat)
     }
 
     /** [flatOnFinger] for a multi-view surface's [ViewFlat]. */
     fun viewFlatOnFinger(touch: Offset, f: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, radiusPx: Float): Boolean {
-        if (f.region != 0) return true
+        if (f.region != 0) return viewFlatSeen(f.view, Offset(f.x, f.y))
         val t = world(touch)
         val b = viewFlatToWorld(f.view, Offset(f.x, f.y)) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx))
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx)) &&
+            viewFlatSeen(f.view, Offset(f.x, f.y))
     }
 
     /** The stroke from ([touchA], [flatA]) to ([touchB], [flatB]) stays on the surface between them. */
@@ -251,8 +278,11 @@ internal class ActivePlaneMapping private constructor(
         if (chain == null) return true
         val a = world(touchA)
         val b = world(touchB)
-        val m = flatToWorld(Offset((flatA.x + flatB.x) / 2f, (flatA.y + flatB.y) / 2f)) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(a.x, a.y, b.x, b.y, m.x, m.y, footprintWorld(radiusPx))
+        val mid = Offset((flatA.x + flatB.x) / 2f, (flatA.y + flatB.y) / 2f)
+        val m = flatToWorld(mid) ?: return false
+        // The stretch between two seen samples must be seen at its middle too: a fast stroke can step over a hidden fold.
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(a.x, a.y, b.x, b.y, m.x, m.y, footprintWorld(radiusPx)) &&
+            flatSeen(mid)
     }
 
     /** [flatJoinOnFinger] for two touches on one face of a multi-view surface. */
@@ -260,8 +290,10 @@ internal class ActivePlaneMapping private constructor(
         if (b.region != 0) return true
         val wa = world(touchA)
         val wb = world(touchB)
-        val m = viewFlatToWorld(b.view, Offset((a.flat.x + b.flat.x) / 2f, (a.flat.y + b.flat.y) / 2f)) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(wa.x, wa.y, wb.x, wb.y, m.x, m.y, footprintWorld(radiusPx))
+        val mid = Offset((a.flat.x + b.flat.x) / 2f, (a.flat.y + b.flat.y) / 2f)
+        val m = viewFlatToWorld(b.view, mid) ?: return false
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(wa.x, wa.y, wb.x, wb.y, m.x, m.y, footprintWorld(radiusPx)) &&
+            viewFlatSeen(b.view, mid)
     }
 
     /** A flat point back to where it shows in world space; null behind the eye. */
@@ -344,6 +376,7 @@ internal class ActivePlaneMapping private constructor(
             }
             return ActivePlaneMapping(
                 state.viewportOffset, state.viewportZoom, state.viewportRotation, state.sceneCamera, chain, w, h, surface, id,
+                state.layers,
             )
         }
     }
