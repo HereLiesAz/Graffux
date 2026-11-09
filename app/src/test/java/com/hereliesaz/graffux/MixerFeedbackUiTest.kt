@@ -276,4 +276,45 @@ class MixerFeedbackUiTest {
         assertTrue("the recalled paint is on the background brush", board.brushes[1].amount[0] > 0f)
         assertEquals("the foreground brush was never rinsed", foreground, board.brushes[0].amount[0], 0f)
     }
+
+    @Test
+    fun `mixing with paint from a Match is a mix even if it uses the load up`() {
+        compose()
+        rule.onNodeWithTag("mixer.hex").performScrollTo().performTextInput("#FF8800")
+        rule.onNodeWithText("Match").performScrollTo().performClick()
+        assertTrue("Match loads the brush", board.brush.amount[0] > 0f)
+        rule.onNodeWithTag("mixer.mixMore").performScrollTo().performClick()
+        status().assertTextContains("Mixed more with the foreground brush", substring = true)
+    }
+
+    @Test
+    fun `a drag that ends past the board's edge leaves the last touched spot on the board`() {
+        compose()
+        rule.onNodeWithText("Dip and mix").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.board").performScrollTo().performTouchInput {
+            down(center)
+            moveTo(androidx.compose.ui.geometry.Offset(width * 3f, height * 3f))
+            up()
+        }
+        rule.waitForIdle()
+        // The squeeze and dip actions work at that spot: on the board they load the brush; off it they do nothing.
+        boardAction("Squeeze the chosen tube")
+        boardAction("Dip the brush")
+        assertTrue("the anchor was left off the board", board.brush.amount[0] > 0f)
+    }
+
+    @Test
+    fun `a cancelled drag past the edge also leaves the spot on the board`() {
+        compose()
+        rule.onNodeWithText("Dip and mix").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.board").performScrollTo().performTouchInput {
+            down(center)
+            moveTo(androidx.compose.ui.geometry.Offset(-width * 3f, -height * 3f))
+            cancel()
+        }
+        rule.waitForIdle()
+        boardAction("Squeeze the chosen tube")
+        boardAction("Dip the brush")
+        assertTrue("the anchor was left off the board", board.brush.amount[0] > 0f)
+    }
 }

@@ -249,14 +249,23 @@ fun PaletteMixerDialog(
         if (board.brush.amount[0] > before) say(R.string.mixer_status_dipped, handName())
         else say(R.string.mixer_status_nothing_to_lift, handName())
     }
-    // Mixing works with the paint the brush holds; an empty brush has none, so nothing was mixed.
-    fun mixed(id: Int) {
-        if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_nothing_to_mix, handName())
+    // Mixing works with paint. Nothing was mixed only if the brush held none before and picked none up: a
+    // brush that held paint and laid it all down (a long Mix once) has still mixed, so the load AFTER is not
+    // the test.
+    fun mixed(id: Int, loadBefore: Float) {
+        if (loadBefore <= 0f && board.brush.amount[0] <= 0f) say(R.string.mixer_status_nothing_to_mix, handName())
         else say(id, handName())
     }
+    // The brush's load when the current drag began, for the same test at its end.
+    val dragLoadBefore = remember { FloatArray(1) }
+    // A drag can end past the board's edge; the "last touched spot" stays on it.
+    fun inBoard(o: Offset) = Offset(
+        o.x.coerceIn(0f, MIXER_BOARD_SIZE - 1f),
+        o.y.coerceIn(0f, MIXER_BOARD_SIZE - 1f),
+    )
 
     fun dragDone() {
-        if (tool == MixerTool.MIX) mixed(R.string.mixer_status_mixed)
+        if (tool == MixerTool.MIX) mixed(R.string.mixer_status_mixed, dragLoadBefore[0])
         else say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
     }
 
@@ -406,9 +415,10 @@ fun PaletteMixerDialog(
                         detectDragGestures(
                             // Ending and cancelling a drag both leave the board changed, so both say what it did,
                             // and both leave the "last touched spot" where the finger last was.
-                            onDragEnd = { anchor = last; dragDone() },
-                            onDragCancel = { anchor = last; dragDone() },
+                            onDragEnd = { anchor = inBoard(last); dragDone() },
+                            onDragCancel = { anchor = inBoard(last); dragDone() },
                             onDragStart = { p ->
+                                dragLoadBefore[0] = board.brush.amount[0]
                                 last = toBoard(p)
                                 if (tool == MixerTool.MIX) {
                                     ops.dip(last.x, last.y)
@@ -458,7 +468,11 @@ fun PaletteMixerDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GraffuxButton(
                     text = "Mix once",
-                    onClick = { ops.mixStep(anchor.x, anchor.y); mixed(R.string.mixer_status_mixed) },
+                    onClick = {
+                        val before = board.brush.amount[0]
+                        ops.mixStep(anchor.x, anchor.y)
+                        mixed(R.string.mixer_status_mixed, before)
+                    },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier
                         .semantics { contentDescription = "Mix once. Runs the brush round the board once" }
@@ -466,8 +480,9 @@ fun PaletteMixerDialog(
                 GraffuxButton(
                     text = "Mix more",
                     onClick = {
+                        val before = board.brush.amount[0]
                         ops.mixStep(anchor.x, anchor.y, MIX_MORE_PASSES)
-                        mixed(R.string.mixer_status_mixed_more)
+                        mixed(R.string.mixer_status_mixed_more, before)
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier
