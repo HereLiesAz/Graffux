@@ -378,4 +378,45 @@ class ObjParserTest {
     @Test
     fun `the vertex cap is three times the triangle cap`() =
         assertEquals(3 * ObjParser.MAX_TRIANGLES, ObjParser.MAX_VERTICES)
+
+    // Line endings: \n, \r\n and a bare \r (old Mac exporters) all end a line.
+
+    private val triLines = listOf("v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3")
+
+    @Test
+    fun `a file with bare carriage returns parses`() {
+        assertEquals(1, ObjParser.parse(triLines.joinToString("\r", postfix = "\r")).triangleCount)
+        assertEquals(1, ObjParser.parse(triLines.joinToString("\r")).triangleCount)
+    }
+
+    @Test
+    fun `windows and mixed line endings still parse`() {
+        assertEquals(1, ObjParser.parse(triLines.joinToString("\r\n", postfix = "\r\n")).triangleCount)
+        assertEquals(1, ObjParser.parse("v 0 0 0\r\nv 1 0 0\rv 0 1 0\nf 1 2 3\r\n\r\n").triangleCount)
+    }
+
+    @Test
+    fun `the line cap still applies when lines are carriage-return separated`() {
+        assertRefused(triLines.take(3).joinToString("\r") + "\rf " + "1 ".repeat(100_000) + "\r", "line")
+    }
+
+    // The dedupe map: a position-only corner packs to (index + 1) shl 42, so a weak hash clusters them.
+
+    @Test(timeout = 60_000)
+    fun `sequential position-only keys do not cluster in the dedupe map`() {
+        val n = ObjParser.MAX_VERTICES
+        val map = LongIntMap()
+        for (i in 0 until n) map[(i + 1).toLong() shl 42] = i
+        for (i in 0 until n) assertEquals(i, map[(i + 1).toLong() shl 42])
+        assertEquals(-1, map[(n + 5).toLong() shl 42])
+        // About one to three slots per operation; clustering into runs of hundreds would be 100x this.
+        assertTrue("probes ${map.probes} for ${2 * n} operations", map.probes < 6L * n)
+    }
+
+    @Test
+    fun `corners with only a position still dedupe`() {
+        val mesh = ObjParser.parse("v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nf 1 2 3\nf 2 4 3\nf 1 2 3\n")
+        assertEquals(4, mesh.vertexCount)
+        assertEquals(3, mesh.triangleCount)
+    }
 }

@@ -64,10 +64,12 @@ object ObjParser {
         val builder = Builder(limits)
         var start = 0
         while (start <= text.length) {
-            val newline = text.indexOf('\n', start)
-            val end = if (newline < 0) text.length else newline
+            // \n, \r\n and a bare \r (old Mac exporters) each end a line; one pass finds the first of them.
+            var end = start
+            while (end < text.length && text[end] != '\n' && text[end] != '\r') end++
             parseLine(text, start, end, builder)
-            start = end + 1
+            val crlf = end + 1 < text.length && text[end] == '\r' && text[end + 1] == '\n'
+            start = if (crlf) end + 2 else end + 1
         }
         return builder.build()
     }
@@ -329,18 +331,24 @@ private class IntList {
  * emitted-vertex lookup at 12 bytes a slot instead of a `HashMap` entry plus two boxed values.
  */
 @Suppress("MagicNumber")
-private class LongIntMap {
+internal class LongIntMap {
     private var keys = LongArray(INITIAL_SLOTS) { EMPTY }
     private var values = IntArray(INITIAL_SLOTS)
     private var count = 0
+
+    /** Slots examined so far, over every lookup and insert: tests check it stays near one per operation. */
+    var probes = 0L
+        private set
 
     /** The value for [key], or -1. */
     operator fun get(key: Long): Int {
         val mask = keys.size - 1
         var slot = slotOf(key, mask)
+        probes++
         while (keys[slot] != EMPTY) {
             if (keys[slot] == key) return values[slot]
             slot = (slot + 1) and mask
+            probes++
         }
         return -1
     }
@@ -354,7 +362,11 @@ private class LongIntMap {
     private fun put(key: Long, value: Int) {
         val mask = keys.size - 1
         var slot = slotOf(key, mask)
-        while (keys[slot] != EMPTY && keys[slot] != key) slot = (slot + 1) and mask
+        probes++
+        while (keys[slot] != EMPTY && keys[slot] != key) {
+            slot = (slot + 1) and mask
+            probes++
+        }
         if (keys[slot] == EMPTY) count++
         keys[slot] = key
         values[slot] = value
@@ -369,14 +381,24 @@ private class LongIntMap {
         for (i in oldKeys.indices) if (oldKeys[i] != EMPTY) put(oldKeys[i], oldValues[i])
     }
 
-    private fun slotOf(key: Long, mask: Int): Int = ((key * GOLDEN) ushr 32).toInt() and mask
+    /**
+     * murmur3's 64-bit finalizer. A position-only corner packs to `(index + 1) shl 42`, whose low 42 bits
+     * are all zero, so a plain multiply-and-shift leaves the slot's low bits zero too and sequential
+     * vertices pile into runs of hundreds; this folds the high bits into the low ones first.
+     */
+    private fun slotOf(key: Long, mask: Int): Int {
+        var k = key
+        k = (k xor (k ushr 33)) * MIX_1
+        k = (k xor (k ushr 33)) * MIX_2
+        return (k xor (k ushr 33)).toInt() and mask
+    }
 
     private companion object {
         const val EMPTY = -1L
         const val INITIAL_SLOTS = 1024
 
-        /** 2^64 / the golden ratio, as a signed Long: spreads packed keys over the table. */
-        const val GOLDEN = -7046029254386353131L
+        const val MIX_1 = -49064778989728563L // 0xff51afd7ed558ccd
+        const val MIX_2 = -4265267296055464877L // 0xc4ceb9fe1a85ec53
     }
 }
 
