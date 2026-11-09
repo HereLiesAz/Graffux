@@ -154,16 +154,37 @@ private fun localizeUnknown(value: String, localRoot: String): String {
     }
 }
 
-private fun looksLikeLocalPath(form: String): Boolean =
-    '\u0000' in form || form.startsWith("/") || form.startsWith("\\") || DRIVE_PATH.containsMatchIn(form) ||
-        form.split('/', '\\').any { it == ".." }
+private fun looksLikeLocalPath(form: String): Boolean {
+    // Trimmed like the raw text: a decoded %0A or %09 in front must not hide what follows.
+    val text = form.trimStart { it <= ' ' }
+    return '\u0000' in form || text.startsWith("/") || text.startsWith("\\") || DRIVE_PATH.containsMatchIn(text) ||
+        text.split('/', '\\').any { it == ".." }
+}
 
-/** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
-private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
+/** The longest URI localizeUri will look at: a real project file URI is a few hundred characters. */
+private const val MAX_URI_CHARS = 4096
 
+private const val FILE_SCHEME = "file://"
+private const val PROJECTS_DIR = "/projects/"
+
+/**
+ * [uri] re-rooted under [localRoot] when it is `file://<anything>/projects/<id>/<rest>` with a safe
+ * <rest>, else "". Found with indexOf, not a regex: a lazy pattern over attacker text backtracked
+ * quadratically (a 480 KB value took over a minute), and a URI over [MAX_URI_CHARS], or one with a line
+ * break, is refused before it is examined. The first `/projects/` that has an id and something after it
+ * is the one used, as the pattern did.
+ */
 private fun localizeUri(uri: String, localRoot: String): String {
-    val inProject = IN_PROJECT.find(uri)?.groupValues?.get(1)
-    val safe = inProject?.takeIf { rest -> rest.split('/').all { isSafeUriSegment(it) } }
+    val usable = uri.length <= MAX_URI_CHARS && uri.startsWith(FILE_SCHEME) &&
+        uri.none { it == '\n' || it == '\r' || it == '\u0085' || it == '\u2028' || it == '\u2029' }
+    var rest: String? = null
+    var at = if (usable) uri.indexOf(PROJECTS_DIR, FILE_SCHEME.length) else -1
+    while (at >= 0 && rest == null) {
+        val idEnd = uri.indexOf('/', at + PROJECTS_DIR.length)
+        if (idEnd > at + PROJECTS_DIR.length && idEnd + 1 < uri.length) rest = uri.substring(idEnd + 1)
+        at = uri.indexOf(PROJECTS_DIR, at + 1)
+    }
+    val safe = rest?.takeIf { r -> r.split('/').all { isSafeUriSegment(it) } }
     return if (safe != null) localRoot + safe else ""
 }
 

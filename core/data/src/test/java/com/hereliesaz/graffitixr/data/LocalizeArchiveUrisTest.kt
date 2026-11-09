@@ -254,7 +254,7 @@ class LocalizeArchiveUrisTest {
         assertEquals(nested, localizeArchiveUris(nested, root))
     }
 
-    @Test fun `brackets inside strings do not count as depth`() {
+    @Test fun `an escaped backslash followed by brackets stays inside the string`() {
         // A valid document: an escaped backslash, then 500 brackets still inside the string.
         val json = """{"name":"a\\""" + "[".repeat(500) + """","x":"{{{{"}"""
         // Not vacuous: it parses, so localizeArchiveUris goes through the walk and not the not-JSON branch.
@@ -370,5 +370,50 @@ class LocalizeArchiveUrisTest {
             return 1 + (0 until d.elementsCount).maxOfOrNull { depth(d.getElementDescriptor(it), next) }.let { it ?: 0 }
         }
         return depth(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, emptySet())
+    }
+
+    // A backtracking regex over attacker text hangs the import: the matcher must be linear.
+
+    @Test(timeout = 10_000)
+    fun `a pathological file uri finishes at once, in an unknown field and in a Uri field`() {
+        val evil = "file://" + "/projects/a/".repeat(20_000) + "\\n" + "x"
+        val unknown = localizeArchiveUris("""{"x":"$evil"}""", root)
+        assertEquals("""{"x":""}""", unknown)
+        val known = localizeArchiveUris("""{"layers":[{"uri":"$evil"}]}""", root)
+        assertEquals("""{"layers":[{"uri":""}]}""", known)
+        // and as a key
+        assertEquals("""{"x":{"":1}}""", localizeArchiveUris("""{"x":{"$evil":1}}""", root))
+    }
+
+    @Test fun `an over-long uri is refused outright, a long but ordinary one still localizes`() {
+        val long = "file:///data/user/0/app/files/projects/old/layers/" + "a".repeat(5_000) + ".png"
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"$long"}""", root))
+        val ok = "file:///data/user/0/app/files/projects/old/layers/" + "a".repeat(200) + ".png"
+        val name = "a".repeat(200)
+        assertEquals("""{"uri":"${root}layers/$name.png"}""", localizeArchiveUris("""{"uri":"$ok"}""", root))
+    }
+
+    @Test fun `the project folder is found at its first usable occurrence`() {
+        assertEquals(
+            """{"uri":"${root}layers/a.png"}""",
+            localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/a.png"}""", root),
+        )
+        // The first "/projects/" has no id after it; the next one does.
+        assertEquals(
+            """{"uri":"${root}a.png"}""",
+            localizeArchiveUris("""{"uri":"file:///x/projects//y/projects/old/a.png"}""", root),
+        )
+        // Nothing after the id.
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"file:///x/projects/old/"}""", root))
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"file:///x/projects/old"}""", root))
+    }
+
+    // Decoded forms are trimmed like the raw one before the path checks.
+    @Test fun `a decoded leading control character does not hide a path`() {
+        for (raw in listOf("%0A/etc/hosts", "%09../x", "%00..%2fx", "%20%2fetc", "%0D%0A..%5cx")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+        val kept = """{"x":"%20hello %2F world"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
     }
 }
