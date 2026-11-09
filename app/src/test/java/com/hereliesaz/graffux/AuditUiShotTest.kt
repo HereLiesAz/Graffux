@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -24,13 +26,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
-import com.hereliesaz.graffitixr.feature.editor.ColorPickerDialog
+import com.hereliesaz.graffitixr.feature.editor.PaletteMixerDialog
+import com.hereliesaz.graffitixr.feature.editor.PaletteMixerHost
+import com.hereliesaz.graffitixr.feature.editor.newMixerBoard
 import com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -113,25 +118,27 @@ class AuditUiShotTest {
     }
 
     @Test
-    fun `the colour picker names its swatches and offers hex and opacity`() {
+    fun `the paint mixer names its tubes and offers a labelled digital hex match`() {
         rule.setContent {
             GraffitiXRTheme {
-                ColorPickerDialog(
+                PaletteMixerDialog(
+                    board = newMixerBoard(),
                     currentColor = Color(0xFFFF3EA5),
                     secondaryColor = Color.Black,
-                    history = listOf(Color(0xFF00FFFF), Color(0xFFFFB300)),
                     onSelectColor = {},
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
                     onDismiss = {},
-                    strings = rememberAppStrings(),
                 )
             }
         }
         rule.waitForIdle()
-        save("colour-picker")
-        rule.onNodeWithContentDescription("Foreground colour #FF3EA5").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Background colour #000000").assertIsDisplayed()
-        rule.onNodeWithTag("color.hex").assertIsDisplayed()
-        rule.onNodeWithTag("color.alpha").assertIsDisplayed()
+        save("paint-mixer")
+        rule.onNodeWithContentDescription("Cadmium Red, opaque, strong tinter").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Foreground brush").assertIsDisplayed()
+        rule.onNodeWithTag("mixer.board").assertIsDisplayed()
+        rule.onNodeWithTag("mixer.hex").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Digital: match a colour").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -180,24 +187,89 @@ class AuditUiShotTest {
     }
 
     @Test
-    fun `closing the picker on the background target reports the background colour`() {
-        var closedOn: Color? = null
+    fun `squeezing a tube and dipping the brush puts that paint in the brush hand`() {
+        val board = newMixerBoard()
+        var applied: Color? = null
         rule.setContent {
             GraffitiXRTheme {
-                ColorPickerDialog(
-                    currentColor = Color(0xFFFF3EA5),
-                    secondaryColor = Color(0xFF00FFFF),
-                    history = emptyList(),
-                    onSelectColor = {},
+                PaletteMixerDialog(
+                    board = board,
+                    currentColor = Color.White,
+                    secondaryColor = Color.Black,
+                    onSelectColor = { applied = it },
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
                     onDismiss = {},
-                    strings = rememberAppStrings(),
-                    onDismissWithColor = { closedOn = it },
                 )
             }
         }
-        rule.onNodeWithTag("color.target.background").performClick()
-        rule.onNodeWithContentDescription("Close Colour").performClick()
+        // Paint the board and load the brush the way a touch would, then confirm what the user is told.
+        board.squeeze(4, 30f, 30f, 7f, 0.9f)
+        board.dip(30f, 30f)
         rule.waitForIdle()
-        assertTrue("closed on $closedOn", closedOn?.toArgb() == Color(0xFF00FFFF).toArgb())
+        assertTrue(board.brushRecipe().tubes.first().first.id == "cadmium-red")
+    }
+
+    @Test
+    fun `closing and reopening the mixer keeps the paint on the board`() {
+        var show by androidx.compose.runtime.mutableStateOf(true)
+        var board: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard? = null
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerHost(
+                    show = show,
+                    currentColor = Color.White,
+                    secondaryColor = Color.Black,
+                    onSelectColor = {},
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
+                    onDismiss = {},
+                    onBoard = { board = it },
+                )
+            }
+        }
+        rule.waitForIdle()
+        val first = checkNotNull(board)
+        first.squeeze(4, 30f, 30f, 7f, 0.9f)
+        first.dip(30f, 30f)
+        show = false
+        rule.waitForIdle()
+        show = true
+        rule.waitForIdle()
+        assertTrue("the same board comes back", board === first)
+        assertTrue(first.recipeAt(30, 30).tubes.first().first.id == "cadmium-red")
+        assertTrue("and the brush still holds its paint", first.brush.amount[0] > 0f)
+    }
+
+    @Test
+    fun `the mixer has non-drag mix actions and shows saved swatches that load the brush`() {
+        val board = newMixerBoard()
+        var saved: Color? = null
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board,
+                    currentColor = Color(0xFFFF8800),
+                    secondaryColor = Color.Black,
+                    onSelectColor = {},
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
+                    onDismiss = {},
+                    savedPalette = listOf(Color(0xFF3366CC)),
+                    onSavePaletteColor = { saved = it },
+                )
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Mix once. Runs the brush round the board once").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Mix more. Runs the brush round the board several times").assertIsDisplayed()
+        rule.onNodeWithText("#3366CC").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("mixer.saveSwatch").performScrollTo().performClick()
+        assertTrue(saved == Color(0xFFFF8800))
+        rule.onNodeWithTag("mixer.swatch.#3366CC").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertTrue("the swatch loaded the brush", board.brush.amount[0] == 1f)
+        rule.onNodeWithTag("mixer.mixMore").performScrollTo().performClick()
+        rule.waitForIdle()
     }
 }

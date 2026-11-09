@@ -49,31 +49,24 @@ fun EditorUi(
     val screenHeight = configuration.screenHeightDp.dp
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
+    val savedPalette by actions.savedPalette.collectAsState()
+
     Box(modifier = Modifier.fillMaxSize()) {
 
-        if (uiState.showColorPicker) {
-            val palette by actions.savedPalette.collectAsState()
-            val recent by actions.recentColors.collectAsState()
-            ColorPickerDialog(
-                currentColor = uiState.activeColor,
-                secondaryColor = uiState.secondaryColor,
-                history = recent,
-                // Fires continuously now (SketchToolsDialog's own LaunchedEffect(selectedColor,
-                // target), including once immediately on mount with the picker's initial colour) —
-                // it's the live-apply path, not a user "I'm done" signal, so it must never also
-                // dismiss the panel. Dismissal is onDismiss only: the window's own close button, an
-                // outside tap, or AzWindow's abandonment timer.
-                onSelectColor = { color -> actions.setActiveColor(color) },
-                onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
-                onSwapColors = actions::swapBrushColors,
-                onDismiss = { actions.onColorPickerDismissed() },
-                onDismissWithColor = { color -> actions.onColorPickerDismissed(color) },
-                strings = strings,
-                savedPalette = palette,
-                onSavePaletteColor = { actions.onSavePaletteColor(it) },
-                onRemovePaletteColor = { actions.onRemovePaletteColor(it) },
-            )
-        }
+        // The physical palette replaces the colour picker (spec/painterly.md 6.3). The host holds the board
+        // outside the `show` condition, so closing the mixer keeps the paint and reopening finds it.
+        PaletteMixerHost(
+            show = uiState.showColorPicker,
+            currentColor = uiState.activeColor,
+            secondaryColor = uiState.secondaryColor,
+            onSelectColor = { color -> actions.setActiveColor(color) },
+            onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
+            onSwapColors = actions::swapBrushColors,
+            onDismiss = { actions.onColorPickerDismissed() },
+            savedPalette = savedPalette,
+            onSavePaletteColor = actions::onSavePaletteColor,
+            onRemovePaletteColor = actions::onRemovePaletteColor,
+        )
 
         GestureFeedback(
             state = uiState,

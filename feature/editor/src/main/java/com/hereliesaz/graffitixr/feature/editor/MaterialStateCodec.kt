@@ -32,14 +32,30 @@ internal object MaterialStateCodec {
         /** Row-major material tile ids for which [rawColor] contains canonical values. */
         val rawColorTiles: Set<Int> = emptySet(),
         val mediumTiles: List<ImpastoMaterialReplayState.TileMediumSnapshot> = emptyList(),
+        /**
+         * Palette-board recipes (spec/painterly.md 6.2 item 4): [CONCENTRATION_CHANNELS] bytes per texel
+         * (12 board tubes then 4 basis), each texel's bytes summing to 255, row-major. Null when absent.
+         */
+        val concentration: ByteArray? = null,
+        /** Canvas basis latent: [LATENT_CHANNELS] concentration bytes per texel, allocated per touched tile. */
+        val latent: ByteArray? = null,
+        /** Board slot table: slot index -> pigment id and its data version at the time of writing. */
+        val slotTable: List<SlotEntry> = emptyList(),
     ) {
         val hasMaterial: Boolean
             get() = heightMap?.any { abs(it) > ZERO_EPSILON } == true ||
                 wetness?.any { abs(it) > ZERO_EPSILON } == true ||
-                mediumTiles.isNotEmpty()
+                mediumTiles.isNotEmpty() ||
+                concentration?.any { it.toInt() != 0 } == true ||
+                latent?.any { it.toInt() != 0 } == true
     }
 
+    data class SlotEntry(val pigmentId: String, val dataVersion: Int)
+
     private data class TileRecord(val tx: Int, val ty: Int, val flags: Int)
+
+    /** A tile's pixel rectangle, `[left, right) x [top, bottom)`. */
+    private class TileBox(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
     fun fileNameForLayer(layerId: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(layerId.toByteArray(Charsets.UTF_8))
@@ -92,6 +108,8 @@ internal object MaterialStateCodec {
                 ) flags = flags or FLAG_WETNESS
                 if (mediumById.containsKey(ty * columns + tx)) flags = flags or FLAG_MEDIUM
                 if (flags != 0 && snapshot.rawColor != null) flags = flags or FLAG_RAW_COLOR
+                val box = TileBox(left, top, right, bottom)
+                flags = flags or byteFlags(snapshot, box)
                 if (flags != 0) records += TileRecord(tx, ty, flags)
             }
         }
@@ -106,6 +124,7 @@ internal object MaterialStateCodec {
                 out.writeInt(snapshot.tileSize)
                 // Never persist Android uptime across process/device epochs.
                 out.writeLong(NO_TIME)
+                writeSlotTable(out, snapshot.slotTable)
                 out.writeInt(records.size)
                 for (record in records) {
                     out.writeInt(record.tx)
@@ -116,7 +135,8 @@ internal object MaterialStateCodec {
                     val right = minOf(snapshot.width, left + snapshot.tileSize)
                     val bottom = minOf(snapshot.height, top + snapshot.tileSize)
                     if (record.flags and FLAG_HEIGHT != 0) {
-                        writeFloatTile(out, requireNotNull(snapshot.heightMap), snapshot.width, left, top, right, bottom)
+                        writeFloatTile(out, requireNotNull(snapshot.heightMap), snapshot.width, left, top, right,
+                            bottom)
                     }
                     if (record.flags and FLAG_WETNESS != 0) {
                         writeFloatTile(out, requireNotNull(snapshot.wetness), snapshot.width, left, top, right, bottom)
@@ -127,6 +147,7 @@ internal object MaterialStateCodec {
                     if (record.flags and FLAG_MEDIUM != 0) {
                         writeMedium(out, requireNotNull(mediumById[record.ty * columns + record.tx]))
                     }
+                    writeByteSections(out, snapshot, record.flags, TileBox(left, top, right, bottom))
                 }
             }
         }
@@ -147,6 +168,7 @@ internal object MaterialStateCodec {
             // v1 persisted Android uptime. Read it to keep the stream aligned, but never reuse it
             // across a new process/device monotonic epoch.
             input.readLong()
+            val slotTable = readSlotTable(input, version)
             val columns = (width + tileSize - 1) / tileSize
             val rows = (height + tileSize - 1) / tileSize
             val maxTiles = columns * rows
@@ -156,6 +178,8 @@ internal object MaterialStateCodec {
             var heightMap: FloatArray? = null
             var wetness: FloatArray? = null
             var rawColor: IntArray? = null
+            var concentration: ByteArray? = null
+            var latent: ByteArray? = null
             val rawColorTiles = LinkedHashSet<Int>()
             val mediumTiles = ArrayList<ImpastoMaterialReplayState.TileMediumSnapshot>()
             val seen = HashSet<Int>(tileCount * 2)
@@ -168,7 +192,7 @@ internal object MaterialStateCodec {
                 val tileId = ty * columns + tx
                 require(seen.add(tileId)) { "Duplicate material tile" }
                 val flags = input.readUnsignedByte()
-                val validFlags = if (version >= 2) VALID_FLAGS_V2 else VALID_FLAGS_V1
+                val validFlags = validFlagsFor(version)
                 require(flags != 0 && flags and validFlags == flags) { "Invalid material tile flags" }
                 val left = tx * tileSize
                 val top = ty * tileSize
@@ -190,6 +214,10 @@ internal object MaterialStateCodec {
                 if (version >= 2 && flags and FLAG_MEDIUM != 0) {
                     mediumTiles += readMedium(input, tx, ty, version)
                 }
+                val box = TileBox(left, top, right, bottom)
+                concentration = readBytesIf(input, flags, FLAG_CONCENTRATION, concentration, CONCENTRATION_CHANNELS,
+                    width * height, width, box)
+                latent = readBytesIf(input, flags, FLAG_LATENT, latent, LATENT_CHANNELS, width * height, width, box)
             }
 
             Snapshot(
@@ -202,9 +230,103 @@ internal object MaterialStateCodec {
                 rawColor = rawColor,
                 rawColorTiles = rawColorTiles,
                 mediumTiles = mediumTiles,
+                concentration = concentration,
+                latent = latent,
+                slotTable = slotTable,
             )
         }
     }.getOrNull()
+
+    private fun validFlagsFor(version: Int): Int = when {
+        version >= VERSION_BOARD -> VALID_FLAGS_V4
+        version >= 2 -> VALID_FLAGS_V2
+        else -> VALID_FLAGS_V1
+    }
+
+    private fun writeSlotTable(out: DataOutputStream, slots: List<SlotEntry>) {
+        out.writeInt(slots.size)
+        for (slot in slots) {
+            out.writeUTF(slot.pigmentId)
+            out.writeInt(slot.dataVersion)
+        }
+    }
+
+    private fun readSlotTable(input: DataInputStream, version: Int): List<SlotEntry> {
+        if (version < VERSION_BOARD) return emptyList()
+        val count = input.readInt()
+        require(count in 0..MAX_SLOTS) { "Invalid board slot count $count" }
+        return List(count) {
+            val id = input.readUTF()
+            require(id.length <= MAX_ID) { "Slot id too long" }
+            SlotEntry(id, input.readInt())
+        }
+    }
+
+    /** The tile flags the board and latent byte fields earn for [box]. */
+    private fun byteFlags(snapshot: Snapshot, box: TileBox): Int {
+        var flags = 0
+        val conc = snapshot.concentration
+        if (conc != null && tileHasBytes(conc, CONCENTRATION_CHANNELS, snapshot.width,
+            box)) flags = flags or FLAG_CONCENTRATION
+        val latent = snapshot.latent
+        if (latent != null && tileHasBytes(latent, LATENT_CHANNELS, snapshot.width, box)) flags = flags or FLAG_LATENT
+        return flags
+    }
+
+    private fun tileHasBytes(values: ByteArray, channels: Int, width: Int, box: TileBox): Boolean {
+        for (y in box.top until box.bottom) {
+            val from = (y * width + box.left) * channels
+            val to = (y * width + box.right) * channels
+            for (i in from until to) if (values[i].toInt() != 0) return true
+        }
+        return false
+    }
+
+    private fun writeByteSections(out: DataOutputStream, snapshot: Snapshot, flags: Int, box: TileBox) {
+        val conc = snapshot.concentration
+        if (flags and FLAG_CONCENTRATION != 0 && conc != null) writeByteTile(out, conc, CONCENTRATION_CHANNELS,
+            snapshot.width, box)
+        val latent = snapshot.latent
+        if (flags and FLAG_LATENT != 0 && latent != null) writeByteTile(out, latent, LATENT_CHANNELS, snapshot.width,
+            box)
+    }
+
+    private fun writeByteTile(out: DataOutputStream, values: ByteArray, channels: Int, width: Int, box: TileBox) {
+        for (y in box.top until box.bottom) {
+            out.write(values, (y * width + box.left) * channels, (box.right - box.left) * channels)
+        }
+    }
+
+    /** Reads this tile's bytes into [existing] (allocated on first use) when [flags] has [flag]. */
+    @Suppress("LongParameterList")
+    private fun readBytesIf(
+        input: DataInputStream,
+        flags: Int,
+        flag: Int,
+        existing: ByteArray?,
+        channels: Int,
+        pixels: Int,
+        width: Int,
+        box: TileBox,
+    ): ByteArray? {
+        if (flags and flag == 0) return existing
+        val values = existing ?: ByteArray(pixels * channels)
+        for (y in box.top until box.bottom) {
+            val from = (y * width + box.left) * channels
+            input.readFully(values, from, (box.right - box.left) * channels)
+            requireRecipes(values, from, box.right - box.left, channels)
+        }
+        return values
+    }
+
+    /** Every non-empty texel must be a recipe summing to 255, else the file is refused. */
+    private fun requireRecipes(values: ByteArray, from: Int, texels: Int, channels: Int) {
+        for (x in 0 until texels) {
+            var sum = 0
+            for (c in 0 until channels) sum += values[from + x * channels + c].toInt() and 0xFF
+            require(sum == 0 || sum == CONCENTRATION_SUM) { "Concentration texel does not sum to $CONCENTRATION_SUM" }
+        }
+    }
 
     private fun tileHasValues(
         values: FloatArray,
@@ -359,13 +481,22 @@ internal object MaterialStateCodec {
 
     private const val MAGIC = 0x47584D54 // "GXMT"
     private const val MIN_SUPPORTED_VERSION = 1
-    private const val VERSION = 3
+    private const val VERSION = 4
     private const val FLAG_HEIGHT = 1
     private const val FLAG_WETNESS = 2
     private const val FLAG_RAW_COLOR = 4
     private const val FLAG_MEDIUM = 8
     private const val VALID_FLAGS_V1 = FLAG_HEIGHT or FLAG_WETNESS
     private const val VALID_FLAGS_V2 = VALID_FLAGS_V1 or FLAG_RAW_COLOR or FLAG_MEDIUM
+    private const val FLAG_CONCENTRATION = 16
+    private const val FLAG_LATENT = 32
+    private const val VALID_FLAGS_V4 = VALID_FLAGS_V2 or FLAG_CONCENTRATION or FLAG_LATENT
+    const val CONCENTRATION_CHANNELS = 16
+    const val LATENT_CHANNELS = 4
+    private const val CONCENTRATION_SUM = 255
+    private const val VERSION_BOARD = 4
+    private const val MAX_SLOTS = 64
+    private const val MAX_ID = 200
     private const val NO_TIME = Long.MIN_VALUE
     // The wetness field's own tile size: the codec's tiles must line up with the field it stores.
     private const val DEFAULT_TILE_SIZE =
