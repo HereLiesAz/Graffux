@@ -954,6 +954,10 @@ medium and stays with the brush (preserving "colour is not medium").
   pigment overpowers white. Phthalo blue is a strong tinter; ultramarine is weaker. This one number
   is what makes mixed paint feel real and is exactly what RYB lacks.
 - **`granulation`** (0..1) is the tendency to settle into tooth; used by E7 and by dry-brush.
+- **Supported wavelength grid (fail-closed).** A pigment set's `wavelengths` must equal the supported grid
+  exactly, values and order: `[440, 470, 500, 540, 580, 620, 660]` nm. The mixer and its WGSL port apply a fixed
+  band-to-colour matrix built for that grid, so a set on any other grid is rejected rather than silently read
+  at the wrong wavelengths. A different grid needs an explicit resampling step (not specified yet).
 - **Naming (decision 7):** generic pigment names only (cadmium red, ultramarine, titanium white);
   no manufacturer or product-line names anywhere in code, data, UI or docs. If a specific product ever
   has to be referenced, use an off-brand wink in the Mr. Pibb / Dr Thunder spirit rather than the
@@ -1025,7 +1029,11 @@ lookup so the 8-bit canvas storage does not change.** Concretely:
      for paint that predates the field, a pixel's latent comes from the **baked RGB-to-latent lookup**
      (a 32-cube, 4 channels, about 128 KB). The reconstruction error is carried as an RGB residual
      (the stored colour minus the mixer's output for the stored concentrations) re-added after a mix, so
-     an unmixed pixel round-trips exactly. This is the approach Mixbox popularised; we do **not** use
+     an unmixed pixel round-trips exactly. The residual is computed **per colour at the time of the lookup**, as
+   the input colour minus the encoded mixer output for the interpolated concentrations; interpolating the
+   grid vertices' residuals instead does not compensate for the non-linear mixing and was measured losing
+   tens of levels off-grid. The GPU lookup does the same: the texture supplies concentrations, the shader
+   derives the residual. This is the approach Mixbox popularised; we do **not** use
      Mixbox's code or data (section 9, licensing).
    - **Consequences, stated plainly.** (i) On the **canvas, recipes are exact only up to projection onto
      the four basis pigments.** Two canvas paints that differ in tube (say ultramarine versus a phthalo
