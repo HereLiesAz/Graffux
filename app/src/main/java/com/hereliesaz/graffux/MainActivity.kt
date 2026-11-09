@@ -1936,7 +1936,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Stays open behind the system picker: cancelling it should put the user back
                     // where they were rather than making them find Open again.
                     onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
-                    onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
+                    onDelete = { vm.deleteProjectById(it) },
                     onDismiss = { showOpenDialog = false },
                 )
             }

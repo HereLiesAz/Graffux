@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- OpenProjectWindow -->
+    <string name="open_title">Open</string>
+    <string name="open_location_current">Open now</string>
+    <string name="open_location_in_app">In app</string>
+    <string name="open_scanning">Looking for projects…</string>
+    <string name="open_none_found">No .fux found.</string>
+    <string name="open_none_hint">Nothing in the places this app can see. If your project is on a cloud drive or an SD card, point at it directly.</string>
+    <string name="open_new_project">+ New project</string>
+    <string name="open_choose_location">Choose location…</string>
+    <string name="open_project_named">Open %1$s</string>
+    <string name="open_delete_named">Delete %1$s</string>
+    <string name="open_delete_title">Delete project?</string>
+    <string name="open_delete_message">\"%1$s\" and everything in it will be deleted permanently. This can\'t be undone.</string>
+    <string name="open_delete_message_current">\"%1$s\" is open now, and everything in it will be deleted permanently. This can\'t be undone. Graffux will open your most recent other project, or ask for a new one.</string>
+    <string name="open_delete_confirm">Delete</string>
+</resources>

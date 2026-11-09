@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,8 +34,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.GraffitiProject
@@ -59,10 +70,9 @@ private sealed interface OpenItem {
     val name: String
     val location: String
 
-    data class InApp(val project: GraffitiProject, val isCurrent: Boolean) : OpenItem {
+    data class InApp(val project: GraffitiProject, val isCurrent: Boolean, override val location: String) : OpenItem {
         override val key get() = "app:${project.id}"
         override val name get() = project.name
-        override val location get() = if (isCurrent) "Open now" else "In app"
     }
 
     data class OnDevice(val file: DiscoveredProjectFile) : OpenItem {
@@ -71,6 +81,17 @@ private sealed interface OpenItem {
         override val location get() = file.location
     }
 }
+
+/** The grid's items: the app's own projects (the open one marked), then the files the scan found. */
+private fun openItems(
+    state: OpenScreenState,
+    currentProjectId: String?,
+    openNowLabel: String,
+    inAppLabel: String,
+): List<OpenItem> = state.inApp.map {
+    val current = it.id == currentProjectId
+    OpenItem.InApp(it, current, location = if (current) openNowLabel else inAppLabel)
+} + state.files.map { OpenItem.OnDevice(it) }
 
 /**
  * Open: every project the device can offer, each with a preview of its canvas, wherever it lives.
@@ -95,47 +116,50 @@ fun OpenProjectWindow(
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val items = state.inApp.map { OpenItem.InApp(it, it.id == currentProjectId) } +
-        state.files.map { OpenItem.OnDevice(it) }
+    val openNow = stringResource(R.string.open_location_current)
+    val inApp = stringResource(R.string.open_location_in_app)
+    val items = openItems(state, currentProjectId, openNow, inApp)
 
     // A project is gone for good the moment this fires — deleteRecursively() on disk, no trash,
     // no undo. One accidental tap next to "open" must not be enough to do that.
     var pendingDelete by remember { mutableStateOf<OpenItem.InApp?>(null) }
     pendingDelete?.let { target ->
         ConfirmDialog(
-            title = "Delete project?",
-            message = "\"${target.name}\" and everything in it will be deleted permanently. " +
-                "This can't be undone.",
-            confirmLabel = "Delete",
+            title = stringResource(R.string.open_delete_title),
+            // Deleting the project that is open also moves the editor elsewhere: say so.
+            message = stringResource(
+                if (target.isCurrent) R.string.open_delete_message_current else R.string.open_delete_message,
+                target.name,
+            ),
+            confirmLabel = stringResource(R.string.open_delete_confirm),
             onConfirm = { onDelete(target.project.id); pendingDelete = null },
             onDismiss = { pendingDelete = null },
         )
     }
 
-    ToolSurface(kind = SurfaceKind.BROWSER, title = "Open", onDismiss = onDismiss) {
+    ToolSurface(kind = SurfaceKind.BROWSER, title = stringResource(R.string.open_title), onDismiss = onDismiss) {
         if (state.isEmpty) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = if (state.isScanning) "Looking for projects…" else "No .fux found.",
+                    text = stringResource(if (state.isScanning) R.string.open_scanning else R.string.open_none_found),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 if (!state.isScanning) {
                     Text(
-                        text = "Nothing in the places this app can see. If your project is on a " +
-                            "cloud drive or an SD card, point at it directly.",
+                        text = stringResource(R.string.open_none_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 GraffuxButton(
-                    text = "+ New project",
+                    text = stringResource(R.string.open_new_project),
                     onClick = { onNew(); onDismiss() },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
                 )
                 GraffuxButton(
-                    text = "Choose location…",
+                    text = stringResource(R.string.open_choose_location),
                     onClick = onChooseLocation,
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
@@ -207,13 +231,13 @@ fun OpenProjectWindow(
         }
 
         GraffuxButton(
-            text = "+ New project",
+            text = stringResource(R.string.open_new_project),
             onClick = { onNew(); onDismiss() },
             shape = GraffuxButtonShape.RECTANGLE,
             modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
         )
         GraffuxButton(
-            text = "Choose location…",
+            text = stringResource(R.string.open_choose_location),
             onClick = onChooseLocation,
             shape = GraffuxButtonShape.RECTANGLE,
             modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
@@ -231,6 +255,8 @@ private fun OpenCard(
     onOpen: () -> Unit,
     onDelete: (() -> Unit)?,
 ) {
+    val openLabel = stringResource(R.string.open_project_named, name)
+    val deleteLabel = stringResource(R.string.open_delete_named, name)
     // Decoding is keyed on the source rather than done inline: a grid of previews is a grid of PNG
     // decodes, and on the composition thread that is a visibly stuttering scroll.
     val thumb by produceState<ImageBitmap?>(initialValue = null, thumbnailKey) {
@@ -255,21 +281,27 @@ private fun OpenCard(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                .clickable { onOpen() },
+                .clickable(onClickLabel = openLabel, role = Role.Button) { onOpen() }
+                // The card is named by its project; the picture and the "no preview" dash are decoration.
+                .semantics { contentDescription = name },
             contentAlignment = Alignment.Center,
         ) {
             val bitmap = thumb
             if (bitmap != null) {
                 Image(
                     bitmap = bitmap,
-                    contentDescription = name,
+                    contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                 )
             } else {
                 // A project saved before it had anything on it has no preview, and so does one
                 // whose preview didn't decode. Neither is worth an error — the name still opens it.
-                Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "—",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clearAndSetSemantics { },
+                )
             }
         }
         Text(
@@ -288,14 +320,24 @@ private fun OpenCard(
                 overflow = TextOverflow.Ellipsis,
             )
             if (onDelete != null) {
-                Text(
-                    text = "✕",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // A 48dp button that says which project it deletes (a screen reader read the old drawn
+                // "✕" as "multiplication x", with a 12dp-padded target about 40dp wide).
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .clickable { onDelete() }
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
-                )
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .clickable(role = Role.Button, onClick = onDelete)
+                        .semantics { contentDescription = deleteLabel }
+                        .testTag("open.delete"),
+                ) {
+                    Icon(
+                        painterResource(GraffuxIcons.Close),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
