@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -31,6 +33,7 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
 import com.hereliesaz.graffitixr.feature.editor.PaletteMixerDialog
+import com.hereliesaz.graffitixr.feature.editor.PaletteMixerHost
 import com.hereliesaz.graffitixr.feature.editor.newMixerBoard
 import com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay
 import org.junit.Assert.assertTrue
@@ -204,5 +207,36 @@ class AuditUiShotTest {
         board.dip(30f, 30f)
         rule.waitForIdle()
         assertTrue(board.brushRecipe().tubes.first().first.id == "cadmium-red")
+    }
+
+    @Test
+    fun `closing and reopening the mixer keeps the paint on the board`() {
+        var show by androidx.compose.runtime.mutableStateOf(true)
+        var board: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard? = null
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerHost(
+                    show = show,
+                    currentColor = Color.White,
+                    secondaryColor = Color.Black,
+                    onSelectColor = {},
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
+                    onDismiss = {},
+                    onBoard = { board = it },
+                )
+            }
+        }
+        rule.waitForIdle()
+        val first = checkNotNull(board)
+        first.squeeze(4, 30f, 30f, 7f, 0.9f)
+        first.dip(30f, 30f)
+        show = false
+        rule.waitForIdle()
+        show = true
+        rule.waitForIdle()
+        assertTrue("the same board comes back", board === first)
+        assertTrue(first.recipeAt(30, 30).tubes.first().first.id == "cadmium-red")
+        assertTrue("and the brush still holds its paint", first.brush.amount[0] > 0f)
     }
 }

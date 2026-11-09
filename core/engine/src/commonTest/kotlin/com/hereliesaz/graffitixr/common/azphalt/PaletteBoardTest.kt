@@ -97,4 +97,25 @@ class PaletteBoardTest {
         assertTrue(a.any { it != 0 })
         assertEquals(CH, 16)
     }
+
+    @Test
+    fun swappingExchangesThePaintOnTheTwoBrushesAndKeepsTheHand() {
+        val b = board()
+        repeat(3) { b.dip(14f, 20f) }   // white on the foreground brush
+        b.hand = 1
+        repeat(3) { b.dip(32f, 20f) }   // yellow on the background brush
+        b.hand = 0
+        val white = b.brushes[0].conc.copyOf()
+        val yellow = b.brushes[1].conc.copyOf()
+        val wa = b.brushes[0].amount[0]
+        val ya = b.brushes[1].amount[0]
+        b.swapBrushes()
+        assertTrue(b.brushes[0].conc.contentEquals(yellow) && b.brushes[1].conc.contentEquals(white))
+        assertEquals(ya, b.brushes[0].amount[0], 0f)
+        assertEquals(wa, b.brushes[1].amount[0], 0f)
+        assertEquals(0, b.hand)
+        assertEquals("cadmium-yellow", b.brushRecipe().tubes.first().first.id, "the brush in hand now holds the swapped paint")
+        b.swapBrushes()
+        assertTrue(b.brushes[0].conc.contentEquals(white))
+    }
 }
