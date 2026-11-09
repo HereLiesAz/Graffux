@@ -56,6 +56,7 @@ class MaterialStateCodecTest {
             levelingRate = 0.6f,
             baseRoughness = 0.2f,
             wetSpecularStrength = 0.8f,
+            sheen = 0.35f,
         )
 
         val decoded = requireNotNull(
@@ -80,6 +81,7 @@ class MaterialStateCodecTest {
         assertEquals(1, decoded.mediumTiles.size)
         assertEquals(0.7f, decoded.mediumTiles.single().medium.viscosity, 0f)
         assertEquals(0.8f, decoded.mediumTiles.single().medium.wetSpecularStrength, 0f)
+        assertEquals(0.35f, decoded.mediumTiles.single().medium.sheen, 0f)
     }
 
     @Test

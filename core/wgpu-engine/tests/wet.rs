@@ -197,6 +197,8 @@ fn cpu_transfer(
         let load_at_start = load;
         let contact_depth = d.contact.clamp(0.0, 1.0);
         let alpha_flow = d.alpha.clamp(0.0, 1.0) * d.flow.max(0.0);
+        // Dab.heightMul, carried as `_pad[0] = heightMul - 1` (0 = unchanged).
+        let hmul = (1.0 + d._pad[0]).max(0.0);
         let mut deposited = 0f32;
         let mut picked = 0f32;
         let mut mass = 0f32;
@@ -228,7 +230,7 @@ fn cpu_transfer(
                     continue;
                 };
                 mass += cs;
-                let inc = rate * m.height_response * m.deposition * load_at_start * ct;
+                let inc = rate * m.height_response * m.deposition * load_at_start * ct * hmul;
                 deposited += (build_up(before, inc) - before).max(0.0);
             }
         }
@@ -248,7 +250,7 @@ fn cpu_transfer(
                 let Some((ct, _)) = contact(x, y, before) else {
                     continue;
                 };
-                let inc = rate * m.height_response * m.deposition * load_at_start * ct;
+                let inc = rate * m.height_response * m.deposition * load_at_start * ct * hmul;
                 let mut local = build_up(before, inc).clamp(0.0, 1.0);
                 let remaining = (max_pickup - picked).max(0.0);
                 let request = rate * m.pickup * capacity * ct;
@@ -732,6 +734,42 @@ fn raw_round_trips_through_the_layer_for_opaque_pigment() {
 
 /// A live stroke's batches: each transfer continues from the reservoir load the previous one ended
 /// on (a negative initial load), so two batches give exactly one transfer over both.
+/// spec/painterly.md E5: `Dab.heightMul` (carried in the dab's pad) scales deposited height on the GPU
+/// exactly as `ImpastoEngine.transferMaterialStroke` does on the CPU, and the default pad is unchanged.
+#[test]
+fn transfer_honours_the_per_dab_height_multiplier() {
+    let m = Medium {
+        height_response: 0.9,
+        deposition: 0.8,
+        pickup: 0.3,
+        substrate: 0.0,
+    };
+    for (name, mut e) in engines() {
+        let s = state(21);
+        let plain = stroke(9);
+        let thick: Vec<MaterialDab> = plain.iter().map(|d| d.with_height_mul(2.2)).collect();
+        let run = |e: &mut Engine, dabs: &[MaterialDab]| {
+            begin(e, &s);
+            assert!(e.wet_set_coverage(None));
+            assert!(e.wet_set_dabs(dabs));
+            assert!(e.wet_transfer(0.4, 0.7, m.height_response, m.deposition, m.pickup, m.substrate, 0.8));
+            read(e).1
+        };
+        let h_plain = run(&mut e, &plain);
+        let h_thick = run(&mut e, &thick);
+        let mut want_plain = s.height.clone();
+        let mut want_thick = s.height.clone();
+        cpu_transfer(&mut want_plain, &plain, 0.4, 0.7, &m, 0.8, None);
+        cpu_transfer(&mut want_thick, &thick, 0.4, 0.7, &m, 0.8, None);
+        assert_close(name, "plain height", &h_plain, &want_plain, 2e-4);
+        assert_close(name, "thick height", &h_thick, &want_thick, 2e-4);
+        assert!(
+            h_thick.iter().sum::<f32>() > h_plain.iter().sum::<f32>(),
+            "[{name}] a 2.2x height multiplier should lay more paint"
+        );
+    }
+}
+
 #[test]
 fn transfer_batches_carry_the_reservoir() {
     let m = Medium {

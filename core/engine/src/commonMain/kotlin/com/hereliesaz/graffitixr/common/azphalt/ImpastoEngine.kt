@@ -75,6 +75,7 @@ object ImpastoEngine {
         val minY = max(0, floor(cy - radius).toInt())
         val maxY = min(imgHeight - 1, ceil(cy + radius).toInt())
         val flow = dab.flowMultiplier.coerceAtLeast(0f)
+        val heightMul = dab.heightMul.coerceAtLeast(0f)
         for (y in minY..maxY) {
             for (x in minX..maxX) {
                 val dx = x + 0.5f - cx
@@ -84,7 +85,7 @@ object ImpastoEngine {
                 val coverage = BrushStamps.stampCoverage(rNorm, hardness)
                 if (coverage <= 0f) continue
                 val idx = y * width + x
-                val increment = thicknessRate * coverage * dab.alpha.coerceIn(0f, 1f) * flow
+                val increment = thicknessRate * coverage * dab.alpha.coerceIn(0f, 1f) * flow * heightMul
                 height[idx] = BrushStamps.buildUp(height[idx], increment)
             }
         }
@@ -266,6 +267,7 @@ object ImpastoEngine {
             val loadAtStart = load
             val contactDepth = dab.contactDepth.coerceIn(0f, 1f)
             val alphaFlow = dab.alpha.coerceIn(0f, 1f) * dab.flowMultiplier.coerceAtLeast(0f)
+            val heightMul = dab.heightMul.coerceAtLeast(0f)
             var depositedThisDab = 0f
             var pickedThisDab = 0f
             var coverageMass = 0f
@@ -300,7 +302,7 @@ object ImpastoEngine {
                     if (contact <= 0f) continue
                     coverageMass += coverage * selectionCoverage
                     val increment = rate * material.heightResponse * material.depositionRate *
-                        loadAtStart * contact
+                        loadAtStart * contact * heightMul
                     val afterDeposit = BrushStamps.buildUp(before, increment)
                     depositedThisDab += (afterDeposit - before).coerceAtLeast(0f)
                 }
@@ -351,7 +353,7 @@ object ImpastoEngine {
                     if (contact <= 0f) continue
 
                     val increment = rate * material.heightResponse * material.depositionRate *
-                        loadAtStart * contact
+                        loadAtStart * contact * heightMul
                     var local = BrushStamps.buildUp(before, increment).coerceIn(0f, 1f)
 
                     val remainingPickupMass = (maxPickupHeightMass - pickedThisDab).coerceAtLeast(0f)
@@ -611,7 +613,7 @@ object ImpastoEngine {
         val y1 = bottom.coerceIn(0, imgHeight)
         if (x0 >= x1 || y0 >= y1 || width <= 0 || imgHeight <= 0) return
         val material = medium.sanitized()
-        if (mediumAt == null && reliefStrength <= 0f && material.wetSpecularStrength <= 0f) {
+        if (mediumAt == null && reliefStrength <= 0f && material.wetSpecularStrength <= 0f && material.sheen <= 0f) {
             for (y in y0 until y1) {
                 val row = y * width
                 for (x in x0 until x1) out[row + x] = rawColorPixels[row + x]
@@ -656,7 +658,7 @@ object ImpastoEngine {
                     ).coerceIn(MIN_WET_ROUGHNESS, 1f)
                 val shininess = 4f + (1f - roughness) * 60f
                 val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
-                val specular = localMaterial.wetSpecularStrength * wet *
+                val specular = (localMaterial.wetSpecularStrength * wet + localMaterial.sheen) *
                     nDotH.toDouble().pow(shininess.toDouble()).toFloat()
                 out[y * width + x] = shadeRgb(rawColorPixels[y * width + x], multiplier, specular)
             }

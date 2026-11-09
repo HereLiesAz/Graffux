@@ -33,6 +33,7 @@ internal object WetUpload {
             out[o + M_DRYING] = m.dryingRate
             out[o + M_ROUGHNESS] = m.baseRoughness
             out[o + M_SPECULAR] = m.wetSpecularStrength
+            out[o + M_SHEEN] = m.sheen
         }
         return out
     }
@@ -48,6 +49,8 @@ internal object WetUpload {
             flat[o + D_ALPHA] = d.alpha
             flat[o + D_FLOW] = d.flowMultiplier
             flat[o + D_CONTACT] = d.contactDepth
+            // MaterialDab height_bias: Dab.heightMul - 1, so a zeroed pad is the unchanged dab.
+            flat[o + D_HEIGHT_BIAS] = d.heightMul.coerceAtLeast(0f) - 1f
         }
         return flat
     }
@@ -60,8 +63,10 @@ internal object WetUpload {
     private const val M_DRYING = 3
     private const val M_ROUGHNESS = 4
     private const val M_SPECULAR = 5
+    private const val M_SHEEN = 6
     private const val D_RADIUS = 2
     private const val D_ALPHA = 3
     private const val D_FLOW = 4
     private const val D_CONTACT = 5
+    private const val D_HEIGHT_BIAS = 6
 }

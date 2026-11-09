@@ -98,6 +98,7 @@ They reshape the brush's own dabs for this step.
 | `hueShift`, `satMul`, `valMul` | 0, 1, 1 | colour shift / multipliers |
 | `gapMul` | 1 | multiply the distance to the next step (clamped 0.05..20) |
 | `hide` | 0 | non-zero drops the brush's own dabs, leaving only what the program `emit`s |
+| `heightMul` | 1 | multiply the impasto height the brush's own dabs lay |
 
 ### `emit`
 
@@ -116,6 +117,7 @@ defaults to `px, py`. `size` is a diameter in px; a dab with `size <= 0` or `alp
 | `hue`, `sat`, `val` | colour shift degrees / saturation × / value × |
 | `mix` | foreground→background colour mix 0..1 |
 | `flow` | flow multiplier |
+| `h` | impasto height multiplier for this dab (default 1; 0 lays colour but no paint height). A flat brush gives its edge lanes a larger `h` than its centre for a rim ridge. Only brushes with impasto (`impastoThicknessRate` or `impastoMaterial`) show it |
 
 Emitted dabs are painted after the brush's own dabs, in emit order, so emit order is paint order.
 

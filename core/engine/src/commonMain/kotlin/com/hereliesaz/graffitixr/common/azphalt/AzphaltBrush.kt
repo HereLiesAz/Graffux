@@ -166,6 +166,8 @@ data class ImpastoMaterialConfig(
     val baseRoughness: Float = 1f,
     /** Wetness-driven presentation gloss/specular response. */
     val wetSpecularStrength: Float = 0f,
+    /** Dry specular sheen (a dried bead keeps its highlight); 0 = today's presentation. */
+    val sheen: Float = 0f,
 ) {
     val usesV2: Boolean get() = enabled && version >= 2
 
@@ -181,6 +183,7 @@ data class ImpastoMaterialConfig(
         substrateResponse = substrateResponse.coerceIn(0f, 1f),
         baseRoughness = baseRoughness.coerceIn(0f, 1f),
         wetSpecularStrength = wetSpecularStrength.coerceIn(0f, 1f),
+        sheen = sheen.coerceIn(0f, 1f),
     )
 
     fun toMedium(): PaintMedium {
@@ -195,6 +198,7 @@ data class ImpastoMaterialConfig(
             levelingRate = c.levelingRate,
             baseRoughness = c.baseRoughness,
             wetSpecularStrength = c.wetSpecularStrength,
+            sheen = c.sheen,
         )
     }
 }
@@ -447,6 +451,7 @@ data class AzphaltBrush(
                 substrateResponse = f("impastoSubstrateResponse") ?: 0f,
                 baseRoughness = f("impastoBaseRoughness") ?: 1f,
                 wetSpecularStrength = f("impastoWetSpecularStrength") ?: 0f,
+                sheen = f("impastoSheen") ?: 0f,
             )
 
             val grainBlendMode = params?.get("grainBlendMode")?.let { element ->

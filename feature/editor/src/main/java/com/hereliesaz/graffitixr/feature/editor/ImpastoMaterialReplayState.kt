@@ -142,6 +142,7 @@ internal class ImpastoMaterialReplayState private constructor(
                 levelingRate = mix(a.levelingRate, b.levelingRate),
                 baseRoughness = mix(a.baseRoughness, b.baseRoughness),
                 wetSpecularStrength = mix(a.wetSpecularStrength, b.wetSpecularStrength),
+                sheen = mix(a.sheen, b.sheen),
             ).sanitized()
         }
 
