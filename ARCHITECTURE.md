@@ -709,7 +709,8 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   `SurfacePromptChip`, camera presets). Format 11 adds a paint image per view: each is a hidden raster layer
   (`Layer.surfaceViewOf` / `.surfaceView`) beside its paint layer, so bitmap files, stroke log and undo are
   the ordinary per-layer ones. `ActivePlaneMapping.toViewFlatByFootprint` (`SurfaceFootprint.worldToViewFlat`)
-  picks the view; `ViewStrokeFeed` cuts a stroke at the crease (`SurfaceViewStroke.crossing`) into segments
+  picks the view, and every sample/join must pass `SurfaceStrokeGuard` (`sampleOk`/`joinOk` of the feeds: within the footprint of its
+  touch, and no straight stroke across a gap of surface between touches, else dropped or cut); `ViewStrokeFeed` cuts a stroke at the crease (`SurfaceViewStroke.crossing`) into segments
   that `EditorViewModel.onViewStrokeStart` paints into the right image, chained (`EditCommand.Draw.chainedToPrevious`)
   into one undo step. Format 10 shipped in 1.63.0, hence 11. The hull renders (`DepthScene.hullPlanes`, `SurfaceHullMesh`: a plane per view image on its patch, depth-correct, opacity and isolated groups as for a sheet) and exports to glTF (`hullQuads`). GPU path untested off-device (see spec/3d-space.md).
   Caps and the rest of the per-view layer: `SurfaceHull.capMeshByView` tessellates the box faces no drawn outline
