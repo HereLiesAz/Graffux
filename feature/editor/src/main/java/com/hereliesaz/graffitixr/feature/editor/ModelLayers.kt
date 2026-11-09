@@ -65,4 +65,25 @@ internal object ModelFiles {
     fun textureFor(layerId: String) = "model_tex_$layerId.png"
 
     fun safe(name: String?): String? = name?.takeIf { ModelLayerContent.isSafeFileName(it) }
+
+    /** All of [input], or an [java.io.IOException] as soon as it holds more than [max] bytes. */
+    fun readBounded(input: java.io.InputStream, max: Int = ModelCoopCodec.MAX_OBJ_BYTES): ByteArray {
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > max) throw java.io.IOException("That model file is larger than ${max / (1024 * 1024)} MB")
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    /** [file]'s text, or an [java.io.IOException] when it is longer than [max] bytes. */
+    fun readTextBounded(file: java.io.File, max: Int = ModelCoopCodec.MAX_OBJ_BYTES): String {
+        if (file.length() > max) throw java.io.IOException("That model file is larger than ${max / (1024 * 1024)} MB")
+        return file.inputStream().use { readBounded(it, max) }.decodeToString()
+    }
 }

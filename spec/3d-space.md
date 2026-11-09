@@ -171,7 +171,10 @@ An imported `.obj` is a layer in the one space, not a separate window (the float
 its "Add view to canvas" snapshot are retired). The 3D toolbox's **Import 3D model** entry, which
 used to open the window, now imports into a layer.
 
-- **Import.** `EditorViewModel.importModelLayer` parses the OBJ (`ObjParser`), copies the file
+- **Import.** `EditorViewModel.importModelLayer` reads the OBJ (at most 64 MB, the same cap the co-op
+  path uses; loading a saved project's OBJ is capped the same way) and parses it (`ObjParser`, which
+  refuses more than 1,000,000 positions, uvs, normals or emitted vertices, or 2,000,000 triangles, with
+  an `ObjParseException`), copies the file
   into the project folder as `model_<layerId>.obj`, and adds a layer on top with
   `Layer.model: ModelLayerContent`, which makes it a 3D layer: the rail shows the axis
   cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule

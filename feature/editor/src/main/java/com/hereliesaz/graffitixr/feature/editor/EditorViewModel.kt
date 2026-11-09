@@ -14199,7 +14199,7 @@ class EditorViewModel @Inject constructor(
     fun importModelLayer(uri: Uri, displayName: String? = null) {
         viewModelScope.launch(dispatchers.io) {
             val result = runCatching {
-                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val bytes = context.contentResolver.openInputStream(uri)?.use { ModelFiles.readBounded(it) }
                     ?: throw java.io.IOException("Couldn't open that file")
                 com.hereliesaz.graffitixr.common.scene.ModelMesh(
                     com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString()),
@@ -14470,7 +14470,9 @@ class EditorViewModel @Inject constructor(
                     val key = "$projectId/$objFile"
                     if (modelMeshCache[key] == null) {
                         modelMeshCache[key] = com.hereliesaz.graffitixr.common.scene.ModelMesh(
-                            com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(File(dir, objFile).readText()),
+                            com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(
+                                ModelFiles.readTextBounded(File(dir, objFile)),
+                            ),
                         )
                     }
                     ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
@@ -14531,7 +14533,8 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val obj = if (withMesh) {
                 ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
-                    ?.takeIf { it.isFile }?.readBytes()?.let(ModelCoopCodec::deflate) ?: return@launch
+                    ?.takeIf { it.isFile && it.length() <= ModelCoopCodec.MAX_OBJ_BYTES }
+                    ?.readBytes()?.let(ModelCoopCodec::deflate) ?: return@launch
             } else {
                 null
             }

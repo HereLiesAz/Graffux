@@ -298,4 +298,32 @@ class ObjParserTest {
     fun `a non-finite vertex coordinate is rejected`() {
         ObjParser.parse("v nan 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3")
     }
+
+    // Size limits: a model file is untrusted input (a picked file, a .fux, a co-op peer).
+
+    @Test
+    fun `a model with more vertices than the limit is refused`() {
+        val obj = StringBuilder()
+        repeat(ObjParser.MAX_VERTICES + 1) { obj.append("v 0 0 0\n") }
+        obj.append("f 1 1 1\n")
+        val e = runCatching { ObjParser.parse(obj.toString()) }.exceptionOrNull()
+        assertTrue(e.toString(), e is ObjParser.ObjParseException)
+    }
+
+    @Test
+    fun `positions uvs normals triangles and emitted vertices are each limited`() {
+        val limits = ObjParser.Limits(maxVertices = 4, maxTriangles = 2)
+        fun fails(obj: String) =
+            runCatching { ObjParser.parse(obj, limits) }.exceptionOrNull() is ObjParser.ObjParseException
+        val v = "v 0 0 0\nv 1 0 0\nv 0 1 0\n"
+        assertTrue(fails(v + "v 1 1 0\nv 2 2 2\nf 1 2 3\n"))
+        assertTrue(fails(v + "vt 0 0\n".repeat(5) + "f 1 2 3\n"))
+        assertTrue(fails(v + "vn 0 0 1\n".repeat(5) + "f 1 2 3\n"))
+        assertTrue(fails(v + "f 1 2 3\nf 1 2 3\nf 1 2 3\n"))
+        // Distinct uv per corner: 3 positions x 3 uvs = 9 emitted vertices.
+        assertTrue(fails(v + "vt 0 0\nvt 1 0\nvt 0 1\nf 1/1 2/2 3/3\nf 1/2 2/3 3/1\n"))
+        // Exactly at the limits still parses.
+        val ok = ObjParser.parse(v + "v 1 1 0\nf 1 2 3\nf 2 3 4\n", limits)
+        assertEquals(2, ok.triangleCount)
+    }
 }
