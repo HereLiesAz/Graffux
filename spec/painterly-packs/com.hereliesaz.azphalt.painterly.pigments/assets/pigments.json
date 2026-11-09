@@ -1,0 +1,350 @@
+{
+ "format": "azphalt-pigments/1",
+ "wavelengths": [
+  440,
+  470,
+  500,
+  540,
+  580,
+  620,
+  660
+ ],
+ "pigments": [
+  {
+   "id": "titanium-white",
+   "name": "Titanium White",
+   "colourIndex": "PW6",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.98,
+   "tinting": 1.0,
+   "granulation": 0.05,
+   "K": [
+    0.01043478260869564,
+    0.01043478260869564,
+    0.01043478260869564,
+    0.01043478260869564,
+    0.01043478260869564,
+    0.01043478260869564,
+    0.01043478260869564
+   ],
+   "S": [
+    3.0,
+    3.0,
+    3.0,
+    3.0,
+    3.0,
+    3.0,
+    3.0
+   ]
+  },
+  {
+   "id": "ivory-black",
+   "name": "Ivory Black",
+   "colourIndex": "PBk9",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.97,
+   "tinting": 0.9,
+   "granulation": 0.1,
+   "K": [
+    6.912,
+    6.912,
+    6.912,
+    6.912,
+    6.912,
+    6.912,
+    6.912
+   ],
+   "S": [
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6,
+    0.6
+   ]
+  },
+  {
+   "id": "cadmium-yellow",
+   "name": "Cadmium Yellow",
+   "colourIndex": "PY35",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.95,
+   "tinting": 0.75,
+   "granulation": 0.1,
+   "K": [
+    9.024999999999999,
+    7.363333333333333,
+    3.2266666666666666,
+    0.13333333333333336,
+    0.00818181818181818,
+    0.0034782608695652136,
+    0.002634408602150534
+   ],
+   "S": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "yellow-ochre",
+   "name": "Yellow Ochre",
+   "colourIndex": "PY43",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.85,
+   "tinting": 0.45,
+   "granulation": 0.2,
+   "K": [
+    6.627,
+    5.560071428571428,
+    3.6450000000000005,
+    1.0125,
+    0.40499999999999997,
+    0.225,
+    0.13686206896551728
+   ],
+   "S": [
+    0.9,
+    0.9,
+    0.9,
+    0.9,
+    0.9,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "id": "cadmium-red",
+   "name": "Cadmium Red",
+   "colourIndex": "PR108",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.95,
+   "tinting": 0.8,
+   "granulation": 0.1,
+   "K": [
+    15.681666666666667,
+    15.681666666666667,
+    11.52,
+    6.177857142857142,
+    1.6000000000000003,
+    0.06428571428571431,
+    0.013235294117647062
+   ],
+   "S": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "quinacridone-magenta",
+   "name": "Quinacridone Magenta",
+   "colourIndex": "PR122",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.35,
+   "tinting": 0.95,
+   "granulation": 0.0,
+   "K": [
+    0.482857142857143,
+    1.2800000000000002,
+    7.22,
+    9.216000000000001,
+    4.232,
+    0.482857142857143,
+    0.1066666666666667
+   ],
+   "S": [
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8
+   ]
+  },
+  {
+   "id": "ultramarine",
+   "name": "Ultramarine Blue",
+   "colourIndex": "PB29",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.45,
+   "tinting": 0.55,
+   "granulation": 0.55,
+   "K": [
+    0.5716666666666665,
+    0.315,
+    1.3074444444444446,
+    4.324499999999999,
+    6.317499999999999,
+    4.324499999999999,
+    1.3074444444444446
+   ],
+   "S": [
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.7
+   ]
+  },
+  {
+   "id": "phthalo-blue",
+   "name": "Phthalo Blue",
+   "colourIndex": "PB15:3",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.3,
+   "tinting": 1.0,
+   "granulation": 0.0,
+   "K": [
+    1.6000000000000003,
+    0.8166666666666665,
+    0.5057894736842106,
+    2.408333333333333,
+    11.52,
+    15.681666666666667,
+    11.52
+   ],
+   "S": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "phthalo-green",
+   "name": "Phthalo Green",
+   "colourIndex": "PG7",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.3,
+   "tinting": 1.0,
+   "granulation": 0.0,
+   "K": [
+    15.681666666666667,
+    4.05,
+    0.5057894736842106,
+    0.33611111111111114,
+    1.6000000000000003,
+    9.024999999999999,
+    15.681666666666667
+   ],
+   "S": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "viridian",
+   "name": "Viridian",
+   "colourIndex": "PG18",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.35,
+   "tinting": 0.6,
+   "granulation": 0.3,
+   "K": [
+    7.22,
+    2.5813333333333337,
+    0.6533333333333333,
+    0.6533333333333333,
+    2.5813333333333337,
+    7.22,
+    9.216000000000001
+   ],
+   "S": [
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8
+   ]
+  },
+  {
+   "id": "cerulean",
+   "name": "Cerulean Blue",
+   "colourIndex": "PB35",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.8,
+   "tinting": 0.5,
+   "granulation": 0.35,
+   "K": [
+    0.6533333333333333,
+    0.26888888888888896,
+    0.26888888888888896,
+    0.9,
+    3.2400000000000007,
+    5.890666666666666,
+    5.890666666666666
+   ],
+   "S": [
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8
+   ]
+  },
+  {
+   "id": "burnt-umber",
+   "name": "Burnt Umber",
+   "colourIndex": "PBr7",
+   "dataQuality": "placeholder",
+   "dataVersion": 1,
+   "hiding": 0.9,
+   "tinting": 0.55,
+   "granulation": 0.25,
+   "K": [
+    10.977166666666665,
+    10.977166666666665,
+    8.063999999999998,
+    5.154333333333333,
+    3.220388888888889,
+    1.8489999999999998,
+    1.12
+   ],
+   "S": [
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.7,
+    0.7
+   ]
+  }
+ ]
+}

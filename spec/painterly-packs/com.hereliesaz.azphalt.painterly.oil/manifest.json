@@ -1,0 +1,942 @@
+{
+  "azphalt": "0.1",
+  "id": "com.hereliesaz.azphalt.painterly.oil",
+  "name": "Painterly Oil",
+  "version": "1.0.0",
+  "kind": "asset",
+  "license": "Apache-2.0",
+  "compat": ">=0.1",
+  "description": "Oil brushes and tools for long open time and soft blending: flats, filbert, round, rigger, a fan blender, hog bristle, dry-brush, palette knife, rag and an impasto bead.",
+  "author": "HereLiesAz",
+  "targetApps": [
+    "com.hereliesaz.graffux"
+  ],
+  "assets": [
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Flat",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 24,
+          "depth": 3,
+          "capacity": 1.3,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.35 + (1 - 0.35) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 1.4), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.0;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.004, lift: stepPx * 0.0, mixWet: 0.7,",
+            "               h: 0.6 + 1.8 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 130, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.0;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.004 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Filbert",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 24,
+          "depth": 3,
+          "capacity": 1.3,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.3 + (1 - 0.3) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 1.5), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.0;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.004, lift: stepPx * 0.0, mixWet: 0.75,",
+            "               h: 0.6 + 1.2 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 130, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.0;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.004 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-round.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Round",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 12,
+          "depth": 3,
+          "capacity": 1.2,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.08 + (1 - 0.08) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 2.2), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.0;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.004, lift: stepPx * 0.0, mixWet: 0.5,",
+            "               h: 0.6 + 0.8 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 170, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.0;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.004 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-round.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Rigger",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 8,
+          "depth": 3,
+          "capacity": 1.5,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.12 + (1 - 0.12) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 3.0), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 0.35;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.002, lift: stepPx * 0.0, mixWet: 0.5,",
+            "               h: 0.6 + 0.2 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 220, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 0.35;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.002 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Fan Blender",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 32,
+          "depth": 2,
+          "capacity": 0.4,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.6 + (1 - 0.6) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 1.2), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.3;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.0008, lift: stepPx * 0.006, mixWet: 0.95,",
+            "               h: 0.1 + 0.1 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 130, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.3;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.0008 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Hog Bristle",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 20,
+          "depth": 3,
+          "capacity": 1.4,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.5 + (1 - 0.5) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 1.9), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.0;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.4 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.005, lift: stepPx * 0.0, mixWet: 0.5,",
+            "               h: 1.4 + 2.6 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 130, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.0;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.005 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Dry Brush",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 24,
+          "depth": 2,
+          "capacity": 0.4,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.3 + (1 - 0.3) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 1.4), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.0;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.0, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = smoothstep(0.0, 0.12, gate - 0.55 * tooth);",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.0025, lift: stepPx * 0.0, mixWet: 0.5,",
+            "               h: 0.6 + 0.6 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 130, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.0;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.0025 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Palette Knife",
+        "spacing": 0.14,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 24,
+          "depth": 2,
+          "capacity": 1.4,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "if (index <= 1) { dx = cos(heading); dy = sin(heading); } else { dx = lerp(dx, cos(heading), 0.2); dy = lerp(dy, sin(heading), 0.2); }",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "if (phase != 3) {",
+            "  let w = d0 * (0.7 + 0.3 * pr);",
+            "  let len = max(stepPx * 2.2, 6);",
+            "  // a slab: thin clean blade, edge ridges, lifts at the trailing edge and lays at the leading edge",
+            "  emit { x: px, y: py, size: len, tip: clamp(w / len, 0.05, 1), angle: ang + 90, alpha: baseAlpha, lane: 0, draw: stepPx * 0.004, lift: stepPx * 0.003, mixWet: 0.7, h: 1.8 };",
+            "  emit { x: px - ny * w * 0.5, y: py + nx * w * 0.5, size: len, tip: 0.1, angle: ang, alpha: baseAlpha, h: 2.6 };",
+            "  emit { x: px + ny * w * 0.5, y: py - nx * w * 0.5, size: len, tip: 0.1, angle: ang, alpha: baseAlpha, h: 2.6 };",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-round.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Rag",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 4,
+          "depth": 2,
+          "capacity": 1.0,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "hide = 1;",
+            "if (phase != 3) {",
+            "  emit { x: px, y: py, size: d0 * (0.6 + 0.4 * pressure), alpha: 0.02, lane: 0, lift: stepPx * 0.02 };",
+            "}"
+          ]
+        }
+      }
+    },
+    {
+      "type": "brush",
+      "path": "assets/tip-flat.png",
+      "tags": [
+        "painterly",
+        "oil",
+        "bristle"
+      ],
+      "params": {
+        "name": "Impasto Bead",
+        "spacing": 0.12,
+        "opacity": 1,
+        "painterly": 1,
+        "load": {
+          "lanes": 20,
+          "depth": 3,
+          "capacity": 1.8,
+          "fill": []
+        },
+        "impastoThicknessRate": 0.35,
+        "impastoMaterial": {
+          "version": 2,
+          "enabled": true,
+          "initialLoad": 1,
+          "wetness": 0.8,
+          "pickupRate": 0.4,
+          "levelingRate": 0.08,
+          "viscosity": 0.85,
+          "yieldLikeStrength": 0.7,
+          "dryingRate": 0.03,
+          "substrateResponse": 0.35,
+          "baseRoughness": 0.3,
+          "wetSpecularStrength": 0.6,
+          "sheen": 0.6
+        },
+        "substrateResponse": 0.35,
+        "program": {
+          "state": {
+            "d0": 26,
+            "dx": 1,
+            "dy": 0,
+            "lastW": 0.5
+          },
+          "init": [
+            "d0 = diameter;"
+          ],
+          "step": [
+            "let pr = clamp(pressure, 0, 1);",
+            "let sw = 0.3 + (1 - 0.3) * pr;",
+            "if (phase != 3) {",
+            "  if (index <= 1) { dx = cos(heading); dy = sin(heading); } else {",
+            "    dx = lerp(dx, cos(heading), 0.35); dy = lerp(dy, sin(heading), 0.35);",
+            "  }",
+            "}",
+            "let dl = hypot(dx, dy);",
+            "let nx = dl > 0.001 ? dx / dl : cos(heading);",
+            "let ny = dl > 0.001 ? dy / dl : sin(heading);",
+            "dx = nx; dy = ny;",
+            "let ang = atan2(ny, nx);",
+            "hide = 1;",
+            "let n = clamp(floor(d0 / 1.7), 6, 32);",
+            "if (phase != 3) {",
+            "  lastW = sw;",
+            "  let wspan = d0 * sw * 1.0;",
+            "  let cw = wspan / n;",
+            "  let len = max(stepPx * 2.4, cw * 2.2);",
+            "  for i in 0..32 {",
+            "    if (i < n) {",
+            "      let u = (i + 0.5) / n - 0.5;",
+            "      let e = abs(u) * 2;",
+            "      let streak = 0.72 + 0.28 * noise(i * 9.1 + dist / (d0 * 1.6));",
+            "      let gate = clamp(loadAmount(u * 2) * 1.5 + 0.25, 0, 1);",
+            "      let tooth = noise2(i * 3.7, dist / (d0 * 0.8));",
+            "      let on = gate;",
+            "      let a = baseAlpha * streak * on;",
+            "      if (a > 0.03) {",
+            "        emit { x: px - ny * u * wspan, y: py + nx * u * wspan, size: len, tip: clamp(cw * 1.15 / len, 0.05, 1), angle: ang,",
+            "               alpha: a, lane: u * 2, draw: stepPx * 0.006, lift: stepPx * 0.0, mixWet: 0.5,",
+            "               h: 1.8 + 3.2 * smoothstep(0.55, 0.95, e) };",
+            "      }",
+            "    }",
+            "  }",
+            "}",
+            "if (phase == 3) {",
+            "  let reach = clamp(layerSpeed * 130, 0, d0 * 2.4);",
+            "  let wspan = d0 * lastW * 1.0;",
+            "  if (reach > 2) {",
+            "    for k in 0..8 {",
+            "      let f = (k + 1) / 8;",
+            "      let w = pow(1 - f, 1.3) * wspan;",
+            "      let bx = px + nx * reach * f;",
+            "      let by = py + ny * reach * f;",
+            "      let seg = reach / 8 * 2.2;",
+            "      emit { x: bx, y: by, size: seg, tip: clamp(max(w * 0.45, 1) / seg, 0.05, 1), angle: ang, alpha: baseAlpha * 0.9, lane: 0, draw: stepPx * 0.006 };",
+            "    }",
+            "  }",
+            "}"
+          ]
+        }
+      }
+    }
+  ]
+}
