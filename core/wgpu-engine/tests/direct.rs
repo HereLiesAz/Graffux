@@ -333,3 +333,30 @@ fn present_is_bilinear_between_texels() {
         assert!(worst <= 3.0, "[{name}] bilinear alpha off by {worst}");
     }
 }
+
+#[test]
+fn a_stroke_builds_the_present_bind_group_once_not_once_per_frame() {
+    for (name, b) in backends() {
+        let mut e = Engine::with_backends(W, H, b).expect("adapter");
+        assert!(e.upload(&seed(W, H)));
+        assert!(e.direct_attach_offscreen(W, H, TextureFormat::Rgba8Unorm));
+        assert!(e.direct_begin_stroke());
+        let frames = 40;
+        for k in 0..frames {
+            stamp(&mut e, k);
+            assert!(e.direct_present(Some(IDENTITY), true), "[{name}] present {k}");
+        }
+        assert!(e.direct_end_stroke());
+        let builds = e.direct_bind_group_builds();
+        eprintln!(
+            "[{name}] bind groups built over attach + begin + {frames} presents + end: {builds}"
+        );
+        assert!(
+            builds <= 2,
+            "[{name}] {builds} bind groups for {frames} presents: the group is per source buffer, not per frame"
+        );
+        // What it shows is unchanged by reusing the group.
+        let shown_after_end = e.direct_read_offscreen().unwrap();
+        assert!(shown_after_end.iter().all(|&v| v == 0), "[{name}] end clears the target");
+    }
+}

@@ -887,6 +887,14 @@ Linear RGBA8/BGRA8 targets are preferred. An sRGB-only surface works too: the sh
 the stored bytes are unchanged. Premultiplied or Inherit alpha is preferred, and PostMultiplied
 alpha is un-premultiplied in the shader. An opaque-only surface is refused.
 
+The present pass's bind group (the layer or multipass display buffer, the stroke's base, the
+params) is built once per source buffer and reused for every frame; it is rebuilt only when the
+source buffer changes or the base is reallocated. Acquiring a frame recovers once: an `Outdated`
+swapchain (rotation, resize) is reconfigured, and a `Lost` one is dropped and recreated from the
+window handle `direct_attach_window` was given (reconfiguring a lost surface cannot bring it
+back), then configured and tried again. A frame still not there after that is skipped, and the
+Kotlin side's first-failure rule turns direct display off for the stroke.
+
 **Multipass.** With multipass on, each present first runs every pending draft (never refinement:
 drafts are never delayed) and advances the display composite. It then draws from the multipass
 `display` buffer instead of the layer: the draft first, then the refinement ease, converging to
