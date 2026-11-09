@@ -167,6 +167,41 @@ class AzpInstallerTest {
         assertFalse(java.io.File(root, "com.test.grade").exists())
     }
 
+    private var refusals = 0
+
+    private fun refusal(bytes: ByteArray): String {
+        val installer = AzpInstaller(tmp.newFolder("extensions-${refusals++}"))
+        try {
+            installer.install(ByteArrayInputStream(bytes), nowMs = 0L)
+        } catch (e: AzpInstaller.InstallException) {
+            return e.message.orEmpty()
+        }
+        fail("Expected InstallException")
+        return ""
+    }
+
+    @Test
+    fun `an archive with too many entries is refused before it is read on`() {
+        val many = (0..AzpInstaller.MAX_ENTRIES).associate { "f$it" to ByteArray(0) }
+        assertTrue(refusal(zip(many)).contains("entries"))
+        val dirs = ByteArrayOutputStream()
+        ZipOutputStream(dirs).use { z ->
+            for (i in 0..AzpInstaller.MAX_ENTRIES) {
+                z.putNextEntry(ZipEntry("d$i/"))
+                z.closeEntry()
+            }
+        }
+        assertTrue("directory entries count too", refusal(dirs.toByteArray()).contains("entries"))
+    }
+
+    @Test
+    fun `an oversized manifest or signature is refused`() {
+        val bigManifest = ByteArray(AzpInstaller.MAX_MANIFEST_BYTES + 1) { ' '.code.toByte() }
+        assertTrue(refusal(zip(mapOf("manifest.json" to bigManifest))).contains("manifest.json exceeds"))
+        val bigSignature = ByteArray(AzpInstaller.MAX_SIGNATURE_BYTES + 1) { ' '.code.toByte() }
+        assertTrue(refusal(zip(mapOf("signature.json" to bigSignature))).contains("signature.json exceeds"))
+    }
+
     @Test
     fun `package without manifest is rejected`() {
         val bytes = zip(mapOf("assets/grade.cube" to "x".toByteArray()))

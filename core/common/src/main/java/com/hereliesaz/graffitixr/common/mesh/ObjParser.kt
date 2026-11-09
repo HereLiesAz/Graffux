@@ -20,7 +20,47 @@ object ObjParser {
     class ObjParseException(message: String) : Exception(message)
 
     /**
-     * Parses [text] into an indexed [Mesh].
+     * What a model may hold. A model file is untrusted (a picked file, a `.fux`, a co-op peer's upload),
+     * so the parse is bounded in time and memory by these, not by what the file claims:
+     *
+     * - [MAX_TRIANGLES]: triangles after fan-triangulation. A flat-shaded or UV-seamed mesh emits up to
+     *   three vertices per triangle, so the emitted-vertex cap, which also caps the `v`, `vt` and `vn`
+     *   lists, is three times that ([MAX_VERTICES]): a 400,000-triangle flat-shaded model still opens.
+     * - [MAX_LINE_CHARS] and [MAX_FACE_CORNERS]: one line, and the corners of one face. Lines are found
+     *   by index and checked before a single character is copied, so a 60 MB line (or a file with no
+     *   newline at all) is refused without ever being split into tokens.
+     *
+     * Memory at the caps, beyond the file's own text, computed from the array sizes in decimal MB (10^6 bytes)
+     * with GC slack ignored, not measured on a device: the position, uv and normal lists are primitive arrays
+     * capped at their limit (3, 2 and 3 floats per index x 1.2 million x 4 bytes = 14.4 + 9.6 + 14.4 =
+     * 38.4 MB), the emitted vertices 8 floats each (9.6 million floats = 38.4 MB), the dedupe map 12 bytes a
+     * slot (8 for the key, 4 for the value) at under 60% load, which is 2^21 = 2,097,152 slots = 25.17 MB
+     * from the 1,048,577th entry on, and the indices 3 x 400,000 ints = 4.8 MB. That is 38.4 + 38.4 + 25.17 +
+     * 4.8 = 106.8 MB held at the end of the parse. The peak is the last growth step of the vertex list, from
+     * 8,388,608 to 9,600,000 floats at vertex 1,048,577, when the old array (33.55 MB) and the new one
+     * (38.4 MB) are both alive: 71.95 MB for the list, plus the three full input lists (38.4), the map
+     * (25.17) and 1,048,577 indices (4.19): 71.95 + 38.4 + 25.17 + 4.19 = 139.7 MB. `build` drops the
+     * position, uv, normal and map storage before it takes the vertex and index arrays, which are exactly
+     * full at the caps and so are not copied. Around the parse, `importModelLayer` holds the file's bytes
+     * (up to 64 MiB = 67.1 MB) and its text (the same, or twice that with non-Latin-1 characters): 67.1 +
+     * 67.1 + 139.7 = about 274 MB on the import path (67.1 + 134.2 + 139.7 = about 341 MB for such text), on
+     * a build that asks for a large heap. A typical model is a small fraction of all of this.
+     */
+    const val MAX_TRIANGLES = 400_000
+    const val MAX_VERTICES = 3 * MAX_TRIANGLES
+    const val MAX_LINE_CHARS = 64 * 1024
+    const val MAX_FACE_CORNERS = 16_384
+
+    /** The limits [parse] enforces; tests pass small ones. */
+    data class Limits(val maxVertices: Int = MAX_VERTICES, val maxTriangles: Int = MAX_TRIANGLES) {
+        init {
+            // A corner key packs three indices into 21 bits each; this keeps every one of them in range.
+            require(maxVertices in 1 until INDEX_LIMIT) { "maxVertices must be below $INDEX_LIMIT" }
+        }
+    }
+
+    /**
+     * Parses [text] into an indexed [Mesh], refusing a model past [limits].
      *
      * OBJ indexes position/uv/normal independently, but GL wants one index per unique combination —
      * so corners are de-duplicated by their `v/vt/vn` triple, which is what keeps the vertex buffer
@@ -30,114 +70,157 @@ object ObjParser {
      * shades instead of rendering flat black. Missing UVs default to zero; nothing can be painted on
      * those, but the model still displays.
      */
-    fun parse(text: String): Mesh {
-        val positions = ArrayList<Float>()
-        val uvs = ArrayList<Float>()
-        val normals = ArrayList<Float>()
+    fun parse(text: String, limits: Limits = Limits()): Mesh {
+        val builder = Builder(limits)
+        var start = 0
+        while (start <= text.length) {
+            // \n, \r\n and a bare \r (old Mac exporters) each end a line; one pass finds the first of them.
+            var end = start
+            while (end < text.length && text[end] != '\n' && text[end] != '\r') end++
+            parseLine(text, start, end, builder)
+            val crlf = end + 1 < text.length && text[end] == '\r' && text[end + 1] == '\n'
+            start = if (crlf) end + 2 else end + 1
+        }
+        return builder.build()
+    }
 
-        // Corner key ("v/vt/vn" resolved to absolute 0-based indices) -> emitted vertex index.
-        val emitted = HashMap<Triple<Int, Int, Int>, Int>()
-        val outVertices = ArrayList<Float>()
-        val outIndices = ArrayList<Int>()
-        // Emitted vertices whose corner carried no usable normal. Tracked per vertex, not per file:
-        // a file can have `vn` lines and still have faces that don't reference them.
-        val missingNormals = HashSet<Int>()
-
-        text.lineSequence().forEach { rawLine ->
-            val line = rawLine.substringBefore('#').trim()
-            if (line.isEmpty()) return@forEach
-            val parts = line.split(WHITESPACE).filter { it.isNotEmpty() }
-            if (parts.isEmpty()) return@forEach
-
-            when (parts[0]) {
-                "v" -> {
-                    // A position may carry a trailing weight; only xyz is used.
-                    positions.add(parts.float(1)); positions.add(parts.float(2)); positions.add(parts.float(3))
-                }
-                "vt" -> {
-                    uvs.add(parts.float(1))
-                    // OBJ's V axis points up, GL texture space points down. Flipping here means the
-                    // renderer and the later paint-to-texture path both work in GL convention.
-                    // V is optional in the format (a 1-D texture coordinate); it defaults to 0.
-                    uvs.add(1f - parts.floatOr(2, 0f))
-                }
-                "vn" -> {
-                    normals.add(parts.float(1)); normals.add(parts.float(2)); normals.add(parts.float(3))
-                }
-                "f" -> {
-                    val corners = parts.drop(1)
-                    if (corners.size < 3) return@forEach
-                    // Fan-triangulate: a quad or n-gon becomes n-2 triangles. Correct for the convex
-                    // faces exporters emit; a concave n-gon would need ear clipping, which is a
-                    // problem for a mesh nobody has produced yet.
-                    for (i in 1 until corners.size - 1) {
-                        listOf(corners[0], corners[i], corners[i + 1]).forEach { corner ->
-                            val idx = emitCorner(
-                                corner, positions, uvs, normals, emitted, outVertices, missingNormals,
-                            )
-                            outIndices.add(idx)
-                        }
-                    }
-                }
-                // mtllib / usemtl / o / g / s and anything else: not needed to draw geometry.
-                else -> Unit
+    /** One line, text[start, end): checked for length first, and only then copied and split. */
+    private fun parseLine(text: String, start: Int, end: Int, builder: Builder) {
+        // A comment runs to the end of the line; a long one costs a scan, not a copy.
+        var contentEnd = end
+        for (i in start until end) {
+            if (text[i] == '#') {
+                contentEnd = i
+                break
             }
         }
-
-        if (outIndices.isEmpty()) throw ObjParseException("No faces found — this doesn't look like an OBJ model")
-
-        val vertices = outVertices.toFloatArray()
-        val indices = outIndices.toIntArray()
-        if (missingNormals.isNotEmpty()) generateNormals(vertices, indices, missingNormals)
-        return Mesh(vertices, indices)
+        if (contentEnd - start > MAX_LINE_CHARS) {
+            throw ObjParseException("This model is too large: a line is longer than $MAX_LINE_CHARS characters")
+        }
+        val parts = text.substring(start, contentEnd).trim().split(WHITESPACE).filter { it.isNotEmpty() }
+        when (parts.firstOrNull()) {
+            "v" -> builder.addPosition(parts)
+            "vt" -> builder.addUv(parts)
+            "vn" -> builder.addNormal(parts)
+            "f" -> builder.addFace(parts)
+            // mtllib / usemtl / o / g / s and anything else: not needed to draw geometry.
+            else -> Unit
+        }
     }
 
     /**
-     * Resolves one `f` corner to an emitted vertex index, adding the vertex the first time that
-     * exact position/uv/normal combination is seen.
+     * One parse's accumulators, so the dispatch loop in [parse] stays flat. The numbers are the format's:
+     * three components in a position or normal, two in a uv.
      */
-    @Suppress("LongParameterList") // the parse's accumulators, threaded through one helper
-    private fun emitCorner(
-        corner: String,
-        positions: List<Float>,
-        uvs: List<Float>,
-        normals: List<Float>,
-        emitted: HashMap<Triple<Int, Int, Int>, Int>,
-        out: ArrayList<Float>,
-        missingNormals: MutableSet<Int>,
-    ): Int {
-        val bits = corner.split('/')
-        val vi = resolve(bits.getOrNull(0), positions.size / 3)
-        val ti = resolve(bits.getOrNull(1), uvs.size / 2)
-        val ni = resolve(bits.getOrNull(2), normals.size / 3)
-        if (vi < 0) throw ObjParseException("Face references an undefined vertex: '$corner'")
+    @Suppress("MagicNumber")
+    private class Builder(private val limits: Limits) {
+        private val positions = FloatList(3 * limits.maxVertices)
+        private val uvs = FloatList(2 * limits.maxVertices)
+        private val normals = FloatList(3 * limits.maxVertices)
 
-        // The (vi, ti, ni) triple itself, not a packed bit-encoding: the previous key —
-        // (vi+1)*0xFFFFFF + (ti+1)*0xFFFF + (ni+1) — was not collision-free (gcd(0xFFFFFF, 0xFFFF)
-        // = 255), so on a large enough mesh two geometrically distinct corners could hash to the
-        // same key and the second would silently snap to the first's position/UV/normal — a
-        // triangle corner teleported elsewhere in the mesh with no error. Triple's generated
-        // equals/hashCode compares all three fields, which a HashMap key always needs anyway; the
-        // hash value colliding is fine; the key being *equal* to a different corner is not.
-        val key = Triple(vi, ti, ni)
-        emitted[key]?.let { return it }
+        // Corner key ("v/vt/vn" resolved to absolute 0-based indices, each plus one) -> emitted vertex.
+        private val emitted = LongIntMap()
+        private val outVertices = FloatList(Mesh.FLOATS_PER_VERTEX * limits.maxVertices)
+        private val outIndices = IntList(3 * limits.maxTriangles)
 
-        out.add(positions[vi * 3]); out.add(positions[vi * 3 + 1]); out.add(positions[vi * 3 + 2])
-        if (ni >= 0) {
-            out.add(normals[ni * 3]); out.add(normals[ni * 3 + 1]); out.add(normals[ni * 3 + 2])
-        } else {
-            out.add(0f); out.add(0f); out.add(0f)  // filled in by generateNormals
-        }
-        if (ti >= 0) {
-            out.add(uvs[ti * 2]); out.add(uvs[ti * 2 + 1])
-        } else {
-            out.add(0f); out.add(0f)
+        // Emitted vertices whose corner carried no usable normal. Tracked per vertex, not per file:
+        // a file can have `vn` lines and still have faces that don't reference them.
+        private val missingNormals = java.util.BitSet()
+
+        fun addPosition(parts: List<String>) {
+            roomFor(positions.size / 3, limits.maxVertices, "vertices")
+            // A position may carry a trailing weight; only xyz is used.
+            positions.add(parts.float(1)); positions.add(parts.float(2)); positions.add(parts.float(3))
         }
 
-        val index = out.size / Mesh.FLOATS_PER_VERTEX - 1
-        if (ni < 0) missingNormals += index
-        emitted[key] = index
-        return index
+        fun addUv(parts: List<String>) {
+            roomFor(uvs.size / 2, limits.maxVertices, "texture coordinates")
+            uvs.add(parts.float(1))
+            // OBJ's V axis points up, GL texture space points down. Flipping here means the
+            // renderer and the later paint-to-texture path both work in GL convention.
+            // V is optional in the format (a 1-D texture coordinate); it defaults to 0.
+            uvs.add(1f - parts.floatOr(2, 0f))
+        }
+
+        fun addNormal(parts: List<String>) {
+            roomFor(normals.size / 3, limits.maxVertices, "normals")
+            normals.add(parts.float(1)); normals.add(parts.float(2)); normals.add(parts.float(3))
+        }
+
+        /** [parts] is the whole `f` line: the keyword, then the corners. */
+        fun addFace(parts: List<String>) {
+            if (parts.size - 1 > MAX_FACE_CORNERS) {
+                throw ObjParseException("This model is too large: a face has more than $MAX_FACE_CORNERS corners")
+            }
+            if (parts.size < 4) return
+            // Fan-triangulate: a quad or n-gon becomes n-2 triangles. Correct for the convex
+            // faces exporters emit; a concave n-gon would need ear clipping, which is a
+            // problem for a mesh nobody has produced yet.
+            for (i in 2 until parts.size - 1) {
+                roomFor(outIndices.size / 3, limits.maxTriangles, "triangles")
+                outIndices.add(emitCorner(parts[1]))
+                outIndices.add(emitCorner(parts[i]))
+                outIndices.add(emitCorner(parts[i + 1]))
+            }
+        }
+
+        fun build(): Mesh {
+            if (outIndices.size == 0) throw ObjParseException("No faces found — this doesn't look like an OBJ model")
+            // What the parse needed and the mesh does not goes first, so the final arrays are not built on top of it.
+            positions.release()
+            uvs.release()
+            normals.release()
+            emitted.release()
+            val vertices = outVertices.toArray()
+            val indices = outIndices.toArray()
+            if (!missingNormals.isEmpty) generateNormals(vertices, indices, missingNormals)
+            return Mesh(vertices, indices)
+        }
+
+        /**
+         * Resolves one `f` corner to an emitted vertex index, adding the vertex the first time that
+         * exact position/uv/normal combination is seen.
+         */
+        private fun emitCorner(corner: String): Int {
+            val bits = corner.split('/')
+            val vi = resolve(bits.getOrNull(0), positions.size / 3)
+            val ti = resolve(bits.getOrNull(1), uvs.size / 2)
+            val ni = resolve(bits.getOrNull(2), normals.size / 3)
+            if (vi < 0) throw ObjParseException("Face references an undefined vertex: '$corner'")
+
+            // The (vi, ti, ni) triple itself, packed 21 bits to a field, which is exact (never a hash
+            // that two different corners could share): the previous packing, (vi+1)*0xFFFFFF +
+            // (ti+1)*0xFFFF + (ni+1), was not collision-free (gcd(0xFFFFFF, 0xFFFF) = 255), so two
+            // geometrically distinct corners could land on one key and the second would silently snap
+            // to the first's position/UV/normal. [Limits] keeps every index plus one below 2^21.
+            val key = ((vi + 1).toLong() shl 42) or ((ti + 1).toLong() shl 21) or (ni + 1).toLong()
+            val known = emitted[key]
+            if (known >= 0) return known
+
+            val index = outVertices.size / Mesh.FLOATS_PER_VERTEX
+            roomFor(index, limits.maxVertices, "vertices")
+            val out = outVertices
+            out.add(positions[vi * 3]); out.add(positions[vi * 3 + 1]); out.add(positions[vi * 3 + 2])
+            if (ni >= 0) {
+                out.add(normals[ni * 3]); out.add(normals[ni * 3 + 1]); out.add(normals[ni * 3 + 2])
+            } else {
+                out.add(0f); out.add(0f); out.add(0f) // filled in by generateNormals
+            }
+            if (ti >= 0) {
+                out.add(uvs[ti * 2]); out.add(uvs[ti * 2 + 1])
+            } else {
+                out.add(0f); out.add(0f)
+            }
+
+            if (ni < 0) missingNormals.set(index)
+            emitted[key] = index
+            return index
+        }
+    }
+
+    /** Throws unless one more of [what] fits after [count] already held. */
+    private fun roomFor(count: Int, limit: Int, what: String) {
+        if (count >= limit) throw ObjParseException("This model is too large: more than $limit $what")
     }
 
     /**
@@ -158,7 +241,7 @@ object ObjParser {
      * smoothly averaged, which is what makes a curved surface read as curved. Only the vertices in
      * [targets] are written; vertices with a normal from the file keep it.
      */
-    private fun generateNormals(vertices: FloatArray, indices: IntArray, targets: Set<Int>) {
+    private fun generateNormals(vertices: FloatArray, indices: IntArray, targets: java.util.BitSet) {
         val stride = Mesh.FLOATS_PER_VERTEX
         val n = Mesh.NORMAL_OFFSET
 
@@ -181,7 +264,7 @@ object ObjParser {
             val nz = ux * vy - uy * vx
 
             for (base in intArrayOf(a, b, c)) {
-                if (base / stride !in targets) continue
+                if (!targets.get(base / stride)) continue
                 vertices[base + n] += nx
                 vertices[base + n + 1] += ny
                 vertices[base + n + 2] += nz
@@ -191,7 +274,7 @@ object ObjParser {
 
         var v = 0
         while (v < vertices.size) {
-            if (v / stride !in targets) {
+            if (!targets.get(v / stride)) {
                 v += stride
                 continue
             }
@@ -224,3 +307,143 @@ object ObjParser {
 
     private val WHITESPACE = Regex("\\s+")
 }
+
+/** Indices are packed 21 bits to a field in a corner key. */
+private const val INDEX_LIMIT = (1 shl 21) - 1
+
+/**
+ * A growable `FloatArray` that never grows past [maxCapacity]: doubling from a power of two would leave
+ * a list at the limit holding up to twice what it needs (a 9.6M-float list becomes 16.8M). The parse's
+ * limits fix every list's largest possible size, so that is passed in.
+ */
+internal class FloatList(private val maxCapacity: Int) {
+    private var data = FloatArray(minOf(INITIAL_CAPACITY, maxCapacity))
+    var size = 0
+        private set
+
+    /** Floats the backing array can hold now. */
+    val capacity: Int get() = data.size
+
+    fun add(value: Float) {
+        if (size == data.size) {
+            check(size < maxCapacity) { "list is full at $maxCapacity" }
+            data = data.copyOf(minOf(size * 2, maxCapacity))
+        }
+        data[size++] = value
+    }
+
+    operator fun get(index: Int): Float = data[index]
+
+    /** The contents: the backing array itself when it is exactly full, else a trimmed copy. */
+    fun toArray(): FloatArray = if (size == data.size) data else data.copyOf(size)
+
+    /** Drops the contents and lets the memory go. */
+    fun release() {
+        data = FloatArray(0)
+        size = 0
+    }
+}
+
+/** A growable `IntArray`, capped like [FloatList]. */
+internal class IntList(private val maxCapacity: Int) {
+    private var data = IntArray(minOf(INITIAL_CAPACITY, maxCapacity))
+    var size = 0
+        private set
+
+    val capacity: Int get() = data.size
+
+    fun add(value: Int) {
+        if (size == data.size) {
+            check(size < maxCapacity) { "list is full at $maxCapacity" }
+            data = data.copyOf(minOf(size * 2, maxCapacity))
+        }
+        data[size++] = value
+    }
+
+    fun toArray(): IntArray = if (size == data.size) data else data.copyOf(size)
+}
+
+/**
+ * Non-negative `Long` keys to `Int` values, open addressing with linear probing and no boxing; keeps the
+ * emitted-vertex lookup at 12 bytes a slot instead of a `HashMap` entry plus two boxed values.
+ */
+@Suppress("MagicNumber")
+internal class LongIntMap {
+    private var keys = LongArray(INITIAL_SLOTS) { EMPTY }
+    private var values = IntArray(INITIAL_SLOTS)
+    private var count = 0
+
+    /** Slots examined so far, over every lookup and insert: tests check it stays near one per operation. */
+    var probes = 0L
+        private set
+
+    /** The value for [key], or -1. */
+    operator fun get(key: Long): Int {
+        val mask = keys.size - 1
+        var slot = slotOf(key, mask)
+        probes++
+        while (keys[slot] != EMPTY) {
+            if (keys[slot] == key) return values[slot]
+            slot = (slot + 1) and mask
+            probes++
+        }
+        return -1
+    }
+
+    /** Drops every entry and lets the memory go; the map is not used afterwards. */
+    fun release() {
+        keys = LongArray(1) { EMPTY }
+        values = IntArray(1)
+        count = 0
+    }
+
+    operator fun set(key: Long, value: Int) {
+        // Under 60% full, so a probe stays short.
+        if ((count + 1) * 10 > keys.size * 6) grow()
+        put(key, value)
+    }
+
+    private fun put(key: Long, value: Int) {
+        val mask = keys.size - 1
+        var slot = slotOf(key, mask)
+        probes++
+        while (keys[slot] != EMPTY && keys[slot] != key) {
+            slot = (slot + 1) and mask
+            probes++
+        }
+        if (keys[slot] == EMPTY) count++
+        keys[slot] = key
+        values[slot] = value
+    }
+
+    private fun grow() {
+        val oldKeys = keys
+        val oldValues = values
+        keys = LongArray(oldKeys.size * 2) { EMPTY }
+        values = IntArray(oldKeys.size * 2)
+        count = 0
+        for (i in oldKeys.indices) if (oldKeys[i] != EMPTY) put(oldKeys[i], oldValues[i])
+    }
+
+    /**
+     * murmur3's 64-bit finalizer. A position-only corner packs to `(index + 1) shl 42`, whose low 42 bits
+     * are all zero, so a plain multiply-and-shift leaves the slot's low bits zero too and sequential
+     * vertices pile into runs of hundreds; this folds the high bits into the low ones first.
+     */
+    private fun slotOf(key: Long, mask: Int): Int {
+        var k = key
+        k = (k xor (k ushr 33)) * MIX_1
+        k = (k xor (k ushr 33)) * MIX_2
+        return (k xor (k ushr 33)).toInt() and mask
+    }
+
+    private companion object {
+        const val EMPTY = -1L
+        const val INITIAL_SLOTS = 1024
+
+        const val MIX_1 = -49064778989728563L // 0xff51afd7ed558ccd
+        const val MIX_2 = -4265267296055464877L // 0xc4ceb9fe1a85ec53
+    }
+}
+
+private const val INITIAL_CAPACITY = 1024

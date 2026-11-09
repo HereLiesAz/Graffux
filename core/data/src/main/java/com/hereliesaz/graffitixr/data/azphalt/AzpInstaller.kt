@@ -37,6 +37,15 @@ class AzpInstaller(
         /** Cumulative decompressed-size ceiling for a `.azp` — a zip-bomb guard on untrusted input.
          *  Asset packages are small (bundled multi-GB models use `remoteUrl`, not the archive). */
         const val MAX_PACKAGE_BYTES: Long = 64L * 1024 * 1024
+
+        /** Entries of any kind (directories too): each costs a name, a map slot and a loop turn. */
+        const val MAX_ENTRIES = 10_000
+
+        /** `manifest.json` is parsed whole before anything is trusted; real ones are a few KB. */
+        const val MAX_MANIFEST_BYTES = 4 * 1024 * 1024
+
+        /** `signature.json` is one key id and one signature. */
+        const val MAX_SIGNATURE_BYTES = 64 * 1024
     }
 
     /**
@@ -65,7 +74,11 @@ class AzpInstaller(
         val chunk = ByteArray(64 * 1024)
         ZipInputStream(input).use { zip ->
             var e = zip.nextEntry
+            var entryCount = 0
             while (e != null) {
+                if (++entryCount > MAX_ENTRIES) {
+                    throw InstallException("Package has more than $MAX_ENTRIES entries")
+                }
                 if (!e.isDirectory) {
                     val name = e.name
                     if (isUnsafePath(name)) throw InstallException("Unsafe path in package: $name")
@@ -81,9 +94,18 @@ class AzpInstaller(
                         throw InstallException("Duplicate entry in package: $name")
                     }
                     val out = ByteArrayOutputStream()
+                    // The two files parsed whole before anything is trusted get their own, much lower, cap.
+                    val entryLimit = when (name) {
+                        "manifest.json" -> MAX_MANIFEST_BYTES
+                        "signature.json" -> MAX_SIGNATURE_BYTES
+                        else -> Int.MAX_VALUE
+                    }
                     while (true) {
                         val n = zip.read(chunk)
                         if (n < 0) break
+                        if (out.size().toLong() + n > entryLimit) {
+                            throw InstallException("$name exceeds the ${entryLimit / 1024} KB limit")
+                        }
                         totalBytes += n
                         if (totalBytes > MAX_PACKAGE_BYTES) {
                             throw InstallException("Package exceeds the ${MAX_PACKAGE_BYTES / (1024 * 1024)} MB limit")
