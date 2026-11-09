@@ -40,6 +40,51 @@ class LocalizeArchiveUrisTest {
         }
     }
 
+    // The localizer must see the JSON string the model will see, not its escaped spelling.
+    @Test fun `json-escaped uris are localized like plain ones`() {
+        val inside = """{"uri":"file:\/\/\/x\/projects\/old\/layers\/a.png"}"""
+        assertEquals("""{"uri":"${root}layers/a.png"}""", localizeArchiveUris(inside, root))
+        for (raw in listOf(
+            """file:\/\/\/etc\/hosts""",
+            """file:///etc/hosts""",
+            """file:\/\/\/x\/projects\/old\/..\/victim\/a.png""",
+            """file:///x/projects/old/../victim/a.png""",
+            """file:///x/projects/old/%2e%2e/victim/a.png""",
+            """file:///etc/hosts""",
+        )) {
+            assertEquals(raw, """{"uri":""}""", localizeArchiveUris("""{"uri":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `uri fields without a scheme or with a single slash are dropped`() {
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"/etc/hosts"}""", root))
+        assertEquals(
+            """{"overlayImageUri":""}""",
+            localizeArchiveUris("""{"overlayImageUri":"/data/data/p/files/x.png"}""", root),
+        )
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"file:/etc/hosts"}""", root))
+        assertEquals(
+            """{"targetImageUris":["","${root}ok.png"]}""",
+            localizeArchiveUris("""{"targetImageUris":["/etc/a","file:///x/projects/old/ok.png"]}""", root),
+        )
+    }
+
+    @Test fun `text that merely looks odd is untouched`() {
+        val json = """{"name":"Mural: v2","note":"a/b","layers":[{"id":"1","opacity":1.0E-4,"uri":""}]}"""
+        assertEquals(json, localizeArchiveUris(json, root))
+    }
+
+    @Test fun `escaped question marks and percent signs in names survive`() {
+        // Uri.fromFile writes "what?.png" as what%3F.png and "50%.png" as 50%25.png; neither is traversal.
+        for (name in listOf("what%3F.png", "50%25.png", "a%23b.png")) {
+            assertEquals(
+                name,
+                """{"uri":"${root}layers/$name"}""",
+                localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/$name"}""", root),
+            )
+        }
+    }
+
     @Test fun `an escaped space in a file name is kept`() = assertEquals(
         """{"uri":"${root}layers/my%20layer.png"}""",
         localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/my%20layer.png"}""", root),
