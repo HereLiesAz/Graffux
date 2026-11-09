@@ -34,7 +34,7 @@ import kotlin.test.Test
  *     -Pgraffux.packs=/path/to/packs -Pgraffux.packs.out=/path/to/out [-Pgraffux.packs.previews=true]
  * ~~~
  *
- * For each pack it writes `<out>/<pack id>.sheet.png` (every brush against six test strokes),
+ * For each pack it writes `<out>/<pack id>.sheet.png` (every brush against seven test strokes),
  * prints each program's compile result, dab counts, worst step cost against the budget, and the
  * time the generator took; with `previews=true` it also writes the store card to
  * `<pack>/assets/preview.png`. The stamping here is a CPU approximation of the GPU engine's
@@ -188,6 +188,9 @@ class PackRenderHarness {
             Path("scrawl", { t ->
                 Pair(m + lw * t + sin(t * 31f) * h * 0.1f, h * 0.5f + cos(t * 23f) * h * 0.2f + sin(t * 7f) * h * 0.12f)
             }, { 1.6f }, { 0.6f }, lw * 2.4f),
+            // One loaded-brush pull: pressure swells then falls away, and the pen lifts while moving.
+            Path("petal", { t -> Pair(m + lw * 0.8f * t, h * 0.62f - h * 0.3f * sin(t * PI.toFloat() * 0.5f)) },
+                { 1.3f }, { t -> maxOf(0.06f, Math.pow(sin(t * PI.toFloat()).toDouble().coerceAtLeast(0.0), 0.7).toFloat()) }, lw * 0.9f),
         )
     }
 
@@ -206,6 +209,10 @@ class PackRenderHarness {
             val (x, y) = path.points(u)
             out.add(builder.add(x, y, time, path.pressure(u)))
         }
+        // The pen leaves the surface on the final sample (what the editor records at finger-up), which
+        // is what runs a program's lift-off step (phase 3).
+        val last = out.removeAt(out.lastIndex)
+        out.add(last.copy(telemetry = last.telemetry.copy(contactPhase = BrushContactPhase.LIFT_OFF)))
         return out
     }
 
