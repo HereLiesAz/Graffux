@@ -140,4 +140,22 @@ class PaletteRecipeTest {
         assertEquals(0xFF00FFFF.toInt(), poor.originalArgb)
         assertEquals(exact.conc.size, poor.conc.size)
     }
+
+    @Test
+    fun aBookWithAPresentButMalformedFieldIsNotTreatedAsHealthy() {
+        val r = recipeOf(mixed())
+        val book = RecipeBook(recipes = listOf(r)).toJson()
+        // "recipes" present but not an array
+        assertNull(RecipeBook.fromJsonRepairing("""{"format":"azphalt-recipes/1","recipes":{"a":1}}"""))
+        assertNull(RecipeBook.fromJsonRepairing("""{"format":"azphalt-recipes/1","recipes":"nope"}"""))
+        assertNull(RecipeBook.fromJsonRepairing("""{"format":"azphalt-recipes/1","recipes":null}"""))
+        // "format" present but not a string
+        assertNull(RecipeBook.fromJsonRepairing("""{"format":{"x":1},"recipes":[]}"""))
+        assertNull(RecipeBook.fromJsonRepairing("""{"format":7,"recipes":[]}"""))
+        // a top level that is not an object
+        assertNull(RecipeBook.fromJsonRepairing("[]"))
+        // genuinely empty or default books are healthy
+        assertEquals(0, RecipeBook.fromJsonRepairing("{}")!!.first.recipes.size)
+        assertEquals(1, RecipeBook.fromJsonRepairing(book)!!.first.recipes.size)
+    }
 }

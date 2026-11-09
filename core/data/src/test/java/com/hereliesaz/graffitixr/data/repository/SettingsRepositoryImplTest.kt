@@ -229,4 +229,24 @@ class SettingsRepositoryImplTest {
         val copies = dir.listFiles { f -> f.name.contains(".corrupt-") }!!
         assertTrue(copies.isNotEmpty() && copies.all { it.readBytes().contentEquals(bad.readBytes()) })
     }
+
+    @Test
+    fun `renaming carousel keys moves favourites in order without duplicating`() = runTest {
+        listOf("builtin.Heavy Oil", "custom.x", "builtin.Round").forEach { repo.toggleCarouselFavorite(it) }
+        val before = repo.carouselFavorites.first()
+        assertTrue("builtin.Heavy Oil" in before)
+        repo.renameCarouselKeys(mapOf("builtin.Heavy Oil" to "builtin.Round"))
+        val after = repo.carouselFavorites.first()
+        assertEquals(1, after.count { it == "builtin.Round" })
+        assertTrue("builtin.Heavy Oil" !in after)
+        assertTrue("custom.x" in after)
+        listOf("custom.x", "builtin.Round").forEach { repo.toggleCarouselFavorite(it) } // tidy
+    }
+
+    @Test
+    fun `renaming with nothing to rename changes nothing`() = runTest {
+        val before = repo.carouselFavorites.first()
+        repo.renameCarouselKeys(emptyMap())
+        assertEquals(before, repo.carouselFavorites.first())
+    }
 }
