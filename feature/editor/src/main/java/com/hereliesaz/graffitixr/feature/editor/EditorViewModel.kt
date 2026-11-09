@@ -111,6 +111,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collectLatest
+import com.hereliesaz.graffitixr.common.scene.paintBlock
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -14108,6 +14109,22 @@ class EditorViewModel @Inject constructor(
         val layer = st.layers.firstOrNull { it.id == st.activeLayerId } ?: return false
         val content = layer.model ?: return false
         if (content.mesh == null || st.canvasSize.width <= 0 || st.canvasSize.height <= 0) return false
+        // Never start from a blank texture while the saved one has not loaded (or cannot be read): the next save would
+        // overwrite the saved paint with the blank one.
+        when (content.paintBlock(layer.id in modelTextureLoadFailed)) {
+            com.hereliesaz.graffitixr.common.scene.ModelPaintBlock.NONE -> Unit
+            com.hereliesaz.graffitixr.common.scene.ModelPaintBlock.TEXTURE_LOADING -> {
+                notify("The model's paint is still loading. Try again in a moment.")
+                return false
+            }
+            com.hereliesaz.graffitixr.common.scene.ModelPaintBlock.TEXTURE_UNREADABLE -> {
+                notify(
+                    "This model's saved paint couldn't be read, so it can't be painted on without overwriting it.",
+                    NoticeKind.WARNING,
+                )
+                return false
+            }
+        }
         modelStroke = ModelStroke(
             layer.id,
             PaintableTexture.startingFrom(content.texture?.pixels(), content.textureWidth, content.textureHeight),
@@ -14269,9 +14286,13 @@ class EditorViewModel @Inject constructor(
      * missing or unreadable OBJ leaves the layer empty, never the project broken; a missing texture
      * is unpainted.
      */
+    /** Model layers whose saved texture file could not be read: painting them is refused. */
+    private val modelTextureLoadFailed = HashSet<String>()
+
     private fun restoreModelLayers(projectId: String, layers: List<Layer>) {
         modelTexturesOnDisk.clear()
         writtenModelTextures.clear()
+        modelTextureLoadFailed.clear()
         val pending = layers.filter { it.model != null && it.model?.mesh == null }
         if (pending.isEmpty()) return
         viewModelScope.launch(dispatchers.io) {
@@ -14301,6 +14322,9 @@ class EditorViewModel @Inject constructor(
                 if (_uiState.value.projectId != projectId) return@withContext
                 textures.forEach { (id, written) -> modelTexturesOnDisk[id] = written.texture }
                 writtenModelTextures.putAll(textures)
+                // a saved texture that did not load stays unpaintable (and unsaved over), never blank-and-overwritten
+                pending.filter { it.model?.textureFile != null && it.id !in textures }
+                    .forEach { modelTextureLoadFailed += it.id }
                 updateUi { s -> s.copy(layers = s.layers.map(::fillModel)) }
             }
         }
