@@ -42,7 +42,13 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
@@ -194,6 +200,15 @@ fun PaletteMixerDialog(
     var hex by remember { mutableStateOf("") }
     var match by remember { mutableStateOf<String?>(null) }
     var boardSize by remember { mutableStateOf(IntSize(1, 1)) }
+    // What the last board action did, announced politely: the board changes only as pixels and the brush's
+    // recipe, so without this a screen reader (and anyone who is not looking at the board) hears nothing.
+    var status by remember { mutableStateOf("") }
+    var rinsing by remember { mutableStateOf(false) }
+    val resources = LocalContext.current.resources
+    fun handName() = resources.getString(
+        if (board.hand == 0) R.string.mixer_hand_foreground else R.string.mixer_hand_background,
+    )
+    fun say(id: Int, vararg args: Any) { status = resources.getString(id, *args) }
 
     // Every board or brush change is a palette change (saved with the project); only operations that change what the
     // brush holds also apply its colour (MixerOps).
@@ -205,6 +220,15 @@ fun PaletteMixerDialog(
             onChanged()
         },
     )
+
+    fun squeezeAt(b: Offset) {
+        ops.squeeze(slot, b.x, b.y, 7f, 0.9f)
+        say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
+    }
+    fun dipAt(b: Offset) {
+        ops.dip(b.x, b.y)
+        say(R.string.mixer_status_dipped, handName())
+    }
 
     fun toBoard(p: Offset): Offset = Offset(
         p.x / boardSize.width * MIXER_BOARD_SIZE,
@@ -253,7 +277,12 @@ fun PaletteMixerDialog(
                             .border(if (board.hand == i) 3.dp else 1.dp,
                                 Color.White.copy(alpha = if (board.hand == i) 1f else 0.4f), CircleShape)
                             .selectable(selected = board.hand == i,
-                                role = Role.RadioButton) { board.hand = i; version++ }
+                                role = Role.RadioButton) {
+                                board.hand = i
+                                version++
+                                rinsing = false
+                                say(R.string.mixer_status_hand, handName().replaceFirstChar(Char::uppercase))
+                            }
                             .semantics { contentDescription = "$label brush" }
                             .testTag("mixer.hand.$i"),
                     )
@@ -268,6 +297,8 @@ fun PaletteMixerDialog(
                         onSwapColors()
                         version++
                         onChanged()
+                        rinsing = false
+                        say(R.string.mixer_status_swapped)
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                 )
@@ -336,13 +367,17 @@ fun PaletteMixerDialog(
                         detectTapGestures { p ->
                             val b = toBoard(p)
                             anchor = b
-                            if (tool == MixerTool.SQUEEZE) ops.squeeze(slot, b.x, b.y, 7f, 0.9f) else ops.dip(b.x, b.y)
+                            if (tool == MixerTool.SQUEEZE) squeezeAt(b) else dipAt(b)
                         }
                     }
                     .pointerInput(tool, slot) {
                         boardSize = size
                         var last = Offset.Zero
                         detectDragGestures(
+                            onDragEnd = {
+                                if (tool == MixerTool.MIX) say(R.string.mixer_status_mixed, handName())
+                                else say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
+                            },
                             onDragStart = { p ->
                                 last = toBoard(p)
                                 if (tool == MixerTool.MIX) {
@@ -362,7 +397,19 @@ fun PaletteMixerDialog(
                             },
                         )
                     }
-                    .semantics { contentDescription = "Mixing board. ${tool.hint}" }
+                    .semantics {
+                        contentDescription = resources.getString(R.string.mixer_board_description, tool.hint)
+                        // The board takes touches at a place; these do the same at the last touched spot, so a
+                        // screen reader or a switch can squeeze and dip without pointing.
+                        customActions = listOf(
+                            CustomAccessibilityAction(resources.getString(R.string.mixer_action_squeeze)) {
+                                squeezeAt(anchor); true
+                            },
+                            CustomAccessibilityAction(resources.getString(R.string.mixer_action_dip)) {
+                                dipAt(anchor); true
+                            },
+                        )
+                    }
                     .testTag("mixer.board"),
             ) {
                 frame // read here so the canvas redraws when a render lands
@@ -381,14 +428,17 @@ fun PaletteMixerDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GraffuxButton(
                     text = "Mix once",
-                    onClick = { ops.mixStep(anchor.x, anchor.y) },
+                    onClick = { ops.mixStep(anchor.x, anchor.y); say(R.string.mixer_status_mixed, handName()) },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier
                         .semantics { contentDescription = "Mix once. Runs the brush round the board once" }
                         .testTag("mixer.mixOnce"))
                 GraffuxButton(
                     text = "Mix more",
-                    onClick = { ops.mixStep(anchor.x, anchor.y, MIX_MORE_PASSES) },
+                    onClick = {
+                        ops.mixStep(anchor.x, anchor.y, MIX_MORE_PASSES)
+                        say(R.string.mixer_status_mixed_more, handName())
+                    },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier
                         .semantics { contentDescription = "Mix more. Runs the brush round the board several times" }
@@ -398,12 +448,54 @@ fun PaletteMixerDialog(
 
             // Cleaning the brush: wipe takes part of the load, rinse all of it.
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                GraffuxButton(text = "Wipe brush", onClick = { board.clean(PaletteBoard.Clean.WIPE); ops.applyBrush() },
-                    shape = GraffuxButtonShape.RECTANGLE)
+                GraffuxButton(
+                    text = "Wipe brush",
+                    onClick = {
+                        rinsing = false
+                        if (board.brush.amount[0] <= 0f) {
+                            say(R.string.mixer_status_already_clean, handName())
+                        } else {
+                            board.clean(PaletteBoard.Clean.WIPE)
+                            ops.applyBrush()
+                            say(R.string.mixer_status_wiped, handName())
+                        }
+                    },
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier.testTag("mixer.wipe"))
                 GraffuxButton(
                     text = "Rinse brush",
-                    onClick = { board.clean(PaletteBoard.Clean.RINSE); ops.applyBrush() },
-                    shape = GraffuxButtonShape.RECTANGLE)
+                    onClick = {
+                        // Rinsing takes all the paint off the brush in hand, so it asks first; an empty
+                        // brush has nothing to lose and says so instead.
+                        if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_already_clean, handName())
+                        else rinsing = true
+                    },
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier.testTag("mixer.rinse"))
+            }
+            if (rinsing) {
+                Column(Modifier.testTag("mixer.rinseRow"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        stringResource(R.string.mixer_rinse_ask, handName()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GraffuxButton(
+                            text = stringResource(R.string.mixer_rinse_it),
+                            onClick = {
+                                rinsing = false
+                                board.clean(PaletteBoard.Clean.RINSE)
+                                ops.applyBrush()
+                                say(R.string.mixer_status_rinsed, handName())
+                            },
+                            shape = GraffuxButtonShape.RECTANGLE,
+                            modifier = Modifier.testTag("mixer.confirmRinse"))
+                        GraffuxButton(
+                            text = stringResource(R.string.mixer_keep_it),
+                            onClick = { rinsing = false },
+                            shape = GraffuxButtonShape.RECTANGLE)
+                    }
+                }
             }
             Spacer(Modifier.height(10.dp))
 
@@ -430,14 +522,30 @@ fun PaletteMixerDialog(
                 GraffuxButton(
                     text = "Match",
                     onClick = {
-                        match = matchHexToBrush(board, hex)
-                        if (match != NOT_A_COLOUR) ops.applyBrush()
+                        val result = matchHexToBrush(board, hex)
+                        match = result
+                        if (result != NOT_A_COLOUR) {
+                            ops.applyBrush()
+                            say(R.string.mixer_status_matched, result, handName())
+                        } else {
+                            status = result
+                        }
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                 )
             }
             match?.let { Text(it, style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.testTag("mixer.match")) }
+            // Announced politely whenever it changes (hidden to the eye only by being empty until a board
+            // action happens; it is the line under the board the action's words are written to).
+            Text(
+                status,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .testTag("mixer.status"),
+            )
         }
     }
 }
