@@ -133,4 +133,26 @@ class ExtensionStateStoreTest {
         assertTrue(store().all().isEmpty())
         assertNull(store().stateOf("com.example.never-seen"))
     }
+
+    @Test
+    fun `a failure reason loses file names and relative paths as well as absolute ones`() {
+        val s = store()
+        val cases = mapOf(
+            "azphalt-state.json: Permission denied" to "azphalt-state.json",
+            "open failed: extensions/com.example.a/manifest.json" to "manifest.json",
+            "cannot read C:\\Users\\me\\wall.png" to "wall.png",
+            "no such file: layers/a.png" to "a.png",
+            "unlink failed for model_x.obj" to "model_x.obj",
+            "content://media/external/images/1 revoked" to "media/external",
+        )
+        for ((raw, name) in cases) {
+            s.record("com.example.a", "1", ExtensionState.FAILED, atMs = 1L, reason = raw)
+            val kept = s.stateOf("com.example.a")?.reason.orEmpty()
+            assertTrue("$raw -> $kept", name !in kept)
+            assertTrue("something of the message is still there: $kept", kept.isNotBlank())
+        }
+        // Plain diagnostics are untouched.
+        s.record("com.example.a", "1", ExtensionState.FAILED, atMs = 2L, reason = "integrity-mismatch (digest)")
+        assertEquals("integrity-mismatch (digest)", s.stateOf("com.example.a")?.reason)
+    }
 }

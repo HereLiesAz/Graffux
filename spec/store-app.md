@@ -296,9 +296,12 @@ Key properties, all directly asserted in the code:
 - **Read-only, normatively.** `insert`/`update`/`delete` all throw
   `UnsupportedOperationException("azphalt extension state is read-only")` rather than failing
   quietly: "a store that believes it wrote something is worse than one that knows it cannot."
-- **Gated by a `normal`-protection-level permission** — "any app can declare it and read with no user
-  prompt." This is a deliberately low bar because of the next point:
-- **Privacy**: "Nothing in a row identifies a device, a user, or an install." The exposed columns are
+- **Gated by a `normal`-protection-level permission** — any installed app can declare it and read with
+  no user prompt, so the list of the user's extensions (ids, versions, states, timestamps) is readable by
+  any installed app, not only a store the user chose. That is a disclosure the host's privacy policy
+  makes; it is a low bar on purpose, because of the next point:
+- **Privacy**: no row identifies a device, a user, or an install (though the list of extensions is itself
+  personal, as above). The exposed columns are
   exactly the five `ExtensionStateEntry` fields (`id`, `version`, `state`, `at`, `reason`), all
   `TEXT`, with `at` stored as the same ISO-8601 string the wire format uses (not millis), "so a row
   and a wire entry are the same thing." `selection`/`sortOrder` query params are deliberately ignored

@@ -148,8 +148,18 @@ class ExtensionStateStore(private val file: File) {
 
         private const val TAG = "AzphaltState"
 
-        /** Matches a URI (`scheme://...`) or an absolute Unix path — see [sanitizeReason]. */
-        private val URI_OR_PATH = Regex("""[a-zA-Z][a-zA-Z0-9+.-]*://\S+|/[\w.\-/]{3,}""")
+        /**
+         * What [sanitizeReason] removes: a URI (`scheme://...`), any whitespace-delimited token that holds a
+         * path separator (absolute, relative, `a/b.png`, `C:\x\y`), and a bare file name with a known file
+         * extension (`azphalt-state.json`, `model_x.obj`). Best effort: free text can still name something in
+         * words, and the result is cut to [MAX_REASON_LENGTH].
+         */
+        private val URI_OR_PATH = Regex(
+            """[a-zA-Z][a-zA-Z0-9+.-]*://\S+|\S*[/\\]\S*""" +
+                """|[\w.\-]+\.(?:json|png|jpe?g|webp|txt|log|obj|mtl|gltf|glb|azp|cube|bak|tmp|corrupt|xml|""" +
+                """db|bin|so|apk|wasm|zip|pdf|fux|gxr|prefs)\b""",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** A failure reason is a short diagnostic string, not a place for an exception's full
          *  stack-trace-adjacent detail to accumulate. */

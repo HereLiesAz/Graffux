@@ -86,8 +86,10 @@ emptyList())`, serialized as `{"entries": [...]}`.
 applied only when `state == FAILED`:
 
 - Truncated to `MAX_REASON_LENGTH = 200` characters.
-- Passed through `sanitizeReason()`, which replaces anything matching a URI-or-path pattern
-  (`[a-zA-Z][a-zA-Z0-9+.-]*://\S+|/[\w.\-/]{3,}`) with `"[redacted]"`.
+- Passed through `sanitizeReason()`, which replaces with `"[redacted]"` a URI (`scheme://...`), any
+  whitespace-delimited token that holds a path separator (absolute, relative or Windows), and a bare
+  file name with a known file extension (`azphalt-state.json`). Best effort: free text can still name
+  something in words.
 
 This exists because `reason` is populated from caught-exception messages, and an exported
 `ContentProvider` (§ 4) is exactly the kind of surface that turns an incidental `content://` URI or

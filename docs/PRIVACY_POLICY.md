@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Effective Date:** October 29, 2026
+**Effective Date:** November 9, 2026
 
 Graffux (the "App") is committed to protecting your privacy. This Privacy Policy describes how we handle information in our mobile application.
 
@@ -92,12 +92,14 @@ The App contains no advertising. It connects to third-party services only as fol
   capabilities their package declares. See
   `spec/package-format.md` for the sandbox's exact guarantees.
 - **Extension list readable by other apps.** So that a store app opened on its own can show what
-  you already have, the App exposes the ids, versions and states of your installed extensions
-  (plus a short, scrubbed reason when an install failed) through a read-only content provider.
+  you already have, the App exposes the ids, versions, states and timestamps of your installed
+  extensions (plus a short reason when an install failed) through a read-only content provider.
   It is guarded by the permission `azphalt.permission.READ_EXTENSION_STATE`, which Android grants
   without a prompt to any other app on your device that declares it, not only to the store you
-  chose; an app that does can read the list. It holds no account, device or file information and
-  cannot be written to. The App only hands out the provider's address when it opens a store.
+  chose; an app that does can read the list. It holds no account or device information and cannot
+  be written to. A failure reason has web and file addresses, paths and file names removed before it
+  is stored, on a best-effort basis, and is cut to 200 characters. The App only hands out the
+  provider's address when it opens a store.
   If you do not want this, do not install apps that ask for that permission.
 - **Purchases (optional).** If you buy a paid extension inside the App, the App asks azphalt.store
   how to pay and sends it the extension's id, this App's package name and, on a Google Play install,
