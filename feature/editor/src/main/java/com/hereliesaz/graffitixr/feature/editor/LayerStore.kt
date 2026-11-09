@@ -199,6 +199,46 @@ internal class LayerStore {
         (liveImpastoMaterial[layerId] ?: impastoMaterialBases[layerId])?.copyForWork()
 
     /**
+     * The material a layer save writes to its sidecar, each field copied exactly once.
+     *
+     * Built from the stored states in place: they are never mutated (every `put*` copies in, every getter hands out
+     * a working copy, and a write replaces the object), so a persistence snapshot needs no working copy of them
+     * first. Going through [wetnessStateCopyOrNull] / [impastoMaterialStateCopyOrNull] and then snapshotting the copy
+     * copied the wetness field and the raw colour twice each, on every stroke's save. [liveHeight] is the layer's
+     * height map from the UI state when it has one of the right size; it is copied, then, because strokes edit it in
+     * place. Null when the layer has no material at all.
+     */
+    fun captureMaterial(
+        layerId: String,
+        width: Int,
+        height: Int,
+        liveHeight: FloatArray?,
+    ): MaterialStateCodec.Snapshot? {
+        val layerHeight = liveHeight?.takeIf { it.size == width * height }?.copyOf()
+            ?: heightBases[layerId]?.takeIf { it.size == width * height }?.copyOf()
+        val wetState = (liveWetness[layerId] ?: wetnessBases[layerId])?.takeIf {
+            it.field.width == width && it.field.height == height
+        }
+        val impasto = (liveImpastoMaterial[layerId] ?: impastoMaterialBases[layerId])?.takeIf {
+            it.width == width && it.height == height
+        }
+        if (layerHeight == null && wetState == null && impasto == null) return null
+        return MaterialStateCodec.Snapshot(
+            width = width,
+            height = height,
+            heightMap = layerHeight,
+            wetness = wetState?.snapshot(),
+            // Android uptime is session-local; MaterialStateCodec v2 intentionally resets it.
+            lastWetnessUptimeMillis = null,
+            tileSize = wetState?.field?.tileSize
+                ?: impasto?.tileSize
+                ?: com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE,
+            rawColor = impasto?.rawColor?.copyOf(),
+            mediumTiles = impasto?.tileSnapshots() ?: emptyList(),
+        )
+    }
+
+    /**
      * The stored height, wetness and Impasto material objects for [layerId]. Every write replaces
      * the object, so equal identities mean unchanged state (a live stroke's checkpoint test).
      */
