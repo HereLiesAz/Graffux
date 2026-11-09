@@ -1,9 +1,11 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.azphalt.PaletteBoard
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,7 +33,12 @@ internal class PaletteProjectSync(
     /** Where the project's files live and whether it may be written. */
     interface Store {
         fun isReadOnly(): Boolean
+
+        /** A save failed (it is also the place to tell the user, once). */
         fun onError(error: Throwable) {}
+
+        /** The saved palette exists but could not be read; the file was kept as a backup. */
+        fun onUnreadable(projectId: String) {}
         suspend fun write(projectId: String, file: String, bytes: ByteArray)
         suspend fun read(projectId: String, file: String): ByteArray?
     }
@@ -40,7 +47,7 @@ internal class PaletteProjectSync(
     private var generation = 0L
     private var revision = 0L
 
-    /** The two files' bytes. */
+    /** The two parts of the saved palette: the board and the brushes. */
     class Encoded(val board: ByteArray, val brushes: ByteArray)
 
     /** The latest change not yet written: an owned copy of the board's state, and the project it belongs to. */
@@ -68,30 +75,63 @@ internal class PaletteProjectSync(
         saveJob?.cancel()
         saveJob = scope.launch {
             delay(debounceMs)
+            // still the same project (a closing one is flushed by close()), and still writable
             if (mine != generation || store.isReadOnly()) return@launch
-            // hand the copy to the IO work; the next change starts a fresh one
-            val owned = pending ?: return@launch
-            val id = pendingProject ?: return@launch
-            pending = null
-            pendingProject = null
-            withContext(io) {
-                runCatching {
-                    val bytes = encoder(owned)
-                    store.write(id, PaletteBoardPersistence.BOARD_FILE, bytes.board)
-                    store.write(id, PaletteBoardPersistence.BRUSH_FILE, bytes.brushes)
-                }.onFailure(store::onError)
-            }
+            takePending()?.let { (owned, id) -> write(owned, id) }
         }
     }
 
-    /** The open project is going away: a pending save and a pending restore must not land. */
-    fun close() {
-        generation++
+    /** The pending copy and its project id, taken (the next change starts a fresh copy). */
+    private fun takePending(): Pair<PaletteBoard, String>? {
+        val owned = pending
+        val id = pendingProject
         pending = null
         pendingProject = null
+        return if (owned != null && id != null) owned to id else null
+    }
+
+    /**
+     * Writes [owned] under [id]: encode and write on [io], and never half-way: the write is not cancellable, so a
+     * newer change or a closing project cannot stop it between the encode and the file. The board and both brushes
+     * are ONE file, so a crash leaves the old pair or the new pair, never a mix.
+     */
+    private suspend fun write(owned: PaletteBoard, id: String) {
+        withContext(NonCancellable + io) {
+            runCatching {
+                val e = encoder(owned)
+                store.write(id, PaletteBoardPersistence.COMBINED_FILE, PaletteBoardPersistence.pack(e.board, e.brushes))
+            }.onFailure { if (it is CancellationException) throw it else store.onError(it) }
+        }
+    }
+
+    /**
+     * Writes any pending change now, under the project it belongs to, and waits for it: for the end of the
+     * ViewModel's life. The change is written to its own project even if another has been opened since.
+     */
+    suspend fun flush() {
         saveJob?.cancel()
         saveJob = null
+        takePending()?.let { (owned, id) -> write(owned, id) }
     }
+
+    /** [flush] without waiting (the app going to the background): the write is started and runs to completion. */
+    fun flushAsync() {
+        saveJob?.cancel()
+        saveJob = null
+        takePending()?.let { (owned, id) -> scope.launch { write(owned, id) } }
+    }
+
+    /**
+     * The open project is going away: its last unsaved palette edit is written under its OWN id (it is never
+     * dropped, and never written under the next project), then a pending restore must not land.
+     */
+    fun close() {
+        flushAsync()
+        generation++
+    }
+
+    /** What was read from the project: the board and brushes bytes, and the file they came from. */
+    private class Saved(val board: ByteArray?, val brushes: ByteArray?, val file: String, val raw: ByteArray)
 
     /** Project [projectId] opened: start from an empty board and load its saved one unless edited meanwhile. */
     fun open(projectId: String) {
@@ -100,16 +140,43 @@ internal class PaletteProjectSync(
         val mine = generation
         val startRevision = revision
         scope.launch {
-            val saved = withContext(io) {
-                val b = store.read(projectId, PaletteBoardPersistence.BOARD_FILE)
-                    ?.let { runCatching { MaterialStateCodec.decode(it) }.getOrNull() }
-                b to store.read(projectId, PaletteBoardPersistence.BRUSH_FILE)
+            val saved = withContext(io) { readSaved(projectId) }
+            if (saved == null || mine != generation || startRevision != revision) return@launch
+            if (!apply(saved)) {
+                // The palette exists but cannot be used (damaged, or for a different board or tube set): keep the
+                // file as a backup before any new edit can overwrite it, and tell the user once.
+                withContext(NonCancellable + io) { keepBackup(projectId, saved) }
+                store.onUnreadable(projectId)
             }
-            if (mine != generation || startRevision != revision) return@launch
-            val (snap, brushes) = saved
-            if (snap != null && !PaletteBoardPersistence.restore(board, snap)) board.clear()
-            if (brushes != null) PaletteBoardPersistence.decodeBrushes(board, brushes)
         }
+    }
+
+    /** The saved palette: the combined file, else the older two files; null if the project has none. */
+    private suspend fun readSaved(projectId: String): Saved? {
+        val bytes = store.read(projectId, PaletteBoardPersistence.COMBINED_FILE)
+        if (bytes != null) {
+            val parts = PaletteBoardPersistence.unpack(bytes)
+            return Saved(parts?.first, parts?.second, PaletteBoardPersistence.COMBINED_FILE, bytes)
+        }
+        return store.read(projectId, PaletteBoardPersistence.BOARD_FILE)?.let { legacy ->
+            val brushes = store.read(projectId, PaletteBoardPersistence.BRUSH_FILE)
+            Saved(legacy, brushes, PaletteBoardPersistence.BOARD_FILE, legacy)
+        }
+    }
+
+    private suspend fun keepBackup(projectId: String, saved: Saved) {
+        runCatching { store.write(projectId, "${saved.file}.bak", saved.raw) }
+            .onFailure { if (it is CancellationException) throw it else store.onError(it) }
+    }
+
+    /** Applies [saved] to the board; false when it could not be used (the board is then left empty). */
+    private fun apply(saved: Saved): Boolean {
+        val boardBytes = saved.board ?: return false
+        val snap = runCatching { MaterialStateCodec.decode(boardBytes) }.getOrNull()
+        val restored = snap != null && PaletteBoardPersistence.restore(board, snap)
+        if (!restored) board.clear()
+        val brushesOk = saved.brushes == null || PaletteBoardPersistence.decodeBrushes(board, saved.brushes)
+        return restored && brushesOk
     }
 
     private companion object {
