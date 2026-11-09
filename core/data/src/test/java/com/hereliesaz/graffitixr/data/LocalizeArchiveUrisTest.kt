@@ -24,4 +24,24 @@ class LocalizeArchiveUrisTest {
 
     @Test fun `other strings are untouched`() =
         assertEquals("""{"name":"Wall piece"}""", localizeArchiveUris("""{"name":"Wall piece"}""", root))
+
+    /** Uri.getPath() decodes percent-escapes, so these all name a parent directory once opened. */
+    @Test fun `percent-encoded and other disguised traversal is refused`() {
+        for (rest in listOf(
+            "%2e%2e/victim/a.png", "%2E%2E/victim/a.png", ".%2e/victim/a.png", "..%2fvictim/a.png",
+            "a%2f..%2f..%2fvictim.png", "a%5c..%5cvictim.png", "%252e%252e/victim/a.png",
+            "a/..%00/b.png", "a/..?x/b.png", "a/..#x", "a/%2e/b.png", "a%00.png",
+        )) {
+            assertEquals(
+                rest,
+                """{"uri":""}""",
+                localizeArchiveUris("""{"uri":"file:///x/projects/old/$rest"}""", root),
+            )
+        }
+    }
+
+    @Test fun `an escaped space in a file name is kept`() = assertEquals(
+        """{"uri":"${root}layers/my%20layer.png"}""",
+        localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/my%20layer.png"}""", root),
+    )
 }

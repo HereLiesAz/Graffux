@@ -855,9 +855,36 @@ internal fun localizeArchiveUris(projectJson: String, localRoot: String): String
     ARCHIVE_URI.replace(projectJson) { m ->
         val uri = m.groupValues[1]
         val inProject = Regex("^file://.*?/projects/[^/]+/(.+)$").find(uri)?.groupValues?.get(1)
-        val safe = inProject?.takeIf { rest -> rest.split('/').none { it == ".." || it.isEmpty() } }
+        val safe = inProject?.takeIf { rest -> rest.split('/').none { !isSafeUriSegment(it) } }
         "\"" + (if (safe != null) localRoot + safe else "") + "\""
     }
+
+/**
+ * Whether one path segment of an archive URI stays inside its folder once opened. Uri.getPath()
+ * percent-decodes, so `%2e%2e` or `..%2f` are parent references the literal `..` check misses: the
+ * segment is decoded until it stops changing (a double-encoded `%252e` too) and refused if any form
+ * is empty, `.`, `..`, or holds a separator, a NUL, or a query/fragment mark. A malformed escape is
+ * refused too.
+ */
+private fun isSafeUriSegment(segment: String): Boolean {
+    var current: String? = segment
+    var safe = true
+    var rounds = 0
+    while (current != null && safe && rounds++ < MAX_URI_DECODES) {
+        if (current in URI_DOT_SEGMENTS || URI_UNSAFE_CHARS.containsMatchIn(current)) {
+            safe = false
+        } else {
+            val decoded = runCatching { java.net.URLDecoder.decode(current.replace("+", "%2B"), "UTF-8") }.getOrNull()
+            if (decoded == current) return true
+            current = decoded
+        }
+    }
+    return false
+}
+
+private val URI_DOT_SEGMENTS = setOf("", ".", "..")
+private val URI_UNSAFE_CHARS = Regex("""[/\\\u0000?#]""")
+private const val MAX_URI_DECODES = 4
 
 /** The project.json format version that added photo adjustment layers. */
 private const val FORMAT_ADJUSTMENT_LAYERS = 2
