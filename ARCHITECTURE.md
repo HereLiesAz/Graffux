@@ -736,3 +736,11 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
 **Limitations:** blend-mode, clipping-mask, adjustment and frame-clipped layers do not take part
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading
 does not apply to depth-pass members. Full detail: `spec/3d-space.md`, "Limits".
+
+## Painterly realism (design only)
+
+`spec/painterly.md` audits how closely the stroke-program, wet-paint, impasto and Color Smudge systems
+reproduce a loaded paintbrush, and specifies the extensions, a painter's brush set (as azphalt asset
+packs) and a physical palette that would close the gaps. Nothing in it is implemented. It extends the
+contract in `spec/stroke-program.md` and keeps the "colour is not medium" and "renderers consume
+resolved geometry" rules.
