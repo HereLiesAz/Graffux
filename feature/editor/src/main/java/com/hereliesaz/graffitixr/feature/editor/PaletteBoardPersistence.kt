@@ -25,6 +25,7 @@ internal object PaletteBoardPersistence {
     const val MAX_AMOUNT = 8f
     private const val AMOUNT_SCALE = MAX_AMOUNT
     private const val SUM_TOLERANCE = 1e-3f
+    private const val AMOUNT_TOLERANCE = 1e-4f
     const val BRUSH_FILE = "palette-brushes.bin"
     private const val BRUSH_MAGIC = 0x50425253 // "PBRS"
     private const val BRUSH_VERSION = 1
@@ -103,7 +104,7 @@ internal object PaletteBoardPersistence {
             out.writeInt(BRUSH_VERSION)
             out.writeInt(board.hand)
             for (b in board.brushes) {
-                out.writeFloat(b.amount[0])
+                out.writeFloat(b.amount[0].coerceIn(0f, PaletteBoard.BRUSH_CAPACITY))
                 for (c in 0 until CH) out.writeFloat(b.conc[c])
             }
         }
@@ -118,9 +119,13 @@ internal object PaletteBoardPersistence {
             val amounts = FloatArray(board.brushes.size)
             val conc = Array(board.brushes.size) { FloatArray(CH) }
             for (i in board.brushes.indices) {
+                // a full brush can exceed capacity by a rounding step (the transaction sums rounded floats); accept
+                // that, clamp it, and still refuse a genuinely excessive, negative, NaN or infinite amount
                 amounts[i] = input.readFloat().also {
-                    require(it.isFinite() && it >= 0f && it <= PaletteBoard.BRUSH_CAPACITY) { "amount out of range" }
-                }
+                    require(it.isFinite() && it >= 0f && it <= PaletteBoard.BRUSH_CAPACITY + AMOUNT_TOLERANCE) {
+                        "amount out of range"
+                    }
+                }.coerceAtMost(PaletteBoard.BRUSH_CAPACITY)
                 var sum = 0f
                 for (c in 0 until CH) {
                     conc[i][c] = input.readFloat().also { require(it.isFinite() && it in 0f..1f) { "conc range" } }

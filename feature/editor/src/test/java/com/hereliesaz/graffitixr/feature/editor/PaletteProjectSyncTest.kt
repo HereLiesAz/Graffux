@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -20,13 +21,18 @@ class PaletteProjectSyncTest {
         fun key(id: String, f: String) = "$id/$f"
     }
 
-    private class Rig(scope: TestScope, val readOnly: () -> Boolean = { false }) {
+    private class Rig(
+        scope: TestScope,
+        io: kotlinx.coroutines.CoroutineDispatcher? = null,
+        encoder: ((com.hereliesaz.graffitixr.common.azphalt.PaletteBoard) -> PaletteProjectSync.Encoded)? = null,
+        val readOnly: () -> Boolean = { false },
+    ) {
         val disk = Disk()
         val board = newMixerBoard()
         val sync = PaletteProjectSync(
             board = board,
             scope = scope,
-            io = StandardTestDispatcher(scope.testScheduler),
+            io = io ?: StandardTestDispatcher(scope.testScheduler),
             store = object : PaletteProjectSync.Store {
                 override fun isReadOnly() = readOnly()
                 override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
@@ -34,6 +40,12 @@ class PaletteProjectSyncTest {
                     disk.writes += disk.key(projectId, file)
                 }
                 override suspend fun read(projectId: String, file: String) = disk.files[disk.key(projectId, file)]
+            },
+            encoder = encoder ?: { b ->
+                PaletteProjectSync.Encoded(
+                    MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(b)),
+                    PaletteBoardPersistence.encodeBrushes(b),
+                )
             },
         )
     }
@@ -89,7 +101,7 @@ class PaletteProjectSyncTest {
     @Test
     fun aReadOnlyProjectIsNeverWritten() = runTest {
         var ro = true
-        val r = Rig(this) { ro }
+        val r = Rig(this, readOnly = { ro })
         paint(r)
         r.sync.changed("A")
         advanceUntilIdle()
@@ -131,5 +143,49 @@ class PaletteProjectSyncTest {
         r.sync.open("B")
         advanceUntilIdle()
         assertEquals(0f, r.board.surface.amount.sum(), 0f)
+    }
+
+    @Test
+    fun encodingNeverRunsOnTheCallingThreadAndRunsOnTheIoDispatcher() = runTest {
+        val callers = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val exec = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "palette-io-test") }
+        try {
+            val r = Rig(this, io = exec.asCoroutineDispatcher(), encoder = { _ ->
+                callers += Thread.currentThread().name
+                latch.countDown()
+                PaletteProjectSync.Encoded(byteArrayOf(1), byteArrayOf(1))
+            })
+            paint(r)
+            r.sync.changed("A")
+            assertTrue("changed() encodes nothing on the calling thread", callers.isEmpty())
+            advanceTimeBy(2000)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { latch.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+            assertEquals(listOf("palette-io-test"), callers.toList())
+        } finally {
+            exec.shutdown()
+        }
+    }
+
+    @Test
+    fun rapidChangesEncodeOnceAfterTheDebounceWithTheLatestBoard() = runTest {
+        var encodes = 0
+        var lastAmount = 0f
+        val r = Rig(this, encoder = { b ->
+            encodes++
+            lastAmount = b.surface.amount.sum()
+            PaletteProjectSync.Encoded(byteArrayOf(1), byteArrayOf(1))
+        })
+        paint(r)
+        repeat(60) { i ->
+            r.board.squeeze(2, 10f + i, 30f, 3f, 0.2f)
+            r.sync.changed("A")
+            advanceTimeBy(10)
+        }
+        assertEquals("nothing encoded while the burst is still going", 0, encodes)
+        val final = r.board.surface.amount.sum()
+        advanceUntilIdle()
+        assertEquals(1, encodes)
+        assertEquals("and it encoded the latest board", final, lastAmount, 1e-3f)
     }
 }

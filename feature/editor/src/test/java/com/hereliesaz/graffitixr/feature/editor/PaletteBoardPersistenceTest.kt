@@ -146,4 +146,31 @@ class PaletteBoardPersistenceTest {
             assertTrue(before.contentEquals(target.surface.amount))
         }
     }
+
+    @Test
+    fun aBrushFilledByTheTransactionToCapacitySurvivesTheRoundTripEvenIfItRoundsPastOne() {
+        val board = newMixerBoard()
+        board.squeeze(2, 20.008f, 20f, 7f, 0.9f)
+        board.dip(20.008f, 20f)
+        val held = board.brush.amount[0]
+        assertTrue("a full brush ($held)", held > 0.99f)
+        val bytes = PaletteBoardPersistence.encodeBrushes(board)
+        val fresh = newMixerBoard()
+        assertTrue("the file is accepted", PaletteBoardPersistence.decodeBrushes(fresh, bytes))
+        assertTrue(fresh.brush.amount[0] <= PaletteBoard.BRUSH_CAPACITY)
+        assertEquals(held, fresh.brush.amount[0], 1e-3f)
+        assertNotNull(fresh.brushLoad())
+    }
+
+    @Test
+    fun aRoundingStepOverCapacityIsAcceptedAndClampedButAnExcessiveAmountIsNot() {
+        fun amountBytes(v: Float): ByteArray =
+            PaletteBoardPersistence.encodeBrushes(painted()).also { java.nio.ByteBuffer.wrap(it).putFloat(12, v) }
+        val over = newMixerBoard()
+        assertTrue(PaletteBoardPersistence.decodeBrushes(over, amountBytes(1.00005f)))
+        assertEquals(PaletteBoard.BRUSH_CAPACITY, over.brushes[0].amount[0], 0f)
+        for (bad in listOf(1.01f, 5f, Float.NaN, -0.1f, Float.POSITIVE_INFINITY)) {
+            assertFalse("amount=$bad", PaletteBoardPersistence.decodeBrushes(newMixerBoard(), amountBytes(bad)))
+        }
+    }
 }
