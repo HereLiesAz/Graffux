@@ -97,4 +97,65 @@ class PaletteLoadHistoryTest {
         assertTrue(h.undo(7, b))
         assertEquals(colourBefore, b.brushColour())
     }
+
+    @Test
+    fun switchingTheHandAfterTheStrokeDoesNotStopTheRefund() {
+        val b = loaded() // foreground (hand 0) holds the paint
+        val h = PaletteLoadHistory()
+        val (before, _) = stroke(b, h, 1)
+        b.hand = 1 // the user selects the background brush in the mixer
+        assertTrue(h.undo(1, b), "the foreground brush still holds exactly what the stroke left")
+        assertEquals(before.amount, b.brushes[0].amount[0], 1e-6f)
+        assertEquals(1, b.hand, "and the selection is left where the user put it")
+    }
+
+    @Test
+    fun undoSwitchHandRedoSpendsTheRecordedBrushNotTheSelectedOne() {
+        val b = loaded()
+        val h = PaletteLoadHistory()
+        val (before, after) = stroke(b, h, 1)
+        assertTrue(h.undo(1, b))
+        b.hand = 1
+        assertTrue(h.redo(1, b))
+        assertEquals(after.amount, b.brushes[0].amount[0], 1e-6f)
+        assertEquals(0f, b.brushes[1].amount[0], 0f, "the other brush is untouched")
+        assertEquals(before.hand, 0)
+    }
+
+    @Test
+    fun theOtherBrushBeingToppedUpOrMixedDoesNotMatter() {
+        val b = loaded()
+        val h = PaletteLoadHistory()
+        val (before, _) = stroke(b, h, 1)
+        b.hand = 1
+        b.squeeze(2, 30f, 30f, 6f, 1f)
+        repeat(3) { b.dip(30f, 30f) } // the background brush is loaded meanwhile
+        val background = b.brushes[1].amount[0]
+        assertTrue(h.undo(1, b))
+        assertEquals(before.amount, b.brushes[0].amount[0], 1e-6f)
+        assertEquals(background, b.brushes[1].amount[0], 0f, "the background brush keeps what it has")
+    }
+
+    @Test
+    fun theRecordedBrushChangedByAnotherStrokeIsStillRefused() {
+        val b = loaded()
+        val h = PaletteLoadHistory()
+        stroke(b, h, 1)
+        stroke(b, h, 2) // a later stroke spent more from the same brush
+        b.hand = 1
+        assertFalse(h.undo(1, b), "stroke 1's after-state is no longer what the brush holds")
+        assertTrue(h.undo(2, b))
+        assertTrue(h.undo(1, b), "in order it works")
+    }
+
+    @Test
+    fun aMixOnTheRecordedBrushAfterwardsRefusesTheRefund() {
+        val b = loaded()
+        val h = PaletteLoadHistory()
+        stroke(b, h, 1)
+        b.hand = 1
+        b.hand = 0
+        b.drag(floatArrayOf(12f, 12f, 30f, 12f)) // the recorded brush was mixed
+        assertFalse(h.undo(1, b))
+    }
 }

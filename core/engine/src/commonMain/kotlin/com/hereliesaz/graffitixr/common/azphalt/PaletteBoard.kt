@@ -207,7 +207,11 @@ class PaletteBoard(
                 conc.indices.all { kotlin.math.abs(conc[it] - other.conc[it]) <= STATE_EPS }
     }
 
-    fun brushState(): BrushState = BrushState(hand, brush.amount[0], brush.conc.copyOf())
+    /** What the brush in hand holds. */
+    fun brushState(): BrushState = brushStateAt(hand)
+
+    /** What brush [at] holds, whichever is selected (the foreground and the background are independent). */
+    fun brushStateAt(at: Int): BrushState = BrushState(at, brushes[at].amount[0], brushes[at].conc.copyOf())
 
     /** Puts a brush's load back as it was. */
     fun restoreBrushState(s: BrushState) {

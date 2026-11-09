@@ -7,7 +7,9 @@ package com.hereliesaz.graffitixr.common.azphalt
  * (the pixels it made are gone, so the paint is not wasted); redoing it takes the paint again. A stroke that was
  * cancelled, or whose commit returned early, never reached [record], so it spent nothing. And the brush is only
  * touched while it still holds exactly what the stroke left (undo) or took (redo): if the user has dipped, mixed or
- * wiped since, they have moved on, and putting an old load back would overwrite the new one.
+ * wiped since, they have moved on, and putting an old load back would overwrite the new one. "The brush" is the one
+ * the stroke was made with (its recorded hand), not whichever is selected now: switching between the foreground and
+ * background brush in the mixer changes nothing about what either holds.
  *
  * Keyed by the stroke's seed (unique per stroke); bounded, oldest forgotten first.
  */
@@ -26,7 +28,8 @@ class PaletteLoadHistory(private val capacity: Int = 512) {
     /** The stroke [key] was undone: true if the brush got its paint back. */
     fun undo(key: Long, board: PaletteBoard): Boolean {
         val e = entries[key] ?: return false
-        if (!board.brushState().sameAs(e.after)) return false
+        // the brush the stroke used, whichever one is selected now
+        if (!board.brushStateAt(e.after.hand).sameAs(e.after)) return false
         board.restoreBrushState(e.before)
         return true
     }
@@ -34,7 +37,7 @@ class PaletteLoadHistory(private val capacity: Int = 512) {
     /** The stroke [key] was redone: true if the brush spent its paint again. */
     fun redo(key: Long, board: PaletteBoard): Boolean {
         val e = entries[key] ?: return false
-        if (!board.brushState().sameAs(e.before)) return false
+        if (!board.brushStateAt(e.before.hand).sameAs(e.before)) return false
         board.restoreBrushState(e.after)
         return true
     }
