@@ -39,6 +39,8 @@
 
     <!-- General Actions -->
     <string name="cancel_button">Cancel</string>
+    <string name="surface_close">Close</string>
+    <string name="surface_close_named">Close %1$s</string>
     <string name="close_button">Close</string>
 
     <!-- Adjustments Panel -->
