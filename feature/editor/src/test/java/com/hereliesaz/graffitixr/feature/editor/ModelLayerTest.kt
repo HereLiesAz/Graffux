@@ -317,6 +317,108 @@ class ModelLayerTest {
         assertEquals("nothing is painted across the gap", 0, alphaAt(0.475f))
     }
 
+    /** The alpha of the quad's texture at (u, v), after one stroke painted with the current brush. */
+    private fun quadAlphaAt(u: Float, v: Float = 0.5f): Int {
+        val pixels = model().model!!.texture!!.pixels()!!
+        return Color.alpha(pixels.getPixel((u * pixels.width).toInt(), (v * pixels.height).toInt()))
+    }
+
+    private fun startBrushOnQuad(size: Float) {
+        addModel()
+        vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        vm.setActiveTool(Tool.BRUSH)
+        vm.setBrushSize(size)
+        vm.onLayerActivated("m")
+        idle()
+    }
+
+    @Test
+    fun `flow is each dab's own strength`() = runTest(dispatcher) {
+        startBrushOnQuad(100f)
+        vm.setBrushFlow(0.2f)
+        vm.onModelPaintStart(pointAt(0.5f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        // One dab of a hard brush at flow 0.2: a fifth of full.
+        assertEquals(51f, quadAlphaAt(0.5f).toFloat(), 3f)
+    }
+
+    @Test
+    fun `opacity caps a stroke however often it crosses itself`() = runTest(dispatcher) {
+        startBrushOnQuad(100f)
+        vm.setBrushOpacity(0.5f)
+        vm.onModelPaintStart(pointAt(0.3f, 0.5f))
+        vm.onModelPaintMove(pointAt(0.7f, 0.5f))
+        vm.onModelPaintMove(pointAt(0.3f, 0.5f)) // back over the same ground
+        vm.onModelPaintEnd()
+        idle()
+        // The middle was painted by many overlapping dabs on two passes, and is still half opaque.
+        assertEquals(128f, quadAlphaAt(0.5f).toFloat(), 3f)
+        assertEquals(128f, quadAlphaAt(0.3f).toFloat(), 3f)
+    }
+
+    @Test
+    fun `a stroke at full opacity is opaque`() = runTest(dispatcher) {
+        startBrushOnQuad(100f)
+        vm.onModelPaintStart(pointAt(0.3f, 0.5f))
+        vm.onModelPaintMove(pointAt(0.7f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        assertEquals(255, quadAlphaAt(0.5f))
+    }
+
+    @Test
+    fun `an opacity stroke leaves what was painted before it`() = runTest(dispatcher) {
+        startBrushOnQuad(100f)
+        vm.onModelPaintStart(pointAt(0.3f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        assertEquals(255, quadAlphaAt(0.3f))
+        vm.setBrushOpacity(0.5f)
+        vm.onLayerActivated("m")
+        vm.onModelPaintStart(pointAt(0.7f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        assertEquals("the earlier stroke is untouched", 255, quadAlphaAt(0.3f))
+        assertEquals("the new one is half", 128f, quadAlphaAt(0.7f).toFloat(), 3f)
+    }
+
+    @Test
+    fun `feathering softens the edge of a dab`() = runTest(dispatcher) {
+        // 100 px is a radius of about 0.104 in UV on this model; 0.59 is 0.9 of it from the centre.
+        startBrushOnQuad(100f)
+        vm.onModelPaintStart(pointAt(0.5f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        assertEquals("hard by default", 255, quadAlphaAt(0.59f))
+
+        vm.onUndoClicked()
+        idle()
+        vm.setBrushFeathering(1f)
+        vm.onLayerActivated("m")
+        vm.onModelPaintStart(pointAt(0.5f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        val soft = quadAlphaAt(0.59f)
+        assertTrue("feathered edge is partly transparent, was $soft", soft in 1..200)
+    }
+
+    @Test
+    fun `the eraser takes paint off in proportion to the flow`() = runTest(dispatcher) {
+        startBrushOnQuad(100f)
+        vm.onModelPaintStart(pointAt(0.5f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        vm.setActiveTool(Tool.ERASER)
+        vm.setBrushFlow(0.5f)
+        vm.onLayerActivated("m")
+        vm.onModelPaintStart(pointAt(0.5f, 0.5f))
+        vm.onModelPaintEnd()
+        idle()
+        // Half taken off a fully opaque centre.
+        assertEquals(128f, quadAlphaAt(0.5f).toFloat(), 3f)
+    }
+
     private fun project(layers: List<OverlayLayer>) = GraffitiProject(id = "p1", name = "P", layers = layers)
 
     private fun projectDir() = File(RuntimeEnvironment.getApplication().filesDir, "projects/p1").apply { mkdirs() }
