@@ -2,7 +2,10 @@ package com.hereliesaz.graffitixr.common.azphalt
 
 import com.hereliesaz.graffitixr.common.azphalt.PaintTransaction.CH
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** spec/painterly.md 6.3/6.5: the physical palette board and the recipe solver. */
@@ -152,5 +155,113 @@ class PaletteBoardTest {
         assertTrue(b.brushColour() != yellow, "and its colour has mixed")
         val ids = b.brushRecipe().tubes.map { it.first.id }
         assertTrue("phthalo-blue" in ids && "cadmium-yellow" in ids, "the brush holds both: $ids")
+    }
+}
+
+/** The mixer redraws only what a gesture changed (audit: it re-coloured the whole board on the main thread). */
+class PaletteBoardDirtyRectTest {
+    private val set = PlaceholderPigments.set
+    private val tubes = listOf("titanium-white", "cadmium-yellow", "phthalo-blue").map { id -> set.pigments.first { it.id == id } }
+    private val size = 96
+
+    private fun board() = PaletteBoard(size, tubes)
+
+    /** Applies every pending dirty snapshot onto [pixels], the way the mixer keeps its bitmap current. */
+    private fun PaletteBoard.sync(pixels: IntArray): Int {
+        val snap = takeDirty() ?: return 0
+        render(snap, pixels)
+        return snap.texels
+    }
+
+    @Test
+    fun aFreshBoardHasNothingToRedraw() {
+        assertNull(board().takeDirty())
+    }
+
+    @Test
+    fun aSqueezeDirtiesOnlyItsBoxNotTheBoard() {
+        val b = board()
+        b.squeeze(0, 30f, 40f, 7f, 0.9f)
+        val snap = assertNotNull(b.takeDirty())
+        // the box of a radius-7 blob: 15 x 15 texels, against 96 x 96 = 9216 a full render coloured
+        assertTrue(snap.texels <= 16 * 16, "dirty texels ${snap.texels}")
+        assertTrue(snap.x <= 23 && snap.x + snap.width >= 37 && snap.y <= 33 && snap.y + snap.height >= 47)
+        assertNull(b.takeDirty(), "taking the dirty area resets it")
+    }
+
+    @Test
+    fun theIncrementalImageEqualsAFullRenderAfterEveryKindOfEdit() {
+        val b = board()
+        val pixels = IntArray(size * size)
+        b.markAllDirty()
+        b.sync(pixels)
+        fun check(step: String) {
+            b.sync(pixels)
+            assertContentEquals(b.render(), pixels, step)
+        }
+        b.squeeze(0, 20f, 20f, 8f, 1f); check("squeeze white")
+        b.squeeze(1, 40f, 20f, 8f, 1f); check("squeeze yellow")
+        b.squeeze(2, 30f, 60f, 8f, 1f); check("squeeze blue")
+        b.dip(20f, 20f); check("dip")
+        b.drag(floatArrayOf(20f, 20f, 40f, 20f, 40f, 40f)); check("drag")
+        b.dab(40f, 20f); check("dab")
+        b.drag(floatArrayOf(-20f, -20f, 5f, 5f)); check("drag starting off the board")
+        b.clear(); check("clear")
+    }
+
+    @Test
+    fun aDragDirtiesTheUnionOfItsDabsAndNoMore() {
+        val b = board()
+        b.squeeze(0, 20f, 20f, 8f, 1f)
+        b.takeDirty()
+        b.dip(20f, 20f)
+        b.takeDirty()
+        b.drag(floatArrayOf(20f, 20f, 60f, 20f))
+        val snap = assertNotNull(b.takeDirty())
+        // a horizontal stroke 40 texels long with a 6-texel brush: a band, never the whole board
+        assertTrue(snap.height <= 2 * 6 + 2, "band height ${snap.height}")
+        assertTrue(snap.texels < size * size / 4, "dirty texels ${snap.texels} of ${size * size}")
+    }
+
+    @Test
+    fun anEditOffTheBoardLeavesNoResidueThatWidensTheNextRedraw() {
+        val b = board()
+        b.squeeze(0, -50f, -50f, 7f, 1f)
+        assertNull(b.takeDirty())
+        b.squeeze(0, 80f, 80f, 4f, 1f)
+        val snap = assertNotNull(b.takeDirty())
+        assertTrue(snap.x >= 70 && snap.y >= 70, "origin ${snap.x},${snap.y}")
+    }
+
+    @Test
+    fun theSnapshotIsACopyNotAViewOfTheBoard() {
+        val b = board()
+        b.squeeze(0, 30f, 30f, 7f, 1f)
+        val snap = assertNotNull(b.takeDirty())
+        val pixels = IntArray(size * size)
+        b.clear() // the editing thread moves on before the colouring thread gets to the snapshot
+        b.render(snap, pixels)
+        assertTrue(pixels[30 * size + 30] != 0, "the snapshot still shows the blob that was squeezed")
+    }
+
+    @Test
+    fun dirtyRectIsFarSmallerThanAFullRender() {
+        // The before/after of the audit item, as numbers: texels coloured per gesture on the editor's 96 board.
+        val b = board()
+        // a well-used board: blobs across most of it, as in a mixing session
+        for (gy in 0 until 6) for (gx in 0 until 6) b.squeeze((gx + gy) % 3, 8f + gx * 16f, 8f + gy * 16f, 9f, 0.9f)
+        val fullTexels = size * size
+        b.takeDirty()
+        b.squeeze(1, 70f, 70f, 7f, 0.9f)
+        val snap = assertNotNull(b.takeDirty())
+        val pixels = IntArray(size * size)
+        repeat(20) { b.render(pixels); b.render(snap, pixels) } // warm up
+        fun nanos(block: () -> Unit): Long {
+            val t = System.nanoTime(); repeat(50) { block() }; return (System.nanoTime() - t) / 50
+        }
+        val fullNs = nanos { b.render(pixels) }
+        val dirtyNs = nanos { b.render(snap, pixels) }
+        println("mixer redraw per squeeze: full render $fullTexels texels ${fullNs}ns, dirty rect ${snap.texels} texels ${dirtyNs}ns")
+        assertTrue(snap.texels * 20 < fullTexels)
     }
 }

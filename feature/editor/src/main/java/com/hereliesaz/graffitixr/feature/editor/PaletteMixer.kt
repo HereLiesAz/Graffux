@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +57,11 @@ import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** The mixing board's resolution in the editor today (spec default is 512; see the P6 PR notes). */
@@ -205,10 +211,32 @@ fun PaletteMixerDialog(
         p.y / boardSize.height * MIXER_BOARD_SIZE,
     )
 
-    val image = remember(version) {
-        val bmp = AndroidBitmap.createBitmap(board.render(), MIXER_BOARD_SIZE, MIXER_BOARD_SIZE,
-            AndroidBitmap.Config.ARGB_8888)
-        bmp.asImageBitmap()
+    // The board image is kept current by colouring only what a gesture changed, off the main thread (a full board
+    // re-colour of every texel per touch event ran on it). [pixels] and [bitmap] outlive recompositions; [frame]
+    // makes the canvas redraw when a render lands.
+    val pixels = remember(board) { IntArray(MIXER_BOARD_SIZE * MIXER_BOARD_SIZE) }
+    val bitmap = remember(board) {
+        AndroidBitmap.createBitmap(MIXER_BOARD_SIZE, MIXER_BOARD_SIZE, AndroidBitmap.Config.ARGB_8888)
+    }
+    val image = remember(bitmap) { bitmap.asImageBitmap() }
+    var frame by remember(board) { mutableIntStateOf(0) }
+    val renderGate = remember(board) { Mutex() }
+    val painted = remember(board) { BooleanArray(1) }
+    LaunchedEffect(board, version) {
+        // NonCancellable: a snapshot taken is always applied, or the texels it covered would never be redrawn.
+        withContext(NonCancellable) {
+            renderGate.withLock {
+                if (!painted[0]) board.markAllDirty()
+                val snapshot = board.takeDirty() ?: return@withLock
+                withContext(Dispatchers.Default) { board.render(snapshot, pixels) }
+                bitmap.setPixels(
+                    pixels, snapshot.y * MIXER_BOARD_SIZE + snapshot.x, MIXER_BOARD_SIZE,
+                    snapshot.x, snapshot.y, snapshot.width, snapshot.height,
+                )
+                painted[0] = true
+                frame++
+            }
+        }
     }
     val recipe = remember(version, board.hand) { board.brushRecipe() }
 
@@ -337,6 +365,7 @@ fun PaletteMixerDialog(
                     .semantics { contentDescription = "Mixing board. ${tool.hint}" }
                     .testTag("mixer.board"),
             ) {
+                frame // read here so the canvas redraws when a render lands
                 drawIntoCanvas {
                     drawImage(
                         image = image,

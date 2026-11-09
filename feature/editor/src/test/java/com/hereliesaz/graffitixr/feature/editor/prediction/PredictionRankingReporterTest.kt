@@ -7,7 +7,7 @@ import org.junit.Test
 
 class PredictionRankingReporterTest {
     private val sent = mutableListOf<Pair<String, String>>()
-    private val reporter = PredictionRankingReporter("Pixel 9, Android 17") { t, b, done ->
+    private val reporter = PredictionRankingReporter("Pixel 9, Android 17", consent = { true }) { t, b, done ->
         sent += t to b
         done(true)
     }
@@ -49,7 +49,7 @@ class PredictionRankingReporterDedupTest {
     private val store = FakeStore()
     private val sent = mutableListOf<Pair<String, String>>()
     private var succeed = true
-    private val reporter = PredictionRankingReporter("Pixel", store) { t, b, done ->
+    private val reporter = PredictionRankingReporter("Pixel", store, consent = { true }) { t, b, done ->
         sent += t to b
         done(succeed)
     }
@@ -111,7 +111,7 @@ class PredictionRankingReporterDedupTest {
     @Test
     fun strokesDrawnWhileAPostIsInFlightStayUnreported() {
         var pending: ((Boolean) -> Unit)? = null
-        val async = PredictionRankingReporter("Pixel", store) { t, b, done ->
+        val async = PredictionRankingReporter("Pixel", store, consent = { true }) { t, b, done ->
             sent += t to b
             pending = done
         }
@@ -127,12 +127,60 @@ class PredictionRankingReporterDedupTest {
 class PredictionRankingReporterPendingTest {
     @Test
     fun pendingIssueTracksUnfiledStrokesAndClearsOnSend() {
-        val reporter = PredictionRankingReporter("Pixel") { _, _, done -> done(true) }
+        val reporter = PredictionRankingReporter("Pixel", consent = { true }) { _, _, done -> done(true) }
         assertEquals(null, reporter.pendingIssue("r", 60f))
         reporter.onBrushStroke("r", 60f)
         val pending = reporter.pendingIssue("r", 60f)!!
         assertTrue(pending.first.contains("1 strokes"))
         repeat(PredictionRankingReporter.REPORT_EVERY_STROKES - 1) { reporter.onBrushStroke("r", 60f) }
         assertEquals(null, reporter.pendingIssue("r", 60f))
+    }
+}
+
+/** The ranking is a public GitHub issue: it is only saved, filed or flushed while the user has opted in. */
+class PredictionRankingReporterConsentTest {
+    private class FakeStore : PredictionRankingReporter.PendingStore {
+        var saves = 0
+        override fun save(title: String, body: String) {
+            saves++
+        }
+        override fun clear() = Unit
+    }
+
+    private val store = FakeStore()
+    private val sent = mutableListOf<String>()
+    private var consented = false
+    private val reporter = PredictionRankingReporter("Pixel", store, consent = { consented }) { t, _, done ->
+        sent += t
+        done(true)
+    }
+
+    @Test
+    fun nothingIsFiledSavedOrFlushedWithoutConsent() {
+        repeat(PredictionRankingReporter.REPORT_EVERY_STROKES * 2) { reporter.onBrushStroke("r", 60f) }
+        reporter.flush("r", 60f)
+        assertEquals(0, sent.size)
+        assertEquals(0, store.saves)
+    }
+
+    @Test
+    fun strokesDrawnBeforeOptInAreNeverFiledLater() {
+        repeat(PredictionRankingReporter.REPORT_EVERY_STROKES - 1) { reporter.onBrushStroke("r", 60f) }
+        consented = true
+        reporter.onBrushStroke("r", 60f)
+        assertEquals("only the stroke drawn after opting in is counted", 0, sent.size)
+        reporter.flush("r", 60f)
+        assertEquals(0, sent.size)
+    }
+
+    @Test
+    fun withdrawingConsentStopsFilingAtOnce() {
+        consented = true
+        repeat(PredictionRankingReporter.REPORT_EVERY_STROKES) { reporter.onBrushStroke("r", 60f) }
+        assertEquals(1, sent.size)
+        consented = false
+        repeat(PredictionRankingReporter.REPORT_EVERY_STROKES) { reporter.onBrushStroke("r", 60f) }
+        reporter.flush("r", 60f)
+        assertEquals(1, sent.size)
     }
 }
