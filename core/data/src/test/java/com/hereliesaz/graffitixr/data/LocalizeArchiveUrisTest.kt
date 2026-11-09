@@ -1,6 +1,8 @@
 package com.hereliesaz.graffitixr.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalizeArchiveUrisTest {
@@ -85,8 +87,333 @@ class LocalizeArchiveUrisTest {
         }
     }
 
+    // User text is not a URI just because it looks like one: only Uri-typed positions are localized.
+    @Test fun `text that looks like a uri is kept at known text positions`() {
+        val json = """{"name":"file: notes","layers":[{"name":"file:///etc/hosts","opacity":1.0,""" +
+            """"textParams":{"text":"https://azphalt.store","fontName":"content:x"}}]}"""
+        assertEquals(json, localizeArchiveUris(json, root))
+    }
+
+    // A newer-format project is installed from this JSON as written, so a field this build does not know
+    // is neutralized if it could name a file; fields the model knows keep their text.
+    @Test fun `unknown fields of a newer format cannot carry a file reference`() {
+        val json = """{"formatVersion":99,"name":"Mural","layers":[{"name":"file: notes",""" +
+            """"sourceImage":"file:///data/data/p/files/other.png","modelFile":"../../x",""" +
+            """"stencil":"/etc/hosts","other":"a\\..\\b","frames":["content://m/1","ok"],"label":"Mural"}]}"""
+        val expected = """{"formatVersion":99,"name":"Mural","layers":[{"name":"file: notes",""" +
+            """"sourceImage":"","modelFile":"","stencil":"","other":"","frames":["","ok"],"label":"Mural"}]}"""
+        assertEquals(expected, localizeArchiveUris(json, root))
+    }
+
+    @Test fun `a name the model uses elsewhere gains nothing under an unknown parent`() {
+        assertEquals(
+            """{"formatVersion":99,"extra":{"0":"","name":""}}""",
+            localizeArchiveUris(
+                """{"formatVersion":99,"extra":{"0":"file:///data/data/p/files/other.png","name":"../../x"}}""",
+                root,
+            ),
+        )
+        assertEquals(
+            """{"layerFiles":{"name":""}}""",
+            localizeArchiveUris("""{"layerFiles":{"name":"file:///etc/hosts"}}""", root),
+        )
+        assertEquals(
+            """{"unknownList":{"0":"","1":""},"also":[{"uri":"","text":""}]}""",
+            localizeArchiveUris(
+                """{"unknownList":{"0":"/etc/a","1":"../b"},"also":[{"uri":"/x","text":"../y"}]}""",
+                root,
+            ),
+        )
+    }
+
+    @Test fun `file references in unknown fields are caught in any spelling`() {
+        for (raw in listOf(
+            "%2e%2e%2f%2e%2e%2fother", "..%2fx", "a%2f..%2fb", "%2fetc%2fhosts", "%252e%252e%252fx",
+            "C:\\\\x", "c:/x", "\\\\\\\\host\\\\share", "a%00b", "a\\u0000b", "x/../y", "..\\\\y",
+        )) {
+            assertEquals(raw, """{"sourceImage":""}""", localizeArchiveUris("""{"sourceImage":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `web links and plain text in unknown fields are kept, a leading slash is the one tradeoff`() {
+        val kept = """{"helpUrl":"https://azphalt.store","docs":"HTTP://x.example/a/../b","note":"see you",""" +
+            """"ratio":"3/4","dots":"a..b","pct":"50%","partial":"%zz"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+        // Unknown text that starts with "/" cannot be told from an absolute path, so it is blanked from the
+        // installed copy: pinned here so the loss is a decision and not a surprise.
+        assertEquals("""{"note":""}""", localizeArchiveUris("""{"note":"/shrug"}""", root))
+    }
+
+    @Test fun `an unknown field naming a file inside the project is re-rooted`() = assertEquals(
+        """{"sourceImage":"${root}layers/a.png"}""",
+        localizeArchiveUris("""{"sourceImage":"file:///x/projects/old/layers/a.png"}""", root),
+    )
+
+    @Test fun `unicode digits are not hex in an escape`() {
+        // Android's Uri.decode reads ASCII hex only: %\uFF12f is a literal, harmless file name.
+        val name = "a%\uFF12fb.png"
+        assertEquals(
+            """{"uri":"${root}layers/$name"}""",
+            localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/$name"}""", root),
+        )
+    }
+
+    /** Every path through the real model's descriptors that ends at a Uri ("[]" is a list item). */
+    private fun uriPaths(): List<List<String>> {
+        val found = mutableListOf<List<String>>()
+        val kinds = mutableSetOf<Any>()
+        fun walk(d: kotlinx.serialization.descriptors.SerialDescriptor, path: List<String>, stack: Set<String>) {
+            kinds += d.kind
+            if (d.serialName.removeSuffix("?") == "Uri") {
+                found += path
+                return
+            }
+            val k = d.kind
+            val name = d.serialName.removeSuffix("?")
+            if (k == kotlinx.serialization.descriptors.StructureKind.CLASS) {
+                if (name in stack) return
+                for (i in 0 until d.elementsCount) {
+                    walk(d.getElementDescriptor(i), path + d.getElementName(i), stack + name)
+                }
+            } else if (k == kotlinx.serialization.descriptors.StructureKind.LIST) {
+                walk(d.getElementDescriptor(0), path + "[]", stack)
+            } else if (k == kotlinx.serialization.descriptors.StructureKind.MAP) {
+                walk(d.getElementDescriptor(1), path + "key", stack)
+            }
+        }
+        walk(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, emptyList(), emptySet())
+        // The lockstep walk understands classes, lists, maps and primitives; a polymorphic or contextual
+        // type in the model would be treated as unknown, so adding one must be a conscious change here.
+        assertTrue(kinds.toString(), kinds.none {
+            it is kotlinx.serialization.descriptors.PolymorphicKind ||
+                it == kotlinx.serialization.descriptors.SerialKind.CONTEXTUAL
+        })
+        return found
+    }
+
+    private fun wrap(path: List<String>, leaf: String): String = when {
+        path.isEmpty() -> leaf
+        path[0] == "[]" -> "[" + wrap(path.drop(1), leaf) + "]"
+        else -> """{"${path[0]}":""" + wrap(path.drop(1), leaf) + "}"
+    }
+
+    @Test fun `every uri position in the model is localized there`() {
+        val paths = uriPaths()
+        val names = paths.map { it.last { p -> p != "[]" } }
+        assertTrue(names.toString(), names.containsAll(listOf("uri", "thumbnailUri", "targetImageUris")))
+        for (path in paths) {
+            // A web link is kept at an unknown position but is not a project file at a Uri one.
+            val blank = wrap(path, "\"\"")
+            assertEquals(path.toString(), blank, localizeArchiveUris(wrap(path, "\"https://x.example/a.png\""), root))
+            assertEquals(path.toString(), blank, localizeArchiveUris(wrap(path, "\"file:///etc/hosts\""), root))
+            assertEquals(
+                path.toString(),
+                wrap(path, "\"${root}a.png\""),
+                localizeArchiveUris(wrap(path, "\"file:///x/projects/old/a.png\""), root),
+            )
+        }
+    }
+
+    // Android's Uri.decode is lenient: a bad escape elsewhere in the segment must not hide a good one.
+    @Test fun `a malformed escape does not hide traversal in the same segment`() {
+        for (rest in listOf("..%2f..%2fetc%2fhosts%zz", "%zz..%2fx", "a%2f..%2f%", "%2e%2e%zz%2fx")) {
+            assertEquals(
+                rest,
+                """{"uri":""}""",
+                localizeArchiveUris("""{"uri":"file:///x/projects/old/$rest"}""", root),
+            )
+        }
+        for (name in listOf("100%.png", "50%zz.png", "a%.b%25c.png")) {
+            assertEquals(
+                name,
+                """{"uri":"${root}$name"}""",
+                localizeArchiveUris("""{"uri":"file:///x/projects/old/$name"}""", root),
+            )
+        }
+    }
+
     @Test fun `an escaped space in a file name is kept`() = assertEquals(
         """{"uri":"${root}layers/my%20layer.png"}""",
         localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/my%20layer.png"}""", root),
     )
+
+    // Depth is bounded before any recursive work: a few KB of brackets must not take the process down.
+
+    @Test fun `json nested far deeper than any project is refused cleanly`() {
+        val depth = 100_000
+        val arrays = """{"id":"x","extra":""" + "[".repeat(depth) + "]".repeat(depth) + "}"
+        val objects = """{"id":"x","extra":""" + """{"a":""".repeat(depth) + "1" + "}".repeat(depth) + "}"
+        for (deep in listOf(arrays, objects)) {
+            val failure = runCatching { localizeArchiveUris(deep, root) }.exceptionOrNull()
+            assertTrue(failure.toString(), failure is IllegalArgumentException)
+        }
+    }
+
+    @Test fun `ordinary depth is untouched`() {
+        val nested = """{"id":"x","extra":""" + "[".repeat(20) + "\"ok\"" + "]".repeat(20) + "}"
+        assertEquals(nested, localizeArchiveUris(nested, root))
+    }
+
+    @Test fun `an escaped backslash followed by brackets stays inside the string`() {
+        // A valid document: an escaped backslash, then 500 brackets still inside the string.
+        val json = """{"name":"a\\""" + "[".repeat(500) + """","x":"{{{{"}"""
+        // Not vacuous: it parses, so localizeArchiveUris goes through the walk and not the not-JSON branch.
+        assertTrue(kotlinx.serialization.json.Json.parseToJsonElement(json) is kotlinx.serialization.json.JsonObject)
+        assertFalse(exceedsJsonDepth(json))
+        assertEquals(json, localizeArchiveUris(json, root))
+    }
+
+    // Unknown fields: any URI scheme, in any case, with or without "//".
+    @Test fun `any scheme in an unknown field is neutralized`() {
+        for (raw in listOf("FILE:/etc/hosts", "File:///x", "jar:file:///x!/y", "content:x", "android.resource:x/1")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+        val kept = """{"x":"Mural: v2","y":"https://azphalt.store","z":"HTTPS://azphalt.store","w":"12:30"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+    }
+
+    // The depth scan must know which quotes end a string: \" does not, and \\ followed by " does.
+
+    @Test fun `an escaped quote followed by many brackets inside a string is not depth`() {
+        val json = """{"name":"a\"""" + "[".repeat(100) + """"}"""
+        assertEquals(json, localizeArchiveUris(json, root))
+        assertFalse(exceedsJsonDepth(json))
+    }
+
+    @Test fun `real depth after a string with an escaped quote is still refused`() {
+        val deep = """{"name":"a\"b","extra":""" + "[".repeat(100_000) + "]".repeat(100_000) + "}"
+        assertTrue(exceedsJsonDepth(deep))
+        val failure = runCatching { localizeArchiveUris(deep, root) }.exceptionOrNull()
+        assertTrue(failure.toString(), failure is IllegalArgumentException)
+    }
+
+    @Test fun `an escaped backslash before the closing quote ends the string`() {
+        val deep = """{"name":"a\\","extra":""" + "[".repeat(100) + "]".repeat(100) + "}"
+        assertTrue(exceedsJsonDepth(deep))
+        val shallow = """{"name":"a\\","extra":[["x"]]}"""
+        assertFalse(exceedsJsonDepth(shallow))
+        assertEquals(shallow, localizeArchiveUris(shallow, root))
+    }
+
+    @Test fun `a percent-encoded scheme in an unknown field is neutralized`() {
+        for (raw in listOf("file%3A%2F%2F%2Fetc%2Fhosts", "%66ile:/etc/hosts", "jar%3Afile%3A%2F%2F%2Fx!%2Fy")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `leading whitespace and control characters do not hide a file reference`() {
+        val hidden = listOf(
+            " file:///etc/hosts", "\\u0001file:///etc/hosts", "\\n/etc/hosts", "\\t../x", "\\u0000 C:\\\\x",
+        )
+        for (raw in hidden) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+        val kept = """{"x":"  hello"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+    }
+
+    @Test fun `keys that name a file are neutralized in unknown positions`() {
+        assertEquals(
+            """{"x":{"":2,"ok":3},"y":{"":1}}""",
+            localizeArchiveUris(
+                """{"x":{"file:///etc/hosts":1,"/etc/hosts":2,"ok":3},"y":{"..%2fz":1}}""",
+                root,
+            ),
+        )
+        // ...and an extra key in a known class is an unknown position too.
+        assertEquals("""{"name":"n","":1}""", localizeArchiveUris("""{"name":"n","/etc/x":1}""", root))
+    }
+
+    @Test fun `the model has no map keyed by a Uri, so keys never need localizing at a known position`() {
+        val bad = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        fun walk(d: kotlinx.serialization.descriptors.SerialDescriptor) {
+            if (d.kind == kotlinx.serialization.descriptors.StructureKind.CLASS && !seen.add(d.serialName)) return
+            if (d.kind == kotlinx.serialization.descriptors.StructureKind.MAP &&
+                d.getElementDescriptor(0).serialName.removeSuffix("?") == "Uri"
+            ) {
+                bad += d.serialName
+            }
+            for (i in 0 until d.elementsCount) walk(d.getElementDescriptor(i))
+        }
+        walk(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor)
+        assertTrue("a Map<Uri, ...> needs its keys localized: $bad", bad.isEmpty())
+    }
+
+    // Unknown text keeps everything that cannot reach a file, content or network opener.
+    @Test fun `only schemes that can reach an opener are neutralized in unknown fields`() {
+        val kept = """{"a":"data:image/png;base64,AAAA","b":"mailto:a@b.c","c":"Mural:v2","d":"A:B",""" +
+            """"e":"tel:+15551234"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+        for (raw in listOf("ftp://h/x", "ssh://h/p", "zip:file:///x", "asset:/x", "res://x/1", "FILE:/x")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `the depth cap is far above anything the model nests`() {
+        val deepest = deepestNesting()
+        assertTrue("the model nests $deepest deep, the cap is $MAX_JSON_DEPTH", deepest * 4 <= MAX_JSON_DEPTH)
+        println("MODEL_NESTING=$deepest")
+    }
+
+    /** The most arrays/objects stacked inside one another anywhere in the model, from its descriptors. */
+    private fun deepestNesting(): Int {
+        val structure = kotlinx.serialization.descriptors.StructureKind.CLASS
+        fun depth(d: kotlinx.serialization.descriptors.SerialDescriptor, stack: Set<String>): Int {
+            val k = d.kind
+            val container = k == structure || k == kotlinx.serialization.descriptors.StructureKind.LIST ||
+                k == kotlinx.serialization.descriptors.StructureKind.MAP
+            val name = d.serialName.removeSuffix("?")
+            // A class already on the path is a cycle (counted once); anything that is not a container is a leaf.
+            if (!container || (k == structure && name in stack)) return 0
+            val next = if (k == structure) stack + name else stack
+            return 1 + (0 until d.elementsCount).maxOfOrNull { depth(d.getElementDescriptor(it), next) }.let { it ?: 0 }
+        }
+        return depth(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, emptySet())
+    }
+
+    // A backtracking regex over attacker text hangs the import: the matcher must be linear.
+
+    @Test(timeout = 10_000)
+    fun `a pathological file uri finishes at once, in an unknown field and in a Uri field`() {
+        val evil = "file://" + "/projects/a/".repeat(20_000) + "\\n" + "x"
+        val unknown = localizeArchiveUris("""{"x":"$evil"}""", root)
+        assertEquals("""{"x":""}""", unknown)
+        val known = localizeArchiveUris("""{"layers":[{"uri":"$evil"}]}""", root)
+        assertEquals("""{"layers":[{"uri":""}]}""", known)
+        // and as a key
+        assertEquals("""{"x":{"":1}}""", localizeArchiveUris("""{"x":{"$evil":1}}""", root))
+    }
+
+    @Test fun `an over-long uri is refused outright, a long but ordinary one still localizes`() {
+        val long = "file:///data/user/0/app/files/projects/old/layers/" + "a".repeat(5_000) + ".png"
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"$long"}""", root))
+        val ok = "file:///data/user/0/app/files/projects/old/layers/" + "a".repeat(200) + ".png"
+        val name = "a".repeat(200)
+        assertEquals("""{"uri":"${root}layers/$name.png"}""", localizeArchiveUris("""{"uri":"$ok"}""", root))
+    }
+
+    @Test fun `the project folder is found at its first usable occurrence`() {
+        assertEquals(
+            """{"uri":"${root}layers/a.png"}""",
+            localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/a.png"}""", root),
+        )
+        // The first "/projects/" has no id after it; the next one does.
+        assertEquals(
+            """{"uri":"${root}a.png"}""",
+            localizeArchiveUris("""{"uri":"file:///x/projects//y/projects/old/a.png"}""", root),
+        )
+        // Nothing after the id.
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"file:///x/projects/old/"}""", root))
+        assertEquals("""{"uri":""}""", localizeArchiveUris("""{"uri":"file:///x/projects/old"}""", root))
+    }
+
+    // Decoded forms are trimmed like the raw one before the path checks.
+    @Test fun `a decoded leading control character does not hide a path`() {
+        for (raw in listOf("%0A/etc/hosts", "%09../x", "%00..%2fx", "%20%2fetc", "%0D%0A..%5cx")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+        val kept = """{"x":"%20hello %2F world"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+    }
 }
