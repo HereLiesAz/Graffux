@@ -266,4 +266,58 @@ class SurfaceFootprintStrokeTest {
         assertTrue(!plane.onPlane)
         assertEquals(Offset(420f, 700f), plane.toFlatByFootprint(Offset(420f, 700f), 80f))
     }
+
+    @Test
+    fun `a sample that does not show near its touch is dropped like a miss and the stroke is cut`() {
+        val r = GuardRecorder()
+        val feed = PlaneStrokeFeed<Offset>(
+            toLayer = { it },
+            start = { r.started += it },
+            point = { r.points += it },
+            end = { r.ended++ },
+            cancel = { r.cancelled++ },
+            segmentEnd = { r.segments++ },
+            sampleOk = { raw, _ -> raw.x < 500f },
+        )
+        feed.onStart(Offset(10f, 0f))
+        feed.onPoint(Offset(20f, 0f))
+        feed.onPoint(Offset(900f, 0f))
+        feed.onPoint(Offset(30f, 0f))
+        feed.onEnd()
+        assertEquals(listOf(Offset(20f, 0f)), r.points.take(1))
+        assertTrue(r.points.none { it.x == 900f } && r.started.none { it.x == 900f })
+        assertEquals(1, r.segments)
+        assertEquals(2, r.started.size)
+        assertEquals(1, r.ended)
+    }
+
+    @Test
+    fun `a join that bridges a gap in the surface starts a new segment instead of a straight line across it`() {
+        val r = GuardRecorder()
+        val feed = PlaneStrokeFeed<Offset>(
+            toLayer = { it },
+            start = { r.started += it },
+            point = { r.points += it },
+            end = { r.ended++ },
+            cancel = { r.cancelled++ },
+            segmentEnd = { r.segments++ },
+            joinOk = { _, pm, _, m -> kotlin.math.abs(m.x - pm.x) < 100f },
+        )
+        feed.onStart(Offset(0f, 0f))
+        feed.onPoint(Offset(10f, 0f))
+        feed.onPoint(Offset(800f, 0f))
+        feed.onPoint(Offset(810f, 0f))
+        feed.onEnd()
+        assertEquals(listOf(Offset(0f, 0f), Offset(800f, 0f)), r.started)
+        assertEquals(listOf(Offset(10f, 0f), Offset(810f, 0f)), r.points)
+        assertEquals(1, r.segments)
+    }
+}
+
+private class GuardRecorder {
+    val started = mutableListOf<Offset>()
+    val points = mutableListOf<Offset>()
+    var ended = 0
+    var cancelled = 0
+    var segments = 0
 }
