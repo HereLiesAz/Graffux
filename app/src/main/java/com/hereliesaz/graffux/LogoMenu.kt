@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -37,6 +39,10 @@ internal fun LogoMenu(
     rows: List<MenuRow>,
     modifier: Modifier = Modifier,
 ) {
+    val description = stringResource(R.string.logo_menu_description)
+    val openLabel = stringResource(R.string.logo_menu_open)
+    val closeLabel = stringResource(R.string.logo_menu_close)
+    val state = stringResource(if (open) R.string.logo_menu_state_open else R.string.logo_menu_state_closed)
     // The mockup's corner: 16 from the top; 18 from the side while shut, 12 while open, where the
     // button takes a fill and an ink ring and the menu drops from under it, 12 from the side too.
     Column(
@@ -54,10 +60,15 @@ internal fun LogoMenu(
                 .offset(y = -LogoTouchPad)
                 .size(RailTouchSize)
                 .clip(CircleShape)
-                .clickable(role = Role.Button, onClickLabel = if (open) "Close menu" else "Open menu") {
+                .clickable(role = Role.Button, onClickLabel = if (open) closeLabel else openLabel) {
                     onOpenChange(!open)
                 }
-                .semantics { contentDescription = "Graffux menu" }
+                // The button says what it is and whether its menu is showing: the same node
+                // announces "Graffux menu, open" and offers "close menu", rather than only a label.
+                .semantics {
+                    contentDescription = description
+                    stateDescription = state
+                }
                 .testTag("logo.menu"),
         ) {
             if (open) {
@@ -71,6 +82,7 @@ internal fun LogoMenu(
             MenuPanel(
                 rows = rows,
                 onDismiss = { onOpenChange(false) },
+                paneLabel = description,
                 modifier = Modifier.offset(y = -LogoTouchPad * 2).padding(top = RailEdgeGap, end = LogoTouchPad),
             )
         }

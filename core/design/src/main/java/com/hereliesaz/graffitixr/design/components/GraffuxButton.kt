@@ -22,8 +22,9 @@ import androidx.compose.ui.unit.dp
 enum class GraffuxButtonShape { RECTANGLE, SQUARE, NONE, NONE_SQUARE }
 
 /**
- * Height for a full-width [GraffuxButton] in a card action row, so a row of them lines up with the
- * card's own text rather than standing taller than it.
+ * Minimum height for a full-width [GraffuxButton] in a card action row, so a row of them lines up with
+ * the card's own text rather than standing taller than it. A minimum, never a fixed height: at a large
+ * font scale the label needs more room, and a fixed 32dp cut it off (use `heightIn(min = ...)`).
  */
 val FullWidthButtonHeight = 32.dp
 
@@ -60,8 +61,16 @@ fun GraffuxButton(
         ),
         contentPadding = contentPadding,
     ) {
-        Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Two lines, not one: at a large font scale or in a narrow dialog a longer label wraps rather than
+        // being cut to an ellipsis, and the button grows to hold it.
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = MAX_LABEL_LINES,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 private const val DISABLED_ALPHA = 0.38f
+private const val MAX_LABEL_LINES = 2

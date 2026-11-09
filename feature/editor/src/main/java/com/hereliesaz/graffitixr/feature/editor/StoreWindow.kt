@@ -349,7 +349,7 @@ private fun BrowseTab(
             shape = GraffuxButtonShape.RECTANGLE,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(FullWidthButtonHeight)
+                .heightIn(min = FullWidthButtonHeight)
                 .padding(top = 4.dp),
         )
         // A card purchase on a reinstalled or new device: the buyer cookie is never backed up, so the
@@ -363,7 +363,7 @@ private fun BrowseTab(
             shape = GraffuxButtonShape.RECTANGLE,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(FullWidthButtonHeight)
+                .heightIn(min = FullWidthButtonHeight)
                 .padding(top = 4.dp),
         )
     }
@@ -462,7 +462,7 @@ private fun PackageCard(
                     onClick = onInstall,
                     shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
                 )
 
                 // A plain label, not a button: AzButton has no confirmed "disabled" styling in this
@@ -527,7 +527,7 @@ private fun PackageCard(
                         onClick = onBuy,
                         shape = GraffuxButtonShape.RECTANGLE,
                         contentPadding = CardActionPadding,
-                        modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
                     )
                     // In-app is one way to buy, not the only one.
                     TextButton(onClick = onBuyOnWeb, modifier = Modifier.fillMaxWidth()) {
@@ -547,7 +547,7 @@ private fun PackageCard(
                     onClick = onInstall,
                     shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
                 )
             }
         }
@@ -601,7 +601,7 @@ private fun InstalledExtensionCard(
                     onClick = onUpdate,
                     shape = GraffuxButtonShape.RECTANGLE,
                     contentPadding = CardActionPadding,
-                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
                 )
             }
             Spacer(Modifier.height(6.dp))
@@ -611,7 +611,7 @@ private fun InstalledExtensionCard(
             onClick = onUninstall,
             shape = GraffuxButtonShape.RECTANGLE,
             contentPadding = CardActionPadding,
-            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+            modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
         )
     }
 }

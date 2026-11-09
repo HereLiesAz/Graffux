@@ -94,7 +94,7 @@ fun ExtensionParamsPanel(
                 text = "Run",
                 onClick = onRun,
                 shape = GraffuxButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
             )
         }
     }
@@ -259,7 +259,7 @@ private fun ControlRow(
                 text = control.label.ifBlank { "Run" },
                 onClick = onRun,
                 shape = GraffuxButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight).padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight).padding(vertical = 4.dp),
             )
         }
 

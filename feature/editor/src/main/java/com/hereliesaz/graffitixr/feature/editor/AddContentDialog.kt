@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -61,7 +61,7 @@ fun AddContentDialog(
                             text = label,
                             onClick = { onSelect(); onDismiss() },
                             shape = GraffuxButtonShape.RECTANGLE,
-                            modifier = Modifier.weight(1f).height(FullWidthButtonHeight),
+                            modifier = Modifier.weight(1f).heightIn(min = FullWidthButtonHeight),
                         )
                     }
                     repeat(3 - row.size) { Box(modifier = Modifier.weight(1f)) }
