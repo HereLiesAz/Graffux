@@ -130,4 +130,65 @@ class PainterlyLoadTest {
         assertEquals(LiveStrokeDabs.movementDabs(s, 16f, b, 9L), LiveStrokeDabs.movementDabs(s, 16f, b, 9L))
         assertFalse(live.isEmpty())
     }
+
+    @Test
+    fun loadMixIsTheSecondPigmentsShareEvenWithThreePigments() {
+        val b = BrushLoadBudget(
+            BrushLoadConfig(lanes = 3, fill = listOf(BrushLoadFill("a:1+b:1+c:2", 0, 0, 1f), BrushLoadFill("a:1", 1, 1, 1f), BrushLoadFill("a:3+b:1", 2, 2, 1f))),
+        )
+        assertEquals(0.25f, b.mix(-1f), 1e-6f, "a:1+b:1+c:2 -> b is 1/4, not 3/4")
+        assertEquals(0f, b.mix(0f), "a single pigment has no second")
+        assertEquals(0.25f, b.mix(1f), 1e-6f)
+    }
+
+    private fun program(step: String, load: String = """"load":{"lanes":1,"depth":1,"capacity":1,"fill":[{"pigment":"a","lanes":[0,0],"amount":1}]}""") =
+        AzphaltBrush.fromParams(
+            "p",
+            Json.parseToJsonElement("""{"painterly":1,$load,"program":{"step":${Json.encodeToString(kotlinx.serialization.serializer<String>(), step)}}}""") as JsonObject,
+        )
+
+    @Test
+    fun aDrawThatExhaustsAColumnIsSeenByLaterStatementsInTheSameStep() {
+        // the column holds 1.0; the first emit draws it all; the second branch must see it empty
+        val b = program(
+            """
+            hide = 1;
+            emit { x: px, y: py, size: 4, lane: 0, draw: 1 };
+            if (loadAmount(0) > 0) { emit { x: px, y: py + 20, size: 4 }; }
+            emit { x: px, y: py + 40, size: 4 };
+            """.trimIndent(),
+        )
+        val dabs = LiveStrokeDabs.movementDabs(samples(), 16f, b, 3L)
+        assertTrue(dabs.any { it.y == 40f })
+        assertTrue(dabs.none { it.y == 60f }, "no branch ran after the column was empty")
+        // the first step drew the whole column; from then on every step finds it empty
+        val gen = IncrementalDynamicDabGenerator(16f, b, 3L)
+        samples().take(5).forEach { gen.append(it) }
+        assertEquals(0f, gen.loadRemaining!!, 1e-6f)
+    }
+
+    @Test
+    fun sameStepDepletionIsIdenticalLiveAndOnReplay() {
+        val b = program("hide = 1; emit { x: px, y: py, size: 4, lane: 0, draw: 0.2 }; if (loadAmount(0) > 0.3) { emit { x: px, y: py + 9, size: 3 }; }")
+        val s = samples()
+        val live = IncrementalDynamicDabGenerator(16f, b, 9L).appendLive(s)
+        assertEquals(live, LiveStrokeDabs.movementDabs(s, 16f, b, 9L))
+        assertTrue(live.any { it.y == 40f + 9f }, "the branch ran while paint remained")
+        assertTrue(live.count { it.y == 40f + 9f } < live.count { it.hasLaneIntent }, "and stopped once it was spent")
+    }
+
+    @Test
+    fun aStepThatRunsOutOfBudgetRollsTheLoadBackWithTheRestOfItsState() {
+        val b = program(
+            """
+            emit { x: px, y: py, size: 4, lane: 0, draw: 0.5 };
+            for i in 0..64 { for j in 0..64 { for k in 0..64 { let t = i * j * k; } } }
+            """.trimIndent(),
+        )
+        val gen = IncrementalDynamicDabGenerator(16f, b, 3L)
+        val before = gen.loadRemaining!!
+        samples().take(4).forEach { gen.append(it) }
+        assertTrue(gen.programRunner!!.overruns > 0, "the step overran its operation budget")
+        assertEquals(before, gen.loadRemaining!!, 1e-6f, "and the draw it had queued was not spent")
+    }
 }

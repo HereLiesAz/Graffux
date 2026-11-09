@@ -134,6 +134,12 @@ class StrokeProgram private constructor(
         const val MAX_TICKS_PER_SAMPLE = 512
         const val MAX_GAP = 20f
 
+        // Indices into EMIT_FIELDS used to spend the load as an emit is queued.
+        private const val SIZE_FIELD = 2
+        private const val ALPHA_FIELD = 3
+        private const val LANE_FIELD = 13
+        private const val DRAW_FIELD = 14
+
         /** Names a program may read. */
         val INPUTS = listOf(
             "px", "py", "pressure", "speed", "heading", "turn", "dist", "time", "dt", "index",
@@ -229,6 +235,18 @@ class StrokeProgram private constructor(
         var emitsThisStep = 0
         var emitsThisStroke = 0
         val emitted = ArrayList<Emit>()
+
+        /** Spends the draw of a valid emit (the same validity [StrokeProgramRunner] applies when it makes the dab). */
+        fun spendLoad(values: FloatArray, present: Int) {
+            val budget = load ?: return
+            if (present and (1 shl LANE_FIELD) == 0 || present and (1 shl DRAW_FIELD) == 0) return
+            if (values.any { !it.isFinite() }) return
+            if (present and (1 shl SIZE_FIELD) != 0 && values[SIZE_FIELD] <= 0f) return
+            if (present and (1 shl ALPHA_FIELD) != 0 && values[ALPHA_FIELD] <= 0f) return
+            val lane = values[LANE_FIELD].coerceIn(-1f, 1f)
+            val draw = values[DRAW_FIELD].coerceAtLeast(0f)
+            if (draw > 0f) budget.consume(lane, draw)
+        }
 
         fun tick(cost: Int = 1) {
             ops += cost
@@ -552,6 +570,9 @@ class StrokeProgram private constructor(
                     val values = FloatArray(EMIT_FIELDS.size)
                     for ((index, expr) in frozen) values[index] = expr.eval(vm)
                     vm.emitted.add(Emit(values, mask))
+                    // The predicted load is spent the moment a valid emit is queued, so a later statement in
+                    // the same step (e.g. `if (loadAmount(lane) > 0)`) sees what is left, not the step's start.
+                    vm.spendLoad(values, mask)
                     vm.emitsThisStep++
                     vm.emitsThisStroke++
                 }
@@ -907,6 +928,9 @@ class StrokeProgramRunner internal constructor(
         vm.load = brush.load?.let(::BrushLoadBudget)
     }
 
+    /** The stroke's load budget (null for a brush with no `load` block), e.g. to read what is left at lift-off. */
+    val loadBudget: BrushLoadBudget? get() = vm.load
+
     /** The film this stroke touched, as it stands at [nowMs], for the host to hand to the next stroke. */
     fun film(nowMs: Long): PaintSnapshot = ledger.film(nowMs)
     private val snapshot = FloatArray(program.stateSize)
@@ -930,6 +954,7 @@ class StrokeProgramRunner internal constructor(
         val template = base.firstOrNull() ?: defaultTemplate(frame)
         // Persistent state is snapshotted so an aborted step leaves no half-applied change behind.
         mem.copyInto(snapshot, 0, program.stateBase, program.stateBase + program.stateSize)
+        val loadSnapshot = vm.load?.save()
         load(frame, template)
         vm.ops = 0
         vm.nowMs = frame.nowMs
@@ -943,6 +968,7 @@ class StrokeProgramRunner internal constructor(
             program.runStep(vm)
         } catch (_: StrokeProgram.BudgetExceeded) {
             snapshot.copyInto(mem, program.stateBase)
+            if (loadSnapshot != null) vm.load?.restore(loadSnapshot)
             vm.emitted.clear()
             overruns++
             peakOps = StrokeProgram.MAX_OPS_PER_STEP
@@ -1006,8 +1032,6 @@ class StrokeProgramRunner internal constructor(
         }
         for (e in vm.emitted) {
             val dab = emitted(e, template) ?: continue
-            // The budget predicts the load the dab's draw intent will take; the GPU decides the truth.
-            if (dab.hasLaneIntent && dab.draw > 0f) vm.load?.consume(dab.lane, dab.draw)
             out.add(dab)
         }
         val gap = output("gapMul").coerceIn(StrokeProgram.MIN_GAP, StrokeProgram.MAX_GAP)

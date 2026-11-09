@@ -62,6 +62,9 @@ class IncrementalDynamicDabGenerator(
     }
     private val programTickMs = brush.program?.tickMs ?: 0f
 
+    /** What is left of a painterly brush's load (0..1), or null when the brush has none; read at lift-off. */
+    val loadRemaining: Float? get() = programRunner?.loadBudget?.remaining()
+
     /** The film this stroke touched as of its last sample, for the stroke that follows. */
     fun paintFilm(): PaintSnapshot? = programRunner?.film(lastStepTime.coerceAtLeast(lastSampleTime))
 
