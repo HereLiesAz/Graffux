@@ -30,7 +30,8 @@ import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.design.theme.GraffitiXRTheme
 import com.hereliesaz.graffitixr.design.theme.rememberAppStrings
-import com.hereliesaz.graffitixr.feature.editor.ColorPickerDialog
+import com.hereliesaz.graffitixr.feature.editor.PaletteMixerDialog
+import com.hereliesaz.graffitixr.feature.editor.newMixerBoard
 import com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -113,25 +114,27 @@ class AuditUiShotTest {
     }
 
     @Test
-    fun `the colour picker names its swatches and offers hex and opacity`() {
+    fun `the paint mixer names its tubes and offers a labelled digital hex match`() {
         rule.setContent {
             GraffitiXRTheme {
-                ColorPickerDialog(
+                PaletteMixerDialog(
+                    board = newMixerBoard(),
                     currentColor = Color(0xFFFF3EA5),
                     secondaryColor = Color.Black,
-                    history = listOf(Color(0xFF00FFFF), Color(0xFFFFB300)),
                     onSelectColor = {},
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
                     onDismiss = {},
-                    strings = rememberAppStrings(),
                 )
             }
         }
         rule.waitForIdle()
-        save("colour-picker")
-        rule.onNodeWithContentDescription("Foreground colour #FF3EA5").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Background colour #000000").assertIsDisplayed()
-        rule.onNodeWithTag("color.hex").assertIsDisplayed()
-        rule.onNodeWithTag("color.alpha").assertIsDisplayed()
+        save("paint-mixer")
+        rule.onNodeWithContentDescription("Cadmium Red, opaque, strong tinter").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Foreground brush").assertIsDisplayed()
+        rule.onNodeWithTag("mixer.board").assertIsDisplayed()
+        rule.onNodeWithTag("mixer.hex").assertIsDisplayed()
+        rule.onNodeWithText("Digital: match a colour").assertIsDisplayed()
     }
 
     @Test
@@ -180,24 +183,26 @@ class AuditUiShotTest {
     }
 
     @Test
-    fun `closing the picker on the background target reports the background colour`() {
-        var closedOn: Color? = null
+    fun `squeezing a tube and dipping the brush puts that paint in the brush hand`() {
+        val board = newMixerBoard()
+        var applied: Color? = null
         rule.setContent {
             GraffitiXRTheme {
-                ColorPickerDialog(
-                    currentColor = Color(0xFFFF3EA5),
-                    secondaryColor = Color(0xFF00FFFF),
-                    history = emptyList(),
-                    onSelectColor = {},
+                PaletteMixerDialog(
+                    board = board,
+                    currentColor = Color.White,
+                    secondaryColor = Color.Black,
+                    onSelectColor = { applied = it },
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
                     onDismiss = {},
-                    strings = rememberAppStrings(),
-                    onDismissWithColor = { closedOn = it },
                 )
             }
         }
-        rule.onNodeWithTag("color.target.background").performClick()
-        rule.onNodeWithContentDescription("Close Colour").performClick()
+        // Paint the board and load the brush the way a touch would, then confirm what the user is told.
+        board.squeeze(4, 30f, 30f, 7f, 0.9f)
+        board.dip(30f, 30f)
         rule.waitForIdle()
-        assertTrue("closed on $closedOn", closedOn?.toArgb() == Color(0xFF00FFFF).toArgb())
+        assertTrue(board.brushRecipe().tubes.first().first.id == "cadmium-red")
     }
 }

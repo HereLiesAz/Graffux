@@ -149,4 +149,93 @@ class MaterialStateCodecTest {
         assertEquals(0.5f, decoded.heightMap!![0], 0f)
         assertEquals(0f, decoded.heightMap!![1], 0f)
     }
+
+    private fun recipeBytes(width: Int, height: Int): ByteArray {
+        val bytes = ByteArray(width * height * 16)
+        // texel (3,2): 200 of tube 0 and 55 of tube 5; texel (9,9): all basis channel 14
+        fun put(x: Int, y: Int, vararg c: Pair<Int, Int>) { for ((ch,
+            v) in c) bytes[(y * width + x) * 16 + ch] = v.toByte() }
+        put(3, 2, 0 to 200, 5 to 55)
+        put(9, 9, 14 to 255)
+        return bytes
+    }
+
+    @Test
+    fun `v4 round trip preserves board recipes the latent field and the slot table`() {
+        val width = 70
+        val height = 66
+        val conc = recipeBytes(width, height)
+        val latent = ByteArray(width * height * 4)
+        latent[(65 * width + 69) * 4 + 1] = 255.toByte()
+        val slots = listOf(MaterialStateCodec.SlotEntry("cadmium-red", 2), MaterialStateCodec.SlotEntry("ultramarine",
+            1))
+        val decoded = requireNotNull(
+            MaterialStateCodec.decode(
+                MaterialStateCodec.encode(
+                    MaterialStateCodec.Snapshot(
+                        width = width, height = height, tileSize = 64,
+                        concentration = conc, latent = latent, slotTable = slots,
+                    ),
+                ),
+            ),
+        )
+        assertArrayEquals(conc, requireNotNull(decoded.concentration))
+        assertArrayEquals(latent, requireNotNull(decoded.latent))
+        assertEquals(slots, decoded.slotTable)
+        assertTrue(decoded.hasMaterial)
+    }
+
+    @Test
+    fun `a texel that is not a recipe is refused and the layer fails closed`() {
+        val width = 8
+        val height = 8
+        val bad = ByteArray(width * height * 16)
+        bad[0] = 100 // sums to 100, not 255
+        val bytes = MaterialStateCodec.encode(
+            MaterialStateCodec.Snapshot(width = width, height = height, tileSize = 8, concentration = bad),
+        )
+        assertNull(MaterialStateCodec.decode(bytes))
+    }
+
+    @Test
+    fun `a canvas layer with no board still round trips with an empty slot table`() {
+        val decoded = requireNotNull(
+            MaterialStateCodec.decode(
+                MaterialStateCodec.encode(
+                    MaterialStateCodec.Snapshot(width = 8, height = 8, tileSize = 8,
+                        heightMap = FloatArray(64).also { it[3] = 0.5f }),
+                ),
+            ),
+        )
+        assertTrue(decoded.slotTable.isEmpty())
+        assertNull(decoded.concentration)
+        assertNull(decoded.latent)
+    }
+
+    @Test
+    fun `a version 3 file without the slot table still reads`() {
+        val magic = java.io.DataInputStream(
+            java.util.zip.GZIPInputStream(
+                java.io.ByteArrayInputStream(
+                    MaterialStateCodec.encode(MaterialStateCodec.Snapshot(width = 8, height = 8, tileSize = 8,
+                        heightMap = FloatArray(64).also { it[1] = 1f })),
+                ),
+            ),
+        ).use { it.readInt() }
+        val raw = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(raw).use { gz ->
+            java.io.DataOutputStream(gz).use { out ->
+                out.writeInt(magic); out.writeInt(3)
+                out.writeInt(8); out.writeInt(8); out.writeInt(8)
+                out.writeLong(0L)
+                out.writeInt(1) // one tile, no slot table in v3
+                out.writeInt(0); out.writeInt(0); out.writeByte(1) // height flag
+                repeat(64) { out.writeFloat(if (it == 5) 0.25f else 0f) }
+            }
+        }
+        val decoded = requireNotNull(MaterialStateCodec.decode(raw.toByteArray()))
+        assertEquals(0.25f, requireNotNull(decoded.heightMap)[5], 0f)
+        assertTrue(decoded.slotTable.isEmpty())
+        assertNull(decoded.concentration)
+    }
 }
