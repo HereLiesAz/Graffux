@@ -6,6 +6,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,6 +46,13 @@ internal class PaletteProjectSync(
     }
 
     private var saveJob: Job? = null
+
+    /**
+     * Flushes run here, not in [scope]: cancelling [scope] (the ViewModel clearing) must not stop a flush that has
+     * been handed off but has not started, and [flush] waits for every one still in flight.
+     */
+    private val detached = CoroutineScope(SupervisorJob() + io)
+    private val inFlight = java.util.concurrent.CopyOnWriteArrayList<Job>()
     private var generation = 0L
     private var revision = 0L
 
@@ -99,7 +108,7 @@ internal class PaletteProjectSync(
         withContext(NonCancellable + io) {
             runCatching {
                 val e = encoder(owned)
-                store.write(id, PaletteBoardPersistence.COMBINED_FILE, PaletteBoardPersistence.pack(e.board, e.brushes))
+                store.write(id, PaletteFile.COMBINED_FILE, PaletteFile.pack(e.board, e.brushes))
             }.onFailure { if (it is CancellationException) throw it else store.onError(it) }
         }
     }
@@ -112,13 +121,19 @@ internal class PaletteProjectSync(
         saveJob?.cancel()
         saveJob = null
         takePending()?.let { (owned, id) -> write(owned, id) }
+        // flushes already handed off (the app went to the background, a project closed) must finish too
+        inFlight.toList().joinAll()
     }
 
     /** [flush] without waiting (the app going to the background): the write is started and runs to completion. */
     fun flushAsync() {
         saveJob?.cancel()
         saveJob = null
-        takePending()?.let { (owned, id) -> scope.launch { write(owned, id) } }
+        takePending()?.let { (owned, id) ->
+            val job = detached.launch { write(owned, id) }
+            inFlight += job
+            job.invokeOnCompletion { inFlight -= job }
+        }
     }
 
     /**
@@ -140,23 +155,30 @@ internal class PaletteProjectSync(
         val mine = generation
         val startRevision = revision
         scope.launch {
-            val saved = withContext(io) { readSaved(projectId) }
-            if (saved == null || mine != generation || startRevision != revision) return@launch
-            if (!apply(saved)) {
-                // The palette exists but cannot be used (damaged, or for a different board or tube set): keep the
-                // file as a backup before any new edit can overwrite it, and tell the user once.
+            val verdict = withContext(io) {
+                readSaved(projectId)?.let { it to PaletteBoardPersistence.usable(board, it.board, it.brushes) }
+            } ?: return@launch
+            val (saved, snap) = verdict
+            if (snap == null) {
+                // The palette exists but cannot be used (damaged, or for a different board or tube set): keep the file
+                // as a backup before anything can overwrite it, and tell the user once. This does not depend on an
+                // edit having been made meanwhile, or on another project having been opened: the bytes are preserved.
                 withContext(NonCancellable + io) { keepBackup(projectId, saved) }
                 store.onUnreadable(projectId)
+            }
+            // Applying the saved state is separate: an edit made meanwhile (or another project) wins over the file.
+            if (snap != null && mine == generation && startRevision == revision) {
+                PaletteBoardPersistence.applySaved(board, snap, saved.brushes)
             }
         }
     }
 
     /** The saved palette: the combined file, else the older two files; null if the project has none. */
     private suspend fun readSaved(projectId: String): Saved? {
-        val bytes = store.read(projectId, PaletteBoardPersistence.COMBINED_FILE)
+        val bytes = store.read(projectId, PaletteFile.COMBINED_FILE)
         if (bytes != null) {
-            val parts = PaletteBoardPersistence.unpack(bytes)
-            return Saved(parts?.first, parts?.second, PaletteBoardPersistence.COMBINED_FILE, bytes)
+            val parts = PaletteFile.unpack(bytes)
+            return Saved(parts?.first, parts?.second, PaletteFile.COMBINED_FILE, bytes)
         }
         return store.read(projectId, PaletteBoardPersistence.BOARD_FILE)?.let { legacy ->
             val brushes = store.read(projectId, PaletteBoardPersistence.BRUSH_FILE)
@@ -167,16 +189,6 @@ internal class PaletteProjectSync(
     private suspend fun keepBackup(projectId: String, saved: Saved) {
         runCatching { store.write(projectId, "${saved.file}.bak", saved.raw) }
             .onFailure { if (it is CancellationException) throw it else store.onError(it) }
-    }
-
-    /** Applies [saved] to the board; false when it could not be used (the board is then left empty). */
-    private fun apply(saved: Saved): Boolean {
-        val boardBytes = saved.board ?: return false
-        val snap = runCatching { MaterialStateCodec.decode(boardBytes) }.getOrNull()
-        val restored = snap != null && PaletteBoardPersistence.restore(board, snap)
-        if (!restored) board.clear()
-        val brushesOk = saved.brushes == null || PaletteBoardPersistence.decodeBrushes(board, saved.brushes)
-        return restored && brushesOk
     }
 
     private companion object {

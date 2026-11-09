@@ -28,10 +28,6 @@ internal object PaletteBoardPersistence {
     private const val AMOUNT_TOLERANCE = 1e-4f
     const val BRUSH_FILE = "palette-brushes.bin"
 
-    /** The board and both brushes in ONE file, so the pair is written (and read) together. */
-    const val COMBINED_FILE = "palette.gxpl"
-    private const val COMBINED_MAGIC = 0x4758504C // "GXPL"
-    private const val COMBINED_VERSION = 1
     private const val BRUSH_MAGIC = 0x50425253 // "PBRS"
     private const val BRUSH_VERSION = 1
     private const val CH = PaintTransaction.CH
@@ -83,13 +79,30 @@ internal object PaletteBoardPersistence {
     }
 
     /** Whether [snap] is this board's data: same size and tubes, and every amount a real, bounded number. */
-    private fun accepts(board: PaletteBoard, snap: MaterialStateCodec.Snapshot): Boolean {
+    fun accepts(board: PaletteBoard, snap: MaterialStateCodec.Snapshot): Boolean {
         val n = board.size
         val slots = board.tubes.map { MaterialStateCodec.SlotEntry(it.id, it.dataVersion) }
         val sameShape = snap.width == n && snap.height == n && snap.slotTable == slots
         val amountsOk = snap.heightMap?.all { it.isFinite() && it >= 0f && it * AMOUNT_SCALE <= MAX_AMOUNT } != false
         val concOk = snap.concentration?.let { it.size == n * n * CH } != false
         return sameShape && amountsOk && concOk
+    }
+
+    /**
+     * The decoded board when saved bytes ([boardBytes], [brushBytes]) can be used by [board] (same size and tubes,
+     * sane amounts, valid brushes), else null. Changes nothing: the brushes are checked on a scratch board.
+     */
+    fun usable(board: PaletteBoard, boardBytes: ByteArray?, brushBytes: ByteArray?): MaterialStateCodec.Snapshot? {
+        val snap = boardBytes?.let { runCatching { MaterialStateCodec.decode(it) }.getOrNull() } ?: return null
+        val scratch = PaletteBoard(board.size, board.tubes)
+        val brushesOk = brushBytes == null || decodeBrushes(scratch, brushBytes)
+        return snap.takeIf { accepts(board, it) && brushesOk }
+    }
+
+    /** Applies a [usable] snapshot and the brushes to [board]. */
+    fun applySaved(board: PaletteBoard, snap: MaterialStateCodec.Snapshot, brushBytes: ByteArray?) {
+        restore(board, snap)
+        brushBytes?.let { decodeBrushes(board, it) }
     }
 
     /** Restores [board] from [snap]; false (board untouched) when it is not this board's data. */
@@ -158,41 +171,4 @@ internal object PaletteBoardPersistence {
         }
         true
     }.getOrDefault(false)
-
-    /** One file holding [board] and [brushes] bytes: magic, version, two length-prefixed parts, a CRC32 of all. */
-    fun pack(board: ByteArray, brushes: ByteArray): ByteArray {
-        val raw = ByteArrayOutputStream()
-        DataOutputStream(raw).use { out ->
-            out.writeInt(COMBINED_MAGIC)
-            out.writeInt(COMBINED_VERSION)
-            out.writeInt(board.size)
-            out.write(board)
-            out.writeInt(brushes.size)
-            out.write(brushes)
-            val crc = java.util.zip.CRC32().also { it.update(raw.toByteArray()) }
-            out.writeLong(crc.value)
-        }
-        return raw.toByteArray()
-    }
-
-    /** The (board, brushes) bytes of a [pack]ed file, or null when it is truncated, damaged or not one. */
-    fun unpack(bytes: ByteArray): Pair<ByteArray, ByteArray>? = runCatching {
-        require(bytes.size >= MIN_PACKED)
-        val body = bytes.copyOfRange(0, bytes.size - Long.SIZE_BYTES)
-        val stored = DataInputStream(ByteArrayInputStream(bytes, body.size, Long.SIZE_BYTES)).readLong()
-        require(java.util.zip.CRC32().also { it.update(body) }.value == stored) { "checksum" }
-        DataInputStream(ByteArrayInputStream(body)).use { input ->
-            require(input.readInt() == COMBINED_MAGIC && input.readInt() == COMBINED_VERSION) { "not a palette file" }
-            val boardLen = input.readInt()
-            require(boardLen in 0..body.size)
-            val board = ByteArray(boardLen).also { input.readFully(it) }
-            val brushLen = input.readInt()
-            require(brushLen in 0..body.size)
-            val brushes = ByteArray(brushLen).also { input.readFully(it) }
-            require(input.read() == -1) { "trailing bytes" }
-            board to brushes
-        }
-    }.getOrNull()
-
-    private const val MIN_PACKED = 4 + 4 + 4 + 4 + Long.SIZE_BYTES
 }
