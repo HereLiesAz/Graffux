@@ -163,8 +163,7 @@ object PaintTransaction {
                     val total = reduce(partial)
                     val after = before + total
                     if (after > 0f) {
-                        for (c in 0 until CH) load.conc[lane * CH + c] =
-                            (load.conc[lane * CH + c] * before + sums[c]) / after
+                        for (c in 0 until CH) load.conc[lane * CH + c] = (load.conc[lane * CH + c] * before + sums[c]) / after
                         load.amount[lane] = after
                     }
                 }
