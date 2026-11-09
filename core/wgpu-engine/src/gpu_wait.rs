@@ -82,6 +82,9 @@ pub fn map_read_with<R>(
     }
     // The wait returns once the callbacks have run, so the answer is already in the channel.
     if !matches!(rx.try_recv(), Ok(true)) {
+        // A refused map is not mapped, and one whose callback has not run is still pending: unmap either way, or
+        // the next `map_async` on this buffer is a validation error.
+        buffer.unmap();
         return Err(ReadFailure::Failed);
     }
     let out = match slice.get_mapped_range() {

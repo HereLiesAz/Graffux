@@ -4,6 +4,9 @@
 //! used by the parity test against `tests/fixtures/transaction_golden.txt`; wiring it to the resident
 //! layer, the stamp pipeline and the editor is the remaining part of phase P5.
 
+use crate::gpu_wait::{map_read, READBACK_TIMEOUT};
+use crate::shared_gpu;
+
 pub const TRANSACTION_WGSL: &str = include_str!("shaders/transaction.wgsl");
 
 /// Channels per texel (12 tubes + 4 basis).
@@ -47,32 +50,33 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &TransactionInput) -> Option<
         return None;
     }
     let dab_count = input.dabs.len() / DAB_FLOATS;
-    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    desc.backends = backends;
-    let instance = wgpu::Instance::new(desc);
-    let adapters = pollster::block_on(instance.enumerate_adapters(backends));
-    let adapter = adapters.into_iter().find(|a| {
-        a.get_downlevel_capabilities()
-            .flags
-            .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
-    })?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("graffux-transaction"),
-        required_limits: adapter.limits(),
-        ..Default::default()
-    }))
-    .ok()?;
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("transaction"),
-        source: wgpu::ShaderSource::Wgsl(TRANSACTION_WGSL.into()),
-    });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("transaction run"),
-        layout: None,
-        module: &module,
-        entry_point: Some("run"),
-        compilation_options: Default::default(),
-        cache: None,
+    let gpu = shared_gpu::shared(backends)?;
+    let (device, queue) = (&gpu.device, &gpu.queue);
+    let f = 4u64;
+    let (conc_b, px_b) = (input.conc.len() as u64 * f, px as u64 * f);
+    if !shared_gpu::fits(
+        &gpu.limits,
+        &[conc_b, px_b, (input.load_conc.len().max(1) as u64) * f, (input.dabs.len().max(1) as u64) * f],
+        8,
+        64,
+    ) {
+        log::warn!("graffux-wgpu transaction: {}x{} with {} dabs exceeds this adapter's limits", input.width, input.height, dab_count);
+        return None;
+    }
+    gpu.scoped("transaction", || {
+    let pipeline = gpu.cached("transaction run", || {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("transaction"),
+            source: wgpu::ShaderSource::Wgsl(TRANSACTION_WGSL.into()),
+        });
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("transaction run"),
+            layout: None,
+            module: &module,
+            entry_point: Some("run"),
+            compilation_options: Default::default(),
+            cache: None,
+        })
     });
     let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC;
     let make = |label: &str, data: &[f32]| {
@@ -151,20 +155,10 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &TransactionInput) -> Option<
     queue.submit([encoder.finish()]);
     let mut results: Vec<Vec<f32>> = Vec::new();
     for (staging, len) in &stagings {
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r.is_ok());
-        });
-        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
-        if rx.recv() != Ok(true) {
-            return None;
-        }
-        let v = {
-            let view = slice.get_mapped_range().ok()?;
-            bytemuck::cast_slice::<u8, f32>(&view)[..*len].to_vec()
-        };
-        staging.unmap();
+        let v = map_read(device, staging, 0..((*len).max(1) * 4) as u64, READBACK_TIMEOUT, |b| {
+            bytemuck::cast_slice::<u8, f32>(b)[..*len].to_vec()
+        })
+        .ok()?;
         results.push(v);
     }
     let mut it = results.into_iter();
@@ -174,5 +168,6 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &TransactionInput) -> Option<
         avail: it.next()?,
         load_amount: it.next()?,
         load_conc: it.next()?,
+    })
     })
 }
