@@ -423,6 +423,8 @@ private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
  * files without making a valid worst-case material layer impossible to reopen.
  */
 private const val MAX_MATERIAL_SIDECAR_BYTES = 160L * 1024 * 1024
+/** The palette board sidecar is at most a 1024 x 1024 board (16 B per texel plus height): bounded well below this. */
+private const val MAX_PALETTE_SIDECAR_BYTES = 64L * 1024 * 1024
 
 /**
  * Whether the azphalt stamp-brush live-preview path can use a GPU compute stamp shader instead of
@@ -2058,6 +2060,14 @@ class EditorViewModel @Inject constructor(
     // is deliberately allowed to lag/coalesce while input continues at full speed.
     private var stampStaticDabGenerator: IncrementalStaticDabGenerator? = null
     private var stampDynamicDabGenerator: IncrementalDynamicDabGenerator? = null
+
+    // The paint mixer's board and the loads on its two brushes (spec/painterly.md 6.3). Saved with the
+    // project (sidecar v4 + a small brush file) and restored on open; a painterly stroke starts from the
+    // brush in hand's load and leaves what it did not spend.
+    override val paletteBoard: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard = newMixerBoard()
+    private var paletteSaveJob: Job? = null
+    /** (amount the brush held, fill fraction the stroke started with) for the stroke in progress, or null. */
+    private var paletteStrokeStart: Pair<Float, Float>? = null
     private val stampLengthPredictor = StrokeLengthPredictor()
     private val stampGeneratedMovementDabs = ArrayList<Dab>()
     private var stampMovementConsumedSampleCount: Int = 0
@@ -2516,6 +2526,7 @@ class EditorViewModel @Inject constructor(
                         dispatch(EditorIntent.SetDocumentCrop(project.documentCrop))
                         loadAdjustmentMasks(layers)
                         restoreModelLayers(project.id, layers)
+                        restorePaletteBoard(project.id)
                         updateUi {
                             it.copy(
                                 sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
@@ -3703,6 +3714,67 @@ class EditorViewModel @Inject constructor(
             mediumTiles = impasto?.tileSnapshots() ?: emptyList(),
         )
     }
+
+    /** A painterly brush starts from what the palette's brush in hand holds (its recipe and how full it is). */
+    private fun applyPaletteLoad(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush):
+        com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush {
+        paletteStrokeStart = null
+        val lanes = brush.load?.lanes ?: com.hereliesaz.graffitixr.common.azphalt.BrushLoadConfig.DEFAULT_LANES
+        val load = if (brush.painterly > 0) paletteBoard.brushLoad(lanes) else null
+        if (load != null) paletteStrokeStart = paletteBoard.brush.amount[0] to load.fill.first().amount
+        return if (load != null) brush.copy(load = load) else brush
+    }
+
+    /** At lift-off: the brush on the board keeps the share of its load the stroke did not spend. */
+    private fun absorbPaletteLoad(remaining: Float?) {
+        val start = paletteStrokeStart ?: return
+        paletteStrokeStart = null
+        if (remaining == null || start.second <= 0f) return
+        viewModelScope.launch(dispatchers.main) {
+            paletteBoard.absorbStrokeLoad(remaining / start.second, start.first)
+            onPaletteChanged()
+        }
+    }
+
+    override fun onPaletteChanged() {
+        val projectId = _uiState.value.projectId ?: return
+        paletteSaveJob?.cancel()
+        paletteSaveJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(1500)
+            // Snapshot on the main thread (the UI mutates the board there), encode and write off it.
+            val board = PaletteBoardPersistence.snapshot(paletteBoard)
+            val brushes = PaletteBoardPersistence.encodeBrushes(paletteBoard)
+            withContext(dispatchers.io) {
+                runCatching {
+                    val file = PaletteBoardPersistence.BOARD_FILE
+                    projectRepository.saveArtifact(projectId, file, MaterialStateCodec.encode(board))
+                    projectRepository.saveArtifact(projectId, PaletteBoardPersistence.BRUSH_FILE, brushes)
+                }.onFailure { android.util.Log.e("EditorViewModel", "Failed to save the palette board", it) }
+            }
+        }
+    }
+
+    /** Loads the project's palette board and brush loads; an absent, corrupt or mismatched board leaves it empty. */
+    private fun restorePaletteBoard(projectId: String) {
+        viewModelScope.launch(dispatchers.io) {
+            val board = readProjectArtifact(projectId, PaletteBoardPersistence.BOARD_FILE)
+                ?.let { runCatching { MaterialStateCodec.decode(it) }.getOrNull() }
+            val brushes = readProjectArtifact(projectId, PaletteBoardPersistence.BRUSH_FILE)
+            withContext(dispatchers.main) {
+                paletteBoard.clear()
+                if (board != null && !PaletteBoardPersistence.restore(paletteBoard, board)) paletteBoard.clear()
+                if (brushes != null) PaletteBoardPersistence.decodeBrushes(paletteBoard, brushes)
+            }
+        }
+    }
+
+    private fun readProjectArtifact(projectId: String, filename: String): ByteArray? = runCatching {
+        val root = File(context.filesDir, "projects").canonicalFile
+        val dir = File(root, projectId).canonicalFile
+        val file = File(dir, filename).canonicalFile
+        val inside = dir.path.startsWith(root.path + File.separator) && file.path.startsWith(dir.path + File.separator)
+        file.takeIf { inside && it.isFile && it.length() in 1..MAX_PALETTE_SIDECAR_BYTES }?.readBytes()
+    }.getOrNull()
 
     private suspend fun writeMaterialState(
         layerId: String,
@@ -7306,6 +7378,7 @@ class EditorViewModel @Inject constructor(
         // generator or canonical replay sees it. The selected preset itself remains untouched.
         val stampBrush = activeStampBrush?.cappedForPerformanceTier(brushPerformanceTier)
             ?.let { if (stampErase) it.forErasing() else it }
+            ?.let { applyPaletteLoad(it) }
         if (stampBrush != null && (state.activeTool == Tool.BRUSH || stampErase)) {
             stampEraseForStroke = stampErase
             // Azphalt stamp brush: stamp dabs incrementally onto a working copy for a live preview.
@@ -9221,6 +9294,7 @@ class EditorViewModel @Inject constructor(
         // the commit finishes the live stroke on that engine instead of painting it again.
         renderStampLive(brush)
         val paintFilm = stampDynamicDabGenerator?.paintFilm()
+        absorbPaletteLoad(stampDynamicDabGenerator?.loadRemaining)
         val handoff = handOffLiveStamp()
         val color = eraseOpaque(state.activeColor.toArgb())
         val brushSize = state.effectivePaintBrushSize()

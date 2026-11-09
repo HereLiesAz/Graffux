@@ -907,6 +907,9 @@ class StrokeProgramRunner internal constructor(
         vm.load = brush.load?.let(::BrushLoadBudget)
     }
 
+    /** The stroke's load budget (null for a brush with no `load` block), e.g. to read what is left at lift-off. */
+    val loadBudget: BrushLoadBudget? get() = vm.load
+
     /** The film this stroke touched, as it stands at [nowMs], for the host to hand to the next stroke. */
     fun film(nowMs: Long): PaintSnapshot = ledger.film(nowMs)
     private val snapshot = FloatArray(program.stateSize)

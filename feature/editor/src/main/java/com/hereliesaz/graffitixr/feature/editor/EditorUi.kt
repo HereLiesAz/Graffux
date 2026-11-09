@@ -54,7 +54,7 @@ fun EditorUi(
         if (uiState.showColorPicker) {
             // The physical palette replaces the colour picker (spec/painterly.md 6.3). The board is
             // hoisted here so closing and reopening the mixer keeps the paint on it.
-            val mixerBoard = remember { newMixerBoard() }
+            val mixerBoard = actions.paletteBoard ?: remember { newMixerBoard() }
             PaletteMixerDialog(
                 board = mixerBoard,
                 currentColor = uiState.activeColor,
@@ -63,6 +63,7 @@ fun EditorUi(
                 onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
                 onSwapColors = actions::swapBrushColors,
                 onDismiss = { actions.onColorPickerDismissed() },
+                onChanged = actions::onPaletteChanged,
             )
         }
 

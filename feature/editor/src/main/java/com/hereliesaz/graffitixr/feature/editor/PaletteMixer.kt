@@ -98,6 +98,7 @@ fun PaletteMixerDialog(
     onSelectSecondaryColor: (Color) -> Unit,
     onSwapColors: () -> Unit,
     onDismiss: () -> Unit,
+    onChanged: () -> Unit = {},
 ) {
     var version by remember { mutableIntStateOf(0) }
     var tool by remember { mutableStateOf(MixerTool.SQUEEZE) }
@@ -108,6 +109,7 @@ fun PaletteMixerDialog(
 
     fun push() {
         version++
+        onChanged()
         if (board.brush.amount[0] > 0f) {
             val c = Color(board.brushColour())
             if (board.hand == 0) onSelectColor(c) else onSelectSecondaryColor(c)

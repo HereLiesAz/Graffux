@@ -103,6 +103,13 @@ class BrushLoadBudget(config: BrushLoadConfig) {
     /** 0..1: the share of the column's paint that is its second pigment. */
     fun mix(coordinate: Float): Float = secondFraction[laneIndex(coordinate)]
 
+    /** 0..1: the mean fill across the columns, against capacity; what is left of the load after a stroke. */
+    fun remaining(): Float {
+        var sum = 0f
+        for (a in amounts) sum += a
+        return (sum / (config.capacity * lanes)).coerceIn(0f, 1f)
+    }
+
     /** Takes up to [draw] of capacity from the column's tip layer first; returns what it could give. */
     fun consume(coordinate: Float, draw: Float): Float {
         if (!(draw > 0f) || !draw.isFinite()) return 0f

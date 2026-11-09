@@ -5,6 +5,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 
 interface EditorActions {
+    /** The palette board the paint mixer works on, kept for the session and saved with the project; null in fakes. */
+    val paletteBoard: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard? get() = null
+
+    /** The palette board or a brush load changed: save it with the project (debounced). */
+    fun onPaletteChanged() {}
+
     fun onOpacityChanged(v: Float)
     fun onBrightnessChanged(v: Float)
     fun onContrastChanged(v: Float)
