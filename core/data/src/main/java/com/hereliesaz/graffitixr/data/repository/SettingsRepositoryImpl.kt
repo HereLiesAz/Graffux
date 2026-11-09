@@ -242,6 +242,20 @@ class SettingsRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun renameCarouselKeys(renames: Map<String, String>) {
+        if (renames.isEmpty()) return
+        update { prefs ->
+            val favourites = decodeCarouselFavorites(prefs[carouselFavoritesKey]).map { renames[it] ?: it }.distinct()
+            prefs[carouselFavoritesKey] = favourites.joinToString(CAROUSEL_FAVORITES_SEPARATOR)
+            val settings = CarouselItemSettings.decode(prefs[carouselItemSettingsKey])
+            val moved = LinkedHashMap<String, CarouselItemSettings>()
+            settings.forEach { (k, v) -> moved.putIfAbsent(renames[k] ?: k, v) }
+            // a setting already stored under the new key wins over one moved onto it
+            settings.forEach { (k, v) -> if (k !in renames) moved[k] = v }
+            prefs[carouselItemSettingsKey] = CarouselItemSettings.encode(moved)
+        }
+    }
+
     override val carouselItemSettings: Flow<Map<String, CarouselItemSettings>> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
         .map { prefs -> CarouselItemSettings.decode(prefs[carouselItemSettingsKey]) }

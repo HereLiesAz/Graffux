@@ -32,4 +32,29 @@ class BrushAliasTableTest {
         assertNull(BrushAliasTable.resolve("Never Existed", none))
         assertEquals("Round", BuiltInBrushes.DEFAULT_NAME)
     }
+
+    @Test
+    fun resolveOrDefaultNeverReturnsNothing() {
+        val none = { _: String?, _: String -> false }
+        assertEquals("Round", BrushAliasTable.resolveOrDefault("Square Flat", none).brush)
+        assertEquals("Round", BrushAliasTable.resolveOrDefault("Never Existed", none).brush)
+        val installed = { pack: String?, brush: String -> pack == "acrylic" && brush == "Flat" }
+        assertEquals("Flat", BrushAliasTable.resolveOrDefault("Square Flat", installed).brush)
+    }
+
+    @Test
+    fun aFavouriteOfARemovedBrushIsRenamedToRoundOrItsBuiltInSuccessor() {
+        val builtIns = setOf("Round", "Flat")
+        val keys = listOf("builtin.Heavy Oil", "builtin.Round", "custom.abc", "ink.pen", "builtin.Unknown", "builtin.Square Flat")
+        val renames = BrushAliasTable.carouselKeyRenames(keys) { it in builtIns }
+        assertEquals("builtin.Round", renames["builtin.Heavy Oil"], "no built-in successor: Round")
+        assertEquals(setOf("builtin.Heavy Oil", "builtin.Square Flat"), renames.keys, "only removed built-ins move")
+        assertNull(renames["builtin.Unknown"], "an unknown name is not a removed brush: left alone")
+    }
+
+    @Test
+    fun aBrushThatStillExistsIsNotRenamed() {
+        val renames = BrushAliasTable.carouselKeyRenames(listOf("builtin.Heavy Oil")) { it == "Heavy Oil" || it == "Round" }
+        assertTrue(renames.isEmpty())
+    }
 }
