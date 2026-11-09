@@ -2122,6 +2122,12 @@ class EditorViewModel @Inject constructor(
     )
     /** (amount the brush held, fill fraction the stroke started with) for the stroke in progress, or null. */
     private var paletteStrokeStart: Pair<Float, Float>? = null
+
+    /** The brush's whole load when the stroke in progress began (for the undo/redo history). */
+    private var paletteStrokeBefore: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard.BrushState? = null
+
+    /** What undo and redo do to the paint on the palette brushes (spec/painterly.md 6.5). */
+    private val paletteLoadHistory = com.hereliesaz.graffitixr.common.azphalt.PaletteLoadHistory()
     private val stampLengthPredictor = StrokeLengthPredictor()
     private val stampGeneratedMovementDabs = ArrayList<Dab>()
     private var stampMovementConsumedSampleCount: Int = 0
@@ -2831,6 +2837,7 @@ class EditorViewModel @Inject constructor(
                 // A chunk undoes whole: the first stroke came off above, the rest follow, newest first.
                 repeat(command.earlier.size) { layerStore.removeLastStroke(command.layerId) }
                 command.strokes.asReversed().forEach { inkLedger.onUndo(command.layerId, it) }
+                replayPaletteLoad(command.strokes, undone = true)
                 if (reinheritOnUndo(command.layerId)) {
                     command.gpuUndo?.let(history::forgetGpuUndo)
                 } else {
@@ -2931,6 +2938,7 @@ class EditorViewModel @Inject constructor(
             layerStore.addStroke(command.layerId, stroke)
             inkLedger.onRedo(command.layerId, stroke, stroke.takeIf { it.inkStroke != null && it.tool == Tool.BRUSH })
         }
+        replayPaletteLoad(command.strokes, undone = false)
         val deltas = command.tileDeltas?.takeIf { command.deltasComplete }
         val fastPathHandled = command.strokes.none(::strokeChangesCanonicalMaterial) &&
             deltas != null && applyTileDeltaFastPath(
@@ -3815,21 +3823,45 @@ class EditorViewModel @Inject constructor(
     private fun applyPaletteLoad(brush: com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush):
         com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush {
         paletteStrokeStart = null
-        val lanes = brush.load?.lanes ?: com.hereliesaz.graffitixr.common.azphalt.BrushLoadConfig.DEFAULT_LANES
-        val load = if (brush.painterly > 0) paletteBoard.brushLoad(lanes) else null
-        if (load != null) paletteStrokeStart = paletteBoard.brush.amount[0] to load.fill.first().amount
+        paletteStrokeBefore = null
+        // the brush's own load block keeps its lanes, depth and capacity; only the paint in it is the palette's
+        val base = brush.load ?: com.hereliesaz.graffitixr.common.azphalt.BrushLoadConfig()
+        val load = if (brush.painterly > 0) paletteBoard.brushLoad(base) else null
+        if (load != null) {
+            paletteStrokeStart = paletteBoard.brush.amount[0] to load.fill.first().amount
+            paletteStrokeBefore = paletteBoard.brushState()
+        }
         return if (load != null) brush.copy(load = load) else brush
     }
 
     /** At lift-off: the brush on the board keeps the share of its load the stroke did not spend. */
-    private fun absorbPaletteLoad(remaining: Float?) {
+    private fun absorbPaletteLoad(remaining: Float?, strokeKey: Long) {
         val start = paletteStrokeStart ?: return
+        val before = paletteStrokeBefore
         paletteStrokeStart = null
+        paletteStrokeBefore = null
         if (remaining == null || start.second <= 0f) return
         viewModelScope.launch(dispatchers.main) {
             paletteBoard.absorbStrokeLoad(remaining / start.second, start.first)
+            // the spending belongs to the stroke: undo gives the paint back, redo takes it again
+            if (before != null) paletteLoadHistory.record(strokeKey, before, paletteBoard.brushState())
             onPaletteChanged()
         }
+    }
+
+    /** [strokes] were undone (or redone): the palette brush gets their paint back (or spends it again). */
+    private fun replayPaletteLoad(strokes: List<StrokeCommand>, undone: Boolean) {
+        var changed = false
+        val ordered = if (undone) strokes.asReversed() else strokes
+        for (s in ordered) {
+            val moved = if (undone) {
+                paletteLoadHistory.undo(s.seed, paletteBoard)
+            } else {
+                paletteLoadHistory.redo(s.seed, paletteBoard)
+            }
+            changed = moved || changed
+        }
+        if (changed) onPaletteChanged()
     }
 
     override fun onPaletteChanged() = paletteSync.changed(_uiState.value.projectId)
@@ -9377,7 +9409,7 @@ class EditorViewModel @Inject constructor(
         // the commit finishes the live stroke on that engine instead of painting it again.
         renderStampLive(brush)
         val paintFilm = stampDynamicDabGenerator?.paintFilm()
-        absorbPaletteLoad(stampDynamicDabGenerator?.loadRemaining)
+        absorbPaletteLoad(stampDynamicDabGenerator?.loadRemaining, stampSeed)
         val handoff = handOffLiveStamp()
         val color = eraseOpaque(state.activeColor.toArgb())
         val brushSize = state.effectivePaintBrushSize()

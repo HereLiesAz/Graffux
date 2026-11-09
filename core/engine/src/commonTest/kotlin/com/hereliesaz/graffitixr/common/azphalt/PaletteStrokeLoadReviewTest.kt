@@ -2,7 +2,6 @@ package com.hereliesaz.graffitixr.common.azphalt
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -60,10 +59,6 @@ class PaletteStrokeLoadReviewTest {
         assertTrue(after > start * 0.5f, "the brush is not reported empty while seven lanes are full: $start -> $after")
     }
 
-    // FINDING (reported, not fixed here): PaletteBoard.brushLoad() builds a fresh BrushLoadConfig(lanes, fill) and the
-    // editor replaces the brush's own `load` block with it, so a brush's own capacity (and any other fills) are lost
-    // when the stroke starts from the palette. Remove @Ignore when brushLoad() carries the brush's config over.
-    @Ignore("finding: palette load drops the brush's own capacity, see #780")
     @Test
     fun theLoadTheBoardBuildsKeepsTheBrushsOwnCapacityAndDepth() {
         val own = AzphaltBrush.fromParams(
@@ -72,7 +67,7 @@ class PaletteStrokeLoadReviewTest {
                 """{"painterly":1,"load":{"lanes":8,"depth":3,"capacity":2},"program":{"step":"hide = 1; emit { x: px, y: py, size: 4, lane: 0, draw: 0.05 };"}}""",
             ) as JsonObject,
         )
-        val built = assertNotNull(loaded().brushLoad(own.load!!.lanes))
+        val built = assertNotNull(loaded().brushLoad(own.load!!))
         assertEquals(own.load!!.depth, built.depth, "the brush's own load depth survives the board's load")
         assertEquals(own.load!!.capacity, built.capacity, "and its capacity")
     }
