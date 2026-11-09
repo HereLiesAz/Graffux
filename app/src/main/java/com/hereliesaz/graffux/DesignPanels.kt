@@ -2,7 +2,6 @@
 
 package com.hereliesaz.graffux
 
-import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -236,7 +236,7 @@ internal fun ColorStylesSection(
                     modifier = Modifier.weight(1f).padding(start = 10.dp).testTag("design.${title.lowercase()}.value"),
                 )
                 if (bound != null) {
-                    Text("style", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
+                    Text(stringResource(R.string.design_style_tag), color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
                 }
             }
             library.colorStyles.forEach { style ->

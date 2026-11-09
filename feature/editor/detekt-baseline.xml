@@ -103,7 +103,6 @@
     <ID>FunctionNaming:PolygonSidesDialog.kt$@Composable fun PolygonSidesDialog( currentSides: Int, onApply: (Int) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:QuickMenu.kt$@Composable fun QuickMenu( center: Offset, actions: List&lt;QuickAction&gt;, onDismiss: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:ReferenceWindow.kt$@Composable fun ReferenceWindow( imageUri: Uri?, onPickImage: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:RotationAxisFeedback.kt$@Composable fun RotationAxisFeedback( axis: RotationAxis, visible: Boolean, onFeedbackShown: () -&gt; Unit, modifier: Modifier = Modifier )</ID>
     <ID>FunctionNaming:SaveProjectDialog.kt$@Composable fun SaveProjectDialog( currentName: String, onConfirm: (name: String) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:SelectionCanvas.kt$@Composable fun SelectionCanvas( selection: Selection?, shape: SelectionShape, op: SelectionOp, gate: StrokeGate, modifier: Modifier = Modifier, onSelectionEnd: (List&lt;Offset&gt;, IntSize) -&gt; Unit, onSelectionMove: (Offset) -&gt; Unit, onAutoSelect: (Offset, IntSize) -&gt; Unit, onClearSelection: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:ShapeSizeDialog.kt$@Composable fun ShapeSizeDialog( currentWidth: Float, currentHeight: Float, isLine: Boolean, onConfirm: (width: Float, height: Float) -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
