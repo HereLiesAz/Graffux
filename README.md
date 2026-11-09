@@ -111,8 +111,9 @@ Graffux is growing toward a full, touch-first design tool.
 - Consent and recorded stroke data kept out of backup and device transfer (#796); projects and models out of cloud backup (#790).
 - `.fux` import hardening (#807): only `Uri` fields are localized, escapes decode leniently, JSON depth is capped at 64
   (`MAX_JSON_DEPTH`) and a URI over 4096 characters is refused (`core/data/.../ArchiveUris.kt:52,165`).
-- OBJ import caps (#809): 64 MiB read, 400,000 triangles, 64 K characters per line, 16,384 corners per face
-  (`core/common/.../mesh/ObjParser.kt:49-52`); memory figures in `spec/3d-space.md` (Import).
+- OBJ import caps (#809): 64 MiB read (`ModelCoopCodec.MAX_OBJ_BYTES`, enforced by `ModelFiles.readBounded`),
+  400,000 triangles, 64 K characters per line, 16,384 corners per face (`ObjParser.MAX_TRIANGLES`,
+  `MAX_LINE_CHARS`, `MAX_FACE_CORNERS`); memory figures in `spec/3d-space.md` (Import).
 - `.azp` entry-count and manifest/signature size caps (#811).
 - Extension-list disclosure and failure-reason scrub (#813): `docs/PRIVACY_POLICY.md` (effective November 9, 2026) and
   `spec/state-reporting.md` (`sanitizeReason()`: per-token redaction, first 400 characters in, 200 out).
@@ -120,6 +121,9 @@ Graffux is growing toward a full, touch-first design tool.
 - Relay nesting, line, body-read and limiter bounds (#802).
 - Type scale floored at 12sp (#808, `core/design/.../theme/Typography.kt:57`); Settings insets, announced title and
   strings in resources (#810).
+- Accessibility and UX (audit package 7): pane titles, traversal order and logo menu semantics (#812); dialog and
+  window buttons holding their label at large font scales (#814); project delete control, confirmation and list
+  refresh (#815); pivot prompt placement and the 48dp set-wheel touch band (#818).
 
 **Open**
 
@@ -134,14 +138,12 @@ Graffux is growing toward a full, touch-first design tool.
   app code calls the standalone entries yet (`transaction.rs`); the first production caller must surface it.
 - **Co-op `LayerAdd` carries a peer-supplied `Layer` (`core/common/.../model/Op.kt:15`), including its `uri`.** Not traced.
   Co-op is a no-op in the app (`app/.../di/CoopModule.kt`), so it is unreachable until co-op is wired.
-- **Accessibility and UX PRs awaiting review, not landed:** #812 (pane titles, traversal order, logo menu semantics),
-  #814 (dialog buttons at large font scales), #815 (project delete control and confirmation), #817 (mixer feedback,
-  rinse confirmation), #818 (pivot prompt placement, 48dp set-wheel band), #819 (tap alternatives to sheet swipes),
-  #820 (dead code, stale comments, more strings in resources).
-- **Hard-coded UI strings remain:** the labels in `app/.../ToolCatalog.kt` (e.g. line 18), about 150 in other
+- **UX PRs awaiting review, not landed:** #817 (mixer feedback, rinse confirmation), #819 (tap and accessibility
+  alternatives to the sheet's stage swipes), #820 (dead code, stale comments, more strings in resources).
+- **Hard-coded UI strings remain:** the labels in `ToolCatalog.kt` (the `ToolEntry("tool.brush", "Brush", ...)` entries), about 150 in other
   `feature/editor` windows (count from the audit, not re-counted here), `desktop/`, and the gesture enum labels.
-- **Set-wheel names are still ellipsized** (`app/.../CarouselSetWheel.kt:327`, `maxLines = 1`).
-- **Compare is hold-only** (`app/.../PhotoSheet.kt:452`, "Hold to compare with original"); there is no toggle.
+- **Set-wheel names are still ellipsized** (`CarouselSetWheel.kt`: the name is measured with `overflow = TextOverflow.Ellipsis, maxLines = 1`).
+- **Compare is hold-only** (`PhotoSheet.kt`: the button's description is "Hold to compare with original"); there is no toggle.
 - **Painterly build.** Resident-canvas transaction, bundled packs, lift tail, drawn brush, demo replay and device
   verification: see "Build status" in `spec/painterly.md`.
 - **Legal documents.** See "Privacy policy and Terms" below.
