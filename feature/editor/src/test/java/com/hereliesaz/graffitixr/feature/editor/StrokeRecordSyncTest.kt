@@ -27,6 +27,7 @@ class StrokeRecordSyncTest {
         val delays = ArrayDeque<Long>()
         var failBak = false
         var reads = 0
+        val unreadableFiles = HashSet<String>()
         val readOnlyIds = HashSet<String>()
         var readDelayMs = 0L
     }
@@ -53,10 +54,11 @@ class StrokeRecordSyncTest {
                     disk.files["$projectId/$file"] = bytes
                     disk.writes += "$projectId/$file"
                 }
-                override suspend fun read(projectId: String, file: String): ByteArray? {
+                override suspend fun read(projectId: String, file: String): ArtifactRead {
                     disk.reads++
                     if (disk.readDelayMs > 0) kotlinx.coroutines.delay(disk.readDelayMs)
-                    return disk.files["$projectId/$file"]
+                    if ("$projectId/$file" in disk.unreadableFiles) return ArtifactRead.Unreadable("I/O error")
+                    return disk.files["$projectId/$file"]?.let { ArtifactRead.Found(it) } ?: ArtifactRead.Absent
                 }
             },
             limits = StrokeRecordSync.Limits(maxStrokes = 5, maxSamples = 1_000),
@@ -387,5 +389,18 @@ class StrokeRecordSyncTest {
         r.sync.open("A")
         advanceUntilIdle()
         assertEquals(listOf(1L), r.sync.current().map { it.seed })
+    }
+
+    @Test
+    fun aStrokesFileThatExistsButCannotBeReadIsNeverWrittenOverAndTheUserIsTold() = runTest {
+        val r = Rig(this)
+        r.disk.unreadableFiles += "A/strokes.json"
+        r.sync.open("A")
+        r.sync.record("A", stroke(9), doc)
+        r.sync.flush()
+        advanceUntilIdle()
+        assertEquals(listOf("A" to -1), r.disk.unreadable)
+        assertEquals(listOf(false), r.disk.backedUp)
+        assertTrue("nothing written over it", r.disk.files.keys.none { it.startsWith("A/") })
     }
 }

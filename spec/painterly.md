@@ -1354,3 +1354,29 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 | Existing users lose the familiar picker | Churn | Digital eyedropper and hex remain; saved palettes migrate to recipes (6.4) |
 | The two engines disagree | Pixels differ live vs committed | Kotlin is the oracle; only shading is ported; parity scenarios in `tools/stamp-engine-diff` |
 | Authoring difficulty | Few good packs | The petal pack is the template; `PackRenderHarness` previews; the idioms (lane, tail, ridge) are documented in section 5 |
+
+## Saved mixes, and the palette's files
+
+These are the on-disk formats the palette and the saved-mixes library use. Each reader is fail-closed; a file that
+cannot be read is kept as a `.bak` and never silently replaced.
+
+- **`palette.gxpl`** (per project): the board and both brushes in ONE file so they are written and read together.
+  `int magic 0x4758504C ("GXPL"), int version 1, int boardLen, board bytes (material sidecar v4: 96 x 96 texels, 16 u8
+  concentrations each, amounts stored divided by 8, capped at 8), int brushLen, brush bytes (brush file v1: magic
+  "PBRS", version 1, the hand, then for each of the two brushes its amount and 16 float concentrations), long CRC32 of
+  everything before it`. The older pair (`palette-board-v2.gxmt` + `palette-brushes.bin`) is still read when no
+  `palette.gxpl` exists.
+- **`palette-recipes.json`** (per project) and the **app library** (one DataStore string, `saved_recipes`): a recipe
+  book, `azphalt-recipes/1`: `{"format","recipes":[{"id","name","conc":[16 u8, sum 255],"slots":[12 x {"id",
+  "dataVersion"}],"load":0..1,"approximate","originalArgb"}]}`. At most 200 recipes, names at most 64 characters, unique
+  ids. A recipe stores the brush's recipe (the 12 tubes then the 4 canvas-origin basis channels), the tube table it was
+  made against, and how much paint was on the brush; **wetness is not stored**. Recall is deterministic (the same recipe
+  gives the same colour on every device) and is refused, never approximated, when a tube id or `dataVersion` differs.
+  Saving offers "this project" or "all projects"; the app library is changed in one DataStore edit.
+- **Swatch migration**: the old saved swatches (`saved_palette`, a comma-separated list of ARGB hex) become recipes once
+  (flag `swatches_migrated_to_recipes`): the nearest tube mix by `RecipeSolver`, the original ARGB kept in
+  `originalArgb`, `approximate` set when the match is not close (error at least 0.02), ids `swatch-RRGGBB` so migrating
+  twice duplicates nothing. The old list is left in place, so the migration can be undone.
+- **`strokes.json`** (per project): `azphalt-strokes/1` (see `spec/stroke-program.md`); the project's own reader keeps
+  the good strokes and drops only the bad ones, keeping the original as `strokes.json.bak` first.
+

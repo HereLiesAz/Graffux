@@ -38,6 +38,14 @@ import com.hereliesaz.graffitixr.feature.editor.PaletteMixerHost
 import com.hereliesaz.graffitixr.feature.editor.newMixerBoard
 import com.hereliesaz.graffitixr.feature.editor.LongOperationOverlay
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import com.hereliesaz.graffitixr.common.azphalt.PaletteBoard
+import com.hereliesaz.graffitixr.feature.editor.RecipeLibrary
+import com.hereliesaz.graffitixr.feature.editor.MixActions
+import com.hereliesaz.graffitixr.feature.editor.SavedMix
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.assertTextContains
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -242,34 +250,126 @@ class AuditUiShotTest {
     }
 
     @Test
-    fun `the mixer has non-drag mix actions and shows saved swatches that load the brush`() {
+    fun `the mixer's saved-mixes strip saves, recalls, renames and deletes with labelled 48dp actions`() {
         val board = newMixerBoard()
-        var saved: Color? = null
+        board.squeeze(2, 30f, 30f, 8f, 1f)
+        repeat(3) { board.dip(30f, 30f) }
+        val recipe = requireNotNull(com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes.fromBrush(board, "m1", "Sap green"))
+        var mixes by androidx.compose.runtime.mutableStateOf(
+            listOf(SavedMix(recipe, RecipeLibrary.Scope.PROJECT)),
+        )
+        val saved = mutableListOf<Pair<String, RecipeLibrary.Scope>>()
+        val renamed = mutableListOf<String>()
+        val deleted = mutableListOf<String>()
         rule.setContent {
             GraffitiXRTheme {
                 PaletteMixerDialog(
-                    board = board,
-                    currentColor = Color(0xFFFF8800),
-                    secondaryColor = Color.Black,
-                    onSelectColor = {},
-                    onSelectSecondaryColor = {},
-                    onSwapColors = {},
-                    onDismiss = {},
-                    savedPalette = listOf(Color(0xFF3366CC)),
-                    onSavePaletteColor = { saved = it },
+                    board = board, currentColor = Color.White, secondaryColor = Color.Black,
+                    onSelectColor = {}, onSelectSecondaryColor = {}, onSwapColors = {}, onDismiss = {},
+                    mixes = mixes,
+                    mixActions = MixActions(
+                        save = { r, s -> saved += r.name to s },
+                        rename = { m, n -> renamed += n },
+                        delete = { m -> deleted += m.recipe.id; mixes = mixes - m },
+                    ),
                 )
             }
         }
         rule.waitForIdle()
-        rule.onNodeWithContentDescription("Mix once. Runs the brush round the board once").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Mix more. Runs the brush round the board several times").assertIsDisplayed()
-        rule.onNodeWithText("#3366CC").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithTag("mixer.saveSwatch").performScrollTo().performClick()
-        assertTrue(saved == Color(0xFFFF8800))
-        rule.onNodeWithTag("mixer.swatch.#3366CC").performScrollTo().performClick()
+        // save: both scopes are offered as labelled buttons and announce the result
+        rule.onNodeWithTag("mixer.saveMix.PROJECT").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.mixStatus").assertTextContains("Saved Mix 2 to this project", substring = true)
+        rule.onNodeWithTag("mixer.saveMix.APP").performScrollTo().performClick()
+        assertEquals(listOf("Mix 2" to RecipeLibrary.Scope.PROJECT, "Mix 2" to RecipeLibrary.Scope.APP), saved)
+        // the chip names the mix, where it is kept, and how to use it
+        rule.onNodeWithContentDescription("Sap green, saved in this project. Select for actions").performScrollTo().performClick()
+        // recall onto the background brush: the brush colour changes and the result is announced
+        board.clean(PaletteBoard.Clean.RINSE)
+        rule.onNodeWithContentDescription("Recall Sap green onto the background brush").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.mixStatus").assertTextContains("Recalled Sap green onto the background brush", substring = true)
+        assertEquals(1, board.hand)
+        assertTrue(board.brush.amount[0] > 0f)
+        // rename and delete are labelled actions, and delete asks first
+        rule.onNodeWithContentDescription("Rename Sap green").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.renameField").performTextClearance()
+        rule.onNodeWithTag("mixer.renameField").performTextInput("Moss")
+        rule.onNodeWithTag("mixer.confirmRename").performClick()
+        assertEquals(listOf("Moss"), renamed)
+        rule.onNodeWithContentDescription("Delete Sap green").performScrollTo().performClick()
+        assertTrue("nothing deleted before the confirmation", deleted.isEmpty())
+        rule.onNodeWithTag("mixer.confirmDelete").performClick()
+        assertEquals(listOf("m1"), deleted)
+        rule.onNodeWithTag("mixer.mixStatus").assertTextContains("Deleted Sap green", substring = true)
+    }
+
+    @Test
+    fun `a mix made against different pigment data is refused with the reason announced`() {
+        val board = newMixerBoard()
+        board.squeeze(2, 30f, 30f, 8f, 1f)
+        repeat(3) { board.dip(30f, 30f) }
+        val good = requireNotNull(com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes.fromBrush(board, "m1", "Old"))
+        val stale = good.copy(slots = good.slots.mapIndexed { i, s -> if (i == 0) s.copy(dataVersion = s.dataVersion + 7) else s })
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board, currentColor = Color.White, secondaryColor = Color.Black,
+                    onSelectColor = {}, onSelectSecondaryColor = {}, onSwapColors = {}, onDismiss = {},
+                    mixes = listOf(SavedMix(stale, RecipeLibrary.Scope.APP)),
+                )
+            }
+        }
         rule.waitForIdle()
-        assertTrue("the swatch loaded the brush", board.brush.amount[0] == 1f)
-        rule.onNodeWithTag("mixer.mixMore").performScrollTo().performClick()
+        board.clean(PaletteBoard.Clean.RINSE)
+        rule.onNodeWithContentDescription("Old, saved in all projects. Select for actions").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("Recall Old onto the foreground brush").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.mixStatus").assertTextContains("made with different pigment data", substring = true)
+        assertEquals("the brush was left alone", 0f, board.brush.amount[0], 0f)
+    }
+
+    @Test
+    fun `a refused recall leaves the selected brush where it was`() {
+        val board = newMixerBoard()
+        board.squeeze(2, 30f, 30f, 8f, 1f)
+        repeat(3) { board.dip(30f, 30f) }
+        val good = requireNotNull(com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes.fromBrush(board, "m1", "Old"))
+        val stale = good.copy(slots = good.slots.mapIndexed { i, s -> if (i == 0) s.copy(dataVersion = s.dataVersion + 7) else s })
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board, currentColor = Color.White, secondaryColor = Color.Black,
+                    onSelectColor = {}, onSelectSecondaryColor = {}, onSwapColors = {}, onDismiss = {},
+                    mixes = listOf(SavedMix(stale, RecipeLibrary.Scope.APP)),
+                )
+            }
+        }
         rule.waitForIdle()
+        assertEquals(0, board.hand)
+        rule.onNodeWithContentDescription("Old, saved in all projects. Select for actions").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("Recall Old onto the background brush").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.mixStatus").assertTextContains("made with different pigment data", substring = true)
+        assertEquals("the refused recall must not switch the brush in hand", 0, board.hand)
+    }
+
+    @Test
+    fun `save current colour saves the editor's selected colour, by hand, not the palette brush's`() {
+        val board = newMixerBoard() // the palette brush is empty: its colour is not the editor's
+        val saved = mutableListOf<Int>()
+        val editorForeground = Color(0xFFFF8800)
+        val editorBackground = Color(0xFF3366CC)
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board, currentColor = editorForeground, secondaryColor = editorBackground,
+                    onSelectColor = {}, onSelectSecondaryColor = {}, onSwapColors = {}, onDismiss = {},
+                    mixActions = MixActions(saveColour = { saved += it.toArgb() }),
+                )
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("mixer.saveColour").performScrollTo().performClick()
+        board.hand = 1
+        rule.waitForIdle()
+        rule.onNodeWithTag("mixer.saveColour").performScrollTo().performClick()
+        assertEquals(listOf(editorForeground.toArgb(), editorBackground.toArgb()), saved)
     }
 }

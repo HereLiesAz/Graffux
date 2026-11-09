@@ -49,7 +49,8 @@ fun EditorUi(
     val screenHeight = configuration.screenHeightDp.dp
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-    val savedPalette by actions.savedPalette.collectAsState()
+    val savedMixes by actions.savedMixes.collectAsState()
+    val mixActions = androidx.compose.runtime.remember(actions) { actions.mixActions() }
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -65,9 +66,8 @@ fun EditorUi(
             onDismiss = { actions.onColorPickerDismissed() },
             onChanged = actions::onPaletteChanged,
             board = actions.paletteBoard,
-            savedPalette = savedPalette,
-            onSavePaletteColor = actions::onSavePaletteColor,
-            onRemovePaletteColor = actions::onRemovePaletteColor,
+            mixes = savedMixes,
+            mixActions = mixActions,
         )
 
         GestureFeedback(

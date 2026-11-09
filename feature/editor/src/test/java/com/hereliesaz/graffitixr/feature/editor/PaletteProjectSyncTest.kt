@@ -22,6 +22,7 @@ class PaletteProjectSyncTest {
         val errors = ArrayList<Throwable>()
         val unreadable = ArrayList<String>()
         var writeDelayMs = 0L
+        val unreadableFiles = HashSet<String>()
         fun key(id: String, f: String) = "$id/$f"
     }
 
@@ -47,7 +48,10 @@ class PaletteProjectSyncTest {
                     disk.files[disk.key(projectId, file)] = bytes
                     disk.writes += disk.key(projectId, file)
                 }
-                override suspend fun read(projectId: String, file: String) = disk.files[disk.key(projectId, file)]
+                override suspend fun read(projectId: String, file: String): ArtifactRead {
+                    if (disk.key(projectId, file) in disk.unreadableFiles) return ArtifactRead.Unreadable("I/O error")
+                    return disk.files[disk.key(projectId, file)]?.let { ArtifactRead.Found(it) } ?: ArtifactRead.Absent
+                }
             },
             encoder = encoder ?: { b ->
                 PaletteProjectSync.Encoded(
@@ -332,5 +336,49 @@ class PaletteProjectSyncTest {
         advanceUntilIdle()
         assertTrue(r.disk.unreadable.isEmpty())
         assertEquals(0f, r.board.surface.amount[20 * r.board.size + 20], 0f)
+    }
+
+    @Test
+    fun aPaletteFileThatExistsButCannotBeReadIsNeverWrittenOverAndTheUserIsTold() = runTest {
+        val r = Rig(this)
+        r.disk.unreadableFiles += key("A")
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertEquals(listOf("A"), r.disk.unreadable)
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A")
+        r.sync.flush()
+        advanceUntilIdle()
+        assertTrue("nothing was written over the unreadable palette", r.disk.writes.isEmpty())
+        // reopening (the read works now) saves again
+        r.disk.unreadableFiles.clear()
+        r.sync.open("A")
+        advanceUntilIdle()
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A")
+        advanceUntilIdle()
+        assertTrue(r.disk.writes.isNotEmpty())
+    }
+
+    @Test
+    fun anAbsentPaletteIsNotUnreadable() = runTest {
+        val r = Rig(this)
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertTrue(r.disk.unreadable.isEmpty())
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A")
+        advanceUntilIdle()
+        assertTrue(r.disk.writes.isNotEmpty())
+    }
+
+    @Test
+    fun anUnusablePaletteInAReadOnlyProjectIsNotBackedUpToASessionCopyOrReported() = runTest {
+        val r = Rig(this, readOnly = { true })
+        r.disk.files[key("A")] = byteArrayOf(1, 2, 3) // present but not a palette
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertTrue("nothing written (a backup would go to a scratch copy that is never read)", r.disk.writes.isEmpty())
+        assertTrue("and no false 'kept as a backup' notice", r.disk.unreadable.isEmpty())
     }
 }

@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.domain.repository
 
+import kotlinx.coroutines.flow.first
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import kotlinx.coroutines.flow.Flow
@@ -77,6 +78,12 @@ interface SettingsRepository {
     suspend fun setSavedPalette(colors: List<Int>)
 
     /**
+     * The saved swatches as really stored, or null if the store could not be read (unlike [savedPalette], which shows
+     * an empty list then): for work that must not treat a failed read as "no swatches" (the swatch migration).
+     */
+    suspend fun readSavedPalette(): List<Int>? = runCatching { savedPalette.first() }.getOrNull()
+
+    /**
      * Adds [argb] to the saved palette (a no-op if it is there), as ONE atomic read-modify-write so two saves at once
      * cannot lose one. The default is for fakes; the real store does it inside a single DataStore edit.
      */
@@ -127,6 +134,26 @@ interface SettingsRepository {
 
     /** Stars [key], or un-stars it if already starred. Un-starring keeps the rest in place. */
     suspend fun toggleCarouselFavorite(key: String)
+
+    /** The app-level saved mixes (spec/painterly.md 6.4) as the recipe-book JSON, or null when there are none. */
+    val savedRecipes: Flow<String?> get() = kotlinx.coroutines.flow.flowOf(null)
+
+    /**
+     * Changes the app-level recipe book in ONE atomic DataStore edit: [transform] gets the stored text (null: none) and
+     * returns the new text, or null to leave it exactly as it is (for example when the stored text could not be read:
+     * it is never replaced by a book built from nothing). True only if a new text was really persisted: a write that
+     * failed (disk full, an unreadable store) is false, so the caller never reports a save that did not happen.
+     * No-op (false) by default (fakes).
+     */
+    suspend fun updateSavedRecipes(transform: (String?) -> String?): Boolean = false
+
+    /** Keeps [original] (an app recipe book some of whose recipes could not be read) once, before it is repaired. */
+    suspend fun backupSavedRecipes(original: String): Boolean = false
+
+    /** Whether the old saved swatches were turned into recipes once (they are left in place, so it can be undone). */
+    val swatchesMigrated: Flow<Boolean> get() = kotlinx.coroutines.flow.flowOf(true)
+
+    suspend fun setSwatchesMigrated() {}
 
     /**
      * Renames carousel keys ([renames]: old key to new key) in the favourites (keeping order, dropping a duplicate)

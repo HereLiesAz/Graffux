@@ -54,7 +54,7 @@ internal class StrokeRecordSync(
          */
         fun onUnreadable(projectId: String, dropped: Int, backedUp: Boolean) {}
         suspend fun write(projectId: String, file: String, bytes: ByteArray)
-        suspend fun read(projectId: String, file: String): ByteArray?
+        suspend fun read(projectId: String, file: String): ArtifactRead
     }
 
     class Limits(val maxStrokes: Int = 2_000, val maxSamples: Int = 300_000)
@@ -227,7 +227,11 @@ internal class StrokeRecordSync(
         }
         val read = loaded.getOrNull()
         val repaired = read?.repaired
-        if (read != null && read.needsBackup) {
+        if (read?.unreadable != null) {
+            // present but unreadable: no bytes to keep, so nothing may be written over it until the project is reopened
+            StrokeWriteQueue.unpreserved += id
+            store.onUnreadable(id, -1, false)
+        } else if (read != null && read.needsBackup) {
             val kept = withContext(NonCancellable) { StrokeRecordFiles.keepOriginal(store, id, read.bytes) }
             if (!kept) StrokeWriteQueue.unpreserved += id
             store.onUnreadable(id, repaired?.dropped ?: -1, kept)

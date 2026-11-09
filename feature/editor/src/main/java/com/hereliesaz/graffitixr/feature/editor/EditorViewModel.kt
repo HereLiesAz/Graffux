@@ -428,6 +428,7 @@ private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
  */
 private const val MAX_MATERIAL_SIDECAR_BYTES = 160L * 1024 * 1024
 /** The palette board sidecar is at most a 1024 x 1024 board (16 B per texel plus height): bounded well below this. */
+private const val RECIPE_FILE = "palette-recipes.json"
 private const val MAX_PALETTE_SIDECAR_BYTES = 64L * 1024 * 1024
 
 /**
@@ -2086,7 +2087,7 @@ class EditorViewModel @Inject constructor(
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)
             }
-            override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+            override suspend fun read(projectId: String, file: String) = readProjectArtifactOutcome(projectId, file)
             override fun onUnreadable(projectId: String) {
                 notify("The saved palette for this project couldn't be read. The file was kept as a backup.")
             }
@@ -2117,7 +2118,7 @@ class EditorViewModel @Inject constructor(
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)
             }
-            override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+            override suspend fun read(projectId: String, file: String) = readProjectArtifactOutcome(projectId, file)
         },
     )
     /** (amount the brush held, fill fraction the stroke started with) for the stroke in progress, or null. */
@@ -2589,6 +2590,8 @@ class EditorViewModel @Inject constructor(
                         restoreModelLayers(project.id, layers)
                         restorePaletteBoard(project.id)
                         strokeRecordSync.open(project.id)
+                        recipeLibrary.show(project.id)
+                        viewModelScope.launch(dispatchers.io) { recipeLibrary.openProject(project.id) }
                         updateUi {
                             it.copy(
                                 sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
@@ -3868,13 +3871,37 @@ class EditorViewModel @Inject constructor(
     /** Loads the project's palette board and brush loads; an absent, corrupt or mismatched board leaves it empty. */
     private fun restorePaletteBoard(projectId: String) = paletteSync.open(projectId)
 
-    private fun readProjectArtifact(projectId: String, filename: String): ByteArray? = runCatching {
-        val root = File(context.filesDir, "projects").canonicalFile
-        val dir = File(root, projectId).canonicalFile
-        val file = File(dir, filename).canonicalFile
+    /** Reads a project file, telling "absent" from "present but unreadable" (never one for the other). */
+    private fun readProjectArtifactOutcome(projectId: String, filename: String): ArtifactRead {
+        val resolved = runCatching {
+            val root = File(context.filesDir, "projects").canonicalFile
+            val dir = File(root, projectId).canonicalFile
+            Triple(root, dir, File(dir, filename).canonicalFile)
+        }
+        // a real I/O failure resolving the path is "unreadable"; anything else (no storage directory at all, as in a
+        // bare test context) means nothing can have been saved there
+        resolved.exceptionOrNull()?.let {
+            return if (it is java.io.IOException) ArtifactRead.Unreadable("path") else ArtifactRead.Absent
+        }
+        val (root, dir, file) = resolved.getOrThrow()
         val inside = dir.path.startsWith(root.path + File.separator) && file.path.startsWith(dir.path + File.separator)
-        file.takeIf { inside && it.isFile && it.length() in 1..MAX_PALETTE_SIDECAR_BYTES }?.readBytes()
-    }.getOrNull()
+        return try {
+            when {
+                !inside -> ArtifactRead.Unreadable("unsafe path")
+                !file.exists() -> ArtifactRead.Absent
+                !file.isFile -> ArtifactRead.Unreadable("not a regular file")
+                file.length() == 0L -> ArtifactRead.Absent // an empty leftover of a torn write: nothing to lose
+                file.length() > MAX_PALETTE_SIDECAR_BYTES -> ArtifactRead.Unreadable("too large")
+                else -> ArtifactRead.Found(file.readBytes())
+            }
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("EditorViewModel", "Could not read $filename of $projectId", e)
+            ArtifactRead.Unreadable(e.message ?: "I/O error")
+        } catch (e: SecurityException) {
+            android.util.Log.w("EditorViewModel", "Could not read $filename of $projectId", e)
+            ArtifactRead.Unreadable(e.message ?: "not permitted")
+        }
+    }
 
     /**
      * Removes [layerId]'s material sidecar (durably, under the repository's save lock); true if it is gone or never
@@ -4537,6 +4564,10 @@ class EditorViewModel @Inject constructor(
         projectRepository.currentProject.value?.let {
             com.hereliesaz.graffitixr.common.model.isNewerFormat(it.formatVersion)
         } == true
+
+    /** Whether [projectId] is the open project and it is read-only (newer format). */
+    private fun isProjectReadOnly(projectId: String): Boolean =
+        projectRepository.currentProject.value?.id == projectId && openProjectIsReadOnly()
 
     /** Whether [path] is inside the open project's folder while that project is read-only. */
     private fun isInReadOnlyProject(path: String): Boolean {
@@ -12878,6 +12909,117 @@ class EditorViewModel @Inject constructor(
         settingsRepository.savedPalette
             .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
+    val recipeLibrary = RecipeLibrary(
+        object : RecipeLibrary.Store {
+            override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
+
+            override fun isReadOnly(projectId: String) = isProjectReadOnly(projectId)
+
+            override suspend fun writeProject(projectId: String, text: String) {
+                projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
+            }
+
+            override suspend fun readApp(): String? = settingsRepository.savedRecipes.firstOrNull()
+
+            override suspend fun updateApp(transform: (String?) -> String?) =
+                settingsRepository.updateSavedRecipes(transform)
+
+            override suspend fun keepProjectBackup(projectId: String, original: String) =
+                runCatching { projectRepository.saveArtifact(projectId, "$RECIPE_FILE.bak", original.toByteArray()) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .isSuccess
+
+            override suspend fun keepAppBackup(original: String) = settingsRepository.backupSavedRecipes(original)
+
+            override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
+                val kept = if (backedUp) {
+                    "The original was kept as a backup."
+                } else {
+                    "The original could not be backed up."
+                }
+                notify("$dropped saved mix(es) couldn't be read and were dropped. $kept", NoticeKind.WARNING)
+            }
+
+            override fun onUnreadable(scope: RecipeLibrary.Scope) {
+                notify("The saved mixes couldn't be read, so they were left as they are.", NoticeKind.WARNING)
+            }
+        },
+    )
+
+    val savedMixes: StateFlow<List<SavedMix>> =
+        kotlinx.coroutines.flow.combine(recipeLibrary.project, recipeLibrary.app) { project, app ->
+            project.recipes.map { SavedMix(it, RecipeLibrary.Scope.PROJECT, project.id) } +
+                app.map { SavedMix(it, RecipeLibrary.Scope.APP, null) }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Where a change for [scope] goes, fixed NOW (when the user acted), not when the coroutine happens to run. */
+    private fun targetNow(scope: RecipeLibrary.Scope): RecipeLibrary.Target? = when (scope) {
+        RecipeLibrary.Scope.APP -> RecipeLibrary.Target.App
+        RecipeLibrary.Scope.PROJECT -> _uiState.value.projectId?.let { RecipeLibrary.Target.Project(it) }
+    }
+
+    /** The target of an existing [mix]: the project it was shown for, never whichever is open when this runs. */
+    private fun targetOf(mix: SavedMix): RecipeLibrary.Target? = when (mix.scope) {
+        RecipeLibrary.Scope.APP -> RecipeLibrary.Target.App
+        RecipeLibrary.Scope.PROJECT -> mix.projectId?.let { RecipeLibrary.Target.Project(it) }
+    }
+
+    private fun mixChange(
+        target: RecipeLibrary.Target?,
+        failure: String,
+        change: suspend (RecipeLibrary.Target) -> Boolean,
+    ) {
+        if (target == null) {
+            notify(failure, NoticeKind.WARNING) // no project open: there is nowhere to put it
+            return
+        }
+        if (target is RecipeLibrary.Target.Project && isProjectReadOnly(target.id)) {
+            // a newer-format project is read-only: its book is never written (a session copy would not be re-read)
+            notify("This project is from a newer version, so mixes can't be saved to it.", NoticeKind.WARNING)
+            return
+        }
+        viewModelScope.launch(dispatchers.io) {
+            if (!change(target)) notify(failure, NoticeKind.WARNING)
+        }
+    }
+
+    /** What the mixer's saved-mixes strip can ask for; failures are told to the user here. */
+    fun mixActions() = MixActions(
+        save = { recipe, scope ->
+            mixChange(targetNow(scope), "Couldn't save the mix.") { recipeLibrary.save(it, recipe) }
+        },
+        saveColour = { colour ->
+            val recipe = com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
+                .fromSwatch(colour.toArgb(), MIXER_TUBES, paletteBoard)
+            mixChange(RecipeLibrary.Target.App, "Couldn't save the colour.") { recipeLibrary.save(it, recipe) }
+        },
+        rename = { mix, name ->
+            mixChange(targetOf(mix), "Couldn't rename the mix.") { recipeLibrary.rename(it, mix.recipe.id, name) }
+        },
+        delete = { mix ->
+            mixChange(targetOf(mix), "Couldn't delete the mix.") { recipeLibrary.delete(it, mix.recipe.id) }
+        },
+    )
+
+    private fun migrateSwatchesToMixes() = viewModelScope.launch(dispatchers.io) {
+        runCatching { SwatchMigration.run(settingsRepository, recipeLibrary, paletteBoard) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .onSuccess {
+                if (!it) {
+                    notify("Your saved colours couldn't all be added to your mixes yet. They will be tried again.")
+                }
+            }
+    }
+
+    init {
+        viewModelScope.launch {
+            runCatching { settingsRepository.savedRecipes.collect { recipeLibrary.onAppStored(it) } }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        }
+        migrateSwatchesToMixes()
+    }
 
     /** Adds [color] to the saved palette. Re-saving a colour already in it is a no-op. Atomic in the store. */
     fun onSavePaletteColor(color: androidx.compose.ui.graphics.Color) {

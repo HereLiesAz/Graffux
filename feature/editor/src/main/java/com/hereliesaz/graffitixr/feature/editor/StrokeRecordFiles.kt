@@ -12,9 +12,14 @@ import java.util.concurrent.atomic.AtomicLong
 /** The file side of [StrokeRecordSync]: reading and repairing `strokes.json`, keeping the original, and the cap. */
 internal object StrokeRecordFiles {
     /** What was read: the bytes as stored and what the repairing reader made of them (null: unusable). */
-    class Loaded(val bytes: ByteArray, val repaired: StrokeRecording.Companion.Repaired?) {
+    class Loaded(
+        val bytes: ByteArray,
+        val repaired: StrokeRecording.Companion.Repaired?,
+        /** Non-null when the file exists but could not be read at all (so there are no bytes to keep). */
+        val unreadable: String? = null,
+    ) {
         /** Something was lost, or everything: the original must be kept before a save can overwrite it. */
-        val needsBackup: Boolean get() = repaired == null || repaired.dropped > 0
+        val needsBackup: Boolean get() = unreadable == null && (repaired == null || repaired.dropped > 0)
     }
 
     /** Reads and decodes the project's strokes file (call on the IO dispatcher); null when there is none. */
@@ -23,8 +28,11 @@ internal object StrokeRecordFiles {
         projectId: String,
         decoder: (String) -> StrokeRecording.Companion.Repaired?,
     ): Loaded? {
-        val bytes = store.read(projectId, StrokeRecordSync.FILE) ?: return null
-        return Loaded(bytes, runCatching { decoder(String(bytes)) }.getOrNull())
+        return when (val read = store.read(projectId, StrokeRecordSync.FILE)) {
+            ArtifactRead.Absent -> null
+            is ArtifactRead.Unreadable -> Loaded(ByteArray(0), null, read.reason)
+            is ArtifactRead.Found -> Loaded(read.bytes, runCatching { decoder(String(read.bytes)) }.getOrNull())
+        }
     }
 
     /** Writes the original bytes to `strokes.json.bak`; true only if that worked (a failure is reported). */
