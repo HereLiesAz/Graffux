@@ -48,18 +48,22 @@ object Golden {
         val golden = requireNotNull(BitmapFactory.decodeFile(file.path)) { "${file.path} is not a readable PNG" }
         val expected = argb(golden)
         val diff = ImageCompare.compare(
-            expected, golden.width, golden.height, pixels, actual.width, actual.height, channelTolerance,
+            Raster(expected, golden.width, golden.height),
+            Raster(pixels, actual.width, actual.height),
+            channelTolerance,
         )
         if (diff.matches(maxDiffRatio)) return
         writePng(File(diffDir, "$name-actual.png"), pixels, actual.width, actual.height)
         if (!diff.sizeMismatch) {
-            writePng(File(diffDir, "$name-diff.png"), ImageCompare.diffImage(expected, pixels, channelTolerance), actual.width, actual.height)
+            val marked = ImageCompare.diffImage(expected, pixels, channelTolerance)
+            writePng(File(diffDir, "$name-diff.png"), marked, actual.width, actual.height)
         }
         throw AssertionError("$name does not match its golden: ${diff.describe()}. See ${diffDir.path}.")
     }
 
     private fun argb(bitmap: Bitmap): IntArray {
-        val software = if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap else bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val software = bitmap.takeIf { it.config == Bitmap.Config.ARGB_8888 }
+            ?: bitmap.copy(Bitmap.Config.ARGB_8888, false)
         return IntArray(software.width * software.height).also {
             software.getPixels(it, 0, software.width, 0, 0, software.width, software.height)
         }

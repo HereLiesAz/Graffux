@@ -32,30 +32,31 @@ data class ImageDiff(
         }
 }
 
+/** An ARGB image as a flat pixel array, row by row. */
+class Raster(val pixels: IntArray, val width: Int, val height: Int) {
+    init {
+        require(pixels.size == width * height) { "pixel array does not match ${width}x$height" }
+    }
+}
+
 /**
  * Pixel comparison on plain ARGB int arrays, so it runs (and is tested) on the JVM without Android.
  * A pixel differs when any of its four channels differs by more than [channelTolerance]; a small
  * tolerance absorbs anti-aliasing noise between runs without hiding a real change.
  */
 object ImageCompare {
-    fun compare(
-        expected: IntArray, expectedWidth: Int, expectedHeight: Int,
-        actual: IntArray, actualWidth: Int, actualHeight: Int,
-        channelTolerance: Int = 2,
-    ): ImageDiff {
-        require(expected.size == expectedWidth * expectedHeight) { "expected pixel array does not match its size" }
-        require(actual.size == actualWidth * actualHeight) { "actual pixel array does not match its size" }
-        if (expectedWidth != actualWidth || expectedHeight != actualHeight) {
-            return ImageDiff(expectedWidth, expectedHeight, actualWidth, actualHeight, 0, 0)
+    fun compare(expected: Raster, actual: Raster, channelTolerance: Int = 2): ImageDiff {
+        if (expected.width != actual.width || expected.height != actual.height) {
+            return ImageDiff(expected.width, expected.height, actual.width, actual.height, 0, 0)
         }
         var differing = 0
         var maxDelta = 0
-        for (i in expected.indices) {
-            val delta = pixelDelta(expected[i], actual[i])
+        for (i in expected.pixels.indices) {
+            val delta = pixelDelta(expected.pixels[i], actual.pixels[i])
             maxDelta = max(maxDelta, delta)
             if (delta > channelTolerance) differing++
         }
-        return ImageDiff(expectedWidth, expectedHeight, actualWidth, actualHeight, differing, maxDelta)
+        return ImageDiff(expected.width, expected.height, actual.width, actual.height, differing, maxDelta)
     }
 
     /** Largest difference between any one channel of two ARGB pixels. */
