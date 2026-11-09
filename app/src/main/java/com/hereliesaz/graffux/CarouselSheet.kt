@@ -7,6 +7,21 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import com.hereliesaz.graffitixr.design.GraffuxIcons
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +32,7 @@ import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -141,6 +157,11 @@ internal fun CarouselSheet(
     content: @Composable () -> Unit,
 ) {
     val hideChrome by rememberUpdatedState(chromeHidden)
+    val stageLabels = StageLabels(
+        up = stringResource(R.string.sheet_show_more),
+        down = stringResource(R.string.sheet_show_less),
+        close = stringResource(R.string.sheet_close),
+    )
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var contentHeight by remember { mutableIntStateOf(0) }
@@ -233,7 +254,11 @@ internal fun CarouselSheet(
                         .offset { IntOffset(0, offset.value.roundToInt()) }
                         .onGloballyPositioned { onTopChanged(it.positionInRoot().y) }
                         .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
-                        .nestedScroll(nested),
+                        .nestedScroll(nested)
+                        // The same steps as the swipes and the stage buttons, for a screen reader or a switch.
+                        .stageActions(stages, shownOpen, stageLabels) {
+                            onOpenChange(false)
+                        },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     if (topAccessory != null && shownOpen) {
@@ -244,8 +269,14 @@ internal fun CarouselSheet(
                                 .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },
                         ) { topAccessory() }
                     }
-                    nameLabel()?.let { name ->
-                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
+                    if (stages != null && shownOpen) {
+                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) {
+                            SheetStageBar(stages, nameLabel(), onClose = { onOpenChange(false) })
+                        }
+                    } else {
+                        nameLabel()?.let { name ->
+                            Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
+                        }
                     }
                     Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
                 }
@@ -263,7 +294,7 @@ internal fun CarouselSheet(
  */
 @Suppress("FunctionNaming")
 @Composable
-private fun NamePill(name: String) {
+internal fun NamePill(name: String) {
     val colors = MaterialTheme.colorScheme
     Text(
         name,
@@ -280,7 +311,7 @@ private fun NamePill(name: String) {
     )
 }
 
-private val PillMaxWidth = 160.dp
+internal val PillMaxWidth = 160.dp
 private const val PILL_ALPHA = 0.72f
 private const val PILL_ROUND_PERCENT = 50
 
@@ -304,7 +335,14 @@ private const val SHEET_HALFWAY = 0.5f
  * The sheet's stages above shut. [onStepUp]: an upward swipe past fully open. [onStepDown]: a swipe
  * that would shut the sheet; returns true when it stepped down a stage instead.
  */
-internal class SheetStages(val onStepUp: () -> Unit, val onStepDown: () -> Boolean)
+internal class SheetStages(
+    val onStepUp: () -> Unit,
+    val onStepDown: () -> Boolean,
+    /** Whether [onStepUp] would show more: false at the top stage, where the up control is dimmed away. */
+    val canStepUp: () -> Boolean = { true },
+    /** Whether [onStepDown] would show less (true) or shut the sheet (false), which the control then says. */
+    val canStepDown: () -> Boolean = { true },
+)
 
 /** Whether a release can step the sheet up: it has stages, is showing open, and sits fully open. */
 private fun sheetCanStepUp(stages: SheetStages?, shownOpen: Boolean, offset: Float): Boolean =

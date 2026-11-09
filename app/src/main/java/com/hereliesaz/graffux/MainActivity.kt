@@ -1034,6 +1034,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
                             carouselUi.steppedDown(tabListStage = !brushPage)?.let { carouselUi = it } != null
                         },
+                        canStepUp = {
+                            val gridAllowed = !designMode && !carouselUi.photo
+                            carouselUi.steppedUp(gridAllowed = gridAllowed) != carouselUi
+                        },
+                        canStepDown = {
+                            val brushPage = !designMode && !carouselUi.photo &&
+                                carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
+                            carouselUi.steppedDown(tabListStage = !brushPage) != null
+                        },
                     ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
