@@ -81,6 +81,23 @@ fn idx_at(k: i32, box: vec4<i32>) -> u32 {
     return u32((box.y + k / bw) * p.width + (box.x + k % bw));
 }
 
+// MEMORY MODEL. WGSL's workgroupBarrier() orders only workgroup-address-space memory; it does NOT make writes to
+// storage buffers visible to the other invocations of the workgroup (that is storageBarrier()). This shader moves
+// data between invocations through storage buffers in several places, each of which needs both:
+//   * lift -> draw: invocation 0 writes `load_conc` / `load_amount`; every invocation then reads `load_conc`;
+//   * dab -> dab: a texel's owning invocation changes with the dab's footprint (k -> pixel is per dab), so the
+//     `conc` / `amount` / `avail` a texel got from one dab are read by a different invocation in the next;
+//   * the per-dab `take` scratch is only ever read by the invocation that wrote it, but is covered by the same sync.
+// `sync_all()` is storageBarrier() + workgroupBarrier(); like any barrier it must be called from uniform control
+// flow (every use below is, and the loop over dabs and every branch on a `workgroupUniformLoad` value is uniform).
+// The reduction tree in `reduce()` only crosses invocations through `partial`, a workgroup variable, so its
+// workgroupBarrier() is sufficient there. A software rasteriser (lavapipe) tends to mask a missing storage barrier,
+// so a passing test there is not evidence for this ordering; the reasoning is.
+fn sync_all() {
+    storageBarrier();
+    workgroupBarrier();
+}
+
 // The fixed tree: stride 32, 16, ... 1. All threads call it (it holds barriers).
 fn reduce(lid: u32) -> f32 {
     workgroupBarrier();
@@ -126,6 +143,9 @@ fn quantise(raw: array<f32, 16>) -> array<f32, 16> {
 @compute @workgroup_size(64)
 fn run(@builtin(local_invocation_index) lid: u32) {
     for (var di = 0u; di < p.dab_count; di = di + 1u) {
+        // dab -> dab handoff: the previous dab's surface and load writes must be visible to whichever
+        // invocation owns each texel in this dab (uniform: `di` is the loop counter).
+        sync_all();
         let d = dab_at(di);
         if (lid == 0u) {
             var b = vec4<i32>(0, 0, 1, 0);
@@ -150,7 +170,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
                 select(0u, 1u, has_lane),
             );
         }
-        workgroupBarrier();
+        sync_all();
         let box = workgroupUniformLoad(&wg_box);
         let flags = workgroupUniformLoad(&wg_flags);
         let lane = workgroupUniformLoad(&wg_lane);
@@ -179,7 +199,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
                 wg_scale = scale;
                 wg_before = select(0.0, load_amount[u32(max(lane, 0))], has_lane);
             }
-            workgroupBarrier();
+            sync_all();
             let scale = workgroupUniformLoad(&wg_scale);
             let before = workgroupUniformLoad(&wg_before);
             for (var k = i32(lid); k < n; k = k + i32(WG)) {
@@ -190,7 +210,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
                     amount[i] = max(amount[i] - take[k], 0.0);
                 }
             }
-            workgroupBarrier();
+            sync_all();
             if (!is_dispose && has_lane) {
                 var sums = array<f32, 16>();
                 for (var c = 0u; c < CH; c = c + 1u) {
@@ -213,7 +233,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
                     }
                     load_amount[u32(lane)] = after;
                 }
-                workgroupBarrier();
+                sync_all();
             }
         }
 
@@ -223,7 +243,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
             let live = box.w > 0;
             wg_flags = vec4<u32>(0u, select(0u, 1u, live && d.draw > 0.0 && has_lane && load_amount[u32(max(lane, 0))] > 0.0), 0u, 0u);
         }
-        workgroupBarrier();
+        sync_all();
         do_draw = workgroupUniformLoad(&wg_flags).y;
         if (do_draw != 0u) {
             partial[lid] = 0.0;
@@ -236,7 +256,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
                 let have = load_amount[u32(lane)];
                 wg_scale = select(1.0, have / wanted, wanted > have);
             }
-            workgroupBarrier();
+            sync_all();
             let scale = workgroupUniformLoad(&wg_scale);
             partial[lid] = 0.0;
             for (var k = i32(lid); k < n; k = k + i32(WG)) {
@@ -260,7 +280,7 @@ fn run(@builtin(local_invocation_index) lid: u32) {
             }
             let spent = reduce(lid);
             if (lid == 0u) { load_amount[u32(lane)] = max(load_amount[u32(lane)] - spent, 0.0); }
-            workgroupBarrier();
+            sync_all();
         }
     }
 }

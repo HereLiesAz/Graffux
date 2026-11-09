@@ -4,6 +4,14 @@
 // tests/fixtures/watercolour_golden.txt and tests/watercolour.rs. Each tick reads the previous tick's
 // buffers and writes the other pair (a gather), summing the four neighbours in a fixed order
 // (left, right, up, down), so pixel order never matters and a replay repeats.
+//
+// MEMORY MODEL. No invocation reads a storage location another invocation of the same dispatch writes: `step`
+// reads only the "in" pair and writes only the "out" pair, and `deposit` reads and writes the "in" pair at the
+// invocation's own index. The ordering that matters (deposit -> tick 1 -> tick 2 ...) is between dispatches, and
+// the host runs each in its own compute pass (see watercolour.rs), a pass boundary being what orders storage-buffer
+// writes between them. There are no barriers in this shader because none are needed; do not add intra-dispatch
+// cross-invocation reads without adding the matching storageBarrier()/workgroupBarrier() (workgroupBarrier alone
+// does not order storage writes).
 
 struct Params {
     width: i32,
