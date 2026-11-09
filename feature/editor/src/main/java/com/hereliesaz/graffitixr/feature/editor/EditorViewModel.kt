@@ -5262,6 +5262,18 @@ class EditorViewModel @Inject constructor(
             viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
         )
 
+    /**
+     * One-time per launch: favourites (and their per-item settings) that name a built-in brush the painterly packs
+     * superseded are moved to its successor, or to Round, so no favourite is left pointing at nothing.
+     */
+    private fun migrateRemovedBrushFavourites() = viewModelScope.launch(dispatchers.io) {
+        val keys = settingsRepository.carouselFavorites.first() +
+            settingsRepository.carouselItemSettings.first().keys
+        val names = builtInBrushes.map { it.name }.toSet()
+        val renames = com.hereliesaz.graffitixr.common.azphalt.BrushAliasTable.carouselKeyRenames(keys) { it in names }
+        if (renames.isNotEmpty()) settingsRepository.renameCarouselKeys(renames)
+    }
+
     /** Stars or un-stars the carousel entry with stable key [key]. */
     fun onToggleCarouselFavorite(key: String) = viewModelScope.launch(dispatchers.io) {
         settingsRepository.toggleCarouselFavorite(key)
@@ -15566,9 +15578,17 @@ class EditorViewModel @Inject constructor(
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
 
+    // after builtInBrushes exists: the migration reads it from a coroutine
+    init {
+        migrateRemovedBrushFavourites()
+    }
+
     /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
     fun selectBuiltInBrush(name: String) {
-        val brush = builtInBrushes.firstOrNull { it.name == name } ?: return
+        // a removed brush's name (an old favourite, a stored choice) resolves to its successor, else to Round
+        val exists = { pack: String?, brush: String -> pack == null && builtInBrushes.any { it.name == brush } }
+        val wanted = com.hereliesaz.graffitixr.common.azphalt.BrushAliasTable.resolveOrDefault(name, exists).brush
+        val brush = builtInBrushes.firstOrNull { it.name == wanted } ?: return
         _activeInkUtensil.value = null
         activeStampBrush = brush
         activeStampShape = null

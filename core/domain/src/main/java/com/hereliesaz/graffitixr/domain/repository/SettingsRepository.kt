@@ -129,6 +129,12 @@ interface SettingsRepository {
     suspend fun toggleCarouselFavorite(key: String)
 
     /**
+     * Renames carousel keys ([renames]: old key to new key) in the favourites (keeping order, dropping a duplicate)
+     * and in the per-item settings (an existing entry of the new key wins), as one atomic edit. No-op by default.
+     */
+    suspend fun renameCarouselKeys(renames: Map<String, String>) {}
+
+    /**
      * Each bottom-carousel item's own paint settings, by the same stable keys as
      * [carouselFavorites]. An item with no entry has never been adjusted and uses its defaults.
      */
