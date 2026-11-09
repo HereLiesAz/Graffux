@@ -57,6 +57,8 @@ internal object ModelCoopCodec {
         return o.outWidth > 0 && o.outHeight > 0
     }
 
+    fun isCompletePng(png: ByteArray): Boolean = isDecodable(png)
+
     /** Whether [png]'s header names a texture no larger than [MAX_TEXTURE_SIDE] a side. */
     fun textureInBounds(png: ByteArray): Boolean {
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }

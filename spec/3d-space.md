@@ -180,18 +180,18 @@ used to open the window, now imports into a layer.
   flat-shaded or UV-seamed mesh emits). The corner limit is in practice also bounded by the line limit: an
   n-gon of about 10,000 six-digit corners is some 70 K characters, so it is refused, where the earlier
   parser accepted it. Its accumulators are primitive arrays, each capped at its limit, and an unboxed
-  open-addressed map. Memory at the caps, computed (decimal MB, GC slack ignored) and not measured on a
-  device: 106.8 MB held at the end of the parse (38.4 for the position, uv and normal lists, 38.4 for the
-  emitted vertices, 25.2 for the map, 4.8 for the indices) and about 140 MB at the last growth step of the
-  vertex list (old 33.6 + new 38.4 alive together, plus the other structures), beyond the text;
-  `importModelLayer` also holds the file's bytes (up to 64 MB) and its text (64 MB, 128 MB with
-  non-Latin-1 characters), so the import path peaks near 268 MB (332 MB for such text), on a build that
-  asks for a large heap. A typical model is a small fraction of that. A saved project whose model is over a
+  open-addressed map. Memory at the caps, computed in decimal MB (10^6 bytes) with GC slack ignored and
+  not measured on a device: 106.8 MB held at the end of the parse (38.4 for the position, uv and normal
+  lists, 38.4 for the emitted vertices, 25.17 for the map, 4.8 for the indices), and 139.7 MB at the last
+  growth step of the vertex list (71.95 for the old 33.55 and new 38.4 arrays together, plus 38.4 + 25.17 +
+  4.19), beyond the text. `importModelLayer` also holds the file's bytes (up to 64 MiB = 67.1 MB) and its
+  text (the same, or twice that with non-Latin-1 characters), so the import path peaks near 274 MB (341 MB
+  for such text), on a build that asks for a large heap. A typical model is a small fraction of that. A saved project whose model is over a
   cap (or otherwise unreadable) keeps its layer and its file, and a notice names the layer and the reason;
   a co-op host whose model cannot be sent (too large, or its file missing from the project) and a guest
-  whose peer's model cannot be parsed are told the same way. A model whose saved paint cannot be read opens
-  unpaintable (the paint file is left alone, never overwritten) and a separate notice says the paint, not
-  the model, failed. The file is copied
+  whose peer's model cannot be parsed are told the same way. A model whose saved paint is incomplete (a
+  truncated PNG whose header is intact counts) or cannot be decoded opens unpaintable (the paint file is
+  left alone, never overwritten) and a separate notice says the paint, not the model, failed. The file is copied
   into the project folder as `model_<layerId>.obj`, and adds a layer on top with
   `Layer.model: ModelLayerContent`, which makes it a 3D layer: the rail shows the axis
   cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule

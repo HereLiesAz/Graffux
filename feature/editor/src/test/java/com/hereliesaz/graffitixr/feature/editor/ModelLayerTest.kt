@@ -699,4 +699,34 @@ class ModelLayerTest {
         assertNotNull(model().model!!.texture)
         assertTrue(seen.toString(), seen.isEmpty())
     }
+
+    @Test
+    fun `a truncated paint with an intact header is reported, not restarted blank`() = runTest(dispatcher) {
+        val (seen, job) = collectNotices()
+        File(projectDir(), "model_m.obj").writeText(objText)
+        val paint = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
+        val whole = java.io.ByteArrayOutputStream().also { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        val cut = whole.copyOf(whole.size * 6 / 10)
+        File(projectDir(), "model_tex_m.png").writeBytes(cut)
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj", "model_tex_m.png")),
+        ))
+        idle()
+        job.cancel()
+        assertNotNull(model().model!!.mesh)
+        assertNull("not loaded, so it is not painted over", model().model!!.texture)
+        assertTrue(seen.toString(), seen.any { it.text.contains("Head") && it.text.contains("paint") && it.text.contains("incomplete") })
+        assertEquals("the file is untouched", cut.size.toLong(), File(projectDir(), "model_tex_m.png").length())
+    }
+
+    @Test
+    fun `isCompletePng accepts a whole PNG and refuses every truncation`() {
+        val paint = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val whole = java.io.ByteArrayOutputStream().also { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        assertTrue(ModelCoopCodec.isCompletePng(whole))
+        for (n in listOf(0, 8, 20, whole.size / 2, whole.size - 13, whole.size - 1)) {
+            assertTrue("cut at $n", !ModelCoopCodec.isCompletePng(whole.copyOf(n)))
+        }
+        assertTrue(!ModelCoopCodec.isCompletePng("not a png at all, but long enough".toByteArray()))
+    }
 }
