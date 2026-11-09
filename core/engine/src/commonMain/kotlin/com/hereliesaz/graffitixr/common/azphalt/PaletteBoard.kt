@@ -95,6 +95,18 @@ class PaletteBoard(
         PaintTransaction.run(surface, brush, dabs)
     }
 
+    /** Exchanges the paint on the foreground and background brushes (with the editor's colour swap). */
+    fun swapBrushes() {
+        val a = brushes[0]
+        val b = brushes[1]
+        val amount = a.amount[0]
+        val conc = a.conc.copyOf()
+        a.amount[0] = b.amount[0]
+        b.conc.copyInto(a.conc)
+        b.amount[0] = amount
+        conc.copyInto(b.conc)
+    }
+
     /** What cleaning the brush does. */
     enum class Clean { WIPE, RINSE }
 

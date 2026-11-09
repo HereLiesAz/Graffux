@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -69,6 +70,28 @@ fun newMixerBoard(): PaletteBoard = PaletteBoard(MIXER_BOARD_SIZE, MIXER_TUBES)
 private enum class MixerTool(val label: String, val hint: String) {
     SQUEEZE("Squeeze", "Touch the board to squeeze out the chosen tube"),
     MIX("Dip and mix", "Touch to dip the brush, drag to mix and pull paint along"),
+}
+
+/** What [matchHexToBrush] says when the text is not a colour. */
+internal const val NOT_A_COLOUR = "Not a colour"
+
+/**
+ * The "Digital" hex match: finds the nearest tube mix to [hex] and loads it on the brush in hand (filling it).
+ * Returns the message to show: matched, how far off the nearest mix is, or [NOT_A_COLOUR] (the brush untouched).
+ */
+internal fun matchHexToBrush(board: PaletteBoard, hex: String): String {
+    val target = parseHexColor(hex) ?: return NOT_A_COLOUR
+    // A Compose Color packs its ARGB in the upper bits of an unsigned long; toArgb() is the 0xAARRGGBB int.
+    val argb = target.toArgb()
+    val rgb = intArrayOf((argb ushr 16) and 0xFF, (argb ushr 8) and 0xFF, argb and 0xFF)
+    val result = RecipeSolver.solve(rgb, MIXER_TUBES)
+    val q = PigmentConcentration.quantize(result.concentration)
+    board.brush.amount[0] = 1f
+    for (c in board.brush.conc.indices) {
+        board.brush.conc[c] = if (c < q.size) q[c] / PigmentConcentration.SUM.toFloat() else 0f
+    }
+    val off = (result.error * 100).roundToInt()
+    return if (result.error < 0.02f) "Matched" else "Closest mix, off by $off%"
 }
 
 /** One sentence naming what a recipe is made of: the paint itself, not a number slider. */
@@ -144,7 +167,18 @@ fun PaletteMixerDialog(
                             .testTag("mixer.hand.$i"),
                     )
                 }
-                GraffuxButton(text = "Swap", onClick = { onSwapColors() }, shape = GraffuxButtonShape.RECTANGLE)
+                GraffuxButton(
+                    text = "Swap",
+                    onClick = {
+                        // The colours swap in the editor state; the paint on the two brushes swaps with them, so
+                        // what each brush holds still agrees with the colour shown, and later mixing starts from
+                        // the swapped paint rather than overwriting it with the old recipe.
+                        board.swapBrushes()
+                        onSwapColors()
+                        version++
+                    },
+                    shape = GraffuxButtonShape.RECTANGLE,
+                )
             }
             Text(
                 "Brush holds: ${describeRecipe(recipe)}",
@@ -270,22 +304,8 @@ fun PaletteMixerDialog(
                 GraffuxButton(
                     text = "Match",
                     onClick = {
-                        val target = parseHexColor(hex)
-                        if (target != null) {
-                            val argb = target.value.toLong().toInt()
-                            val rgb = intArrayOf((argb ushr 16) and 0xFF, (argb ushr 8) and 0xFF, argb and 0xFF)
-                            val result = RecipeSolver.solve(rgb, MIXER_TUBES)
-                            val q = PigmentConcentration.quantize(result.concentration)
-                            board.brush.amount[0] = 1f
-                            for (c in board.brush.conc.indices) {
-                                board.brush.conc[c] = if (c < q.size) q[c] / PigmentConcentration.SUM.toFloat() else 0f
-                            }
-                            val off = (result.error * 100).roundToInt()
-                            match = if (result.error < 0.02f) "Matched" else "Closest mix, off by $off%"
-                            push()
-                        } else {
-                            match = "Not a colour"
-                        }
+                        match = matchHexToBrush(board, hex)
+                        if (match != NOT_A_COLOUR) push()
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                 )
@@ -293,5 +313,37 @@ fun PaletteMixerDialog(
             match?.let { Text(it, style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.testTag("mixer.match")) }
         }
+    }
+}
+
+/**
+ * Hosts the mixer: the board is held **outside** the `show` condition, so closing the dialog keeps the paint on
+ * the board and both brushes, and reopening finds it as it was. [onBoard] reports the board in use (tests, and a
+ * session-level owner that wants to save it).
+ */
+@Suppress("FunctionNaming", "LongParameterList")
+@Composable
+fun PaletteMixerHost(
+    show: Boolean,
+    currentColor: Color,
+    secondaryColor: Color,
+    onSelectColor: (Color) -> Unit,
+    onSelectSecondaryColor: (Color) -> Unit,
+    onSwapColors: () -> Unit,
+    onDismiss: () -> Unit,
+    onBoard: (PaletteBoard) -> Unit = {},
+) {
+    val board = remember { newMixerBoard() }
+    androidx.compose.runtime.SideEffect { onBoard(board) }
+    if (show) {
+        PaletteMixerDialog(
+            board = board,
+            currentColor = currentColor,
+            secondaryColor = secondaryColor,
+            onSelectColor = onSelectColor,
+            onSelectSecondaryColor = onSelectSecondaryColor,
+            onSwapColors = onSwapColors,
+            onDismiss = onDismiss,
+        )
     }
 }

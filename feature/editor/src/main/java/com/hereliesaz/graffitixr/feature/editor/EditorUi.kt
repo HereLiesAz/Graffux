@@ -51,20 +51,17 @@ fun EditorUi(
 
     Box(modifier = Modifier.fillMaxSize()) {
 
-        if (uiState.showColorPicker) {
-            // The physical palette replaces the colour picker (spec/painterly.md 6.3). The board is
-            // hoisted here so closing and reopening the mixer keeps the paint on it.
-            val mixerBoard = remember { newMixerBoard() }
-            PaletteMixerDialog(
-                board = mixerBoard,
-                currentColor = uiState.activeColor,
-                secondaryColor = uiState.secondaryColor,
-                onSelectColor = { color -> actions.setActiveColor(color) },
-                onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
-                onSwapColors = actions::swapBrushColors,
-                onDismiss = { actions.onColorPickerDismissed() },
-            )
-        }
+        // The physical palette replaces the colour picker (spec/painterly.md 6.3). The host holds the board
+        // outside the `show` condition, so closing the mixer keeps the paint and reopening finds it.
+        PaletteMixerHost(
+            show = uiState.showColorPicker,
+            currentColor = uiState.activeColor,
+            secondaryColor = uiState.secondaryColor,
+            onSelectColor = { color -> actions.setActiveColor(color) },
+            onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
+            onSwapColors = actions::swapBrushColors,
+            onDismiss = { actions.onColorPickerDismissed() },
+        )
 
         GestureFeedback(
             state = uiState,
