@@ -5,6 +5,8 @@
 //! the GPU just to be timed. Adapters without timestamp support get no timer at all; the caller
 //! (Kotlin `GpuPassTimings`) then falls back to CPU wall time and labels it so.
 
+use crate::gpu_wait::{map_read, READBACK_TIMEOUT};
+
 /// Pass kinds, shared with the C ABI / JNI and Kotlin `GpuPassKind`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
@@ -108,32 +110,20 @@ impl GpuTimer {
         encoder.resolve_query_set(&self.set, 0..n * 2, &self.resolve, 0);
         encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.read, 0, bytes);
         queue.submit([encoder.finish()]);
-        let slice = self.read.slice(0..bytes);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = tx.send(res.is_ok());
-        });
         let kinds = std::mem::take(&mut self.pending);
-        if device.poll(wgpu::PollType::wait_indefinitely()).is_err() {
-            // Cancel the pending map so the next resolve can map this buffer again.
-            self.read.unmap();
-            return;
-        }
-        if !matches!(rx.recv(), Ok(true)) {
-            return;
-        }
-        if let Ok(mapped) = slice.get_mapped_range() {
-            let ticks: &[u64] = bytemuck::cast_slice(&mapped);
+        let period_ns = self.period_ns;
+        let mut fresh = Vec::new();
+        let _ = map_read(device, &self.read, 0..bytes, READBACK_TIMEOUT, |mapped| {
+            let ticks: &[u64] = bytemuck::cast_slice(mapped);
             for (i, kind) in kinds.iter().enumerate() {
                 let (begin, end) = (ticks[i * 2], ticks[i * 2 + 1]);
                 // A pass the driver skipped, or a wrapped counter, reports end <= begin: drop it.
                 if end > begin {
-                    let ns = ((end - begin) as f64 * self.period_ns) as u64;
-                    self.samples.push((*kind, ns));
+                    fresh.push((*kind, ((end - begin) as f64 * period_ns) as u64));
                 }
             }
-        }
-        self.read.unmap();
+        });
+        self.samples.extend(fresh);
         if self.samples.len() > MAX_SAMPLES {
             let excess = self.samples.len() - MAX_SAMPLES;
             self.samples.drain(0..excess);

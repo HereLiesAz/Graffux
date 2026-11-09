@@ -3766,33 +3766,9 @@ class EditorViewModel @Inject constructor(
         layerId: String,
         width: Int,
         height: Int,
-    ): MaterialStateCodec.Snapshot? {
-        val layerHeight = _uiState.value.layers.firstOrNull { it.id == layerId }
-            ?.heightMap
-            ?.takeIf { it.size == width * height }
-            ?.copyOf()
-            ?: layerStore.heightBaseCopyOrNull(layerId)?.takeIf { it.size == width * height }
-        val wetness = layerStore.wetnessStateCopyOrNull(layerId)?.takeIf {
-            it.field.width == width && it.field.height == height
-        }
-        val impasto = layerStore.impastoMaterialStateCopyOrNull(layerId)?.takeIf {
-            it.width == width && it.height == height
-        }
-        if (layerHeight == null && wetness == null && impasto == null) return null
-        return MaterialStateCodec.Snapshot(
-            width = width,
-            height = height,
-            heightMap = layerHeight,
-            wetness = wetness?.snapshot(),
-            // Android uptime is session-local; MaterialStateCodec v2 intentionally resets it.
-            lastWetnessUptimeMillis = null,
-            tileSize = wetness?.field?.tileSize
-                ?: impasto?.tileSize
-                ?: com.hereliesaz.graffitixr.common.azphalt.PersistentWetnessField.DEFAULT_TILE_SIZE,
-            rawColor = impasto?.rawColor?.copyOf(),
-            mediumTiles = impasto?.tileSnapshots() ?: emptyList(),
-        )
-    }
+    ): MaterialStateCodec.Snapshot? = layerStore.captureMaterial(
+        layerId, width, height, _uiState.value.layers.firstOrNull { it.id == layerId }?.heightMap,
+    )
 
     /** Keeps a committed stamp stroke as a serialisable record and schedules the project save. */
     private fun captureStrokeRecord(command: StrokeCommand) {
@@ -15630,6 +15606,7 @@ class EditorViewModel @Inject constructor(
         override fun save(title: String, body: String) {
             // Nothing can file it without a connected token, so don't write a file per stroke for nothing.
             if (predictionReports?.isConnected?.value != true) return
+            if (!com.hereliesaz.graffitixr.common.privacy.ReportConsent.crashReportsEnabled(context)) return
             // First line title, rest body -- CrashIssueUploader's format for this file.
             viewModelScope.launch(serialIo) { runCatching { file.writeText(title + "\n" + body) } }
         }
@@ -15644,6 +15621,7 @@ class EditorViewModel @Inject constructor(
             device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
                 "Android ${android.os.Build.VERSION.RELEASE}",
             pendingStore = pendingRankingStore,
+            consent = { com.hereliesaz.graffitixr.common.privacy.ReportConsent.crashReportsEnabled(context) },
         ) { title, body, done ->
             val reports = predictionReports ?: return@PredictionRankingReporter done(false)
             viewModelScope.launch(dispatchers.io) {

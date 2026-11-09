@@ -490,7 +490,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   refreshes only what changed. `GpuLayerResidency` (feature/editor) owns the generations: any
   swapped layer bitmap is a new generation, and every non-stroke mutation path invalidates
   explicitly. When unsure, invalidate: that costs one upload, never wrong pixels. Readback copies
-  only the dirty rectangle. Every wgpu native call runs on `GpuRenderThread`, one FIFO thread,
+  only the dirty rectangle, and waits for the GPU at most `gpu_wait::READBACK_TIMEOUT` (5 s): a
+  GPU that never answers fails the call and marks the engine failed (like a lost device), so the
+  caller falls back to its CPU path rather than hanging the thread that holds the engine's lock.
+  Every wgpu native call runs on `GpuRenderThread`, one FIFO thread,
   so batches, commit refreshes and invalidations stay in order and teardown never blocks the main
   thread. `StampEngine.h`'s optional methods default to no residency and whole-layer readback,
   for a wgpu library that predates them.

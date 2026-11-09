@@ -18,10 +18,12 @@ package com.hereliesaz.graffitixr.common.azphalt.wgpu
  * desktop app and JVM tests use.
  */
 @Suppress("TooManyFunctions")
-class WgpuStampEngine private constructor(
+class WgpuStampEngine internal constructor(
     @Volatile private var handle: Long,
     val width: Int,
     val height: Int,
+    /** "Vulkan: <adapter> (<driver>)", read once at creation: the adapter never changes for a device. */
+    private val adapter: String = "",
 ) : AutoCloseable {
 
     /** Adapter choice. [AUTO] prefers Vulkan/Metal/DX12 and falls back to GL; `WGPU_BACKEND` overrides it. */
@@ -64,9 +66,14 @@ class WgpuStampEngine private constructor(
 
     val isAlive: Boolean get() = handle != 0L
 
-    /** "Vulkan: <adapter> (<driver>)", or "" once closed. */
-    @get:Synchronized
-    val adapterDescription: String get() = if (handle == 0L) "" else WgpuNative.nativeAdapterDescription(handle)
+    /**
+     * "Vulkan: <adapter> (<driver>)", or "" once closed.
+     *
+     * Deliberately not synchronized: every other call here holds the instance lock for as long as its GPU work
+     * takes (a readback waits on the GPU), and a label for the UI must not queue behind a stroke. The text is
+     * captured once in [create], so there is nothing native to call.
+     */
+    val adapterDescription: String get() = if (handle == 0L) "" else adapter
 
     @Synchronized fun clear(): Boolean = handle != 0L && WgpuNative.nativeClear(handle)
 
@@ -261,7 +268,13 @@ class WgpuStampEngine private constructor(
             } catch (e: UnsatisfiedLinkError) {
                 0L
             }
-            return if (handle == 0L) null else WgpuStampEngine(handle, width, height)
+            if (handle == 0L) return null
+            val adapter = try {
+                WgpuNative.nativeAdapterDescription(handle)
+            } catch (e: UnsatisfiedLinkError) {
+                "" // a library that predates the call: no label, but the engine still works
+            }
+            return WgpuStampEngine(handle, width, height, adapter)
         }
     }
 }

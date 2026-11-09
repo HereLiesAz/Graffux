@@ -4,6 +4,9 @@ package com.hereliesaz.graffitixr.feature.editor.prediction
  * TEMPORARY. Decides when the stroke-prediction ranking becomes a GitHub issue and what it says;
  * [send] does the filing (PredictionReportRepository, via EditorViewModel). Remove with it.
  *
+ * Only while [consent] says the user has opted in to crash reports (Settings -> Privacy): the issue is
+ * public. Strokes drawn before the opt-in are never counted, so turning it on uploads nothing old.
+ *
  * Fires every [REPORT_EVERY_STROKES] Brush strokes, and on [flush] (editor closed) when at least
  * [FLUSH_MIN_STROKES] are unreported. Each issue carries the session totals so far.
  *
@@ -30,6 +33,7 @@ package com.hereliesaz.graffitixr.feature.editor.prediction
 class PredictionRankingReporter(
     private val device: String,
     private val pendingStore: PendingStore = PendingStore.NONE,
+    private val consent: () -> Boolean = { false },
     private val send: (title: String, body: String, done: (success: Boolean) -> Unit) -> Unit,
 ) {
     /** Crash-recovery copy of [pendingIssue], filed on next launch if this process dies first. */
@@ -52,6 +56,8 @@ class PredictionRankingReporter(
 
     @Synchronized
     fun onBrushStroke(report: String, refreshRateHz: Float, engine: String = ENGINE_AZPHALT) {
+        // The ranking is a public issue: no consent, no count, no recovery copy, no post.
+        if (!consent()) return
         totalStrokes += 1
         unreported += 1
         unreportedByEngine[engine] = (unreportedByEngine[engine] ?: 0) + 1
@@ -64,7 +70,7 @@ class PredictionRankingReporter(
 
     @Synchronized
     fun flush(report: String, refreshRateHz: Float) {
-        if (unreported >= FLUSH_MIN_STROKES) emit(report, refreshRateHz)
+        if (consent() && unreported >= FLUSH_MIN_STROKES) emit(report, refreshRateHz)
     }
 
     /** The issue [onBrushStroke] would file right now, or null when everything is reported. */
