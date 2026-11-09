@@ -34,7 +34,8 @@ Consequences this spec holds itself to:
      (status doc, Phase 7; `PaintMediaProfile` kdoc at `E/PaintMediaProfile.kt:14-22`). Section 6
      keeps this by splitting a tube into a *pigment* (optical) and a *medium* (binder).
    - "Renderers remain dumb consumers of resolved geometry" (`E/BrushTuftDabExpander.kt:3-14`;
-     status doc, M6). All new behaviour is resolved in Kotlin before it reaches a renderer.
+     status doc, M6). Geometry and per-dab scalars stay resolved in Kotlin; the GPU now also owns material *transactions* on
+     its resident fields (relaxed explicitly in 3.0 and 3.1 principle 3).
    - Full spectral / Kubelka-Munk mixing was "research only" (status doc, Phase 1). **Lifted by the
      owner** (section 10, decision 3): Kubelka-Munk is adopted and applies to the canvas as well.
    - The existing packs keep their ids and licences until the owner-directed removal of superseded
@@ -227,24 +228,30 @@ wicking, bleed, diffusion, wet-edge behaviour, film spread, drying, levelling, s
    the field and the rest of `params` still parses, so a new pack degrades to a plain brush on an old
    build rather than failing to install.
 
-### 3.2 E1 — Pigment colour on dabs
+### 3.2 E1 — Pigment recipes and per-dab intents
 
 **Gap:** colour on a dab is an RGB base plus an HSV shift (`E/ArgbColor.kt:22-38`).
 
-**Extension:** a pigment-aware colour value, `PigmentMix`, carried alongside the existing ARGB.
+**Extension (amended for the GPU split, 3.0):** pigment colour is **recipes plus intents**, not a
+colour the generator resolves.
 
-- Kotlin: `PigmentMix(latent: FloatArray)`, a fixed-length latent vector (section 6.2) with a
-  deterministic `toArgb()`; mixing in latent space is `PigmentMixer.mix(a, b, wA, wB)`.
-- New `emit` fields (all optional, defaults copy the brush's dab as today): `lane` (-1..1, which
-  column of the brush load the dab draws from, E2), `draw` (load units taken), `mixWet` (0..1, how
-  much of the underlying wet film's colour is mixed in, E3), `h` (height deposit, E5).
-- `Dab` gains an appended `pigment: PigmentMix?` (null = today's path). `resolveDabColor` returns
-  the mix's ARGB when non-null. The wgpu dab layout needs **no change**: the resolved ARGB goes into
-  the existing colour slots.
+- A **recipe** is a vector of concentrations over named pigments (`PigmentMix`, Kotlin, section 6.2).
+  Recipes live where colour is chosen: the palette, the brush's `load.fill`, the eyedropper solve. The
+  Kotlin `PigmentMixer` turns a recipe into a displayable colour for UI and for the brush-colour fallback.
+- New `emit` **intent** fields (all optional, defaults copy the brush's dab as today): `lane` (-1..1
+  coordinate across the brush width, E2), `draw` (load units to take), `lift` (amount to lift into the
+  lane), `dispose` (lift and discard, 3.4), `mixWet` (0..1 upper bound on mixing with the wet surface,
+  E3), `h` (height deposit, E5; implemented in P2 as `Dab.heightMul`, clamped at 0 or above).
+- The generator does **not** compute the dab's pigment colour. A dab that names a `lane` carries the
+  intent to the GPU paint transaction, which draws the column's actual mixture (3.4). A dab with no
+  `lane` takes the old path: `resolveDabColor` over the brush colour, unchanged.
+- `Dab` gains appended intent fields (`lane`, `draw`, `lift`, `dispose`, `mixWet`), all defaulting to
+  "no intent". The wgpu dab layout **does** gain appended slots for them (they are real GPU inputs now);
+  `layout_parity.rs` extends in the same change as the Kotlin layout (rule 4.2).
 
-**Compatibility:** `pigment == null` is an exact identity. Existing packs never set it.
-**Cost:** one latent mix per emit; capped at the existing 256 emits per step.
-**Effort:** M (with E4, which supplies `PigmentMixer`).
+**Compatibility:** no intent fields set is an exact identity. Existing packs never set them.
+**Cost:** a few floats per dab; capped at the existing 256 emits per step.
+**Effort:** M.
 
 ### 3.3 E2 — Brush load as state
 
@@ -284,7 +291,7 @@ on the brush it sits.
   the resulting dabs. Packs are written against the budget and tolerate the difference; the spec does
   not ask for the program to see GPU state (that would need a per-dab readback).
 - Program functions (all deterministic, all cost-counted):
-  - `loadAmount(lane)` returns 0..1, the budget's predicted amount for that column.
+  - `loadAmount(lane)` returns 0..1, the budget's predicted amount for the column serving that -1..1 coordinate.
   - `loadMix(lane)` returns 0..1, the fraction of the column's colour that is its second pigment
     (a scalar, because the language has no vectors).
   - An `emit` naming `lane` and `draw` is an **intent**: draw up to `draw` from that column.
@@ -348,7 +355,12 @@ never touches the persistent surface. It must **not** be used for pickup bookkee
 
 **Program surface.** No new surface-reading functions. A program says what it intends, on an `emit`:
 `lane`, `draw`, `lift` (amount to lift into the lane at this dab's footprint) and `mixWet` (0..1 upper
-bound on mixing with the wet surface). It reads only the Kotlin budget (3.3) and its own inputs.
+bound on mixing with the wet surface) and `dispose` (0 or 1: with `lift` and no `lane`, remove the
+paint and discard it instead of loading it; this is how scrapers, sgraffito and the rag clean a surface).
+Disposal consumes `avail` and the surface exactly as a lift into a lane does (3.4, source quantities); only
+the destination differs (a discard sink that holds nothing). It reads only the Kotlin budget (3.3) and
+its own inputs. Coordinates: `lane` is a **-1..1 coordinate across the brush width** (the nearest load
+column serves it), never a column index; `loadAmount(lane)` and `loadMix(lane)` take the same coordinate.
 
 **Why GPU (justification against the owner's criteria).**
 
@@ -380,27 +392,31 @@ meaning").
 
 **Effort:** L.
 
-### 3.6 E5 — Impasto ridge and highlight
+### 3.6 E5 — Impasto ridge and highlight (implemented in P2, PR #764)
 
 **Gap:** no sideways displacement; specular only while wet (section 1).
 
-- `emit { h: }` and a brush-level `heightProfile` (a small curve across `lane`) set per-dab height
-  deposit. A flat brush's profile has high values at lanes 0 and N-1 and a lower centre. The deposit
-  conserves volume: `sum(h * area)` over a pass is bounded by the load actually drawn. This makes
-  the rim a *consequence of the load*, not a texture.
-- `Dab` gains an appended `heightMul` (default 1). `ImpastoEngine.deposit` and `impasto.wgsl:62`
-  multiply their deposit by it.
-- Shading: add a dry specular term from the height gradient to `ImpastoEngine.shade` /
-  `shadeMaterialInto` and to `impasto.wgsl:95-111`: a Blinn-style highlight of the same `normal`
-  already computed for diffuse, scaled by a new `ImpastoMaterialConfig.sheen` (default 0 =
-  today's output). `wetSpecularStrength` keeps its meaning and adds to it while wet.
-- Acrylic and oil are glossy when dry, so `sheen` is separate from wetness by design.
+- `emit { h: }` (and output `heightMul` for the brush's own dabs) set per-dab height deposit,
+  independent of colour opacity. `h` is clamped to **0 or above**; carving paint away is a removal
+  (`lift` with `dispose`, 3.4), never a negative deposit. A flat brush gives its edge lanes a larger `h`
+  than its centre. Under the v2 material transfer a thicker bead also draws more paint off the brush
+  (the deposit spends load), so the rim is a consequence of the load, not a texture. A brush-level
+  `heightProfile` curve across `lane` is a pack-authoring convenience that expands to per-lane `h`; it is
+  **not implemented** yet.
+- `Dab.heightMul` (appended, default 1) is honoured by `ImpastoEngine.deposit` (v1), `transferMaterialStroke`
+  (v2), GPU v1 (folded into the per-dab `strength`, no shader change) and GPU v2 (`wet.wgsl`, carried in the
+  `MaterialDab` pad as `heightMul - 1` so a zeroed pad is unchanged).
+- Dry sheen: `PaintMedium.sheen` (`impastoSheen` in params) adds `sheen * lobe` to the existing Blinn
+  specular term in `ImpastoEngine.shadeMaterialInto`, `ImpastoRegionShader.shadeMaterial` and `wet.wgsl`
+  (`M_SHEEN`, media slot 6), so a dried bead keeps a highlight. `wetSpecularStrength` keeps its meaning and
+  adds while wet. Acrylic and oil are glossy when dry, so `sheen` is separate from wetness by design.
+- Persistence: the material sidecar is `VERSION` 3 and stores sheen; a v2 sidecar reads sheen as 0.
 
-**Compatibility:** `sheen = 0` and `heightMul = 1` are exact identities; `ImpastoMaterialConfig`
-already versions itself (`E/AzphaltBrush.kt:146`), so this is `version: 3`, opt-in.
-**Parity:** shading is the only new per-pixel GPU math; a Kotlin reference function and a fixture
-test, as for the existing shader.
-**Effort:** M (S for the `emit h` field, S-M for the shading).
+**Compatibility:** `sheen = 0` and `heightMul = 1` are exact identities (tested). `ImpastoMaterialConfig`
+keeps `version: 2`; sheen is an optional field, not a version bump.
+**Parity:** Rust `transfer_honours_the_per_dab_height_multiplier` compares the GPU to the CPU reference on
+lavapipe. The sheen WGSL is naga-validated but has no GPU pixel test yet (no `shade_material` test exists to extend).
+**Effort:** done.
 
 ### 3.7 E6 — Lift tail (taper to a point on release)
 
@@ -537,20 +553,24 @@ what the drawn brush shows).
    the paint and defeat goal 3. So: v1 draws in Compose and makes **no latency claim** (goals 1 and 2
    only); v2 draws the brush shape in the direct-display layer (a small extra pass in the wgpu
    swapchain) and is measured against the existing touch-to-paint figure before the claim is made.
-4. **Occlusion.** A brush hides canvas. A finger already covers the contact patch; a stylus hand
-   covers the area to one side. Rules: the **contact patch** is always drawn as an outline plus
-   bristle tips (as hover does: dark under-stroke, bright hairline) and never fills opaque, so the
-   painted result stays visible; the **body** (ferrule and handle) is drawn along the real azimuth for a
-   pen and, for a finger or a pen without azimuth, along a default direction away from the hand
-   (the editor already knows handedness, `isRightHanded`), at low opacity and fading with speed;
-   bristle tips are drawn in their **load colour** at higher opacity than the body. Three user modes:
-   **Off**, **Tip only** (patch, bristles, load colour; no body), **Full** (adds the ghosted body).
-   **Recommended default: Tip only.** It delivers goals 1 and 2 with the least occlusion and is what the hover
-   already approximates; Full is for demos. A tiny brush (under about 6 px) is drawn as the hairline
-   cursor only, because bristles at that size are noise.
+4. **The brush covers the work, and that is the point (owner direction).** A real brush, and a
+   stylus in a digital app, covers what the painter is making; the painter adapts as in real life: lift,
+   look, move the hand. The drawn brush therefore is **opaque and physically plausible by default**: the
+   ferrule and handle are drawn solid, at a realistic angle, with the contact patch and bristles at the
+   tip. There is **no translucency, no offset and no fading by default**, and this spec does not treat the
+   occlusion as a problem to mitigate. Held angle: for a pen, the real **tilt and azimuth where the device
+   reports them**; for a finger, or a pen with no tilt or azimuth, a **sensible held-brush angle**
+   (a fixed, handedness-aware pose, as a painter holds a brush) rather than a fabricated one (item 5).
+   The only presentation setting is **"Hide drawn brush"**, under accessibility and power saving. It is
+   **not the default and not promoted in the UI flow** (no first-run prompt, no toolbar button). It exists
+   for reasons that are not a taste preference: a user for whom a large moving object over the canvas is a
+   barrier (vestibular or low-vision accessibility, or a need to see the whole canvas at all times because
+   of a visual condition), and a low-power or low-end mode where the overlay's cost is unwanted. Hiding it
+   loses no function (item 8).
 5. **Honesty about telemetry.** The drawn brush never fabricates an axis a device does not report
-   (status doc section B). A finger or pressure-only pen is drawn at a default pose, not with invented tilt;
-   splay, flattening and drag still show because they come from pressure and motion.
+   (status doc section B). A finger or pressure-only pen is drawn at the sensible held-brush pose of item 4,
+   not with invented tilt; splay, flattening and drag still show because they come from pressure and
+   motion.
 6. **Load display (goal 2).** Each tuft's tip is coloured from its lane's *budget* colour (the Kotlin
    prediction of the load, 3.3; colour from the lane's tube concentrations by `PigmentMixer`, which is
    per-colour work and fits the CPU side of 3.0) and its drawn length of coloured tip shrinks as the
@@ -563,10 +583,11 @@ what the drawn brush shows).
    and at most the tier's `maxPreviewCells` (96 / 192 / 1024) for the hair texture; target under 0.5 ms
    of draw per frame on BALANCED. Frame building is allocation-free in the step loop (reuse one mutable
    frame), and interpolation is two lerps per tuft. The presentation frame adds nothing to the dab path
-   beyond copying a handful of floats and the tuft list. If a frame misses budget the overlay drops to
-   Tip-only for that frame and never delays paint.
-8. **Accessibility.** A setting and a quick toggle control the three modes; **Off loses no function**,
-   since the overlay is purely presentational and no input, paint or load behaviour depends on it. The
+   beyond copying a handful of floats and the tuft list. If a frame misses budget the overlay draws fewer
+   hair cells for that frame (the tuft count and silhouette stay) and never delays paint.
+8. **Accessibility and power.** One setting, **"Hide drawn brush"** (item 4), off by default and not
+   promoted; **hiding it loses no function**, since the overlay is purely presentational and no input, paint
+   or load behaviour depends on it. The
    load cue has non-visual and non-colour equivalents: the coloured length of the tip, not hue alone;
    a polite screen-reader announcement when a lane runs dry ("brush running low"); optional haptic
    tick; colour-vision safe (length and pattern carry the information). Contrast follows the hover rule
@@ -717,8 +738,13 @@ and is **wiped to nothing at the end of the stroke** (section 6.3, cleaning).
 Medium: any. Parameters: round, short, `spacing` large, jitter. Program: tap per touch.
 
 **17. Sgraffito tool / scraper.** Scratches through wet paint to reveal what is under. Medium: oil,
-acrylic (wet). Parameters: hard 1 px tip; negative `h` (carves). Program: `drain` plus negative
-height, no `draw`. Needs E5 negative `h`.
+acrylic (wet). Parameters: hard 1 px tip, `load` with no fill. Program: each dab `emit`s a **disposal lift**
+(`lift` with `dispose: 1`, no `lane`, no `draw`): the paint is removed from the surface and sent to a
+discard sink instead of a load column. This is the surface-removal transaction (3.4); it consumes the
+liftable amount and applies the matching removal to the committed surface (wetness and height drop where
+it scratched, so the ground shows). It does **not** use `drain` (the spray-only ledger, prohibited on
+painterly brushes) and it does **not** use a negative `h` (`h` is clamped to 0 or above; carving is a
+removal, not a negative deposit).
 
 **18. Airbrush / spatter (toothbrush).** Out of scope for realism-first painter's set; the
 street-kit and spray-caps packs own these. Listed only to say they are excluded.
@@ -758,7 +784,7 @@ for i in 0..32 {
              size: len, tip: cw / len, angle: ang,
              lane: u, draw: stepPx * 0.004 * streak, // [new] E2
              lift: stepPx * 0.002, mixWet: 0.6,                  // [new] E3 intents; the GPU samples the surface
-             h: heightRim(u) * avail };                       // [new] E5
+             h: 0.6 + 1.8 * smoothstep(0.55, 0.95, abs(u)) };                       // [new] E5
     }
   }
 }
@@ -969,18 +995,28 @@ lookup so the 8-bit canvas storage does not change.** Concretely:
    (`feature/editor/.../MaterialStateCodec.kt:23-35`), so a recipe reconstructed from RGB cannot tell
    two recipes with the same colour apart, and they would mix identically afterwards).
    - **Palette board: a persisted concentration field.** Each board texel stores the *recipe*:
-     concentrations of up to **12 board tubes** (`BOARD_TUBES = 12`) as **12 x u8**, plus paint amount
-     in the existing height channel. Board tubes are slots assigned when the palette is set up; the
-     slot table (slot -> pigment id + `dataVersion`) is stored with the board. **Palette pickup and
-     board mixing read and write this field; they never use the canvas RGB-to-latent lookup.** Two
-     recipes that happen to share an RGB stay distinguishable and mix as what they are. The visible
-     colour of a texel is computed from its concentrations by the K-M mixer, not stored.
-     *Quantisation:* concentrations are normalised to sum 255 by a deterministic largest-remainder rule
-     (ties to the lower slot), so every texel sums to exactly 255 and the rule is identical in Kotlin and
-     WGSL. A step of 1/255 of one tube changes colour by at most about one 8-bit level for the
-     placeholder set; P3 pins this with a test.
-     *Budget:* 12 B per board texel. Board size **512 x 512 by default (3 MB), at most 1024 x 1024
-     (12 MB)**, so the earlier "8 MB with sidecar" figure is replaced (6.7).
+     concentrations over **16 channels**: **12 board tubes** (`BOARD_TUBES = 12`) plus **4 basis
+     channels** (`BASIS_CHANNELS = 4`, the same four fixed basis pigments the canvas latent uses),
+     as **16 x u8**, plus paint amount in the existing height channel. Board tubes are slots
+     assigned when the palette is set up; the slot table (slot -> pigment id + `dataVersion`) is stored
+     with the board. **Why 16, not 12:** a brush that has lifted wet canvas paint carries basis-origin
+     concentrations (3.3, below); dabbing it back into a blob must have a representation, or the board
+     would silently discard that paint or reconstruct a different recipe. Real palettes get contaminated
+     by a dirty brush, so the honest model keeps the contamination rather than forbidding it. (The
+     alternative, requiring the brush to be wiped before it can touch the board, was rejected: it is an
+     invented rule, it breaks "dip, load, mix" flow, and it saves only 4 B per texel.) **The UI names only
+     the tube part** of a texel's recipe and shows any basis part as unnamed "mixed (from canvas)" paint,
+     as it does for a brush.
+     **Palette pickup and board mixing read and write this field; they never use the canvas
+     RGB-to-latent lookup.** Two recipes that share an RGB stay distinguishable and mix as what they
+     are. The visible colour of a texel is computed from its 16 concentrations by the K-M mixer (a basis
+     channel contributes as its basis pigment), not stored.
+     *Quantisation:* the 16 concentrations are normalised **jointly** to sum 255 by a deterministic
+     largest-remainder rule (tie to the lower channel index, tubes before basis), so every texel sums to
+     exactly 255 and the rule is identical in Kotlin and WGSL. A step of 1/255 of one channel changes
+     colour by at most about one 8-bit level for the placeholder set; P3 pins this with a test.
+     *Budget:* 16 B per board texel (plus 4 B height and 4 B wetness). Board size **512 x 512 by
+     default (6 MB total), at most 1024 x 1024 (24 MB)**; this replaces the earlier 12 B figure (6.7).
    - **Canvas: a sparse basis-latent field plus the colour it already has.** Painterly canvas layers
      keep their RGBA8 colour (and the existing sparse raw-pigment tiles) **and** a **4 x u8 basis
      concentration** per pixel, allocated lazily per 64 x 64 tile only where a painterly stroke has
@@ -1000,10 +1036,10 @@ lookup so the 8-bit canvas storage does not change.** Concretely:
      the UI names only the tube part ("about 40% cadmium red, the rest picked up from the canvas").
      (iii) Memory: canvas latent is 4 B per *touched* pixel, about 16 KB per 64 x 64 tile; a layer
      where 30% of a 2048 x 2048 canvas is painted costs about 5 MB, never the full 16 MB.
-     (iv) Canvas mixing is approximate where the lookup is used (unpainted-by-latent or legacy paint),
+     (iv) A brush carrying canvas-origin paint can be returned to the board without loss: the board's 4 basis channels hold it (above). (v) Canvas mixing is approximate where the lookup is used (unpainted-by-latent or legacy paint),
      exact to the basis where the field exists.
    - **Sidecar format.** `MaterialStateCodec` goes from `VERSION` 3 (sheen, phase P2) to **4**: two new
-     per-tile flags, `FLAG_CONCENTRATION` (board: 12 B per texel, plus the slot table in the header) and
+     per-tile flags, `FLAG_CONCENTRATION` (board: 16 B per texel, plus the slot table in the header) and
      `FLAG_LATENT` (canvas: 4 B per texel). A v3 reader of a v4 file fails closed to "no material"
      for that layer (the existing rule); a v4 reader of v3 treats both fields as absent. This lands
      with the board in P6 (the field is meaningless before the transaction in P5 writes it).
@@ -1153,7 +1189,7 @@ hardware floor (Android 10, Vulkan 1.1, `ARCHITECTURE.md` "Graffux's hardware fl
 | Paint transaction (GPU) | At most 48 dabs per batch, footprint at most 64 x 64 px each at 1x; one extra dispatch per batch; target under 2 ms per batch on a mid-range Mali/Adreno (to measure) |
 | GPU memory | Latent lookup texture 32^3 x 4 B (about 128 KB), `avail` and `snap_color` buffers sized to the dirty rect, load buffer under 8 KB (128 cells x 16 floats) |
 | Load state | At most 128 cells, copied per step as a small array, no allocation in the step loop |
-| Palette board | 512 x 512 default, at most 1024 x 1024; 12 B per texel of concentration plus height and wetness, at most about 20 MB at the cap (3 MB plus sidecar at default); knife mixing uses the same budgets |
+| Palette board | 512 x 512 default (6 MB), at most 1024 x 1024 (24 MB); 16 B per texel of concentration plus 4 B height and 4 B wetness; knife mixing uses the same budgets |
 | Memory added by a painterly document | Default board under 8 MB, canvas latent about 4 B per touched pixel (about 5 MB at 30% coverage of 2048 x 2048), lookup 128 KB; at most 40 MB beyond today at the board cap |
 | Drawn brush (E9) | At most the tier's tuft count as short strokes and `maxPreviewCells` hair cells; under 0.5 ms draw per frame on BALANCED; allocation-free frame build |
 | Shading (E5) | One extra dot product and one `pow` approximation per shaded pixel; at most +10% on the existing impasto shade pass |
@@ -1164,18 +1200,18 @@ same way the tuft cap is frozen into the per-stroke brush snapshot, so live and 
 ## 7. Phased build plan
 
 Each phase ends in something usable. Ordering follows the standing rule that mechanics win over
-material work. Phases 1 to 3 need no new pigment model.
+material work. P1 and P2 need no new pigment model; P3 supplies it.
 
 | Phase | Deliver | Depends on | Exit gate |
 |---|---|---|---|
-| **P0 — Read-only groundwork** | Read the stamp-stroke persistence path (5.6 rule 5); read how a live stamp stroke reaches the wet simulation and `SAVE_RAW` (E3, now P5's first task); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
+| **P0 — Read-only groundwork** (done) | Read the stamp-stroke persistence path; read how a live stamp stroke reaches the wet simulation and `SAVE_RAW` (E3, now P5's first task); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
 | **P1 — Lift tail and the petal harness** (E6) | Phase-3 emit tests; "petal pull" test stroke in `PackRenderHarness`; proof-of-concept Loaded Petal Flat from today's features | P0 | Harness renders a recognisable petal; tests pin tail determinism and replay |
 | **P2 — Edge ridge and highlight** (E5) | `emit h`, `heightMul`, `sheen`, shading port, stamp-engine-diff scenario | P1 | Rim bead and dry highlight visible; CPU and wgpu parity within tolerance; `sheen = 0` byte-identical |
-| **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, pigment data format (`dataQuality`/`dataVersion`), ~12 placeholder tubes, **concentration quantiser (sum-255, largest remainder) with an error-bound test**, basis-latent lookup generator (4 fixed basis pigments, residual); **WGSL port of the per-pixel mixer and the lookup as a 3-D texture**; Rust parity test | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
+| **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, pigment data format (`dataQuality`/`dataVersion`), ~12 placeholder tubes, **concentration quantiser (sum-255 over 16 channels, largest remainder) with an error-bound test**, basis-latent lookup generator (4 fixed basis pigments, residual); **WGSL port of the per-pixel mixer** (`pigment.wgsl`) with a Rust parity test; the lookup's 3-D texture upload and sampling come with P5, where the transaction first uses them | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
 | **P4 — Brush load** (E2) | `load` block; Kotlin budget; **GPU load buffer** carried between batches and read back at stroke end; finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically (same device) |
-| **P4b — Live brush rendering** (E9) | `BrushPresentationFrame` accessor on the generator (read-only, allocation-free), Compose overlay (Off / Tip only / Full, default Tip only), anchor invariant, load-coloured tips from the Kotlin budget, golden frames; **no latency claim** | P4 (load) | Brush drawn at the contact point with splay, pressure flattening, tilt/azimuth where reported, depleting load; toggle Off changes nothing in strokes |
+| **P4b — Live brush rendering** (E9) | `BrushPresentationFrame` accessor on the generator (read-only, allocation-free), opaque Compose overlay (default on; a single non-promoted "Hide drawn brush" accessibility/power setting), anchor invariant, load-coloured tips from the Kotlin budget, golden frames; **no latency claim** | P4 (load) | Opaque brush drawn at the contact point with splay, pressure flattening, tilt/azimuth where reported or a held-brush pose otherwise, depleting load; hiding it changes nothing in strokes |
 | **P5 — Paint transaction** (E3) | **GPU `paint_transaction` pass**: sample, lift (consuming `avail` and the surface), draw, K-M wet mix; `snap_color`/`avail` buffers; Kotlin reference; Rust tests including the repeated-lift-cannot-refill case and own-deposit-not-lifted case | P3, P4 | Petal pull over wet paint picks up and blends; lifts deplete the source; parity within tolerance; replay-equality across an undo cycle |
-| **P6 — Palette/mixer replaces picker** | Board with **12-channel persisted concentration field and slot table**, **material sidecar v4 (`FLAG_CONCENTRATION`, `FLAG_LATENT`)** and codec tests (v3 fail-closed, v4 round trip), canvas basis-latent tiles written by the transaction, Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
+| **P6 — Palette/mixer replaces picker** | Board with **16-channel (12 tube + 4 basis) persisted concentration field and slot table**, **material sidecar v4 (`FLAG_CONCENTRATION`, `FLAG_LATENT`)** and codec tests (v3 fail-closed, v4 round trip), canvas basis-latent tiles written by the transaction, Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
 | **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
 | **P7b — Stroke capture and demo replay** | **Persistent stamp-stroke capture** (`StampStrokeRecord`: brush ref by pack id and version plus a params hash, stroke seed, full `BrushSample`s with tilt/time/phase, colour or recipe, size, opacity, canvas transform, substrate preset, wet-ledger prior film if the brush uses it) in a new per-layer project sidecar; a **replay consumer** that feeds recorded strokes through the editor's stroke pipeline at recorded timing; a `StrokeRecording` export/import; project-format version bump with a fail-closed reader | P7 | A recorded petal replays pixel-identically on the same device after reopen, and within tolerance on another; a pack plus a recording shares a demo |
 | **P8 — Watercolour engine** (E7) | GPU wicking/bleed (absorbency texture), granulation, edge flux in the ADVANCE family; Kotlin reference extended; Rust `cpu_advance` extended | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
@@ -1202,7 +1238,7 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
   `gradle/libs.versions.toml` (a grep for property/kotest/checkAll found nothing). Property-style
   tests below are written as seeded sweeps in plain `kotlin.test`, which is how the existing
   stress test (`AzphaltEngine2StressTest`) works.
-- CI has no emulator or GPU; `connectedAndroidTest` is not in the pipeline (status doc header).
+- CI has no emulator or physical GPU; `connectedAndroidTest` is not in the pipeline (status doc header). It does install Mesa's software Vulkan driver (lavapipe) and sets `GRAFFUX_REQUIRE_GPU=vulkan` so the Rust GPU tests run instead of skipping (`.github/workflows/merged-build.yml:69-75`); WGSL parity tests added by this spec run there.
   Real-device parity is manual.
 
 ### 8.2 What to add
@@ -1218,7 +1254,7 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
 | Golden images | Render the petal pull, the Loaded Petal Flat, and a six-brush strip through the harness and compare to committed PNGs with a per-pixel tolerance; images are regenerated only by an explicit script and reviewed by eye. Stay small (256 px) to keep the repository light |
 | CPU/GPU parity | New `tools/stamp-engine-diff` scenarios: dab with explicit pigment colour, `heightMul`, `sheen`; assert within the existing 1 to 2 level tolerance |
 | Layout parity | Extend `layout_parity.rs` for any appended dab slot |
-| Drawn brush | Golden frames (desktop CPU rasteriser of the overlay, committed PNGs, per-pixel tolerance) for brush x pose x pressure x load; **anchor invariant** (contact patch within 0.5 px of the dab centre across zoom, pan, rotation, layer transform and the 3D mapping); single-source test (overlay inputs are the generator's published frame, not recomputed); determinism (same samples give the same frame); toggle-Off leaves dabs byte-identical; frame-build cost relative guard |
+| Drawn brush | Golden frames (desktop CPU rasteriser of the overlay, committed PNGs, per-pixel tolerance) for brush x pose x pressure x load; **anchor invariant** (contact patch within 0.5 px of the dab centre across zoom, pan, rotation, layer transform and the 3D mapping); single-source test (overlay inputs are the generator's published frame, not recomputed); determinism (same samples give the same frame); hiding the brush leaves dabs byte-identical; frame-build cost relative guard |
 | Perf | A harness `peakOps` and wall-time guard over the demo pack; fail above the 6.7 budgets on the desktop test machine (a relative, not absolute, check) |
 | Accessibility | Compose semantics tests for names/descriptions/targets (min 48 dp); a colour-vision simulation unit test on the palette |
 | Manual device | Matrix on a low-end, a mid-range and a high-end device for budgets and for the felt quality of the petal pull; recorded, not CI |
@@ -1291,10 +1327,10 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 | Canvas cannot tell metamers apart | Two recipes with the same basis projection mix alike on the canvas | Stated in 6.2; tube identity lives on the board and in the brush's tube part; accept for v1 |
 | Concentration quantisation drift | Repeated mixes round to u8 each time | Largest-remainder rule; error-bound test; limit mixes per texel per stroke; P3 test of 50 repeated mixes |
 | Sidecar v4 | Older builds drop board/latent | Fail-closed per layer; board is regenerable from slot table only if the field survives, so back up is the project file |
-| Drawn brush hides the work | Occlusion, clutter | Tip-only default, translucent body, tiny-brush hairline, toggle (E9 item 4) |
+| The drawn brush covers the work | A user who cannot cope with a large moving object over the canvas | Intended behaviour, not a defect (owner direction); the non-default, non-promoted "Hide drawn brush" setting serves accessibility and low-power only (E9 item 4) |
 | Brush overlay lags the paint | Perceived lag gets worse | Overlay in a later layer than direct display: v1 makes no latency claim; v2 draws in the direct-display layer and is measured (E9 item 3) |
 | Drawn brush disagrees with the paint | Mistrust | One source: a read-only frame published by the same generator step; never recomputed (E9 item 1); the load picture is a budget corrected at stroke end |
-| Overlay cost on mid-range | Frame drops | Tuft cap by tier, under 0.5 ms target, drops to Tip-only for a frame, never delays paint |
+| Overlay cost on mid-range | Frame drops | Tuft cap by tier, under 0.5 ms target, drops to fewer hair cells for a frame, never delays paint |
 | Dab-level mixing looks banded against the canvas | Visible lane edges | Lane count tuned by tier; sub-pixel overlap; `mixWet` is a gradient, not a step |
 | K-M data quality | Colours look wrong or muddy | Source real data first (P0); golden vectors; allow tube tuning in packs |
 | 8-bit canvas quantisation of repeated mixes | Muddy drift after many mixes | Residual in the lookup keeps unmixed pixels exact; limit mixes per pixel per stroke; test with 50 repeated mixes |
