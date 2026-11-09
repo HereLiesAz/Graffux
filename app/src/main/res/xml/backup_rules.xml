@@ -4,6 +4,10 @@
      device without passing the install flow again. The entitlement store holds the
      buyer-session cookie, a bearer credential, so it never leaves the device either. -->
 <full-backup-content>
+    <!-- Auto Backup is capped at about 25 MB per app: over it, the WHOLE backup fails, settings included. Projects
+         (layer bitmaps) and downloaded models are large and are the usual way to exceed it, so they stay out. -->
+    <exclude domain="file" path="projects" />
+    <exclude domain="file" path="models" />
     <exclude domain="file" path="extensions" />
     <exclude domain="file" path="azphalt-state.json" />
     <exclude domain="file" path="azphalt-trust-keys.json" />

@@ -7,10 +7,14 @@
      reinstalls on the new device. The trust cache is re-fetched, and the state store describes
      extensions that will not exist after restore. The entitlement store (and its .bak/.tmp/.corrupt
      siblings) holds the buyer-session cookie, a bearer credential, and is restored from the store
-     instead (Restore purchases). Projects, settings and everything else are backed up
-     as before. -->
+     instead (Restore purchases). Projects and downloaded models are too large for the cloud backup's cap
+     (see the comments below) and are left out of it; settings and everything else are backed up as before. -->
 <data-extraction-rules>
     <cloud-backup>
+        <!-- Cloud backup is capped at about 25 MB: over it the whole backup fails, settings included. Projects (layer
+             bitmaps) and downloaded models are large, so they stay out of it. -->
+        <exclude domain="file" path="projects" />
+        <exclude domain="file" path="models" />
         <exclude domain="file" path="extensions" />
         <exclude domain="file" path="azphalt-state.json" />
         <exclude domain="file" path="azphalt-trust-keys.json" />
@@ -21,6 +25,8 @@
         <exclude domain="file" path="azphalt-entitlements.json.corrupt" />
     </cloud-backup>
     <device-transfer>
+        <!-- No size cap here, so projects travel with the user to a new phone; downloaded models are fetched again. -->
+        <exclude domain="file" path="models" />
         <exclude domain="file" path="extensions" />
         <exclude domain="file" path="azphalt-state.json" />
         <exclude domain="file" path="azphalt-trust-keys.json" />

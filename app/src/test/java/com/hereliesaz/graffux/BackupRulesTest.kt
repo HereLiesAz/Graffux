@@ -31,4 +31,19 @@ class BackupRulesTest {
         val excluded = excludes("src/main/res/xml/backup_rules.xml", null)
         assertTrue("backup_rules misses ${files - excluded}", excluded.containsAll(files))
     }
+
+    @Test fun `the large directories stay out of cloud backup so it cannot exceed the cap and fail whole`() {
+        val rules = "src/main/res/xml/data_extraction_rules.xml"
+        val big = setOf("projects", "models")
+        val cloud = excludes(rules, "cloud-backup")
+        assertTrue("cloud-backup misses ${big - cloud}", cloud.containsAll(big))
+        val legacy = excludes("src/main/res/xml/backup_rules.xml", null)
+        assertTrue("backup_rules misses ${big - legacy}", legacy.containsAll(big))
+    }
+
+    @Test fun `device transfer keeps projects but not downloaded models`() {
+        val transfer = excludes("src/main/res/xml/data_extraction_rules.xml", "device-transfer")
+        assertTrue("models are fetched again", "models" in transfer)
+        assertTrue("projects travel to a new phone", "projects" !in transfer)
+    }
 }
