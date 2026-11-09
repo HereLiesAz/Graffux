@@ -103,6 +103,34 @@ class ModelSpaceTest {
     }
 
     @Test
+    fun `sampling along a segment shows where the surface runs out`() {
+        val frame = SceneMath.frame(SceneCamera(), w, h)
+        val toScene = ModelSpace.meshToScene(listOf(PlanePose()), quad, w, h)
+        val cx = w / 2f
+        val cy = h / 2f
+        val half = ModelSpace.FRAME_FRACTION * h
+        // Centre to well past the quad's right edge, one sample per 20 px.
+        val hits = ModelSpace.pickAlong(
+            quad, ModelSpace.Segment(cx, cy, cx + 2 * half, cy), toScene, frame, stepPx = 20f,
+        )
+        assertEquals(ModelSpace.MAX_PICK_SAMPLES, hits.size)
+        assertNotNull("the first sample is on the quad", hits.first())
+        assertNull("the destination is off it", hits.last())
+        // Hit, hit, ..., miss, miss: once it leaves it does not come back.
+        val firstMiss = hits.indexOfFirst { it == null }
+        assertTrue(hits.drop(firstMiss).all { it == null })
+    }
+
+    @Test
+    fun `a zero-length segment is one sample at the point`() {
+        val frame = SceneMath.frame(SceneCamera(), w, h)
+        val toScene = ModelSpace.meshToScene(listOf(PlanePose()), quad, w, h)
+        val hits = ModelSpace.pickAlong(quad, ModelSpace.Segment(w / 2f, h / 2f, w / 2f, h / 2f), toScene, frame, 5f)
+        assertEquals(1, hits.size)
+        assertNotNull(hits.single())
+    }
+
+    @Test
     fun `a model layer is a 3D layer and always a depth-pass member`() {
         val model = Layer("m", "M", model = ModelLayerContent("model_m.obj"))
         assertTrue(model.is3DIn(listOf(model)))

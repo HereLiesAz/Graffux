@@ -217,4 +217,20 @@ class TexturePaintTest {
         assertEquals(TexturePaint.MIN_RADIUS_TEXELS, TexturePaint.radiusTexels(0.01f, 0.01f, null, 512f)!!, 0f)
         assertEquals(512f, TexturePaint.radiusTexels(1000f, 100f, null, 512f)!!, 0f)
     }
+
+    // ── Islands decide the seam ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun `connected overrides the uv-distance guess in both directions`() {
+        // A long step on one big island is a real stroke, not a seam: 0.3 of the texture.
+        val long = TexturePaint.UvStep(0.1f, 0.5f, 0.4f, 0.5f)
+        val joined = TexturePaint.stampsAlong(long, width, height, spacingPx = 8f, connected = true)
+        assertTrue("joined across ${joined.size} stamps", joined.size > 10)
+        // A short step between two islands is a seam, however close their texels are.
+        val short = TexturePaint.UvStep(0.45f, 0.5f, 0.55f, 0.5f)
+        assertEquals(1, TexturePaint.stampsAlong(short, width, height, spacingPx = 4f, connected = false).size)
+        // With no mesh to ask, the old guess still applies.
+        assertEquals(1, TexturePaint.stampsAlong(long, width, height, spacingPx = 8f, connected = null).size)
+        assertTrue(TexturePaint.stampsAlong(short, width, height, spacingPx = 4f, connected = null).size > 1)
+    }
 }

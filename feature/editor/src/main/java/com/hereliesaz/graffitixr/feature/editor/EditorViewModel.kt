@@ -14013,6 +14013,10 @@ class EditorViewModel @Inject constructor(
         var lastUv: Pair<Float, Float>? = null
         /** The last radius painted, kept across a triangle with no usable texel scale. */
         var lastRadius: Float? = null
+        /** The triangle [lastUv] is on, to tell a joined step from a seam crossing. */
+        var lastTriangle: Int = -1
+        /** The canvas point of the previous move, where the next move's samples start from. */
+        var lastWorld: Offset? = null
         var edited = false
         var version = 0L
     }
@@ -14115,10 +14119,12 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The finger moved: dabs from the last surface point to the one under [world], in texture
-     * space (seams break the stroke rather than paint across the texture). The brush's on-screen
-     * size is converted to texels at the hit. A miss ends the run, so leaving the silhouette and
-     * coming back does not draw through the gap. The first dab opens the stroke's undo step.
+     * The finger moved: dabs from the last surface point to the surface under [world], in texture
+     * space. The move is sampled along the way ([com.hereliesaz.graffitixr.common.scene.ModelSpace.pickAlong]),
+     * so a fast flick across a silhouette does not draw a chord through paint the finger never
+     * crossed: a sample that misses ends the run, and consecutive hits are joined only within one UV
+     * island (a step across an island boundary paints only its destination). The brush's on-screen
+     * size is converted to texels at each hit. The first dab opens the stroke's undo step.
      */
     @Suppress("ReturnCount")
     fun onModelPaintMove(world: Offset) {
@@ -14132,35 +14138,87 @@ class EditorViewModel @Inject constructor(
         val toScene = com.hereliesaz.graffitixr.common.scene.ModelSpace
             .meshToScene(planeChain(st.layers, layer.id), mesh, w, h)
         val frame = SceneMath.frame(st.sceneCamera, w, h)
-        val hit = com.hereliesaz.graffitixr.common.scene.ModelSpace.pick(mesh, world.x, world.y, toScene, frame)
-        if (hit == null) {
-            stroke.lastUv = null
-            return
+        val from = stroke.lastWorld ?: world
+        stroke.lastWorld = world
+        val step = (st.brushSize / st.viewportZoom.coerceAtLeast(0.01f) / 2f).coerceAtLeast(MIN_MODEL_PICK_STEP_PX)
+        val hits = com.hereliesaz.graffitixr.common.scene.ModelSpace.pickAlong(
+            mesh,
+            com.hereliesaz.graffitixr.common.scene.ModelSpace.Segment(from.x, from.y, world.x, world.y),
+            toScene, frame, step,
+        )
+        var painted = false
+        for (hit in hits) {
+            if (hit == null) {
+                stroke.lastUv = null
+                stroke.lastTriangle = -1
+            } else if (paintModelHit(stroke, st, mesh, toScene to frame, hit)) {
+                painted = true
+            }
         }
+        if (!painted) return
+        stroke.version++
+        val draft = com.hereliesaz.graffitixr.common.scene.ModelDraft(layer.id, stroke.surface.bitmap, stroke.version)
+        updateUi { it.copy(modelDraft = draft) }
+    }
+
+    /** Paints the dabs from the stroke's last surface point to [hit]. Whether anything was painted. */
+    private fun paintModelHit(
+        stroke: ModelStroke,
+        st: EditorUiState,
+        mesh: com.hereliesaz.graffitixr.common.scene.ModelMesh,
+        view: Pair<com.hereliesaz.graffitixr.common.scene.Affine3, com.hereliesaz.graffitixr.common.scene.CameraFrame>,
+        hit: com.hereliesaz.graffitixr.common.mesh.MeshPicker.Hit,
+    ): Boolean {
         val surface = stroke.surface
         val texels = com.hereliesaz.graffitixr.common.scene.ModelSpace.texelsPerPixel(
-            mesh, hit.triangleIndex, toScene, frame, surface.width, surface.height,
+            mesh, hit.triangleIndex, view.first, view.second, surface.width, surface.height,
         )
         // The slider's size is on-screen pixels, so it is divided by zoom (the scene's 3D sketch
         // brush does the same). A triangle with no usable texel scale keeps the radius the stroke
         // already had; before, it fell back to a scale of 1 and the line jumped in width.
         val radius = com.hereliesaz.graffitixr.common.mesh.TexturePaint.radiusTexels(
             st.brushSize / st.viewportZoom.coerceAtLeast(0.01f), texels, stroke.lastRadius, MAX_MODEL_BRUSH_TEXELS,
-        ) ?: return
+        ) ?: return false
         stroke.lastRadius = radius
-        val from = stroke.lastUv ?: (hit.u to hit.v)
-        val stamps = com.hereliesaz.graffitixr.common.mesh.TexturePaint.stamps(
-            from.first, from.second, hit.u, hit.v, surface.width, surface.height, spacingPx = radius / 4f,
+        val last = stroke.lastUv
+        val from = last ?: (hit.u to hit.v)
+        val connected = last == null || mesh.islands.sameIsland(stroke.lastTriangle, hit.triangleIndex)
+        val stamps = com.hereliesaz.graffitixr.common.mesh.TexturePaint.stampsAlong(
+            com.hereliesaz.graffitixr.common.mesh.TexturePaint.UvStep(from.first, from.second, hit.u, hit.v),
+            surface.width, surface.height, spacingPx = radius / 4f, connected = connected,
         )
         if (!stroke.edited) {
             stroke.edited = true
             pushHistory()
         }
+        surface.clipTo(islandClip(mesh, hit.triangleIndex, stamps, radius, surface))
         surface.stamp(stamps, st.activeColor.toArgb(), radius, erase = stroke.erase)
         stroke.lastUv = hit.u to hit.v
-        stroke.version++
-        val draft = com.hereliesaz.graffitixr.common.scene.ModelDraft(layer.id, surface.bitmap, stroke.version)
-        updateUi { it.copy(modelDraft = draft) }
+        stroke.lastTriangle = hit.triangleIndex
+        return true
+    }
+
+    /**
+     * The UV triangles of [triangle]'s island that [stamps] (with their [radius] and its feather)
+     * can reach on [surface], to clip the dab to; null when the island tiles the texture (no clip
+     * can express that) or the mesh has no such island.
+     */
+    private fun islandClip(
+        mesh: com.hereliesaz.graffitixr.common.scene.ModelMesh,
+        triangle: Int,
+        stamps: List<com.hereliesaz.graffitixr.common.mesh.TexturePaint.Stamp>,
+        radius: Float,
+        surface: PaintableTexture,
+    ): FloatArray? {
+        val island = mesh.islands.islandOf(triangle)
+        if (island < 0 || !mesh.islands.inUnitSquare(island) || stamps.isEmpty()) return null
+        // The feather can reach another radius past the dab's edge.
+        val reach = radius * 2f + 1f
+        val area = com.hereliesaz.graffitixr.common.mesh.UvIslands.UvBox(
+            (stamps.minOf { it.x } - reach) / surface.width, (stamps.minOf { it.y } - reach) / surface.height,
+            (stamps.maxOf { it.x } + reach) / surface.width, (stamps.maxOf { it.y } + reach) / surface.height,
+        )
+        return mesh.islands.trianglesNear(island, area).takeIf { it.isNotEmpty() }
     }
 
     /** The stroke ended: its pixels become the layer's new texture revision (the step already open). */
@@ -16233,6 +16291,9 @@ private const val MIN_LAYER_DEPTH_FRACTION = 0.05f
 
 /** The largest dab radius a model brush paints, in texels. */
 private const val MAX_MODEL_BRUSH_TEXELS = 512f
+
+/** The finest canvas-pixel spacing a move is sampled at along the surface, however small the brush. */
+private const val MIN_MODEL_PICK_STEP_PX = 4f
 
 private const val HALF_TURN_DEG = 180f
 private const val FULL_TURN_DEG = 360f
