@@ -83,10 +83,13 @@ canvas gesture handlers are keyed so a state write on every step never restarts 
 ### Rotation triangle
 
 With an **active 3D surface group** (`EditorViewModel.rotationGizmoVisible`: the active layer is paint on, or
-is, a group with a surface, and it is not locked) a right triangle (`RotationGizmo`) sits in the right
-corner, on the top edge of the bottom sheet (`RotationGizmoDock`; the sheet reports its top edge through
-`CarouselSheet.onTopChanged`, so the triangle moves with the sheet as it opens, closes and is dragged) and on
-the bottom safe area, the slider's line, when no sheet is shown. It is in from the edge by a rail's width.
+is, a group with a surface, and it is not locked) a small right triangle (`RotationGizmo`, drawn at half size,
+`GIZMO_DEFAULT_SCALE`) sits in the bottom corner on the brush hand's side (`RotationGizmoDock`, from
+`EditorUiState.isRightHanded`): **bottom-right for a right-handed user, bottom-left for a left-handed one**. It is
+in from the screen edge by a margin plus the system gesture, navigation-bar and cutout insets, so it stays off the
+gesture areas, and it stays clear of the bottom sheet's handle in the middle. It does **not** follow the sheet: it
+is the same with the sheet open, closed or dragged, and is composed after the sheet so it is above it. The layers
+rail, which is on that side, stops above it while it shows. Only the glyph is small: each touch band is still 48dp.
 Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical leg is Y** (pink), the
 **hypotenuse is Z** (green), the rail's axis colours.
 

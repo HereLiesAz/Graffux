@@ -50,7 +50,7 @@ class RotationGizmoUiTest {
                 Modifier.fillMaxSize().pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); canvasDowns++ } },
                 contentAlignment = Alignment.Center,
             ) {
-                RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { a, d -> steps += a to d })
+                RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { a, d -> steps += a to d }, scale = 1f)
             }
         }
     }
@@ -145,106 +145,228 @@ class RotationGizmoUiTest {
         )
     }
 
-    // xhdpi: legs 352 x 240 px, band 96, so the full box is 336 px tall.
-    private fun placement(container: Float, sheetTop: Float, topInset: Float = 48f) =
-        gizmoPlacement(container, safeBottomPx = 40f, sheetTop = sheetTop, gapPx = 16f, topInsetPx = topInset, legHeightPx = 240f, bandPx = 96f)
+    // ---- docking: the small triangle in the bottom corner on the brush hand's side ----
 
-    private fun assertOnScreen(p: GizmoPlacement, container: Float, topInset: Float) {
-        val boxH = 240f * p.scale + 96f
-        assertTrue("top ${p.bottom - boxH} below inset $topInset", p.bottom - boxH >= topInset - 0.01f)
-        assertTrue("bottom ${p.bottom} within $container", p.bottom <= container + 0.01f)
-        assertTrue("scale ${p.scale}", p.scale in GIZMO_MIN_SCALE..1f)
-    }
+    private val handleHalfWidthDp = 32f // the sheet's centred handle/name pill is assumed no wider than 64dp
 
-    @Test
-    fun `with room the triangle is full size on the sheet`() {
-        val p = placement(1600f, 1000f)
-        assertEquals(1f, p.scale, 0f)
-        assertEquals(984f, p.bottom, 0f)
-        // No sheet: the safe area (container less the bottom inset).
-        assertEquals(1560f, placement(1600f, Float.NaN).bottom, 0f)
-    }
-
-    @Test
-    fun `at the sheet's full detent in a 600dp window the triangle stays on screen`() {
-        // 600dp = 1200px; the grid alone is 80% of the height, so the sheet's top is at 240px.
-        val p = placement(1200f, 240f)
-        assertOnScreen(p, 1200f, 48f)
-        assertTrue("shrunk", p.scale < 1f)
-    }
-
-    @Test
-    fun `in landscape the triangle stays on screen, shrinking then overlapping the sheet`() {
-        // 360dp high = 720px, sheet top at 144px: no room above it at all.
-        val p = placement(720f, 144f)
-        assertOnScreen(p, 720f, 48f)
-        assertEquals(GIZMO_MIN_SCALE, p.scale, 0f)
-    }
-
-    @Test
-    fun `placement never leaves the screen for any sheet height`() {
-        for (container in listOf(600f, 720f, 1200f, 2400f)) {
-            for (sheetTop in 0..container.toInt() step 20) {
-                assertOnScreen(placement(container, sheetTop.toFloat()), container, 48f)
-            }
-        }
-    }
-
-    @Test
-    fun `the dock keeps the rendered triangle inside the window at the full detent`() {
-        rule.setContent {
-            RotationGizmoDock(sheetTop = { 240f }, sideClearance = 0.dp) {
-                RotationGizmo({ _, _ -> }, {}, { _, _ -> }, scale = it)
-            }
-        }
-        rule.waitForIdle()
-        val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
-        assertTrue("top ${b.top}", b.top >= 0f)
-        assertTrue("height ${b.height}", b.height >= 96f * 1.5f)
-    }
-
-    @Test
-    fun `a sheet that appears after the triangle shrinks it, from the current sheet top not the first`() {
-        var sheetUp by androidx.compose.runtime.mutableStateOf(false)
-        rule.setContent {
-            // The lambda captures the value of this composition, as MainActivity's captures carouselOnScreen.
-            val top = if (sheetUp) 240f else Float.NaN
-            RotationGizmoDock(sheetTop = { top }, sideClearance = 0.dp) {
-                RotationGizmo({ _, _ -> }, {}, { _, _ -> }, scale = it)
-            }
-        }
-        rule.waitForIdle()
-        val full = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot.height
-        rule.runOnIdle { sheetUp = true }
-        rule.waitForIdle()
-        val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
-        assertTrue("shrunk from $full to ${b.height}", b.height < full)
-        assertTrue("top ${b.top}", b.top >= 0f)
-    }
-
-    @Test
-    fun `where the triangle overlaps the sheet it is above it, and the sheet still takes touches outside the bands`() {
-        var sheetDowns = 0
+    private fun dockInWindow(rightHanded: Boolean, sheetDowns: IntArray? = null) {
         rule.setContent {
             Box(Modifier.fillMaxSize()) {
-                // The sheet first, the dock after it, as MainActivity composes them.
-                Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); sheetDowns++ } })
-                RotationGizmoDock(sheetTop = { 100f }, sideClearance = 0.dp) {
-                    RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { _, _ -> }, scale = it)
+                // the sheet first, the dock after it, as MainActivity composes them
+                Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitEachGesture { awaitFirstDown(); sheetDowns?.let { it[0]++ } } })
+                RotationGizmoDock(rightHanded = rightHanded) {
+                    RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { a, d -> steps += a to d }, scale = it)
                 }
             }
         }
         rule.waitForIdle()
-        val b = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
-        assertTrue("overlaps the sheet", b.bottom > 100f)
-        rule.onNodeWithTag("rotationGizmo").performTouchInput {
-            down(Offset(width / 2f, height - 48f)); moveBy(Offset(60f, 0f)); up()
-        }
+    }
+
+    private fun box() = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
+
+    @Test
+    fun `right-handed, the small triangle is in the bottom-right corner`() {
+        dockInWindow(rightHanded = true)
+        val b = box()
+        val w = 390f * 2f
+        val h = 844f * 2f
+        assertTrue("right edge ${b.right} in the right-hand corner", b.right > w - 40f && b.right <= w)
+        assertTrue("bottom ${b.bottom} in the bottom corner", b.bottom > h - 40f && b.bottom <= h)
+        assertTrue("left ${b.left} is in the right half", b.left > w / 2f)
+    }
+
+    @Test
+    fun `left-handed, the small triangle is in the bottom-left corner`() {
+        dockInWindow(rightHanded = false)
+        val b = box()
+        val w = 390f * 2f
+        val h = 844f * 2f
+        assertTrue("left edge ${b.left} in the left-hand corner", b.left >= 0f && b.left < 40f)
+        assertTrue("bottom ${b.bottom} in the bottom corner", b.bottom > h - 40f && b.bottom <= h)
+        assertTrue("right ${b.right} is in the left half", b.right < w / 2f)
+    }
+
+    @Test
+    fun `it is noticeably smaller than before but its touch bands stay 48dp`() {
+        dockInWindow(rightHanded = true)
+        val b = box()
+        val fullBox = (GizmoWidth.value + GizmoBand.value) * 2f
+        assertTrue("narrower than the old ${fullBox}px: ${b.width}", b.width < fullBox * 0.85f)
+        assertEquals((GizmoWidth.value * GIZMO_DEFAULT_SCALE + GizmoBand.value) * 2f, b.width, 1f)
+        assertEquals(48f, GizmoBand.value, 0f)
+        // a drag on the bottom band (96px thick at xhdpi) works, so the 48dp target is intact
+        rule.onNodeWithTag("rotationGizmo").performTouchInput { down(Offset(width / 2f, height - 48f + 40f)); moveBy(Offset(20f, 0f)); up() }
         rule.waitForIdle()
-        assertEquals("the sheet did not take the band touch", 0, sheetDowns)
         assertTrue(turns.isNotEmpty())
+    }
+
+    @Test
+    fun `right-handed it keeps clear of the sheet's handle in the middle`() {
+        dockInWindow(rightHanded = true)
+        val centre = 390f // px, half of the 780px window
+        assertTrue("box starts at ${box().left}", box().left >= centre + handleHalfWidthDp * 2f)
+    }
+
+    @Test
+    fun `left-handed it keeps clear of the sheet's handle in the middle`() {
+        dockInWindow(rightHanded = false)
+        val centre = 390f
+        assertTrue("box ends at ${box().right}", box().right <= centre - handleHalfWidthDp * 2f)
+    }
+
+    @Test
+    fun `the corner keeps clear of the gesture insets and margin`() {
+        val at = gizmoCorner(1000, 2000, 300, 250, rightHanded = true, left = 40, right = 60, bottom = 120)
+        assertEquals(1000 - 60 - 300, at.x)
+        assertEquals(2000 - 120 - 250, at.y)
+        val lh = gizmoCorner(1000, 2000, 300, 250, rightHanded = false, left = 40, right = 60, bottom = 120)
+        assertEquals(40, lh.x)
+        assertEquals(2000 - 120 - 250, lh.y)
+    }
+
+    @Test
+    fun `it works with a sheet open or closed, above it and without taking the sheet's other touches`() {
+        val downs = IntArray(1)
+        dockInWindow(rightHanded = true, sheetDowns = downs)
+        // a band touch is the gizmo's, not the sheet's
+        rule.onNodeWithTag("rotationGizmo").performTouchInput { down(Offset(width / 2f, height - 48f)); moveBy(Offset(60f, 0f)); up() }
+        rule.waitForIdle()
+        assertEquals(0, downs[0])
+        assertTrue(turns.isNotEmpty())
+        // and a touch in the box's empty corner still reaches whatever is under it (the sheet)
         rule.onNodeWithTag("rotationGizmo").performTouchInput { down(Offset(4f, 4f)); up() }
         rule.waitForIdle()
-        assertEquals(1, sheetDowns)
+        assertEquals(1, downs[0])
+    }
+
+    // ---- the set wheel owns its corner: the triangle's bands slide up the edge to clear it ----
+
+    private val wheelSections = listOf(
+        CarouselTabSection(
+            "ALL",
+            listOf("Favorites", "Round", "Flat").map { CarouselTabGroup(it, it, CarouselCategory.BRUSHES, emptyList()) },
+        ),
+    )
+
+    private fun dockWithWheel(rightHanded: Boolean) {
+        val bounds = androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalSetWheelOnRight provides rightHanded,
+                LocalSetWheelBounds provides bounds,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselTabList(wheelSections, "Favorites", onSelect = {})
+                    }
+                    RotationGizmoDock(rightHanded = rightHanded, avoid = { bounds.value }) {
+                        RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { a, d -> steps += a to d }, scale = it)
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+    }
+
+    private fun wheel() = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
+
+    private fun assertClearOfWheel(touchXdp: Float) {
+        val b = box()
+        val wb = wheel()
+        assertTrue("triangle box ${b.top}..${b.bottom} is above the wheel top ${wb.top}", b.bottom <= wb.top + 0.5f)
+        // the 390dp example: a touch 50dp above the bottom edge at this x is on the wheel, not on a triangle band
+        val x = touchXdp * 2f
+        val y = 844f * 2f - 50f * 2f
+        assertTrue("that point is on the wheel", wb.contains(Offset(x, y)))
+        assertTrue("and not in the triangle's box", !b.contains(Offset(x, y)))
+    }
+
+    @Test
+    fun `right-handed with the set wheel open, the triangle clears the wheel and the touch at 330dp reaches the wheel`() {
+        dockWithWheel(rightHanded = true)
+        assertClearOfWheel(330f)
+        val b = box()
+        assertTrue("still in the right-hand corner column", b.right > 780f - 40f)
+        assertTrue("on screen", b.top >= 0f)
+    }
+
+    @Test
+    fun `left-handed with the set wheel open, the triangle clears the wheel and a touch at 60dp reaches the wheel`() {
+        dockWithWheel(rightHanded = false)
+        assertClearOfWheel(60f)
+        assertTrue("still in the left-hand corner column", box().left < 40f)
+    }
+
+    @Test
+    fun `with no wheel the triangle sits in the corner as before`() {
+        dockInWindow(rightHanded = true)
+        assertTrue(box().bottom > 844f * 2f - 40f)
+    }
+
+    @Test
+    fun `gizmoCorner slides only as far as needed and only when it overlaps`() {
+        val wheel = androidx.compose.ui.geometry.Rect(100f, 1900f, 900f, 2000f)
+        val clear = gizmoCorner(1000, 2000, 300, 250, true, 0, 0, 0, avoid = wheel, gap = 10)
+        assertEquals(1900 - 10 - 250, clear.y)
+        // a wheel that does not reach the box's columns changes nothing
+        val side = androidx.compose.ui.geometry.Rect(0f, 1900f, 600f, 2000f)
+        assertEquals(2000 - 250, gizmoCorner(1000, 2000, 300, 250, true, 0, 0, 0, avoid = side, gap = 10).y)
+    }
+
+    // ---- the layers rail stops above the triangle, wherever the triangle is ----
+
+    /** Codex's example: 390 x 844dp (xhdpi: 780 x 1688px), a retained 24dp nav inset, the set wheel open. */
+    @Test
+    fun `the rail stops above the triangle's top when the wheel lifts it, with a retained nav inset`() {
+        val d = 2
+        val navInset = 24 * d
+        val margin = 8 * d
+        val boxW = ((GizmoWidth.value * GIZMO_DEFAULT_SCALE + GizmoBand.value) * d).toInt()
+        val boxH = ((GizmoHeight.value * GIZMO_DEFAULT_SCALE + GizmoBand.value) * d).toInt()
+        val wheelTop = 1688 - navInset - 76 * d
+        for (right in listOf(true, false)) {
+            val wheelX = if (right) 780f - 272 * d else 0f
+            val wheel = androidx.compose.ui.geometry.Rect(wheelX, wheelTop.toFloat(), wheelX + 272 * d, 1688f - navInset)
+            for (avoid in listOf(wheel, null)) {
+                val at = gizmoCorner(780, 1688, boxW, boxH, right, margin, margin, navInset + margin, avoid, margin)
+                val occupied = 1688 - at.y
+                // the rail's container ends at the bottom safe inset; its bottom edge in root px:
+                val clearance = gizmoRailClearancePx(occupied, navInset, margin)
+                val railBottomRoot = 1688 - navInset - clearance
+                assertTrue(
+                    "right=$right wheel=${avoid != null}: rail bottom $railBottomRoot above triangle top ${at.y}",
+                    railBottomRoot <= at.y - margin + 1,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `no triangle needs no rail clearance`() {
+        assertEquals(0, gizmoRailClearancePx(0, 48, 16))
+    }
+
+    @Test
+    fun `the dock reports the height it occupies, from the same position it places the triangle at`() {
+        var occupied = 0
+        val bounds = androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalSetWheelOnRight provides true,
+                LocalSetWheelBounds provides bounds,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselTabList(wheelSections, "Favorites", onSelect = {})
+                    }
+                    RotationGizmoDock(rightHanded = true, avoid = { bounds.value }, onOccupied = { occupied = it }) {
+                        RotationGizmo({ _, _ -> }, {}, { _, _ -> }, scale = it)
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val b = box()
+        assertEquals(1688f - b.top, occupied.toFloat(), 1f)
     }
 }

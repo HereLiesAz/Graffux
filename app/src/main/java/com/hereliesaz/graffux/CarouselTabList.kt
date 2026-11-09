@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -247,7 +249,12 @@ internal fun CarouselTabList(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = if (onRight) Arrangement.End else Arrangement.Start,
         ) {
-            CarouselSetWheel(sets, labels, selectedKey, wheelWidth, wheelHeight, onSelect)
+            val sink = LocalSetWheelBounds.current
+            androidx.compose.runtime.DisposableEffect(sink) { onDispose { sink?.value = null } }
+            CarouselSetWheel(
+                sets, labels, selectedKey, wheelWidth, wheelHeight, onSelect,
+                modifier = Modifier.onGloballyPositioned { sink?.value = it.boundsInRoot() },
+            )
         }
     }
 }

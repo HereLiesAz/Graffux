@@ -9,14 +9,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
-import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,8 +32,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -45,56 +42,62 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.scene.RotationTriangle
 import com.hereliesaz.graffitixr.common.scene.TriangleEdge
 import kotlin.math.max
-import kotlin.math.min
 
 /** The triangle's legs and touch band, in dp. The bands are the 48dp minimum touch size. */
 internal val GizmoWidth = 176.dp
 internal val GizmoHeight = 120.dp
 internal val GizmoBand = 48.dp
 
-/** The gap between the triangle's bottom edge and the top of the sheet it rides on. */
-internal val GizmoSheetGap = 8.dp
+/** How much of its full size the docked triangle's legs are drawn at (the 48dp touch bands never shrink). */
+internal const val GIZMO_DEFAULT_SCALE = 0.5f
+
+/** The gap kept between the docked triangle's box and the screen edges and system gesture areas. */
+internal val GizmoEdgeMargin = 8.dp
 
 /** The spoken name of an edge's axis, "Rotate X". */
 internal fun TriangleEdge.label(): String = "Rotate ${axis.name}"
 
-/** The smallest the legs shrink to (the 48dp bands never shrink). */
-internal const val GIZMO_MIN_SCALE = 0.6f
-
-/** Where the triangle goes: its box's bottom edge (container px) and the scale of its legs. */
-internal data class GizmoPlacement(val bottom: Float, val scale: Float)
+/**
+ * Where the docked triangle's box goes: the bottom corner on the brush hand's side ([rightHanded]: bottom-right,
+ * else bottom-left), [left], [right] and [bottom] pixels in from the container's edges (the system gesture areas
+ * and margin). Pure, so both handednesses can be tested.
+ */
+internal fun gizmoCorner(
+    containerWidth: Int,
+    containerHeight: Int,
+    boxWidth: Int,
+    boxHeight: Int,
+    rightHanded: Boolean,
+    left: Int,
+    right: Int,
+    bottom: Int,
+    /** A control with touch priority (the set wheel) the triangle's box must stay off, in container px. */
+    avoid: androidx.compose.ui.geometry.Rect? = null,
+    gap: Int = 0,
+): IntOffset {
+    val x = max(0, if (rightHanded) containerWidth - right - boxWidth else left)
+    var y = containerHeight - bottom - boxHeight
+    // Slide up the screen edge, no further than needed, when the box would overlap the avoided control.
+    val overlapsColumns = avoid != null && x < avoid.right && x + boxWidth > avoid.left
+    if (avoid != null && overlapsColumns && y + boxHeight > avoid.top) {
+        y = (avoid.top - gap - boxHeight).toInt()
+    }
+    return IntOffset(x, max(0, y))
+}
 
 /**
- * Where the triangle goes (spec/3d-space.md, "Rotation triangle"). Ideally its bottom edge is [gapPx] above the
- * top of the sheet ([sheetTop], container px, NaN with no sheet), and never lower than the bottom safe area.
- * When that leaves less than its full height below the top inset ([topInsetPx]) (the sheet at its full detent, a
- * short window, landscape) the legs shrink, down to [GIZMO_MIN_SCALE] (the [bandPx] touch bands stay full size);
- * if even that does not fit, it is held at the top inset and overlaps the sheet's top, so it is always fully on
- * screen and usable.
+ * How far the layers rail must stop short of the screen's bottom so it ends [gapPx] above the triangle's top: the
+ * triangle occupies [occupiedPx] of the container's height (from [gizmoCorner]'s position, wheel and insets
+ * included), and the rail's own container already excludes [safeBottomPx]. 0 with no triangle.
  */
-internal fun gizmoPlacement(
-    containerHeight: Float,
-    safeBottomPx: Float,
-    sheetTop: Float,
-    gapPx: Float,
-    topInsetPx: Float,
-    legHeightPx: Float,
-    bandPx: Float,
-): GizmoPlacement {
-    val floor = containerHeight - safeBottomPx
-    val ideal = if (sheetTop.isNaN()) floor else min(floor, sheetTop - gapPx)
-    val scale = ((ideal - topInsetPx - bandPx) / legHeightPx).coerceIn(GIZMO_MIN_SCALE, 1f)
-    val boxHeight = legHeightPx * scale + bandPx
-    val bottom = max(ideal, topInsetPx + boxHeight).coerceAtMost(containerHeight)
-    return GizmoPlacement(bottom, scale)
-}
+internal fun gizmoRailClearancePx(occupiedPx: Int, safeBottomPx: Int, gapPx: Int): Int =
+    if (occupiedPx <= 0) 0 else max(0, occupiedPx - safeBottomPx + gapPx)
 
 /** The clip that makes only the touch bands take pointer input: their union as an outline. */
 private class BandsShape(private val triangle: RotationTriangle, private val inset: Float) : Shape {
@@ -261,58 +264,45 @@ private fun GizmoLetter(letter: String, at: IntOffset, edge: TriangleEdge) {
 }
 
 /**
- * Puts the triangle in the right corner, riding the top edge of the bottom sheet (it moves with the sheet as
- * it opens, closes and resizes), or in the bottom safe area when no sheet is shown. [sheetTop] is read at
- * layout time only: the sheet's top in root pixels, NaN with no sheet. [sideClearance] keeps it in from the
- * edge, clear of the rails. The container takes no pointer input.
+ * Puts the triangle in the bottom corner on the brush hand's side, clear of the system gesture areas, the
+ * navigation bar and any cutout, whatever the bottom sheet is doing: it does not follow the sheet. It is small
+ * and tucked into the corner so it stays off the sheet's handle in the middle. The container takes no pointer
+ * input; the triangle's three touch bands do.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun RotationGizmoDock(
-    sheetTop: () -> Float,
-    sideClearance: Dp,
+    rightHanded: Boolean,
+    avoid: () -> androidx.compose.ui.geometry.Rect? = { null },
+    /** Told how far the triangle's top is above the container's bottom, in px, whenever it is placed. */
+    onOccupied: (Int) -> Unit = {},
     content: @Composable (scale: Float) -> Unit,
 ) {
     val density = LocalDensity.current
-    val safeBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density) +
-        with(density) { CarouselBottomInset.toPx() }
-    // Clear of the status bar and cutout, and a little below them.
-    val topInset = WindowInsets.statusBarsIgnoringVisibility.getTop(density) +
-        WindowInsets.displayCutout.getTop(density) + with(density) { GizmoTopMargin.toPx() }
-    var originY by remember { mutableStateOf(0f) }
-    var containerHeight by remember { mutableStateOf(0f) }
-    val gapPx = with(density) { GizmoSheetGap.toPx() }
-    val legPx = with(density) { GizmoHeight.toPx() }
-    val bandPx = with(density) { GizmoBand.toPx() }
-    // One source of truth for the scale the content is composed with and the position the layout uses: both
-    // call this, and it reads the CURRENT sheetTop and insets (a remembered closure would keep the first
-    // composition's, e.g. from before the sheet opened).
-    val sheetTopNow by rememberUpdatedState(sheetTop)
-    val safeBottomNow by rememberUpdatedState(safeBottom.toFloat())
-    val topInsetNow by rememberUpdatedState(topInset.toFloat())
-    fun place(height: Float) = gizmoPlacement(
-        height, safeBottomNow, sheetTopNow() - originY, gapPx, (topInsetNow - originY).coerceAtLeast(0f), legPx, bandPx,
-    )
-    // Read here, the scale recomposes only when it changes; the position is read at layout time.
-    val scale by remember { derivedStateOf { if (containerHeight > 0f) place(containerHeight).scale else 1f } }
+    val gestures = WindowInsets.systemGestures
+    val nav = WindowInsets.navigationBarsIgnoringVisibility
+    val cutout = WindowInsets.displayCutout
+    val margin = with(density) { GizmoEdgeMargin.roundToPx() }
     Box(
         Modifier
             .fillMaxSize()
-            .onGloballyPositioned {
-                originY = it.positionInRoot().y
-                containerHeight = it.size.height.toFloat()
-            }
             .layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                 layout(constraints.maxWidth, constraints.maxHeight) {
-                    val x = constraints.maxWidth - placeable.width - with(density) { sideClearance.roundToPx() }
-                    val p = place(constraints.maxHeight.toFloat())
-                    placeable.place(max(0, x), (p.bottom - placeable.height).toInt())
+                    val ld = layoutDirection
+                    val at = gizmoCorner(
+                        constraints.maxWidth, constraints.maxHeight, placeable.width, placeable.height, rightHanded,
+                        left = max(gestures.getLeft(density, ld), max(nav.getLeft(density, ld), cutout.getLeft(density, ld))) + margin,
+                        right = max(gestures.getRight(density, ld), max(nav.getRight(density, ld), cutout.getRight(density, ld))) + margin,
+                        bottom = max(gestures.getBottom(density), nav.getBottom(density)) + margin,
+                        avoid = avoid(),
+                        gap = margin,
+                    )
+                    onOccupied(constraints.maxHeight - at.y)
+                    placeable.place(at)
                 }
             }
             .testTag("rotationGizmo.dock"),
-    ) { content(scale) }
+    ) { content(GIZMO_DEFAULT_SCALE) }
 }
 
-/** Space kept between the triangle and the top inset when the sheet is tall. */
-internal val GizmoTopMargin = 8.dp

@@ -351,6 +351,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var meshMenuOpen by rememberSaveable { mutableStateOf(false) }
     // The bottom sheet's top edge in root px, for the rotation triangle that rides it.
     val sheetTopPx = remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
+    // Where the set wheel is while it shows; the rotation triangle keeps its touch bands off it.
+    val setWheelBounds = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showGestureHelp by rememberSaveable { mutableStateOf(false) }
@@ -893,7 +895,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val toolTop = if (uiState.isRightHanded) RailTopInset else LayersRailTopInset
     val layersTop = if (uiState.isRightHanded) LayersRailTopInset else RailTopInset
     val toolRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = toolTop, bottom = railBottom)
-    val layersRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = layersTop, bottom = railBottom)
+    // The rotation triangle sits in the bottom corner on the layers rail's side (and slides up to clear the set
+    // wheel); the dock reports how much of the screen's height it occupies, from the same `gizmoCorner` that places
+    // it, and the rail stops above that, whatever the wheel or the retained insets do to its position.
+    val gizmoOccupiedPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val gizmoDensity = LocalDensity.current
+    val gizmoSafeBottomPx = WindowInsets.safeDrawing.getBottom(gizmoDensity)
+    val gizmoClearance = with(gizmoDensity) {
+        gizmoRailClearancePx(gizmoOccupiedPx.intValue, gizmoSafeBottomPx, GizmoEdgeMargin.roundToPx()).toDp()
+    }
+    val layersRailPadding = Modifier.padding(horizontal = RailSideInset)
+        .padding(top = layersTop, bottom = maxOf(railBottom, gizmoClearance))
     val besideRail = RailWidth + RailEdgeGap * 2
     val layersRailBesideTools = Modifier
         .padding(horizontal = RailSideInset + RailWidth + RailSideInset)
@@ -1134,6 +1146,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // The set wheel sits on the side away from the rail (CarouselSetWheel.kt).
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalSetWheelOnRight provides uiState.isRightHanded,
+                        LocalSetWheelBounds provides setWheelBounds,
                     ) {
                     if (designMode) {
                         DesignSheetBody(
@@ -1295,14 +1308,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ExpandedHeroLayer(heroExpansion)
         }
 
-        // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so where it overlaps
-        // the sheet (short window, full detent) it is above it in drawing and hit-testing. Only with an active 3D
-        // surface group, in the right corner on the top edge of the bottom sheet (the bottom safe area with none). Its
-        // three touch bands take input; the rest of it lets canvas strokes through.
+        // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so it is above it in
+        // drawing and hit-testing. Only with an active 3D surface group. It sits small in the bottom corner on the
+        // brush hand's side (bottom-right right-handed, bottom-left left-handed), clear of the system gesture areas
+        // and of the sheet's handle, and does not move with the sheet. Its three touch bands take input; the rest
+        // of it lets canvas strokes through.
         if (vm.rotationGizmoVisible(uiState)) {
+            androidx.compose.runtime.DisposableEffect(Unit) { onDispose { gizmoOccupiedPx.intValue = 0 } }
             RotationGizmoDock(
-                sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
-                sideClearance = besideRail,
+                rightHanded = uiState.isRightHanded,
+                avoid = { setWheelBounds.value },
+                onOccupied = { gizmoOccupiedPx.intValue = it },
             ) { gizmoScale ->
                 RotationGizmo(
                     scale = gizmoScale,
