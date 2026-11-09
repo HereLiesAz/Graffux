@@ -253,47 +253,58 @@ internal class ActivePlaneMapping private constructor(
 
     /**
      * The surface-stroke invariant ([com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard]) for a touch
-     * at [touch] (screen) accepted as [flat] on a layer drawn in 3D: it shows within the footprint of the touch.
-     * Always true for a flat layer, and for a cap region (which has no 2D map back).
+     * at [touch] (screen) accepted as [flat] on a layer drawn in 3D: it shows within the footprint of the touch
+     * and in direct view. Always true for a flat layer.
      */
-    fun flatOnFinger(touch: Offset, flat: Offset, radiusPx: Float): Boolean {
+    fun flatOnFinger(touch: Offset, flat: Offset, radiusPx: Float): Boolean =
+        flatOnFingerWorld(world(touch), flat, footprintWorld(radiusPx))
+
+    /** [flatOnFinger] for a world-space touch and a footprint in world units (a finished Ink stroke's samples). */
+    fun flatOnFingerWorld(t: Offset, flat: Offset, footprint: Float): Boolean {
         if (chain == null) return true
-        val t = world(touch)
         val b = flatToWorld(flat) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx)) &&
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprint) &&
             flatSeen(flat)
     }
 
     /** [flatOnFinger] for a multi-view surface's [ViewFlat]. */
-    fun viewFlatOnFinger(touch: Offset, f: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, radiusPx: Float): Boolean {
+    fun viewFlatOnFinger(touch: Offset, f: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, radiusPx: Float): Boolean =
+        viewFlatOnFingerWorld(world(touch), f, footprintWorld(radiusPx))
+
+    /** [viewFlatOnFinger] in world units. */
+    fun viewFlatOnFingerWorld(t: Offset, f: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, footprint: Float): Boolean {
         if (f.region != 0) return viewFlatSeen(f.view, Offset(f.x, f.y))
-        val t = world(touch)
         val b = viewFlatToWorld(f.view, Offset(f.x, f.y)) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx)) &&
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprint) &&
             viewFlatSeen(f.view, Offset(f.x, f.y))
     }
 
-    /** The stroke from ([touchA], [flatA]) to ([touchB], [flatB]) stays on the surface between them. */
-    fun flatJoinOnFinger(touchA: Offset, flatA: Offset, touchB: Offset, flatB: Offset, radiusPx: Float): Boolean {
+    /** The stroke from ([touchA], [flatA]) to ([touchB], [flatB]) stays on the surface between them, and its middle is seen. */
+    fun flatJoinOnFinger(touchA: Offset, flatA: Offset, touchB: Offset, flatB: Offset, radiusPx: Float): Boolean =
+        flatJoinOnFingerWorld(world(touchA), flatA, world(touchB), flatB, footprintWorld(radiusPx))
+
+    /** [flatJoinOnFinger] in world units. */
+    fun flatJoinOnFingerWorld(a: Offset, flatA: Offset, b: Offset, flatB: Offset, footprint: Float): Boolean {
         if (chain == null) return true
-        val a = world(touchA)
-        val b = world(touchB)
         val mid = Offset((flatA.x + flatB.x) / 2f, (flatA.y + flatB.y) / 2f)
         val m = flatToWorld(mid) ?: return false
         // The stretch between two seen samples must be seen at its middle too: a fast stroke can step over a hidden fold.
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(a.x, a.y, b.x, b.y, m.x, m.y, footprintWorld(radiusPx)) &&
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(a.x, a.y, b.x, b.y, m.x, m.y, footprint) &&
             flatSeen(mid)
     }
 
     /** [flatJoinOnFinger] for two touches on one face of a multi-view surface. */
-    fun viewJoinOnFinger(touchA: Offset, a: ViewSample<BrushSample>, touchB: Offset, b: ViewSample<BrushSample>, radiusPx: Float): Boolean {
-        if (b.region != 0) return true
-        val wa = world(touchA)
-        val wb = world(touchB)
-        val mid = Offset((a.flat.x + b.flat.x) / 2f, (a.flat.y + b.flat.y) / 2f)
-        val m = viewFlatToWorld(b.view, mid) ?: return false
-        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(wa.x, wa.y, wb.x, wb.y, m.x, m.y, footprintWorld(radiusPx)) &&
-            viewFlatSeen(b.view, mid)
+    fun viewJoinOnFinger(touchA: Offset, a: ViewSample<BrushSample>, touchB: Offset, b: ViewSample<BrushSample>, radiusPx: Float): Boolean =
+        viewJoinOnFingerWorld(world(touchA), a.flat.let { Offset(it.x, it.y) }, world(touchB), b.view, b.region, Offset(b.flat.x, b.flat.y), footprintWorld(radiusPx))
+
+    /** [viewJoinOnFinger] in world units, on the flat points of the two samples. */
+    fun viewJoinOnFingerWorld(wa: Offset, flatA: Offset, wb: Offset, view: com.hereliesaz.graffitixr.common.scene.SurfaceView, region: Int, flatB: Offset, footprint: Float): Boolean {
+        val mid = Offset((flatA.x + flatB.x) / 2f, (flatA.y + flatB.y) / 2f)
+        // A cap has no 2D map back, so no finger distance, but what hides its middle still counts.
+        if (region != 0) return viewFlatSeen(view, mid)
+        val m = viewFlatToWorld(view, mid) ?: return false
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(wa.x, wa.y, wb.x, wb.y, m.x, m.y, footprint) &&
+            viewFlatSeen(view, mid)
     }
 
     /** A flat point back to where it shows in world space; null behind the eye. */
@@ -465,7 +476,13 @@ internal class PlaneStrokeFeed<S>(
  * sample that misses is dropped and a run that leaves the plane and returns is a new segment.
  * Each segment is the original sample indices and their flat points. Empty when nothing hits.
  */
-internal fun planeSegments(path: List<Offset>, toFlat: (Offset) -> Offset?): List<List<Pair<Int, Offset>>> {
+internal fun planeSegments(
+    path: List<Offset>,
+    /** The surface-stroke guards on (raw, mapped) world points; a caller on a surface passes [ActivePlaneMapping]'s. */
+    sampleOk: (raw: Offset, mapped: Offset) -> Boolean = { _, _ -> true },
+    joinOk: (prevRaw: Offset, prevMapped: Offset, raw: Offset, mapped: Offset) -> Boolean = { _, _, _, _ -> true },
+    toFlat: (Offset) -> Offset?,
+): List<List<Pair<Int, Offset>>> {
     val done = ArrayList<List<Pair<Int, Offset>>>()
     var current = ArrayList<Pair<Int, Offset>>()
     fun close() {
@@ -479,6 +496,8 @@ internal fun planeSegments(path: List<Offset>, toFlat: (Offset) -> Offset?): Lis
         end = ::close,
         cancel = { current = ArrayList() },
         segmentEnd = ::close,
+        sampleOk = { raw, mapped -> sampleOk(raw.second, mapped.second) },
+        joinOk = { pr, pm, r, m -> joinOk(pr.second, pm.second, r.second, m.second) },
     )
     path.forEachIndexed { i, p ->
         if (i == 0) feed.onStart(i to p) else feed.onPoint(i to p)
@@ -605,7 +624,12 @@ internal class InkSegment(
  */
 internal fun ActivePlaneMapping.inkSegments(path: List<Offset>, footprint: Float): List<InkSegment> {
     if (!onHull) {
-        return planeSegments(path) { worldToFlatByFootprint(it, footprint) }.map { InkSegment(null, it) }
+        return planeSegments(
+            path,
+            sampleOk = { raw, mapped -> flatOnFingerWorld(raw, mapped, footprint) },
+            joinOk = { pr, pm, r, m -> flatJoinOnFingerWorld(pr, pm, r, m, footprint) },
+            toFlat = { worldToFlatByFootprint(it, footprint) },
+        ).map { InkSegment(null, it) }
     }
     val done = ArrayList<InkSegment>()
     var current = ArrayList<Pair<Int, Offset>>()
@@ -616,7 +640,7 @@ internal fun ActivePlaneMapping.inkSegments(path: List<Offset>, footprint: Float
     }
     val feed = ViewStrokeFeed<Pair<Int, Offset>>(
         toView = { raw ->
-            worldToViewFlatByFootprint(raw.second, footprint)?.let { ViewSample(it.view, raw, raw.first to Offset(it.x, it.y)) }
+            worldToViewFlatByFootprint(raw.second, footprint)?.let { ViewSample(it.view, raw, raw.first to Offset(it.x, it.y), it.region) }
         },
         bridge = { a, b ->
             val sm = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(a.view, a.flat.second.x, a.flat.second.y)
@@ -635,6 +659,14 @@ internal fun ActivePlaneMapping.inkSegments(path: List<Offset>, footprint: Float
         end = ::close,
         cancel = { current = ArrayList() },
         segmentEnd = ::close,
+        sampleOk = { v ->
+            viewFlatOnFingerWorld(
+                v.raw.second, com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(v.view, v.flat.second.x, v.flat.second.y, v.region), footprint,
+            )
+        },
+        joinOk = { a, b ->
+            viewJoinOnFingerWorld(a.raw.second, a.flat.second, b.raw.second, b.view, b.region, b.flat.second, footprint)
+        },
     )
     path.forEachIndexed { i, p -> if (i == 0) feed.onStart(i to p) else feed.onPoint(i to p) }
     feed.onEnd()

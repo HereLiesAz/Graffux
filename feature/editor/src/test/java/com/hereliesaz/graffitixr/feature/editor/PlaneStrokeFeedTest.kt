@@ -157,7 +157,7 @@ class PlaneStrokeFeedTest {
     @Test
     fun `a finished stroke on a tilted layer maps like the live brush does`() {
         val plane = ActivePlaneMapping.of(state(Layer(id = "a", name = "a", rotationX = 40f)))
-        val seg = planeSegments(touches, plane::worldToFlat).single()
+        val seg = planeSegments(touches, toFlat = plane::worldToFlat).single()
         assertEquals(touches.map { plane.toFlat(it) }, seg.map { it.second })
     }
 }

@@ -112,4 +112,66 @@ class OccludedStrokeFeedTest {
         run.stroke(xs(500f, 300f, -20f).map { touch(it) })
         assertEquals(1, run.segments.size)
     }
+
+    // ── Finished Ink strokes go through the same guards ──
+
+    @Test fun `a finished ink stroke behind a fold drops its hidden samples and splits`() {
+        val p = plane()
+        val path = (xs(900f, 100f, -20f) + xs(120f, 900f, 20f)).map { touch(it) }
+        val segs = p.inkSegments(path, 4f)
+        assertEquals("one segment out, one on re-entry", 2, segs.size)
+        val kept = segs.sumOf { it.samples.size }
+        assertTrue("hidden samples are dropped", kept < path.size - 5)
+        val open = plane(near = sheet("near", 0f, 600f).copy(isVisible = false)).inkSegments(path, 4f)
+        assertEquals(1, open.size)
+        assertEquals(path.size, open[0].samples.size)
+    }
+
+    @Test fun `a finished ink step over a hidden stretch is cut at the join`() {
+        val strip = Layer(
+            id = "near", name = "near", type = LayerType.GROUP,
+            surface = SurfaceProfile(listOf(350f, 0f, 0f, 650f, 0f, 0f), 0f, 1f, 0f),
+        )
+        assertEquals(2, plane(near = strip).inkSegments(listOf(touch(300f), touch(700f)), 4f).size)
+        assertEquals(1, plane(near = strip.copy(isVisible = false)).inkSegments(listOf(touch(300f), touch(700f)), 4f).size)
+    }
+
+    // ── A cap's join is cut where another surface hides its middle ──
+
+    @Test fun `a cap join with a surface hiding its middle is cut, and not when nothing hides it`() {
+        // A front outline plus a top view swept slightly off vertical: the box closes the z end that no outline bounds.
+        val hullGroup = listOf(0.196f, -0.196f).map { tilt ->
+            val top = SurfaceProfile(listOf(300f, 600f, -40f, 700f, 600f, -40f, 700f, 600f, 40f, 300f, 600f, 40f), 0f, -0.98f, tilt)
+            val prof = SurfaceProfile(listOf(300f, 200f, 0f, 700f, 200f, 0f, 700f, 600f, 0f, 300f, 600f, 0f), 0f, 0f, 1f).copy(top = top)
+            Layer(id = "hull", name = "hull", type = LayerType.GROUP, surface = prof)
+        }.first { g ->
+            val cap = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(g.surface!!)!!.capMeshByView().values.firstOrNull()
+            cap != null && cap[2] < 0f
+        }
+        val hull = com.hereliesaz.graffitixr.common.scene.SurfaceHull.of(hullGroup.surface!!)!!
+        val zc = hull.capMeshByView().values.first()[2]
+        val cam = SceneCamera()
+        fun px(x: Float) = SceneMath.frame(cam, w, h).project(floatArrayOf(x, 300f, zc))!!.let { Offset(it.first, it.second) }
+        fun planeWith(occluder: Layer) = ActivePlaneMapping.of(
+            EditorUiState(
+                layers = listOf(occluder, hullGroup, Layer(id = "leaf", name = "leaf", parentId = "hull")),
+                activeLayerId = "leaf", canvasSize = IntSize(w.toInt(), h.toInt()), sceneCamera = cam,
+                viewportOffset = Offset.Zero, viewportZoom = 1f, viewportRotation = 0f,
+            ),
+        )
+        val strip = Layer(
+            id = "occ", name = "occ", type = LayerType.GROUP,
+            surface = SurfaceProfile(listOf(420f, 250f, zc - 50f, 580f, 250f, zc - 50f), 0f, 1f, 0f),
+        )
+        val p = planeWith(strip)
+        val a = p.toViewFlatByFootprint(px(350f), 0f)!!
+        val b = p.toViewFlatByFootprint(px(650f), 0f)!!
+        assertTrue("both touches are on the cap", a.region != 0 && b.region != 0 && a.region == b.region)
+        assertTrue("ends in view", p.viewFlatOnFingerWorld(p.world(px(350f)), a, 4f) && p.viewFlatOnFingerWorld(p.world(px(650f)), b, 4f))
+        fun join(m: ActivePlaneMapping) = m.viewJoinOnFingerWorld(
+            m.world(px(350f)), Offset(a.x, a.y), m.world(px(650f)), b.view, b.region, Offset(b.x, b.y), 4f,
+        )
+        assertTrue("a cap join is cut where a surface hides its middle", !join(p))
+        assertTrue("and kept when nothing does", join(planeWith(strip.copy(isVisible = false))))
+    }
 }
