@@ -26,6 +26,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -136,8 +137,8 @@ class AuditUiShotTest {
         rule.onNodeWithContentDescription("Cadmium Red, opaque, strong tinter").assertIsDisplayed()
         rule.onNodeWithContentDescription("Foreground brush").assertIsDisplayed()
         rule.onNodeWithTag("mixer.board").assertIsDisplayed()
-        rule.onNodeWithTag("mixer.hex").assertIsDisplayed()
-        rule.onNodeWithText("Digital: match a colour").assertIsDisplayed()
+        rule.onNodeWithTag("mixer.hex").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Digital: match a colour").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -238,5 +239,37 @@ class AuditUiShotTest {
         assertTrue("the same board comes back", board === first)
         assertTrue(first.recipeAt(30, 30).tubes.first().first.id == "cadmium-red")
         assertTrue("and the brush still holds its paint", first.brush.amount[0] > 0f)
+    }
+
+    @Test
+    fun `the mixer has non-drag mix actions and shows saved swatches that load the brush`() {
+        val board = newMixerBoard()
+        var saved: Color? = null
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board,
+                    currentColor = Color(0xFFFF8800),
+                    secondaryColor = Color.Black,
+                    onSelectColor = {},
+                    onSelectSecondaryColor = {},
+                    onSwapColors = {},
+                    onDismiss = {},
+                    savedPalette = listOf(Color(0xFF3366CC)),
+                    onSavePaletteColor = { saved = it },
+                )
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Mix once. Runs the brush round the board once").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Mix more. Runs the brush round the board several times").assertIsDisplayed()
+        rule.onNodeWithText("#3366CC").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("mixer.saveSwatch").performScrollTo().performClick()
+        assertTrue(saved == Color(0xFFFF8800))
+        rule.onNodeWithTag("mixer.swatch.#3366CC").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertTrue("the swatch loaded the brush", board.brush.amount[0] == 1f)
+        rule.onNodeWithTag("mixer.mixMore").performScrollTo().performClick()
+        rule.waitForIdle()
     }
 }
