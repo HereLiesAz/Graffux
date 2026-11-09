@@ -2075,12 +2075,14 @@ class EditorViewModel @Inject constructor(
         io = dispatchers.io,
         store = object : PaletteProjectSync.Store {
             override fun isReadOnly() = openProjectIsReadOnly()
+            override fun onError(error: Throwable) {
+                android.util.Log.e("EditorViewModel", "Failed to save the palette board", error)
+            }
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)
             }
             override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
         },
-        onError = { android.util.Log.e("EditorViewModel", "Failed to save the palette board", it) },
     )
 
     // Persistent stamp-stroke capture (spec/painterly.md P7b): every committed stamp stroke is kept in a

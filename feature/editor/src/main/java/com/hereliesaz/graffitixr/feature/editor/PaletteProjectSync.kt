@@ -25,13 +25,13 @@ internal class PaletteProjectSync(
     private val scope: CoroutineScope,
     private val io: CoroutineDispatcher,
     private val store: Store,
-    private val onError: (Throwable) -> Unit = {},
     private val encoder: (PaletteBoard) -> Encoded = ::encodeBoard,
     private val debounceMs: Long = DEBOUNCE_MS,
 ) {
     /** Where the project's files live and whether it may be written. */
     interface Store {
         fun isReadOnly(): Boolean
+        fun onError(error: Throwable) {}
         suspend fun write(projectId: String, file: String, bytes: ByteArray)
         suspend fun read(projectId: String, file: String): ByteArray?
     }
@@ -79,7 +79,7 @@ internal class PaletteProjectSync(
                     val bytes = encoder(owned)
                     store.write(id, PaletteBoardPersistence.BOARD_FILE, bytes.board)
                     store.write(id, PaletteBoardPersistence.BRUSH_FILE, bytes.brushes)
-                }.onFailure(onError)
+                }.onFailure(store::onError)
             }
         }
     }

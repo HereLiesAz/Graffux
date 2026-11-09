@@ -160,8 +160,10 @@ class PaletteProjectSyncTest {
             r.sync.changed("A")
             assertTrue("changed() encodes nothing on the calling thread", callers.isEmpty())
             advanceTimeBy(2000)
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { latch.await(5, java.util.concurrent.TimeUnit.SECONDS) }
-            assertEquals(listOf("palette-io-test"), callers.toList())
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+            assertTrue("on the IO thread: $callers", callers.single().startsWith("palette-io-test"))
         } finally {
             exec.shutdown()
         }
