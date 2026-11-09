@@ -47,4 +47,29 @@ class PaletteMixerHexTest {
         assertEquals(NOT_A_COLOUR, matchHexToBrush(board, "hello"))
         assertEquals(0f, board.brush.amount[0], 0f)
     }
+
+    @Test
+    fun squeezingATubeNeverOverwritesTheEditorColourButDippingAndMixingDo() {
+        val board = newMixerBoard()
+        val applied = ArrayList<androidx.compose.ui.graphics.Color>()
+        var redraws = 0
+        val ops = MixerOps(board, applyColour = { applied += it }, redraw = { redraws++ })
+        // the brush holds paint from earlier; the editor colour has since been set by the eyedropper
+        board.squeeze(2, 20f, 20f, 8f, 0.9f)
+        ops.squeeze(2, 40f, 40f, 7f, 0.9f)
+        ops.squeeze(4, 60f, 20f, 7f, 0.9f)
+        assertTrue("squeezing redraws the board", redraws == 2)
+        assertTrue("and never applies the brush's colour", applied.isEmpty())
+        repeat(4) { ops.dip(20f, 20f) }
+        assertEquals("each dip applies the brush's colour", 4, applied.size)
+        assertTrue(board.brush.amount[0] > 0.2f)
+        ops.drag(floatArrayOf(20f, 20f, 24f, 20f))
+        // mixing applies the brush's colour exactly while the brush still holds paint (a long drag can spend it all)
+        assertEquals(4 + if (board.brush.amount[0] > 0f) 1 else 0, applied.size)
+        // a brush that holds nothing applies nothing
+        val before = applied.size
+        val empty = MixerOps(newMixerBoard(), applyColour = { applied += it }, redraw = {})
+        empty.applyBrush()
+        assertEquals(before, applied.size)
+    }
 }
