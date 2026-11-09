@@ -45,12 +45,24 @@ internal object SettingsCorruptionHandler {
         emptyPreferences()
     }
 
-    /** Copies [bad] to a `.corrupt-<time>` sibling; never throws (a failed copy must not hide the real error). */
-    internal fun keepCopy(bad: File?) {
-        if (bad == null || !bad.isFile) return
-        val copy = File(bad.parentFile, "${bad.name}.corrupt-${System.currentTimeMillis()}")
-        runCatching { bad.copyTo(copy, overwrite = false) }
+    /**
+     * Copies [bad] to a `.corrupt-<time>[-n]` sibling and returns it, or null if there is nothing to copy or the copy
+     * failed (which is logged, never silent). A name already taken is never overwritten and never skipped: the next
+     * free suffix is used, so two corrupt files in the same millisecond are both kept. [now] is injectable for tests.
+     */
+    internal fun keepCopy(bad: File?, now: () -> Long = System::currentTimeMillis): File? {
+        if (bad == null || !bad.isFile) return null
+        val stamp = now()
+        val copy = (0 until MAX_COPY_ATTEMPTS).asSequence()
+            .map { n -> File(bad.parentFile, "${bad.name}.corrupt-$stamp" + if (n == 0) "" else "-$n") }
+            .firstOrNull { !it.exists() }
+        val saved = copy?.let { runCatching { it.also { target -> bad.copyTo(target, overwrite = false) } } }
+        saved?.exceptionOrNull()?.let { android.util.Log.e("SettingsRepository", "Could not keep a copy", it) }
+        if (copy == null) android.util.Log.e("SettingsRepository", "No free name to keep the unreadable settings file")
+        return saved?.getOrNull()
     }
+
+    private const val MAX_COPY_ATTEMPTS = 1_000
 }
 
 private val Context.dataStore by preferencesDataStore(

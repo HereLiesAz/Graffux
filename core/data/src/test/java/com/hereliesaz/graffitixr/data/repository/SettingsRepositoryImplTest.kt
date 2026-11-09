@@ -183,19 +183,50 @@ class SettingsRepositoryImplTest {
     }
 
     @Test
-    fun `a corrupt settings file is kept as a copy and the handler falls back to defaults`() = runTest {
+    fun `two corrupt files in the same millisecond are both kept, never overwritten or skipped`() = runTest {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test-same-ms")
+        dir.mkdirs()
+        val bad = java.io.File(dir, "settings.preferences_pb")
+        val frozen = { 1_700_000_000_000L } // the same millisecond every time
+        bad.writeBytes(byteArrayOf(1, 2, 3))
+        val first = SettingsCorruptionHandler.keepCopy(bad, frozen)
+        bad.writeBytes(byteArrayOf(9, 8, 7, 6)) // a second, different corrupt file
+        val second = SettingsCorruptionHandler.keepCopy(bad, frozen)
+        bad.writeBytes(byteArrayOf(5))
+        val third = SettingsCorruptionHandler.keepCopy(bad, frozen)
+        assertTrue(first != null && second != null && third != null)
+        assertEquals(3, setOf(first, second, third).size)
+        assertTrue(first!!.readBytes().contentEquals(byteArrayOf(1, 2, 3)))
+        assertTrue(second!!.readBytes().contentEquals(byteArrayOf(9, 8, 7, 6)))
+        assertTrue(third!!.readBytes().contentEquals(byteArrayOf(5)))
+    }
+
+    @Test
+    fun `a failed copy is reported as null, not silently pretended`() = runTest {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test-fail")
+        dir.mkdirs()
+        val bad = java.io.File(dir, "settings.preferences_pb").also { it.writeBytes(byteArrayOf(1)) }
+        assertEquals(null, SettingsCorruptionHandler.keepCopy(java.io.File(dir, "missing")))
+        val locked = java.io.File(dir, "ro").also { it.mkdirs() }
+        val inLocked = java.io.File(locked, "settings.preferences_pb").also { it.writeBytes(byteArrayOf(1)) }
+        locked.setWritable(false)
+        val result = SettingsCorruptionHandler.keepCopy(inLocked, { 5L })
+        locked.setWritable(true)
+        // as root the write may still succeed: only a null (reported) or a real copy are acceptable
+        assertTrue(result == null || result.readBytes().contentEquals(byteArrayOf(1)))
+        assertTrue(bad.exists())
+    }
+
+    @Test
+    fun `the handler keeps a copy and returns defaults`() = runTest {
         val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test")
         dir.mkdirs()
         val bad = java.io.File(dir, "settings.preferences_pb")
         bad.writeBytes(byteArrayOf(0x7F, 0x00, 0x13, 0x37))
-        SettingsCorruptionHandler.keepCopy(bad)
-        val copies = dir.listFiles { f -> f.name.startsWith("settings.preferences_pb.corrupt-") }!!
-        assertEquals(1, copies.size)
-        assertTrue(copies.single().readBytes().contentEquals(bad.readBytes()))
-        SettingsCorruptionHandler.keepCopy(java.io.File(dir, "missing")) // never throws
         SettingsCorruptionHandler.file = bad
         val fresh = SettingsCorruptionHandler.handler.handleCorruption(androidx.datastore.core.CorruptionException("x"))
         assertTrue(fresh.asMap().isEmpty())
-        assertEquals("a second copy was kept", 2, dir.listFiles { f -> f.name.contains(".corrupt-") }!!.size)
+        val copies = dir.listFiles { f -> f.name.contains(".corrupt-") }!!
+        assertTrue(copies.isNotEmpty() && copies.all { it.readBytes().contentEquals(bad.readBytes()) })
     }
 }
