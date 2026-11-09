@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Chrome text that used to be hard-coded in the app module: dialogs, alerts, rail labels, wheel and photo-sheet semantics. -->
+    <string name="install_ext_title">Install extension?</string>
+    <string name="install_ext_link_message">Something wants Graffux to download and install an extension from:\n\n%1$s\n\nFull address:\n%2$s\n\nExtensions can add code that runs inside Graffux. Only install one if you trust where this came from.</string>
+    <string name="install_ext_confirm">Install</string>
+    <string name="install_ext_store_message">The store app returned %1$s for Graffux to install.\n\nExtensions can add code that runs inside Graffux. Only install it if you chose it in a store you trust.</string>
+    <string name="install_ext_count">%1$d extension(s)</string>
+    <string name="store_unreachable_title">No way to reach the Azphalt Store</string>
+    <string name="store_unreachable_message">This device has no store app, no Play, and no browser to open azphalt.store with. Extensions can still be installed by hand from a file: Install extension from file… in the menu at the top right.</string>
+    <string name="no_browser_title">No browser</string>
+    <string name="no_browser_store">Nothing on this device can open azphalt.store.</string>
+    <string name="no_browser_url">Nothing on this device can open %1$s.</string>
+    <string name="purchase_failed_title">Can\'t start a purchase</string>
+    <string name="purchase_failed_message">Try again from the main screen.</string>
+    <string name="menu_wire_mesh">Wire mesh</string>
+    <string name="menu_surface_drawings">Surface drawings</string>
+    <string name="show_interface">Show interface</string>
+    <string name="forget_selection_title">Forget \"%1$s\"?</string>
+    <string name="forget_selection_message">This selection can\'t be recovered afterward — forgetting it isn\'t undoable.</string>
+    <string name="forget_selection_confirm">Forget</string>
+    <string name="layers_trash_description">Delete layer: drag a layer here</string>
+    <string name="photo_levels">Levels</string>
+    <string name="pack_wheel_description">Brush packs</string>
+    <string name="wheel_select_action">Select</string>
+    <string name="wheel_sets_description">Sets</string>
+    <string name="design_style_tag">style</string>
+    <string name="design_none">None</string>
+    <string name="design_show_properties_in">Show properties in</string>
+    <string name="hero_more">More</string>
+    <string name="hero_less">Less</string>
+    <string name="brush_edit">Edit brush</string>
+    <string name="photo_reset">Reset</string>
+    <string name="photo_eyedropper">Pick a colour from the photo, then drag on it</string>
+    <string name="photo_compare">Hold to compare with original</string>
+    <string name="rail_colour">Colour</string>
+    <string name="rail_retouch">Retouch</string>
+    <string name="rail_frame">Frame</string>
+    <string name="rail_adjust_photo">Adjust photo</string>
+    <string name="rail_surface_mesh">Surface wire mesh</string>
+    <string name="rail_vector">Vector</string>
+    <string name="rail_crop_transform">Crop &amp; Transform</string>
+    <string name="brush_size_description">Brush size %1$d, hardness %2$d percent</string>
+    <string name="brush_size_set">Set brush size</string>
+    <string name="brush_menu">Brush menu</string>
+    <string name="levels_black_point">Levels black point</string>
+    <string name="levels_midpoint">Levels midpoint</string>
+    <string name="levels_white_point">Levels white point</string>
+</resources>

@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.model.isFrame
 import androidx.compose.foundation.Image
@@ -112,6 +113,7 @@ internal fun droppedOnTrash(finger: Offset, trash: Rect?): Boolean =
 @Suppress("FunctionNaming")
 @Composable
 private fun LayerTrash(hot: Boolean, onPlaced: (Rect) -> Unit) {
+    val trashDescription = stringResource(R.string.layers_trash_description)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -121,7 +123,7 @@ private fun LayerTrash(hot: Boolean, onPlaced: (Rect) -> Unit) {
             .clip(CircleShape)
             .background(if (hot) RailInk else TrashFill)
             .border(1.dp, if (hot) RailInk else RailBorder, CircleShape)
-            .semantics { contentDescription = "Delete layer: drag a layer here" }
+            .semantics { contentDescription = trashDescription }
             .testTag("rail.layer.trash"),
     ) {
         Icon(

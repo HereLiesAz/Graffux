@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -367,6 +368,7 @@ private fun PhotoHeader(
     onReset: (() -> Unit)? = null,
     overlay: RetouchContext? = null,
 ) {
+    val resetLabel = stringResource(R.string.photo_reset)
     val reset: () -> Unit = onReset ?: { tool?.let(actions::reset) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -399,7 +401,7 @@ private fun PhotoHeader(
                 .clip(RoundedCornerShape(22.dp))
                 .semantics {
                     role = Role.Button
-                    onClick(label = "Reset") { reset(); true }
+                    onClick(label = resetLabel) { reset(); true }
                 }
                 .pointerInput(tool, onReset) {
                     awaitEachGesture {
@@ -411,7 +413,7 @@ private fun PhotoHeader(
                 .padding(horizontal = 10.dp)
                 .testTag("photo.reset"),
         ) {
-            Text("Reset", color = PhotoSheetStyle.Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily)
+            Text(resetLabel, color = PhotoSheetStyle.Muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily)
         }
     }
 }
@@ -420,13 +422,14 @@ private fun PhotoHeader(
 @Composable
 private fun EyedropperButton(state: PhotoSheetState, actions: PhotoActions) {
     val on = state.eyedropperArmed
+    val pickLabel = stringResource(R.string.photo_eyedropper)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
             .background(if (on) PhotoSheetStyle.Ink else Color.Transparent)
-            .clickable(onClickLabel = "Pick a colour from the photo, then drag on it") {
+            .clickable(onClickLabel = pickLabel) {
                 state.eyedropperArmed = !on
                 actions.eyedropper(!on)
             }
@@ -434,7 +437,7 @@ private fun EyedropperButton(state: PhotoSheetState, actions: PhotoActions) {
     ) {
         Icon(
             RailIcons.Eyedropper,
-            contentDescription = "Pick a colour from the photo, then drag on it",
+            contentDescription = pickLabel,
             tint = if (on) Color(0xFF0E0E0F) else PhotoSheetStyle.Muted,
             modifier = Modifier.size(20.dp),
         )
@@ -444,12 +447,13 @@ private fun EyedropperButton(state: PhotoSheetState, actions: PhotoActions) {
 /** Hold to see the photo without its adjustment layers; let go to see them again. */
 @Composable
 private fun CompareButton(actions: PhotoActions) {
+    val compareDescription = stringResource(R.string.photo_compare)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
-            .semantics { contentDescription = "Hold to compare with original" }
+            .semantics { contentDescription = compareDescription }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown()

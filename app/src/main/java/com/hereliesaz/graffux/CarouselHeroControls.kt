@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
@@ -81,7 +82,12 @@ internal fun HeroMoreButton(entry: CarouselEntry, onMore: (CarouselEntry) -> Uni
             .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp)
             .testTag("carousel.hero.more"),
     ) {
-        Text("More", color = tint, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(
+            stringResource(R.string.hero_more),
+            color = tint,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+        )
     }
 }
 

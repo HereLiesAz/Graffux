@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
@@ -257,7 +258,7 @@ private fun ExpandedHeroCard(
                     contentPadding = PaddingValues(horizontal = 6.dp),
                     modifier = Modifier.height(MORE_ROW_DP.dp).testTag("carousel.expanded.less"),
                 ) {
-                    Text("Less", color = tint, style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.hero_less), color = tint, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

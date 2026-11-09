@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -186,7 +187,7 @@ internal fun BrushCardFace(
                 ) {
                     Icon(
                         painterResource(GraffuxIcons.Settings),
-                        contentDescription = "Edit brush",
+                        contentDescription = stringResource(R.string.brush_edit),
                         tint = tint,
                         modifier = Modifier.size(EditIconSize),
                     )

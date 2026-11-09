@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -389,7 +390,7 @@ internal fun PaintSummary(links: DesignLinks, library: DesignLibrary) {
             color = DesignInk.Ink, fontSize = 14.sp, fontFamily = RobotoCondensedFamily, maxLines = 1,
             modifier = Modifier.weight(1f).padding(start = 10.dp).testTag("design.summary.fill"),
         )
-        if (fillStyle != null) Text("style", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
+        if (fillStyle != null) Text(stringResource(R.string.design_style_tag), color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
     }
     DesignRow("Stroke", density) {
         val none = links.strokeWidth <= 0f
@@ -398,7 +399,7 @@ internal fun PaintSummary(links: DesignLinks, library: DesignLibrary) {
             color = DesignInk.Ink, fontSize = 13.sp, fontFamily = RobotoMonoFamily, maxLines = 1,
             modifier = Modifier.weight(1f).testTag("design.summary.stroke"),
         )
-        if (none) Text("None", color = DesignInk.Faint, fontSize = 13.sp, fontFamily = RobotoCondensedFamily)
+        if (none) Text(stringResource(R.string.design_none), color = DesignInk.Faint, fontSize = 13.sp, fontFamily = RobotoCondensedFamily)
     }
 }
 

@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -473,7 +474,7 @@ internal fun PlacementSetting(placement: PropertiesPlacement, onPlacement: (Prop
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier.fillMaxWidth().drawTopRuleFull().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp).testTag("design.placement"),
     ) {
-        Text("Show properties in", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.design_show_properties_in), color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
         PropertiesPlacement.entries.forEach { p ->
             DesignChip(p.label, on = p == placement, tag = "design.placement.${p.key}", onClick = { onPlacement(p) })
         }
