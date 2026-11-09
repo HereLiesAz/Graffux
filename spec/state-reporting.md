@@ -86,8 +86,12 @@ emptyList())`, serialized as `{"entries": [...]}`.
 applied only when `state == FAILED`:
 
 - Truncated to `MAX_REASON_LENGTH = 200` characters.
-- Passed through `sanitizeReason()`, which replaces anything matching a URI-or-path pattern
-  (`[a-zA-Z][a-zA-Z0-9+.-]*://\S+|/[\w.\-/]{3,}`) with `"[redacted]"`.
+- Passed through `sanitizeReason()`. Each whitespace-delimited token of the first 400 characters is replaced by `[redacted]` when it holds a URI
+  (`scheme://...`), reads as a path (it starts with `/`, `./`, `../`, `~/` or a drive letter such as `C:\`, has
+  two or more separators, or has one separator and ends in a file extension), or is a bare file name with a known
+  data-file extension (`json`, `png`, `obj`, ...; the list is `FILE_EXTENSIONS`). The result is cut to 200
+  characters. Short `word/word` text and numbers such as `3/5` stay. Best effort: free text can still name
+  something in words.
 
 This exists because `reason` is populated from caught-exception messages, and an exported
 `ContentProvider` (§ 4) is exactly the kind of surface that turns an incidental `content://` URI or
@@ -116,8 +120,10 @@ request being in flight.
     android:protectionLevel="normal" />
 ```
 
-`protectionLevel="normal"` — this is a low-sensitivity, install-time-granted permission, not a
-runtime-prompted one, matching the fact that what it gates (§ 2's state vocabulary plus a scrubbed
+`protectionLevel="normal"` — an install-time-granted permission, not a runtime-prompted one. **Any
+installed app can declare it and is granted it without a prompt**, so the rows (which extensions the
+user has, at what version and state) are readable by any installed app, not only a store the user
+chose; that is a disclosure, listed in the host's privacy policy. It is accepted as low-sensitivity, matching the fact that what it gates (§ 2's state vocabulary plus a scrubbed
 failure reason) contains no package contents, no signing material, and no unsanitized paths.
 
 **Contract**:

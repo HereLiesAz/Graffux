@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import android.content.SharedPreferences
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,13 +27,11 @@ internal fun MultipassRows(prefs: SharedPreferences) {
             .apply()
     }
     ChoiceRow(
-        title = "Progressive stroke rendering",
-        subtitle = "Each dab appears immediately as a quick draft, then refines automatically. " +
-            "GPU capability, thermal headroom and the remaining dab backlog determine how quickly " +
-            "full quality arrives. There is no drying timer. Applies to the next stroke.",
+        title = stringResource(R.string.settings_multipass),
+        subtitle = stringResource(R.string.settings_multipass_hint),
         options = listOf(false, true),
         selected = settings.enabled,
-        label = { if (it) "On" else "Off" },
+        label = { stringResource(if (it) R.string.settings_on else R.string.settings_off) },
         onSelect = { update(settings.copy(enabled = it)) },
     )
 }

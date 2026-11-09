@@ -55,14 +55,20 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.GraffuxIcons
+import com.hereliesaz.graffitixr.design.R
 import kotlin.math.roundToInt
 
 /*
@@ -244,7 +250,11 @@ private val PopoverGap = 12.dp
 private val EdgeMargin = 16.dp
 private val SheetShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
 
-/** A full-size layer that darkens the canvas and closes the surface on a tap; it takes that tap. */
+/**
+ * A full-size layer that darkens the canvas and closes the surface on a tap; it takes that tap. It is
+ * the first thing composed, which would make a screen reader land on an unlabelled "Close" before the
+ * surface's own title, so it is read last ([SCRIM_TRAVERSAL_INDEX]) (the surface has its own close).
+ */
 @Composable
 private fun Scrim(onDismiss: () -> Unit) {
     Box(
@@ -254,17 +264,30 @@ private fun Scrim(onDismiss: () -> Unit) {
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClickLabel = "Close",
+                onClickLabel = stringResource(R.string.surface_close),
                 onClick = onDismiss,
             )
+            .semantics { traversalIndex = SCRIM_TRAVERSAL_INDEX }
             .testTag("surface.scrim"),
     )
 }
+
+/** Read after the surface's own content, which has the default index of 0. */
+internal const val SCRIM_TRAVERSAL_INDEX = 1f
+
+/**
+ * Marks a surface's own container as a pane named [title], read as one unit and before the scrim
+ * behind it: a screen reader announces the surface as it opens and traverses its header, then its
+ * content, in order.
+ */
+internal fun Modifier.surfacePane(title: String): Modifier =
+    semantics { paneTitle = title; isTraversalGroup = true; traversalIndex = 0f }
 
 /** Title and close button, shared by every container. */
 @Composable
 private fun SurfaceHeader(title: String, onDismiss: () -> Unit, back: Boolean = false) {
     val colors = MaterialTheme.colorScheme
+    val closeDescription = stringResource(R.string.surface_close_named, title)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().height(HeaderHeight),
@@ -275,7 +298,7 @@ private fun SurfaceHeader(title: String, onDismiss: () -> Unit, back: Boolean = 
                 modifier = Modifier
                     .size(CloseTargetSize)
                     .clickable(role = Role.Button, onClick = onDismiss)
-                    .semantics { contentDescription = "Close $title" }
+                    .semantics { contentDescription = closeDescription }
                     .testTag(if (back) "surface.back" else "surface.close"),
             ) {
                 Icon(
@@ -293,7 +316,7 @@ private fun SurfaceHeader(title: String, onDismiss: () -> Unit, back: Boolean = 
             color = colors.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(start = if (back) 4.dp else 16.dp),
+            modifier = Modifier.weight(1f).padding(start = if (back) 4.dp else 16.dp).semantics { heading() },
         )
         if (!back) close()
     }
@@ -333,7 +356,7 @@ fun AnchoredValuePopover(
     val rail = LocalRailInset.current
     val density = LocalDensity.current
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxSize().testTag("surface.popover.host")) {
+    Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }.testTag("surface.popover.host")) {
         Scrim(onDismiss)
         Layout(
             content = {
@@ -343,6 +366,7 @@ fun AnchoredValuePopover(
                         .background(colors.surface, RoundedCornerShape(12.dp))
                         .border(1.dp, colors.outlineVariant, RoundedCornerShape(12.dp))
                         .blockTouchThrough()
+                        .surfacePane(title)
                         .testTag("surface.popover"),
                 ) {
                     SurfaceHeader(title, onDismiss)
@@ -412,7 +436,10 @@ fun AppBottomSheet(
 ) {
     RegisterBack(onDismiss)
     val colors = MaterialTheme.colorScheme
-    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().semantics { isTraversalGroup = true },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
         Scrim(onDismiss)
         Column(
             modifier = modifier
@@ -422,6 +449,7 @@ fun AppBottomSheet(
                 .blockTouchThrough()
                 .navigationBarsPadding()
                 .imePadding()
+                .surfacePane(title)
                 .testTag("surface.sheet"),
         ) {
             // Grab pill, as on the carousel sheet.
@@ -454,7 +482,10 @@ fun CenteredSheet(
 ) {
     RegisterBack(onDismiss)
     val colors = MaterialTheme.colorScheme
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding(), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().imePadding().semantics { isTraversalGroup = true },
+        contentAlignment = Alignment.Center,
+    ) {
         Scrim(onDismiss)
         Column(
             modifier = modifier
@@ -462,6 +493,7 @@ fun CenteredSheet(
                 .heightIn(max = maxHeight * 0.85f)
                 .background(colors.surface, RoundedCornerShape(16.dp))
                 .blockTouchThrough()
+                .surfacePane(title)
                 .testTag("surface.centered"),
         ) {
             SurfaceHeader(title, onDismiss)
@@ -485,6 +517,7 @@ fun FullScreenPage(
             .background(MaterialTheme.colorScheme.surface)
             .blockTouchThrough()
             .safeDrawingPadding()
+            .surfacePane(title)
             .testTag("surface.page"),
     ) {
         SurfaceHeader(title, onDismiss, back = true)
@@ -539,6 +572,7 @@ fun DockedPanel(
                 .background(colors.surface)
                 .border(1.dp, colors.outlineVariant)
                 .blockTouchThrough()
+                .surfacePane(title)
                 .testTag("surface.docked"),
             verticalArrangement = Arrangement.Top,
         ) {

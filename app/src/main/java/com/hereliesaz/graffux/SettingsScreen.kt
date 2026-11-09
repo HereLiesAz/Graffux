@@ -6,6 +6,10 @@ import com.hereliesaz.graffitixr.feature.editor.prediction.PredictionTournament
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,10 +46,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -102,205 +111,158 @@ fun SettingsScreen(
         GpuTestResultDialog(result, onDismiss = { gpuTestResult = null })
     }
 
-    Surface(modifier = modifier, color = MaterialTheme.colorScheme.surface) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Settings", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                IconButton(onClick = onClose) {
-                    Icon(painterResource(GraffuxIcons.Close), contentDescription = "Close settings")
-                }
-            }
-            Text(
-                "Document",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
-            ActionRow(title = "Canvas size", subtitle = "Set the document width and height.", onClick = onDocumentSize)
-            HorizontalDivider()
-            ActionRow(title = "Background", subtitle = "Choose the canvas background colour.", onClick = onBackground)
-            HorizontalDivider()
-            Text(
-                "Interface",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
+    SettingsFrame(onClose = onClose, modifier = modifier) {
+        SectionHeader(stringResource(R.string.settings_section_document), top = 8.dp)
+        ActionRow(
+            title = stringResource(R.string.settings_canvas_size),
+            subtitle = stringResource(R.string.settings_canvas_size_hint),
+            onClick = onDocumentSize,
+        )
+        HorizontalDivider()
+        ActionRow(
+            title = stringResource(R.string.settings_background),
+            subtitle = stringResource(R.string.settings_background_hint),
+            onClick = onBackground,
+        )
+        HorizontalDivider()
+        SectionHeader(stringResource(R.string.settings_section_interface), top = 8.dp)
+        SwitchRow(
+            title = stringResource(R.string.settings_right_handed),
+            subtitle = stringResource(R.string.settings_right_handed_hint),
+            checked = rightHanded,
+            onCheckedChange = vm::setRightHanded,
+        )
+        HorizontalDivider()
+        SwitchRow(
+            title = stringResource(R.string.settings_imperial),
+            subtitle = stringResource(R.string.settings_imperial_hint),
+            checked = imperial,
+            onCheckedChange = vm::setImperialUnits,
+        )
+        HorizontalDivider()
+        // Phones always show the design properties in the sheet, so the choice is offered only
+        // where the side panel exists.
+        if (smallestWidthDp >= PropertiesPlacement.TABLET_MIN_WIDTH_DP) {
             SwitchRow(
-                title = "Right-handed",
-                subtitle = "On: the tool rail docks on the left, out of a right hand's way. " +
-                    "Off: it docks on the right.",
-                checked = rightHanded,
-                onCheckedChange = vm::setRightHanded,
+                title = stringResource(R.string.settings_side_panel),
+                subtitle = stringResource(R.string.settings_side_panel_hint),
+                checked = PropertiesPlacement.resolve(storedPlacement, smallestWidthDp) ==
+                    PropertiesPlacement.SIDE_PANEL,
+                onCheckedChange = { on ->
+                    vm.setPropertiesPlacement(
+                        (if (on) PropertiesPlacement.SIDE_PANEL else PropertiesPlacement.BOTTOM_SHEET).key,
+                    )
+                },
             )
             HorizontalDivider()
-            SwitchRow(
-                title = "Imperial units",
-                subtitle = "Show ruler measurements in inches rather than centimetres.",
-                checked = imperial,
-                onCheckedChange = vm::setImperialUnits,
-            )
-            HorizontalDivider()
-            // Phones always show the design properties in the sheet, so the choice is offered only
-            // where the side panel exists.
-            if (smallestWidthDp >= PropertiesPlacement.TABLET_MIN_WIDTH_DP) {
-                SwitchRow(
-                    title = "Properties in a side panel",
-                    subtitle = "On: the Frame tool's properties dock on the side of the canvas. " +
-                        "Off: they stay in the bottom sheet.",
-                    checked = PropertiesPlacement.resolve(storedPlacement, smallestWidthDp) ==
-                        PropertiesPlacement.SIDE_PANEL,
-                    onCheckedChange = { on ->
-                        vm.setPropertiesPlacement(
-                            (if (on) PropertiesPlacement.SIDE_PANEL else PropertiesPlacement.BOTTOM_SHEET).key,
-                        )
-                    },
-                )
-                HorizontalDivider()
-            }
-            SwitchRow(
-                title = "Brush size follows zoom",
-                subtitle = "Zooming in enlarges the brush on screen and zooming out shrinks it; " +
-                    "the Size slider remains the base diameter.",
-                checked = !brushSizeFixedOnScreen,
-                onCheckedChange = { followsZoom -> vm.setBrushSizeFixedOnScreen(!followsZoom) },
-            )
-            HorizontalDivider()
-            SwitchRow(
-                title = "Clean up surface outlines",
-                subtitle = "When you lift your finger after drawing a surface, straighten lines, square up " +
-                    "corners, make circles and mirrored shapes exact. Undo brings back your raw line.",
-                checked = surfaceOutlineAssist,
-                onCheckedChange = { vm.setSurfaceOutlineAssist(it) },
-            )
-            HorizontalDivider()
-            // No language picker. The only translations `:core:design` carried were GraffitiXR's —
-            // its own `app_name` — and they have been removed from
-            // this repository. Graffux ships one language, so a picker here would have offered
-            // fourteen options that all resolve to the same English resources: the dead control this
-            // audit keeps finding, rather than a feature waiting to work.
-            //
-            // `SettingsRepository` carries no language preference, since nothing in Graffux read or
-            // wrote it (and the unused `AppLanguage` enum has been deleted).
-
-            Text(
-                "Privacy",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-            )
-            PrivacyConsentRows()
-            StrokeDataRow(vm)
-            HorizontalDivider()
-
-            Text(
-                "Performance",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-            )
-            ChoiceRow(
-                title = "Sample rate",
-                subtitle = "Caps how often a stroke is redrawn. Every touch sample is always kept, " +
-                    "and Brush never redraws faster than the screen refreshes, so Unlimited means " +
-                    "once per displayed frame. A lower cap draws less power.",
-                options = SAMPLE_RATES,
-                selected = sampleRate,
-                label = { hz -> if (hz <= 0) "Unlimited" else "$hz Hz" },
-                onSelect = vm::setInputSampleRateHz,
-            )
-            HorizontalDivider()
-            ChoiceRow(
-                title = "Canvas resolution",
-                subtitle = "Resolution new layers are created at, as a share of the screen. Each " +
-                    "layer holds a full-size image, so halving this quarters the memory a layer " +
-                    "costs — lower it if the app runs out of memory with several layers open. " +
-                    "Existing layers keep the resolution they were made at.",
-                options = RENDER_SCALES,
-                selected = renderScale,
-                label = { scale -> "${(scale * 100).roundToInt()}%" },
-                onSelect = vm::setCanvasRenderScale,
-            )
-            HorizontalDivider()
-
-            Text(
-                "Gestures",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-            )
-            GestureSlot.entries.forEach { slot ->
-                ChoiceRow(
-                    title = slot.label,
-                    subtitle = "Off disables this gesture.",
-                    options = GestureAction.entries,
-                    selected = gestureMapping[slot] ?: slot.defaultAction,
-                    label = { it.label },
-                    onSelect = { action -> vm.setGestureAction(slot, action) },
-                )
-                HorizontalDivider()
-            }
-
-            Text(
-                "About",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-            )
-            CheckForUpdatesRow()
-            HorizontalDivider()
-            ActionRow(
-                title = "Open-source notices",
-                subtitle = "The licences of the libraries Graffux is built with.",
-                onClick = { showNotices = true },
-            )
-            HorizontalDivider()
-
-            // Diagnostics and experiments: folded away so a painter never has to read them.
-            ActionRow(
-                title = if (showDeveloper) "Developer ▴" else "Developer ▾",
-                subtitle = "Diagnostics and experimental options. You don't need these to paint.",
-                onClick = { showDeveloper = !showDeveloper },
-            )
-            if (showDeveloper) {
-                ActionRow(
-                    title = if (gpuTestRunning) "Testing…" else "Test the drawing engine",
-                    subtitle = "Draws three test dabs with the GPU and shows the result. If this " +
-                        "fails, the problem is this device's graphics driver.",
-                    onClick = {
-                        if (!gpuTestRunning) {
-                            gpuTestRunning = true
-                            coroutineScope.launch {
-                                gpuTestResult = withContext(Dispatchers.Default) { GpuStampEngineSelfTest.run() }
-                                gpuTestRunning = false
-                            }
-                        }
-                    },
-                )
-                HorizontalDivider()
-                PredictionReportsRow(vm)
-                HorizontalDivider()
-                PredictionSoloRow()
-                HorizontalDivider()
-                GpuEngineRows()
-                GpuTierRow()
-                HorizontalDivider()
-            }
-
-            Spacer(Modifier.height(24.dp))
-            Text(
-                "Graffux $appVersion",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
+        SwitchRow(
+            title = stringResource(R.string.settings_brush_zoom),
+            subtitle = stringResource(R.string.settings_brush_zoom_hint),
+            checked = !brushSizeFixedOnScreen,
+            onCheckedChange = { followsZoom -> vm.setBrushSizeFixedOnScreen(!followsZoom) },
+        )
+        HorizontalDivider()
+        SwitchRow(
+            title = stringResource(R.string.settings_outline_assist),
+            subtitle = stringResource(R.string.settings_outline_assist_hint),
+            checked = surfaceOutlineAssist,
+            onCheckedChange = { vm.setSurfaceOutlineAssist(it) },
+        )
+        HorizontalDivider()
+
+        SectionHeader(stringResource(R.string.settings_section_privacy), top = 16.dp)
+        PrivacyConsentRows()
+        StrokeDataRow(vm)
+        HorizontalDivider()
+
+        SectionHeader(stringResource(R.string.settings_section_performance), top = 16.dp)
+        ChoiceRow(
+            title = stringResource(R.string.settings_sample_rate),
+            subtitle = stringResource(R.string.settings_sample_rate_hint),
+            options = SAMPLE_RATES,
+            selected = sampleRate,
+            label = { hz ->
+                if (hz <= 0) stringResource(R.string.settings_unlimited) else stringResource(R.string.settings_hz, hz)
+            },
+            onSelect = vm::setInputSampleRateHz,
+        )
+        HorizontalDivider()
+        ChoiceRow(
+            title = stringResource(R.string.settings_render_scale),
+            subtitle = stringResource(R.string.settings_render_scale_hint),
+            options = RENDER_SCALES,
+            selected = renderScale,
+            label = { scale -> stringResource(R.string.settings_percent, (scale * PERCENT).roundToInt()) },
+            onSelect = vm::setCanvasRenderScale,
+        )
+        HorizontalDivider()
+
+        SectionHeader(stringResource(R.string.settings_section_gestures), top = 16.dp)
+        GestureSlot.entries.forEach { slot ->
+            ChoiceRow(
+                title = stringResource(slot.labelRes()),
+                subtitle = stringResource(R.string.settings_gesture_off_hint),
+                options = GestureAction.entries,
+                selected = gestureMapping[slot] ?: slot.defaultAction,
+                label = { stringResource(it.labelRes()) },
+                onSelect = { action -> vm.setGestureAction(slot, action) },
+            )
+            HorizontalDivider()
+        }
+
+        SectionHeader(stringResource(R.string.settings_section_about), top = 16.dp)
+        CheckForUpdatesRow()
+        HorizontalDivider()
+        ActionRow(
+            title = stringResource(R.string.settings_notices),
+            subtitle = stringResource(R.string.settings_notices_hint),
+            onClick = { showNotices = true },
+        )
+        HorizontalDivider()
+
+        // Diagnostics and experiments: folded away so a painter never has to read them.
+        ActionRow(
+            title = stringResource(
+                if (showDeveloper) R.string.settings_developer_open else R.string.settings_developer_closed,
+            ),
+            subtitle = stringResource(R.string.settings_developer_hint),
+            onClick = { showDeveloper = !showDeveloper },
+        )
+        if (showDeveloper) {
+            ActionRow(
+                title = stringResource(
+                    if (gpuTestRunning) R.string.settings_gpu_testing else R.string.settings_gpu_test,
+                ),
+                subtitle = stringResource(R.string.settings_gpu_test_hint),
+                onClick = {
+                    if (!gpuTestRunning) {
+                        gpuTestRunning = true
+                        coroutineScope.launch {
+                            gpuTestResult = withContext(Dispatchers.Default) { GpuStampEngineSelfTest.run() }
+                            gpuTestRunning = false
+                        }
+                    }
+                },
+            )
+            HorizontalDivider()
+            PredictionReportsRow(vm)
+            HorizontalDivider()
+            PredictionSoloRow()
+            HorizontalDivider()
+            GpuEngineRows()
+            GpuTierRow()
+            HorizontalDivider()
+        }
+
+        Spacer(Modifier.height(24.dp))
+        Text(
+            stringResource(R.string.settings_version, appVersion),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -315,24 +277,23 @@ private fun PredictionReportsRow(vm: SettingsViewModel) {
     val status by vm.predictionReportsStatus.collectAsStateWithLifecycle()
     var token by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-        Text("Prediction ranking reports", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.settings_reports_title), style = MaterialTheme.typography.bodyLarge)
         Text(
-            if (connected) {
-                "Filing rankings as GitHub issues on HereLiesAz/Graffux."
-            } else {
-                "Paste a fine-grained GitHub token (this repository only, Issues: read and write) " +
-                    "to file stroke-prediction rankings as issues."
-            },
+            stringResource(
+                if (connected) R.string.settings_reports_connected else R.string.settings_reports_connect_hint,
+            ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (connected) {
-            TextButton(onClick = { vm.disconnectPredictionReports() }) { Text("Disconnect") }
+            TextButton(onClick = { vm.disconnectPredictionReports() }) {
+            Text(stringResource(R.string.settings_reports_disconnect))
+        }
         } else {
             OutlinedTextField(
                 value = token,
                 onValueChange = { token = it },
-                label = { Text("GitHub token") },
+                label = { Text(stringResource(R.string.settings_reports_token)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -343,7 +304,7 @@ private fun PredictionReportsRow(vm: SettingsViewModel) {
                     token = ""
                 },
                 enabled = token.isNotBlank(),
-            ) { Text("Connect") }
+            ) { Text(stringResource(R.string.settings_reports_connect)) }
         }
         status?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
@@ -365,16 +326,11 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
     // Refreshed on entry and on toggle here; the ViewModel refreshes again after every upload.
     LaunchedEffect(recording) { vm.pendingStrokeData.refresh(context) }
     ChoiceRow(
-        title = "Contribute strokes to model training",
-        subtitle = "Off by default. When enabled, Graffux records raw stroke input (touch path, " +
-            "pressure, contact size) and motion-sensor readings, plus your device model and screen " +
-            "size, but no names, location or image content. Finished sessions are uploaded to a " +
-            "public GitHub branch for training. A stroke is a path of points, so leave this off " +
-            "while writing or signing something. Turn it off to stop collection and uploads. " +
-            "$pending file(s) currently waiting on this device. Applies next time the canvas opens.",
+        title = stringResource(R.string.settings_stroke_data),
+        subtitle = stringResource(R.string.settings_stroke_data_hint, pending),
         options = listOf(true, false),
         selected = recording,
-        label = { if (it) "On" else "Off" },
+        label = { stringResource(if (it) R.string.settings_on else R.string.settings_off) },
         onSelect = {
             recording = it
             prefs.edit().putBoolean(STROKE_DATA_KEY, it).apply()
@@ -383,7 +339,7 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
     TextButton(
         onClick = { vm.uploadStrokeData(context) },
         enabled = recording && pending > 0,
-    ) { Text("Upload stroke data now") }
+    ) { Text(stringResource(R.string.settings_stroke_upload)) }
     HeatmapSettingsRow()
 }
 
@@ -400,12 +356,11 @@ private fun PredictionSoloRow() {
     }
     var solo by remember { mutableStateOf(prefs.getString(PredictionTournament.SOLO_KEY, "").orEmpty()) }
     ChoiceRow(
-        title = "Stroke predictors",
-        subtitle = "Which predictors run while you draw. Pick one to test it alone; takes effect " +
-            "next time the canvas opens.",
+        title = stringResource(R.string.settings_predictors),
+        subtitle = stringResource(R.string.settings_predictors_hint),
         options = listOf("") + PredictionTournament.MODEL_NAMES,
         selected = solo,
-        label = { it.ifEmpty { "All" } },
+        label = { it.ifEmpty { stringResource(R.string.settings_predictors_all) } },
         onSelect = {
             solo = it
             prefs.edit().putString(PredictionTournament.SOLO_KEY, it).apply()
@@ -415,9 +370,8 @@ private fun PredictionSoloRow() {
         mutableStateOf(prefs.getString(PredictionTournament.INK_PROFILE_KEY, null) ?: "standard")
     }
     ChoiceRow(
-        title = "Google Ink tuning",
-        subtitle = "Standard, steadier (less overshoot, more lag) or more responsive (follows turns, " +
-            "overshoots more). Reports name the tuning so they can be compared.",
+        title = stringResource(R.string.settings_ink_tuning),
+        subtitle = stringResource(R.string.settings_ink_tuning_hint),
         options = GoogleInkGesturePredictor.Profile.entries.map { it.label },
         selected = inkProfile,
         label = { it.replaceFirstChar(Char::uppercase) },
@@ -442,13 +396,11 @@ private fun GpuEngineRows() {
     }
     var direct by remember { mutableStateOf(GpuStampEngine.DirectSurface.enabled) }
     ChoiceRow(
-        title = "Direct display",
-        subtitle = "Draws the stroke in progress straight to the screen from the GPU engine, " +
-            "skipping the app's own frame. Normal-blend layers with nothing visible above them; " +
-            "everything else draws as before. Takes effect next time the canvas opens.",
+        title = stringResource(R.string.settings_direct),
+        subtitle = stringResource(R.string.settings_direct_hint),
         options = listOf(false, true),
         selected = direct,
-        label = { if (it) "On" else "Off" },
+        label = { stringResource(if (it) R.string.settings_on else R.string.settings_off) },
         onSelect = {
             direct = it
             GpuStampEngine.DirectSurface.enabled = it
@@ -479,8 +431,14 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
     }
     GraffuxAlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { GraffuxButton(text = "Close", onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE) },
-        title = { Text("Open-source notices") },
+        confirmButton = {
+            GraffuxButton(
+                text = stringResource(R.string.settings_close_button),
+                onClick = onDismiss,
+                shape = GraffuxButtonShape.RECTANGLE,
+            )
+        },
+        title = { Text(stringResource(R.string.settings_notices)) },
         text = {
             Text(
                 text,
@@ -501,23 +459,30 @@ private fun OpenSourceNotices(onDismiss: () -> Unit) {
 private fun GpuTestResultDialog(result: GpuStampEngineSelfTest.Result, onDismiss: () -> Unit) {
     GraffuxAlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { GraffuxButton(text = "Close", onClick = onDismiss, shape = GraffuxButtonShape.RECTANGLE) },
-        title = { Text(if (result.success) "GPU engine: pass" else "GPU engine: fail") },
+        confirmButton = {
+            GraffuxButton(
+                text = stringResource(R.string.settings_close_button),
+                onClick = onDismiss,
+                shape = GraffuxButtonShape.RECTANGLE,
+            )
+        },
+        title = {
+            Text(stringResource(if (result.success) R.string.settings_gpu_pass else R.string.settings_gpu_fail))
+        },
         text = {
             Column {
                 Text(result.message, style = MaterialTheme.typography.bodyMedium)
                 result.bitmap?.let { bmp ->
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "Expect a soft red blob with two firmer, darker-edged lobes overlapping it — " +
-                            "that's the hardness falloff and SRC_OVER build-up the stamp shader is responsible for.",
+                        stringResource(R.string.settings_gpu_expect),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(8.dp))
                     Image(
                         bitmap = bmp.asImageBitmap(),
-                        contentDescription = "GPU stamp engine self-test output",
+                        contentDescription = stringResource(R.string.settings_gpu_output),
                         modifier = Modifier.size(200.dp),
                     )
                 }
@@ -526,6 +491,9 @@ private fun GpuTestResultDialog(result: GpuStampEngineSelfTest.Result, onDismiss
     )
 }
 
+/** Percent, for showing a fraction. */
+private const val PERCENT = 100
+
 /** Offered sample rates. 0 means unthrottled — every reported touch sample is drawn. */
 private val SAMPLE_RATES = listOf(30, 60, 90, 120, 0)
 
@@ -533,14 +501,14 @@ private val SAMPLE_RATES = listOf(30, 60, 90, 120, 0)
 private val RENDER_SCALES = listOf(1f, 0.75f, 0.5f, 0.25f)
 
 /** A titled row of mutually exclusive choices, rendered as a wrapped strip of chips. */
-@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Suppress("FunctionNaming", "LongParameterList") // Composable naming, as everywhere else in this file.
 @Composable
 internal fun <T> ChoiceRow(
     title: String,
     subtitle: String,
     options: List<T>,
     selected: T,
-    label: (T) -> String,
+    label: @Composable (T) -> String,
     onSelect: (T) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {

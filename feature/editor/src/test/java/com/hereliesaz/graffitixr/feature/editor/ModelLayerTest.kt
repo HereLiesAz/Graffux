@@ -30,6 +30,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -593,5 +594,139 @@ class ModelLayerTest {
         assertTrue(artifacts.containsKey("model_peer.obj"))
         // And nothing was echoed back for it.
         assertTrue(emitted.filterIsInstance<Op.ModelData>().none { it.layerId == "peer" })
+    }
+
+    /** A sparse file of [bytes]: over any cap, without the disk it would take. */
+    private fun sparse(name: String, bytes: Long): File =
+        File(projectDir(), name).also { f -> java.io.RandomAccessFile(f, "rw").use { it.setLength(bytes) } }
+
+    @Test
+    fun `a saved model too large to open is reported and its file is kept`() = runTest(dispatcher) {
+        val seen = mutableListOf<EditorNotice>()
+        val job = kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.notices.collect { seen += it } }
+        val big = sparse("model_m.obj", ModelCoopCodec.MAX_OBJ_BYTES + 1L)
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj")),
+        ))
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any {
+            it.kind == NoticeKind.WARNING && it.text.contains("Head") && it.text.contains("larger than") &&
+                it.text.contains("kept")
+        })
+        // Still a model layer, just without a mesh; nothing was deleted or rewritten.
+        assertNull(model().model!!.mesh)
+        assertTrue(big.exists())
+        assertEquals(ModelCoopCodec.MAX_OBJ_BYTES + 1L, big.length())
+    }
+
+    @Test
+    fun `a model too large to share with co-op peers tells the host`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val seen = mutableListOf<EditorNotice>()
+        val job = kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.notices.collect { seen += it } }
+        sparse("model_m.obj", ModelCoopCodec.MAX_OBJ_BYTES + 1L)
+        coopActive = true
+        addModel()
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("co-op") })
+        assertTrue(emitted.filterIsInstance<Op.ModelData>().none { it.objDeflated != null })
+    }
+
+    private fun collectNotices(): Pair<MutableList<EditorNotice>, kotlinx.coroutines.Job> {
+        val seen = mutableListOf<EditorNotice>()
+        return seen to kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.notices.collect { seen += it } }
+    }
+
+    @Test
+    fun `a model whose file is missing from the project is reported to the co-op host`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val (seen, job) = collectNotices()
+        coopActive = true
+        addModel() // no model_m.obj in the project folder
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("co-op") })
+    }
+
+    @Test
+    fun `a peer's model that cannot be parsed is reported, not dropped silently`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val (seen, job) = collectNotices()
+        val peerLayer = com.hereliesaz.graffitixr.common.model.Layer("peer", "Peer head", model = ModelLayerContent("model_peer.obj"))
+        vm.applySpectatorOp(Op.LayerAdd(peerLayer))
+        vm.applySpectatorOp(Op.ModelData("peer", "model_peer.obj", ModelCoopCodec.deflate("not an obj".toByteArray()), null))
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("Peer head") })
+        assertNull(vm.uiState.value.layers.single { it.id == "peer" }.model!!.mesh)
+    }
+
+    @Test
+    fun `a saved paint that cannot be read says so, and does not claim the model failed`() = runTest(dispatcher) {
+        val (seen, job) = collectNotices()
+        File(projectDir(), "model_m.obj").writeText(objText)
+        File(projectDir(), "model_tex_m.png").writeBytes("this is not a png".toByteArray())
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj", "model_tex_m.png")),
+        ))
+        idle()
+        job.cancel()
+        assertNotNull(model().model!!.mesh)
+        assertTrue(seen.toString(), seen.none { it.text.contains("can't be opened") })
+        assertTrue(seen.toString(), seen.any {
+            it.kind == NoticeKind.WARNING && it.text.contains("Head") && it.text.contains("paint") && it.text.contains("kept")
+        })
+        assertTrue("the unreadable paint file is left on disk", File(projectDir(), "model_tex_m.png").exists())
+    }
+
+    @Test
+    fun `a model with a good mesh and a good paint opens without a notice`() = runTest(dispatcher) {
+        val (seen, job) = collectNotices()
+        File(projectDir(), "model_m.obj").writeText(objText)
+        val paint = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
+        File(projectDir(), "model_tex_m.png").outputStream().use { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj", "model_tex_m.png")),
+        ))
+        idle()
+        job.cancel()
+        assertNotNull(model().model!!.mesh)
+        assertNotNull(model().model!!.texture)
+        assertTrue(seen.toString(), seen.isEmpty())
+    }
+
+    @Test
+    fun `a truncated paint with an intact header is reported, not restarted blank`() = runTest(dispatcher) {
+        val (seen, job) = collectNotices()
+        File(projectDir(), "model_m.obj").writeText(objText)
+        val paint = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
+        val whole = java.io.ByteArrayOutputStream().also { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        val cut = whole.copyOf(whole.size * 6 / 10)
+        File(projectDir(), "model_tex_m.png").writeBytes(cut)
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj", "model_tex_m.png")),
+        ))
+        idle()
+        job.cancel()
+        assertNotNull(model().model!!.mesh)
+        assertNull("not loaded, so it is not painted over", model().model!!.texture)
+        assertTrue(seen.toString(), seen.any { it.text.contains("Head") && it.text.contains("paint") && it.text.contains("incomplete") })
+        assertEquals("the file is untouched", cut.size.toLong(), File(projectDir(), "model_tex_m.png").length())
+    }
+
+    @Test
+    fun `isCompletePng accepts a whole PNG and refuses every truncation`() {
+        val paint = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val whole = java.io.ByteArrayOutputStream().also { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        assertTrue(ModelCoopCodec.isCompletePng(whole))
+        for (n in listOf(0, 8, 20, whole.size / 2, whole.size - 13, whole.size - 1)) {
+            assertTrue("cut at $n", !ModelCoopCodec.isCompletePng(whole.copyOf(n)))
+        }
+        assertTrue(!ModelCoopCodec.isCompletePng("not a png at all, but long enough".toByteArray()))
     }
 }

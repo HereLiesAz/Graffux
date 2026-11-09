@@ -34,8 +34,8 @@ val RobotoMonoFamily = FontFamily(
 )
 
 // Set of Material typography styles to start with.
-// Body/title/label sizes are set for comfortable reading on phone screens.
-// Display/headline sizes are decorative and stay large.
+// No style is under 12sp: the old 7, 8, 10 and 11sp captions, pills and hints were unreadable at the
+// default font size (TypeScaleTest holds the floor). Display sizes are decorative and stay large.
 val Typography = Typography(
     bodyLarge = TextStyle(
         fontFamily = RobotoCondensedFamily,
@@ -54,8 +54,8 @@ val Typography = Typography(
     labelSmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 8.sp,
-        lineHeight = 10.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.9.sp
     ),
     // AzNavRail's hidden-menu action labels use bodyMedium. Keep them readable without
@@ -63,8 +63,8 @@ val Typography = Typography(
     bodyMedium = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 11.sp,
-        lineHeight = 15.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.20.sp
     ),
     labelLarge = TextStyle(
@@ -99,7 +99,7 @@ val Typography = Typography(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 20.sp,
-        lineHeight = 18.sp,
+        lineHeight = 24.sp,
         letterSpacing = 0.9.sp
     ),
     headlineMedium = TextStyle(
@@ -112,36 +112,36 @@ val Typography = Typography(
     headlineSmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 10.sp,
-        lineHeight = 14.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.9.sp
     ),
     titleMedium = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 10.sp,
-        lineHeight = 14.sp,
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
         letterSpacing = 0.12.sp
     ),
     titleSmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 8.sp,
-        lineHeight = 11.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.9.sp
     ),
     bodySmall = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Normal,
-        fontSize = 7.sp,
-        lineHeight = 10.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.9.sp
     ),
     labelMedium = TextStyle(
         fontFamily = RobotoCondensedFamily,
         fontWeight = FontWeight.Medium,
-        fontSize = 7.sp,
-        lineHeight = 10.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.9.sp
     )
 )

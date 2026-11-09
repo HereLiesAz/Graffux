@@ -224,6 +224,9 @@ internal fun NoticeStack(
     relief: ReliefSurface? = null,
     reliefActions: ReliefChipActions? = null,
     onBuildFromImage: (() -> Unit)? = null,
+    /** "Relocate rotation point" is armed: its prompt rides in the same stack, above the others. */
+    pivotArmed: Boolean = false,
+    onCancelPivot: () -> Unit = {},
 ) {
     // Every popup sits at the top of the screen, under the status bar and any display cutout and between the
     // rails (the caller pads the sides by the rail width). PopupPolicy still decides how long one stays: an
@@ -236,6 +239,7 @@ internal fun NoticeStack(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         ) {
+            if (pivotArmed) PivotPromptChip(onCancelPivot)
             SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
             if (reliefActions != null) ReliefChip(reliefBuild, relief, reliefActions)
             MessageHost(alerts, okLabel = okLabel, countLabel = countLabel)

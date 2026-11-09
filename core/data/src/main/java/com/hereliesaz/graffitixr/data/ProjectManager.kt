@@ -16,10 +16,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -630,6 +626,8 @@ class ProjectManager @Inject constructor(
     private fun parseArchiveProject(extracted: ExtractedArchive): GraffitiProject? {
         val project = extracted.projectJson?.let {
             try {
+                // Before anything recurses over it: decoding, localizing and re-encoding all do.
+                require(!exceedsJsonDepth(it)) { "project.json is nested more than $MAX_JSON_DEPTH levels deep" }
                 decodeProject(it)
             } catch (e: Exception) {
                 Log.e("ProjectManager", "Failed to parse project.json", e)
@@ -651,6 +649,7 @@ class ProjectManager @Inject constructor(
      * `/projects/<oldId>/` paths are rewritten to the new one. On any failure the staging directory
      * and the half-installed project directory are removed.
      */
+    @Suppress("ReturnCount") // a bad id, an unlocalizable project.json, then the result: each ends the import
     private suspend fun installExtracted(context: Context, extracted: ExtractedArchive): GraffitiProject? {
         val original = parseArchiveProject(extracted) ?: return null
         val projectsDir = File(context.filesDir, "projects")
@@ -664,10 +663,10 @@ class ProjectManager @Inject constructor(
         // Every URI in an imported project is pinned to the project's own folder on this device;
         // one pointing anywhere else (another project, a content:// grant, a path from the
         // exporting device) is dropped, so a crafted .fux can't make a layer read other files.
-        val localized = localizeArchiveUris(
+        val localized = localizeImportedProject(
             requireNotNull(extracted.projectJson).replace("/projects/${original.id}/", "/projects/$newId/"),
             "file://${projectsDir.absolutePath}/$newId/",
-        )
+        ) ?: return null
         val project = decodeProject(localized).copy(id = newId)
         // A newer-format project.json is installed as written (only its id changed), never
         // re-encoded through this build's model, which would drop the fields it doesn't know.
@@ -846,76 +845,6 @@ class ProjectManager @Inject constructor(
         }
     }
 }
-
-/** A string that names a resource: any `scheme://`, or `file:` / `content:` / `android.resource:` in any spelling. */
-private val URI_LIKE = Regex("""^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|(?:file|content|android\.resource):)""")
-
-/** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
-private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
-
-/**
- * Rewrites every URI in an imported project.json to [localRoot] (`file://.../projects/<id>/`): a
- * `file://` URI naming a file under some `/projects/<anyId>/` keeps its path inside the project and
- * gains this device's root; every other URI becomes empty.
- *
- * Works on the parsed JSON, not on its text: a string can spell the same URI as `file:\/\/\/etc\/hosts` or
- * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. A string is a URI when it
- * looks like one, or when it sits under a key that names a URI (`uri`, `overlayImageUri`,
- * `targetImageUris`, ...), so a scheme-less `/data/...` path is dropped too. Other text is untouched.
- * Text that is not JSON is returned as it came; decoding it fails the same way.
- */
-internal fun localizeArchiveUris(projectJson: String, localRoot: String): String {
-    val root = runCatching { Json.parseToJsonElement(projectJson) }.getOrNull() ?: return projectJson
-    return Json.encodeToString(JsonElement.serializer(), localizeNode(root, null, localRoot))
-}
-
-private fun localizeNode(node: JsonElement, key: String?, localRoot: String): JsonElement = when (node) {
-    is JsonObject -> JsonObject(node.mapValues { (k, v) -> localizeNode(v, k, localRoot) })
-    is JsonArray -> JsonArray(node.map { localizeNode(it, key, localRoot) })
-    is JsonPrimitive -> {
-        val namesUri = key?.contains("uri", ignoreCase = true) == true
-        if (node.isString && (namesUri || URI_LIKE.containsMatchIn(node.content))) {
-            JsonPrimitive(localizeUri(node.content, localRoot))
-        } else {
-            node
-        }
-    }
-}
-
-private fun localizeUri(uri: String, localRoot: String): String {
-    val inProject = IN_PROJECT.find(uri)?.groupValues?.get(1)
-    val safe = inProject?.takeIf { rest -> rest.split('/').all { isSafeUriSegment(it) } }
-    return if (safe != null) localRoot + safe else ""
-}
-
-/**
- * Whether one path segment of an archive URI stays inside its folder once opened. A raw `?` or `#`
- * ends the path when the URI is parsed (`..?x` is `..`), so those are refused as written. After that
- * Uri.getPath() percent-decodes, so `%2e%2e` or `..%2f` are parent references: the segment is decoded
- * until it stops changing (a double-encoded `%252e` too) and refused if any form is empty, `.`, `..`, or
- * holds a separator or NUL. A decoded `?`, `#` or `%` is only a filename character (`what%3F.png`,
- * `50%25.png`), and a decode that cannot go on (a lone `%`) means the text is settled.
- */
-private fun isSafeUriSegment(segment: String): Boolean {
-    if ('?' in segment || '#' in segment) return false
-    var current = segment
-    var safe = true
-    var settled = false
-    var rounds = 0
-    while (safe && !settled && rounds++ < MAX_URI_DECODES) {
-        if (current in URI_DOT_SEGMENTS || URI_UNSAFE_CHARS.containsMatchIn(current)) {
-            safe = false
-        } else {
-            val decoded = runCatching { java.net.URLDecoder.decode(current.replace("+", "%2B"), "UTF-8") }.getOrNull()
-            if (decoded == null || decoded == current) settled = true else current = decoded
-        }
-    }
-    return safe && settled
-}
-
-private val URI_DOT_SEGMENTS = setOf("", ".", "..")
-private val URI_UNSAFE_CHARS = Regex("""[/\\\u0000]""")
-private const val MAX_URI_DECODES = 4
 
 /** The project.json format version that added photo adjustment layers. */
 private const val FORMAT_ADJUSTMENT_LAYERS = 2

@@ -298,4 +298,150 @@ class ObjParserTest {
     fun `a non-finite vertex coordinate is rejected`() {
         ObjParser.parse("v nan 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3")
     }
+
+    // Size limits: a model file is untrusted input (a picked file, a .fux, a co-op peer).
+
+    @Test
+    fun `a model with more vertices than the limit is refused`() {
+        val obj = StringBuilder()
+        repeat(ObjParser.MAX_VERTICES + 1) { obj.append("v 0 0 0\n") }
+        obj.append("f 1 1 1\n")
+        val e = runCatching { ObjParser.parse(obj.toString()) }.exceptionOrNull()
+        assertTrue(e.toString(), e is ObjParser.ObjParseException)
+    }
+
+    @Test
+    fun `positions uvs normals triangles and emitted vertices are each limited`() {
+        val limits = ObjParser.Limits(maxVertices = 4, maxTriangles = 2)
+        fun fails(obj: String) =
+            runCatching { ObjParser.parse(obj, limits) }.exceptionOrNull() is ObjParser.ObjParseException
+        val v = "v 0 0 0\nv 1 0 0\nv 0 1 0\n"
+        assertTrue(fails(v + "v 1 1 0\nv 2 2 2\nf 1 2 3\n"))
+        assertTrue(fails(v + "vt 0 0\n".repeat(5) + "f 1 2 3\n"))
+        assertTrue(fails(v + "vn 0 0 1\n".repeat(5) + "f 1 2 3\n"))
+        assertTrue(fails(v + "f 1 2 3\nf 1 2 3\nf 1 2 3\n"))
+        // Distinct uv per corner: 3 positions x 3 uvs = 9 emitted vertices.
+        assertTrue(fails(v + "vt 0 0\nvt 1 0\nvt 0 1\nf 1/1 2/2 3/3\nf 1/2 2/3 3/1\n"))
+        // Exactly at the limits still parses.
+        val ok = ObjParser.parse(v + "v 1 1 0\nf 1 2 3\nf 2 3 4\n", limits)
+        assertEquals(2, ok.triangleCount)
+    }
+
+    // The bound must hold before anything is materialised: a line is measured, not split, first.
+
+    private val tri = "v 0 0 0\nv 1 0 0\nv 0 1 0\n"
+
+    private fun assertRefused(text: String, containing: String) {
+        val e = runCatching { ObjParser.parse(text) }.exceptionOrNull()
+        assertTrue(e.toString(), e is ObjParser.ObjParseException && e.message.orEmpty().contains(containing))
+    }
+
+    @Test(timeout = 30_000)
+    fun `one enormous face line is refused without being split`() =
+        assertRefused(tri + "f " + "1 ".repeat(500_000) + "\n", "line")
+
+    @Test(timeout = 30_000)
+    fun `one enormous position line is refused without being split`() =
+        assertRefused("v " + "0 ".repeat(4_000_000) + "\n" + tri, "line")
+
+    @Test(timeout = 30_000)
+    fun `a body with no newline at all is refused`() = assertRefused("x".repeat(10_000_000), "line")
+
+    @Test
+    fun `a long comment is skipped, not refused`() {
+        val comment = "# " + "x".repeat(1_000_000) + "\n"
+        val mesh = ObjParser.parse(comment + tri + "f 1 2 3 # " + "y".repeat(100_000) + "\n")
+        assertEquals(1, mesh.triangleCount)
+    }
+
+    @Test
+    fun `a face with an absurd number of corners is refused`() =
+        assertRefused(tri + "f " + "1 ".repeat(ObjParser.MAX_FACE_CORNERS + 1) + "\n", "corners")
+
+    @Test(timeout = 120_000)
+    fun `a flat-shaded model at the triangle cap still imports`() {
+        // Every corner has its own position, so 400,000 triangles emit 1,200,000 vertices: three per triangle.
+        val triangles = ObjParser.MAX_TRIANGLES
+        val obj = StringBuilder(triangles * 40)
+        for (t in 0 until triangles) {
+            obj.append("v ").append(t).append(" 0 0\nv ").append(t).append(" 1 0\nv ").append(t).append(" 0 1\n")
+        }
+        for (t in 0 until triangles) {
+            val a = 3 * t + 1
+            obj.append("f ").append(a).append(' ').append(a + 1).append(' ').append(a + 2).append('\n')
+        }
+        val mesh = ObjParser.parse(obj.toString())
+        assertEquals(triangles, mesh.triangleCount)
+        assertEquals(3 * triangles, mesh.vertexCount)
+    }
+
+    @Test
+    fun `the vertex cap is three times the triangle cap`() =
+        assertEquals(3 * ObjParser.MAX_TRIANGLES, ObjParser.MAX_VERTICES)
+
+    // Line endings: \n, \r\n and a bare \r (old Mac exporters) all end a line.
+
+    private val triLines = listOf("v 0 0 0", "v 1 0 0", "v 0 1 0", "f 1 2 3")
+
+    @Test
+    fun `a file with bare carriage returns parses`() {
+        assertEquals(1, ObjParser.parse(triLines.joinToString("\r", postfix = "\r")).triangleCount)
+        assertEquals(1, ObjParser.parse(triLines.joinToString("\r")).triangleCount)
+    }
+
+    @Test
+    fun `windows and mixed line endings still parse`() {
+        assertEquals(1, ObjParser.parse(triLines.joinToString("\r\n", postfix = "\r\n")).triangleCount)
+        assertEquals(1, ObjParser.parse("v 0 0 0\r\nv 1 0 0\rv 0 1 0\nf 1 2 3\r\n\r\n").triangleCount)
+    }
+
+    @Test
+    fun `the line cap still applies when lines are carriage-return separated`() {
+        assertRefused(triLines.take(3).joinToString("\r") + "\rf " + "1 ".repeat(100_000) + "\r", "line")
+    }
+
+    // The dedupe map: a position-only corner packs to (index + 1) shl 42, so a weak hash clusters them.
+
+    @Test(timeout = 60_000)
+    fun `sequential position-only keys do not cluster in the dedupe map`() {
+        val n = ObjParser.MAX_VERTICES
+        val map = LongIntMap()
+        for (i in 0 until n) map[(i + 1).toLong() shl 42] = i
+        for (i in 0 until n) assertEquals(i, map[(i + 1).toLong() shl 42])
+        assertEquals(-1, map[(n + 5).toLong() shl 42])
+        // About one to three slots per operation; clustering into runs of hundreds would be 100x this.
+        assertTrue("probes ${map.probes} for ${2 * n} operations", map.probes < 6L * n)
+    }
+
+    @Test
+    fun `corners with only a position still dedupe`() {
+        val mesh = ObjParser.parse("v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nf 1 2 3\nf 2 4 3\nf 1 2 3\n")
+        assertEquals(4, mesh.vertexCount)
+        assertEquals(3, mesh.triangleCount)
+    }
+
+    // Memory: lists stop growing at their limit, instead of doubling past it.
+
+    @Test
+    fun `a list never grows past its limit and hands back an exact array without a copy`() {
+        val floats = FloatList(maxCapacity = 3_000)
+        repeat(3_000) { floats.add(it.toFloat()) }
+        assertEquals(3_000, floats.capacity)
+        assertTrue(floats.toArray() === floats.toArray())
+        assertEquals(2_999f, floats[2_999], 0f)
+        assertTrue(runCatching { floats.add(1f) }.isFailure)
+        val ints = IntList(maxCapacity = 1_500)
+        repeat(1_500) { ints.add(it) }
+        assertEquals(1_500, ints.capacity)
+        val partial = FloatList(maxCapacity = 1_000_000).apply { repeat(10) { add(1f) } }
+        assertEquals(10, partial.toArray().size)
+    }
+
+    @Test
+    fun `a model that fills its limits builds from lists that are exactly full`() {
+        val limits = ObjParser.Limits(maxVertices = 6, maxTriangles = 2)
+        val mesh = ObjParser.parse("v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nf 1 2 3\nf 2 4 3\n", limits)
+        assertEquals(2, mesh.triangleCount)
+        assertEquals(4, mesh.vertexCount)
+    }
 }

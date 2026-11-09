@@ -1663,15 +1663,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
-            // "Relocate rotation point": say what to do, and let Cancel (or Back) leave it.
-            if (uiState.pivotPickArmed) {
-                PivotPromptChip(
-                    onCancel = { vm.onCancelPivotPick() },
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 72.dp, start = 16.dp, end = 16.dp),
-                )
-            }
-
-            // "Draw surface" prompt, then failures and confirmations, over the artwork, never blocking it.
+            // "Relocate rotation point" (say what to do; Cancel or Back leaves it), then the "Draw surface"
+            // prompt, then failures and confirmations, over the artwork, never blocking it. One stack, so
+            // they sit under the status bar and between the rails and never on top of one another.
             NoticeStack(
                 armed = uiState.surfaceDrawArmed,
                 notice = uiState.surfaceDrawNotice,
@@ -1686,6 +1680,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 relief = activeRelief(uiState),
                 reliefActions = reliefChipActions(vm, uiState),
                 onBuildFromImage = if (canBuildRelief(uiState)) ({ vm.onBuildSurfaceFromImage() }) else null,
+                pivotArmed = uiState.pivotPickArmed,
+                onCancelPivot = { vm.onCancelPivotPick() },
                 alerts = alerts,
                 okLabel = strings.messages.ok,
                 countLabel = { strings.messages.times.format(it) },
@@ -1917,7 +1913,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // Stays open behind the system picker: cancelling it should put the user back
                     // where they were rather than making them find Open again.
                     onChooseLocation = { projectOpener.launch(arrayOf("*/*")) },
-                    onDelete = { vm.deleteProjectById(it); vm.refreshOpenScreen() },
+                    onDelete = { vm.deleteProjectById(it) },
                     onDismiss = { showOpenDialog = false },
                 )
             }

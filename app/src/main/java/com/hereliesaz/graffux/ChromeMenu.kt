@@ -33,7 +33,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -128,8 +132,11 @@ internal fun MenuPanel(
     modifier: Modifier = Modifier,
     title: String? = null,
     maxHeight: Dp = 520.dp,
+    /** What a screen reader calls this panel when it has no visible [title]. */
+    paneLabel: String? = null,
 ) {
     val colors = MaterialTheme.colorScheme
+    val paneName = title ?: paneLabel ?: stringResource(R.string.menu_pane_title)
     Column(
         modifier = modifier
             .widthIn(min = 200.dp, max = 280.dp)
@@ -139,6 +146,8 @@ internal fun MenuPanel(
             .border(1.dp, RailBorder, MenuShape)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 6.dp)
+            // Announced as it opens, named by its title (else just "Menu"), and read as one group.
+            .semantics { paneTitle = paneName; isTraversalGroup = true }
             .testTag("chrome.menu"),
     ) {
         if (title != null) {
@@ -167,10 +176,7 @@ internal fun MenuPanel(
                         .semantics { heading() },
                 )
                 is MenuRow.Page -> MenuText(row.text, onClick = row.onClick)
-                is MenuRow.Toggle -> MenuText(
-                    "${row.label}: ${if (row.checked) "shown" else "hidden"}",
-                    trailing = if (row.checked) "●" else "○",
-                ) { row.onToggle(!row.checked) }
+                is MenuRow.Toggle -> MenuToggle(row)
                 is MenuRow.Input -> MenuInput(row) { onDismiss() }
                 MenuRow.Divider -> Box(
                     Modifier
@@ -208,6 +214,37 @@ private fun MenuText(text: String, trailing: String? = null, color: Color? = nul
     }
 }
 
+/**
+ * An on/off row that stays open. The drawn row says "label: shown" with a dot; a screen reader gets a
+ * checkbox named by the label alone, with its state, rather than a button that reads the dot out as
+ * "black circle".
+ */
+@Suppress("FunctionNaming")
+@Composable
+private fun MenuToggle(row: MenuRow.Toggle) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MenuRowHeight)
+            .toggleable(value = row.checked, role = Role.Checkbox, onValueChange = { row.onToggle(it) })
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clearAndSetSemantics { contentDescription = row.label },
+    ) {
+        Text(
+            stringResource(if (row.checked) R.string.menu_toggle_shown else R.string.menu_toggle_hidden, row.label),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            if (row.checked) "●" else "○",
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
 @Suppress("FunctionNaming")
 @Composable
 private fun MenuCheck(row: MenuRow.Check, onClick: () -> Unit) {
@@ -227,7 +264,7 @@ private fun MenuCheck(row: MenuRow.Check, onClick: () -> Unit) {
         )
         // Drawn only; TalkBack reads the checkbox state from toggleable.
         Text(
-            if (row.checked) "On" else "Off",
+            stringResource(if (row.checked) R.string.menu_state_on else R.string.menu_state_off),
             style = MaterialTheme.typography.labelMedium,
             color = if (row.checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             modifier = Modifier.padding(start = 8.dp).clearAndSetSemantics { },
