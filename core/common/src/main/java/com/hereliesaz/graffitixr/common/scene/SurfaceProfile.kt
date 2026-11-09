@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList", "TooManyFunctions", "MaxLineLength", "ComplexCondition", "LoopWithTooManyJumpStatements")
+@file:Suppress("MagicNumber", "CyclomaticComplexMethod", "ReturnCount", "LongParameterList", "TooManyFunctions", "MaxLineLength", "ComplexCondition", "LoopWithTooManyJumpStatements")
 
 package com.hereliesaz.graffitixr.common.scene
 
@@ -283,14 +283,25 @@ object SurfaceMath {
      * (the owner's box-local to scene map): the nearest hit in front of the near plane, or null
      * when the ray misses every strip.
      */
-    fun hit(x: Float, y: Float, profile: SurfaceProfile, model: Affine3, cam: CameraFrame): SurfaceHit? {
+    fun hit(x: Float, y: Float, profile: SurfaceProfile, model: Affine3, cam: CameraFrame): SurfaceHit? =
+        hitRay(cam.rayDirection(x, y), profile, model, cam)
+
+    /** [hit] for the ray from the eye along the unit scene direction [dirW] (the one ray machinery the tap pick and the visibility test share). */
+    fun hitRay(
+        dirW: FloatArray,
+        profile: SurfaceProfile,
+        model: Affine3,
+        cam: CameraFrame,
+        /** The smallest ray parameter that counts; the default is the near plane's distance along an axial ray. */
+        near: Float = SceneMath.nearPlane(cam.focal),
+        /** The farthest sweep distance that counts: a hit past it is not the surface, and a farther fold can still be (the nearest within reach wins). */
+        maxT: Float = Float.POSITIVE_INFINITY,
+    ): SurfaceHit? {
         val inv = model.inverse() ?: return null
-        val dirW = cam.rayDirection(x, y)
         val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
         val dir = inv.applyVector(dirW[0], dirW[1], dirW[2])
         val d = profile.sweep
-        val near = SceneMath.nearPlane(cam.focal)
-        profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
+                profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
         var best: SurfaceHit? = null
         for (i in 0 until profile.count - 1) {
             val p = profile.point(i)
@@ -305,13 +316,27 @@ object SurfaceMath {
             val s = det3(rhs, ne, nd) / det
             val a = det3(dir, rhs, nd) / det
             val t = det3(dir, ne, rhs) / det
-            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE) continue
+            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE || t > maxT) continue
             if (best == null || s < best.distance) {
                 val seg = profile.arcLengths[i + 1] - profile.arcLengths[i]
                 best = SurfaceHit(profile.arcLengths[i] + a.coerceIn(0f, 1f) * seg, t.coerceAtLeast(0f), s)
             }
         }
         return best
+    }
+
+    /**
+     * The unrolled range a layer image drawn at [rect] (left, top, right, bottom in the leaf's box) covers on the
+     * surface: (uMin, uMax, tMin, tMax). The one place the mesh the depth pass draws ([mesh] over this range, in
+     * `DepthScene.surfaceMesh`) and the extent the visibility cast uses ([SurfaceVisibility]) both read, so they cannot differ.
+     */
+    fun unrolledRange(innerChain: List<PlanePose>, rect: FloatArray, width: Float, height: Float): FloatArray {
+        val toUnrolled = boxToUnrolled(innerChain, width, height)
+        val corners = listOf(
+            toUnrolled.apply(rect[0], rect[1], 0f), toUnrolled.apply(rect[2], rect[1], 0f),
+            toUnrolled.apply(rect[2], rect[3], 0f), toUnrolled.apply(rect[0], rect[3], 0f),
+        )
+        return floatArrayOf(corners.minOf { it[0] }, corners.maxOf { it[0] }, corners.minOf { it[1] }, corners.maxOf { it[1] })
     }
 
     /**
@@ -439,14 +464,25 @@ object SurfaceMath {
         return ViewFlat(target.view, flat.first, flat.second, target.region)
     }
 
-    /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */
-    fun flatToWorld(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): Pair<Float, Float>? {
+    /** Where a flat point of [owner]'s leaf is in the scene (the point [flatToWorld] projects). */
+    fun flatToScene(x: Float, y: Float, owner: SurfaceOwner, width: Float, height: Float): FloatArray? {
         if (width <= 0f || height <= 0f) return null
         val (u, t) = flatToUnrolled(x, y, owner.innerChain, width, height)
-        val cam = SceneMath.frame(camera, width, height)
         val local = owner.profile.at(u, t.coerceAtLeast(0f))
-        val p = SceneMath.chainModel(owner.ownerChain, width, height).apply(local[0], local[1], local[2])
-        return cam.project(p)
+        return SceneMath.chainModel(owner.ownerChain, width, height).apply(local[0], local[1], local[2])
+    }
+
+    /** Where the point ([x], [y]) of [view]'s paint image is in the scene; null where the image has no surface. */
+    fun viewFlatToScene(view: SurfaceView, x: Float, y: Float, owner: SurfaceOwner, hull: SurfaceHull, width: Float, height: Float): FloatArray? {
+        val (ux, uy) = flatToUnrolled(x, y, owner.innerChain, width, height)
+        val p = hull.pointAt(view, ux, uy) ?: return null
+        return SceneMath.chainModel(owner.ownerChain, width, height).apply(p[0], p[1], p[2])
+    }
+
+    /** Where a flat point of [owner]'s leaf shows on the canvas; null behind the eye. */
+    fun flatToWorld(x: Float, y: Float, owner: SurfaceOwner, camera: SceneCamera, width: Float, height: Float): Pair<Float, Float>? {
+        val p = flatToScene(x, y, owner, width, height) ?: return null
+        return SceneMath.frame(camera, width, height).project(p)
     }
 
     /** Camera depth of the surface hit for ([x], [y]); null on a miss. */

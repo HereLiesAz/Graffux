@@ -135,44 +135,8 @@ object OrbitPivot {
     ): FloatArray {
         val cam = SceneMath.frame(camera, width, height)
         val dir = cam.rayDirection(x, y)
-        var best: FloatArray? = null
-        var bestDistance = Float.MAX_VALUE
-        val byId = layers.associateBy { it.id }
-        // What the renderer draws: not hidden itself or under a hidden group, and not at zero opacity
-        // (its own times every enclosing group's), as DepthComposite.plan and the layer stack skip them.
-        fun drawn(layer: Layer): Boolean {
-            var opacity = 1f
-            var current: Layer? = layer
-            val seen = HashSet<String>()
-            while (current != null && seen.add(current.id)) {
-                if (!current.isVisible) return false
-                opacity *= current.opacity
-                current = current.parentId?.let(byId::get)
-            }
-            return opacity > 0f
-        }
-        for (group in layers.filter { it.isContainer && it.surface?.isValid == true && drawn(it) }) {
-            val profile = group.surface!!
-            val model = SceneMath.chainModel(planeChain(layers, group.id), width, height)
-            val inv = model.inverse() ?: continue
-            val near = SceneMath.nearPlane(cam.focal)
-            val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
-            val s: Float
-            if (hull != null) {
-                val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
-                val d = inv.applyVector(dir[0], dir[1], dir[2])
-                s = (hull.hit(eye, d, near) ?: continue).distance
-            } else {
-                val hit = SurfaceMath.hit(x, y, profile, model, cam) ?: continue
-                // The sheet is swept without bound, but is drawn and boxed only as far as the guide grid reaches.
-                if (profile.relief == null && hit.t > SurfaceMath.gridExtent(profile)) continue
-                s = hit.distance
-            }
-            // The hit is read straight off the ray: both hits report the ray parameter, which an affine
-            // model leaves unchanged, so no (u, t) is rebuilt (that clamped a relief's negative coordinates).
-            if (s < bestDistance) { bestDistance = s; best = FloatArray(3) { cam.eye[it] + dir[it] * s } }
-        }
-        best?.let { return it }
+        val s0 = SurfaceVisibility.of(layers, camera, width, height, rendered = false).nearest(dir)
+        if (s0 != null) return FloatArray(3) { cam.eye[it] + dir[it] * s0 }
         val depth = cam.toCamera(current)[2].coerceAtLeast(SceneMath.nearPlane(cam.focal) * 2f)
         // The ray's depth along the view axis is s * (dir . forward); solve for that depth.
         val s = depth / SceneMath.dot(dir, cam.forward).coerceAtLeast(1e-6f)

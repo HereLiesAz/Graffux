@@ -180,6 +180,37 @@ data class DepthComposite(
         }
 
         /**
+         * Where [layer] draws an image in its [boxWidth] x [boxHeight] box, whatever it is made of (the one answer the
+         * depth pass and the visibility cast share): a raster's bitmap ([bitmapWidth] x [bitmapHeight]) by [imageRect],
+         * a vector layer's square about the box centre that holds every shape ([vectorHalfExtent]). Null when it draws nothing.
+         */
+        fun renderedRect(layer: Layer, bitmapWidth: Int?, bitmapHeight: Int?, boxWidth: Float, boxHeight: Float): FloatArray? {
+            if (layer.shapes.isNotEmpty()) {
+                val half = vectorHalfExtent(layer)
+                if (!half.isFinite() || half <= 0f) return null
+                val cx = boxWidth / 2f
+                val cy = boxHeight / 2f
+                return floatArrayOf(cx - half, cy - half, cx + half, cy + half)
+            }
+            if (bitmapWidth == null || bitmapHeight == null) return null
+            return imageRect(layer, bitmapWidth, bitmapHeight, boxWidth, boxHeight)
+        }
+
+        /** Half the side of the square around the box centre that holds every shape of a vector layer. */
+        fun vectorHalfExtent(layer: Layer): Float = layer.shapes.maxOfOrNull { s ->
+            maxOf(kotlin.math.abs(s.width) / 2f, kotlin.math.abs(s.height) / 2f, controlExtent(s)) + s.strokeWidth
+        } ?: 0f
+
+        private fun controlExtent(s: com.hereliesaz.graffitixr.common.model.VectorShape): Float {
+            var m = 0f
+            for (i in s.points.indices) {
+                val p = s.points[i]
+                m = maxOf(m, kotlin.math.abs(p), kotlin.math.abs(p + s.handlesIn.getOrElse(i) { 0f }), kotlin.math.abs(p + s.handlesOut.getOrElse(i) { 0f }))
+            }
+            return m
+        }
+
+        /**
          * Painter's order for members: farthest centre first. The depth test makes crossing planes
          * exact; the order makes translucent pixels blend over what is behind them.
          */

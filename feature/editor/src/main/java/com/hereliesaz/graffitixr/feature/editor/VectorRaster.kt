@@ -26,23 +26,7 @@ internal object VectorRaster {
     class Image(val bitmap: Bitmap, val rect: FloatArray)
 
     /** Half the side of the square around the box centre that holds every shape. */
-    fun halfExtent(layer: Layer): Float = layer.shapes.maxOfOrNull { s ->
-        maxOf(abs(s.width) / 2f, abs(s.height) / 2f, controlExtent(s)) + s.strokeWidth
-    } ?: 0f
-
-    /**
-     * The largest |coordinate| of a path's nodes and their control points. Handles are offsets
-     * relative to their node, so a control point is node + handle; a cubic stays inside the hull
-     * of its control points, so this bounds every curve.
-     */
-    private fun controlExtent(s: VectorShape): Float {
-        var m = 0f
-        for (i in s.points.indices) {
-            val p = s.points[i]
-            m = maxOf(m, abs(p), abs(p + s.handlesIn.getOrElse(i) { 0f }), abs(p + s.handlesOut.getOrElse(i) { 0f }))
-        }
-        return m
-    }
+    fun halfExtent(layer: Layer): Float = com.hereliesaz.graffitixr.common.scene.DepthComposite.vectorHalfExtent(layer)
 
     /** Null for a layer without shapes or one too large to hold ([maxSide] pixels a side). */
     fun rasterize(layer: Layer, boxWidth: Float, boxHeight: Float, maxSide: Int = MAX_SIDE): Image? {
@@ -57,9 +41,8 @@ internal object VectorRaster {
             drawContext.transform.scale(scale, scale, androidx.compose.ui.geometry.Offset.Zero)
             layer.shapes.forEach { drawVectorShape(it, half, half) }
         }
-        val cx = boxWidth / 2f
-        val cy = boxHeight / 2f
-        return Image(bitmap, floatArrayOf(cx - half, cy - half, cx + half, cy + half))
+        val rect = com.hereliesaz.graffitixr.common.scene.DepthComposite.renderedRect(layer, null, null, boxWidth, boxHeight) ?: return null
+        return Image(bitmap, rect)
     }
 
     private const val MAX_SIDE = 4096

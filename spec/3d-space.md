@@ -409,6 +409,28 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   face on one sample and a far one on the next, and the straight stroke between the two hits is
   painted across the surface between them, nowhere near the finger. `SurfaceStrokeGuard.dropped` and
   `.cuts` count what it rejects (debug). Cap regions (no 2D map back) and flat layers are not checked.
+- **Paint reaches only what the camera sees.** A sample a stroke accepts on a surface must be in direct
+  view of the camera it is mapped with: the ray from the eye to that surface point must first meet a
+  surface at that point (within `SurfaceVisibility.toleranceAt`: 0.2% of the eye distance plus 0.5 scene
+  px), over every drawn group's hull, relief or sheet together. A point behind a fold, behind another
+  group, or on the far side of a solid is not painted even when the stroke path crosses it. It is the
+  tap pick's ray machinery (`OrbitPivot.pick` now calls `SurfaceVisibility.nearest`), built once per
+  `ActivePlaneMapping` from the camera it holds, so the camera is the one at stroke time; moving it and
+  painting again judges visibility afresh. A group that is hidden, under a hidden group or at zero
+  opacity is not drawn and does not occlude. Flat and 2D layers, and a tilted plane that is not a group
+  surface, are unchanged. `flatOnFinger`/`viewFlatOnFinger` apply it after the footprint check, and
+  `flatJoinOnFinger`/`viewJoinOnFinger` also test the middle of the joining stroke, so a fast stroke
+  that steps over a hidden stretch is not bridged. An occluded sample is dropped exactly like a miss
+  (`SurfaceStrokeGuard.visibleOk`, counted in `.hidden`, never in `.cuts`): it is not a gap in the
+  surface. A stroke that goes behind a fold and comes back resumes as a new segment at the first
+  visible sample (the feeds' existing gap rule), so nothing is painted between. Granularity is per
+  sample: the paint pipeline stamps a dab in flat space and has no per-texel screen mask, so a dab
+  whose centre is seen still spills onto hidden surface within its radius, and a dab whose centre is
+  hidden paints nothing. Open sheets and reliefs are treated as double-sided (a sheet seen from behind
+  is seen); a solid's far side is hidden by its near side. Cost: per sample one box-slab test per drawn
+  group (groups the ray misses or enters beyond the point are skipped) plus one ray cast of each
+  remaining group and a few small float arrays; per join one more. Cap regions are checked for
+  visibility but not for finger distance.
 - **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
   active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
   the group's space, so all its layers move with it.

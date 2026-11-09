@@ -21,12 +21,26 @@ object SurfaceStrokeGuard {
 
     private val droppedSamples = AtomicLong()
     private val cutJoins = AtomicLong()
+    private val hiddenPoints = AtomicLong()
 
     /** Samples dropped for not showing near their touch, since the process started (debug counter). */
     val dropped: Long get() = droppedSamples.get()
 
     /** Joins cut for bridging a gap in the surface, since the process started (debug counter). */
     val cuts: Long get() = cutJoins.get()
+
+    /** Points refused for being out of the camera's direct view (behind a fold or another surface), since start. */
+    val hidden: Long get() = hiddenPoints.get()
+
+    /**
+     * Passes [visible] (the camera sees the surface point; see [SurfaceVisibility]) through, counting a refusal.
+     * An occluded sample is dropped exactly like a miss: it is not a gap in the surface, so it is never
+     * counted as a [cuts] join cut, and the stroke resumes as a new segment where it is visible again.
+     */
+    fun visibleOk(visible: Boolean): Boolean {
+        if (!visible) hiddenPoints.incrementAndGet()
+        return visible
+    }
 
     /** Whether a point accepted for the touch ([tx], [ty]) shows at ([bx], [by]), within [radius] of it. */
     fun sampleOk(tx: Float, ty: Float, bx: Float, by: Float, radius: Float): Boolean {
