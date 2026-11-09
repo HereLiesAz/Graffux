@@ -116,6 +116,14 @@ class EditorViewModelTest {
         coEvery { com.hereliesaz.graffitixr.common.util.ImageUtils.getBitmapDimensions(any(), any()) } returns Pair(100, 100)
         coEvery { com.hereliesaz.graffitixr.common.util.ImageUtils.loadBitmapAsync(any(), any(), any()) } returns mockBitmap
         coEvery { projectRepository.saveArtifact(any(), any(), any()) } returns "/path/to/artifact.png"
+        coEvery { projectRepository.deleteArtifact(any(), any()) } answers {
+            // the real repository deletes under its save lock; the fixture deletes the file the view model points at
+            // (a test that never set filesDir has a relaxed mock there: nothing to delete)
+            runCatching {
+                val f = java.io.File(context.filesDir, "projects/${firstArg<String>()}/${secondArg<String>()}")
+                !f.exists() || f.delete()
+            }.getOrDefault(true)
+        }
         every { com.hereliesaz.graffitixr.common.util.ImageUtils.bitmapToByteArray(any()) } returns ByteArray(0)
 
         // Mock TextRasterizer and GoogleFontCache to avoid Android dependencies

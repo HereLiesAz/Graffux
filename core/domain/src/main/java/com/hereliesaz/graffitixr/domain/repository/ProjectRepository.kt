@@ -90,6 +90,13 @@ interface ProjectRepository {
     suspend fun saveArtifact(projectId: String, filename: String, data: ByteArray): String
 
     /**
+     * Deletes the artifact [filename] of [projectId] under the same lock as [saveArtifact], so a delete cannot
+     * interleave with a write. True if the file is gone afterwards (or never existed); false if it could not be
+     * deleted. A read-only (newer-format) project keeps its files: nothing is deleted and this returns true.
+     */
+    suspend fun deleteArtifact(projectId: String, filename: String): Boolean = false
+
+    /**
      * Imports a project from a .gxr zip file URI.
      * Extracts and persists the project, then sets it as the current project.
      * @param uri The URI of the .gxr file to import.

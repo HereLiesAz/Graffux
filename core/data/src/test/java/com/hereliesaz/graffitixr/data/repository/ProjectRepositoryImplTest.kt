@@ -190,4 +190,64 @@ class ProjectRepositoryImplTest {
         repo.deleteProject("B")
         assertFalse(b.exists())
     }
+
+    private fun artifactRepo(files: File, cache: File, readOnly: Boolean): ProjectRepositoryImpl {
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns files
+        every { context.cacheDir } returns cache
+        val mockManager = mockk<ProjectManager>(relaxed = true)
+        every { mockManager.isSafeProjectId(any()) } returns true
+        every { mockManager.resolveInside(any(), any()) } answers { File(firstArg<File>(), secondArg<String>()) }
+        // one stub for every result type (the generic is erased at runtime)
+        coEvery { mockManager.writeIfWritable<Any>(any(), any(), any()) } answers {
+            if (readOnly) null else thirdArg<() -> Any>().invoke()
+        }
+        return ProjectRepositoryImpl(context, mockManager)
+    }
+
+    @Test
+    fun `deleteArtifact removes the file, and a missing one counts as gone`() = runTest(testDispatcher) {
+        val files = tmp.newFolder("files")
+        val repo = artifactRepo(files, tmp.newFolder("cache"), readOnly = false)
+        repo.createProject(GraffitiProject(id = "p", name = "p"))
+        val path = repo.saveArtifact("p", "layer.gxmt", byteArrayOf(1, 2))
+        assertTrue(File(path).exists())
+        assertTrue(repo.deleteArtifact("p", "layer.gxmt"))
+        assertFalse(File(path).exists())
+        assertTrue("already gone", repo.deleteArtifact("p", "layer.gxmt"))
+    }
+
+    @Test
+    fun `deleteArtifact refuses an unsafe name`() = runTest(testDispatcher) {
+        val files = tmp.newFolder("files")
+        val context = mockk<Context>(relaxed = true)
+        every { context.filesDir } returns files
+        val mockManager = mockk<ProjectManager>(relaxed = true)
+        every { mockManager.isSafeProjectId(any()) } returns true
+        every { mockManager.resolveInside(any(), any()) } returns null
+        val repo = ProjectRepositoryImpl(context, mockManager)
+        val failed = runCatching { repo.deleteArtifact("p", "../x") }.exceptionOrNull()
+        assertTrue(failed is IllegalArgumentException)
+    }
+
+    @Test
+    fun `deleteArtifact leaves a read-only project's files alone`() = runTest(testDispatcher) {
+        val files = tmp.newFolder("files")
+        val dir = File(files, "projects/future").also { it.mkdirs() }
+        val theirs = File(dir, "layer.gxmt").also { it.writeBytes(byteArrayOf(9)) }
+        val repo = artifactRepo(files, tmp.newFolder("cache"), readOnly = true)
+        assertTrue(repo.deleteArtifact("future", "layer.gxmt"))
+        assertTrue("the newer build's file is untouched", theirs.exists())
+    }
+
+    @Test
+    fun `saveArtifact is atomic and leaves no temp file, replacing an existing artifact`() = runTest(testDispatcher) {
+        val files = tmp.newFolder("files")
+        val repo = artifactRepo(files, tmp.newFolder("cache"), readOnly = false)
+        repo.createProject(GraffitiProject(id = "p", name = "p"))
+        repo.saveArtifact("p", "a.bin", byteArrayOf(1))
+        val path = repo.saveArtifact("p", "a.bin", byteArrayOf(2, 3))
+        assertEquals(listOf<Byte>(2, 3), File(path).readBytes().toList())
+        assertTrue(File(files, "projects/p").list()!!.none { it.endsWith(".tmp") })
+    }
 }

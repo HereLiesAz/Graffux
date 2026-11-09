@@ -3846,6 +3846,16 @@ class EditorViewModel @Inject constructor(
         file.takeIf { inside && it.isFile && it.length() in 1..MAX_PALETTE_SIDECAR_BYTES }?.readBytes()
     }.getOrNull()
 
+    /** Removes [layerId]'s material sidecar (under the repository's save lock); true if it is gone or never was. */
+    private suspend fun deleteMaterialState(layerId: String, projectId: String?): Boolean {
+        if (projectId == null || (openProjectIsReadOnly() && projectRepository.currentProject.value?.id == projectId)) {
+            return true
+        }
+        return runCatching {
+            projectRepository.deleteArtifact(projectId, MaterialStateCodec.fileNameForLayer(layerId))
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrDefault(false)
+    }
+
     private suspend fun writeMaterialState(
         layerId: String,
         projectId: String?,
@@ -3860,15 +3870,10 @@ class EditorViewModel @Inject constructor(
         return try {
             if (snapshot == null || !snapshot.hasMaterial) {
                 // Undo/rebuild can return a layer to its never-material state. Delete any older
-                // sidecar so a subsequent reload cannot resurrect stale height/wetness.
-                val projectsRoot = File(context.filesDir, "projects").canonicalFile
-                val projectDir = File(projectsRoot, projectId).canonicalFile
-                val target = File(projectDir, filename).canonicalFile
-                require(projectDir.path.startsWith(projectsRoot.path + File.separator))
-                require(target.path.startsWith(projectDir.path + File.separator))
-                if (target.exists() && !target.delete()) {
-                    error("Could not delete stale material sidecar")
-                }
+                // sidecar so a subsequent reload cannot resurrect stale height/wetness. Under the
+                // repository's save lock, like every other write to the project.
+                val deleted = projectRepository.deleteArtifact(projectId, filename)
+                check(deleted) { "Could not delete stale material sidecar" }
             } else {
                 projectRepository.saveArtifact(
                     projectId,
@@ -3923,15 +3928,12 @@ class EditorViewModel @Inject constructor(
         pendingSaveJobs.remove(layerId)?.cancel()
         val job = viewModelScope.launch(dispatchers.io) {
             kotlinx.coroutines.delay(1500)
-            val bitmapSaved = writeLayerBitmap(layerId, path, bitmap)
-            val materialSaved = bitmapSaved && writeMaterialState(layerId, projectId, pending.material)
-            if (bitmapSaved && materialSaved) {
-                pendingWrites.remove(layerId, pending)
-            }
+            val saved = persistPendingLayerWrite(layerId, pending)
+            if (saved) pendingWrites.remove(layerId, pending)
             // Painting changes the project, so the manifest's modified time should move with it —
             // otherwise a session spent only painting leaves the project sorting as untouched in
             // the gallery, behind projects that were merely opened.
-            if (bitmapSaved && materialSaved) saveProject()
+            if (saved) saveProject()
             // Don't leak completed jobs in the map.
             pendingSaveJobs.remove(layerId, coroutineContext[kotlinx.coroutines.Job])
         }
@@ -4100,26 +4102,9 @@ class EditorViewModel @Inject constructor(
                 android.util.Log.w("EditorViewModel", "Skipping save of recycled bitmap for layer $layerId")
                 return true
             }
-            val file = java.io.File(path)
-            val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
-            java.io.FileOutputStream(tmp).use { out ->
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
-                    "Bitmap compression failed"
-                }
-            }
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                if (!tmp.renameTo(file)) {
-                    // Last resort: copy tmp's already-fully-written bytes onto file, rather than
-                    // re-compressing straight into it. Re-compressing here was the exact
-                    // truncated-on-crash write this whole tmp+rename dance exists to avoid -- and
-                    // a second, redundant chance for compress() to throw. tmp is deleted only
-                    // after the copy actually lands, so a copy failure (e.g. disk full) leaves
-                    // the known-good tmp file behind instead of silently discarding it while file
-                    // sits truncated.
-                    tmp.copyTo(file, overwrite = true)
-                    if (!tmp.delete()) tmp.deleteOnExit()
-                }
+            // fsynced temp file, then an atomic rename: a crash leaves the old PNG or the new one, never a torn file
+            com.hereliesaz.graffitixr.common.util.AtomicFiles.write(java.io.File(path)) { out ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Bitmap compression failed" }
             }
             publishForkIfWritten(layerId, path)
             return true
@@ -4137,16 +4122,24 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** Writes the bitmap + matching material sidecar as one retryable pending unit. */
+    /**
+     * Writes the bitmap + matching material sidecar as one retryable pending unit, in an order a crash can always be
+     * recovered from. The two are separate files, so no order makes them change together; instead the old sidecar is
+     * removed FIRST, then the bitmap is replaced, then the new sidecar is written. Dying at any point leaves a
+     * bitmap with no sidecar (the layer reads as having no material state) or a bitmap with its own sidecar, and
+     * never a new bitmap with the old stroke's height and wetness (or the reverse).
+     */
     private suspend fun persistPendingLayerWrite(
         layerId: String,
         write: PendingLayerWrite,
     ): Boolean {
-        val bitmapSaved = writeLayerBitmap(layerId, write.path, write.bitmap)
-        if (!bitmapSaved) return false
-        // write.material was captured once, with this exact bitmap, when the write was first
-        // scheduled — never re-read at retry/flush time (see PendingLayerWrite's doc comment).
-        return writeMaterialState(layerId, write.projectId, write.material)
+        // write.material was captured once, with this exact bitmap, when the write was first scheduled — never
+        // re-read at retry/flush time (see PendingLayerWrite's doc comment).
+        return LayerCommit(
+            deleteSidecar = { deleteMaterialState(layerId, write.projectId) },
+            writeBitmap = { writeLayerBitmap(layerId, write.path, write.bitmap) },
+            writeSidecar = { writeMaterialState(layerId, write.projectId, write.material) },
+        ).run()
     }
 
     /**

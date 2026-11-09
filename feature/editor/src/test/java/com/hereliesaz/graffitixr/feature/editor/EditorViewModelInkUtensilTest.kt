@@ -111,6 +111,7 @@ class EditorViewModelInkUtensilTest {
             com.hereliesaz.graffitixr.common.util.ImageUtils.loadBitmapAsync(any(), any(), any())
         } returns mockBitmap
         coEvery { projectRepository.saveArtifact(any(), any(), any()) } returns "/path/to/artifact.png"
+        coEvery { projectRepository.deleteArtifact(any(), any()) } returns true
         every { com.hereliesaz.graffitixr.common.util.ImageUtils.bitmapToByteArray(any()) } returns ByteArray(0)
 
         // Mock TextRasterizer and GoogleFontCache to avoid Android dependencies
