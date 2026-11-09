@@ -28,6 +28,7 @@ pub struct SharedGpu {
     pub limits: wgpu::Limits,
     lost: Arc<AtomicBool>,
     cache: Mutex<HashMap<&'static str, Box<dyn Any + Send + Sync>>>,
+    last_wait: Mutex<String>,
 }
 
 /// How long a failed attempt to get a device is believed before trying again. A missing adapter or a refused device
@@ -127,6 +128,7 @@ impl SharedGpu {
             limits,
             lost,
             cache: Mutex::new(HashMap::new()),
+            last_wait: Mutex::new(String::new()),
         })
     }
 
@@ -158,6 +160,11 @@ impl SharedGpu {
     /// `Queue::submit` returned for the copy that fills it) and nothing after it: work other threads queue later on
     /// this shared device does not lengthen the wait. A timeout marks the device stalled and [`shared`] replaces it:
     /// otherwise every later call would reuse a hung device and wait out the timeout again.
+    ///
+    /// Known limitation, not confirmed in wgpu-core: if another thread's poll collects this read's map-completion
+    /// closure and has not yet run it, this wait can return before the callback fires, and the read then reports
+    /// `Failed` (a spurious `None` from the entry point, with the buffer unmapped and the device kept). Callers may
+    /// retry; concurrent use of one shared device from several threads is not exercised in production yet.
     pub fn read<R>(
         &self,
         buffer: &wgpu::Buffer,
@@ -165,12 +172,14 @@ impl SharedGpu {
         submission: wgpu::SubmissionIndex,
         read: impl FnOnce(&[u8]) -> R,
     ) -> Result<R, crate::gpu_wait::ReadFailure> {
-        self.read_with(
-            buffer,
-            range,
-            |d| d.poll(crate::gpu_wait::wait_poll(Some(submission), crate::gpu_wait::READBACK_TIMEOUT)),
-            read,
-        )
+        let poll = crate::gpu_wait::wait_poll(Some(submission), crate::gpu_wait::READBACK_TIMEOUT);
+        *self.last_wait.lock().unwrap_or_else(|e| e.into_inner()) = format!("{poll:?}");
+        self.read_with(buffer, range, move |d| d.poll(poll), read)
+    }
+
+    /// The wait the last [`SharedGpu::read`] used, as text (tests: it must name the caller's own submission).
+    pub fn last_wait(&self) -> String {
+        self.last_wait.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// [`SharedGpu::read`] with the wait supplied (tests stand in for a GPU that never answers).

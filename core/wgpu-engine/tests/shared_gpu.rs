@@ -191,25 +191,33 @@ fn limits_are_checked_before_any_buffer_exists() {
 
 #[test]
 fn a_read_waits_for_its_own_submission_not_the_devices_latest() {
-    use graffux_wgpu::gpu_wait::{wait_poll, READBACK_TIMEOUT};
     use graffux_wgpu::wgpu;
     let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
         common::no_adapter("vulkan");
         return;
     };
-    let mine = gpu.queue.submit([gpu.device.create_command_encoder(&Default::default()).finish()]);
-    // Another thread's later submission moves "the latest" on; the wait must still name mine.
+    let src = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("src"),
+        size: 16,
+        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let staging = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("staging"),
+        size: 16,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    gpu.queue.write_buffer(&src, 0, &[3u8; 16]);
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    encoder.copy_buffer_to_buffer(&src, 0, &staging, 0, 16);
+    let mine = gpu.queue.submit([encoder.finish()]);
+    // Another user's later submission moves the device's "latest" on.
     let _later = gpu.queue.submit([gpu.device.create_command_encoder(&Default::default()).finish()]);
-    match wait_poll(Some(mine.clone()), READBACK_TIMEOUT) {
-        wgpu::PollType::Wait { submission_index: Some(i), timeout: Some(t) } => {
-            assert_eq!(format!("{i:?}"), format!("{mine:?}"), "the index named is the caller's own");
-            assert_eq!(t, READBACK_TIMEOUT);
-        }
-        other => panic!("not a wait on a specific submission: {other:?}"),
-    }
-    assert!(matches!(
-        wait_poll(None, READBACK_TIMEOUT),
-        wgpu::PollType::Wait { submission_index: None, .. }
-    ));
+    let got = gpu.read(&staging, 0..16, mine.clone(), |b| b.to_vec());
+    assert_eq!(got, Ok(vec![3u8; 16]));
+    let used = gpu.last_wait();
+    assert!(used.contains(&format!("{mine:?}")), "the read did not wait on its own submission: {used}");
+    assert!(!used.contains("submission_index: None"), "the read waited on the device's latest: {used}");
 }
