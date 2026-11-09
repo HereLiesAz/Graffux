@@ -81,6 +81,12 @@ or more, XL a multi-week phase. Effort covers engine work plus tests, not pack a
 | Rotation by pen tilt / azimuth | supported where the device reports it | `E/BrushSensorDynamics.kt:153-154,372` (TILT, ORIENTATION sensors); `E/BrushDeviceAttitude.kt:35,63,186` (confidence-gated); program inputs `tilt`, `azimuth`, `penAngle` | Missing axes are never fabricated (status doc section B). Finger gets touch-ellipse evidence only. | none |
 | Determinism and replay | supported | `spec/stroke-program.md` "Where it runs", Limits; `E/StrokeProgram.kt:124-126`; `MaterialGoldenFixtureMatrixTest.kt` | Same samples plus same seed give the same dabs. | none |
 
+**Correction (after review).** The wet pickup and mixing rows above describe *brush-visible* behaviour.
+Underneath, the Impasto v2 wet simulation and persistent-wetness Color Smudge already run on the GPU
+(`GpuWetSimulation.kt:1-8`, `GpuWetSmudge.kt:1-20`, `core/wgpu-engine/src/wet.rs`), with the Kotlin
+classes as reference oracles. The status doc's "persistent-wetness Color Smudge uses the CPU
+correctness path" is out of date. See 3.0.
+
 ### 1.1 Summary of the audit
 
 - R3 (streaks) and most of R1 (pressure swell) are **already achievable** with the existing
@@ -910,7 +916,9 @@ The palette is a surface you work on, not a list of swatches.
 Palette board data: a small dedicated surface (at most 1024 x 1024, 8-bit, plus the same material
 sidecar the canvas layers use) stored in the project. It costs one more layer's worth of memory and
 reuses the existing wet/height/pigment machinery, so no second engine (consistent with the status
-doc's "no second wet-mix engine" rule, Phase 4).
+doc's "no second wet-mix engine" rule, Phase 4). **The board is a GPU surface**: knife and brush
+mixing on it run through the same paint transaction as canvas strokes (3.4), on a small resident
+layer, so the palette and the canvas are one implementation.
 
 ### 6.4 What stays digital, and why
 
@@ -987,11 +995,12 @@ hardware floor (Android 10, Vulkan 1.1, `ARCHITECTURE.md` "Graffux's hardware fl
 
 | Budget | Target on the BALANCED tier |
 |---|---|
-| Live stroke latency (input to pixel) | No worse than today's stamp brush; the new work is on the generator thread, not the render thread |
+| Live stroke latency (input to pixel) | No worse than today's stamp brush; the Kotlin work is on the generator thread; the material transaction runs on the existing GPU render thread (`GpuRenderThread`) and must not add readback to the live path |
 | Generator cost per dab step | Painterly programs at most 8,000 ops p95 (the limit is 40,000; the current healthy range is "low thousands", `spec/stroke-program.md` authoring notes) |
 | Emits per step | At most 48 lanes per step on BALANCED, 24 on CONSTRAINED, 96 on FULL; extends the existing tier cap |
 | Pigment mix | At most 12 latent mixes per dab step; table-driven exp/pow |
-| Surface probe reads | At most 4 per step, each a footprint of at most 16 x 16 samples |
+| Paint transaction (GPU) | At most 48 dabs per batch, footprint at most 64 x 64 px each at 1x; one extra dispatch per batch; target under 2 ms per batch on a mid-range Mali/Adreno (to measure) |
+| GPU memory | Latent lookup texture 32^3 x 4 B (about 128 KB), `avail` and `snap_color` buffers sized to the dirty rect, load buffer under 1 KB |
 | Load state | At most 128 cells, copied per step as a small array, no allocation in the step loop |
 | Palette board | At most 1024 x 1024 working surface, at most 8 MB with sidecar; knife mixing uses the same budgets |
 | Memory added by a painterly document | At most 24 MB beyond today (board, load, lookup table) |
@@ -1010,15 +1019,16 @@ material work. Phases 1 to 3 need no new pigment model.
 | **P0 — Read-only groundwork** | Read the stamp-stroke persistence path (5.6 rule 5); read the live-stroke path for the touchdown snapshot (E3); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
 | **P1 — Lift tail and the petal harness** (E6) | Phase-3 emit tests; "petal pull" test stroke in `PackRenderHarness`; proof-of-concept Loaded Petal Flat from today's features | P0 | Harness renders a recognisable petal; tests pin tail determinism and replay |
 | **P2 — Edge ridge and highlight** (E5) | `emit h`, `heightMul`, `sheen`, shading port, stamp-engine-diff scenario | P1 | Rim bead and dry highlight visible; CPU and wgpu parity within tolerance; `sheen = 0` byte-identical |
-| **P3 — Pigment model** (E4) | `PigmentMixer`, K-M, lookup table generator, `PIGMENT_KM`, ~20 placeholder tubes, golden vectors, WGSL port for canvas mixing | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; CPU/GPU parity |
-| **P4 — Brush load** (E2) | `load` block, lane functions, load persisted across strokes, finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically |
-| **P5 — Surface probe and wet pickup** (E3) | Touchdown-snapshot probe, `lift`, `mixWet`, wet blend | P3, P4 | Petal pull over wet paint picks up and blends; replay-equality across an undo cycle |
+| **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, lookup-table generator, `PIGMENT_KM`, ~20 placeholder tubes; **WGSL port of the per-pixel mixer and the lookup as a 3-D texture**; Rust parity test | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
+| **P4 — Brush load** (E2) | `load` block; Kotlin budget; **GPU load buffer** carried between batches and read back at stroke end; finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically (same device) |
+| **P5 — Paint transaction** (E3) | **GPU `paint_transaction` pass**: sample, lift (consuming `avail` and the surface), draw, K-M wet mix; `snap_color`/`avail` buffers; Kotlin reference; Rust tests including the repeated-lift-cannot-refill case and own-deposit-not-lifted case | P3, P4 | Petal pull over wet paint picks up and blends; lifts deplete the source; parity within tolerance; replay-equality across an undo cycle |
 | **P6 — Palette/mixer replaces picker** | Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
 | **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
-| **P8 — Watercolour engine** (E7) | Absorbency wicking, granulation, edge darkening | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
-| **P9 — Hardening** | Device matrix, perf tuning, accessibility audit, stroke-list sharing | all | Budgets in 6.7 met on at least one mid-range device |
+| **P7b — Stroke capture and demo replay** | **Persistent stamp-stroke capture** (`StampStrokeRecord`: brush ref by pack id and version plus a params hash, stroke seed, full `BrushSample`s with tilt/time/phase, colour or recipe, size, opacity, canvas transform, substrate preset, wet-ledger prior film if the brush uses it) in a new per-layer project sidecar; a **replay consumer** that feeds recorded strokes through the editor's stroke pipeline at recorded timing; a `StrokeRecording` export/import; project-format version bump with a fail-closed reader | P7 | A recorded petal replays pixel-identically on the same device after reopen, and within tolerance on another; a pack plus a recording shares a demo |
+| **P8 — Watercolour engine** (E7) | GPU wicking/bleed (absorbency texture), granulation, edge flux in the ADVANCE family; Kotlin reference extended; Rust `cpu_advance` extended | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
+| **P9 — Hardening** | Device matrix, GPU dispatch and memory tuning, accessibility audit | all | Budgets in 6.7 met on at least one mid-range device |
 
-Order of implementation PRs follows the owner's instruction: engine gaps (P1-P5) first, then the
+P7b exists because the project does not persist stamp strokes today (5.5); demo sharing (decision 9) depends on it and is not claimed before it lands. Order of implementation PRs follows the owner's instruction: engine gaps (P1-P5) first, then the
 palette/mixer UI (P6), then the packs (P7), with P8 slotted before P7's water pack. Each phase is its
 own PR.
 
@@ -1084,6 +1094,14 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
 - The `Project` format change for persisting load (6.5) was not designed against the current project
   version; it is proposed as an optional block only.
 
+- **Rust and GPU verification in this environment (checked, P2):** `cargo` builds `core/wgpu-engine`
+  here and the Rust tests run on Mesa lavapipe (Vulkan); the GL backend has no adapter and skips.
+  With `GRAFFUX_REQUIRE_GPU=vulkan` the GPU tests run rather than skip. So the WGSL stages this
+  spec adds can be parity-tested against their Kotlin references here and in CI, but **only on a
+  software Vulkan driver**: nothing here runs on Mali/Adreno, so device-specific float behaviour and
+  real performance remain unverified until the P9 device matrix.
+- **Whether a K-M latent lookup in a compute pass meets the 2 ms target** is a design estimate.
+
 ## 10. Owner decisions
 
 The ten questions in the first draft are answered. Recorded here so the spec and the code agree.
@@ -1121,7 +1139,11 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 | Mid-range cost | Lag in the live path | Tier caps; ops budgets; `surface` disabled on CONSTRAINED |
 | Watercolour engine scope | Delays the water pack | P8 is bounded to wicking, granulation, edge darkening; the rest of the water pack works without it |
 | Removing old brushes breaks saved state | Favorites/active brush dangling | Alias table with Round fallback (5.6); saved projects are unaffected |
-| Canvas-wide K-M cost | Slow painterly layers | Lookup as a GPU texture; ops/budget caps in 6.7; non-painterly layers keep the old path |
+| Canvas-wide K-M cost | Slow painterly layers | Lookup as a GPU texture; dispatch caps in 6.7; non-painterly layers keep the old path |
+| GPU float differences across devices | A replay differs slightly on another device | Short replay windows from stored canonical state (4a); stated tolerances; sidecar snapshots at commit |
+| No real Android GPU in CI | Mali/Adreno-specific bugs unseen | Parity runs on lavapipe in CI; manual device matrix in P9; `GRAFFUX_REQUIRE_GPU` so a missing adapter fails rather than skips on a GPU host |
+| Kotlin budget vs GPU truth disagree | A script's dry-out threshold fires a little early/late | Documented authoring inexactness (3.3); packs tolerate it; deterministic either way |
+| Project format change in P7b | Old builds cannot read new projects | Optional sidecar; old builds ignore it; fail-closed reader |
 | Existing users lose the familiar picker | Churn | Digital eyedropper and hex remain; saved palettes migrate to recipes (6.4) |
 | The two engines disagree | Pixels differ live vs committed | Kotlin is the oracle; only shading is ported; parity scenarios in `tools/stamp-engine-diff` |
 | Authoring difficulty | Few good packs | The petal pack is the template; `PackRenderHarness` previews; the idioms (lane, tail, ridge) are documented in section 5 |
