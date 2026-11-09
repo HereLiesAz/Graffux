@@ -183,7 +183,7 @@ class PaletteBoard(
      * filled to the fraction of the brush's capacity it actually holds. This is how the mixer's paint, not just
      * its colour, reaches a painterly brush.
      */
-    fun brushLoad(lanes: Int = BrushLoadConfig.DEFAULT_LANES): BrushLoadConfig? {
+    fun brushLoad(base: BrushLoadConfig = BrushLoadConfig()): BrushLoadConfig? {
         val held = brush.amount[0]
         if (!(held > 0f)) return null
         val r = brushRecipe()
@@ -194,8 +194,26 @@ class PaletteBoard(
             for (id in PigmentLookup.BASIS_IDS) terms += "$id:$share"
         }
         if (terms.isEmpty()) return null
-        val fill = BrushLoadFill(terms.joinToString("+"), 0, lanes - 1, (held / BRUSH_CAPACITY).coerceIn(0f, 1f))
-        return BrushLoadConfig(lanes = lanes, fill = listOf(fill)).sanitized()
+        val fill = BrushLoadFill(terms.joinToString("+"), 0, base.lanes - 1, (held / BRUSH_CAPACITY).coerceIn(0f, 1f))
+        // The brush's own load block keeps its lanes, depth and capacity; only the paint in it is the palette's.
+        return base.copy(fill = listOf(fill)).sanitized()
+    }
+
+    /** What a brush holds: for putting it back (undo and redo of the stroke that spent it). */
+    class BrushState(val hand: Int, val amount: Float, val conc: FloatArray) {
+        /** Whether [other] is the same load, to within a rounding step. */
+        fun sameAs(other: BrushState): Boolean =
+            hand == other.hand && kotlin.math.abs(amount - other.amount) <= STATE_EPS &&
+                conc.indices.all { kotlin.math.abs(conc[it] - other.conc[it]) <= STATE_EPS }
+    }
+
+    fun brushState(): BrushState = BrushState(hand, brush.amount[0], brush.conc.copyOf())
+
+    /** Puts a brush's load back as it was. */
+    fun restoreBrushState(s: BrushState) {
+        val b = brushes[s.hand]
+        b.amount[0] = s.amount
+        s.conc.copyInto(b.conc)
     }
 
     /** After a stroke: the brush keeps [remaining] (0..1) of the load it started with. */
@@ -229,6 +247,7 @@ class PaletteBoard(
         private const val MAX_DRAG_DABS = 4000
         const val DEFAULT_SIZE = 512
         const val BRUSH_CAPACITY = 1.0f
+        private const val STATE_EPS = 1e-4f
 
         /** Share of the brush's capacity one drag dab lifts / lays (a dab's footprint shares it out). */
         const val DRAG_LIFT_SHARE = 0.12f
