@@ -18,6 +18,14 @@ import kotlin.math.sqrt
  * far in UV, which breaks that bound. The check needs no camera and no neighbour walk, so it is
  * cheap enough to run for every sample of a fast drag.
  *
+ * The bound first uses the two end triangles' UV-per-length. Where that rejects, it is retried with
+ * the densest triangle of the island near the chord between the hits, because a narrow, densely
+ * mapped strip between two coarse triangles spans far more UV than either end suggests (a seamless
+ * move would otherwise be split and leave a gap). An occlusion drop stays rejected: the triangles
+ * near its chord are the two panels, no denser than the ends. So the check errs toward joining
+ * wherever the surface between the hits is continuous, and toward breaking across a fold only when
+ * nothing dense lies near the chord.
+ *
  * It cannot tell two panels apart that are so far apart in space that the straight line between them
  * is as long as the way round the fold; there the stroke is joined, as it was before.
  */
@@ -32,16 +40,30 @@ object SurfaceContinuity {
      * Whether hits [a] and [b] can be joined by a straight line in UV space. Hits without a position
      * (built outside [MeshPicker.raycast]) are given the benefit of the doubt.
      */
-    fun continuous(mesh: Mesh, a: MeshPicker.Hit, b: MeshPicker.Hit): Boolean {
+    fun continuous(mesh: Mesh, islands: UvIslands, a: MeshPicker.Hit, b: MeshPicker.Hit): Boolean {
         val unknown = a.x.isNaN() || b.x.isNaN()
         return unknown || a.triangleIndex == b.triangleIndex || run {
             val space = sqrt(
                 sq((a.x - b.x).toDouble()) + sq((a.y - b.y).toDouble()) + sq((a.z - b.z).toDouble()),
             )
             val uv = hypot((a.u - b.u).toDouble(), (a.v - b.v).toDouble())
-            val density = maxOf(uvPerLength(mesh, a.triangleIndex), uvPerLength(mesh, b.triangleIndex))
-            uv <= CURVATURE_ALLOWANCE * space * density + UV_SLACK
+            val ends = maxOf(uvPerLength(mesh, a.triangleIndex), uvPerLength(mesh, b.triangleIndex))
+            // The end triangles' own density is the cheap bound. Only when it fails is the surface
+            // between them looked at: the densest triangle of the island near the chord, which also
+            // bounds a narrow strip the chord crosses. An occlusion drop stays rejected because the
+            // triangles near its chord are the two panels, no denser than the ends.
+            uv <= bound(space, ends) || uv <= bound(space, surfaceDensity(islands, a, b, space))
         }
+    }
+
+    private fun bound(space: Double, density: Double) = CURVATURE_ALLOWANCE * space * density + UV_SLACK
+
+    /** The densest triangle of the island within one chord length of the chord from [a] to [b]. */
+    private fun surfaceDensity(islands: UvIslands, a: MeshPicker.Hit, b: MeshPicker.Hit, space: Double): Double {
+        val pad = space.toFloat()
+        val lo = floatArrayOf(minOf(a.x, b.x) - pad, minOf(a.y, b.y) - pad, minOf(a.z, b.z) - pad)
+        val hi = floatArrayOf(maxOf(a.x, b.x) + pad, maxOf(a.y, b.y) + pad, maxOf(a.z, b.z) + pad)
+        return islands.maxDensityNear(islands.islandOf(a.triangleIndex), lo, hi)
     }
 
     private fun sq(x: Double) = x * x

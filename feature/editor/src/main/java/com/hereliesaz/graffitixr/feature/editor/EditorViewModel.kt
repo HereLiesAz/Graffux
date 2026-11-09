@@ -14188,7 +14188,8 @@ class EditorViewModel @Inject constructor(
         val previous = stroke.lastHit
         val connected = last == null || previous == null || (
             mesh.islands.sameIsland(previous.triangleIndex, hit.triangleIndex) &&
-                com.hereliesaz.graffitixr.common.mesh.SurfaceContinuity.continuous(mesh.mesh, previous, hit)
+                com.hereliesaz.graffitixr.common.mesh.SurfaceContinuity
+                    .continuous(mesh.mesh, mesh.islands, previous, hit)
             )
         val stamps = com.hereliesaz.graffitixr.common.mesh.TexturePaint.stampsAlong(
             com.hereliesaz.graffitixr.common.mesh.TexturePaint.UvStep(from.first, from.second, hit.u, hit.v),
