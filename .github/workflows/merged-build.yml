@@ -11,35 +11,31 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-# ⚡ Concurrency: Cancels the entire job if a new push comes in.
+# A newer pull-request push cancels the older run. A push to main never does: cancelling a run
+# between "upload the APK" and "move the tag" is exactly how a release ends up half-published, so
+# main runs queue behind each other instead.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Actually least-privilege now: `contents: read` at the top so a job that declares no
-# permissions block of its own (there are none left that don't) gets the minimum. Both jobs
-# below declare their own elevated grant explicitly, scoped to what they actually use.
+# Token split. Every job that compiles or tests pull-request code (unit-tests, wgpu-engine-tests,
+# detekt, build, repo-checks) runs with `contents: read`, checks out with persist-credentials: false
+# (no token left in .git/config for a build script to read) and has no secret on disk. The jobs that
+# need a write token (submit-dependency-graph, release, report-failure) run no code from the pull
+# request: they only consume artifacts and the trusted scripts/ci/ of the main commit.
 permissions:
   contents: read
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
-    # contents: write is for the dependency-graph submission below (generate-submit-and-upload
-    # needs it to call the Dependency Submission API) — not for anything else in this job.
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Inject Google Services
-        env:
-          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
-        run: |
-          if [ -n "$GOOGLE_SERVICES" ]; then
-            echo "$GOOGLE_SERVICES" > app/google-services.json
-          fi
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
@@ -47,11 +43,18 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      # Only the default branch writes the Gradle cache: a pull request runs code main has not
+      # reviewed, and must not be able to poison the cache the release build restores.
+      # generate-and-upload keeps this job read-only; submit-dependency-graph (below) is the one
+      # that holds the write token.
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
-          cache-read-only: false
-          dependency-graph: generate-submit-and-upload
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          dependency-graph: generate-and-upload
+
+      - name: Make screenshot directories
+        run: mkdir -p build/screenshots/{audit,chrome,design,photo,poster,rail,tab-list}
 
       # core:engine is Kotlin Multiplatform (android library + jvm "desktop" target): it registers
       # no testDebugUnitTest and no plain `test`, so those two tasks alone silently skip its
@@ -59,10 +62,53 @@ jobs:
       # :desktop's plain-JVM `test` (ThemeColorSyncTest, GpuStrokeParityTest, ...) is covered by
       # the `test` task. Instrumented tests (feature/editor androidTest, connectedAndroidTest) are
       # NOT run in CI: GitHub-hosted runners have no emulator/KVM, so they are run by hand on a device.
+      # The *ShotTest/*UiTest classes save their renders when these directories are set.
       - name: Run unit tests
+        env:
+          AUDIT_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/audit
+          CHROME_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/chrome
+          DESIGN_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/design
+          PHOTO_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/photo
+          POSTER_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/poster
+          RAIL_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/rail
+          TAB_LIST_SCREENSHOTS: ${{ github.workspace }}/build/screenshots/tab-list
         run: |
           chmod +x gradlew
           ./gradlew testDebugUnitTest test :core:engine:desktopTest :core:engine:testAndroidHostTest --build-cache
+
+      - name: Upload screenshots and golden diffs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshots
+          path: |
+            build/screenshots/
+            **/build/screenshot-diffs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unit-test-reports
+          path: '**/build/reports/tests/'
+
+  # Submits the dependency graph that unit-tests generated. Split out because the Dependency
+  # Submission API needs `contents: write`, which a job that runs pull-request code must not hold.
+  # Main only: a pull request's graph is uploaded as an artifact above and never submitted.
+  submit-dependency-graph:
+    needs: unit-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Submit dependency graph
+        uses: gradle/actions/dependency-submission@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          dependency-graph: download-and-submit
 
   # The Rust stamp engine's own tests (~130 #[test] functions plus tests/layout_parity.rs). Gradle
   # only ever runs `cargo build` for it, so without this job a WGSL or layout regression ships
@@ -84,7 +130,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install a software Vulkan driver
         run: |
@@ -98,16 +146,9 @@ jobs:
           RUST_TEST_THREADS: '1'
         run: cargo test --locked
 
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: unit-test-reports
-          path: '**/build/reports/tests/'
-
   # Split from `unit-tests` so a detekt backlog (a style/lint finding, not a correctness bug)
-  # can fail this check visibly without blocking `build-and-release`, which actually compiles
-  # and ships the APK — `needs:` below deliberately does not include this job. See the repo-wide
+  # can fail this check visibly without blocking `build`, which actually compiles and ships the
+  # APK -- `needs:` below deliberately does not include this job. See the repo-wide
   # MaxLineLength backlog surfaced when this check first started running (PR #409): hundreds of
   # pre-existing violations, unrelated to any single change, that predate this check's existence.
   detekt:
@@ -116,7 +157,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
@@ -125,9 +168,9 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
-          cache-read-only: false
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
           dependency-graph: disabled
 
       # config/detekt/detekt.yml sets maxIssues: 0 (zero-tolerance); without this step detekt
@@ -138,28 +181,60 @@ jobs:
           chmod +x gradlew
           ./gradlew detekt --build-cache
 
-  build-and-release:
-    needs: unit-tests
+  # Repository rules that no compiler enforces, with their own regression tests. Plain shell and
+  # Python: no Gradle, no Android SDK, nothing from the build.
+  repo-checks:
     runs-on: ubuntu-latest
-    # contents: write — pushes the rolling debug tag and creates/edits/uploads to the release.
-    # issues: write — "Report Failure to Jules" files an issue on a failed build.
-    # No pull-requests or checks scope: nothing in this job calls either API.
     permissions:
-      contents: write
-      issues: write
-
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
+      - name: Test the checks
+        run: |
+          scripts/ci/test-check-elf-alignment.sh
+          scripts/ci/test-check-ignored-tests.sh
+          scripts/ci/test-rolling-release.sh
+          python3 scripts/ci/test_check_r8_keep_rules.py
+
+      # A disabled test needs an issue reference on its own line (see scripts/ci/check-ignored-tests.sh).
+      - name: No disabled test without an issue
+        run: scripts/ci/check-ignored-tests.sh .
+
+      # Every JNI class the native code exports must be covered by a keep rule that actually reaches
+      # R8, in the app and in every module (see scripts/ci/check_r8_keep_rules.py).
+      - name: R8 keep rules cover JNI
+        run: python3 scripts/ci/check_r8_keep_rules.py .
+
+  build:
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    # Read-only: this job compiles whatever the pull request contains. Publishing is the separate
+    # `release` job below, which receives only the finished APK.
+    permissions:
+      contents: read
+    outputs:
+      tag_name: ${{ steps.release_vars.outputs.tag_name }}
+      apk_name: ${{ steps.release_vars.outputs.apk_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Written to disk only for a push to main, i.e. code that already passed review. A pull
+      # request (or a workflow_dispatch on another ref) builds without it: app/build.gradle.kts
+      # skips the google-services plugin when the file is absent.
       - name: Inject Google Services
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
         run: |
           if [ -n "$GOOGLE_SERVICES" ]; then
-            echo "$GOOGLE_SERVICES" > app/google-services.json
+            printf '%s' "$GOOGLE_SERVICES" > app/google-services.json
           fi
 
       - name: Set up JDK 21
@@ -169,16 +244,13 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
-          cache-read-only: false
-          # The unit-tests job already generates, submits and uploads the dependency graph for
-          # this commit; keep it disabled here so the build job doesn't submit a duplicate.
-          # 'true' is not a valid value for setup-gradle@v6 (enum: disabled / generate /
-          # generate-and-submit / generate-submit-and-upload / generate-and-upload /
-          # download-and-submit), which failed the action before the build could start.
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # The unit-tests job already generates the dependency graph for this commit; keep it
+          # disabled here so the build job doesn't produce a duplicate.
           dependency-graph: disabled
 
       # The wgpu stamp engine (core/wgpu-engine) is cross-compiled by Gradle with cargo; the runner
@@ -195,31 +267,92 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # No env: block on purpose. No GITHUB_TOKEN/GH_TOKEN and no signing secrets here: this
+      # process tree resolves and executes every Gradle plugin and third-party dependency (and,
+      # on a PR, whatever build.gradle.kts the pushed code contains). assembleDebug signs with
+      # the default debug keystore (app/build.gradle.kts), so the release keystore is neither
+      # needed nor decoded in this workflow; release signing happens in HereLiesAz/workflows'
+      # android-play-release.yml / android-github-release.yml.
       - name: Build with Gradle
-        id: gradle-build
-        # No env: block on purpose. No GITHUB_TOKEN/GH_TOKEN and no signing secrets here: this
-        # process tree resolves and executes every Gradle plugin and third-party dependency (and,
-        # on a PR, whatever build.gradle.kts the pushed code contains). assembleDebug signs with
-        # the default debug keystore (app/build.gradle.kts), so the release keystore is neither
-        # needed nor decoded in this workflow; release signing happens in HereLiesAz/workflows'
-        # android-play-release.yml / android-github-release.yml.
+        run: ./gradlew assembleDebug --build-cache
+
+      # Google Play requires 16 KB page-size alignment for apps targeting Android 15+. Nothing else
+      # notices a 4 KB-aligned library: it loads fine on today's phones.
+      - name: Native libraries are 16 KB aligned
+        run: scripts/ci/check-elf-alignment.sh app/build/outputs/apk/debug/*.apk
+
+      # Nothing in this workflow or the Gradle build increments anything. version.properties holds
+      # the fields last recorded by HereLiesAz/workflows' Android release workflows (versionMajor/
+      # Minor/Patch/Build); this rolling debug release only reuses it to NAME the artifact. The real
+      # release versionCode/versionName are decided by that workflow (highest code Play has accepted
+      # + 1) and passed to Gradle as -P properties. NEVER derive a version from the git commit count.
+      - name: Name the rolling debug APK
+        id: release_vars
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          set +e
+          prop() { grep "^$1=" version.properties | cut -d= -f2 | tr -d '\r '; }
+          version="$(prop versionMajor).$(prop versionMinor).$(prop versionPatch).$(prop versionBuild)"
+          tag="latest-debug-v$(prop versionMajor).$(prop versionMinor)"
+          app_name="$(sed -nE "s/^[[:space:]]*rootProject\.name[[:space:]]*=[[:space:]]*[\"']([^\"']+)[\"'].*/\1/p" settings.gradle.kts settings.gradle 2>/dev/null | head -1)"
+          apk="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
+          [ -n "$apk" ] || { echo "::error::No APK found to release" >&2; exit 1; }
+          name="${app_name:-App}-${version}-debug.apk"
+          mkdir -p release
+          cp "$apk" "release/$name"
+          echo "tag_name=$tag" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$name" >> "$GITHUB_OUTPUT"
 
-          # Build the debug APK (signed with the default debug keystore)
-          ./gradlew assembleDebug --build-cache > build.log 2>&1
+      - name: Upload APK for the release job
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-apk
+          path: release/*.apk
+          if-no-files-found: error
+          retention-days: 3
 
-          EXIT_CODE=$?
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          cat build.log
-          exit $EXIT_CODE
+  # Publishes the rolling debug release. The only job that writes to the repository, and it runs
+  # nothing from a pull request: it checks out only scripts/ci/ of the main commit and downloads the
+  # finished APK. Restricted to main so two branches can never race for the one shared tag.
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
 
-      # ------------------------------------------------------------------
-      # FAILURE HANDLING
-      # ------------------------------------------------------------------
+      - name: Download APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-apk
+          path: release
+
+      # upload -> move tag -> edit text, never the other way round (scripts/ci/rolling-release.sh).
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.build.outputs.tag_name }}
+          APK_NAME: ${{ needs.build.outputs.apk_name }}
+        run: |
+          scripts/ci/rolling-release.sh "$TAG_NAME" "$GITHUB_SHA" "release/$APK_NAME" \
+            "Latest Debug Build ($TAG_NAME)" "Auto-build from commit $GITHUB_SHA"
+
+  # Files one issue per failing ref. Runs no pull-request code, so it can hold `issues: write`.
+  report-failure:
+    needs: build
+    if: always() && needs.build.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
       - name: Report Failure to Jules
-        if: failure() && steps.gradle-build.outcome == 'failure'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -269,104 +402,3 @@ jobs:
                 labels: ['jules', 'bug']
               });
             }
-
-      # ------------------------------------------------------------------
-      # RELEASE STEPS (only on a push to main — see the race-condition note below)
-      # ------------------------------------------------------------------
-      #
-      # Restricted to main, not "any push": these steps force-move ONE shared tag
-      # (latest-debug-v$MAJOR.$MINOR) and --clobber the same GitHub release regardless of which
-      # branch triggered them. The job-level `concurrency: group: ${{ github.workflow }}-${{
-      # github.ref }}` only serializes pushes to the SAME ref — it does nothing for two different
-      # branches racing each other. Push branch X, then branch Y ~30s later: X's tag move can land
-      # after Y's `gh release edit --target $GITHUB_SHA`, leaving the release's metadata pointing
-      # at Y's commit while its uploaded APK is X's — wrong on both sides, and neither run fails.
-      # Scoping to main removes the race outright: only one branch can ever reach this step, and
-      # same-ref pushes to main are already correctly serialized by the concurrency group above.
-      - name: Prepare Release Variables
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: release_vars
-        run: |
-          # Nothing in this workflow or the Gradle build increments anything. version.properties holds
-          # the fields last recorded by HereLiesAz/workflows' Android release workflows after a
-          # publish (versionMajor/Minor/Patch/Build); this rolling debug release only reuses it to
-          # NAME the artifact. The real release versionCode/versionName are decided by that
-          # workflow (highest code Play has accepted + 1) and passed to Gradle as -P properties.
-          # NEVER derive a version from the git commit count.
-          MAJOR=$(grep '^versionMajor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
-          MINOR=$(grep '^versionMinor=' version.properties | cut -d'=' -f2 | tr -d '\r ')
-          PATCH=$(grep '^versionPatch=' version.properties | cut -d'=' -f2 | tr -d '\r ')
-          BUILD_NUMBER=$(grep '^versionBuild=' version.properties | cut -d'=' -f2 | tr -d '\r ')
-
-          VERSION_NAME="$MAJOR.$MINOR.$PATCH.$BUILD_NUMBER"
-          
-          TAG_NAME="latest-debug-v${MAJOR}.${MINOR}"
-          
-          # Dynamic App Name from settings.gradle
-          if [ -f "settings.gradle.kts" ]; then
-             APP_NAME=$(grep 'rootProject.name' settings.gradle.kts | sed -E "s/.*=.*[\"'](.*)[\"']/\1/")
-          elif [ -f "settings.gradle" ]; then
-             APP_NAME=$(grep 'rootProject.name' settings.gradle | sed -E "s/.*=.*[\"'](.*)[\"']/\1/")
-          else
-             APP_NAME="App"
-          fi
-          
-          # Locate built APK
-          APK_ORIGINAL=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          
-          if [ -z "$APK_ORIGINAL" ]; then
-             echo "Error: No APK found to release!"
-             exit 1
-          fi
-
-          TARGET_NAME="${APP_NAME}-${VERSION_NAME}-debug.apk"
-          
-          # Rename for release
-          mv "$APK_ORIGINAL" "$TARGET_NAME"
-          
-          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
-          echo "APK_FILE=$TARGET_NAME" >> $GITHUB_ENV
-          
-          # Package Build Tools (Optional)
-          mkdir -p build_tools_package/tools build_tools_package/native
-          [ -d "app/src/main/assets/tools" ] && cp -r app/src/main/assets/tools/* build_tools_package/tools/ || true
-          [ -d "app/src/main/jniLibs/arm64-v8a" ] && cp -r app/src/main/jniLibs/arm64-v8a/* build_tools_package/native/ || true
-          cd build_tools_package && zip -r ../build-tools.zip . && cd ..
-
-      - name: Publish Release
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Force update tag to point to current commit
-          git tag -fa $TAG_NAME -m "Latest Debug Build"
-          git push origin $TAG_NAME --force
-
-          BUILD_TOOLS="build-tools.zip"
-
-          # Check if release exists
-          if gh release view $TAG_NAME > /dev/null 2>&1; then
-             echo "Updating existing release..."
-
-             # Clean up ONLY the build-tools asset to avoid conflicts
-             gh release delete-asset "$TAG_NAME" "$BUILD_TOOLS" -y || true
-
-             gh release edit $TAG_NAME --prerelease \
-               --title "Latest Debug Build ($TAG_NAME)" \
-               --notes "Auto-build from commit $GITHUB_SHA" \
-               --target $GITHUB_SHA
-
-             # Clobber ensures that if we re-run the workflow on the exact same commit, it replaces the APK instead of failing.
-             gh release upload $TAG_NAME "$APK_FILE" --clobber
-             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
-          else
-             echo "Creating new release..."
-             gh release create $TAG_NAME "$APK_FILE" --prerelease \
-               --title "Latest Debug Build ($TAG_NAME)" \
-               --notes "Auto-build from commit $GITHUB_SHA" \
-               --target $GITHUB_SHA
-             [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
-          fi

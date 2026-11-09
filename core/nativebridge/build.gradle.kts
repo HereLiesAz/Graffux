@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.hereliesaz.graffitixr.nativebridge"
     compileSdk = 37
+    ndkVersion = providers.gradleProperty("graffux.ndkVersion").get()
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -21,7 +22,15 @@ android {
                 // Google Ink Stroke Modeler requires C++20; the existing native sources are valid
                 // C++20 and keep the same ABI through the shared-library boundary.
                 cppFlags("-std=c++20")
-                arguments("-DANDROID_STL=c++_shared")
+                // 16 KB page alignment (Google Play, Android 15+). r28 already does this; the flags
+                // keep it true if the pinned NDK is ever lowered, and scripts/ci/check-elf-alignment.sh
+                // verifies the built APK either way.
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                    "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384",
+                    "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,max-page-size=16384",
+                )
             }
         }
     }
@@ -144,6 +153,8 @@ val cargoBuildWgpuTasks = wgpuAndroidTargets.map { target ->
             val clang = bin.resolve("${target.clangPrefix}$wgpuMinSdk-clang$suffix").absolutePath
             environment("CARGO_TARGET_${target.envKey.uppercase()}_LINKER", clang)
             environment("CC_${target.envKey}", clang)
+            // The Rust library is not linked by CMake, so it needs the same 16 KB alignment itself.
+            environment("CARGO_TARGET_${target.envKey.uppercase()}_RUSTFLAGS", "-C link-arg=-Wl,-z,max-page-size=16384")
             environment("AR_${target.envKey}", bin.resolve("llvm-ar").absolutePath)
         }
     }
