@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import com.hereliesaz.graffitixr.common.model.isContainer
 import com.hereliesaz.graffitixr.common.scene.SurfaceMath
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
@@ -160,15 +161,8 @@ import kotlin.math.roundToInt
  * Graffux entry point — hosts the shared [EditorScreen] (the single source of truth for the
  * multi-layer image editor, migrated from GraffitiXR into :feature:editor). The Hilt-provided
  * [EditorViewModel] and its whole dependency graph (core modules + native bridge) resolve here; the
- * screen forces DESIGN mode, so no co-op is involved.
- */
-/**
- * Back to a plain `ComponentActivity`. It was briefly an `AppCompatActivity` so that
- * `AppCompatDelegate.setApplicationLocales` could recreate it and apply the Settings language
- * picker below API 33 — but the only translations in the tree were GraffitiXR's and have been
- * removed, so the picker is gone and with it the reason to carry an AppCompat delegate. The XML
- * theme stays an AppCompat descendant: something in the view stack still requires it (see
- * `themes.xml`), and that predates the locale work.
+ * screen forces DESIGN mode, so no co-op is involved. A plain `ComponentActivity`; the XML theme is still
+ * an AppCompat descendant because something in the view stack requires it (see `themes.xml`).
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -260,9 +254,6 @@ private fun azphaltInstallUrl(intent: Intent?): String? {
 
 // The brush-size range (MIN_BRUSH_SIZE..MAX_BRUSH_SIZE) the edge slider and the hero card's Size
 // slider both map onto lives in CarouselHeroAdjustments.kt.
-
-/** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */
-private const val MIN_BRUSH_ALPHA = 0.05f
 
 /**
  * The four vector-shape editing dialogs LayerOptionsDialog's own submenu opens — Stroke Width,
@@ -577,11 +568,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             pendingAzphaltInstallUrl = null
         } else {
             ConfirmDialog(
-                title = "Install extension?",
-                message = "Something wants Graffux to download and install an extension from:\n\n" +
-                    "${target.host}\n\nFull address:\n${truncateInstallUrl(url)}\n\nExtensions can add " +
-                    "code that runs inside Graffux. Only install one if you trust where this came from.",
-                confirmLabel = "Install",
+                title = stringResource(R.string.install_ext_title),
+                message = stringResource(R.string.install_ext_link_message, target.host, truncateInstallUrl(url)),
+                confirmLabel = stringResource(R.string.install_ext_confirm),
                 onConfirm = { vm.installExtensionFromUrl(url); pendingAzphaltInstallUrl = null },
                 onDismiss = { pendingAzphaltInstallUrl = null },
             )
@@ -605,10 +594,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let { vm.onAddLayer(it) } }
-
     // Images chosen in the new-project dialog; they join the project as layers once it exists.
     var gateImages by rememberSaveable(
         stateSaver = androidx.compose.runtime.saveable.listSaver<List<Uri>, Uri>({ it }, { it }),
@@ -620,10 +605,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val referencePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri -> uri?.let { referenceImageUri = it } }
-
-    val documentPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let { vm.onImportDocument(it) } }
 
     // An extension (.azp) picked by hand: the user chose the file, so it installs straight away,
     // through the same AzpInstaller verification as every other path.
@@ -671,12 +652,11 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         }
     }
     pendingStoreHandoff?.let { pending ->
-        val what = pending.metadata?.id ?: "${pending.packages.size} extension(s)"
+        val what = pending.metadata?.id ?: stringResource(R.string.install_ext_count, pending.packages.size)
         ConfirmDialog(
-            title = "Install extension?",
-            message = "The store app returned $what for Graffux to install.\n\nExtensions can add " +
-                "code that runs inside Graffux. Only install it if you chose it in a store you trust.",
-            confirmLabel = "Install",
+            title = stringResource(R.string.install_ext_title),
+            message = stringResource(R.string.install_ext_store_message, what),
+            confirmLabel = stringResource(R.string.install_ext_confirm),
             onConfirm = {
                 pending.packages.forEach { vm.installExtensionFromUri(it, pending.metadata) }
                 pendingStoreHandoff = null
@@ -800,10 +780,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         .onFailure {
                             alerts.show(
                                 kind = MessageKind.WARNING,
-                                title = "No way to reach the Azphalt Store",
-                                message = "This device has no store app, no Play, and no browser " +
-                                    "to open azphalt.store with. Extensions can still be installed " +
-                                    "by hand from a file: Install extension from file… in the menu at the top right.",
+                                title = context.getString(R.string.store_unreachable_title),
+                                message = context.getString(R.string.store_unreachable_message),
                             )
                         }
                 }
@@ -817,8 +795,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             .onFailure {
                 alerts.show(
                     kind = MessageKind.WARNING,
-                    title = "No browser",
-                    message = "Nothing on this device can open azphalt.store.",
+                    title = context.getString(R.string.no_browser_title),
+                    message = context.getString(R.string.no_browser_store),
                 )
             }
     }
@@ -1427,7 +1405,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     MenuPanel(
                         rows = buildMenu { meshMenu(vm, uiState) { meshMenuOpen = false } },
                         onDismiss = { meshMenuOpen = false },
-                        title = "Wire mesh",
+                        title = stringResource(R.string.menu_wire_mesh),
                         modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
                     )
                 }
@@ -1436,7 +1414,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     MenuPanel(
                         rows = buildMenu { surfaceViewsMenu(vm, uiState, strings.layerMenu) },
                         onDismiss = { vm.onDismissSurfaceViews() },
-                        title = "Surface drawings",
+                        title = stringResource(R.string.menu_surface_drawings),
                         modifier = Modifier.align(toolSide).padding(horizontal = besideRail),
                     )
                 }
@@ -1678,7 +1656,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     containerColor = surfaceVariantColor.copy(alpha = 0.8f),
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).size(48.dp),
                 ) {
-                    Icon(painterResource(GraffuxIcons.ChevronUp), contentDescription = "Show interface")
+                    Icon(
+                        painterResource(GraffuxIcons.ChevronUp),
+                        contentDescription = stringResource(R.string.show_interface),
+                    )
                 }
             }
 
@@ -1727,9 +1708,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
 
             pendingForgetSelectionName?.let { name ->
                 ConfirmDialog(
-                    title = "Forget \"$name\"?",
-                    message = "This selection can't be recovered afterward — forgetting it isn't undoable.",
-                    confirmLabel = "Forget",
+                    title = stringResource(R.string.forget_selection_title, name),
+                    message = stringResource(R.string.forget_selection_message),
+                    confirmLabel = stringResource(R.string.forget_selection_confirm),
                     onConfirm = { vm.onDeleteSavedSelection(name); pendingForgetSelectionName = null },
                     onDismiss = { pendingForgetSelectionName = null },
                 )
@@ -2026,8 +2007,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         if (activity == null) {
                             alerts.show(
                                 kind = MessageKind.WARNING,
-                                title = "Can't start a purchase",
-                                message = "Try again from the main screen.",
+                                title = context.getString(R.string.purchase_failed_title),
+                                message = context.getString(R.string.purchase_failed_message),
                             )
                         } else {
                             vm.buyPackage(activity, pkg.id) { checkoutUrl ->
@@ -2052,8 +2033,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                         }.onFailure {
                             alerts.show(
                                 kind = MessageKind.WARNING,
-                                title = "No browser",
-                                message = "Nothing on this device can open $url.",
+                                title = context.getString(R.string.no_browser_title),
+                                message = context.getString(R.string.no_browser_url, url),
                             )
                         }
                     },

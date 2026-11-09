@@ -442,6 +442,3 @@ internal fun LocalMaskOverlay(mask: Bitmap?, camera: CanvasCamera, ctx: RetouchC
 
 /** The mask overlay's white (the mockup's: white at about a third). */
 private val MaskOverlayInk = Color(0x52EDEDED)
-
-/** The spots of [adjustment] (Heal's or Red-eye's), or none. */
-internal fun healSpotsOf(adjustment: PhotoAdjustment?): List<HealSpot> = adjustment?.healSpots.orEmpty()

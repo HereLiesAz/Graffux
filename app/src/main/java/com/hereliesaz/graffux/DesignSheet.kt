@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -473,7 +474,7 @@ internal fun PlacementSetting(placement: PropertiesPlacement, onPlacement: (Prop
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier.fillMaxWidth().drawTopRuleFull().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp).testTag("design.placement"),
     ) {
-        Text("Show properties in", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.design_show_properties_in), color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
         PropertiesPlacement.entries.forEach { p ->
             DesignChip(p.label, on = p == placement, tag = "design.placement.${p.key}", onClick = { onPlacement(p) })
         }

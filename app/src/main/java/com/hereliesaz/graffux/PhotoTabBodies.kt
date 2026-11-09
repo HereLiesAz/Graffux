@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -208,7 +209,7 @@ private fun LevelsRow(adjustment: PhotoAdjustment?, actions: PhotoActions) {
         // heightIn, not height: the text may grow with the system font scale.
         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 20.dp).testTag("photo.levels"),
     ) {
-        Text("Levels", color = PhotoSheetStyle.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
+        Text(stringResource(R.string.photo_levels), color = PhotoSheetStyle.Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 44.dp))
         BoxWithConstraints(Modifier.weight(1f).height(48.dp)) {
             // 48dp touch targets; the drawn triangle is still 14dp wide, centred in each.
             val handle = 48.dp
@@ -227,6 +228,13 @@ private fun LevelsRow(adjustment: PhotoAdjustment?, actions: PhotoActions) {
                 Triple("mid", midT, Color(0xFF8A8A90)),
                 Triple("white", white / 255f, PhotoSheetStyle.Ink),
             ).forEach { (which, t, fill) ->
+                val handleDescription = stringResource(
+                    when (which) {
+                        "black" -> R.string.levels_black_point
+                        "white" -> R.string.levels_white_point
+                        else -> R.string.levels_midpoint
+                    },
+                )
                 Box(
                     contentAlignment = Alignment.TopCenter,
                     modifier = Modifier
@@ -235,7 +243,7 @@ private fun LevelsRow(adjustment: PhotoAdjustment?, actions: PhotoActions) {
                         .height(48.dp)
                         // Operable without the drag: a slider TalkBack can step or set.
                         .semantics {
-                            contentDescription = "Levels ${if (which == "mid") "midpoint" else "$which point"}"
+                            contentDescription = handleDescription
                             val (current, range) = when (which) {
                                 "black" -> black to 0f..255f
                                 "white" -> white to 0f..255f
