@@ -3,7 +3,7 @@
 // of Kotlin `PaintTransaction.run` (core/engine/.../azphalt/PaintTransaction.kt), pinned to it by
 // tests/fixtures/transaction_golden.txt and tests/transaction.rs.
 //
-// One workgroup of 64 threads walks the dabs in recorded order (the order-dependent transaction composes
+// One workgroup of 64 threads walks this dispatch's dabs (dab_start .. dab_start + dab_count) in recorded order (the order-dependent transaction composes
 // exactly as the CPU loop does). Sums use a fixed per-thread partial and a fixed tree reduction, never
 // float atomics, so a replay on the same device is bit-identical.
 //
@@ -17,7 +17,7 @@ struct Params {
     dab_count: u32,
     lanes: u32,
     capacity: f32,
-    _p0: f32,
+    dab_start: u32,   // first dab of this dispatch: a long stroke is run as several dispatches, state lives in the buffers
     _p1: f32,
     _p2: f32,
 };
@@ -142,7 +142,7 @@ fn quantise(raw: array<f32, 16>) -> array<f32, 16> {
 
 @compute @workgroup_size(64)
 fn run(@builtin(local_invocation_index) lid: u32) {
-    for (var di = 0u; di < p.dab_count; di = di + 1u) {
+    for (var di = p.dab_start; di < p.dab_start + p.dab_count; di = di + 1u) {
         // dab -> dab handoff: the previous dab's surface and load writes must be visible to whichever
         // invocation owns each texel in this dab (uniform: `di` is the loop counter).
         sync_all();

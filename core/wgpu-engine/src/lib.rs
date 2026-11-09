@@ -18,6 +18,7 @@ pub mod progress;
 pub mod reference;
 pub mod resident;
 pub mod scheduler;
+pub mod shared_gpu;
 pub mod timing;
 pub mod transaction;
 pub mod watercolour;

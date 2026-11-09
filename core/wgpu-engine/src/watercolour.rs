@@ -4,6 +4,8 @@
 //! by the parity test against `tests/fixtures/watercolour_golden.txt`; adding the passes to the wet
 //! simulation's ADVANCE family on the resident layer is part of the integration phase (P6b).
 
+use crate::shared_gpu;
+
 pub const WATERCOLOUR_WGSL: &str = include_str!("shaders/watercolour.wgsl");
 
 #[derive(Clone, Debug, Default)]
@@ -39,21 +41,15 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &WatercolourInput) -> Option<
     {
         return None;
     }
-    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    desc.backends = backends;
-    let instance = wgpu::Instance::new(desc);
-    let adapters = pollster::block_on(instance.enumerate_adapters(backends));
-    let adapter = adapters.into_iter().find(|a| {
-        a.get_downlevel_capabilities()
-            .flags
-            .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
-    })?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("graffux-watercolour"),
-        required_limits: adapter.limits(),
-        ..Default::default()
-    }))
-    .ok()?;
+    let gpu = shared_gpu::shared(backends)?;
+    let (device, queue) = (&gpu.device, &gpu.queue);
+    let bytes = (n * 4) as u64;
+    if !shared_gpu::fits(&gpu.limits, &[bytes], 8, 64) || !shared_gpu::groups_fit(&gpu.limits, n.div_ceil(64) as u64) {
+        log::warn!("graffux-wgpu watercolour: {}x{} exceeds this adapter's limits", input.width, input.height);
+        return None;
+    }
+    gpu.scoped("watercolour", || {
+    let (bind_layout, deposit, step) = gpu.cached("watercolour", || {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("watercolour"),
         source: wgpu::ShaderSource::Wgsl(WATERCOLOUR_WGSL.into()),
@@ -101,6 +97,8 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &WatercolourInput) -> Option<
     };
     let deposit = pipeline("deposit");
     let step = pipeline("step");
+        (bind_layout, deposit, step)
+    });
     let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC;
     let make = |label: &str, data: &[f32]| {
         let buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -172,7 +170,6 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &WatercolourInput) -> Option<
     }
     // the result lives in A after an even number of ticks, in B after an odd number
     let (wet_res, pig_res) = if input.ticks % 2 == 0 { (&wet_a, &pig_a) } else { (&wet_b, &pig_b) };
-    let bytes = (n * 4) as u64;
     let read = |buf: &wgpu::Buffer, encoder: &mut wgpu::CommandEncoder| {
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("staging"),
@@ -185,25 +182,17 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &WatercolourInput) -> Option<
     };
     let s_wet = read(wet_res, &mut encoder);
     let s_pig = read(pig_res, &mut encoder);
-    queue.submit([encoder.finish()]);
+    let submission = queue.submit([encoder.finish()]);
     let mut out = Vec::new();
     for staging in [&s_wet, &s_pig] {
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r.is_ok());
-        });
-        device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
-        if rx.recv() != Ok(true) {
-            return None;
-        }
-        let v = {
-            let view = slice.get_mapped_range().ok()?;
-            bytemuck::cast_slice::<u8, f32>(&view).to_vec()
-        };
-        staging.unmap();
-        out.push(v);
+        out.push(
+            gpu.read(staging, 0..bytes, submission.clone(), |v| {
+                bytemuck::cast_slice::<u8, f32>(v).to_vec()
+            })
+            .ok()?,
+        );
     }
     let mut it = out.into_iter();
     Some(WatercolourOutput { wet: it.next()?, pigment: it.next()? })
+    })
 }

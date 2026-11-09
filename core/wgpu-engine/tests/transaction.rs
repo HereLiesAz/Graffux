@@ -93,3 +93,118 @@ fn wgsl_transaction_matches_the_kotlin_reference() {
         assert_eq!(out.amount, again.amount, "[{name}] repeat run differs");
     }
 }
+
+fn bits(v: &[f32]) -> Vec<u32> {
+    v.iter().map(|x| x.to_bits()).collect()
+}
+
+fn dab(x: f32, y: f32, r: f32) -> Vec<f32> {
+    let mut d = vec![0.0; DAB_FLOATS];
+    d[0] = x;
+    d[1] = y;
+    d[2] = r;
+    d
+}
+
+#[test]
+fn the_chunk_plan_covers_every_dab_once_within_budget() {
+    use graffux_wgpu::transaction::{plan_chunks, MAX_CHUNK_COST, MAX_CHUNK_DABS, MAX_DAB_COST};
+    let f = load();
+    let n = f.input.dabs.len() / DAB_FLOATS;
+    let (w, h) = (f.input.width, f.input.height);
+    // Many small dabs: bounded by the dab count only.
+    let mut heavy = Vec::new();
+    for _ in 0..201 {
+        heavy.extend_from_slice(&f.input.dabs);
+    }
+    let total = 201 * n;
+    let plan = plan_chunks(&heavy, w, h, MAX_CHUNK_COST, MAX_DAB_COST, MAX_CHUNK_DABS).unwrap();
+    assert_eq!(plan.len(), total.div_ceil(MAX_CHUNK_DABS), "{total} dabs");
+    assert_eq!(plan[0].0.start, 0);
+    assert_eq!(plan.last().unwrap().0.end, total);
+    assert!(plan.windows(2).all(|p| p[0].0.end == p[1].0.start));
+    assert!(plan.iter().all(|(r, c)| r.len() <= MAX_CHUNK_DABS && *c <= MAX_CHUNK_COST));
+    // Big dabs: each over half the chunk budget, so each gets its own chunk.
+    let big: Vec<f32> = (0..5).flat_map(|i| dab(512.0, 512.0 + i as f32, 250.0)).collect();
+    let plan = plan_chunks(&big, 1024, 1024, MAX_CHUNK_COST, MAX_DAB_COST, MAX_CHUNK_DABS).unwrap();
+    assert_eq!(plan.len(), 5);
+    assert!(plan.iter().all(|(r, _)| r.len() == 1));
+}
+
+#[test]
+fn a_dab_that_cannot_be_split_is_refused_not_run_unbounded() {
+    use graffux_wgpu::transaction::{
+        chunk_timeout, plan_chunks, try_run_chunked, TransactionError, MAX_CHUNK_COST, MAX_CHUNK_DABS,
+        MAX_CHUNK_WAIT, MAX_DAB_COST,
+    };
+    // A whole-canvas dab on a big canvas is over the per-dab limit.
+    let whole = dab(2048.0, 2048.0, 3000.0);
+    assert_eq!(
+        plan_chunks(&whole, 4096, 4096, MAX_CHUNK_COST, MAX_DAB_COST, MAX_CHUNK_DABS),
+        Err(TransactionError::DabTooLarge)
+    );
+    // The run refuses before touching the GPU (a tiny per-dab limit stands in for the huge canvas).
+    let f = load();
+    assert_eq!(
+        try_run_chunked(wgpu::Backends::VULKAN, &f.input, MAX_CHUNK_COST, 10, MAX_CHUNK_DABS).unwrap_err(),
+        TransactionError::DabTooLarge
+    );
+    // A chunk's wait grows with its estimated work, never below the base timeout.
+    assert!(chunk_timeout(0) >= graffux_wgpu::gpu_wait::READBACK_TIMEOUT);
+    assert!(chunk_timeout(MAX_CHUNK_COST) > chunk_timeout(0));
+    // Capped, and the largest legitimate dab is not what hits the cap.
+    assert!(chunk_timeout(u64::MAX) <= MAX_CHUNK_WAIT);
+    // The uncapped allowance for the largest legitimate dab fits under the cap, so the cap never clips it.
+    assert!(graffux_wgpu::gpu_wait::READBACK_TIMEOUT + std::time::Duration::from_micros(MAX_DAB_COST / 4) <= MAX_CHUNK_WAIT);
+    assert!(chunk_timeout(MAX_DAB_COST) > chunk_timeout(MAX_CHUNK_COST) || MAX_DAB_COST <= MAX_CHUNK_COST);
+}
+
+#[test]
+fn production_chunks_give_bit_identical_results_to_one_dispatch() {
+    use graffux_wgpu::transaction::{
+        try_run_chunked, TransactionError, MAX_CHUNK_COST, MAX_CHUNK_DABS, MAX_DAB_COST,
+    };
+    let f = load();
+    let n = f.input.dabs.len() / DAB_FLOATS;
+    let mut input = f.input.clone();
+    for _ in 0..40 {
+        input.dabs.extend_from_slice(&f.input.dabs);
+    }
+    let total = 41 * n;
+    for (name, backends) in [("vulkan", wgpu::Backends::VULKAN), ("gl", wgpu::Backends::GL)] {
+        // With GRAFFUX_REQUIRE_GPU naming the backend a missing adapter panics here rather than passing.
+        let whole = match try_run_chunked(backends, &input, u64::MAX, u64::MAX, usize::MAX) {
+            Ok(w) => w,
+            // Only "no adapter / does not fit" is a skip; any other failure of the baseline is a failure.
+            Err(TransactionError::Unavailable) => {
+                common::no_adapter(name);
+                continue;
+            }
+            Err(other) => panic!("[{name}] the unchunked baseline failed: {other:?}"),
+        };
+        assert_eq!(whole.dispatches, 1);
+        // The production plan: 656 dabs, so 2 dispatches (512 + 144); the second starts at dab 512.
+        let prod = try_run_chunked(backends, &input, MAX_CHUNK_COST, MAX_DAB_COST, MAX_CHUNK_DABS).unwrap();
+        assert_eq!(prod.dispatches, total.div_ceil(MAX_CHUNK_DABS), "[{name}]");
+        assert_eq!(prod.dispatches, 2);
+        // Several multi-dab chunks (150 dabs each, 5 dispatches, all but the first starting past dab 0).
+        let several = try_run_chunked(backends, &input, MAX_CHUNK_COST, MAX_DAB_COST, 150).unwrap();
+        assert_eq!(several.dispatches, total.div_ceil(150), "[{name}]");
+        assert!(several.dispatches >= 4);
+        assert_eq!(bits(&whole.conc), bits(&several.conc), "[{name}] 150-dab chunks conc");
+        assert_eq!(bits(&whole.amount), bits(&several.amount), "[{name}] 150-dab chunks amount");
+        assert_eq!(bits(&whole.avail), bits(&several.avail), "[{name}] 150-dab chunks avail");
+        assert_eq!(bits(&whole.load_conc), bits(&several.load_conc), "[{name}] 150-dab chunks load conc");
+        // And one dab per dispatch.
+        let split = try_run_chunked(backends, &f.input, 1, u64::MAX, 1).unwrap();
+        let one = try_run_chunked(backends, &f.input, u64::MAX, u64::MAX, usize::MAX).unwrap();
+        assert_eq!(split.dispatches, n);
+        for (label, a, b) in [("production", &whole, &prod), ("per-dab", &one, &split)] {
+            assert_eq!(bits(&a.conc), bits(&b.conc), "[{name}] {label} conc");
+            assert_eq!(bits(&a.amount), bits(&b.amount), "[{name}] {label} amount");
+            assert_eq!(bits(&a.avail), bits(&b.avail), "[{name}] {label} avail");
+            assert_eq!(bits(&a.load_amount), bits(&b.load_amount), "[{name}] {label} load");
+            assert_eq!(bits(&a.load_conc), bits(&b.load_conc), "[{name}] {label} load conc");
+        }
+    }
+}
