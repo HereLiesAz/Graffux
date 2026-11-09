@@ -2,6 +2,7 @@ package com.hereliesaz.graffux
 
 import android.content.Context
 import com.google.firebase.analytics.FirebaseAnalytics
+import com.hereliesaz.graffitixr.common.privacy.ReportConsent
 
 /**
  * The two data-sharing choices that are off until the user turns them on in Settings → Privacy.
@@ -14,10 +15,8 @@ import com.google.firebase.analytics.FirebaseAnalytics
  *   never uploads older reports.
  */
 object PrivacyConsent {
-    private const val PREFS = "privacy_consent"
+    private const val PREFS = ReportConsent.PREFS
     private const val KEY_ANALYTICS = "analytics_enabled"
-    private const val KEY_CRASH = "crash_reports_enabled"
-    private const val KEY_CRASH_SINCE = "crash_reports_since"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -28,17 +27,13 @@ object PrivacyConsent {
         apply(context)
     }
 
-    fun crashReportsEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_CRASH, false)
+    fun crashReportsEnabled(context: Context): Boolean = ReportConsent.crashReportsEnabled(context)
 
     /** Wall-clock time of the opt-in; reports older than this are never uploaded. */
-    fun crashReportsSince(context: Context): Long = prefs(context).getLong(KEY_CRASH_SINCE, Long.MAX_VALUE)
+    fun crashReportsSince(context: Context): Long = ReportConsent.crashReportsSince(context)
 
-    fun setCrashReportsEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit()
-            .putBoolean(KEY_CRASH, enabled)
-            .putLong(KEY_CRASH_SINCE, if (enabled) System.currentTimeMillis() else Long.MAX_VALUE)
-            .apply()
-    }
+    fun setCrashReportsEnabled(context: Context, enabled: Boolean) =
+        ReportConsent.setCrashReportsEnabled(context, enabled)
 
     /** Pushes the analytics choice to Firebase. A build without google-services.json has no app. */
     fun apply(context: Context) {

@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.data.prediction
 import android.content.Context
 import com.hereliesaz.graffitixr.common.DispatcherProvider
 import com.hereliesaz.graffitixr.common.crash.CrashReporter
+import com.hereliesaz.graffitixr.common.privacy.ReportConsent
 import com.hereliesaz.graffitixr.data.figma.SecureTokenStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,9 +51,11 @@ class PredictionReportRepository @Inject constructor(
         _isConnected.value = false
     }
 
-    /** No-op success when no token is stored. */
+    /** No-op success when no token is stored, or when the user has not opted in to public reports. */
     suspend fun fileIssue(title: String, body: String): Result<Unit> = withContext(dispatchers.io) {
         runCatching {
+            // Every issue is public, so whichever caller asks, nothing leaves without the opt-in.
+            if (!ReportConsent.crashReportsEnabled(context)) return@runCatching
             val token = tokenStore.load(KEY_TOKEN) ?: return@runCatching
             // Every issue is public: redacted here, whichever caller filed it.
             val json = JSONObject()

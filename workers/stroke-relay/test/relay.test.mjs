@@ -6,7 +6,8 @@ import { handle, MAX_BYTES } from "../src/index.js";
 const session = gzipSync(
   Buffer.from('{"type":"session","schema":4,"model":"Pixel 5"}\n{"type":"stroke"}\n'),
 );
-const env = { GITHUB_TOKEN: "t", GH_REPO: "o/r", DATA_BRANCH: "stroke-data" };
+const allow = { limit: async () => ({ success: true }) };
+const env = { GITHUB_TOKEN: "t", GH_REPO: "o/r", DATA_BRANCH: "stroke-data", RATE_LIMITER: allow };
 const noSleep = { sleep: async () => {} };
 
 function put(path, body = session, headers = {}) {
@@ -225,4 +226,58 @@ test("rejects a session that inflates past the cap", async () => {
   const filler = '{"type":"stroke","samples":{"x":[' + "0,".repeat(1000) + "0]}}\n";
   const big = '{"type":"session","schema":4}\n' + filler.repeat(Math.ceil((25 * 1024 * 1024) / filler.length));
   assert.equal((await upload(big)).status, 415);
+});
+
+// --- depth, line count, streaming size cap and limiter failure (audit package 5) ---
+
+test("a record nested far deeper than the schema is refused, never a crash", async () => {
+  github({ status: 201 });
+  const depth = 200_000;
+  const deep = "[".repeat(depth) + "]".repeat(depth);
+  const res = await upload(`{"type":"session","schema":4}\n{"type":"stroke","context":{"a":${deep}}}\n`);
+  assert.equal(res.status, 415);
+  const objects = '{"a":'.repeat(50_000) + "1" + "}".repeat(50_000);
+  assert.equal((await upload(`{"type":"session","schema":4}\n{"type":"stroke","context":${objects}}\n`)).status, 415);
+});
+
+test("ordinary nesting still passes", async () => {
+  github({ status: 201 });
+  const ok = '{"type":"session","schema":4}\n{"type":"stroke","sensors":{"acc":{"v":[[1,2,3],[4,5,6]]}}}\n';
+  assert.equal((await upload(ok)).status, 201);
+});
+
+test("a file with more records than the recorder ever writes is refused", async () => {
+  github({ status: 201 });
+  const many = '{"type":"session","schema":4}\n' + '{"type":"stroke"}\n'.repeat(5000);
+  assert.equal((await upload(many)).status, 415);
+});
+
+test("the body is read with a cap: a lying Content-Length cannot make the Worker buffer it all", async () => {
+  github({ status: 201 });
+  let pulled = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const body = new ReadableStream({
+    pull(controller) {
+      pulled += chunk.length;
+      if (pulled > 64 * 1024 * 1024) controller.close();
+      else controller.enqueue(chunk);
+    },
+  });
+  const req = new Request(`https://relay.test${OK}`, {
+    method: "PUT",
+    body,
+    duplex: "half",
+    headers: { "Content-Length": "1000" },
+  });
+  const res = await handle(req, env, noSleep);
+  assert.equal(res.status, 413);
+  assert.ok(pulled <= MAX_BYTES + 4 * chunk.length, `read ${pulled} bytes`);
+});
+
+test("without a working rate limiter the relay refuses rather than running unlimited", async () => {
+  const calls = github({ status: 201 });
+  assert.equal((await handle(put(OK), { ...env, RATE_LIMITER: undefined }, noSleep)).status, 503);
+  const throwing = { limit: async () => { throw new Error("limiter down"); } };
+  assert.equal((await handle(put(OK), { ...env, RATE_LIMITER: throwing }, noSleep)).status, 503);
+  assert.equal(calls.length, 0);
 });

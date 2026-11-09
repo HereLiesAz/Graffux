@@ -24,9 +24,10 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 | anything but `PUT /v1/stroke-data/<device>/<file>` | 404 / 405 |
 | `<device>` not `[A-Za-z0-9-]{1,48}`, or `<file>` not `session-<digits>.jsonl.gz` | 400 |
 | no `Content-Length` | 411 |
-| over 8 MiB, or empty | 413 |
-| not gzip, or the first line is not a `{"type":"session","schema":<n>}` line | 415 |
+| over 8 MiB, or empty (counted while reading, not trusted from `Content-Length`) | 413 |
+| not gzip, the first line is not a `{"type":"session","schema":<n>}` line, more than 1000 lines, or a value nested more than 12 deep | 415 |
 | more than 6 requests a minute from one address (per Cloudflare location) | 429 |
+| the rate limiter binding is missing or throws | 503. The relay closes instead of running unlimited. |
 | GitHub conflict while two uploads move the branch | retried 3 times, then 502 |
 | the file is already on the branch | 200 `exists` (retries are safe) |
 | the branch is missing | 503. The Worker never creates it, so a deleted branch is visible. |
@@ -41,8 +42,8 @@ record whose top-level fields are the ones in SCHEMA.md, every key is a short id
 characters), no string is over 256 characters except the base64 `heatmap.frames` (at most the
 recorder's 384 KiB per stroke), and the committed bytes are
 re-encoded from the checked text, so nothing rides along in a second gzip member or after a valid
-header. Uploads are limited to 6 a minute per client address. If abuse still shows up, the next
-step is Play Integrity attestation.
+header. Uploads are limited to 6 a minute per client address. There is no per-client credential: a secret shipped in the app is readable by anyone, so it would only look like authentication.
+If abuse still shows up, the next step is Play Integrity attestation, which needs a Google Cloud project and a server-side verification key and cannot be added from this repository alone.
 
 ## Deploy
 
