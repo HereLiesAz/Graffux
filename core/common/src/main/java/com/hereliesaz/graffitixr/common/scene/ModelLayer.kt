@@ -46,6 +46,22 @@ data class ModelLayerContent(
     }
 }
 
+/** Why painting on a model layer must not start yet (see [paintBlock]). */
+enum class ModelPaintBlock { NONE, TEXTURE_LOADING, TEXTURE_UNREADABLE }
+
+/**
+ * Whether a stroke may start on this model. A layer with a saved texture file whose [ModelLayerContent.texture] is still
+ * null has not loaded it (the restore is asynchronous): a stroke started now would begin from a BLANK bitmap and the
+ * next save would overwrite the saved paint with it. So painting waits ([ModelPaintBlock.TEXTURE_LOADING]); and if the
+ * saved texture could not be read at all ([loadFailed]) it is refused outright ([ModelPaintBlock.TEXTURE_UNREADABLE]),
+ * since saving over an unreadable file would destroy it.
+ */
+fun ModelLayerContent.paintBlock(loadFailed: Boolean): ModelPaintBlock = when {
+    textureFile == null || texture != null -> ModelPaintBlock.NONE
+    loadFailed -> ModelPaintBlock.TEXTURE_UNREADABLE
+    else -> ModelPaintBlock.TEXTURE_LOADING
+}
+
 /** A parsed mesh, compared by identity. Its bounds are what the layer frames the model by. */
 class ModelMesh(val mesh: Mesh) {
     val center: FloatArray = mesh.center()
