@@ -154,7 +154,8 @@ fn a_dab_that_cannot_be_split_is_refused_not_run_unbounded() {
     assert!(chunk_timeout(MAX_CHUNK_COST) > chunk_timeout(0));
     // Capped, and the largest legitimate dab is not what hits the cap.
     assert!(chunk_timeout(u64::MAX) <= MAX_CHUNK_WAIT);
-    assert!(chunk_timeout(MAX_DAB_COST) <= MAX_CHUNK_WAIT);
+    // The uncapped allowance for the largest legitimate dab fits under the cap, so the cap never clips it.
+    assert!(graffux_wgpu::gpu_wait::READBACK_TIMEOUT + std::time::Duration::from_micros(MAX_DAB_COST / 4) <= MAX_CHUNK_WAIT);
     assert!(chunk_timeout(MAX_DAB_COST) > chunk_timeout(MAX_CHUNK_COST) || MAX_DAB_COST <= MAX_CHUNK_COST);
 }
 
@@ -182,10 +183,18 @@ fn production_chunks_give_bit_identical_results_to_one_dispatch() {
             Err(other) => panic!("[{name}] the unchunked baseline failed: {other:?}"),
         };
         assert_eq!(whole.dispatches, 1);
-        // The production plan: several dispatches, each of many dabs, all but the first starting past dab 0.
+        // The production plan: 656 dabs, so 2 dispatches (512 + 144); the second starts at dab 512.
         let prod = try_run_chunked(backends, &input, MAX_CHUNK_COST, MAX_DAB_COST, MAX_CHUNK_DABS).unwrap();
         assert_eq!(prod.dispatches, total.div_ceil(MAX_CHUNK_DABS), "[{name}]");
-        assert!(prod.dispatches > 1 && MAX_CHUNK_DABS > 1);
+        assert_eq!(prod.dispatches, 2);
+        // Several multi-dab chunks (150 dabs each, 5 dispatches, all but the first starting past dab 0).
+        let several = try_run_chunked(backends, &input, MAX_CHUNK_COST, MAX_DAB_COST, 150).unwrap();
+        assert_eq!(several.dispatches, total.div_ceil(150), "[{name}]");
+        assert!(several.dispatches >= 4);
+        assert_eq!(bits(&whole.conc), bits(&several.conc), "[{name}] 150-dab chunks conc");
+        assert_eq!(bits(&whole.amount), bits(&several.amount), "[{name}] 150-dab chunks amount");
+        assert_eq!(bits(&whole.avail), bits(&several.avail), "[{name}] 150-dab chunks avail");
+        assert_eq!(bits(&whole.load_conc), bits(&several.load_conc), "[{name}] 150-dab chunks load conc");
         // And one dab per dispatch.
         let split = try_run_chunked(backends, &f.input, 1, u64::MAX, 1).unwrap();
         let one = try_run_chunked(backends, &f.input, u64::MAX, u64::MAX, usize::MAX).unwrap();

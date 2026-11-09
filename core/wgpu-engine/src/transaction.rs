@@ -88,10 +88,10 @@ pub fn plan_chunks(
     Ok(out)
 }
 
-/// The longest a chunk is ever waited for. The wait runs on the caller's thread (which may hold a lock), so it is
-/// capped well inside the time Android allows before declaring an app unresponsive; the cost limits above are
-/// chosen so that the cap is not what a legitimate chunk runs into. No app code calls the standalone entries yet,
-/// and when one does it must be off the UI and input threads.
+/// The longest a chunk is ever waited for: a chosen cap, not an Android guarantee. The wait runs on the caller's
+/// thread (which may hold a lock), so callers must keep it off the UI and input threads. The cost limits above are
+/// chosen so that this cap is not what a legitimate chunk runs into (a test pins the uncapped sum at the largest
+/// dab). No app code calls the standalone entries yet.
 pub const MAX_CHUNK_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// How long to wait for a chunk of estimated `cost`: the base timeout plus a quarter of a microsecond per cost unit
