@@ -125,6 +125,7 @@ class GapSplitGestureTest {
             end = { vm.onStrokeEnd() },
             cancel = { vm.onStrokeCancel() },
             segmentEnd = { vm.onStrokeSegmentEnd() },
+            sampleOk = { _, _ -> true }, joinOk = { _, _, _, _ -> true },
         )
         feed.onStart(BrushSample(6f, 12f, uptimeMillis = 0L))
         (1 until hits.size).forEach { feed.onPoint(BrushSample(6f + it * 8f, 12f, uptimeMillis = it * 16L)) }

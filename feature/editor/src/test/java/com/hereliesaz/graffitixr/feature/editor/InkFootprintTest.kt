@@ -50,7 +50,7 @@ class InkFootprintTest {
         val plane = ActivePlaneMapping.of(bent())
         val grazing = listOf(Offset(300f, 596f), Offset(340f, 612f), Offset(380f, 596f))
         // By the ray alone the middle sample is dropped and the stroke breaks (the old behaviour).
-        assertEquals(2, planeSegments(grazing, toFlat = plane::worldToFlat).size)
+        assertEquals(2, planeSegments(grazing, sampleOk = TestGuards.planeSampleOk, joinOk = TestGuards.planeJoinOk, toFlat = plane::worldToFlat).size)
         val segments = plane.inkSegments(grazing, footprint = 30f)
         assertEquals(1, segments.size)
         assertEquals(listOf(0, 1, 2), segments.single().samples.map { it.first })

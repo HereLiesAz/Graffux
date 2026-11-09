@@ -414,10 +414,14 @@ internal class PlaneStrokeFeed<S>(
     private val cancel: () -> Unit,
     /** Ends a segment at a gap without ending the gesture; [end] or [cancel] still closes it. */
     private val segmentEnd: () -> Unit = end,
-    /** Whether [toLayer]'s result for a raw sample shows near it (the surface-stroke invariant); false drops it like a miss. */
-    private val sampleOk: (raw: S, mapped: S) -> Boolean = { _, _ -> true },
-    /** Whether the stroke between the previous accepted sample and this one stays on the surface; false cuts the stroke there. */
-    private val joinOk: (prevRaw: S, prevMapped: S, raw: S, mapped: S) -> Boolean = { _, _, _, _ -> true },
+    /**
+     * Whether [toLayer]'s result for a raw sample shows near it and in direct view of the camera (the
+     * surface-stroke invariant); false drops it like a miss. Required: there is no permissive default,
+     * so a stroke path cannot be built without the finger guard and the visibility check.
+     */
+    private val sampleOk: (raw: S, mapped: S) -> Boolean,
+    /** Whether the stroke between the previous accepted sample and this one stays on the surface; false cuts the stroke there. Required, like [sampleOk]. */
+    private val joinOk: (prevRaw: S, prevMapped: S, raw: S, mapped: S) -> Boolean,
 ) {
     private var started = false
     private var lastRaw: S? = null
@@ -479,9 +483,9 @@ internal class PlaneStrokeFeed<S>(
  */
 internal fun planeSegments(
     path: List<Offset>,
-    /** The surface-stroke guards on (raw, mapped) world points; a caller on a surface passes [ActivePlaneMapping]'s. */
-    sampleOk: (raw: Offset, mapped: Offset) -> Boolean = { _, _ -> true },
-    joinOk: (prevRaw: Offset, prevMapped: Offset, raw: Offset, mapped: Offset) -> Boolean = { _, _, _, _ -> true },
+    /** The surface-stroke guards on (raw, mapped) world points (required); a caller on a surface passes [ActivePlaneMapping]'s. */
+    sampleOk: (raw: Offset, mapped: Offset) -> Boolean,
+    joinOk: (prevRaw: Offset, prevMapped: Offset, raw: Offset, mapped: Offset) -> Boolean,
     toFlat: (Offset) -> Offset?,
 ): List<List<Pair<Int, Offset>>> {
     val done = ArrayList<List<Pair<Int, Offset>>>()
@@ -537,10 +541,10 @@ internal class ViewStrokeFeed<S>(
     private val end: () -> Unit,
     private val cancel: () -> Unit,
     private val segmentEnd: () -> Unit = end,
-    /** The surface-stroke invariant for one touch ([PlaneStrokeFeed.sampleOk]). */
-    private val sampleOk: (ViewSample<S>) -> Boolean = { true },
-    /** The surface-stroke invariant for the stroke between two touches on one face ([PlaneStrokeFeed.joinOk]). */
-    private val joinOk: (ViewSample<S>, ViewSample<S>) -> Boolean = { _, _ -> true },
+    /** The surface-stroke invariant for one touch ([PlaneStrokeFeed.sampleOk]). Required: no permissive default. */
+    private val sampleOk: (ViewSample<S>) -> Boolean,
+    /** The surface-stroke invariant for the stroke between two touches on one face ([PlaneStrokeFeed.joinOk]). Required: no permissive default. */
+    private val joinOk: (ViewSample<S>, ViewSample<S>) -> Boolean,
 ) {
     private var last: ViewSample<S>? = null
     private var gap = false

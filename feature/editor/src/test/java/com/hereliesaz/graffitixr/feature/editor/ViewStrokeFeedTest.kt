@@ -30,6 +30,7 @@ class ViewStrokeFeedTest {
         end = { log.events += "end" },
         cancel = { log.events += "cancel" },
         segmentEnd = { log.events += "segmentEnd" },
+        sampleOk = TestGuards.viewSampleOk(), joinOk = TestGuards.viewJoinOk(),
     )
 
     @Test
@@ -44,6 +45,7 @@ class ViewStrokeFeedTest {
             end = { log.events += "end" },
             cancel = { log.events += "cancel" },
             segmentEnd = { log.events += "segmentEnd" },
+        sampleOk = TestGuards.viewSampleOk(), joinOk = TestGuards.viewJoinOk(),
         )
         f.onStart(8f); f.onPoint(12f); f.onEnd()
         assertEquals(

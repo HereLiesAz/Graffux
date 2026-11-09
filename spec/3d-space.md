@@ -403,7 +403,10 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   straight flat segment between them shows within the footprint of the segment between the two touches
   (distance to the segment, not to its midpoint: perspective moves a midpoint along the segment, never off it).
   `SurfaceStrokeGuard` states it; `PlaneStrokeFeed` and
-  `ViewStrokeFeed` enforce it (`sampleOk`, `joinOk`). A failing sample is dropped like a miss; a
+  `ViewStrokeFeed` enforce it (`sampleOk`, `joinOk`), and `planeSegments` takes the same two. They are
+  required parameters with no permissive default, so a stroke path cannot be built without the finger
+  guard and the visibility check by forgetting to pass them; tests that do not exercise the guards pass
+  `TestGuards` (test sources only), and `StrokeFeedGuardsRequiredTest` fails if a default returns. A failing sample is dropped like a miss; a
   failing join cuts the stroke there (a new segment starts at the sample), never painting across the
   part of the surface between. The cause it closes: a ray that skims a silhouette or fold hits a near
   face on one sample and a far one on the next, and the straight stroke between the two hits is
