@@ -50,14 +50,34 @@ internal object ModelCoopCodec {
         }
     }
 
-    /** Whether [png] decodes far enough to name a size: a saved paint that does not is unreadable. */
-    fun isDecodable(png: ByteArray): Boolean {
-        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size, o)
-        return o.outWidth > 0 && o.outHeight > 0
+    /**
+     * Whether [png] is a whole PNG: the signature, then chunks that each fit in the file, with an IHDR and an
+     * IDAT before an IEND that ends it. A partial write keeps an intact header and loses the end, which a
+     * bounds-only decode would accept; a paint that then decodes to nothing would restart blank and be
+     * saved over the file. Checks structure only, without allocating a bitmap.
+     */
+    fun isCompletePng(png: ByteArray): Boolean {
+        val signature = intArrayOf(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        if (png.size < signature.size + 12 || signature.indices.any { (png[it].toInt() and 0xFF) != signature[it] }) {
+            return false
+        }
+        var pos = signature.size
+        var sawHeader = false
+        var sawData = false
+        var complete = false
+        while (!complete && pos + 12 <= png.size) {
+            val length = ((png[pos].toInt() and 0xFF) shl 24) or ((png[pos + 1].toInt() and 0xFF) shl 16) or
+                ((png[pos + 2].toInt() and 0xFF) shl 8) or (png[pos + 3].toInt() and 0xFF)
+            if (length < 0 || pos + 12L + length > png.size) return false
+            when (String(png, pos + 4, 4, Charsets.ISO_8859_1)) {
+                "IHDR" -> sawHeader = true
+                "IDAT" -> sawData = true
+                "IEND" -> complete = sawHeader && sawData
+            }
+            pos += 12 + length
+        }
+        return complete
     }
-
-    fun isCompletePng(png: ByteArray): Boolean = isDecodable(png)
 
     /** Whether [png]'s header names a texture no larger than [MAX_TEXTURE_SIDE] a side. */
     fun textureInBounds(png: ByteArray): Boolean {
