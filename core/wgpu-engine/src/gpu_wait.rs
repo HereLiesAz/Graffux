@@ -94,7 +94,8 @@ pub fn map_read_with<R>(
             _ => ReadFailure::Failed,
         });
     }
-    // The wait returns once the callbacks have run, so the answer is already in the channel.
+    // After a successful wait the answer is normally already in the channel. It may not be (another thread's poll can
+    // hold this map's completion callback and not have run it yet): that reads as `Pending` below.
     match settle(rx.try_recv()) {
         MapState::Mapped => {}
         MapState::Refused => return Err(ReadFailure::Failed),

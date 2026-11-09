@@ -172,12 +172,24 @@ impl SharedGpu {
         submission: wgpu::SubmissionIndex,
         read: impl FnOnce(&[u8]) -> R,
     ) -> Result<R, crate::gpu_wait::ReadFailure> {
-        let poll = crate::gpu_wait::wait_poll(Some(submission), crate::gpu_wait::READBACK_TIMEOUT);
-        *self.last_wait.lock().unwrap_or_else(|e| e.into_inner()) = format!("{poll:?}");
-        self.read_with(buffer, range, move |d| d.poll(poll), read)
+        let last = &self.last_wait;
+        self.read_with(
+            buffer,
+            range,
+            move |d| {
+                // The poll is built, recorded and issued in one place, so what is recorded is what is waited on.
+                let poll =
+                    crate::gpu_wait::wait_poll(Some(submission), crate::gpu_wait::READBACK_TIMEOUT);
+                *last.lock().unwrap_or_else(|e| e.into_inner()) = format!("{poll:?}");
+                d.poll(poll)
+            },
+            read,
+        )
     }
 
     /// The wait the last [`SharedGpu::read`] used, as text (tests: it must name the caller's own submission).
+    /// `doc(hidden)` but `pub` only because the integration test in `tests/` is a separate crate.
+    #[doc(hidden)]
     pub fn last_wait(&self) -> String {
         self.last_wait.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
