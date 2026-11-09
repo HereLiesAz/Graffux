@@ -189,10 +189,19 @@ used to open the window, now imports into a layer.
   (`ModelPaintCanvas`, above every tool surface, so a 2D tool never also paints). Each sample casts
   the camera ray through the touch into mesh coordinates (`ModelSpace.ray`, the inverse of the
   layer's mesh-to-scene map), finds the nearest triangle and its UV (`MeshPicker.raycast`), and
-  stamps dabs from the previous UV (`TexturePaint.stamps`, which breaks the stroke at UV seams) into
-  the texture (`PaintableTexture`). The brush's on-screen size is converted to texels at the hit
-  (`ModelSpace.texelsPerPixel`: the triangle's texel area over its projected area; where that is degenerate the stroke keeps its last radius, `TexturePaint.radiusTexels`). A miss ends the
-  run. A second finger ends the stroke. The 2D paint pipeline is not touched.
+  stamps dabs from the previous UV into the texture (`PaintableTexture`). A move is sampled along the
+  way (`ModelSpace.pickAlong`, every half brush width, at most 8 samples), so a flick across a
+  silhouette is not joined through paint the finger never crossed: a sample that hits nothing ends
+  the run. Consecutive hits are joined only within one UV island (`UvIslands`: triangles continuous
+  in position and UV across a shared edge, matched by the value of both its ends so a triangle soup still forms islands and a one-corner contact does not); a step
+  across an island boundary paints only its destination (`TexturePaint.stampsAlong`), and so does
+  one that drops onto a different stretch of the same island, such as a fold behind the front panel
+  (`SurfaceContinuity`: the UV distance is bounded by the 3D distance times the UV-per-length). Each dab is
+  clipped to its island's triangles, so it cannot bleed onto the texels of the island laid out beside
+  it (an island whose UVs tile the texture is left unclipped). The brush's on-screen size is
+  converted to texels at each hit (`ModelSpace.texelsPerPixel`: the triangle's texel area over its
+  projected area; where that is degenerate the stroke keeps its last radius,
+  `TexturePaint.radiusTexels`). A second finger ends the stroke. The 2D paint pipeline is not touched.
 - **Selection.** Tap-select and the one-finger move's hit check cast the tap onto the model's
   surface (the same ray as painting), ranked by the depth of the surface hit; the selection outline
   is the mesh's framed x/y bounds on the layer's plane.

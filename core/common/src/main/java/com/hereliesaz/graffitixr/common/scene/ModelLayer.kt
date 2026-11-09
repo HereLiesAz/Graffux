@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import java.io.ByteArrayOutputStream
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.hypot
 import kotlin.math.sqrt
 
 /**
@@ -50,6 +52,11 @@ data class ModelLayerContent(
 class ModelMesh(val mesh: Mesh) {
     val center: FloatArray = mesh.center()
     val radius: Float = mesh.radius()
+
+    /** The mesh's UV islands, built on first paint: only painting needs them. */
+    val islands: com.hereliesaz.graffitixr.common.mesh.UvIslands by lazy {
+        com.hereliesaz.graffitixr.common.mesh.UvIslands.of(mesh)
+    }
 }
 
 /**
@@ -138,6 +145,41 @@ object ModelSpace {
     /** The nearest surface point under canvas point ([x], [y]), with its UV; null on a miss. */
     fun pick(mesh: ModelMesh, x: Float, y: Float, toScene: Affine3, frame: CameraFrame): MeshPicker.Hit? =
         ray(x, y, toScene, frame)?.let { MeshPicker.raycast(mesh.mesh, it) }
+
+    /** A canvas-space segment, in pixels. */
+    class Segment(val fromX: Float, val fromY: Float, val toX: Float, val toY: Float)
+
+    /** The most samples [pickAlong] takes along one segment, so a fast flick stays cheap. */
+    const val MAX_PICK_SAMPLES = 8
+
+    /**
+     * The surface under each sample along [segment], nearest the start first, ending with the
+     * destination itself. A sample that hits nothing is null.
+     *
+     * A stroke joins one touch to the next only if the surface is under the finger the whole way:
+     * two hits on opposite limbs of a sphere are on the same island, but the line between them in
+     * UV space runs through paint the finger never crossed. Sampling every [stepPx] (at most
+     * [MAX_PICK_SAMPLES]) shows the gap as a null the caller breaks on.
+     */
+    fun pickAlong(
+        mesh: ModelMesh,
+        segment: Segment,
+        toScene: Affine3,
+        frame: CameraFrame,
+        stepPx: Float,
+    ): List<MeshPicker.Hit?> {
+        val dx = segment.toX - segment.fromX
+        val dy = segment.toY - segment.fromY
+        val distance = hypot(dx, dy)
+        val samples = if (distance <= 0f) 1 else ceil(distance / stepPx.coerceAtLeast(MIN_STEP_PX)).toInt()
+            .coerceIn(1, MAX_PICK_SAMPLES)
+        return (1..samples).map { i ->
+            val t = i.toFloat() / samples
+            pick(mesh, segment.fromX + dx * t, segment.fromY + dy * t, toScene, frame)
+        }
+    }
+
+    private const val MIN_STEP_PX = 1e-3f
 
     /**
      * Texture pixels per canvas pixel on triangle [triangle] as the camera sees it: how big a brush

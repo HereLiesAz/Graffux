@@ -74,13 +74,13 @@ object TexturePaint {
     fun isSeamJump(fromU: Float, fromV: Float, toU: Float, toV: Float): Boolean =
         abs(toU - fromU) > SEAM_THRESHOLD || abs(toV - fromV) > SEAM_THRESHOLD
 
+    /** A step from one UV point to the next. */
+    data class UvStep(val fromU: Float, val fromV: Float, val toU: Float, val toV: Float)
+
     /**
      * The dabs that paint the step from (`fromU`, `fromV`) to (`toU`, `toV`) on a [width]×[height]
-     * texture, one every [spacingPx] pixels.
-     *
-     * Always ends at the destination, so the paint is under the finger when it stops. Across a seam
-     * only the destination is returned: the finger is genuinely there, it just didn't get there
-     * through any of the texture in between.
+     * texture, one every [spacingPx] pixels. Joins across a UV jump only if it is short; see
+     * [stampsAlong] for the mesh-aware form.
      */
     fun stamps(
         fromU: Float,
@@ -90,29 +90,44 @@ object TexturePaint {
         width: Int,
         height: Int,
         spacingPx: Float,
-    ): List<Stamp> {
-        if (width <= 0 || height <= 0) return emptyList()
-        val end = toPixel(toU, toV, width, height)
-        if (isSeamJump(fromU, fromV, toU, toV)) return listOf(end)
+    ): List<Stamp> = stampsAlong(UvStep(fromU, fromV, toU, toV), width, height, spacingPx, connected = null)
 
+    /**
+     * The dabs that paint [step] on a [width]×[height] texture, one every [spacingPx] pixels.
+     *
+     * Always ends at the destination, so the paint is under the finger when it stops. Across a seam
+     * only the destination is returned: the finger is genuinely there, it just didn't get there
+     * through any of the texture in between.
+     *
+     * [connected] says whether the two points are on one UV island (see [UvIslands]), which is the
+     * real test of a seam: `true` always joins them, `false` never does, and `null` falls back to
+     * guessing from how far the UV moved ([isSeamJump]), for a caller with no mesh.
+     */
+    fun stampsAlong(step: UvStep, width: Int, height: Int, spacingPx: Float, connected: Boolean?): List<Stamp> {
+        val end = toPixel(step.toU, step.toV, width, height)
+        val joined = connected ?: !isSeamJump(step.fromU, step.fromV, step.toU, step.toV)
         // Interpolate in raw UV and wrap each stamp. Wrapping the two ends first and joining them
         // would turn a step across a tile boundary (u 0.99 -> 1.01) into a stripe across the whole
         // texture (x 0.99W -> 0.01W).
-        val du = toU - fromU
-        val dv = toV - fromV
+        val du = step.toU - step.fromU
+        val dv = step.toV - step.fromV
         val dx = du * width
         val dy = dv * height
         val distance = sqrt(dx * dx + dy * dy)
         val spacing = spacingPx.coerceAtLeast(MIN_SPACING_PX)
-        if (distance <= spacing) return listOf(end)
-
-        val steps = ceil(distance / spacing).toInt().coerceAtMost(MAX_STAMPS_PER_SEGMENT)
-        // Starts at 1: the previous call already stamped the segment's start point, and stamping it
-        // again doubles the paint at every joint — visible with a soft or low-opacity brush as a
-        // string of darker beads along the stroke.
-        return (1..steps).map { i ->
-            val t = i.toFloat() / steps
-            if (i == steps) end else toPixel(fromU + du * t, fromV + dv * t, width, height)
+        return when {
+            width <= 0 || height <= 0 -> emptyList()
+            !joined || distance <= spacing -> listOf(end)
+            else -> {
+                val steps = ceil(distance / spacing).toInt().coerceAtMost(MAX_STAMPS_PER_SEGMENT)
+                // Starts at 1: the previous call already stamped the segment's start point, and
+                // stamping it again doubles the paint at every joint — visible with a soft or
+                // low-opacity brush as a string of darker beads along the stroke.
+                (1..steps).map { i ->
+                    val t = i.toFloat() / steps
+                    if (i == steps) end else toPixel(step.fromU + du * t, step.fromV + dv * t, width, height)
+                }
+            }
         }
     }
 
