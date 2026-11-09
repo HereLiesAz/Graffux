@@ -221,3 +221,48 @@ fn a_read_waits_for_its_own_submission_not_the_devices_latest() {
     assert!(used.contains(&format!("{mine:?}")), "the read did not wait on its own submission: {used}");
     assert!(!used.contains("submission_index: None"), "the read waited on the device's latest: {used}");
 }
+
+#[test]
+fn a_pipeline_built_in_a_failed_call_is_forgotten_and_rebuilt_by_the_next() {
+    use graffux_wgpu::wgpu;
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+        common::no_adapter("vulkan");
+        return;
+    };
+    let build = |src: &str| {
+        let module = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("t"),
+            source: wgpu::ShaderSource::Wgsl(src.to_string().into()),
+        });
+        gpu.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("t"),
+            layout: None,
+            module: &module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        })
+    };
+    let bad = "this is not wgsl";
+    let good = "@compute @workgroup_size(1) fn main() {}";
+    let before = PIPELINES_BUILT.load(Ordering::SeqCst);
+    // The first build fails (an invalid handle is returned and the error lands in the call's scope).
+    let first = gpu.scoped("first", || {
+        let _p = gpu.cached("k", || build(bad));
+        Some(())
+    });
+    assert!(first.is_none(), "the scoped call must report the creation error");
+    // The next call must build again, not reuse the invalid entry.
+    let mut rebuilt = false;
+    let second = gpu.scoped("second", || {
+        let _p = gpu.cached("k", || {
+            rebuilt = true;
+            build(good)
+        });
+        Some(())
+    });
+    assert!(rebuilt, "the failed call's pipeline was kept in the cache");
+    assert!(second.is_some(), "the retry must succeed");
+    assert_eq!(PIPELINES_BUILT.load(Ordering::SeqCst) - before, 2, "the retry is counted");
+}
