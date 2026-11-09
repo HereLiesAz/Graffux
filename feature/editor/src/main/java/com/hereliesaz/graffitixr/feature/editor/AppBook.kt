@@ -32,7 +32,7 @@ internal class AppBook(private val store: RecipeLibrary.Store) {
         val persisted = store.updateApp { current ->
             val book = current?.let { RecipeBook.fromJsonRepairing(it) }
             val edited = edit(book?.first?.recipes.orEmpty())
-            val refused = (current != null && book == null) || edited.any { it.problem() != null }
+            val refused = (current != null && book == null) || !RecipeLibrary.fits(edited)
             conflict = current != inspected
             if (conflict || refused) {
                 null

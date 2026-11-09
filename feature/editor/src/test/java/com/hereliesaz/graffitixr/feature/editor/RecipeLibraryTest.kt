@@ -336,4 +336,20 @@ class RecipeLibraryTest {
         assertFalse(lib.delete(projA, "r1"))
         assertEquals(original, disk.project["A"])
     }
+
+    @Test
+    fun anImportThatWouldPassTheCapacityIsRefusedAndNothingOversizedIsStored() = runTest {
+        val disk = Disk()
+        val lib = library(disk)
+        val full = (1..RecipeBook.MAX_RECIPES).map { recipe("x$it") }
+        disk.app = RecipeBook(recipes = full).toJson()
+        disk.project["A"] = RecipeBook(recipes = full).toJson()
+        val before = disk.app
+        assertFalse(lib.addMissing(app, listOf(recipe("new1"), recipe("new2"))))
+        assertFalse(lib.addMissing(projA, listOf(recipe("new1"))))
+        assertEquals("the stored books are untouched", before, disk.app)
+        assertEquals(RecipeBook.MAX_RECIPES, bookOf(disk, "A").size)
+        assertTrue("ids already there still fit", lib.addMissing(app, listOf(full.first())))
+        assertEquals(RecipeBook.MAX_RECIPES, RecipeBook.fromJson(disk.app!!)!!.recipes.size)
+    }
 }

@@ -114,7 +114,11 @@ class RecipeLibrary(private val store: Store) {
 
     suspend fun delete(target: Target, id: String): Boolean = change(target) { list -> list.filterNot { it.id == id } }
 
-    /** Puts [list] into [target] where it is not already (by id), for the swatch migration; never removes anything. */
+    /**
+     * Puts [list] into [target] where it is not already (by id), for the swatch migration; never removes anything.
+     * Refused (false, nothing written) if the result would pass [RecipeBook.MAX_RECIPES]: an oversized book is never
+     * stored, so no import can silently lose entries when it is next read. (save drops the oldest, by design.)
+     */
     suspend fun addMissing(target: Target, list: List<PaletteRecipe>): Boolean = change(target) { current ->
         current + list.filter { n -> current.none { it.id == n.id } }
     }
@@ -137,5 +141,11 @@ class RecipeLibrary(private val store: Store) {
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
             .onSuccess { if (projectBook.value.id == id) projectBook.value = ProjectBook(id, next) }
             .isSuccess
+    }
+
+    companion object {
+        /** Whether [list] may be stored: every recipe valid and no more than [RecipeBook.MAX_RECIPES]. */
+        internal fun fits(list: List<PaletteRecipe>) =
+            list.size <= RecipeBook.MAX_RECIPES && list.none { it.problem() != null }
     }
 }

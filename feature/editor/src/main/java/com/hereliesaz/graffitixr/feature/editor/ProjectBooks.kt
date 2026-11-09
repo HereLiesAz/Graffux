@@ -20,7 +20,7 @@ internal class ProjectBooks(private val store: RecipeLibrary.Store) {
     }
 
     /** May [next] be written over project [id]'s stored book? */
-    fun writable(id: String, next: List<PaletteRecipe>): Boolean = id !in blocked && next.none { it.problem() != null }
+    fun writable(id: String, next: List<PaletteRecipe>): Boolean = id !in blocked && RecipeLibrary.fits(next)
 
     private suspend fun inspect(id: String, text: String): List<PaletteRecipe>? {
         val parsed = RecipeBook.fromJsonRepairing(text) ?: return block(id)

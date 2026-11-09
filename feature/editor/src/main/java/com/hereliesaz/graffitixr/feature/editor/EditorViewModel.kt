@@ -13006,6 +13006,11 @@ class EditorViewModel @Inject constructor(
     private fun migrateSwatchesToMixes() = viewModelScope.launch(dispatchers.io) {
         runCatching { SwatchMigration.run(settingsRepository, recipeLibrary, paletteBoard) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            .onSuccess {
+                if (!it) {
+                    notify("Your saved colours couldn't all be added to your mixes yet. They will be tried again.")
+                }
+            }
     }
 
     init {
