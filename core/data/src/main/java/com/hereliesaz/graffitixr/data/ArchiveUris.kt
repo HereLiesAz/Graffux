@@ -42,7 +42,13 @@ internal fun localizeArchiveUris(projectJson: String, localRoot: String): String
     return Json.encodeToString(JsonElement.serializer(), node)
 }
 
-/** No real project nests anywhere near this; walking or re-encoding a deeper one recurses once per level. */
+/**
+ * Walking or re-encoding a deeper document recurses once per level. The deepest the model itself nests
+ * (arrays, objects and maps stacked inside one another, read off the serial descriptors by
+ * `LocalizeArchiveUrisTest.the depth cap is far above anything the model nests`) is 10, so 64 leaves a
+ * newer format room to nest several times deeper, and the test fails if the model ever grows past a quarter
+ * of it.
+ */
 internal const val MAX_JSON_DEPTH = 64
 
 /**
@@ -77,17 +83,23 @@ internal fun exceedsJsonDepth(text: String): Boolean {
 /** [node] at a position whose model type is [d], or null when the model has nothing there. */
 @OptIn(ExperimentalSerializationApi::class)
 private fun localizeNode(node: JsonElement, d: SerialDescriptor?, localRoot: String): JsonElement = when (node) {
-    is JsonObject -> JsonObject(
-        node.mapValues { (k, v) ->
+    is JsonObject -> {
+        val out = LinkedHashMap<String, JsonElement>(node.size)
+        for ((k, v) in node) {
             // A class's named field, a map's value; anything else, or a name the class lacks, is unknown.
             val field = when (d?.kind) {
                 StructureKind.CLASS -> d.getElementIndex(k).takeIf { it >= 0 }?.let(d::getElementDescriptor)
                 StructureKind.MAP -> d.getElementDescriptor(1)
                 else -> null
             }
-            localizeNode(v, field, localRoot)
-        },
-    )
+            // A key at an unknown position is text a newer build may read as a name or a path, so it is
+            // neutralized like a value (two keys that both become "" keep the later). The model has no
+            // map keyed by a Uri (a test checks), so a known position's keys need nothing.
+            val key = if (field == null) localizeUnknown(k, localRoot) else k
+            out[key] = localizeNode(v, field, localRoot)
+        }
+        JsonObject(out)
+    }
     is JsonArray -> {
         val item = if (d?.kind == StructureKind.LIST) d.getElementDescriptor(0) else null
         JsonArray(node.map { localizeNode(it, item, localRoot) })
@@ -104,10 +116,15 @@ private fun localizeNode(node: JsonElement, d: SerialDescriptor?, localRoot: Str
 private const val URI_SERIAL_NAME = "Uri"
 
 /**
- * A string that starts with a URI scheme (`file:`, `FILE:/x`, `jar:file:///x!/y`, `content://`, any case,
- * with or without `//`). A colon followed by a space is a label (`Mural: v2`), not a scheme.
+ * A value that can reach a file, content or network opener: `file:`, `content:`, `jar:`, `android.resource:`
+ * and the other local or archive schemes (any case, with or without `//`), or any scheme written with an
+ * authority (`ftp://h/x`, `ssh://h/p`). Plain text with a colon (`Mural:v2`), `mailto:`, `tel:` and inline
+ * `data:` values reach none of those and are not matched.
  */
-private val URI_LIKE = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*:(?!\s)""")
+private val LOCAL_URI = Regex(
+    """^(?:(?:file|content|jar|zip|android\.resource|asset|res|resource|ftp|ftps):|[a-zA-Z][a-zA-Z0-9+.-]*://)""",
+    RegexOption.IGNORE_CASE,
+)
 
 private val WEB_LINK = Regex("^https?://", RegexOption.IGNORE_CASE)
 
@@ -115,27 +132,31 @@ private val WEB_LINK = Regex("^https?://", RegexOption.IGNORE_CASE)
 private val DRIVE_PATH = Regex("^[a-zA-Z]:[/\\\\]")
 
 /**
- * A string at a position the model does not know. A web link is not a local file and stays. Any other
- * URI (anything that starts with a scheme, in any case, so `FILE:/x` and `jar:file:///x!/y` too) is
- * localized; a value that reads as a filesystem path (absolute, rooted with `\`, a drive or UNC path,
- * a `..` segment, a NUL, in any percent-encoding) is blanked. Plain text stays. The tradeoff, on
- * purpose: unknown text that starts with `/` (`"/shrug"`) is blanked too, since it cannot be told from
- * an absolute path; it is lost only from the installed copy of a newer-format file.
+ * A string at a position the model does not know. Leading whitespace and control characters are ignored
+ * for the checks (`java.net.URL` trims them, so ` file:///x` still opens). A web link is not a local file
+ * and stays. Otherwise the text and every percent-decoded form of it are checked: a URI that can reach an
+ * opener ([LOCAL_URI]) is localized (when written plainly) or blanked (when it only appears once decoded,
+ * as in `file%3A%2F%2F%2Fx`), and a value that reads as a filesystem path (absolute, rooted with `\`, a
+ * drive or UNC path, a `..` segment, a NUL) is blanked. Everything else stays, `data:`, `mailto:` and
+ * `Mural:v2` included. The tradeoff, on purpose: unknown text that starts with `/` (`"/shrug"`) is
+ * blanked too, since it cannot be told from an absolute path; it is lost only from the installed copy of
+ * a newer-format file.
  */
-private fun localizeUnknown(value: String, localRoot: String): String = when {
-    WEB_LINK.containsMatchIn(value) -> value
-    URI_LIKE.containsMatchIn(value) -> localizeUri(value, localRoot)
-    looksLikeLocalPath(value) -> ""
-    else -> value
-}
-
-private fun looksLikeLocalPath(value: String): Boolean {
-    val forms = decodedForms(value) ?: return true
-    return forms.any { form ->
-        '\u0000' in form || form.startsWith("/") || form.startsWith("\\") || DRIVE_PATH.containsMatchIn(form) ||
-            form.split('/', '\\').any { it == ".." }
+private fun localizeUnknown(value: String, localRoot: String): String {
+    val text = value.trimStart { it <= ' ' }
+    val forms = decodedForms(text)
+    return when {
+        WEB_LINK.containsMatchIn(text) -> value
+        forms == null -> ""
+        LOCAL_URI.containsMatchIn(text) -> localizeUri(text, localRoot)
+        forms.any { LOCAL_URI.containsMatchIn(it.trimStart { c -> c <= ' ' }) || looksLikeLocalPath(it) } -> ""
+        else -> value
     }
 }
+
+private fun looksLikeLocalPath(form: String): Boolean =
+    '\u0000' in form || form.startsWith("/") || form.startsWith("\\") || DRIVE_PATH.containsMatchIn(form) ||
+        form.split('/', '\\').any { it == ".." }
 
 /** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
 private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")

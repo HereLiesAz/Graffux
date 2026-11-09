@@ -255,7 +255,11 @@ class LocalizeArchiveUrisTest {
     }
 
     @Test fun `brackets inside strings do not count as depth`() {
-        val json = """{"name":"""" + "[".repeat(500) + """","x":"\\"{{{{"}"""
+        // A valid document: an escaped backslash, then 500 brackets still inside the string.
+        val json = """{"name":"a\\""" + "[".repeat(500) + """","x":"{{{{"}"""
+        // Not vacuous: it parses, so localizeArchiveUris goes through the walk and not the not-JSON branch.
+        assertTrue(kotlinx.serialization.json.Json.parseToJsonElement(json) is kotlinx.serialization.json.JsonObject)
+        assertFalse(exceedsJsonDepth(json))
         assertEquals(json, localizeArchiveUris(json, root))
     }
 
@@ -289,5 +293,82 @@ class LocalizeArchiveUrisTest {
         val shallow = """{"name":"a\\","extra":[["x"]]}"""
         assertFalse(exceedsJsonDepth(shallow))
         assertEquals(shallow, localizeArchiveUris(shallow, root))
+    }
+
+    @Test fun `a percent-encoded scheme in an unknown field is neutralized`() {
+        for (raw in listOf("file%3A%2F%2F%2Fetc%2Fhosts", "%66ile:/etc/hosts", "jar%3Afile%3A%2F%2F%2Fx!%2Fy")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `leading whitespace and control characters do not hide a file reference`() {
+        val hidden = listOf(
+            " file:///etc/hosts", "\\u0001file:///etc/hosts", "\\n/etc/hosts", "\\t../x", "\\u0000 C:\\\\x",
+        )
+        for (raw in hidden) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+        val kept = """{"x":"  hello"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+    }
+
+    @Test fun `keys that name a file are neutralized in unknown positions`() {
+        assertEquals(
+            """{"x":{"":2,"ok":3},"y":{"":1}}""",
+            localizeArchiveUris(
+                """{"x":{"file:///etc/hosts":1,"/etc/hosts":2,"ok":3},"y":{"..%2fz":1}}""",
+                root,
+            ),
+        )
+        // ...and an extra key in a known class is an unknown position too.
+        assertEquals("""{"name":"n","":1}""", localizeArchiveUris("""{"name":"n","/etc/x":1}""", root))
+    }
+
+    @Test fun `the model has no map keyed by a Uri, so keys never need localizing at a known position`() {
+        val bad = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        fun walk(d: kotlinx.serialization.descriptors.SerialDescriptor) {
+            if (d.kind == kotlinx.serialization.descriptors.StructureKind.CLASS && !seen.add(d.serialName)) return
+            if (d.kind == kotlinx.serialization.descriptors.StructureKind.MAP &&
+                d.getElementDescriptor(0).serialName.removeSuffix("?") == "Uri"
+            ) {
+                bad += d.serialName
+            }
+            for (i in 0 until d.elementsCount) walk(d.getElementDescriptor(i))
+        }
+        walk(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor)
+        assertTrue("a Map<Uri, ...> needs its keys localized: $bad", bad.isEmpty())
+    }
+
+    // Unknown text keeps everything that cannot reach a file, content or network opener.
+    @Test fun `only schemes that can reach an opener are neutralized in unknown fields`() {
+        val kept = """{"a":"data:image/png;base64,AAAA","b":"mailto:a@b.c","c":"Mural:v2","d":"A:B",""" +
+            """"e":"tel:+15551234"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+        for (raw in listOf("ftp://h/x", "ssh://h/p", "zip:file:///x", "asset:/x", "res://x/1", "FILE:/x")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+    }
+
+    @Test fun `the depth cap is far above anything the model nests`() {
+        val deepest = deepestNesting()
+        assertTrue("the model nests $deepest deep, the cap is $MAX_JSON_DEPTH", deepest * 4 <= MAX_JSON_DEPTH)
+        println("MODEL_NESTING=$deepest")
+    }
+
+    /** The most arrays/objects stacked inside one another anywhere in the model, from its descriptors. */
+    private fun deepestNesting(): Int {
+        val structure = kotlinx.serialization.descriptors.StructureKind.CLASS
+        fun depth(d: kotlinx.serialization.descriptors.SerialDescriptor, stack: Set<String>): Int {
+            val k = d.kind
+            val container = k == structure || k == kotlinx.serialization.descriptors.StructureKind.LIST ||
+                k == kotlinx.serialization.descriptors.StructureKind.MAP
+            val name = d.serialName.removeSuffix("?")
+            // A class already on the path is a cycle (counted once); anything that is not a container is a leaf.
+            if (!container || (k == structure && name in stack)) return 0
+            val next = if (k == structure) stack + name else stack
+            return 1 + (0 until d.elementsCount).maxOfOrNull { depth(d.getElementDescriptor(it), next) }.let { it ?: 0 }
+        }
+        return depth(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, emptySet())
     }
 }
