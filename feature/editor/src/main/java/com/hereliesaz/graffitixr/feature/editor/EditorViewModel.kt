@@ -2429,6 +2429,11 @@ class EditorViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(dispatchers.main) {
+            settingsRepository.surfaceOutlineAssist.collect { on ->
+                dispatch(EditorIntent.SetSurfaceOutlineAssist(on))
+            }
+        }
+        viewModelScope.launch(dispatchers.main) {
             settingsRepository.gestureMapping.collect { mapping ->
                 dispatch(EditorIntent.SetGestureMapping(mapping))
             }
@@ -13368,6 +13373,15 @@ class EditorViewModel @Inject constructor(
             updateUi { it.copy(surfaceDrawNotice = SurfaceDrawNotice.TOO_SHORT) }
             return
         }
+        // Outline assist (spec/3d-space.md, "Outline assist"): the raw stroke is committed first, then the
+        // cleaned one as a second step, so one undo gives back exactly what was drawn.
+        val assisted = if (!st.surfaceOutlineAssist) null else {
+            val pts = world.map { it.x to it.y }
+            val clean = com.hereliesaz.graffitixr.common.scene.OutlineAssist.assist(pts)
+            if (clean === pts) null else com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(
+                clean, st.sceneCamera, size.width.toFloat(), size.height.toFloat(), chain,
+            )?.takeIf { it != profile }
+        }
         if (newGroup == null) {
             // A side or top outline joins the surface already there; the front keeps the others it has.
             val existing = st.layers.firstOrNull { it.id == groupId }?.surface
@@ -13386,6 +13400,10 @@ class EditorViewModel @Inject constructor(
             emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
             emitGeometryChanges(before, _uiState.value.layers)
             saveProject()
+        }
+        assisted?.let { clean ->
+            val current = _uiState.value.layers.firstOrNull { it.id == groupId }?.surface
+            setSurface(groupId, current?.withView(view, clean) ?: clean)
         }
         showSurfaceNotice(
             if (view == SurfaceView.FRONT) SurfaceDrawNotice.DONE else SurfaceDrawNotice.VIEW_DONE,
