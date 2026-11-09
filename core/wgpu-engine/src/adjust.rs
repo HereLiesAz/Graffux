@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::engine::BackendChoice;
+use crate::gpu_wait::{map_read, ReadFailure, READBACK_TIMEOUT};
 
 pub const ADJUST_WGSL: &str = include_str!("shaders/adjust.wgsl");
 pub const ADJUST_BLUR_WGSL: &str = include_str!("shaders/adjust_blur.wgsl");
@@ -393,29 +394,20 @@ impl Adjuster {
         let bytes = (n * 4) as u64;
         encoder.copy_buffer_to_buffer(&self.dst, 0, &self.staging, 0, bytes);
         self.queue.submit([encoder.finish()]);
-        let slice = self.staging.slice(0..bytes);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r.is_ok());
+        let copied = map_read(&self.device, &self.staging, 0..bytes, READBACK_TIMEOUT, |view| {
+            out[..n * 4].copy_from_slice(view);
         });
-        if self
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .is_err()
-        {
-            return false;
-        }
-        if rx.recv() != Ok(true) {
-            return false;
-        }
-        {
-            let Ok(view) = slice.get_mapped_range() else {
-                self.staging.unmap();
+        match copied {
+            Ok(()) => {}
+            Err(failure) => {
+                if failure == ReadFailure::TimedOut {
+                    // A hung GPU: fail this adjuster for good, so each later render fails at once.
+                    log::error!("graffux-wgpu adjust: readback timed out after {READBACK_TIMEOUT:?}");
+                    self.error.store(true, Ordering::SeqCst);
+                }
                 return false;
-            };
-            out[..n * 4].copy_from_slice(&view);
+            }
         }
-        self.staging.unmap();
         self.last_nanos = started.elapsed().as_nanos() as u64;
         self.ok()
     }
@@ -451,12 +443,10 @@ impl Adjuster {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&self.blur, 0, &staging, 0, bytes);
         self.queue.submit([encoder.finish()]);
-        let slice = staging.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
-        let view = slice.get_mapped_range().ok()?;
-        let out = bytemuck::cast_slice(&view).to_vec();
-        Some(out)
+        map_read(&self.device, &staging, 0..bytes, READBACK_TIMEOUT, |view| {
+            bytemuck::cast_slice::<u8, f32>(view).to_vec()
+        })
+        .ok()
     }
 }
 

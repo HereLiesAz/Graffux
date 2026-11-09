@@ -9,11 +9,13 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
 use crate::diag;
+use crate::gpu_wait::{map_read, map_read_with, wait_bounded, ReadFailure, READBACK_TIMEOUT};
 use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
 use crate::timing::{GpuTimer, PassKind};
 
@@ -474,6 +476,11 @@ pub struct Engine {
     queue: wgpu::Queue,
     adapter_info: wgpu::AdapterInfo,
     error: Arc<AtomicBool>,
+    /// How long a readback waits for the GPU before it gives up and fails the engine
+    /// ([`gpu_wait::READBACK_TIMEOUT`] unless a test shortens it).
+    readback_timeout: Duration,
+    /// Tests: the next readback behaves as if the GPU never answered (see [`Engine::simulate_readback_stall`]).
+    simulated_stall: bool,
     /// Set by the device-lost callback: the driver dropped the device (reset, background
     /// reclaim). Every later call fails; the caller recreates the engine from its CPU copies.
     lost: Arc<AtomicBool>,
@@ -1073,6 +1080,8 @@ impl Engine {
             queue,
             adapter_info,
             error,
+            readback_timeout: READBACK_TIMEOUT,
+            simulated_stall: false,
             lost,
             width,
             height,
@@ -1355,6 +1364,12 @@ impl Engine {
 
     fn ok(&self) -> bool {
         !self.error.load(Ordering::SeqCst)
+    }
+
+    /// Shortens or lengthens how long a readback waits for the GPU (tests; the default is
+    /// [`gpu_wait::READBACK_TIMEOUT`]).
+    pub fn set_readback_timeout(&mut self, timeout: Duration) {
+        self.readback_timeout = timeout;
     }
 
     /// Whether the device was lost (see `lost`). Polls first so a pending loss is reported.
@@ -2221,29 +2236,7 @@ impl Engine {
             encoder.write_timestamp(timer.query_set(), begin + 1);
         }
         self.queue.submit([encoder.finish()]);
-        let slice = self.staging.slice(0..length);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = tx.send(res.is_ok());
-        });
-        if self
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .is_err()
-        {
-            // The map is still pending: cancel it, or the next map_async on this staging buffer
-            // is a validation error.
-            self.staging.unmap();
-            return false;
-        }
-        if !matches!(rx.recv(), Ok(true)) {
-            return false;
-        }
-        {
-            let Ok(mapped) = slice.get_mapped_range() else {
-                self.staging.unmap();
-                return false;
-            };
+        let copy_out = |mapped: &[u8]| {
             let col = if full_rows { r.x as usize * 4 } else { 0 };
             let copy = rect_row as usize;
             for row in 0..r.h as usize {
@@ -2251,9 +2244,55 @@ impl Engine {
                 let dst = base + row * out_stride;
                 out[dst..dst + copy].copy_from_slice(&mapped[src..src + copy]);
             }
+        };
+        let copied = if std::mem::take(&mut self.simulated_stall) {
+            map_read_with(
+                &self.device,
+                &self.staging,
+                0..length,
+                |_| Err(wgpu::PollError::Timeout),
+                copy_out,
+            )
+        } else {
+            map_read(&self.device, &self.staging, 0..length, self.readback_timeout, copy_out)
+        };
+        self.settle_readback(copied)
+    }
+
+    /// Makes the next readback behave as if the GPU never finished (for tests: a software rasteriser runs the work
+    /// inside `submit`, so a real stall cannot be staged). That readback times out and fails the engine.
+    pub fn simulate_readback_stall(&mut self) {
+        self.simulated_stall = true;
+    }
+
+    /// Waits for the submitted work with the readback timeout (the multipass frame timers). A GPU that does not
+    /// finish in time fails the engine, as a timed-out readback does.
+    pub(crate) fn wait_gpu(&self) {
+        if !wait_bounded(&self.device, self.readback_timeout) {
+            log::error!(
+                "graffux-wgpu: the GPU did not finish within {:?}; marking the engine failed",
+                self.readback_timeout
+            );
+            self.error.store(true, Ordering::SeqCst);
         }
-        self.staging.unmap();
-        true
+    }
+
+    /// Turns a bounded readback's outcome into the call's result. A timeout means the GPU stopped answering: the
+    /// engine is marked failed (like an uncaptured device error) so every later call fails at once instead of each
+    /// one waiting out the timeout again, and the caller falls back to its CPU path.
+    fn settle_readback(&self, result: Result<(), ReadFailure>) -> bool {
+        match result {
+            Ok(()) => true,
+            Err(ReadFailure::TimedOut) => {
+                log::error!(
+                    "graffux-wgpu: readback timed out after {:?}; marking the engine failed",
+                    self.readback_timeout
+                );
+                self.error.store(true, Ordering::SeqCst);
+                false
+            }
+            Err(ReadFailure::Failed) => false,
+        }
     }
 
     /// Whole-layer readback regardless of the dirty rectangle (tests, desktop display refresh).

@@ -1381,7 +1381,7 @@ impl Engine {
             mp.drafts_run += batch.len() as u64;
         }
         if timed {
-            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            self.wait_gpu();
             let ms = start.elapsed().as_secs_f64() * 1000.0;
             mp.draft_ms.add(ms, 0.2);
         }
@@ -1725,7 +1725,7 @@ impl Engine {
             let t0 = Instant::now();
             let units = self.mp_exec_final(mp, pass, chunk);
             if timed {
-                let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+                self.wait_gpu();
             }
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
             if timed && units > 0.0 {
@@ -1756,7 +1756,7 @@ impl Engine {
             let t0 = Instant::now();
             let encoder = self.device.create_command_encoder(&Default::default());
             self.queue.submit([encoder.finish()]);
-            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            self.wait_gpu();
             *s = t0.elapsed().as_secs_f64() * 1000.0;
         }
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -2374,7 +2374,7 @@ impl Engine {
             self.queue.submit([encoder.finish()]);
         }
         if timed {
-            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            self.wait_gpu();
             mp.compose_ms
                 .add(start.elapsed().as_secs_f64() * 1000.0, 0.2);
         }
