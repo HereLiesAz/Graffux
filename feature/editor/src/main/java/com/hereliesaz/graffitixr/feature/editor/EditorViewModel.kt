@@ -2099,8 +2099,16 @@ class EditorViewModel @Inject constructor(
             override fun onError(error: Throwable) {
                 android.util.Log.e("EditorViewModel", "Failed to save stroke records", error)
             }
-            override fun onUnreadable(projectId: String, dropped: Int) {
-                notify("Some saved strokes couldn't be read. The original file was kept as a backup.")
+            override fun onUnreadable(projectId: String, dropped: Int, backedUp: Boolean) {
+                notify(
+                    if (backedUp) {
+                        "Some saved strokes couldn't be read. The original file was kept as a backup."
+                    } else {
+                        "Some saved strokes couldn't be read and the original could not be backed up, " +
+                            "so new strokes won't be saved to this project until it is reopened."
+                    },
+                    if (backedUp) NoticeKind.NOTICE else NoticeKind.WARNING,
+                )
             }
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)

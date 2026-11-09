@@ -7,6 +7,7 @@ import com.hereliesaz.graffitixr.common.azphalt.StrokeRecording
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -25,23 +26,38 @@ class StrokeRecordSyncTest {
         val files = HashMap<String, ByteArray>()
         val writes = ArrayList<String>()
         val unreadable = ArrayList<Pair<String, Int>>()
+        val backedUp = ArrayList<Boolean>()
+        val delays = ArrayDeque<Long>()
+        var failBak = false
     }
 
-    private class Rig(scope: TestScope, vmScope: CoroutineScope? = null, val readOnly: () -> Boolean = { false }) {
+    private class Rig(
+        scope: TestScope,
+        vmScope: CoroutineScope? = null,
+        io: kotlinx.coroutines.CoroutineDispatcher? = null,
+        decoder: ((String) -> StrokeRecording.Companion.Repaired?)? = null,
+        val readOnly: () -> Boolean = { false },
+    ) {
         val disk = Disk()
         val sync = StrokeRecordSync(
             scope = vmScope ?: scope,
-            io = StandardTestDispatcher(scope.testScheduler),
+            io = io ?: StandardTestDispatcher(scope.testScheduler),
             store = object : StrokeRecordSync.Store {
                 override fun isReadOnly() = readOnly()
-                override fun onUnreadable(projectId: String, dropped: Int) { disk.unreadable += projectId to dropped }
+                override fun onUnreadable(projectId: String, dropped: Int, backedUp: Boolean) {
+                    disk.unreadable += projectId to dropped
+                    disk.backedUp += backedUp
+                }
                 override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
+                    if (file.endsWith(".bak") && disk.failBak) error("no space left")
+                    if (!file.endsWith(".bak")) disk.delays.removeFirstOrNull()?.let { kotlinx.coroutines.delay(it) }
                     disk.files["$projectId/$file"] = bytes
                     disk.writes += "$projectId/$file"
                 }
                 override suspend fun read(projectId: String, file: String) = disk.files["$projectId/$file"]
             },
             limits = StrokeRecordSync.Limits(maxStrokes = 5, maxSamples = 1_000),
+            decoder = decoder ?: StrokeRecording::fromJsonRepairing,
         )
     }
 
@@ -142,6 +158,7 @@ class StrokeRecordSyncTest {
         advanceUntilIdle()
         assertTrue(r.disk.files["A/strokes.json.bak"]!!.contentEquals(damaged))
         assertEquals(listOf("A" to 1), r.disk.unreadable)
+        assertEquals("and the user is told it was kept", listOf(true), r.disk.backedUp)
         assertEquals(listOf(1L, 2L, 9L), requireNotNull(file(r, "A")).strokes.map { it.seed })
     }
 
@@ -153,6 +170,90 @@ class StrokeRecordSyncTest {
         advanceUntilIdle()
         assertEquals("garbage", String(r.disk.files["A/strokes.json.bak"]!!))
         assertEquals(listOf("A" to -1), r.disk.unreadable)
+        assertTrue(r.sync.current().isEmpty())
+    }
+
+    @Test
+    fun anOlderSlowWriteCanNeverBeTheFinalFile() = runTest {
+        val r = Rig(this)
+        r.disk.delays += listOf(1_000L, 10L) // the first write is slow, the second fast
+        r.sync.record("A", stroke(1), doc)
+        advanceTimeBy(2_100) // the debounced write of [1] has started and is waiting on IO
+        r.sync.record("A", stroke(2), doc)
+        r.sync.flush() // the newest snapshot, while the older one is still in flight
+        advanceUntilIdle()
+        assertEquals(listOf(1L, 2L), requireNotNull(file(r, "A")).strokes.map { it.seed })
+    }
+
+    @Test
+    fun theRepairingDecodeRunsOnTheIoDispatcherNotTheCaller() = runTest {
+        val threads = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val exec = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "stroke-io-test") }
+        val latch = java.util.concurrent.CountDownLatch(1)
+        try {
+            val r = Rig(this, io = exec.asCoroutineDispatcher(), decoder = { text ->
+                threads += Thread.currentThread().name
+                latch.countDown()
+                StrokeRecording.fromJsonRepairing(text)
+            })
+            r.disk.files["A/strokes.json"] = recording(1).toByteArray()
+            r.sync.open("A")
+            advanceUntilIdle()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            }
+            assertTrue("decoded on the IO thread: $threads", threads.single().startsWith("stroke-io-test"))
+        } finally {
+            exec.shutdown()
+        }
+    }
+
+    @Test
+    fun aFailedBackupBlocksTheOverwriteAndTheMessageSaysSo() = runTest {
+        val r = Rig(this)
+        val damaged = recording(1, 2).replace("\"strokes\":[", "\"strokes\":[42,").toByteArray()
+        r.disk.files["A/strokes.json"] = damaged
+        r.disk.failBak = true
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertEquals("the user is told the backup did NOT happen", listOf(false), r.disk.backedUp)
+        r.sync.record("A", stroke(9), doc)
+        r.sync.flush()
+        advanceUntilIdle()
+        assertTrue("the original is untouched", r.disk.files["A/strokes.json"]!!.contentEquals(damaged))
+        // a reopen with a working disk can back up and then save
+        r.disk.failBak = false
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertTrue(r.disk.files["A/strokes.json.bak"]!!.contentEquals(damaged))
+        r.sync.record("A", stroke(10), doc)
+        r.sync.flush()
+        assertEquals(listOf(true), r.disk.backedUp.takeLast(1))
+        assertTrue(!r.disk.files["A/strokes.json"]!!.contentEquals(damaged))
+    }
+
+    @Test
+    fun aFlushDuringTheInitialRestoreDoesNotReplaceTheFileWithOnlyTheNewStroke() = runTest {
+        val r = Rig(this)
+        r.disk.files["A/strokes.json"] = recording(1, 2).toByteArray()
+        r.sync.open("A")
+        r.sync.record("A", stroke(9), doc) // before the read completes
+        r.sync.flushAsync() // the app goes to the background
+        assertTrue("nothing written while the restore is out", r.disk.writes.isEmpty())
+        advanceUntilIdle()
+        val saved = requireNotNull(file(r, "A")).strokes.map { it.seed }
+        assertEquals("the corrected snapshot is what is saved", listOf(1L, 2L, 9L), saved)
+    }
+
+    @Test
+    fun closingDuringTheInitialRestoreStillSavesTheMergedStrokesUnderTheirOwnProject() = runTest {
+        val r = Rig(this)
+        r.disk.files["A/strokes.json"] = recording(1, 2).toByteArray()
+        r.sync.open("A")
+        r.sync.record("A", stroke(9), doc)
+        r.sync.open("B") // switched before A's read finished
+        advanceUntilIdle()
+        assertEquals(listOf(1L, 2L, 9L), requireNotNull(file(r, "A")).strokes.map { it.seed })
         assertTrue(r.sync.current().isEmpty())
     }
 }
