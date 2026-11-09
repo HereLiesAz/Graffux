@@ -3,6 +3,7 @@ package com.hereliesaz.graffitixr.domain.repository
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * Interface for managing application-wide settings.
@@ -74,6 +75,23 @@ interface SettingsRepository {
     val savedPalette: Flow<List<Int>>
 
     suspend fun setSavedPalette(colors: List<Int>)
+
+    /**
+     * Adds [argb] to the saved palette (a no-op if it is there), as ONE atomic read-modify-write so two saves at once
+     * cannot lose one. The default is for fakes; the real store does it inside a single DataStore edit.
+     */
+    suspend fun addSavedSwatch(argb: Int) {
+        val current = savedPalette.first()
+        val next = com.hereliesaz.graffitixr.common.util.PaletteCodec.add(current, argb)
+        if (next !== current) setSavedPalette(next)
+    }
+
+    /** Removes every swatch equal to [argb], atomically (see [addSavedSwatch]). */
+    suspend fun removeSavedSwatch(argb: Int) {
+        val current = savedPalette.first()
+        val next = current.filterNot { it == argb }
+        if (next.size != current.size) setSavedPalette(next)
+    }
 
     /**
      * Ceiling on how many touch samples per second a stroke records and previews, in Hz.
