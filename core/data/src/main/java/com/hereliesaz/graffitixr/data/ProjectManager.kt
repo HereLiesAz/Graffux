@@ -847,9 +847,6 @@ class ProjectManager @Inject constructor(
     }
 }
 
-/** A string that names a resource: any `scheme://`, or `file:` / `content:` / `android.resource:` in any spelling. */
-private val URI_LIKE = Regex("""^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|(?:file|content|android\.resource):)""")
-
 /** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
 private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
 
@@ -859,10 +856,11 @@ private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
  * gains this device's root; every other URI becomes empty.
  *
  * Works on the parsed JSON, not on its text: a string can spell the same URI as `file:\/\/\/etc\/hosts` or
- * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. A string is a URI when it
- * looks like one, or when it sits under a key that names a URI (`uri`, `overlayImageUri`,
- * `targetImageUris`, ...), so a scheme-less `/data/...` path is dropped too. Other text is untouched.
- * Text that is not JSON is returned as it came; decoding it fails the same way.
+ * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. Only values under a key that
+ * names a Uri ([namesUri]) are touched, so a scheme-less `/data/...` path there is dropped too, while
+ * user text that merely looks like a URI (a text layer reading `https://azphalt.store`, a name like
+ * `file: notes`) is kept as written. Text that is not JSON is returned as it came; decoding it fails
+ * the same way.
  */
 internal fun localizeArchiveUris(projectJson: String, localRoot: String): String {
     val root = runCatching { Json.parseToJsonElement(projectJson) }.getOrNull() ?: return projectJson
@@ -872,15 +870,18 @@ internal fun localizeArchiveUris(projectJson: String, localRoot: String): String
 private fun localizeNode(node: JsonElement, key: String?, localRoot: String): JsonElement = when (node) {
     is JsonObject -> JsonObject(node.mapValues { (k, v) -> localizeNode(v, k, localRoot) })
     is JsonArray -> JsonArray(node.map { localizeNode(it, key, localRoot) })
-    is JsonPrimitive -> {
-        val namesUri = key?.contains("uri", ignoreCase = true) == true
-        if (node.isString && (namesUri || URI_LIKE.containsMatchIn(node.content))) {
-            JsonPrimitive(localizeUri(node.content, localRoot))
-        } else {
-            node
-        }
-    }
+    is JsonPrimitive ->
+        if (node.isString && namesUri(key)) JsonPrimitive(localizeUri(node.content, localRoot)) else node
 }
+
+/**
+ * Whether [key] is a field that holds a Uri: the model's are `uri`, `backgroundImageUri`,
+ * `overlayImageUri`, `thumbnailUri`, `targetImageUris`, `evolutionImageUris`, ... A newer format's
+ * Uri field follows the same naming. LocalizeArchiveUrisTest walks the real model's serial descriptors
+ * and fails if a Uri-typed field is ever named otherwise.
+ */
+private fun namesUri(key: String?): Boolean =
+    key != null && (key == "uri" || key.endsWith("Uri") || key.endsWith("Uris"))
 
 private fun localizeUri(uri: String, localRoot: String): String {
     val inProject = IN_PROJECT.find(uri)?.groupValues?.get(1)
@@ -894,7 +895,7 @@ private fun localizeUri(uri: String, localRoot: String): String {
  * Uri.getPath() percent-decodes, so `%2e%2e` or `..%2f` are parent references: the segment is decoded
  * until it stops changing (a double-encoded `%252e` too) and refused if any form is empty, `.`, `..`, or
  * holds a separator or NUL. A decoded `?`, `#` or `%` is only a filename character (`what%3F.png`,
- * `50%25.png`), and a decode that cannot go on (a lone `%`) means the text is settled.
+ * `50%25.png`).
  */
 private fun isSafeUriSegment(segment: String): Boolean {
     if ('?' in segment || '#' in segment) return false
@@ -906,12 +907,39 @@ private fun isSafeUriSegment(segment: String): Boolean {
         if (current in URI_DOT_SEGMENTS || URI_UNSAFE_CHARS.containsMatchIn(current)) {
             safe = false
         } else {
-            val decoded = runCatching { java.net.URLDecoder.decode(current.replace("+", "%2B"), "UTF-8") }.getOrNull()
-            if (decoded == null || decoded == current) settled = true else current = decoded
+            val decoded = lenientPercentDecode(current)
+            if (decoded == current) settled = true else current = decoded
         }
     }
     return safe && settled
 }
+
+/**
+ * [text] with each valid `%XX` decoded as UTF-8 and every other `%` kept as a literal, the way Android's
+ * Uri.decode reads a path. A malformed escape (`%zz`, a lone `%`) must not stop the rest being decoded:
+ * `..%2f..%2fetc%zz` still holds a separator.
+ */
+private fun lenientPercentDecode(text: String): String {
+    if ('%' !in text) return text
+    val out = java.io.ByteArrayOutputStream()
+    var i = 0
+    while (i < text.length) {
+        val high = if (text[i] == '%') text.getOrNull(i + 1)?.digitToIntOrNull(HEX_RADIX) else null
+        val low = if (high != null) text.getOrNull(i + 2)?.digitToIntOrNull(HEX_RADIX) else null
+        if (high != null && low != null) {
+            out.write(high * HEX_RADIX + low)
+            i += ESCAPE_LENGTH
+        } else {
+            val codePoint = text.codePointAt(i)
+            out.write(String(Character.toChars(codePoint)).toByteArray(Charsets.UTF_8))
+            i += Character.charCount(codePoint)
+        }
+    }
+    return out.toString(Charsets.UTF_8.name())
+}
+
+private const val HEX_RADIX = 16
+private const val ESCAPE_LENGTH = 3
 
 private val URI_DOT_SEGMENTS = setOf("", ".", "..")
 private val URI_UNSAFE_CHARS = Regex("""[/\\\u0000]""")

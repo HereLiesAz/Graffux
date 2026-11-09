@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalizeArchiveUrisTest {
@@ -81,6 +82,63 @@ class LocalizeArchiveUrisTest {
                 name,
                 """{"uri":"${root}layers/$name"}""",
                 localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/$name"}""", root),
+            )
+        }
+    }
+
+    // User text is not a URI just because it looks like one: only Uri-typed fields are localized.
+    @Test fun `text that looks like a uri is kept outside uri fields`() {
+        val json = """{"name":"file: notes","textParams":{"text":"https://azphalt.store","fontName":"content:x"},""" +
+            """"layers":[{"name":"file:///etc/hosts","note":"android.resource://x/1"}]}"""
+        assertEquals(json, localizeArchiveUris(json, root))
+    }
+
+    /** Every Uri-typed field of the real model, so a new one cannot be added without being localized. */
+    private fun uriFieldNames(): Set<String> {
+        val found = mutableSetOf<String>()
+        val seen = mutableSetOf<String>()
+        fun walk(d: kotlinx.serialization.descriptors.SerialDescriptor, name: String?) {
+            if (d.serialName.removeSuffix("?") == "Uri") {
+                name?.let(found::add)
+                return
+            }
+            if (!seen.add(d.serialName + name)) return
+            val list = d.kind == kotlinx.serialization.descriptors.StructureKind.LIST
+            for (i in 0 until d.elementsCount) {
+                walk(d.getElementDescriptor(i), if (list) name else d.getElementName(i))
+            }
+        }
+        walk(com.hereliesaz.graffitixr.common.model.GraffitiProject.serializer().descriptor, null)
+        return found
+    }
+
+    @Test fun `every uri field in the model is localized`() {
+        val names = uriFieldNames()
+        assertTrue("found only $names", names.containsAll(listOf("uri", "thumbnailUri", "targetImageUris")))
+        for (key in names) {
+            assertEquals(key, """{"$key":""}""", localizeArchiveUris("""{"$key":"file:///etc/hosts"}""", root))
+            assertEquals(
+                key,
+                """{"$key":"${root}a.png"}""",
+                localizeArchiveUris("""{"$key":"file:///x/projects/old/a.png"}""", root),
+            )
+        }
+    }
+
+    // Android's Uri.decode is lenient: a bad escape elsewhere in the segment must not hide a good one.
+    @Test fun `a malformed escape does not hide traversal in the same segment`() {
+        for (rest in listOf("..%2f..%2fetc%2fhosts%zz", "%zz..%2fx", "a%2f..%2f%", "%2e%2e%zz%2fx")) {
+            assertEquals(
+                rest,
+                """{"uri":""}""",
+                localizeArchiveUris("""{"uri":"file:///x/projects/old/$rest"}""", root),
+            )
+        }
+        for (name in listOf("100%.png", "50%zz.png", "a%.b%25c.png")) {
+            assertEquals(
+                name,
+                """{"uri":"${root}$name"}""",
+                localizeArchiveUris("""{"uri":"file:///x/projects/old/$name"}""", root),
             )
         }
     }
