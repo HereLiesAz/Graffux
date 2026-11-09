@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -132,13 +132,13 @@ fun OpenProjectWindow(
                     text = "+ New project",
                     onClick = { onNew(); onDismiss() },
                     shape = GraffuxButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
                 )
                 GraffuxButton(
                     text = "Choose location…",
                     onClick = onChooseLocation,
                     shape = GraffuxButtonShape.RECTANGLE,
-                    modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
                 )
             }
             return@ToolSurface
@@ -210,13 +210,13 @@ fun OpenProjectWindow(
             text = "+ New project",
             onClick = { onNew(); onDismiss() },
             shape = GraffuxButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+            modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
         )
         GraffuxButton(
             text = "Choose location…",
             onClick = onChooseLocation,
             shape = GraffuxButtonShape.RECTANGLE,
-            modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+            modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
         )
     }
 }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -72,7 +73,7 @@ fun CustomBrushesWindow(
                 text = "New Brush",
                 onClick = onNew,
                 shape = GraffuxButtonShape.RECTANGLE,
-                modifier = Modifier.fillMaxWidth().height(FullWidthButtonHeight),
+                modifier = Modifier.fillMaxWidth().heightIn(min = FullWidthButtonHeight),
             )
 
             if (brushes.isEmpty()) {
@@ -138,14 +139,14 @@ private fun BrushCard(
                 onClick = onEdit,
                 shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f).height(FullWidthButtonHeight),
+                modifier = Modifier.weight(1f).heightIn(min = FullWidthButtonHeight),
             )
             GraffuxButton(
                 text = "Delete",
                 onClick = onDeleteRequest,
                 shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f).height(FullWidthButtonHeight),
+                modifier = Modifier.weight(1f).heightIn(min = FullWidthButtonHeight),
             )
         }
     }
