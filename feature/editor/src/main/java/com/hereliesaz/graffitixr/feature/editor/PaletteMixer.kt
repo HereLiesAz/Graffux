@@ -178,6 +178,7 @@ fun PaletteMixerDialog(
     onSelectSecondaryColor: (Color) -> Unit,
     onSwapColors: () -> Unit,
     onDismiss: () -> Unit,
+    onChanged: () -> Unit = {},
     savedPalette: List<Color> = emptyList(),
     onSavePaletteColor: (Color) -> Unit = {},
     onRemovePaletteColor: (Color) -> Unit = {},
@@ -190,10 +191,15 @@ fun PaletteMixerDialog(
     var match by remember { mutableStateOf<String?>(null) }
     var boardSize by remember { mutableStateOf(IntSize(1, 1)) }
 
+    // Every board or brush change is a palette change (saved with the project); only operations that change what the
+    // brush holds also apply its colour (MixerOps).
     val ops = MixerOps(
         board,
         applyColour = { c -> if (board.hand == 0) onSelectColor(c) else onSelectSecondaryColor(c) },
-        redraw = { version++ },
+        redraw = {
+            version++
+            onChanged()
+        },
     )
 
     fun toBoard(p: Offset): Offset = Offset(
@@ -235,6 +241,7 @@ fun PaletteMixerDialog(
                         board.swapBrushes()
                         onSwapColors()
                         version++
+                        onChanged()
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                 )
@@ -456,22 +463,27 @@ fun PaletteMixerHost(
     onSelectSecondaryColor: (Color) -> Unit,
     onSwapColors: () -> Unit,
     onDismiss: () -> Unit,
+    onChanged: () -> Unit = {},
+    board: PaletteBoard? = null,
     onBoard: (PaletteBoard) -> Unit = {},
     savedPalette: List<Color> = emptyList(),
     onSavePaletteColor: (Color) -> Unit = {},
     onRemovePaletteColor: (Color) -> Unit = {},
 ) {
-    val board = remember { newMixerBoard() }
-    androidx.compose.runtime.SideEffect { onBoard(board) }
+    // A view-model-owned board (saved with the project) when given, else one held for the session; either way
+    // it is held outside the `show` condition.
+    val held = board ?: remember { newMixerBoard() }
+    androidx.compose.runtime.SideEffect { onBoard(held) }
     if (show) {
         PaletteMixerDialog(
-            board = board,
+            board = held,
             currentColor = currentColor,
             secondaryColor = secondaryColor,
             onSelectColor = onSelectColor,
             onSelectSecondaryColor = onSelectSecondaryColor,
             onSwapColors = onSwapColors,
             onDismiss = onDismiss,
+            onChanged = onChanged,
             savedPalette = savedPalette,
             onSavePaletteColor = onSavePaletteColor,
             onRemovePaletteColor = onRemovePaletteColor,

@@ -114,6 +114,14 @@ class PaletteBoard(
         PaintTransaction.run(surface, brush, dabs)
     }
 
+    /** Empties the board and both brushes (a new project, or a failed restore). */
+    fun clear() {
+        surface.conc.fill(0f)
+        surface.amount.fill(0f)
+        for (b in brushes) { b.amount.fill(0f); b.conc.fill(0f) }
+        hand = 0
+    }
+
     /** The sum of a dab's per-texel weights (hardness 0.5), so amounts can be set as a share of capacity. */
     private fun footprintWeight(radius: Float): Float {
         val r = ceil(radius).toInt()
@@ -167,6 +175,33 @@ class PaletteBoard(
         var basis = 0f
         for (c in PigmentConcentration.BOARD_TUBES until CH) basis += conc[base + c] / total
         return Recipe(named.sortedByDescending { it.second }, basis, amount)
+    }
+
+    /**
+     * The brush in hand as a painterly [BrushLoadConfig], or null when it holds no paint: the stroke starts with
+     * what the board put on the brush (its tubes by weight, plus any canvas-origin paint as the basis pigments),
+     * filled to the fraction of the brush's capacity it actually holds. This is how the mixer's paint, not just
+     * its colour, reaches a painterly brush.
+     */
+    fun brushLoad(lanes: Int = BrushLoadConfig.DEFAULT_LANES): BrushLoadConfig? {
+        val held = brush.amount[0]
+        if (!(held > 0f)) return null
+        val r = brushRecipe()
+        val terms = ArrayList<String>()
+        for ((pigment, w) in r.tubes) terms += "${pigment.id}:$w"
+        if (r.basis > 0f) {
+            val share = r.basis / PigmentLookup.BASIS_IDS.size
+            for (id in PigmentLookup.BASIS_IDS) terms += "$id:$share"
+        }
+        if (terms.isEmpty()) return null
+        val fill = BrushLoadFill(terms.joinToString("+"), 0, lanes - 1, (held / BRUSH_CAPACITY).coerceIn(0f, 1f))
+        return BrushLoadConfig(lanes = lanes, fill = listOf(fill)).sanitized()
+    }
+
+    /** After a stroke: the brush keeps [remaining] (0..1) of the load it started with. */
+    fun absorbStrokeLoad(remaining: Float, startedWith: Float = brush.amount[0]) {
+        brush.amount[0] = (startedWith * remaining.coerceIn(0f, 1f)).coerceAtMost(BRUSH_CAPACITY)
+        if (brush.amount[0] <= 0f) for (c in 0 until CH) brush.conc[c] = 0f
     }
 
     /** The colour a recipe makes: the K-M mix of its 16 channels, as sRGB-encoded ARGB. */

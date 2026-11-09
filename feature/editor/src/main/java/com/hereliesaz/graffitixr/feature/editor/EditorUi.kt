@@ -53,8 +53,8 @@ fun EditorUi(
 
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // The physical palette replaces the colour picker (spec/painterly.md 6.3). The host holds the board
-        // outside the `show` condition, so closing the mixer keeps the paint and reopening finds it.
+        // The physical palette replaces the colour picker (spec/painterly.md 6.3). The board is the view model's
+        // (saved with the project, survives rotation); the host holds it outside the `show` condition either way.
         PaletteMixerHost(
             show = uiState.showColorPicker,
             currentColor = uiState.activeColor,
@@ -63,6 +63,8 @@ fun EditorUi(
             onSelectSecondaryColor = { color -> actions.setSecondaryColor(color) },
             onSwapColors = actions::swapBrushColors,
             onDismiss = { actions.onColorPickerDismissed() },
+            onChanged = actions::onPaletteChanged,
+            board = actions.paletteBoard,
             savedPalette = savedPalette,
             onSavePaletteColor = actions::onSavePaletteColor,
             onRemovePaletteColor = actions::onRemovePaletteColor,
