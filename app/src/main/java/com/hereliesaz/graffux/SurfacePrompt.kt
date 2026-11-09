@@ -9,6 +9,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
@@ -29,8 +34,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
-import com.hereliesaz.graffitixr.common.model.PopupImportance
-import com.hereliesaz.graffitixr.common.model.surfacePromptImportance
 import com.hereliesaz.graffitixr.common.model.ReliefBuildStage
 import com.hereliesaz.graffitixr.common.model.ReliefBuildState
 import com.hereliesaz.graffitixr.common.model.SurfaceDrawNotice
@@ -200,7 +203,7 @@ internal fun SurfacePromptChip(
 }
 
 /**
- * The popups: the top-of-canvas notices in one vertical layout (the important ones centred, see below): the Draw-surface chip, then the app's messages
+ * The popups: the top-of-canvas notices in one vertical layout: the Draw-surface chip, then the app's messages
  * under it. Sharing a column lets the chip's real height (large font scales wrap it further) push
  * the messages down, where a fixed offset would let them overlap.
  */
@@ -222,31 +225,20 @@ internal fun NoticeStack(
     reliefActions: ReliefChipActions? = null,
     onBuildFromImage: (() -> Unit)? = null,
 ) {
-    // The popup rule (PopupPolicy): IMPORTANT ones (the armed instruction, the "set" decision, warnings
-    // that wait for OK) are centred and stay until the user acts; TRANSIENT ones stay at the top. The
-    // centred cards draw no pointer input of their own, so a stroke still reaches the canvas through them.
-    val promptImportance = surfacePromptImportance(armed, notice)
-    Box(modifier) {
+    // Every popup sits at the top of the screen, under the status bar and any display cutout and between the
+    // rails (the caller pads the sides by the rail width). PopupPolicy still decides how long one stays: an
+    // IMPORTANT one (the armed instruction, the "set" decision, a warning) waits for the user, a TRANSIENT one
+    // leaves in proportion to its text. The cards draw no pointer input of their own beyond their buttons, so a
+    // stroke still reaches the canvas around them.
+    Box(modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
         Column(
             Modifier.align(Alignment.TopCenter),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         ) {
-            if (promptImportance == PopupImportance.TRANSIENT) {
-                SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
-            }
+            SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
             if (reliefActions != null) ReliefChip(reliefBuild, relief, reliefActions)
-            MessageHost(alerts, okLabel = okLabel, countLabel = countLabel, importance = PopupImportance.TRANSIENT)
-        }
-        Column(
-            Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-        ) {
-            if (promptImportance == PopupImportance.IMPORTANT) {
-                SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
-            }
-            MessageHost(alerts, okLabel = okLabel, countLabel = countLabel, importance = PopupImportance.IMPORTANT)
+            MessageHost(alerts, okLabel = okLabel, countLabel = countLabel)
         }
     }
 }

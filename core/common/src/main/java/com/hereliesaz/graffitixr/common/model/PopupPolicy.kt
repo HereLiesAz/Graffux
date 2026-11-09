@@ -1,12 +1,13 @@
 package com.hereliesaz.graffitixr.common.model
 
 /**
- * How much a popup matters, which decides where it sits and whether it may leave by itself.
+ * How much a popup matters, which decides whether it may leave by itself. Every popup sits at the top of the
+ * screen, under the status bar and cutout and between the rails.
  *
  * IMPORTANT popups are guidance the user needs to take the next step (a setup or instruction prompt)
- * or a decision (anything that offers an action). They sit in the centre of the screen and stay until
- * the user acts: never a timeout. TRANSIENT popups only report something (a refusal, a confirmation
- * with nothing to do); they stay at the top, over the artwork, and leave after [PopupPolicy.autoDismissMillis].
+ * or a decision (anything that offers an action). They stay until the user acts: never a timeout.
+ * TRANSIENT popups only report something (a refusal, a confirmation with nothing to do); they leave after
+ * [PopupPolicy.autoDismissMillis].
  */
 enum class PopupImportance { IMPORTANT, TRANSIENT }
 
