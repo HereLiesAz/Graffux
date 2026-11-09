@@ -235,7 +235,7 @@ internal fun ColorStylesSection(
                     modifier = Modifier.weight(1f).padding(start = 10.dp).testTag("design.${title.lowercase()}.value"),
                 )
                 if (bound != null) {
-                    Text("style", color = DesignInk.Faint, fontSize = 11.sp, fontFamily = RobotoMonoFamily)
+                    Text("style", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
                 }
             }
             library.colorStyles.forEach { style ->
@@ -290,7 +290,7 @@ internal fun TextStylesSection(links: DesignLinks, library: DesignLibrary, actio
                         Text(style.name, color = DesignInk.Ink, fontSize = density.fontSize.sp, fontWeight = FontWeight.SemiBold, fontFamily = RobotoCondensedFamily, maxLines = 1)
                         Text(
                             "${style.fontName} · ${designNumber(style.fontSizeDp)}" + if (style.isBold) " · Bold" else "",
-                            color = DesignInk.Faint, fontSize = 11.sp, fontFamily = RobotoMonoFamily, maxLines = 1,
+                            color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily, maxLines = 1,
                         )
                     }
                     DesignChip(if (linked) "Linked" else "Apply", on = linked, tag = "design.textStyle.${style.name}.apply") {
@@ -361,7 +361,7 @@ internal fun ComponentsSection(links: DesignLinks, library: DesignLibrary, actio
                 )
                 Text(
                     if (entry.instances == 1) "1 instance" else "${entry.instances} instances",
-                    color = DesignInk.Faint, fontSize = 11.sp, fontFamily = RobotoMonoFamily,
+                    color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily,
                 )
                 DesignChip("Place", on = false, toggle = false, tag = "design.component.${entry.name}.place") { actions.placeInstance(entry.componentId) }
             }

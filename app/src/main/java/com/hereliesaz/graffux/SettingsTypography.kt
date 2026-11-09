@@ -8,13 +8,15 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
 /**
- * The app-wide scale is tuned for compact toolbar chrome (bodySmall is 7sp, titleMedium 10sp),
- * far below a readable minimum for the prose and labels Settings is made of. Settings re-scales
+ * The app-wide scale is tuned for compact toolbar chrome (12 to 14sp),
+ * smaller than the prose and labels Settings is made of want. Settings re-scales
  * only the styles it uses, leaving every other screen and the rails untouched. Colours are not
  * changed: `onSurfaceVariant` and `primary` already clear WCAG AA on the black surface (checked
  * in SettingsTypographyTest).
  */
 internal fun settingsTypography(base: Typography): Typography = base.copy(
+    // The screen's own title: larger than the 16sp section titles it heads (it was the app-wide 10sp).
+    headlineSmall = base.headlineSmall.sized(24.sp, 32.sp),
     titleMedium = base.titleMedium.sized(16.sp, 22.sp),
     titleSmall = base.titleSmall.sized(12.sp, 16.sp),
     bodyLarge = base.bodyLarge.sized(16.sp, 22.sp),

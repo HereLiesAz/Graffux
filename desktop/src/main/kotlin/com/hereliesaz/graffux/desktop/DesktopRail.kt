@@ -119,7 +119,7 @@ internal fun RailButton(
             Text(
                 shortcut,
                 color = ShortcutInk,
-                fontSize = 9.sp,
+                fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace,
                 maxLines = 1,
                 modifier = Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp),

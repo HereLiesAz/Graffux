@@ -73,7 +73,7 @@ internal fun FrameOverlay(uiState: EditorUiState, designMode: Boolean, modifier:
     val activeId = uiState.activeLayerId
     if (frames.isEmpty() && !designMode) return
     val measurer = rememberTextMeasurer()
-    val labelStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+    val labelStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp)
     Canvas(modifier.testTag("design.frames")) {
         val cw = size.width
         val ch = size.height
