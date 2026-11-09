@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.common.mesh
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -227,5 +228,100 @@ class MeshPickerTest {
     @Test
     fun `a singular matrix inverts to null rather than NaN`() {
         assertNull(MeshPicker.invert(FloatArray(16)))
+    }
+
+    // ── Scale independence ───────────────────────────────────────────────────────────────────
+
+    /** The unit quad, authored at [scale] (ObjParser does not normalise it). */
+    private fun quadAt(scale: Float): Mesh = ObjParser.parse(
+        """
+        v 0 0 0
+        v $scale 0 0
+        v $scale $scale 0
+        v 0 $scale 0
+        vt 0 0
+        vt 1 0
+        vt 1 1
+        vt 0 1
+        vn 0 0 1
+        f 1/1/1 2/2/1 3/3/1
+        f 1/1/1 3/3/1 4/4/1
+        """.trimIndent(),
+    )
+
+    @Test
+    fun `a model authored at any scale can be picked`() {
+        // Edges of 1e-4 give a determinant of about 1e-8, under the old absolute 1e-7 epsilon, so every
+        // triangle of a small-unit model was rejected and it could not be painted at all.
+        for (scale in floatArrayOf(1e-4f, 1e-3f, 1f, 1e3f)) {
+            val mesh = quadAt(scale)
+            val ray = MeshPicker.Ray(floatArrayOf(0.25f * scale, 0.5f * scale, 5f * scale), floatArrayOf(0f, 0f, -1f))
+            val hit = MeshPicker.raycast(mesh, ray)
+            assertNotNull("no hit at scale $scale", hit)
+            assertEquals("u at scale $scale", 0.25f, hit!!.u, 1e-3f)
+            assertEquals("v at scale $scale", 0.5f, 1f - hit.v, 1e-3f)
+            assertEquals("distance at scale $scale", 5f * scale, hit.distance, 5f * scale * 1e-4f)
+        }
+    }
+
+    @Test
+    fun `a small model is still missed beside its edge`() {
+        val mesh = quadAt(1e-4f)
+        val miss = MeshPicker.Ray(floatArrayOf(2e-4f, 0.5e-4f, 5e-4f), floatArrayOf(0f, 0f, -1f))
+        assertNull(MeshPicker.raycast(mesh, miss))
+    }
+
+    @Test
+    fun `grazing rays hit at every scale`() {
+        // A ray 0.5 degrees off the surface plane (about 9e-3 rad) is a valid, if flat, view of it.
+        val angle = 0.5 * Math.PI / 180.0
+        for (scale in floatArrayOf(1e-4f, 1e-3f, 1f, 1e3f)) {
+            val mesh = quadAt(scale)
+            val dir = floatArrayOf(0f, Math.cos(angle).toFloat(), -Math.sin(angle).toFloat())
+            // Aim at the quad's centre from below and in front, travelling mostly along +y.
+            val t = 0.4f * scale / Math.sin(angle).toFloat()
+            val centre = floatArrayOf(0.5f * scale, 0.5f * scale, 0f)
+            val origin = FloatArray(3) { centre[it] - dir[it] * t }
+            val hit = MeshPicker.raycast(mesh, MeshPicker.Ray(origin, dir))
+            assertNotNull("no grazing hit at scale $scale", hit)
+            assertEquals("u at scale $scale", 0.5f, hit!!.u, 2e-2f)
+        }
+    }
+
+    @Test
+    fun `a ray exactly parallel to the surface misses at every scale`() {
+        for (scale in floatArrayOf(1e-4f, 1f, 1e3f)) {
+            val ray = MeshPicker.Ray(floatArrayOf(-scale, 0.5f * scale, 0f), floatArrayOf(1f, 0f, 0f))
+            assertNull("scale $scale", MeshPicker.raycast(quadAt(scale), ray))
+        }
+    }
+
+    @Test
+    fun `a ray through a shared edge still lands on one of the triangles`() {
+        // The quad's diagonal is the edge shared by its two triangles; a crack there would read as a
+        // line the brush cannot cross.
+        for (scale in floatArrayOf(1e-4f, 1f, 1e3f)) {
+            val ray = MeshPicker.Ray(floatArrayOf(0.5f * scale, 0.5f * scale, 5f * scale), floatArrayOf(0f, 0f, -1f))
+            assertNotNull("scale $scale", MeshPicker.raycast(quadAt(scale), ray))
+        }
+    }
+
+    // ── Facing ───────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `a hit reports whether the camera sees the front or the back`() {
+        // The quad's normal is +z; rayAt looks down -z from +z, so it sees the front.
+        assertTrue(MeshPicker.raycast(quad, rayAt(0.5f, 0.5f))!!.frontFacing)
+        val fromBehind = MeshPicker.Ray(floatArrayOf(0.5f, 0.5f, -5f), floatArrayOf(0f, 0f, 1f))
+        assertFalse(MeshPicker.raycast(quad, fromBehind)!!.frontFacing)
+    }
+
+    @Test
+    fun `facing follows the vertex normals, not a scan's inconsistent winding`() {
+        // Wound clockwise, but every vertex normal says +z: the outside is +z, so a camera on +z sees
+        // the front however the triangle happens to be wound.
+        val mesh = ObjParser.parse("v 0 0 0\nv 0 1 0\nv 1 0 0\nvn 0 0 1\nf 1//1 2//1 3//1")
+        assertTrue(MeshPicker.facesRay(mesh, 0, floatArrayOf(0f, 0f, -1f)))
+        assertFalse(MeshPicker.facesRay(mesh, 0, floatArrayOf(0f, 0f, 1f)))
     }
 }
