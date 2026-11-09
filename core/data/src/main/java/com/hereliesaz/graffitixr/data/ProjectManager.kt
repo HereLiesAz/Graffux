@@ -14,15 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -633,6 +626,8 @@ class ProjectManager @Inject constructor(
     private fun parseArchiveProject(extracted: ExtractedArchive): GraffitiProject? {
         val project = extracted.projectJson?.let {
             try {
+                // Before anything recurses over it: decoding, localizing and re-encoding all do.
+                require(!exceedsJsonDepth(it)) { "project.json is nested more than $MAX_JSON_DEPTH levels deep" }
                 decodeProject(it)
             } catch (e: Exception) {
                 Log.e("ProjectManager", "Failed to parse project.json", e)
@@ -654,6 +649,7 @@ class ProjectManager @Inject constructor(
      * `/projects/<oldId>/` paths are rewritten to the new one. On any failure the staging directory
      * and the half-installed project directory are removed.
      */
+    @Suppress("ReturnCount") // a bad id, an unlocalizable project.json, then the result: each ends the import
     private suspend fun installExtracted(context: Context, extracted: ExtractedArchive): GraffitiProject? {
         val original = parseArchiveProject(extracted) ?: return null
         val projectsDir = File(context.filesDir, "projects")
@@ -667,10 +663,10 @@ class ProjectManager @Inject constructor(
         // Every URI in an imported project is pinned to the project's own folder on this device;
         // one pointing anywhere else (another project, a content:// grant, a path from the
         // exporting device) is dropped, so a crafted .fux can't make a layer read other files.
-        val localized = localizeArchiveUris(
+        val localized = localizeImportedProject(
             requireNotNull(extracted.projectJson).replace("/projects/${original.id}/", "/projects/$newId/"),
             "file://${projectsDir.absolutePath}/$newId/",
-        )
+        ) ?: return null
         val project = decodeProject(localized).copy(id = newId)
         // A newer-format project.json is installed as written (only its id changed), never
         // re-encoded through this build's model, which would drop the fields it doesn't know.
@@ -849,164 +845,6 @@ class ProjectManager @Inject constructor(
         }
     }
 }
-
-/** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
-private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
-
-/**
- * Rewrites every URI in an imported project.json to [localRoot] (`file://.../projects/<id>/`): a
- * `file://` URI naming a file under some `/projects/<anyId>/` keeps its path inside the project and
- * gains this device's root; every other URI becomes empty.
- *
- * Works on the parsed JSON, not on its text: a string can spell the same URI as `file:\/\/\/etc\/hosts` or
- * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. The JSON is walked together
- * with the model's serial descriptors, position by position (a class field leads to that field's
- * descriptor, a list to its element's, a map to its value's):
- *
- * - where the model says `Uri`, the value is localized;
- * - where it says anything else (a text layer reading `https://azphalt.store`, a name like
- *   `file: notes`), the text is kept as written;
- * - a field the model does not have, and everything below it, is *unknown*: it belongs to a newer
- *   format, which is installed from this JSON as written and read later by a build that would open
- *   it. A file reference there is neutralized ([localizeUnknown]) whatever the keys below it are
- *   called, so a name the model uses elsewhere gains nothing under an unknown parent.
- *
- * Text that is not JSON is returned as it came; decoding it fails the same way.
- */
-internal fun localizeArchiveUris(projectJson: String, localRoot: String): String {
-    val root = runCatching { Json.parseToJsonElement(projectJson) }.getOrNull() ?: return projectJson
-    val node = localizeNode(root, GraffitiProject.serializer().descriptor, localRoot)
-    return Json.encodeToString(JsonElement.serializer(), node)
-}
-
-/** [node] at a position whose model type is [d], or null when the model has nothing there. */
-@OptIn(ExperimentalSerializationApi::class)
-private fun localizeNode(node: JsonElement, d: SerialDescriptor?, localRoot: String): JsonElement = when (node) {
-    is JsonObject -> JsonObject(node.mapValues { (k, v) -> localizeNode(v, fieldDescriptor(d, k), localRoot) })
-    is JsonArray -> {
-        val item = if (d?.kind == StructureKind.LIST) d.getElementDescriptor(0) else null
-        JsonArray(node.map { localizeNode(it, item, localRoot) })
-    }
-    is JsonPrimitive -> when {
-        !node.isString -> node
-        d == null -> JsonPrimitive(localizeUnknown(node.content, localRoot))
-        d.serialName.removeSuffix("?") == URI_SERIAL_NAME -> JsonPrimitive(localizeUri(node.content, localRoot))
-        else -> node
-    }
-}
-
-/** The descriptor of field [key] of an object at [d]: a class's named field, a map's value, else unknown. */
-@OptIn(ExperimentalSerializationApi::class)
-private fun fieldDescriptor(d: SerialDescriptor?, key: String): SerialDescriptor? = when (d?.kind) {
-    StructureKind.CLASS -> d.getElementIndex(key).takeIf { it >= 0 }?.let(d::getElementDescriptor)
-    StructureKind.MAP -> d.getElementDescriptor(1)
-    else -> null
-}
-
-/** The serial name `UriSerializer` gives every Uri-typed field. */
-private const val URI_SERIAL_NAME = "Uri"
-
-/** A string that names a resource: any `scheme://`, or `file:` / `content:` / `android.resource:`. */
-private val URI_LIKE = Regex("""^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|(?:file|content|android\.resource):)""")
-
-private val WEB_LINK = Regex("^https?://", RegexOption.IGNORE_CASE)
-
-/** A Windows drive path (`C:\x`, `c:/x`). */
-private val DRIVE_PATH = Regex("^[a-zA-Z]:[/\\\\]")
-
-/**
- * A string at a position the model does not know. A web link is not a local file and stays. Any other
- * URI is localized; a value that reads as a filesystem path (absolute, rooted with `\`, a drive or UNC
- * path, a `..` segment, a NUL, in any percent-encoding) is blanked. Plain text stays. The tradeoff, on
- * purpose: unknown text that starts with `/` (`"/shrug"`) is blanked too, since it cannot be told from
- * an absolute path; it is lost only from the installed copy of a newer-format file.
- */
-private fun localizeUnknown(value: String, localRoot: String): String = when {
-    WEB_LINK.containsMatchIn(value) -> value
-    URI_LIKE.containsMatchIn(value) -> localizeUri(value, localRoot)
-    looksLikeLocalPath(value) -> ""
-    else -> value
-}
-
-private fun looksLikeLocalPath(value: String): Boolean {
-    val forms = decodedForms(value) ?: return true
-    return forms.any { form ->
-        '\u0000' in form || form.startsWith("/") || form.startsWith("\\") || DRIVE_PATH.containsMatchIn(form) ||
-            form.split('/', '\\').any { it == ".." }
-    }
-}
-
-private fun localizeUri(uri: String, localRoot: String): String {
-    val inProject = IN_PROJECT.find(uri)?.groupValues?.get(1)
-    val safe = inProject?.takeIf { rest -> rest.split('/').all { isSafeUriSegment(it) } }
-    return if (safe != null) localRoot + safe else ""
-}
-
-/**
- * Whether one path segment of an archive URI stays inside its folder once opened. A raw `?` or `#`
- * ends the path when the URI is parsed (`..?x` is `..`), so those are refused as written. After that
- * Uri.getPath() percent-decodes, so `%2e%2e` or `..%2f` are parent references: every decoded form
- * ([decodedForms]) is refused if it is empty, `.`, `..`, or holds a separator or NUL. A decoded `?`,
- * `#` or `%` is only a filename character (`what%3F.png`, `50%25.png`).
- */
-private fun isSafeUriSegment(segment: String): Boolean {
-    val forms = decodedForms(segment).takeIf { '?' !in segment && '#' !in segment } ?: return false
-    return forms.none { it in URI_DOT_SEGMENTS || URI_UNSAFE_CHARS.containsMatchIn(it) }
-}
-
-/**
- * [text] and what it becomes under repeated lenient percent-decoding, until it stops changing (a
- * double-encoded `%252e` too); null if it never settles within [MAX_URI_DECODES] rounds.
- */
-private fun decodedForms(text: String): List<String>? {
-    val forms = mutableListOf(text)
-    repeat(MAX_URI_DECODES) {
-        val next = lenientPercentDecode(forms.last())
-        if (next == forms.last()) return forms
-        forms += next
-    }
-    return null
-}
-
-/**
- * [text] with each valid `%XX` decoded as UTF-8 and every other `%` kept as a literal, the way Android's
- * Uri.decode reads a path. A malformed escape (`%zz`, a lone `%`) must not stop the rest being decoded:
- * `..%2f..%2fetc%zz` still holds a separator.
- */
-private fun lenientPercentDecode(text: String): String {
-    if ('%' !in text) return text
-    val out = java.io.ByteArrayOutputStream()
-    var i = 0
-    while (i < text.length) {
-        val high = if (text[i] == '%') text.getOrNull(i + 1)?.let(::asciiHex) else null
-        val low = if (high != null) text.getOrNull(i + 2)?.let(::asciiHex) else null
-        if (high != null && low != null) {
-            out.write(high * HEX_RADIX + low)
-            i += ESCAPE_LENGTH
-        } else {
-            val codePoint = text.codePointAt(i)
-            out.write(String(Character.toChars(codePoint)).toByteArray(Charsets.UTF_8))
-            i += Character.charCount(codePoint)
-        }
-    }
-    return out.toString(Charsets.UTF_8.name())
-}
-
-/** The value of an ASCII hex digit, like Android's Uri.decode; Unicode digits (fullwidth `\uFF12`) are not hex. */
-private fun asciiHex(c: Char): Int? = when (c) {
-    in '0'..'9' -> c - '0'
-    in 'a'..'f' -> c - 'a' + HEX_LETTER_OFFSET
-    in 'A'..'F' -> c - 'A' + HEX_LETTER_OFFSET
-    else -> null
-}
-
-private const val HEX_LETTER_OFFSET = 10
-private const val HEX_RADIX = 16
-private const val ESCAPE_LENGTH = 3
-
-private val URI_DOT_SEGMENTS = setOf("", ".", "..")
-private val URI_UNSAFE_CHARS = Regex("""[/\\\u0000]""")
-private const val MAX_URI_DECODES = 4
 
 /** The project.json format version that added photo adjustment layers. */
 private const val FORMAT_ADJUSTMENT_LAYERS = 2

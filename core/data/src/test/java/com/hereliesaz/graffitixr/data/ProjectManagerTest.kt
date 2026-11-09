@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -28,6 +29,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 
+@Suppress("LargeClass") // one test class per ProjectManager, as before; each test is small
 class ProjectManagerTest {
 
     private lateinit var mockContext: Context
@@ -210,6 +212,19 @@ class ProjectManagerTest {
         assertEquals("model.obj", persisted(newId).layers.single().model!!.objFile)
         // No staging debris.
         assertFalse(File(tempFilesDir, "import_staging").walkTopDown().any { it.isFile })
+    }
+
+    @Test
+    fun `import refuses a project json nested absurdly deep instead of crashing`() = runTest {
+        val deep = """{"id":"deep_json","name":"evil","extra":""" + "[".repeat(100_000) + "]".repeat(100_000) + "}"
+        assertNull(importZip(zipOf("project.json" to deep.toByteArray())))
+        assertFalse(File(tempFilesDir, "projects/deep_json").exists())
+    }
+
+    @Test
+    fun `import still accepts a project json that is nested moderately`() = runTest {
+        val nested = """{"id":"nested_ok","name":"fine","extra":""" + "[".repeat(20) + "1" + "]".repeat(20) + "}"
+        assertNotNull(importZip(zipOf("project.json" to nested.toByteArray())))
     }
 
     @Test

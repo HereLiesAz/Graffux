@@ -235,4 +235,35 @@ class LocalizeArchiveUrisTest {
         """{"uri":"${root}layers/my%20layer.png"}""",
         localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/my%20layer.png"}""", root),
     )
+
+    // Depth is bounded before any recursive work: a few KB of brackets must not take the process down.
+
+    @Test fun `json nested far deeper than any project is refused cleanly`() {
+        val depth = 100_000
+        val arrays = """{"id":"x","extra":""" + "[".repeat(depth) + "]".repeat(depth) + "}"
+        val objects = """{"id":"x","extra":""" + """{"a":""".repeat(depth) + "1" + "}".repeat(depth) + "}"
+        for (deep in listOf(arrays, objects)) {
+            val failure = runCatching { localizeArchiveUris(deep, root) }.exceptionOrNull()
+            assertTrue(failure.toString(), failure is IllegalArgumentException)
+        }
+    }
+
+    @Test fun `ordinary depth is untouched`() {
+        val nested = """{"id":"x","extra":""" + "[".repeat(20) + "\"ok\"" + "]".repeat(20) + "}"
+        assertEquals(nested, localizeArchiveUris(nested, root))
+    }
+
+    @Test fun `brackets inside strings do not count as depth`() {
+        val json = """{"name":"""" + "[".repeat(500) + """","x":"\\"{{{{"}"""
+        assertEquals(json, localizeArchiveUris(json, root))
+    }
+
+    // Unknown fields: any URI scheme, in any case, with or without "//".
+    @Test fun `any scheme in an unknown field is neutralized`() {
+        for (raw in listOf("FILE:/etc/hosts", "File:///x", "jar:file:///x!/y", "content:x", "android.resource:x/1")) {
+            assertEquals(raw, """{"x":""}""", localizeArchiveUris("""{"x":"$raw"}""", root))
+        }
+        val kept = """{"x":"Mural: v2","y":"https://azphalt.store","z":"HTTPS://azphalt.store","w":"12:30"}"""
+        assertEquals(kept, localizeArchiveUris(kept, root))
+    }
 }
