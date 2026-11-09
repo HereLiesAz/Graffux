@@ -7,8 +7,8 @@
 //! that was lost is dropped from the cache and made again on the next call.
 //!
 //! Every call also runs inside an error scope ([`SharedGpu::scoped`]): a validation or out-of-memory error fails
-//! that call with `None` instead of reaching wgpu's default handler, which panics the process, and it cannot
-//! poison the shared device for the next caller.
+//! that call with `None` instead of reaching wgpu's default handler, which panics the process. The scopes are popped
+//! by drop guards, so they stay paired even if the body panics.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -30,24 +30,65 @@ pub struct SharedGpu {
     cache: Mutex<HashMap<&'static str, Box<dyn Any + Send + Sync>>>,
 }
 
-static DEVICES: Mutex<Vec<(u32, Option<Arc<SharedGpu>>)>> = Mutex::new(Vec::new());
+/// How long a failed attempt to get a device is believed before trying again. A missing adapter or a refused device
+/// is sometimes transient (a driver still starting, a device just reset), so a failure is not kept for the life of the
+/// process; but every call retrying would repeat an instance and adapter enumeration that costs tens of milliseconds.
+pub const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// The shared device for `backends` (the best adapter with compute shaders), or None when there is none. The
-/// answer, including "none", is kept for the life of the process, except that a lost device is replaced.
+enum Slot<T> {
+    Ready(Arc<T>),
+    Failed(std::time::Instant),
+}
+
+/// The per-key cache behind [`shared`], generic so its retry and replacement rules are tested without a GPU.
+pub(crate) struct Registry<T> {
+    slots: Vec<(u32, Slot<T>)>,
+}
+
+impl<T> Registry<T> {
+    pub(crate) const fn new() -> Self {
+        Registry { slots: Vec::new() }
+    }
+
+    /// The value for `key`: the cached one while `is_dead` says it lives; a recent failure is answered with None
+    /// until [`RETRY_AFTER`] has passed; otherwise `create` runs.
+    pub(crate) fn get(
+        &mut self,
+        key: u32,
+        now: std::time::Instant,
+        is_dead: impl Fn(&T) -> bool,
+        create: impl FnOnce() -> Option<T>,
+    ) -> Option<Arc<T>> {
+        match self.slots.iter().find(|(k, _)| *k == key).map(|(_, s)| s) {
+            Some(Slot::Ready(v)) if !is_dead(v) => return Some(v.clone()),
+            Some(Slot::Failed(at)) if now.duration_since(*at) < RETRY_AFTER => return None,
+            _ => {}
+        }
+        let made = create().map(Arc::new);
+        self.slots.retain(|(k, _)| *k != key);
+        self.slots.push((
+            key,
+            match &made {
+                Some(v) => Slot::Ready(v.clone()),
+                None => Slot::Failed(now),
+            },
+        ));
+        made
+    }
+}
+
+static DEVICES: Mutex<Registry<SharedGpu>> = Mutex::new(Registry::new());
+
+/// The shared device for `backends` (the best adapter with compute shaders), or None when there is none. A lost
+/// device is replaced; a failure to get one is retried after [`RETRY_AFTER`].
 pub fn shared(backends: wgpu::Backends) -> Option<Arc<SharedGpu>> {
     let mut devices = DEVICES.lock().unwrap_or_else(|e| e.into_inner());
-    let key = backends.bits();
-    if let Some((_, slot)) = devices.iter().find(|(k, _)| *k == key) {
-        match slot {
-            Some(gpu) if !gpu.is_lost() => return Some(gpu.clone()),
-            None => return None,
-            Some(_) => {} // lost: made again below
-        }
-    }
-    let made = SharedGpu::create(backends).map(Arc::new);
-    devices.retain(|(k, _)| *k != key);
-    devices.push((key, made.clone()));
-    made
+    devices.get(
+        backends.bits(),
+        std::time::Instant::now(),
+        |gpu| gpu.is_lost(),
+        || SharedGpu::create(backends),
+    )
 }
 
 impl SharedGpu {
@@ -108,6 +149,8 @@ impl SharedGpu {
     /// Runs `body` inside validation and out-of-memory error scopes. Returns its value, or None when it returned
     /// None or either scope caught an error (logged); the device stays usable.
     pub fn scoped<R>(&self, label: &str, body: impl FnOnce() -> Option<R>) -> Option<R> {
+        // Guards: dropped without `pop`, wgpu still pops the scope, so a panic in `body` cannot leave stale scopes
+        // on this thread's stack of the shared device (locals drop in reverse order, matching the pushes).
         let oom = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
         let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let out = body();
@@ -141,4 +184,36 @@ pub fn fits(
 /// Whether a 1D dispatch of `groups` workgroups is within the adapter's per-dimension limit.
 pub fn groups_fit(limits: &wgpu::Limits, groups: u64) -> bool {
     groups <= limits.max_compute_workgroups_per_dimension as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_failure_is_remembered_briefly_then_retried_and_recovers() {
+        let mut r: Registry<u32> = Registry::new();
+        let t0 = Instant::now();
+        let mut calls = 0;
+        assert!(r.get(1, t0, |_| false, || { calls += 1; None }).is_none());
+        // Inside the window the failure is answered without trying again.
+        assert!(r.get(1, t0 + Duration::from_millis(500), |_| false, || { calls += 1; Some(7) }).is_none());
+        assert_eq!(calls, 1);
+        // After it, the factory runs again and a transient failure is gone for good.
+        let got = r.get(1, t0 + RETRY_AFTER, |_| false, || { calls += 1; Some(7) });
+        assert_eq!((got.map(|v| *v), calls), (Some(7), 2));
+        assert!(r.get(1, t0 + RETRY_AFTER, |_| false, || { calls += 1; None }).is_some());
+        assert_eq!(calls, 2, "a live device is not rebuilt");
+    }
+
+    #[test]
+    fn a_dead_value_is_replaced_and_keys_are_independent() {
+        let mut r: Registry<u32> = Registry::new();
+        let t0 = Instant::now();
+        assert_eq!(r.get(1, t0, |_| false, || Some(1)).map(|v| *v), Some(1));
+        assert_eq!(r.get(2, t0, |_| false, || Some(2)).map(|v| *v), Some(2));
+        assert_eq!(r.get(1, t0, |v| *v == 1, || Some(10)).map(|v| *v), Some(10));
+        assert_eq!(r.get(2, t0, |_| false, || Some(99)).map(|v| *v), Some(2));
+    }
 }

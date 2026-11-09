@@ -5,6 +5,7 @@
 mod common;
 
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use graffux_wgpu::pigment::{mix_on_gpu, PIGMENT_TABLE_FLOATS};
@@ -12,6 +13,9 @@ use graffux_wgpu::shared_gpu::{fits, groups_fit, DEVICES_CREATED, PIPELINES_BUIL
 use graffux_wgpu::transaction::{run_on_gpu, TransactionInput, CH, DAB_FLOATS};
 use graffux_wgpu::watercolour::{self, WatercolourInput};
 use graffux_wgpu::wgpu::{Backends, Limits};
+
+/// The device and pipeline counters are process-wide; tests that read them take turns.
+static SERIAL: Mutex<()> = Mutex::new(());
 
 fn tx_input() -> TransactionInput {
     let (w, h) = (16, 16);
@@ -30,6 +34,7 @@ fn tx_input() -> TransactionInput {
 
 #[test]
 fn repeated_calls_share_one_device_and_build_each_pipeline_once() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let b = Backends::VULKAN;
     let tables = vec![0.5f32; 3 * PIGMENT_TABLE_FLOATS];
     let mix = vec![0.3f32; 3 * 8];
@@ -53,16 +58,62 @@ fn repeated_calls_share_one_device_and_build_each_pipeline_once() {
 
 #[test]
 fn an_input_the_adapter_cannot_dispatch_is_refused_not_a_panic() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     // 2048 x 2048 texels need 65,536 workgroups of 64: one more than the per-dimension limit of 65,535.
     let n = 2048 * 2048;
     let input = WatercolourInput {
         width: 2048, height: 2048, wet: vec![0.0; n], pigment: vec![0.0; n], absorbency: vec![0.0; n],
         tooth: vec![0.0; n], deposit_amount: vec![0.0; n], deposit_water: vec![0.0; n], ticks: 1, ..Default::default()
     };
-    match watercolour::run_on_gpu(Backends::VULKAN, &input) {
-        None => {}
-        Some(_) => eprintln!("this adapter allows that many workgroups"),
+    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+        common::no_adapter("vulkan");
+        return;
+    };
+    let out = watercolour::run_on_gpu(Backends::VULKAN, &input);
+    if groups_fit(&gpu.limits, (n as u64).div_ceil(64)) {
+        assert!(out.is_some(), "this adapter allows that many workgroups, so the run must succeed");
+    } else {
+        assert!(out.is_none(), "one workgroup over the limit must be refused, not dispatched");
     }
+}
+
+#[test]
+fn a_panic_inside_a_scoped_call_leaves_the_shared_device_usable() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+        common::no_adapter("vulkan");
+        return;
+    };
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        gpu.scoped("panics", || -> Option<()> { panic!("body panicked") })
+    }));
+    assert!(r.is_err());
+    let tables = vec![0.5f32; 3 * PIGMENT_TABLE_FLOATS];
+    assert!(mix_on_gpu(Backends::VULKAN, &tables, 3, &vec![0.3f32; 24]).is_some());
+}
+
+#[test]
+fn a_refused_map_is_a_clean_failure_with_no_error_from_an_unmap() {
+    use graffux_wgpu::gpu_wait::{map_read, ReadFailure};
+    use graffux_wgpu::wgpu;
+    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+        common::no_adapter("vulkan");
+        return;
+    };
+    // Mapping a buffer that lacks MAP_READ is refused. Inside a scope, the only error is that refusal, not a second
+    // one from unmapping an idle buffer.
+    let wrong = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("no map usage"),
+        size: 16,
+        usage: wgpu::BufferUsages::STORAGE,
+        mapped_at_creation: false,
+    });
+    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let r = map_read(&gpu.device, &wrong, 0..16, std::time::Duration::from_secs(5), |_| ());
+    let err = pollster::block_on(scope.pop());
+    assert_eq!(r, Err(ReadFailure::Failed));
+    let text = err.map(|e| e.to_string()).unwrap_or_default().to_lowercase();
+    assert!(!text.contains("not mapped") && !text.contains("unmap"), "unmap raised: {text}");
 }
 
 #[test]
