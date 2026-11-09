@@ -78,7 +78,8 @@ class BrushLoadBudget(config: BrushLoadConfig) {
         for (fill in this.config.fill) {
             val recipe = PigmentRecipe.parse(fill.pigment)
             // The budget needs only how much of a column's paint is not its first pigment.
-            val second = if (recipe.size > 1) 1f - recipe.first().second else 0f
+            // the share of the SECOND pigment (recipe is normalised), 0 when the recipe has only one
+            val second = if (recipe.size > 1) recipe[1].second else 0f
             for (lane in fill.laneFrom..fill.laneTo) {
                 for (layer in 0 until depth) amounts[lane * depth + layer] = cell * fill.amount
                 secondFraction[lane] = second
@@ -100,7 +101,7 @@ class BrushLoadBudget(config: BrushLoadConfig) {
         return (sum / config.capacity).coerceIn(0f, 1f)
     }
 
-    /** 0..1: the share of the column's paint that is its second pigment. */
+    /** 0..1: the share of the column's paint that is its second listed pigment (0 for a one-pigment recipe). */
     fun mix(coordinate: Float): Float = secondFraction[laneIndex(coordinate)]
 
     /** 0..1: the mean fill across the columns, against capacity; what is left of the load after a stroke. */
@@ -109,6 +110,11 @@ class BrushLoadBudget(config: BrushLoadConfig) {
         for (a in amounts) sum += a
         return (sum / (config.capacity * lanes)).coerceIn(0f, 1f)
     }
+
+    /** A copy of the amounts, to roll a step back when it runs out of operation budget. */
+    internal fun save(): FloatArray = amounts.copyOf()
+
+    internal fun restore(saved: FloatArray) = saved.copyInto(amounts)
 
     /** Takes up to [draw] of capacity from the column's tip layer first; returns what it could give. */
     fun consume(coordinate: Float, draw: Float): Float {
