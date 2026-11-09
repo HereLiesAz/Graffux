@@ -69,13 +69,19 @@ data class Pigment(
 @Serializable
 data class PigmentSet(
     val format: String = DATA_FORMAT,
+    /** Must equal [PigmentModel.WAVELENGTHS] exactly (values and order); any other grid is rejected. */
     val wavelengths: List<Float> = PigmentModel.WAVELENGTHS.toList(),
     val pigments: List<Pigment>,
 ) {
     /** Null when valid, else why not. */
     fun validate(): String? {
         if (format != DATA_FORMAT) return "unknown format $format"
-        if (wavelengths.size != PigmentModel.BANDS) return "expected ${PigmentModel.BANDS} wavelengths"
+        // The mixer and the WGSL port always apply PigmentModel.BAND_TO_LINEAR_RGB, whose columns are the
+        // supported grid, so a set on any other grid would be silently read at the wrong wavelengths.
+        // Fail closed: the values AND their order must equal the supported grid exactly.
+        if (wavelengths != PigmentModel.WAVELENGTHS.toList()) {
+            return "wavelengths must be exactly ${PigmentModel.WAVELENGTHS.toList()} (the supported grid), got $wavelengths"
+        }
         val ids = HashSet<String>()
         for (p in pigments) {
             if (p.id.isBlank() || !ids.add(p.id)) return "duplicate or blank pigment id '${p.id}'"

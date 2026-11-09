@@ -144,4 +144,42 @@ class PigmentMixerTest {
         val mid = lookup.toRgb8(lookup.latentOf(100, 160, 60))
         assertTrue(kotlin.math.abs(mid[0] - 100) <= 12 && kotlin.math.abs(mid[1] - 160) <= 12 && kotlin.math.abs(mid[2] - 60) <= 12, "mid ${mid.toList()}")
     }
+
+    @Test
+    fun anyColourRoundTripsThroughTheLatentToWithinOneLevel() {
+        val lookup = PigmentLookup.build()
+        // the colour Codex reported: it used to come back as [49, 140, 150]
+        assertTrue(lookup.toRgb8(lookup.latentOf(81, 142, 150)).toList() == listOf(81, 142, 150))
+        var seed = 424242L
+        fun rnd(): Int { seed = seed * 6364136223846793005L + 1442695040888963407L; return ((seed ushr 33) % 256).toInt() }
+        var worst = 0
+        repeat(2000) {
+            val c = intArrayOf(rnd(), rnd(), rnd())
+            val back = lookup.toRgb8(lookup.latentOf(c[0], c[1], c[2]))
+            for (k in 0 until 3) worst = maxOf(worst, kotlin.math.abs(back[k] - c[k]))
+        }
+        // every corner and edge of the cube too
+        for (r in listOf(0, 255)) for (g in listOf(0, 255)) for (b in listOf(0, 255)) {
+            val back = lookup.toRgb8(lookup.latentOf(r, g, b))
+            for ((k, v) in listOf(r, g, b).withIndex()) worst = maxOf(worst, kotlin.math.abs(back[k] - v))
+        }
+        assertTrue(worst <= 1, "off-grid colours round trip within one level, worst=$worst")
+    }
+
+    @Test
+    fun aPigmentSetOnAnyOtherWavelengthGridIsRejected() {
+        val ok = set.copy()
+        assertNotNull(PigmentSet.fromJson(ok.toJson()))
+        val grid = PigmentModel.WAVELENGTHS.toList()
+        for ((name, w) in listOf(
+            "reordered" to grid.reversed(),
+            "swapped" to grid.toMutableList().also { val t = it[0]; it[0] = it[1]; it[1] = t },
+            "shifted" to grid.map { it + 10f },
+            "wrong count" to grid.dropLast(1),
+            "too many" to grid + 700f,
+            "near equal but not equal" to grid.toMutableList().also { it[3] = it[3] + 0.001f },
+        )) {
+            assertNull(PigmentSet.fromJson(set.copy(wavelengths = w).toJson()), "$name must be rejected")
+        }
+    }
 }

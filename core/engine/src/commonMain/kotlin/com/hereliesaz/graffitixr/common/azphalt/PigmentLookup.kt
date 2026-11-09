@@ -30,14 +30,20 @@ class PigmentLookup private constructor(
         )
     }
 
-    /** Trilinear latent for an sRGB-encoded 8-bit colour. */
+    /**
+     * The latent for an sRGB-encoded 8-bit colour: the trilinear **concentrations** of the surrounding grid
+     * points, and a residual computed **from the input colour itself**, `input - encode(mix(concentrations))`.
+     * Interpolating the grid residuals instead would not compensate for the non-linear K-M mix of the
+     * interpolated concentrations (an off-grid colour could lose tens of levels); computing it here makes
+     * any colour round-trip through [toRgb8] to within 8-bit rounding. The GPU lookup does the same: the
+     * texture supplies concentrations, the shader derives the residual from the colour it was asked about.
+     */
     fun latentOf(r8: Int, g8: Int, b8: Int): Latent {
         val f = (grid - 1) / 255f
         val coords = floatArrayOf(r8 * f, g8 * f, b8 * f)
         val lo = IntArray(3) { coords[it].toInt().coerceIn(0, grid - 2) }
         val t = FloatArray(3) { coords[it] - lo[it] }
         val conc = FloatArray(BASIS)
-        val res = FloatArray(3)
         for (corner in 0 until 8) {
             val dr = corner and 1
             val dg = (corner shr 1) and 1
@@ -46,9 +52,10 @@ class PigmentLookup private constructor(
                 (if (db == 1) t[2] else 1f - t[2])
             val l = atGrid(lo[0] + dr, lo[1] + dg, lo[2] + db)
             for (k in 0 until BASIS) conc[k] += w * l.concentration[k]
-            for (k in 0 until 3) res[k] += w * l.residual[k]
         }
-        return Latent(conc, res)
+        val mixed = PigmentMixer.encodeSrgb(PigmentMixer.mixLinearRgb(conc, basis))
+        val target = floatArrayOf(r8 / 255f, g8 / 255f, b8 / 255f)
+        return Latent(conc, FloatArray(3) { target[it] - mixed[it] })
     }
 
     /** The colour a latent stands for: the K-M mix plus the residual, as sRGB-encoded 8-bit. */
