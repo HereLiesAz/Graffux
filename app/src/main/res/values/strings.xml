@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Graffux</string>
+    <string name="logo_menu_description">Graffux menu</string>
+    <string name="logo_menu_open">Open menu</string>
+    <string name="logo_menu_close">Close menu</string>
+    <string name="logo_menu_state_open">Open</string>
+    <string name="logo_menu_state_closed">Closed</string>
+    <string name="menu_pane_title">Menu</string>
+    <string name="menu_toggle_shown">%1$s: shown</string>
+    <string name="menu_toggle_hidden">%1$s: hidden</string>
+    <string name="menu_state_on">On</string>
+    <string name="menu_state_off">Off</string>
 </resources>
