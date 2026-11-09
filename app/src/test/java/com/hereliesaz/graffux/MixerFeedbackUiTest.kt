@@ -130,6 +130,7 @@ class MixerFeedbackUiTest {
         assertTrue("nothing is rinsed before it is confirmed", board.brush.amount[0] > 0f)
         rule.onNodeWithText("Keep it").performScrollTo().performClick()
         rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
+        status().assertTextContains("Kept the foreground brush", substring = true)
         assertTrue("Keep it keeps the paint", board.brush.amount[0] > 0f)
     }
 

@@ -208,8 +208,9 @@ fun PaletteMixerDialog(
     var boardSize by remember { mutableStateOf(IntSize(1, 1)) }
     // What the last board action did, announced politely: the board changes only as pixels and the brush's
     // recipe, so without this a screen reader (and anyone who is not looking at the board) hears nothing.
-    // Each announcement carries a new id, so saying the same thing twice (a second squeeze) is still a change
-    // the live region sees: the line is keyed on the id, and a new node announces again.
+    // Each announcement carries a new id. The line below is one stable live-region node whose text changes on
+    // every announcement (see MixerAnnouncement.spoken: an invisible character on alternate ones), so saying the
+    // same thing twice, a second squeeze, is still a changed string.
     var status by remember { mutableStateOf(MixerAnnouncement(0, "")) }
     // The hand whose brush the open "Rinse it?" question is about, or null. Any other change to the board, the
     // brushes or the hand closes it, so "Rinse it" can never rinse a brush the question was not about.
@@ -524,7 +525,7 @@ fun PaletteMixerDialog(
                             modifier = Modifier.testTag("mixer.confirmRinse"))
                         GraffuxButton(
                             text = stringResource(R.string.mixer_keep_it),
-                            onClick = { rinsing = null },
+                            onClick = { say(R.string.mixer_status_kept, handName()) },
                             shape = GraffuxButtonShape.RECTANGLE)
                     }
                 }

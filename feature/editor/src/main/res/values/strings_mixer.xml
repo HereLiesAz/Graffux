@@ -17,6 +17,7 @@
     <string name="mixer_status_matched">%1$s, loaded on the %2$s brush</string>
     <string name="mixer_rinse_ask">Rinse the %1$s brush? All the paint on it is removed.</string>
     <string name="mixer_rinse_it">Rinse it</string>
+    <string name="mixer_status_kept">Kept the %1$s brush</string>
     <string name="mixer_keep_it">Keep it</string>
     <string name="mixer_action_squeeze">Squeeze the chosen tube</string>
     <string name="mixer_action_dip">Dip the brush</string>
