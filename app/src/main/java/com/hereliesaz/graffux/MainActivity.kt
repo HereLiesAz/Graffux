@@ -1023,27 +1023,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     onOpenChange = { open ->
                         carouselUi = carouselUi.copy(sheetOpen = open, showingCarousel = false)
                     },
-                    stages = SheetStages(
-                        // Tab list, carousel, then (card sheets only) the set's grid at half
-                        // and full; down again the same way.
-                        onStepUp = {
-                            carouselUi = carouselUi.steppedUp(gridAllowed = !designMode && !carouselUi.photo)
-                        },
-                        onStepDown = {
-                            val brushPage = !designMode && !carouselUi.photo &&
-                                carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
-                            carouselUi.steppedDown(tabListStage = !brushPage)?.let { carouselUi = it } != null
-                        },
-                        canStepUp = {
-                            val gridAllowed = !designMode && !carouselUi.photo
-                            carouselUi.steppedUp(gridAllowed = gridAllowed) != carouselUi
-                        },
-                        canStepDown = {
-                            val brushPage = !designMode && !carouselUi.photo &&
-                                carouselContextOf(carouselUi.category) == CarouselContext.BRUSHES
-                            carouselUi.steppedDown(tabListStage = !brushPage) != null
-                        },
-                    ),
+                    // Tab list, carousel, then (card sheets only) the set's grid at half and full; down again
+                    // the same way. Built in sheetStagesFor, which the tests share.
+                    stages = sheetStagesFor({ carouselUi }, { carouselUi = it }, designMode),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
                     hiddenForDrawing = { chrome.hidden && !chrome.forcedOnly },

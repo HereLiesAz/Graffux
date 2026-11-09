@@ -157,11 +157,6 @@ internal fun CarouselSheet(
     content: @Composable () -> Unit,
 ) {
     val hideChrome by rememberUpdatedState(chromeHidden)
-    val stageLabels = StageLabels(
-        up = stringResource(R.string.sheet_show_more),
-        down = stringResource(R.string.sheet_show_less),
-        close = stringResource(R.string.sheet_close),
-    )
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var contentHeight by remember { mutableIntStateOf(0) }
@@ -254,11 +249,7 @@ internal fun CarouselSheet(
                         .offset { IntOffset(0, offset.value.roundToInt()) }
                         .onGloballyPositioned { onTopChanged(it.positionInRoot().y) }
                         .draggable(dragState, Orientation.Vertical, onDragStopped = { settle(it) })
-                        .nestedScroll(nested)
-                        // The same steps as the swipes and the stage buttons, for a screen reader or a switch.
-                        .stageActions(stages, shownOpen, stageLabels) {
-                            onOpenChange(false)
-                        },
+                        .nestedScroll(nested),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     if (topAccessory != null && shownOpen) {
@@ -269,16 +260,22 @@ internal fun CarouselSheet(
                                 .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },
                         ) { topAccessory() }
                     }
-                    if (stages != null && shownOpen) {
-                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) {
-                            SheetStageBar(stages, nameLabel(), onClose = { onOpenChange(false) })
-                        }
-                    } else {
-                        nameLabel()?.let { name ->
-                            Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
+                    nameLabel()?.let { name ->
+                        Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
+                    }
+                    Box(Modifier.onSizeChanged { contentHeight = it.height }) {
+                        content()
+                        // Over the content's top corners, taking no height: see SheetStageControls.
+                        if (stages != null && shownOpen) {
+                            SheetStageControls(
+                                stages,
+                                onClose = { onOpenChange(false) },
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },
+                            )
                         }
                     }
-                    Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
                 }
             }
             // The app hides the system bars (immersive), so navigationBars reads 0 until a swipe
@@ -339,9 +336,9 @@ internal class SheetStages(
     val onStepUp: () -> Unit,
     val onStepDown: () -> Boolean,
     /** Whether [onStepUp] would show more: false at the top stage, where the up control is dimmed away. */
-    val canStepUp: () -> Boolean = { true },
+    val canStepUp: () -> Boolean,
     /** Whether [onStepDown] would show less (true) or shut the sheet (false), which the control then says. */
-    val canStepDown: () -> Boolean = { true },
+    val canStepDown: () -> Boolean,
 )
 
 /** Whether a release can step the sheet up: it has stages, is showing open, and sits fully open. */

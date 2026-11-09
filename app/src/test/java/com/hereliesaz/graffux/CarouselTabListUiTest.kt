@@ -79,10 +79,7 @@ class CarouselTabListUiTest {
                         open = ui.sheetOpen,
                         onOpenChange = { ui = ui.copy(sheetOpen = it, showingCarousel = false) },
                         bottomInset = 16.dp,
-                        stages = SheetStages(
-                            onStepUp = { if (!ui.showingCarousel) ui = ui.copy(showingCarousel = true) },
-                            onStepDown = { ui.showingCarousel.also { if (it) ui = ui.copy(showingCarousel = false) } },
-                        ),
+                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = false),
                     ) {
                         val sections = carouselTabSections(
                             carouselContextOf(ui.category), ui.category, inputs,
