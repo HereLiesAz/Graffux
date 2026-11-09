@@ -14198,7 +14198,8 @@ class EditorViewModel @Inject constructor(
             stroke.edited = true
             pushHistory()
         }
-        surface.clipTo(islandClip(mesh, hit.triangleIndex, stamps, radius, surface))
+        val clip = islandClip(mesh, hit.triangleIndex, stamps, radius, surface)
+        surface.clipTo(clip?.first, clip?.second)
         surface.stamp(stamps, st.activeColor.toArgb(), radius, erase = stroke.erase)
         stroke.lastUv = hit.u to hit.v
         stroke.lastHit = hit
@@ -14206,9 +14207,10 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The UV triangles of [triangle]'s island that [stamps] (with their [radius] and its feather)
-     * can reach on [surface], to clip the dab to; null when the island tiles the texture (no clip
-     * can express that) or the mesh has no such island.
+     * What to clip [stamps] (with their [radius] and its feather) to on [surface]: the UV triangles of
+     * [triangle]'s island they can reach, and those of every other island they can reach (which the
+     * clip keeps clear). Null when the island tiles the texture (no clip can express that) or the
+     * mesh has no such island.
      */
     private fun islandClip(
         mesh: com.hereliesaz.graffitixr.common.scene.ModelMesh,
@@ -14216,16 +14218,17 @@ class EditorViewModel @Inject constructor(
         stamps: List<com.hereliesaz.graffitixr.common.mesh.TexturePaint.Stamp>,
         radius: Float,
         surface: PaintableTexture,
-    ): FloatArray? {
+    ): Pair<FloatArray, FloatArray>? {
         val island = mesh.islands.islandOf(triangle)
         if (island < 0 || !mesh.islands.inUnitSquare(island) || stamps.isEmpty()) return null
-        // The feather can reach another radius past the dab's edge.
-        val reach = radius * 2f + 1f
+        // The feather can reach another radius past the dab's edge, and the gutter past the island's.
+        val reach = radius * 2f + PaintableTexture.GUTTER_TEXELS + 1f
         val area = com.hereliesaz.graffitixr.common.mesh.UvIslands.UvBox(
             (stamps.minOf { it.x } - reach) / surface.width, (stamps.minOf { it.y } - reach) / surface.height,
             (stamps.maxOf { it.x } + reach) / surface.width, (stamps.maxOf { it.y } + reach) / surface.height,
         )
-        return mesh.islands.trianglesNear(island, area).takeIf { it.isNotEmpty() }
+        val own = mesh.islands.trianglesNear(island, area)
+        return if (own.isEmpty()) null else own to mesh.islands.neighbourTrianglesNear(island, area)
     }
 
     /** The stroke ended: its pixels become the layer's new texture revision (the step already open). */

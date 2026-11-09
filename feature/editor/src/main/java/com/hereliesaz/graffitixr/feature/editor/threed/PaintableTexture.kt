@@ -26,14 +26,38 @@ class PaintableTexture(val bitmap: Bitmap) {
     private var clip: Path? = null
 
     /**
-     * Limits the dabs that follow to the UV triangles in [uvTriangles] (`u0,v0,u1,v1,u2,v2` per
-     * triangle, in 0..1), so paint on one UV island cannot bleed onto the texels of the island laid
-     * out beside it. Null removes the limit. The clip is not anti-aliased, which on a texture is the
-     * same hard edge the island's own texels have.
+     * Limits the dabs that follow to the UV triangles in [own] (`u0,v0,u1,v1,u2,v2` per triangle, in
+     * 0..1) plus a [GUTTER_TEXELS] gutter of padding around them, minus the triangles in
+     * [neighbours] (other islands' texels), so paint on one island cannot bleed onto the island laid
+     * out beside it but does reach the padding the texture filter samples at its edge. Null [own]
+     * removes the limit. The clip is not anti-aliased, the same hard edge the island's own texels have.
+     *
+     * The gutter matters because the texture is sampled with bilinear filtering: at the island's edge
+     * a sample blends the last painted texel with the first one beyond it. If that one is clear the
+     * edge shows half coverage (a thin unpainted line along every seam), so the first texels past the
+     * edge are painted too, wherever they are padding. They are never painted where another island
+     * owns them, and the island's own triangles always stay in even where a neighbour overlaps them.
      */
-    fun clipTo(uvTriangles: FloatArray?) {
-        clip = uvTriangles?.takeIf { it.size >= TRIANGLE_FLOATS }?.let(::trianglePath)
+    fun clipTo(own: FloatArray?, neighbours: FloatArray? = null) {
+        clip = own?.takeIf { it.size >= TRIANGLE_FLOATS }?.let { buildClip(it, neighbours) }
     }
+
+    private fun buildClip(own: FloatArray, neighbours: FloatArray?): Path {
+        val fill = trianglePath(own)
+        val outline = Path()
+        Paint().apply {
+            style = Paint.Style.STROKE
+            strokeWidth = GUTTER_TEXELS * 2f
+            strokeJoin = Paint.Join.ROUND
+        }.getFillPath(fill, outline)
+        // Each boolean op can fail on a pathological path; a failure falls back to the exact island.
+        val grown = combine(fill, outline, Path.Op.UNION) ?: fill
+        val others = neighbours?.takeIf { it.size >= TRIANGLE_FLOATS }
+        val padding = if (others == null) grown else combine(grown, trianglePath(others), Path.Op.DIFFERENCE) ?: fill
+        return combine(fill, padding, Path.Op.UNION) ?: fill
+    }
+
+    private fun combine(a: Path, b: Path, op: Path.Op): Path? = Path().takeIf { it.op(a, b, op) }
 
     private fun trianglePath(uv: FloatArray): Path = Path().apply {
         fillType = Path.FillType.WINDING
@@ -87,6 +111,15 @@ class PaintableTexture(val bitmap: Bitmap) {
 
     companion object {
         private const val CORNERS = 3
+
+        /**
+         * How far past an island's edge a dab is allowed into empty padding, in texels. One texel is
+         * what a bilinear sample at the edge reaches; the second covers the clip's own half-texel
+         * rounding (it is not anti-aliased, so a texel is in or out by its centre). The texture has no
+         * mipmaps (see DepthCompositor), so no more is needed; a mipmapped texture would need a
+         * gutter of 2^levels.
+         */
+        const val GUTTER_TEXELS = 2f
         private const val TRIANGLE_FLOATS = CORNERS * 2
 
         /** A stroke's surface: a mutable copy of [current] (the layer's paint), or blank. */

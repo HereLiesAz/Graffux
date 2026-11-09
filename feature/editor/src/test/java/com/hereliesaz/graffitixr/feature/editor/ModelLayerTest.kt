@@ -303,6 +303,50 @@ class ModelLayerTest {
         assertEquals("the other island is untouched, though within the brush", 0, alphaAt(0.52f))
     }
 
+    /** Islands 0..0.45 and 0.452..0.95: 2 texels (of 1024) between them, less than the padding gutter. */
+    private val tightIslandObj = twoIslandObj
+        .replace("vt 0.5 0\n", "vt 0.452 0\n").replace("vt 0.5 1", "vt 0.452 1")
+
+    private fun addTightIslandModel() {
+        vm.addModelLayer("m", "head.obj", "model_m.obj", ModelMesh(ObjParser.parse(tightIslandObj)))
+        idle()
+        vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        vm.setActiveTool(Tool.BRUSH)
+        vm.setBrushSize(200f)
+        vm.onLayerActivated("m")
+        idle()
+    }
+
+    private fun alphaAtPixel(x: Int, y: Int = 512): Int =
+        Color.alpha(model().model!!.texture!!.pixels()!!.getPixel(x, y))
+
+    @Test
+    fun `a dab at an island edge paints the filter gutter and nothing of the island beside it`() = runTest(dispatcher) {
+        addTightIslandModel()
+        // u 0.40 is x -0.111 on the left quad; the island ends at texel 460.8.
+        vm.onModelPaintStart(pointOnTwoIsland(-1f + 0.40f / 0.45f))
+        vm.onModelPaintEnd()
+        idle()
+        assertTrue("last texel of the island", alphaAtPixel(460) > 0)
+        assertTrue("first texel of padding: bilinear sampling at the edge reaches it", alphaAtPixel(461) > 0)
+        assertTrue("second texel of padding", alphaAtPixel(462) > 0)
+        assertEquals("the neighbouring island's texel, though within the brush", 0, alphaAtPixel(463))
+        assertEquals("far side", 0, alphaAtPixel(520))
+    }
+
+    @Test
+    fun `a seam painted from both sides has no half-coverage texel`() = runTest(dispatcher) {
+        addTightIslandModel()
+        vm.onModelPaintStart(pointOnTwoIsland(-1f + 0.40f / 0.45f))
+        vm.onModelPaintEnd()
+        idle()
+        vm.onLayerActivated("m")
+        vm.onModelPaintStart(pointOnTwoIsland((0.50f - 0.452f) / 0.498f))
+        vm.onModelPaintEnd()
+        idle()
+        for (x in 455..470) assertTrue("texel $x has alpha ${alphaAtPixel(x)}", alphaAtPixel(x) >= 250)
+    }
+
     @Test
     fun `a step across an island boundary does not stripe through the texture between them`() = runTest(dispatcher) {
         addTwoIslandModel(brushSize = 60f)
