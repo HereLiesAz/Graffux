@@ -19,6 +19,7 @@ pub mod resident;
 pub mod scheduler;
 pub mod timing;
 pub mod transaction;
+pub mod watercolour;
 
 pub use wgpu;
 
