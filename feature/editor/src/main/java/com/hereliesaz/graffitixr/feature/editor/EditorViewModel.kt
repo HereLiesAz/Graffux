@@ -12880,8 +12880,23 @@ class EditorViewModel @Inject constructor(
                 projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
             }
 
-            override suspend fun updateApp(transform: (String?) -> String?) {
+            override suspend fun updateApp(transform: (String?) -> String?) =
                 settingsRepository.updateSavedRecipes(transform)
+
+            override suspend fun keepProjectBackup(projectId: String, original: String) =
+                runCatching { projectRepository.saveArtifact(projectId, "$RECIPE_FILE.bak", original.toByteArray()) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .isSuccess
+
+            override suspend fun keepAppBackup(original: String) = settingsRepository.backupSavedRecipes(original)
+
+            override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
+                val kept = if (backedUp) {
+                    "The original was kept as a backup."
+                } else {
+                    "The original could not be backed up."
+                }
+                notify("$dropped saved mix(es) couldn't be read and were dropped. $kept", NoticeKind.WARNING)
             }
 
             override fun onUnreadable(scope: RecipeLibrary.Scope) {

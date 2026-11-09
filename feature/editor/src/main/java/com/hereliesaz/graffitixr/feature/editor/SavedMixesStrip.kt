@@ -53,6 +53,9 @@ class MixActions(
     val delete: (SavedMix) -> Unit = {},
 )
 
+/** What the strip needs from its host: the editor's selected colour (for "Save current colour") and the brush hook. */
+class MixContext(val editorColour: () -> Color, val onBrushChanged: () -> Unit)
+
 /** The words the strip announces, kept in one place so tests and screen readers agree. */
 internal object MixWords {
     private fun brushName(hand: Int) = if (hand == 0) "foreground" else "background"
@@ -79,10 +82,9 @@ internal fun SavedMixesStrip(
     board: PaletteBoard,
     mixes: List<SavedMix>,
     actions: MixActions,
-    onBrushChanged: () -> Unit,
+    context: MixContext,
     modifier: Modifier = Modifier,
 ) {
-    val currentColour = Color(board.brushColour())
     var selectedId by remember { mutableStateOf<String?>(null) }
     var status by remember { mutableStateOf("") }
     var renaming by remember { mutableStateOf<SavedMix?>(null) }
@@ -117,7 +119,7 @@ internal fun SavedMixesStrip(
             GraffuxButton(
                 text = "Save current colour",
                 onClick = {
-                    actions.saveColour(currentColour)
+                    actions.saveColour(context.editorColour()) // read when pressed: the hand may have changed
                     status = "Saved the current colour as a mix"
                 },
                 shape = GraffuxButtonShape.RECTANGLE,
@@ -140,7 +142,7 @@ internal fun SavedMixesStrip(
                 for (hand in 0..1) {
                     GraffuxButton(
                         text = if (hand == 0) "Recall to foreground" else "Recall to background",
-                        onClick = { status = recall(board, selected, hand, onBrushChanged) },
+                        onClick = { status = recall(board, selected, hand, context.onBrushChanged) },
                         shape = GraffuxButtonShape.RECTANGLE,
                         modifier = Modifier
                             .semantics { contentDescription = MixWords.recallLabel(name, hand) }
@@ -183,13 +185,18 @@ internal fun SavedMixesStrip(
 
 /** Recalls [mix] onto brush [hand]; the announcement says what happened, including a refusal and why. */
 private fun recall(board: PaletteBoard, mix: SavedMix, hand: Int, onBrushChanged: () -> Unit): String {
+    // The recall goes onto brush [hand]; the brush in hand is only changed if it succeeds.
+    val prior = board.hand
     board.hand = hand
     return when (val r = PaletteRecipes.recall(board, mix.recipe)) {
         is PaletteRecipes.Recall.Ok -> {
             onBrushChanged()
             MixWords.recalled(mix.recipe.name, hand)
         }
-        is PaletteRecipes.Recall.Refused -> MixWords.refused(mix.recipe.name, r.reason)
+        is PaletteRecipes.Recall.Refused -> {
+            board.hand = prior
+            MixWords.refused(mix.recipe.name, r.reason)
+        }
     }
 }
 

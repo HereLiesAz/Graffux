@@ -134,9 +134,14 @@ interface SettingsRepository {
     /**
      * Changes the app-level recipe book in ONE atomic DataStore edit: [transform] gets the stored text (null: none) and
      * returns the new text, or null to leave it exactly as it is (for example when the stored text could not be read:
-     * it is never replaced by a book built from nothing). No-op by default (fakes).
+     * it is never replaced by a book built from nothing). True only if a new text was really persisted: a write that
+     * failed (disk full, an unreadable store) is false, so the caller never reports a save that did not happen.
+     * No-op (false) by default (fakes).
      */
-    suspend fun updateSavedRecipes(transform: (String?) -> String?) {}
+    suspend fun updateSavedRecipes(transform: (String?) -> String?): Boolean = false
+
+    /** Keeps [original] (an app recipe book some of whose recipes could not be read) once, before it is repaired. */
+    suspend fun backupSavedRecipes(original: String): Boolean = false
 
     /** Whether the old saved swatches were turned into recipes once (they are left in place, so it can be undone). */
     val swatchesMigrated: Flow<Boolean> get() = kotlinx.coroutines.flow.flowOf(true)

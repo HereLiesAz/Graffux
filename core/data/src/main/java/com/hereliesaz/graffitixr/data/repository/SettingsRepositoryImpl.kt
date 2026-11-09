@@ -83,14 +83,16 @@ class SettingsRepositoryImpl @Inject constructor(
      * Every write goes through here: a failed write (disk full, a corrupt store) is logged and dropped, never thrown
      * into a bare `launch` where it would crash the app. Cancellation is rethrown.
      */
-    private suspend fun update(transform: suspend (MutablePreferences) -> Unit) {
+    private suspend fun update(transform: suspend (MutablePreferences) -> Unit): Boolean {
         try {
             context.dataStore.edit(transform)
+            return true
         } catch (e: IOException) {
             android.util.Log.w("SettingsRepository", "Could not save a setting", e)
         } catch (e: CorruptionException) {
             android.util.Log.w("SettingsRepository", "Could not save a setting (unreadable store)", e)
         }
+        return false
     }
 
     private val IS_RIGHT_HANDED = booleanPreferencesKey("is_right_handed")
@@ -107,6 +109,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val carouselFavoritesKey = stringPreferencesKey("carousel_favorites")
     private val carouselItemSettingsKey = stringPreferencesKey("carousel_item_settings")
     private val savedRecipesKey = stringPreferencesKey("saved_recipes")
+    private val savedRecipesBackupKey = stringPreferencesKey("saved_recipes_backup")
     private val swatchesMigratedKey = booleanPreferencesKey("swatches_migrated_to_recipes")
 
     override val isRightHanded: Flow<Boolean> = context.dataStore.data
@@ -248,11 +251,26 @@ class SettingsRepositoryImpl @Inject constructor(
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
         .map { it[savedRecipesKey] }
 
-    override suspend fun updateSavedRecipes(transform: (String?) -> String?) {
-        update { prefs ->
+    override suspend fun updateSavedRecipes(transform: (String?) -> String?): Boolean {
+        var wrote = false
+        val persisted = update { prefs ->
             val next = transform(prefs[savedRecipesKey])
-            if (next != null) prefs[savedRecipesKey] = next
+            if (next != null) {
+                prefs[savedRecipesKey] = next
+                wrote = true
+            }
         }
+        return persisted && wrote
+    }
+
+    override suspend fun backupSavedRecipes(original: String): Boolean {
+        var kept = false
+        val persisted = update { prefs ->
+            // the first backup stays: a later repair never replaces the earliest original
+            if (prefs[savedRecipesBackupKey] == null) prefs[savedRecipesBackupKey] = original
+            kept = true
+        }
+        return persisted && kept
     }
 
     override val swatchesMigrated: Flow<Boolean> = context.dataStore.data

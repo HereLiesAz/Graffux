@@ -24,9 +24,22 @@ class RecipeLibrary(private val store: Store) {
         suspend fun readProject(projectId: String): String?
         suspend fun writeProject(projectId: String, text: String)
 
-        /** The app book changed under one edit: [transform] sees the stored text; null leaves it untouched. */
-        suspend fun updateApp(transform: (String?) -> String?)
+        /**
+         * The app book changed under one edit: [transform] sees the stored text; null leaves it untouched. True only
+         * if a new text was really persisted.
+         */
+        suspend fun updateApp(transform: (String?) -> String?): Boolean
+
+        /** Keeps the original text of a project book before a repaired one replaces it; true if it was kept. */
+        suspend fun keepProjectBackup(projectId: String, original: String): Boolean = false
+
+        /** Keeps the original text of the app book before a repaired one replaces it; true if it was kept. */
+        suspend fun keepAppBackup(original: String): Boolean = false
+
         fun onUnreadable(scope: Scope) {}
+
+        /** Some recipes of a book could not be read and were dropped; [backedUp] says whether the original was kept. */
+        fun onRepaired(scope: Scope, dropped: Int, backedUp: Boolean) {}
     }
 
     private val lock = Mutex()
@@ -34,6 +47,8 @@ class RecipeLibrary(private val store: Store) {
     private val appBook = MutableStateFlow(emptyList<PaletteRecipe>())
     private var projectId: String? = null
     private var projectReadable = true
+    private var appText: String? = null
+    private var appBackedUp = false
 
     /** The open project's recipes. */
     val project: StateFlow<List<PaletteRecipe>> = projectBook.asStateFlow()
@@ -43,6 +58,7 @@ class RecipeLibrary(private val store: Store) {
 
     /** The stored app text changed (or was first read): what the app list shows. */
     fun onAppStored(text: String?) {
+        appText = text
         appBook.value = text?.let { RecipeBook.fromJsonRepairing(it)?.first?.recipes } ?: emptyList()
     }
 
@@ -56,8 +72,14 @@ class RecipeLibrary(private val store: Store) {
         if (parsed == null) {
             projectReadable = false
             store.onUnreadable(Scope.PROJECT)
-        } else {
-            projectBook.value = parsed.first.recipes
+            return@withLock
+        }
+        projectBook.value = parsed.first.recipes
+        if (parsed.second > 0) {
+            // some recipes were bad: the original is kept BEFORE a repaired book can overwrite it, and the user is told
+            val kept = store.keepProjectBackup(id, text)
+            if (!kept) projectReadable = false // never overwrite what could not be preserved
+            store.onRepaired(Scope.PROJECT, parsed.second, kept)
         }
     }
 
@@ -83,7 +105,7 @@ class RecipeLibrary(private val store: Store) {
     ): Boolean = lock.withLock {
         when (scope) {
             Scope.PROJECT -> changeProject(edit)
-            Scope.APP -> changeApp(edit)
+            Scope.APP -> appMayBeChanged() && persistApp(edit)
         }
     }
 
@@ -98,24 +120,38 @@ class RecipeLibrary(private val store: Store) {
             .isSuccess
     }
 
-    private suspend fun changeApp(edit: (List<PaletteRecipe>) -> List<PaletteRecipe>): Boolean {
-        var applied = false
-        store.updateApp { stored ->
-            val parsed = stored?.let { RecipeBook.fromJsonRepairing(it) }
-            if (stored != null && parsed == null) {
-                store.onUnreadable(Scope.APP) // not a recipe book: left exactly as it is
+    /** False when the stored app book is not a recipe book (left alone) or its original could not be preserved. */
+    private suspend fun appMayBeChanged(): Boolean {
+        val stored = appText ?: return true
+        val parsed = RecipeBook.fromJsonRepairing(stored)
+        if (parsed == null) store.onUnreadable(Scope.APP) // not a recipe book: left exactly as it is
+        if (parsed != null && parsed.second > 0 && !appBackedUp) {
+            // some recipes were bad: keep the original before a repaired book replaces it (once), and say so
+            appBackedUp = store.keepAppBackup(stored)
+            store.onRepaired(Scope.APP, parsed.second, appBackedUp)
+        }
+        return parsed != null && (parsed.second == 0 || appBackedUp)
+    }
+
+    private suspend fun persistApp(edit: (List<PaletteRecipe>) -> List<PaletteRecipe>): Boolean {
+        var next: List<PaletteRecipe>? = null
+        val persisted = store.updateApp { current ->
+            val book = current?.let { RecipeBook.fromJsonRepairing(it) }
+            val edited = edit(book?.first?.recipes.orEmpty())
+            val refused = (current != null && book == null) || edited.any { it.problem() != null }
+            if (refused) {
                 null
             } else {
-                val next = edit(parsed?.first?.recipes.orEmpty())
-                if (next.any { it.problem() != null }) {
-                    null
-                } else {
-                    applied = true
-                    appBook.value = next
-                    RecipeBook(recipes = next).toJson()
-                }
+                next = edited
+                RecipeBook(recipes = edited).toJson()
             }
         }
-        return applied
+        // published only after the write really happened: a failed write is not a saved mix
+        val result = next
+        if (persisted && result != null) {
+            appBook.value = result
+            appText = RecipeBook(recipes = result).toJson()
+        }
+        return persisted
     }
 }

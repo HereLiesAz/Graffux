@@ -383,7 +383,7 @@ fun PaletteMixerDialog(
                 board = board,
                 mixes = mixes,
                 actions = mixActions,
-                onBrushChanged = { ops.applyBrush() },
+                context = MixContext({ if (board.hand == 0) currentColor else secondaryColor }) { ops.applyBrush() },
             )
             Spacer(Modifier.height(10.dp))
 

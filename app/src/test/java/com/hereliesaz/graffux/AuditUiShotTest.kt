@@ -325,4 +325,51 @@ class AuditUiShotTest {
         rule.onNodeWithTag("mixer.mixStatus").assertTextContains("made with different pigment data", substring = true)
         assertEquals("the brush was left alone", 0f, board.brush.amount[0], 0f)
     }
+
+    @Test
+    fun `a refused recall leaves the selected brush where it was`() {
+        val board = newMixerBoard()
+        board.squeeze(2, 30f, 30f, 8f, 1f)
+        repeat(3) { board.dip(30f, 30f) }
+        val good = requireNotNull(com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes.fromBrush(board, "m1", "Old"))
+        val stale = good.copy(slots = good.slots.mapIndexed { i, s -> if (i == 0) s.copy(dataVersion = s.dataVersion + 7) else s })
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board, currentColor = Color.White, secondaryColor = Color.Black,
+                    onSelectColor = {}, onSelectSecondaryColor = {}, onSwapColors = {}, onDismiss = {},
+                    mixes = listOf(SavedMix(stale, RecipeLibrary.Scope.APP)),
+                )
+            }
+        }
+        rule.waitForIdle()
+        assertEquals(0, board.hand)
+        rule.onNodeWithContentDescription("Old, saved in all projects. Select for actions").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("Recall Old onto the background brush").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.mixStatus").assertTextContains("made with different pigment data", substring = true)
+        assertEquals("the refused recall must not switch the brush in hand", 0, board.hand)
+    }
+
+    @Test
+    fun `save current colour saves the editor's selected colour, by hand, not the palette brush's`() {
+        val board = newMixerBoard() // the palette brush is empty: its colour is not the editor's
+        val saved = mutableListOf<Int>()
+        val editorForeground = Color(0xFFFF8800)
+        val editorBackground = Color(0xFF3366CC)
+        rule.setContent {
+            GraffitiXRTheme {
+                PaletteMixerDialog(
+                    board = board, currentColor = editorForeground, secondaryColor = editorBackground,
+                    onSelectColor = {}, onSelectSecondaryColor = {}, onSwapColors = {}, onDismiss = {},
+                    mixActions = MixActions(saveColour = { saved += it.toArgb() }),
+                )
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("mixer.saveColour").performScrollTo().performClick()
+        board.hand = 1
+        rule.waitForIdle()
+        rule.onNodeWithTag("mixer.saveColour").performScrollTo().performClick()
+        assertEquals(listOf(editorForeground.toArgb(), editorBackground.toArgb()), saved)
+    }
 }

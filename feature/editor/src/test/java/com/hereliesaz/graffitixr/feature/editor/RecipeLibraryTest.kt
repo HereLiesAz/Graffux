@@ -21,6 +21,11 @@ class RecipeLibraryTest {
         val appLock = Mutex()
         val unreadable = ArrayList<RecipeLibrary.Scope>()
         var failWrites = false
+        var appWritesFail = false
+        var backupFails = false
+        val projectBackup = HashMap<String, String>()
+        val repaired = ArrayList<Int>()
+        var appBackup: String? = null
     }
 
     private fun library(disk: Disk) = RecipeLibrary(object : RecipeLibrary.Store {
@@ -29,10 +34,29 @@ class RecipeLibraryTest {
             check(!disk.failWrites) { "disk full" }
             disk.project[projectId] = text
         }
-        override suspend fun updateApp(transform: (String?) -> String?) {
-            disk.appLock.withLock { transform(disk.app)?.let { disk.app = it } } // one atomic edit, like the DataStore
+        override suspend fun updateApp(transform: (String?) -> String?): Boolean = disk.appLock.withLock {
+            val next = transform(disk.app) // one atomic edit, like the DataStore
+            if (next == null || disk.appWritesFail) {
+                false
+            } else {
+                disk.app = next
+                true
+            }
+        }
+        override suspend fun keepProjectBackup(projectId: String, original: String): Boolean {
+            if (disk.backupFails) return false
+            disk.projectBackup[projectId] = original
+            return true
+        }
+        override suspend fun keepAppBackup(original: String): Boolean {
+            if (disk.backupFails) return false
+            disk.appBackup = original
+            return true
         }
         override fun onUnreadable(scope: RecipeLibrary.Scope) { disk.unreadable += scope }
+        override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
+            disk.repaired += dropped
+        }
     })
 
     private val tubes = newMixerBoard()
@@ -99,7 +123,7 @@ class RecipeLibraryTest {
     fun anAppBookThatCannotBeReadIsLeftExactlyAsItIs() = runTest {
         val disk = Disk()
         disk.app = "garbage"
-        val lib = library(disk)
+        val lib = library(disk).also { it.onAppStored(disk.app) }
         assertFalse(lib.save(RecipeLibrary.Scope.APP, recipe("r1")))
         assertEquals("garbage", disk.app)
         assertEquals(listOf(RecipeLibrary.Scope.APP), disk.unreadable)
@@ -138,5 +162,57 @@ class RecipeLibraryTest {
         assertTrue(lib.addMissing(RecipeLibrary.Scope.APP, migrated)) // again: nothing duplicated
         assertEquals(1 + migrated.size, lib.app.value.size)
         assertTrue("mine" in lib.app.value.map { it.id })
+    }
+
+    @Test
+    fun aFailedAppWriteIsNotReportedAsSavedAndIsNotPublished() = runTest {
+        val disk = Disk()
+        disk.appWritesFail = true
+        val lib = library(disk)
+        assertFalse("the save failed, so it must say so", lib.save(RecipeLibrary.Scope.APP, recipe("r1")))
+        assertTrue("and the list must not show a mix that was never saved", lib.app.value.isEmpty())
+    }
+
+    @Test
+    fun aProjectBookWithSomeBadRecipesIsBackedUpBeforeItIsOverwrittenAndTheUserIsTold() = runTest {
+        val disk = Disk()
+        val good = recipe("r1", "Keep")
+        val bad = good.copy(id = "r2", load = 9f)
+        val original = RecipeBook(recipes = listOf(good, bad)).toJson()
+        disk.project["A"] = original
+        val lib = library(disk)
+        lib.openProject("A")
+        assertEquals(listOf("Keep"), lib.project.value.map { it.name })
+        assertEquals("the user is told, with the number dropped", listOf(1), disk.repaired)
+        assertEquals("the original is kept before anything overwrites it", original, disk.projectBackup["A"])
+        assertTrue(lib.save(RecipeLibrary.Scope.PROJECT, recipe("r3")))
+        assertEquals(original, disk.projectBackup["A"])
+    }
+
+    @Test
+    fun aFailedBackupBlocksTheOverwrite() = runTest {
+        val disk = Disk()
+        val good = recipe("r1", "Keep")
+        val original = RecipeBook(recipes = listOf(good, good.copy(id = "bad", load = 9f))).toJson()
+        disk.project["A"] = original
+        disk.backupFails = true
+        val lib = library(disk)
+        lib.openProject("A")
+        assertFalse(lib.save(RecipeLibrary.Scope.PROJECT, recipe("r3")))
+        assertEquals(original, disk.project["A"])
+    }
+
+    @Test
+    fun anAppBookWithSomeBadRecipesIsBackedUpOnceBeforeItIsRepairedOver() = runTest {
+        val disk = Disk()
+        val good = recipe("r1", "Keep")
+        val original = RecipeBook(recipes = listOf(good, good.copy(id = "bad", load = 9f))).toJson()
+        disk.app = original
+        val lib = library(disk).also { it.onAppStored(original) }
+        assertTrue(lib.save(RecipeLibrary.Scope.APP, recipe("r2")))
+        assertEquals(original, disk.appBackup)
+        assertEquals(listOf(1), disk.repaired)
+        assertTrue(lib.save(RecipeLibrary.Scope.APP, recipe("r3")))
+        assertEquals("told once, not on every save", listOf(1), disk.repaired)
     }
 }
