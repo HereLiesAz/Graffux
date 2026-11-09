@@ -135,7 +135,7 @@ fn the_chunk_plan_covers_every_dab_once_within_budget() {
 fn a_dab_that_cannot_be_split_is_refused_not_run_unbounded() {
     use graffux_wgpu::transaction::{
         chunk_timeout, plan_chunks, try_run_chunked, TransactionError, MAX_CHUNK_COST, MAX_CHUNK_DABS,
-        MAX_DAB_COST,
+        MAX_CHUNK_WAIT, MAX_DAB_COST,
     };
     // A whole-canvas dab on a big canvas is over the per-dab limit.
     let whole = dab(2048.0, 2048.0, 3000.0);
@@ -152,6 +152,10 @@ fn a_dab_that_cannot_be_split_is_refused_not_run_unbounded() {
     // A chunk's wait grows with its estimated work, never below the base timeout.
     assert!(chunk_timeout(0) >= graffux_wgpu::gpu_wait::READBACK_TIMEOUT);
     assert!(chunk_timeout(MAX_CHUNK_COST) > chunk_timeout(0));
+    // Capped, and the largest legitimate dab is not what hits the cap.
+    assert!(chunk_timeout(u64::MAX) <= MAX_CHUNK_WAIT);
+    assert!(chunk_timeout(MAX_DAB_COST) <= MAX_CHUNK_WAIT);
+    assert!(chunk_timeout(MAX_DAB_COST) > chunk_timeout(MAX_CHUNK_COST) || MAX_DAB_COST <= MAX_CHUNK_COST);
 }
 
 #[test]

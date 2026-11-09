@@ -182,11 +182,11 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &WatercolourInput) -> Option<
     };
     let s_wet = read(wet_res, &mut encoder);
     let s_pig = read(pig_res, &mut encoder);
-    queue.submit([encoder.finish()]);
+    let submission = queue.submit([encoder.finish()]);
     let mut out = Vec::new();
     for staging in [&s_wet, &s_pig] {
         out.push(
-            gpu.read(staging, 0..bytes, |v| {
+            gpu.read(staging, 0..bytes, submission.clone(), |v| {
                 bytemuck::cast_slice::<u8, f32>(v).to_vec()
             })
             .ok()?,

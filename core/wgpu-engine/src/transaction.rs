@@ -24,9 +24,9 @@ pub const COST_PER_TEXEL: u64 = 40;
 /// resetting the device. UNMEASURED on real hardware: a conservative guess to be tuned from device timings.
 pub const MAX_CHUNK_COST: u64 = 200_000 * COST_PER_TEXEL;
 /// Work one dab may carry. A dab cannot be split (its lift, scale and draw need the whole footprint), so a chunk is
-/// only as bounded as its biggest dab: a dab over this is refused (about 800,000 texels, a radius near 500) rather
+/// only as bounded as its biggest dab: a dab over this is refused (about 500,000 texels, a radius near 350) rather
 /// than run as one unbounded dispatch. Also unmeasured.
-pub const MAX_DAB_COST: u64 = 4 * MAX_CHUNK_COST;
+pub const MAX_DAB_COST: u64 = 20_000_000;
 /// Dabs one dispatch may carry however small they are (each dab costs a dozen barriers).
 pub const MAX_CHUNK_DABS: usize = 512;
 
@@ -88,11 +88,22 @@ pub fn plan_chunks(
     Ok(out)
 }
 
-/// How long to wait for a chunk of estimated `cost`: the base timeout plus a generous allowance of one microsecond
-/// per cost unit, so a legitimately slow chunk (software rasteriser, big dab) is waited for as the unchunked run
-/// was. Unmeasured.
+/// The longest a chunk is ever waited for. The wait runs on the caller's thread (which may hold a lock), so it is
+/// capped well inside the time Android allows before declaring an app unresponsive; the cost limits above are
+/// chosen so that the cap is not what a legitimate chunk runs into. No app code calls the standalone entries yet,
+/// and when one does it must be off the UI and input threads.
+pub const MAX_CHUNK_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long to wait for a chunk of estimated `cost`: the base timeout plus a quarter of a microsecond per cost unit
+/// (7 s at [`MAX_CHUNK_COST`], 10 s at [`MAX_DAB_COST`]), capped at [`MAX_CHUNK_WAIT`]. Unmeasured.
+///
+/// The wait names this chunk's own submission, so work queued AFTER it never counts. Work queued BEFORE it by
+/// other users of the shared device does, because the device finishes submissions in order: a chunk stuck behind
+/// another thread's long job can time out and have a healthy device retired. That costs a device replacement, not a
+/// wrong result, and is accepted: the standalone entries have no concurrent production callers, the allowance is
+/// generous, and telling "slow behind others" from "hung" would need a progress probe wgpu does not offer cheaply.
 pub fn chunk_timeout(cost: u64) -> std::time::Duration {
-    READBACK_TIMEOUT + std::time::Duration::from_micros(cost)
+    (READBACK_TIMEOUT + std::time::Duration::from_micros(cost / 4)).min(MAX_CHUNK_WAIT)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -247,8 +258,8 @@ pub fn try_run_chunked(
             pass.dispatch_workgroups(1, 1, 1);
         }
         let submission = queue.submit([encoder.finish()]);
-        // Each chunk is its own submission and is waited for by its own index, so other users' work queued on the
-        // shared device cannot make this chunk look stalled (and get a healthy device retired).
+        // Each chunk is its own submission, waited for by its own index: work queued after it does not count (work
+        // queued before it by other users does; see `chunk_timeout`).
         if let Err(why) = wait_submission(device, submission, chunk_timeout(cost)) {
             if why == ReadFailure::TimedOut {
                 // Work may still be running on the shared device: stop handing it out.
@@ -274,10 +285,10 @@ pub fn try_run_chunked(
         encoder.copy_buffer_to_buffer(buf, 0, &staging, 0, bytes);
         stagings.push((staging, len));
     }
-    queue.submit([encoder.finish()]);
+    let submission = queue.submit([encoder.finish()]);
     let mut results: Vec<Vec<f32>> = Vec::new();
     for (staging, len) in &stagings {
-        let v = match gpu.read(staging, 0..((*len).max(1) * 4) as u64, |b| {
+        let v = match gpu.read(staging, 0..((*len).max(1) * 4) as u64, submission.clone(), |b| {
             bytemuck::cast_slice::<u8, f32>(b)[..*len].to_vec()
         }) {
             Ok(v) => v,
