@@ -12,11 +12,11 @@ Read before proposing structural changes. Never recalled — opened.
   and bumped by the release workflow, not by the build — do not hardcode a snapshot of it here,
   it drifts on the next release. See `CLAUDE.md`'s "version.properties and versionCode" section
   before touching that file or this one.
-- Kotlin `2.4.20`, AGP `9.4.1`.
-- `AzNavRail` (`com.github.HereLiesAz.AzNavRail:aznavrail`) `11.18`+ required — `11.15`
-  through `11.17` have the reloc-item-under-`azUnattachedHostItem` bug described below;
-  `11.18` is the first version confirmed (via upstream's own `AzUnattachedRelocItemClickTest`)
-  to fix it. Do not downgrade below `11.18`.
+- Kotlin, AGP, Compose and the other toolchain versions: `gradle/libs.versions.toml` (not repeated here, so
+  they cannot drift); the NDK is `graffux.ndkVersion` in `gradle.properties`.
+- `AzNavRail` (`com.github.HereLiesAz.AzNavRail:aznavrail`): pinned in `gradle/libs.versions.toml`
+  (`azNavRail`). Used only for its About reader (`app/.../AboutReader.kt`); every rail, menu, sheet
+  and window is Graffux's own, so no rail-library version floor applies.
 
 ---
 
@@ -24,7 +24,7 @@ Read before proposing structural changes. Never recalled — opened.
 
 | Module | Responsibility |
 |---|---|
-| `:app` | The Graffux application shell — `MainActivity`/`GraffuxApp` host the AzNavRail rail configuration and the shared editor. Only this module is Graffux-specific (`com.hereliesaz.graffux`). |
+| `:app` | The Graffux application shell — `MainActivity`/`GraffuxApp` host Graffux's own rails (`ToolRail`, `LayersRail`), carousel and the shared editor. Only this module is Graffux-specific (`com.hereliesaz.graffux`). |
 | `:feature:editor` | The editor: `EditorReducer`, `EditorViewModel`, canvas, panels, brush/stroke engine, export, dialogs/windows (Curves, Figma, Reference, Gallery, Store, etc.). |
 | `:core:common` | Models (`Layer`, `EditorUiState`, `GraffitiProject`), pure ops (`LayerListOps`, `LinkOps`), serialization, the `azphalt` extension format's Android-free types (`AzphaltManifest`, `CubeLut`, `TrustStore`). |
 | `:core:domain` | Repository interfaces. |
@@ -91,16 +91,12 @@ Nothing paints or displays depth yet; the relief surface builds on `DepthEstimat
    build never increments it; `HereLiesAz/workflows`' Android release workflows compute
    `versionCode` (highest of the file and every code Play has accepted, + 1) and record it back on
    the default branch with a `[skip ci]` commit. See `CLAUDE.md`.
-4. **`ConfigureRailItems` is not `@Composable`.** It's a plain extension function on
-   `AzNavHostScope`, so any Compose state it needs (`remember { mutableStateOf(...) }`) has
-   to live in the calling `@Composable` (`GraffuxApp`) and thread down as a parameter or
-   callback — never `remember`ed inside the DSL builder itself.
-5. **Rail highlighting has one source of truth.** `activeRailClassifiers()` in
-   `MainActivity.kt` is the single place that decides which rail-item ids are "active"; every
-   item's `classifiers` and its manual `color` fallback both read from that same set, so the
-   two can't disagree. Don't inline a second copy of an active-state condition on the item
+4. **Rail highlighting has one source of truth.** `activeRailClassifiers()` in
+   `MainActivity.kt` is the single place that decides which rail-item ids are "active"; `ToolRail`
+   reads it as `lit` (with `secondaryRailClassifiers()` for `secondary`), so the rail and that
+   function cannot disagree. Don't inline a second copy of an active-state condition on the item
    that uses it.
-6. **`azphalt` extensions are deny-by-default.** A capability (`canvas`, `color`, `time`, …)
+5. **`azphalt` extensions are deny-by-default.** A capability (`canvas`, `color`, `time`, …)
    an extension's manifest didn't request is never mapped into its sandbox — not omitted from
    the WASM import list (that breaks module linking outright, since `quickjs.wasm` declares
    `clock_time_get`/`random_get` as mandatory imports), but replaced with a fixed, non-real
@@ -108,27 +104,11 @@ Nothing paints or displays depth yet; the relief surface builds on `DepthEstimat
    only the invoking extension's own manifest-listed files, via `ExtensionScopedSandboxHost` /
    `ExtensionAssetReader` (path rules shared with `AzpInstaller`, 4 MiB per-read cap;
    `spec/package-format.md` § 5.1.1).
-7. **`azNavRail` must stay pinned to `11.18` or newer.** `azRailRelocItem` items (every layer
-   row in the `"grp.layers"` panel is one) were completely unclickable under an
-   `azUnattachedHostItem` in `11.15` through `11.17` — `RailContent.kt` nulls `onClick` for
-   any `isRelocItem`, relying entirely on an externally-supplied `dragModifier` that
-   `AzUnattachedRail.kt`'s `UnattachedNode` never provided. Confirmed fixed in `11.18`
-   (`UnattachedNode` now wires its own tap/long-press gesture; see upstream's
-   `AzUnattachedRelocItemClickTest.kt`). This was never fixable from this repo —
-   `dragModifier` isn't exposed through `azRailRelocItem`'s public API — so don't reintroduce
-   the bug by downgrading the version pin below `11.18` for an unrelated reason.
-8. **Group layers are relocatable rail hosts, never nested rails.** In the `"grp.layers"` panel a
-   `GROUP` layer is an `azRailRelocSubHostItem` (id `layer.<groupId>`, AzNavRail `11.52`+) under
-   its parent's host, and its children are `azRailRelocItem`s / `azRailRelocSubHostItem`s whose
-   `hostId` is that id — see `LayerRailPlan.kt`'s `layerRailRows`. Do not use `azRailRelocItem`'s
-   `nestedContent` / `keepNestedRailOpen` for layers. AzNavRail treats a relocatable sub-host plus
-   every descendant declared *immediately after it* as one block that occupies one slot of its
-   parent's reloc cluster, so `layerRailRows` must stay depth-first (each group followed directly
-   by its whole subtree): that is what makes a dragged group carry its children and keeps each
-   host's siblings — leaves and groups alike — in one draggable cluster. Keep the pin at `11.52`
-   or newer; below it there is no draggable host and a group would again block its siblings.
-
-9. **A design frame is a layer, and saves as a group.** `LayerType.FRAME` layers are written as
+6. **Layer groups are rows of the layers rail, in depth-first order.** `LayersRail` shows
+   `layerRailRows` (`LayerRailPlan.kt`): top-first, each `GROUP` layer immediately followed by its
+   whole subtree, with rows under a collapsed group left out (`groupExpanded`). A dragged group
+   carries its children. Keep that order so a group's subtree stays contiguous.
+7. **A design frame is a layer, and saves as a group.** `LayerType.FRAME` layers are written as
    `layerType: GROUP` plus `OverlayLayer.isFrame` (project.json format 4) so older apps still open
    the file. Frame geometry lives in `FrameOps` (pure, `core/common`); the Frame tool and the
    properties act only through it and `EditorIntent.SetDesignLayers`. `Tool.FRAME` is the last
@@ -196,12 +176,10 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## Decisions
 
-- **AzNavRail drives the whole UI, not a custom Compose layout.** The rail/host/sub-item DSL
-  (`azRailItem`, `azRailRelocItem`, `azNestedRail`, `azUnattachedHostItem`, hidden menus) is
-  the one and only UI framework for chrome; tool surfaces (`ToolSurface`, below) are the escape
-  hatch for anything that doesn't fit a rail item. Bypassing the DSL to work
-  around a library limitation (invariant 7/8 above) is treated as a bigger change than the
-  limitation warrants — fixes go upstream instead.
+- **Graffux's own chrome, not a rail library.** `ToolRail`, `LayersRail`, `LogoMenu`, the menu
+  panel (`MenuPanel`, `buildMenu`; `ChromeMenu.kt`) and the carousel are this repository's composables (`:app`). AzNavRail was replaced (commit
+  `5b8abfce`) and now supplies only the About reader (`AboutReader.kt`). Tool surfaces
+  (`ToolSurface`, below) hold anything that is not a rail item.
 - **No floating windows on phones or tablets; each tool opens in the container its kind calls
   for.** `core:design`'s `AdaptiveSurfaces.kt` holds five containers (`AnchoredValuePopover`,
   `AppBottomSheet`, `CenteredSheet`, `FullScreenPage`, `DockedPanel`) and `ToolSurface(kind, …)`,
@@ -227,10 +205,6 @@ codebase is deferred scope or a real gap in the install-report flow.
   Compose state, so the stroke path is untouched. Docked panels overlay the canvas edge rather
   than resizing the viewport, so canvas geometry is unchanged. The desktop build keeps its own
   `FloatingWindow` (`desktop/.../FloatingWindow.kt`).
-- **A tap opens a nested rail.** No `azNestedRail` sets `reflectSelectionInParent`: with it,
-  AzNavRail 11.52 turns the parent's tap into "re-run the last-picked child" (or nothing, before a
-  child has been picked), so the rail could only be opened by long press. Without it, a tap toggles
-  the nested rail open and the user picks a tool from it (`NestedRailTapUiTest`).
 - **The bottom carousel is an additive quick-pick surface, not a new chrome framework.**
   `BottomCarousel.kt` (`:app`) runs on a **fork of M3's carousel**: material3 `1.5.0-alpha29`'s
   `androidx.compose.material3.carousel` sources, copied into `com.hereliesaz.graffux.carousel`
@@ -318,12 +292,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   compact set picker (`CarouselTabList`): a flat wheel band (`CarouselSetWheel.kt`) in the sheet's
   bottom corner away from the rail (`LocalSetWheelOnRight`), with the same drag, snap, dwell and
   accessibility rules. The Favorites and previous-set quick buttons are gone.
-  **Placement.** The carousel is its own AzNavRail page, `background(weight = 1, page = 0f)`, one weight
-  in front of the canvas. In AzNavRail 11.52, pages are only Z-layers. Every `onscreen()` page is inset
-  by the rail's width, so `background()` is the only page laid out across the whole window, and that
-  is what centres the carousel on the screen. `CarouselSheet` keeps a `bottomInset` (nav bar plus
-  `CarouselBottomInset`) below its content, because background pages aren't inset
-  and `LocalAzSafeZones` isn't provided to them.
+  **Placement.** `MainActivity` composes the carousel in a full-window `Box` (bottom-centred, over
+  the canvas, outside the safe-drawing inset `Box` that holds the rails), so it centres on the
+  screen rather than on the area beside the rail. `CarouselSheet` keeps a `bottomInset`
+  (nav bar plus `CarouselBottomInset`) below its content because that `Box` is not inset.
   **Sheet.** `CarouselSheet` is a draggable sheet with no surface of its own. Behind it sits a
   full-width scrim (`CarouselScrimBrush`): black, transparent at its top edge, 40% by 22% of its
   height and 45% at the screen's bottom edge. It runs down behind `bottomInset`, fades out as the
@@ -331,9 +303,8 @@ codebase is deferred scope or a real gap in the install-report flow.
   down to shut it. It is composed only while open: it opens from the rail (Brush, the Retouch group,
   Adjust, Tool Options), never from a pill or strip left along the bottom edge.
   `carouselSheetSettlesOpen` decides where it settles. The sheet's open state lives in `CarouselUi`,
-  held by `remember` as the old collapse state was. It does not use `azBottomSheet` (guide §10), for
-  two reasons. At PEEK that shell lays a full-screen tap catcher over the app, which would block
-  painting. And its detents step on to HALF/FULL.
+  held by `remember` as the old collapse state was. It is its own sheet, not a library bottom sheet,
+  so only the sheet's own pixels take touches and the canvas keeps its strokes while it is open.
   The areas dropdown's "Carousel" toggle still removes it entirely.
   **More grows the hero (`CarouselHeroExpanded.kt`).** "More" grows the card; there is no Tool Options window. The
   hero card grows in place (M3 Expressive `defaultSpatialSpec`), from its own size to 1.5x as wide
@@ -349,8 +320,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   (carry alpha, sample merged); Stabilizer (level, and the algorithm while it is on); Selection
   (threshold for Automatic, and feather while a selection exists). Per-item fields edit the item's
   own settings; the rest edit their one global value. The card scrolls if it overflows. It is drawn by
-  `ExpandedHeroLayer` on its own AzNavRail page, `background(weight = 1, page = -0.5f)`, in front of
-  the carousel's page 0. So it overlaps the neighbouring cards without the carousel reflowing, and
+  `ExpandedHeroLayer`, composed right after the carousel's `Box`, inside the same `if (carouselOnScreen && sheetOpen)` block (`MainActivity.kt:1308`), so it draws in front of the sheet and overlaps the neighbouring cards without the carousel reflowing, and
   never pushes the tabs. `HeroExpansion` is shared by both pages: the carousel publishes its content
   and the hero's anchor to it. It closes on Less, on a second More, on Back, when another card takes
   the hero slot, when a stroke starts, or when the carousel leaves the screen.
@@ -385,24 +355,19 @@ codebase is deferred scope or a real gap in the install-report flow.
   item in hand this session with nothing saved *adopts* the live (formerly global) values. Every
   other item starts from its preset. So the brush in hand does not change on upgrade, and the
   presets are not flattened into one value.
-  **Rail.** The old Undo · Fit · Redo row is gone. Fit is a rail item, declared last so it sits at
-  the bottom of the rail (11.52 has no footer slot). Undo and Redo live only at the ends of the tab
-  row; with the sheet shut there is no undo/redo button (gestures only). Fit is disabled while the
-  view is already fitted.
-- **The rails get out of the way while a stroke is painted (`DrawingRailFold`, `:app`).** The
+  **Rail.** The old Undo · Fit · Redo row is gone. Fit is a button on the tool rail
+  (`rail.view.fit`, `ToolRail.kt`) that is present only while the view has moved or the 3D camera is off its default. Undo and Redo live only at the ends of the tab
+  row; with the sheet shut there is no undo/redo button (gestures only).
+- **The rails get out of the way while a stroke is painted (`DrawingUiHidden.kt`, `:app`).** The
   source is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
   stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. Nothing
   reads it directly: `rememberDrawingUiHidden` (`DrawingUiHidden.kt`) derives the "UI hidden for
   drawing" flag from it, true during a stroke and for `DRAWING_UI_RETURN_DELAY_MS` (750ms, the one
   constant to tune) after it ends. A stroke that starts inside that hold cancels the pending return
   (`collectLatest` drops the `delay`), so nothing flickers back between strokes. The rails and the
-  carousel sheet read only that flag. The main rail uses AzNavRail's own `isFoldedUp` (OR'd with the
-  four-finger `hideUiForCapture` fold). The right-hand `grp.layers` OPPOSITE host
-  uses the library's `expandWhen` (`userExpanded && !drawingHidden`), so a host the user collapsed is
-  never force-expanded, and a collapse reported while hidden is not persisted to `railExpansion`.
-  Nothing is added to the pointer path; the UI just observes the flag. The fold and the host
-  collapse/expand animate at AzNavRail 11.52's own speed: the library exposes no duration or spec for
-  either (`isFoldedUp` is a plain Boolean; `azKinetics`' timings cover only the drawer's menu words).
+  carousel sheet read only that flag. The rails and menus are ghosted by `ShownWhenNotDrawing`
+  (below); the four-finger `hideUiForCapture` gate (`MainActivity.kt:1340`) skips the whole chrome block (tool rail, layers rail, logo menu and the rest of it), and a small button brings it back.
+  Nothing is added to the pointer path; the UI just observes the flag.
   **Ghosted, not gone.** The chrome MainActivity wraps in `ShownWhenNotDrawing` (rails, rail menus,
   logo menu) and the editor's `HiddenWhileDrawing` (nib-angle dial) go through `GhostWhileDrawing`
   (`feature/editor/ChromeHidden.kt`): while hidden they fade in `CHROME_FADE_OUT_MS` (150ms) to a
@@ -740,10 +705,10 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading
 does not apply to depth-pass members. Full detail: `spec/3d-space.md`, "Limits".
 
-## Painterly realism (design only)
+## Painterly realism (partly built)
 
 `spec/painterly.md` audits how closely the stroke-program, wet-paint, impasto and Color Smudge systems
 reproduce a loaded paintbrush, and specifies the extensions, a painter's brush set (as azphalt asset
-packs) and a physical palette that would close the gaps. Nothing in it is implemented. It extends the
+packs) and a physical palette that would close the gaps. It is partly built: see its "Build status" for what is and is not on `main`. It extends the
 contract in `spec/stroke-program.md` and keeps the "colour is not medium" and "renderers consume
 resolved geometry" rules.
