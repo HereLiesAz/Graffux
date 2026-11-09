@@ -296,9 +296,12 @@ Key properties, all directly asserted in the code:
 - **Read-only, normatively.** `insert`/`update`/`delete` all throw
   `UnsupportedOperationException("azphalt extension state is read-only")` rather than failing
   quietly: "a store that believes it wrote something is worse than one that knows it cannot."
-- **Gated by a `normal`-protection-level permission** — "any app can declare it and read with no user
-  prompt." This is a deliberately low bar because of the next point:
-- **Privacy**: "Nothing in a row identifies a device, a user, or an install." The exposed columns are
+- **Gated by a `normal`-protection-level permission** — any installed app can declare it and read with
+  no user prompt, so the list of the user's extensions (ids, versions, states, timestamps) is readable by
+  any installed app, not only a store the user chose. That is a disclosure the host's privacy policy
+  makes; it is a low bar on purpose, because of the next point:
+- **Privacy**: no row identifies a device, a user, or an install (though the list of extensions is itself
+  personal, as above). The exposed columns are
   exactly the five `ExtensionStateEntry` fields (`id`, `version`, `state`, `at`, `reason`), all
   `TEXT`, with `at` stored as the same ISO-8601 string the wire format uses (not millis), "so a row
   and a wire entry are the same thing." `selection`/`sortOrder` query params are deliberately ignored
@@ -307,8 +310,7 @@ Key properties, all directly asserted in the code:
   proportion to what it buys."
 - **`reason` sanitization**: `reason` is free text sourced from a caught exception's raw `.message` —
   which can leak a `content://` URI or an absolute file path (e.g. from a revoked document-permission
-  grant). `ExtensionStateStore.sanitizeReason` strips anything matching a URI-or-absolute-path regex
-  to `"[redacted]"` and truncates to 200 characters, applied "once, at the one place every reason
+  grant). `ExtensionStateStore.sanitizeReason` scrubs it with a linear scan (spec/state-reporting.md § 3.1: tokens holding a URI, reading as a path, or naming a data file become `"[redacted]"`; the first 400 characters are read and the result is cut to 200), applied "once, at the one place every reason
   actually gets written, rather than trusting every future caller to remember to" — specifically
   because the provider's privacy promise ("nothing in a row identifies a device, a user, or an
   install") would otherwise be false for exactly the failure case most likely to occur under

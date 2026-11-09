@@ -2,6 +2,7 @@
 
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -22,8 +23,12 @@ import com.hereliesaz.graffitixr.design.components.GraffuxAlertDialog
 import com.hereliesaz.graffitixr.design.theme.GestureHelpStrings
 
 /** One line of the gesture help: each multi-finger slot and what it is set to now. */
-internal fun gestureHelpLines(mapping: Map<GestureSlot, GestureAction>): List<String> =
-    GestureSlot.entries.map { slot -> "${slot.label}: ${(mapping[slot] ?: slot.defaultAction).label}" }
+internal fun gestureHelpLines(
+    mapping: Map<GestureSlot, GestureAction>,
+    slotName: (GestureSlot) -> String = { it.label },
+    actionName: (GestureAction) -> String = { it.label },
+): List<String> =
+    GestureSlot.entries.map { slot -> "${slotName(slot)}: ${actionName(mapping[slot] ?: slot.defaultAction)}" }
 
 /**
  * Every gesture the editor answers to, in one place (menu → Gestures…): the reassignable
@@ -38,6 +43,8 @@ internal fun GestureHelpDialog(
     onOpenSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val slotNames = GestureSlot.entries.associateWith { stringResource(it.labelRes()) }
+    val actionNames = GestureAction.entries.associateWith { stringResource(it.labelRes()) }
     GraffuxAlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text(close) } },
@@ -51,7 +58,7 @@ internal fun GestureHelpDialog(
                     .testTag("gesture.help"),
             ) {
                 Text(strings.intro, style = MaterialTheme.typography.bodyMedium)
-                gestureHelpLines(mapping).forEach {
+                gestureHelpLines(mapping, { slotNames.getValue(it) }, { actionNames.getValue(it) }).forEach {
                     Text("• $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
                 }
                 Text(

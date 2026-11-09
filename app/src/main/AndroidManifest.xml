@@ -27,9 +27,11 @@
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
     <!-- Held by a conforming azphalt store app to read this host's extension states
-         (spec/state-reporting.md § 3.2). Protection level `normal`: the rows carry no account identifiers and
-         no user content; the list of installed extensions is itself shared with the store the user
-         picks (PRIVACY_POLICY.md § 6). -->
+         (spec/state-reporting.md § 3.2). Protection level `normal`: Android grants it, without a prompt, to
+         any installed app that declares it, so the list of installed extensions (ids, versions, states) is
+         readable by any installed app, not only the store the user picks. The rows carry no account
+         identifiers and no user content; the list itself is personal and is disclosed in
+         PRIVACY_POLICY.md § 6. -->
     <permission
         android:name="azphalt.permission.READ_EXTENSION_STATE"
         android:protectionLevel="normal" />
@@ -85,8 +87,9 @@
 
              Read-only and permission-gated: a store app has no business writing a host's state, and
              the authority is only ever handed out on a browse request (azphalt.extra.STATE_AUTHORITY),
-             which the spec requires a store not to query without. Nothing in a row identifies a
-             device, a user or an install. -->
+             which the spec requires a store not to query without. No row identifies a device, a user
+             or an install, but the rows list the user's extensions and any installed app can be granted the
+             permission (see the permission's comment). -->
         <provider
             android:name="com.hereliesaz.graffitixr.data.azphalt.ExtensionStateProvider"
             android:authorities="${applicationId}.azphalt.state"

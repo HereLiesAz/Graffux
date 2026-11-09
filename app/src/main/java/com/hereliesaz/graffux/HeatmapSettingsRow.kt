@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -64,8 +65,8 @@ internal fun HeatmapSettingsRow() {
                 probe.awaitSettled(HEATMAP_PROBE_TIMEOUT_MS).also { probe.stop() }
             }
             val ok = result.streaming
-            val line = if (result.settled) result.describe() else "No answer from su within 30 s"
-            status = if (ok) line else "Turned off. $line"
+            val line = if (result.settled) result.describe() else context.getString(R.string.settings_heatmap_no_answer)
+            status = if (ok) line else context.getString(R.string.settings_heatmap_turned_off, line)
             on = ok
             checking = false
             prefs.edit().putBoolean(STROKE_HEATMAP_KEY, ok).putString(STROKE_HEATMAP_STATUS_KEY, status).apply()
@@ -73,11 +74,9 @@ internal fun HeatmapSettingsRow() {
     }
 
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-        Text("Raw touch heatmap (root)", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.settings_heatmap), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Rooted devices only. Also records the touch controller's raw capacitive image around " +
-                "each stroke -- the real contact shape -- through a small read-only helper run with su. " +
-                "Turning it on asks for root now. Applies next time the canvas opens.",
+            stringResource(R.string.settings_heatmap_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -88,7 +87,7 @@ internal fun HeatmapSettingsRow() {
                     selected = option == on,
                     enabled = !checking,
                     onClick = { select(option) },
-                    label = if (option) "On" else "Off",
+                    label = stringResource(if (option) R.string.settings_on else R.string.settings_off),
                 )
             }
         }

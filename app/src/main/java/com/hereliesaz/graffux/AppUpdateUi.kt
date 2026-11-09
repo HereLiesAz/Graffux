@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,9 +47,9 @@ fun LaunchUpdatePrompt() {
 fun UpdateDialog(update: UpdateStatus.Available, onDismiss: () -> Unit) {
     val context = LocalContext.current
     ConfirmDialog(
-        title = "Update available",
-        message = "Graffux ${update.version} is on ${update.channel.label}.",
-        confirmLabel = "Open ${update.channel.label}",
+        title = stringResource(R.string.update_available),
+        message = stringResource(R.string.update_available_message, update.version, update.channel.label),
+        confirmLabel = stringResource(R.string.update_open_channel, update.channel.label),
         onConfirm = { onDismiss(); AppUpdateCheck.open(context, update) },
         onDismiss = onDismiss,
     )
@@ -68,20 +69,20 @@ fun CheckForUpdatesRow() {
     val channel = remember { AppUpdateCheck.channel(context) }
     val subtitle = when (val s = status) {
         null -> if (channel == UpdateChannel.OTHER) {
-            "Installed from another app store, which delivers its own updates."
+            stringResource(R.string.update_other_store)
         } else {
-            "Installed from ${channel.label}; updates come from there."
+            stringResource(R.string.update_from_channel, channel.label)
         }
         is UpdateStatus.UpToDate -> if (s.channel == UpdateChannel.OTHER) {
-            "Your app store handles updates for this install."
+            stringResource(R.string.update_store_handles)
         } else {
-            "Up to date on ${s.channel.label}."
+            stringResource(R.string.update_up_to_date, s.channel.label)
         }
-        is UpdateStatus.Available -> "Graffux ${s.version} is on ${s.channel.label}. Tap to open it."
-        is UpdateStatus.Failed -> "Couldn't check ${s.channel.label}: ${s.reason}. Tap to try again."
+        is UpdateStatus.Available -> stringResource(R.string.update_is_on, s.version, s.channel.label)
+        is UpdateStatus.Failed -> stringResource(R.string.update_failed, s.channel.label, s.reason)
     }
     ActionRow(
-        title = if (checking) "Checking…" else "Check for updates",
+        title = stringResource(if (checking) R.string.update_checking else R.string.update_check),
         subtitle = subtitle,
         onClick = {
             val current = status

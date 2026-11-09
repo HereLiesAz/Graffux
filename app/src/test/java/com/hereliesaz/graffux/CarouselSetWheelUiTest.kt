@@ -286,4 +286,46 @@ class CarouselSetWheelUiTest {
         }
     }
 
+
+    // ---- touch band ---------------------------------------------------------------------------------
+
+    /** A touch at [radiusFromRim] dp inside the outer rim, along [label]'s spoke, in the wheel's own coordinates. */
+    private fun tapBelowRim(label: String, dpInsideRim: Float) {
+        val d = rule.density.density
+        val wheel = wheelBounds()
+        val hub = hubIn(wheel.width)
+        val spoke = Math.toRadians(angleOf(label).toDouble())
+        val r = (WheelArcRadius.value - dpInsideRim) * d
+        val at = Offset((hub.x + r * cos(spoke)).toFloat(), (hub.y + r * sin(spoke)).toFloat())
+        rule.onNodeWithTag("carousel.wheel").performTouchInput { click(at) }
+        rule.waitForIdle()
+    }
+
+    @Test
+    fun `a tap just under the drawn band, inside the 48dp band, still picks that name`() {
+        compose()
+        rule.mainClock.autoAdvance = false
+        // 42dp in from the rim: past the drawn band (36dp), inside the touch band (48dp).
+        tapBelowRim("Round", dpInsideRim = 42f)
+        advance(100)
+        assertEquals(listOf("basic.round"), picks)
+    }
+
+    @Test
+    fun `a tap beyond the 48dp band picks nothing`() {
+        compose()
+        rule.mainClock.autoAdvance = false
+        tapBelowRim("Round", dpInsideRim = 54f)
+        advance(WHEEL_DWELL_MS * 2)
+        assertTrue(picks.isEmpty())
+    }
+
+    @Test
+    fun `each name's accessibility node is a 48dp target`() {
+        compose()
+        val min = 48 * rule.density.density
+        rule.onAllNodesWithTag("carousel.wheel.item").fetchSemanticsNodes().forEach {
+            assertTrue("${it.size}", it.size.width >= min - 1 && it.size.height >= min - 1)
+        }
+    }
 }

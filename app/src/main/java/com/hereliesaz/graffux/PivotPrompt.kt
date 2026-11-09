@@ -17,15 +17,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.unit.dp
-
-/** What the armed "Relocate rotation point" chip says. */
-internal const val PIVOT_PROMPT = "Tap the scene to set the point it rotates about."
 
 /**
  * The "Relocate rotation point" prompt: it says plainly what to do and stays until a tap places the
@@ -35,6 +33,7 @@ internal const val PIVOT_PROMPT = "Tap the scene to set the point it rotates abo
 @Composable
 internal fun PivotPromptChip(onCancel: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler(onBack = onCancel)
+    val prompt = stringResource(R.string.pivot_prompt)
     val shape = RoundedCornerShape(12.dp)
     val colors = MaterialTheme.colorScheme
     Column(
@@ -47,13 +46,13 @@ internal fun PivotPromptChip(onCancel: () -> Unit, modifier: Modifier = Modifier
             .padding(start = 16.dp, top = 12.dp, end = 4.dp),
     ) {
         Text(
-            PIVOT_PROMPT,
+            prompt,
             style = MaterialTheme.typography.bodyMedium,
             color = colors.onSurface,
             modifier = Modifier
                 .padding(end = 12.dp)
                 .clearAndSetSemantics {
-                    contentDescription = PIVOT_PROMPT
+                    contentDescription = prompt
                     liveRegion = LiveRegionMode.Polite
                 },
         )
@@ -65,6 +64,12 @@ internal fun PivotPromptChip(onCancel: () -> Unit, modifier: Modifier = Modifier
                 .clickable(role = Role.Button, onClick = onCancel)
                 .padding(horizontal = 14.dp)
                 .testTag("pivot.prompt.cancel"),
-        ) { Text("Cancel", style = MaterialTheme.typography.labelLarge, color = colors.primary) }
+        ) {
+            Text(
+                stringResource(R.string.pivot_cancel),
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.primary,
+            )
+        }
     }
 }

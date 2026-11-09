@@ -17,12 +17,22 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 [`tools/stroke-model/SCHEMA.md`](../../tools/stroke-model/SCHEMA.md); the privacy policy is
 [`docs/PRIVACY_POLICY.md`](../../docs/PRIVACY_POLICY.md) § 4. The branch is public.
 
+What leaves the device, and what stays: the relay upload is the only automatic, background path for stroke training data.
+Stroke programs a project records for replay are a different thing: `strokes.json` is saved into the project folder
+(`ProjectRepositoryImpl.saveArtifact`, under `projects/<id>`), so a project export (`ProjectManager.writeProjectArchive` zips the
+whole folder) and a device-to-device transfer carry it, but only when you do those. Graffux's co-op emitter is a no-op (`app/.../di/CoopModule.kt`), so no strokes go to other devices. Before
+upload, session files sit in the app's private `stroke-data` directory, which Android backup and device
+transfer exclude (`app/src/main/res/xml/data_extraction_rules.xml`, `backup_rules.xml`); a file is deleted
+once the relay has it, or when the relay rejects it for good (`StrokeDataUploader.kt`). The file path on the
+public branch carries the device model and the session start time. The policy wording is in
+`docs/PRIVACY_POLICY.md` § 4.
+
 ## What the Worker accepts
 
 | Check | Result |
 |---|---|
 | anything but `PUT /v1/stroke-data/<device>/<file>` | 404 / 405 |
-| `<device>` not `[A-Za-z0-9-]{1,48}`, or `<file>` not `session-<digits>.jsonl.gz` | 400 |
+| `<device>` not `[A-Za-z0-9-]{1,48}`, or `<file>` not `session-<10 to 16 digits>.jsonl.gz` | 400 |
 | no `Content-Length` | 411 |
 | over 8 MiB, or empty (counted while reading, not trusted from `Content-Length`) | 413 |
 | not gzip, the first line is not a `{"type":"session","schema":<n>}` line, more than 1000 lines, or a value nested more than 12 deep | 415 |
@@ -30,12 +40,13 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 | the rate limiter binding is missing or throws | 503. The relay closes instead of running unlimited. |
 | GitHub conflict while two uploads move the branch | retried 3 times, then 502 |
 | the file is already on the branch | 200 `exists` (retries are safe) |
-| the branch is missing | 503. The Worker never creates it, so a deleted branch is visible. |
+| no GitHub token from the binding or the `GITHUB_TOKEN` fallback | 503 |
+| the branch is missing (GitHub 404 or 422) | 503. The Worker never creates it, so a deleted branch is visible. |
 | stored | 201 `stored` |
 
 Files land at `stroke-data/<device>/<file>` with the commit message `stroke data: <device>/<file> [skip ci]`. The `[skip ci]` matters: the `stroke-data` branch was cut from `main` and still carries an old workflow that builds on every push, so without it each upload would start a full app build.
 
-This is spam and abuse *limiting*, not authentication: nothing in an open-source app can prove a
+**This is spam and abuse *limiting*, not authentication. The relay does not authenticate callers.** Nothing in an open-source app can prove a
 request came from the app. What keeps the branch clean is content, not identity: the whole file is
 inflated (capped at 24 MB, each line at 2 MB), every line must be a `session`, `stroke` or `hover`
 record whose top-level fields are the ones in SCHEMA.md, every key is a short identifier (at most 48

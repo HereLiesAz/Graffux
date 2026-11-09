@@ -100,6 +100,13 @@ internal val WheelArcRadius = 420.dp
 /** The band's thickness, rim to rim: room for one line of name with air above and below. */
 internal val WheelBandThickness = 36.dp
 
+/**
+ * The band a touch turns or picks on: the drawn band plus this much more on its inner side (toward the
+ * screen's bottom edge, away from the cards), so the target is the 48dp minimum though the band is drawn
+ * [WheelBandThickness] thick. The extra is clipped by the box where the band curves out of it.
+ */
+internal val WheelTouchThickness = 48.dp
+
 /** The outer rim's top (at the pointer) sits this far below the box's top. */
 internal val WheelTopPad = 2.dp
 
@@ -311,6 +318,7 @@ private fun SetWheelBand(
     val density = LocalDensity.current
     val outerPx = with(density) { WheelArcRadius.toPx() }
     val innerPx = with(density) { (WheelArcRadius - WheelBandThickness).toPx() }
+    val touchInnerPx = with(density) { (WheelArcRadius - WheelTouchThickness).toPx() }
     val textRPx = with(density) { WheelTextRadius.toPx() }
     val topPx = with(density) { WheelTopPad.toPx() }
     val widthPx = with(density) { width.toPx() }
@@ -334,7 +342,7 @@ private fun SetWheelBand(
     // Enough arc either side of the pointer to reach past the box's edges; the box clips the rest.
     val halfArc = wheelVisibleArcDegrees(width) / 2 + WHEEL_WEDGE_DEGREES
     fun angleOf(p: Offset) = (atan2(p.y - hub.y, p.x - hub.x) * HALF_TURN / PI).toFloat()
-    fun onBand(p: Offset) = hypot(p.x - hub.x, p.y - hub.y) in innerPx..outerPx
+    fun onBand(p: Offset) = hypot(p.x - hub.x, p.y - hub.y) in touchInnerPx..outerPx
 
     fun move(by: Int) {
         val from = motion.committed ?: currentSelected
@@ -448,7 +456,7 @@ private fun SetWheelBand(
         // One selectable node per set, riding on its name, for accessibility services: selecting
         // one commits it at once. Placement only, so turning the wheel recomposes nothing. Touches
         // pass through to the wheel's own tap handling.
-        val itemSize = 28.dp
+        val itemSize = WheelTouchThickness
         val itemPx = with(density) { itemSize.toPx() }
         sets.forEachIndexed { i, set ->
             val label = labels[set.key] ?: set.label

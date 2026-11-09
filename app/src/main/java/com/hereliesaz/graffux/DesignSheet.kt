@@ -418,7 +418,7 @@ internal fun PropertiesPanel(
             Text(
                 target?.kind ?: "DESIGN",
                 color = DesignInk.Faint,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 letterSpacing = 0.88.sp,
                 fontFamily = com.hereliesaz.graffitixr.design.theme.RobotoMonoFamily,
             )
