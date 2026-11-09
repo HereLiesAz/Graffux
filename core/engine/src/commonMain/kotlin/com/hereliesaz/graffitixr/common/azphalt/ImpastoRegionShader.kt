@@ -88,7 +88,7 @@ object ImpastoRegionShader {
         val out = rawRegion.copyOf()
         if (regionWidth <= 0 || regionHeight <= 0 || canvasWidth <= 0 || canvasHeight <= 0) return out
         val material = medium.sanitized()
-        if (mediumAt == null && reliefStrength <= 0f && material.wetSpecularStrength <= 0f) return out
+        if (mediumAt == null && reliefStrength <= 0f && material.wetSpecularStrength <= 0f && material.sheen <= 0f) return out
 
         val azimuth = lightAzimuthDeg * DEG_TO_RAD
         val elevation = lightElevationDeg * DEG_TO_RAD
@@ -131,7 +131,7 @@ object ImpastoRegionShader {
                     ).coerceIn(MIN_WET_ROUGHNESS, 1f)
                 val shininess = 4f + (1f - roughness) * 60f
                 val nDotH = (nx * hx + ny * hy + nz * hz).coerceIn(0f, 1f)
-                val specular = localMaterial.wetSpecularStrength * wet *
+                val specular = (localMaterial.wetSpecularStrength * wet + localMaterial.sheen) *
                     nDotH.toDouble().pow(shininess.toDouble()).toFloat()
                 val index = localY * regionWidth + localX
                 out[index] = shadeRgb(rawRegion[index], multiplier, specular)

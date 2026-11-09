@@ -141,12 +141,12 @@ class StrokeProgram private constructor(
         val OUTPUTS = listOf(
             "shiftX" to 0f, "shiftY" to 0f, "sizeMul" to 1f, "alphaMul" to 1f, "tipMul" to 1f,
             "hardMul" to 1f, "rotate" to 0f, "hueShift" to 0f, "satMul" to 1f, "valMul" to 1f,
-            "gapMul" to 1f, "hide" to 0f,
+            "gapMul" to 1f, "hide" to 0f, "heightMul" to 1f,
         )
 
         /** The fields an `emit { ... }` may set. */
         val EMIT_FIELDS = listOf(
-            "x", "y", "size", "alpha", "angle", "tip", "hard", "hue", "sat", "val", "mix", "flow",
+            "x", "y", "size", "alpha", "angle", "tip", "hard", "hue", "sat", "val", "mix", "flow", "h",
         )
 
         fun compile(spec: StrokeProgramSpec): StrokeProgramCompilation = try {
@@ -949,6 +949,7 @@ class StrokeProgramRunner internal constructor(
             val hue = output("hueShift")
             val sat = output("satMul").coerceAtLeast(0f)
             val value = output("valMul").coerceAtLeast(0f)
+            val heightMul = output("heightMul").coerceAtLeast(0f)
             for (d in base) {
                 out.add(
                     d.copy(
@@ -962,6 +963,7 @@ class StrokeProgramRunner internal constructor(
                         hueShiftDeg = d.hueShiftDeg + hue,
                         saturationMultiplier = d.saturationMultiplier * sat,
                         valueMultiplier = d.valueMultiplier * value,
+                        heightMul = d.heightMul * heightMul,
                         mask = d.mask?.copy(x = d.mask.x + sx, y = d.mask.y + sy),
                     ),
                 )
@@ -994,6 +996,7 @@ class StrokeProgramRunner internal constructor(
             valueMultiplier = field(9)?.coerceAtLeast(0f) ?: 1f,
             colorMix = field(10)?.coerceIn(0f, 1f) ?: template.colorMix,
             flowMultiplier = field(11)?.coerceAtLeast(0f) ?: template.flowMultiplier,
+            heightMul = field(12)?.coerceAtLeast(0f) ?: template.heightMul,
             sourceRandom = vm.rng.nextFloat(),
             mask = null,
         )

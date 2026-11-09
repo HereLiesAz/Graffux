@@ -26,6 +26,7 @@ pub struct MaterialDab {
     pub alpha: f32,
     pub flow: f32,
     pub contact: f32,
+    /// `_pad[0]` is `Dab.heightMul - 1` (0 = unchanged); `_pad[1]` is unused.
     pub _pad: [f32; 2],
 }
 
@@ -41,10 +42,16 @@ impl MaterialDab {
             _pad: [0.0; 2],
         }
     }
+
+    /// The same dab with `Dab.heightMul` (impasto height multiplier; 1 = unchanged).
+    pub fn with_height_mul(mut self, height_mul: f32) -> Self {
+        self._pad[0] = height_mul.max(0.0) - 1.0;
+        self
+    }
 }
 
 /// Floats per tile in the media table: viscosity, yield-like strength, levelling rate, drying
-/// rate, base roughness, wet specular strength, then two unused (sanitized `PaintMedium` values).
+/// rate, base roughness, wet specular strength, dry sheen, then one unused (sanitized `PaintMedium` values).
 pub const WET_MEDIA_FLOATS: usize = 8;
 /// Dab flag bits from [`Engine::wet_read_ctl`].
 pub const WET_FLAG_HEIGHT: u32 = 1;

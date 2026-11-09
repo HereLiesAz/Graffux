@@ -64,6 +64,13 @@ data class Dab(
      * the exact meaning of every pre-Phase-3 argument.
      */
     val contactDepth: Float = 1f,
+    /**
+     * Multiplier on how much paint HEIGHT this dab lays (impasto), independent of its colour opacity.
+     * 1 (the default) is today's behaviour exactly. A stroke program sets it per `emit { h: }` so a
+     * flat brush can lay its edge lanes thicker than its centre (the rim ridge of a loaded flat).
+     * Appended at the end of the value contract like [contactDepth]. See spec/painterly.md E5.
+     */
+    val heightMul: Float = 1f,
 )
 
 object BrushStamps {

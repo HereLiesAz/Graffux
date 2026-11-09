@@ -105,7 +105,7 @@ internal object GpuImpastoStroke {
             out[o + X] = d.x
             out[o + Y] = d.y
             out[o + RADIUS] = d.radius
-            out[o + STRENGTH] = d.alpha.coerceIn(0f, 1f) * d.flowMultiplier.coerceAtLeast(0f)
+            out[o + STRENGTH] = d.alpha.coerceIn(0f, 1f) * d.flowMultiplier.coerceAtLeast(0f) * d.heightMul.coerceAtLeast(0f)
         }
         return out
     }

@@ -58,7 +58,8 @@ struct MaterialDab {
     alpha: f32,
     flow: f32,
     contact: f32,
-    _p0: f32,
+    // Dab.heightMul - 1 (0 = today's behaviour, so a caller that leaves the pad zero is unchanged).
+    height_bias: f32,
     _p1: f32,
 };
 
@@ -70,6 +71,7 @@ const M_LEVELING: u32 = 2u;
 const M_DRYING: u32 = 3u;
 const M_ROUGHNESS: u32 = 4u;
 const M_SPECULAR: u32 = 5u;
+const M_SHEEN: u32 = 6u;
 
 const CONTACT_LOAD_EXCHANGE: f32 = 0.12;
 const MIN_TRANSFER_RATE: f32 = 1e-4;
@@ -345,7 +347,7 @@ fn transfer(@builtin(local_invocation_index) lid: u32) {
             let c = contact_at(k, b, d);
             if (!c.ok) { continue; }
             mass = mass + c.cov_sel;
-            let inc = deposit_k * load_at_start * c.contact;
+            let inc = deposit_k * load_at_start * c.contact * max(1.0 + d.height_bias, 0.0);
             dep = dep + max(build_up(c.before, inc) - c.before, 0.0);
         }
         red_a[lid] = dep;
@@ -387,7 +389,7 @@ fn transfer(@builtin(local_invocation_index) lid: u32) {
             var local_h = 0.0;
             var q = 0.0;
             if (c.ok) {
-                let inc = deposit_k * load_at_start * c.contact;
+                let inc = deposit_k * load_at_start * c.contact * max(1.0 + d.height_bias, 0.0);
                 local_h = clamp(build_up(c.before, inc), 0.0, 1.0);
                 q = min(local_h, rate * p.f4 * capacity * c.contact);
             }
@@ -613,7 +615,7 @@ fn shade_material(@builtin(global_invocation_id) gid: vec3<u32>) {
     let n_dot_h = clamp(nx * p.f4 + ny * p.f5 + nz * p.f6, 0.0, 1.0);
     var lobe = 0.0;
     if (n_dot_h > 0.0) { lobe = pow(n_dot_h, shininess); }
-    let specular = medium(x, y, M_SPECULAR) * wet * lobe;
+    let specular = (medium(x, y, M_SPECULAR) * wet + medium(x, y, M_SHEEN)) * lobe;
     let idx = u32(y * p.width + x);
     let c = raw[idx];
     let add = 255.0 * clamp(specular, 0.0, 1.0);

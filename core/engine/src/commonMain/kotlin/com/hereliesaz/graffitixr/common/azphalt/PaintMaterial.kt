@@ -28,6 +28,12 @@ data class PaintMedium(
     val baseRoughness: Float = 1f,
     /** White/specular response contributed by wetness; 0 preserves historical relief shading. */
     val wetSpecularStrength: Float = 0f,
+    /**
+     * Dry specular sheen, normalized 0..1: the gloss a dried acrylic or oil bead keeps, so a thick
+     * ridge catches a highlight without being wet. 0 (the default) preserves historical output.
+     * [wetSpecularStrength] still adds to it while wet. Appended after the original fields.
+     */
+    val sheen: Float = 0f,
 ) {
     fun sanitized(): PaintMedium = copy(
         viscosity = viscosity.coerceIn(0f, 1f),
@@ -35,6 +41,7 @@ data class PaintMedium(
         levelingRate = levelingRate.coerceIn(0f, 1f),
         baseRoughness = baseRoughness.coerceIn(0f, 1f),
         wetSpecularStrength = wetSpecularStrength.coerceIn(0f, 1f),
+        sheen = sheen.coerceIn(0f, 1f),
         dryingRate = dryingRate.coerceAtLeast(0f),
         pickupRate = pickupRate.coerceIn(0f, 1f),
         depositionRate = depositionRate.coerceIn(0f, 1f),
@@ -46,7 +53,7 @@ data class PaintMedium(
     val usesMaterialPath: Boolean
         get() = mixingModel != MaterialMixingModel.LEGACY_RGB ||
             viscosity != 0f || yieldLikeStrength != 0f || levelingRate != 0f ||
-            baseRoughness != 1f || wetSpecularStrength != 0f || dryingRate != 0f || pickupRate != 0f ||
+            baseRoughness != 1f || wetSpecularStrength != 0f || sheen != 0f || dryingRate != 0f || pickupRate != 0f ||
             depositionRate != 1f || heightResponse != 0f || substrateResponse != 0f
 }
 

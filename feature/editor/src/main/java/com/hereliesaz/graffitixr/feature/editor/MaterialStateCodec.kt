@@ -188,7 +188,7 @@ internal object MaterialStateCodec {
                     rawColorTiles += tileId
                 }
                 if (version >= 2 && flags and FLAG_MEDIUM != 0) {
-                    mediumTiles += readMedium(input, tx, ty)
+                    mediumTiles += readMedium(input, tx, ty, version)
                 }
             }
 
@@ -317,12 +317,14 @@ internal object MaterialStateCodec {
         out.writeFloat(m.levelingRate)
         out.writeFloat(m.baseRoughness)
         out.writeFloat(m.wetSpecularStrength)
+        out.writeFloat(m.sheen)
     }
 
     private fun readMedium(
         input: DataInputStream,
         tx: Int,
         ty: Int,
+        version: Int,
     ): ImpastoMaterialReplayState.TileMediumSnapshot {
         val weight = input.readFloat()
         require(weight.isFinite() && weight > 0f) { "Invalid material medium weight" }
@@ -342,6 +344,8 @@ internal object MaterialStateCodec {
             levelingRate = next(),
             baseRoughness = next(),
             wetSpecularStrength = next(),
+            // Sheen arrived with version 3; an older sidecar has none (0 = unchanged presentation).
+            sheen = if (version >= 3) next() else 0f,
         ).sanitized()
         return ImpastoMaterialReplayState.TileMediumSnapshot(tx, ty, weight, medium)
     }
@@ -355,7 +359,7 @@ internal object MaterialStateCodec {
 
     private const val MAGIC = 0x47584D54 // "GXMT"
     private const val MIN_SUPPORTED_VERSION = 1
-    private const val VERSION = 2
+    private const val VERSION = 3
     private const val FLAG_HEIGHT = 1
     private const val FLAG_WETNESS = 2
     private const val FLAG_RAW_COLOR = 4
