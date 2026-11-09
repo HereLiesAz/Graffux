@@ -99,7 +99,7 @@ class MixerFeedbackUiTest {
         boardAction("Squeeze the chosen tube")
         status().assertTextContains("Squeezed", substring = true)
         boardAction("Dip the brush")
-        status().assertTextContains("Dipped the foreground brush")
+        status().assertTextContains("Dipped the foreground brush", substring = true)
     }
 
     @Test
@@ -115,9 +115,9 @@ class MixerFeedbackUiTest {
     fun `wiping or rinsing an empty brush says so and asks nothing`() {
         compose()
         rule.onNodeWithTag("mixer.wipe").performScrollTo().performClick()
-        status().assertTextContains("The foreground brush holds no paint")
+        status().assertTextContains("The foreground brush holds no paint", substring = true)
         rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
-        status().assertTextContains("The foreground brush holds no paint")
+        status().assertTextContains("The foreground brush holds no paint", substring = true)
         rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
     }
 
@@ -140,7 +140,7 @@ class MixerFeedbackUiTest {
         rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
         rule.onNodeWithTag("mixer.confirmRinse").performScrollTo().performClick()
         assertEquals(0f, board.brush.amount[0], 0f)
-        status().assertTextContains("Rinsed the foreground brush")
+        status().assertTextContains("Rinsed the foreground brush", substring = true)
         rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
     }
 
@@ -149,22 +149,44 @@ class MixerFeedbackUiTest {
         compose()
         loadBrush()
         rule.onNodeWithTag("mixer.wipe").performScrollTo().performClick()
-        status().assertTextContains("Wiped the foreground brush")
+        status().assertTextContains("Wiped the foreground brush", substring = true)
         rule.onNodeWithText("Swap").performScrollTo().performClick()
         assertEquals(1, swaps)
-        status().assertTextContains("Swapped the foreground and background brushes")
+        status().assertTextContains("Swapped the foreground and background brushes", substring = true)
     }
 
     @Test
-    fun `the same action twice is announced twice`() {
+    fun `the same action twice is a changed string on the one live-region node`() {
         compose()
+        fun spoken() = status().fetchSemanticsNode().config.getOrNull(SemanticsProperties.Text)!!.single().text
         boardAction("Squeeze the chosen tube")
-        val first = status().fetchSemanticsNode()
+        val first = spoken()
+        val node = status().fetchSemanticsNode().id
         boardAction("Squeeze the chosen tube")
-        val second = status().fetchSemanticsNode()
-        val text = SemanticsProperties.Text
-        assertEquals(first.config.getOrNull(text), second.config.getOrNull(text))
-        assertTrue("an identical line must be a new live-region node", first.id != second.id)
+        val second = spoken()
+        assertTrue("a repeated line must be a different string", first != second)
+        assertEquals("only an invisible character differs", first.trim('\u200B'), second.trim('\u200B'))
+        assertEquals("one stable node, not a replaced one", node, status().fetchSemanticsNode().id)
+    }
+
+    @Test
+    fun `pressing Rinse announces the question`() {
+        compose()
+        loadBrush()
+        rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
+        status().assertTextContains("Rinse the foreground brush?", substring = true)
+    }
+
+    @Test
+    fun `a cancelled drag announces what it did`() {
+        compose()
+        rule.onNodeWithTag("mixer.board").performScrollTo().performTouchInput {
+            down(center)
+            moveBy(androidx.compose.ui.geometry.Offset(60f, 0f))
+            cancel()
+        }
+        rule.waitForIdle()
+        status().assertTextContains("Squeezed", substring = true)
     }
 
     @Test
@@ -199,7 +221,7 @@ class MixerFeedbackUiTest {
         rule.onNodeWithTag("mixer.rinseRow").assertExists()
         rule.onNodeWithTag("mixer.hand.1").performScrollTo().performClick()
         rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
-        status().assertTextContains("Background brush in hand")
+        status().assertTextContains("Background brush in hand", substring = true)
         rule.onNodeWithTag("mixer.hand.0").performScrollTo().performClick()
         rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
     }
@@ -227,7 +249,7 @@ class MixerFeedbackUiTest {
         val held = board.brush.amount[0]
         rule.onNodeWithTag("mixer.hex").performScrollTo().performTextInput("hello")
         rule.onNodeWithText("Match").performScrollTo().performClick()
-        status().assertTextContains("Not a colour")
+        status().assertTextContains("Not a colour", substring = true)
         assertEquals(held, board.brush.amount[0], 0f)
     }
 

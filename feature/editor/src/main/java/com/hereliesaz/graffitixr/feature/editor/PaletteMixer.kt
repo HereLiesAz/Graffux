@@ -28,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,7 +80,10 @@ internal val MIXER_TUBES = PlaceholderPigments.set.pigments.take(PigmentConcentr
 fun newMixerBoard(): PaletteBoard = PaletteBoard(MIXER_BOARD_SIZE, MIXER_TUBES)
 
 /** One spoken line, numbered so an identical line said twice is still a new announcement. */
-internal data class MixerAnnouncement(val id: Int, val text: String)
+internal data class MixerAnnouncement(val id: Int, val text: String) {
+    /** [text], with an invisible suffix on every other announcement so a repeat is a different string. */
+    val spoken: String get() = if (id % 2 == 0) text + "\u200B" else text
+}
 
 private enum class MixerTool(val label: String, val hint: String) {
     SQUEEZE("Squeeze", "Touch the board to squeeze out the chosen tube"),
@@ -252,6 +254,11 @@ fun PaletteMixerDialog(
         else say(id, handName())
     }
 
+    fun dragDone() {
+        if (tool == MixerTool.MIX) mixed(R.string.mixer_status_mixed)
+        else say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
+    }
+
     fun toBoard(p: Offset): Offset = Offset(
         p.x / boardSize.width * MIXER_BOARD_SIZE,
         p.y / boardSize.height * MIXER_BOARD_SIZE,
@@ -396,10 +403,10 @@ fun PaletteMixerDialog(
                         boardSize = size
                         var last = Offset.Zero
                         detectDragGestures(
-                            onDragEnd = {
-                                if (tool == MixerTool.MIX) mixed(R.string.mixer_status_mixed)
-                                else say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
-                            },
+                            // Ending and cancelling a drag both leave the board changed, so both say what it did,
+                            // and both leave the "last touched spot" where the finger last was.
+                            onDragEnd = { anchor = last; dragDone() },
+                            onDragCancel = { anchor = last; dragDone() },
                             onDragStart = { p ->
                                 last = toBoard(p)
                                 if (tool == MixerTool.MIX) {
@@ -490,7 +497,10 @@ fun PaletteMixerDialog(
                         // Rinsing takes all the paint off the brush in hand, so it asks first; an empty
                         // brush has nothing to lose and says so instead.
                         if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_already_clean, handName())
-                        else rinsing = board.hand
+                        else {
+                            announce(resources.getString(R.string.mixer_rinse_ask, handName()))
+                            rinsing = board.hand
+                        }
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier.testTag("mixer.rinse"))
@@ -560,16 +570,17 @@ fun PaletteMixerDialog(
                 modifier = Modifier.testTag("mixer.match")) }
             // Announced politely whenever it changes (hidden to the eye only by being empty until a board
             // action happens; it is the line under the board the action's words are written to).
-            key(status.id) {
-                Text(
-                    status.text,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .semantics { liveRegion = LiveRegionMode.Polite }
-                        .testTag("mixer.status"),
-                )
-            }
+            // One stable node: a live region announces when its text changes, so the text itself changes on
+            // every announcement (an invisible zero-width space on every other one) and a repeated line is
+            // still a different string. (Whether a screen reader then speaks it twice was not checked on a device.)
+            Text(
+                status.spoken,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .testTag("mixer.status"),
+            )
         }
     }
 }
