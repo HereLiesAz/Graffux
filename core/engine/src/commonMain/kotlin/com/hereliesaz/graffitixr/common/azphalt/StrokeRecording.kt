@@ -54,19 +54,21 @@ data class StrokeRecording(
 ) {
     /** Null when valid, else why not. The reader is fail-closed: a recording is never partly accepted. */
     fun validate(): String? {
-        if (format != FORMAT) return "unknown format $format"
-        if (canvasWidth !in 1..MAX_CANVAS || canvasHeight !in 1..MAX_CANVAS) return "canvas size out of range"
+        headerProblem()?.let { return it }
         if (strokes.size > MAX_STROKES) return "more than $MAX_STROKES strokes"
         var samples = 0L
         for ((i, s) in strokes.withIndex()) {
             samples += s.samples.size
             if (samples > MAX_SAMPLES) return "more than $MAX_SAMPLES samples"
-            if (s.samples.isEmpty()) return "stroke $i has no samples"
-            if (!(s.diameterPx > 0f) || !s.diameterPx.isFinite()) return "stroke $i has a bad brush size"
-            if (s.samples.any { !it.x.isFinite() || !it.y.isFinite() }) return "stroke $i has a non-finite sample"
-            if (s.samples.zipWithNext().any { (a, b) -> b.uptimeMillis < a.uptimeMillis }) return "stroke $i goes back in time"
+            strokeProblem(i, s)?.let { return it }
         }
         return null
+    }
+
+    private fun headerProblem(): String? = when {
+        format != FORMAT -> "unknown format $format"
+        canvasWidth !in 1..MAX_CANVAS || canvasHeight !in 1..MAX_CANVAS -> "canvas size out of range"
+        else -> null
     }
 
     fun toJson(): String = AzphaltJson.encodeToString(serializer(), this)
@@ -80,6 +82,48 @@ data class StrokeRecording(
         /** Parses and validates; null on any problem. */
         fun fromJson(text: String): StrokeRecording? =
             runCatching { AzphaltJson.decodeFromString(serializer(), text) }.getOrNull()?.takeIf { it.validate() == null }
+
+        /** Null when [s] (stroke [i]) is usable, else why not. */
+        internal fun strokeProblem(i: Int, s: StampStrokeRecord): String? = when {
+            s.samples.isEmpty() -> "stroke $i has no samples"
+            !(s.diameterPx > 0f) || !s.diameterPx.isFinite() -> "stroke $i has a bad brush size"
+            s.samples.any { !it.x.isFinite() || !it.y.isFinite() } -> "stroke $i has a non-finite sample"
+            s.samples.zipWithNext().any { (a, b) -> b.uptimeMillis < a.uptimeMillis } -> "stroke $i goes back in time"
+            else -> null
+        }
+
+        /** A recording read back with its bad strokes dropped, and how many were. */
+        class Repaired(val recording: StrokeRecording, val dropped: Int)
+
+        /**
+         * For the project's OWN file, where losing every stroke to one bad one is the wrong trade: the header (format,
+         * canvas size) must be sound, or null; then each stroke is decoded and checked alone and only a bad one is
+         * dropped, and if the rest exceed the caps the oldest go first. [Repaired.dropped] says how many were lost, so
+         * the caller can keep the original file. A shared recording is still read strictly by [fromJson].
+         */
+        fun fromJsonRepairing(text: String): Repaired? {
+            val root = runCatching { AzphaltJson.parseToJsonElement(text) }.getOrNull() as? kotlinx.serialization.json.JsonObject
+                ?: return null
+            val items = root["strokes"] as? kotlinx.serialization.json.JsonArray ?: return null
+            val shell = runCatching {
+                AzphaltJson.decodeFromJsonElement(
+                    serializer(),
+                    kotlinx.serialization.json.JsonObject(root + ("strokes" to kotlinx.serialization.json.JsonArray(emptyList()))),
+                )
+            }.getOrNull()?.takeIf { it.headerProblem() == null } ?: return null
+            val good = ArrayList<StampStrokeRecord>()
+            items.forEachIndexed { i, el ->
+                val s = runCatching { AzphaltJson.decodeFromJsonElement(StampStrokeRecord.serializer(), el) }.getOrNull()
+                if (s != null && strokeProblem(i, s) == null) good += s
+            }
+            var dropped = items.size - good.size
+            var samples = good.sumOf { it.samples.size.toLong() }
+            while (good.isNotEmpty() && (good.size > MAX_STROKES || samples > MAX_SAMPLES)) {
+                samples -= good.removeAt(0).samples.size
+                dropped++
+            }
+            return Repaired(shell.copy(strokes = good), dropped)
+        }
     }
 }
 
