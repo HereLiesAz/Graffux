@@ -30,10 +30,12 @@ If the App crashes or freezes, it writes a technical report to its own private c
   Stripe and Slack ones), cookies, IP and MAC addresses, email addresses, file and content
   addresses, and private storage and home-directory paths. Redaction of
   free-form text cannot be perfect.
-- **Stroke-prediction rankings:** with the same token connected, the App also files a short
-  ranking of its stroke-prediction models (your device model, Android and App version, and timing
-  numbers; no drawings) as a public issue. They are redacted the same way, and one left over from a
-  run that ended unexpectedly is sent on the next launch only if crash reports are switched on.
+- **Stroke-prediction rankings:** with the same token connected **and** "Send crash reports"
+  switched on, the App also files a short ranking of its stroke-prediction models (your device
+  model, Android and App version, and timing numbers; no drawings) as a public issue. With the
+  switch off nothing is counted, saved or sent, and strokes drawn before you switch it on are never
+  included. They are redacted the same way, and one left over from a run that ended unexpectedly is
+  sent on the next launch only if crash reports are still switched on.
 - **Stopping:** switch the setting off. To have a posted report removed, contact us (section 9).
 
 ## 4. Stroke-Model Training Data (Opt-In)

@@ -15606,6 +15606,7 @@ class EditorViewModel @Inject constructor(
         override fun save(title: String, body: String) {
             // Nothing can file it without a connected token, so don't write a file per stroke for nothing.
             if (predictionReports?.isConnected?.value != true) return
+            if (!com.hereliesaz.graffitixr.common.privacy.ReportConsent.crashReportsEnabled(context)) return
             // First line title, rest body -- CrashIssueUploader's format for this file.
             viewModelScope.launch(serialIo) { runCatching { file.writeText(title + "\n" + body) } }
         }
@@ -15620,6 +15621,7 @@ class EditorViewModel @Inject constructor(
             device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}, " +
                 "Android ${android.os.Build.VERSION.RELEASE}",
             pendingStore = pendingRankingStore,
+            consent = { com.hereliesaz.graffitixr.common.privacy.ReportConsent.crashReportsEnabled(context) },
         ) { title, body, done ->
             val reports = predictionReports ?: return@PredictionRankingReporter done(false)
             viewModelScope.launch(dispatchers.io) {
