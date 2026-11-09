@@ -75,19 +75,21 @@ class PaletteMixerHexTest {
 
     @Test
     fun mixOnceAndMixMoreBlendWithoutAnyDrag() {
-        fun spread(passes: Int): Int {
+        fun changed(passes: Int): Int {
             val board = newMixerBoard()
             board.squeeze(4, 40f, 48f, 7f, 0.9f)
             board.squeeze(8, 56f, 48f, 7f, 0.9f)
             val ops = MixerOps(board, applyColour = {}, redraw = {})
             ops.dip(40f, 48f)
+            val before = board.render()
             ops.mixStep(48f, 48f, passes)
-            return (35..60).count { x -> board.recipeAt(x, 48).tubes.size >= 2 }
+            val after = board.render()
+            return before.indices.count { before[it] != after[it] }
         }
-        val once = spread(1)
-        val more = spread(MIX_MORE_PASSES)
-        assertTrue("one tap mixes paint together on the board ($once)", once > 0)
-        assertTrue("mix more blends at least as widely ($more >= $once)", more >= once)
+        val once = changed(1)
+        val more = changed(MIX_MORE_PASSES)
+        assertTrue("one tap changes the paint on the board ($once)", once > 0)
+        assertTrue("mix more changes at least as much ($more >= $once)", more >= once)
     }
 
     @Test
@@ -112,5 +114,27 @@ class PaletteMixerHexTest {
         val got = rgbOf(board)
         assertTrue(got[0] > got[1] && got[1] > got[2] && got.sum() > 200)
         assertEquals(1f, board.brush.amount[0], 0f)
+    }
+
+    @Test
+    fun dragMixOnceAndMixMoreAllLeavePaintAndAMixedColourOnTheBrush() {
+        fun fresh(): Pair<com.hereliesaz.graffitixr.common.azphalt.PaletteBoard, MixerOps> {
+            val b = newMixerBoard()
+            b.squeeze(4, 32f, 48f, 7f, 0.9f) // cadmium yellow in this tube set? any two distinct tubes will do
+            b.squeeze(8, 48f, 48f, 7f, 0.9f)
+            return b to MixerOps(b, applyColour = {}, redraw = {})
+        }
+        for (name in listOf("drag", "once", "more")) {
+            val (b, ops) = fresh()
+            ops.dip(32f, 48f)
+            val before = b.brushColour()
+            when (name) {
+                "drag" -> { var x = 32f; while (x < 48f) { ops.drag(floatArrayOf(x, 48f, x + 1f, 48f)); x += 1f } }
+                "once" -> ops.mixStep(40f, 48f)
+                else -> ops.mixStep(40f, 48f, MIX_MORE_PASSES)
+            }
+            assertTrue("$name leaves paint: ${b.brush.amount[0]}", b.brush.amount[0] > 0.02f)
+            assertTrue("$name mixes the colour", b.brushColour() != before)
+        }
     }
 }

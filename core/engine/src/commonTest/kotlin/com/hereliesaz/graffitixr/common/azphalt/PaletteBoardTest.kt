@@ -139,4 +139,18 @@ class PaletteBoardTest {
         b.drag(floatArrayOf())
         assertEquals(before, b.surface.amount.sum(), 0f)
     }
+
+    @Test
+    fun anOrdinaryDragFromAYellowDipTowardBlueLeavesMixedPaintOnTheBrush() {
+        val b = board()
+        b.dip(32f, 20f)
+        val yellow = b.brushColour()
+        // one-texel steps, as a slow drag delivers them
+        var x = 32f
+        while (x < 50f) { b.drag(floatArrayOf(x, 20f, x + 1f, 20f)); x += 1f }
+        assertTrue(b.brush.amount[0] > 0.05f, "paint remains after a normal drag: ${b.brush.amount[0]}")
+        assertTrue(b.brushColour() != yellow, "and its colour has mixed")
+        val ids = b.brushRecipe().tubes.map { it.first.id }
+        assertTrue("phthalo-blue" in ids && "cadmium-yellow" in ids, "the brush holds both: $ids")
+    }
 }
