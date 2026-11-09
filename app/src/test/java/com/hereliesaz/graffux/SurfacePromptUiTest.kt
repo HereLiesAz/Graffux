@@ -4,7 +4,9 @@ package com.hereliesaz.graffux
 
 import android.app.Application
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -183,7 +185,7 @@ class SurfacePromptUiTest {
     }
 
     @Test
-    fun `the armed instruction and a warning sit in the centre, a plain notice at the top`() {
+    fun `the armed instruction, a warning and a notice all sit at the top, not over the middle`() {
         val alerts = MessageController().apply {
             show(message = "Saved")
             show(kind = MessageKind.WARNING, message = "No depth model is installed.")
@@ -198,9 +200,27 @@ class SurfacePromptUiTest {
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
         val prompt = rule.onNodeWithTag("surface.prompt").fetchSemanticsNode().boundsInRoot
         val msgs = rule.onAllNodesWithTag("chrome.message").fetchSemanticsNodes().map { it.boundsInRoot }
-        assertTrue(kotlin.math.abs(prompt.center.y - root.center.y) < root.height * 0.2f)
-        assertTrue(msgs.any { it.top < root.height * 0.2f })
-        assertTrue(msgs.any { kotlin.math.abs(it.center.y - root.center.y) < root.height * 0.3f })
+        assertTrue("the instruction is at the top: $prompt", prompt.top < root.height * 0.2f)
+        assertTrue("every message is in the top third", msgs.isNotEmpty() && msgs.all { it.bottom < root.height * 0.45f })
+        // a warning still waits for the user: no timeout path removes it, and it has its OK
+        rule.onAllNodesWithTag("chrome.message.ok").fetchSemanticsNodes().isNotEmpty().let { assertTrue(it) }
+    }
+
+    @Test
+    fun `the popups stay inside the area they are given, below whatever inset sits above it`() {
+        val alerts = MessageController().apply { show(message = "Saved") }
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier.fillMaxSize()
+                        .padding(top = 40.dp),
+                ) {
+                    NoticeStack(false, null, {}, alerts, "OK", { "$it times" }, modifier = androidx.compose.ui.Modifier.fillMaxSize())
+                }
+            }
+        }
+        val msg = rule.onNodeWithTag("chrome.message").fetchSemanticsNode().boundsInRoot
+        assertTrue("below the 40dp inset: $msg", msg.top >= 40f * rule.density.density - 1f)
     }
 
     @Test
