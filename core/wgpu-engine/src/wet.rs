@@ -12,6 +12,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::Engine;
+use crate::gpu_wait::map_read;
 use crate::resident::Rect;
 
 pub const WET_WGSL: &str = include_str!("shaders/wet.wgsl");
@@ -820,33 +821,10 @@ impl Engine {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(src, offset, &self.staging, 0, len);
         self.queue.submit([encoder.finish()]);
-        let slice = self.staging.slice(0..len);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = tx.send(res.is_ok());
+        let copied = map_read(&self.device, &self.staging, 0..len, self.readback_timeout, |mapped| {
+            out.copy_from_slice(&mapped[..len as usize]);
         });
-        if self
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .is_err()
-        {
-            // The map is still pending: cancel it, or the next map_async on this staging buffer
-            // is a validation error.
-            self.staging.unmap();
-            return false;
-        }
-        if !matches!(rx.recv(), Ok(true)) {
-            return false;
-        }
-        let copied = match slice.get_mapped_range() {
-            Ok(mapped) => {
-                out.copy_from_slice(&mapped[..len as usize]);
-                true
-            }
-            Err(_) => false,
-        };
-        self.staging.unmap();
-        copied
+        self.settle_readback(copied)
     }
 }
 

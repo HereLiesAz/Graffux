@@ -20,6 +20,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::Engine;
+use crate::gpu_wait::map_read;
 
 pub const DIRECT_WGSL: &str = include_str!("shaders/direct.wgsl");
 
@@ -553,24 +554,20 @@ impl Engine {
             texture.size(),
         );
         self.queue.submit([encoder.finish()]);
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r.is_ok());
-        });
-        self.device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
-        if !matches!(rx.recv(), Ok(true)) {
-            return None;
-        }
         let mut out = vec![0u8; (row * h) as usize];
-        {
-            let mapped = slice.get_mapped_range().ok()?;
-            for y in 0..h as usize {
-                let src = &mapped[y * padded as usize..y * padded as usize + row as usize];
-                out[y * row as usize..(y + 1) * row as usize].copy_from_slice(src);
-            }
-        }
-        staging.unmap();
+        map_read(
+            &self.device,
+            &staging,
+            0..padded as u64 * h as u64,
+            self.readback_timeout,
+            |mapped| {
+                for y in 0..h as usize {
+                    let src = &mapped[y * padded as usize..y * padded as usize + row as usize];
+                    out[y * row as usize..(y + 1) * row as usize].copy_from_slice(src);
+                }
+            },
+        )
+        .ok()?;
         if bgra {
             out.chunks_exact_mut(4).for_each(|p| p.swap(0, 2));
         }

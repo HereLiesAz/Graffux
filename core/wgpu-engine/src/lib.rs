@@ -11,6 +11,7 @@ pub mod capi;
 pub mod diag;
 pub mod draft;
 pub mod engine;
+pub mod gpu_wait;
 pub mod jni_api;
 pub mod pigment;
 pub mod progress;
