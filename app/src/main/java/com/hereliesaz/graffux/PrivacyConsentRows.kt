@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -16,10 +17,8 @@ fun PrivacyConsentRows() {
     var analytics by remember { mutableStateOf(PrivacyConsent.analyticsEnabled(context)) }
     var crashes by remember { mutableStateOf(PrivacyConsent.crashReportsEnabled(context)) }
     SwitchRow(
-        title = "Usage analytics",
-        subtitle = "Off by default. When on, Google Firebase Analytics records anonymous app usage " +
-            "events (screens opened, app version, device model, country). No drawings, names or " +
-            "location are included.",
+        title = stringResource(R.string.settings_analytics),
+        subtitle = stringResource(R.string.settings_analytics_hint),
         checked = analytics,
         onCheckedChange = {
             analytics = it
@@ -28,11 +27,8 @@ fun PrivacyConsentRows() {
     )
     HorizontalDivider()
     SwitchRow(
-        title = "Send crash reports",
-        subtitle = "Off by default. When on, crashes and freezes after this point are posted as " +
-            "public GitHub issues on HereLiesAz/Graffux: the error, device model, Android and app " +
-            "version, and recent app log lines, with tokens, emails, file paths and coordinates " +
-            "removed. Needs the reports token under About → Developer.",
+        title = stringResource(R.string.settings_crash_reports),
+        subtitle = stringResource(R.string.settings_crash_reports_hint),
         checked = crashes,
         onCheckedChange = {
             crashes = it
