@@ -77,43 +77,101 @@ fn an_input_the_adapter_cannot_dispatch_is_refused_not_a_panic() {
     }
 }
 
+/// Counts errors that reach the device's uncaptured-error handler (instead of panicking the test).
+fn count_uncaptured(device: &graffux_wgpu::wgpu::Device) -> std::sync::Arc<std::sync::atomic::AtomicUsize> {
+    let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let c = n.clone();
+    device.on_uncaptured_error(std::sync::Arc::new(move |_| {
+        c.fetch_add(1, Ordering::SeqCst);
+    }));
+    n
+}
+
+fn bad_buffer(device: &graffux_wgpu::wgpu::Device) {
+    // No usage at all: a validation error.
+    let _ = device.create_buffer(&graffux_wgpu::wgpu::BufferDescriptor {
+        label: Some("invalid"),
+        size: 16,
+        usage: graffux_wgpu::wgpu::BufferUsages::empty(),
+        mapped_at_creation: false,
+    });
+}
+
 #[test]
-fn a_panic_inside_a_scoped_call_leaves_the_shared_device_usable() {
+fn a_panic_inside_a_scoped_call_leaves_its_error_scopes_paired() {
     let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
         common::no_adapter("vulkan");
         return;
     };
+    let seen = count_uncaptured(&gpu.device);
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         gpu.scoped("panics", || -> Option<()> { panic!("body panicked") })
     }));
     assert!(r.is_err());
-    let tables = vec![0.5f32; 3 * PIGMENT_TABLE_FLOATS];
-    assert!(mix_on_gpu(Backends::VULKAN, &tables, 3, &vec![0.3f32; 24]).is_some());
+    // A stale scope left on the stack would swallow this error; paired scopes let it reach the handler.
+    bad_buffer(&gpu.device);
+    assert_eq!(seen.load(Ordering::SeqCst), 1, "an error outside any scope must not be swallowed");
+    // A later scoped call still captures its own error.
+    let caught = gpu.scoped("later", || {
+        bad_buffer(&gpu.device);
+        Some(())
+    });
+    assert!(caught.is_none(), "the call's own scope must capture its error");
+    assert_eq!(seen.load(Ordering::SeqCst), 1, "and it must not leak to the handler");
 }
 
 #[test]
-fn a_refused_map_is_a_clean_failure_with_no_error_from_an_unmap() {
+fn a_refused_map_raises_no_second_error_from_an_unmap() {
     use graffux_wgpu::gpu_wait::{map_read, ReadFailure};
     use graffux_wgpu::wgpu;
-    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+    // Its own device with a counting handler and no error scope: a scope keeps only the first error, which here
+    // is the refusal itself, so a second one (unmapping an idle buffer) would be invisible inside a scope.
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+    desc.backends = Backends::VULKAN;
+    let instance = wgpu::Instance::new(desc);
+    let Some(adapter) = pollster::block_on(instance.enumerate_adapters(Backends::VULKAN)).into_iter().next() else {
         common::no_adapter("vulkan");
         return;
     };
-    // Mapping a buffer that lacks MAP_READ is refused. Inside a scope, the only error is that refusal, not a second
-    // one from unmapping an idle buffer.
-    let wrong = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+    let (device, _queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
+    let seen = count_uncaptured(&device);
+    let wrong = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("no map usage"),
         size: 16,
         usage: wgpu::BufferUsages::STORAGE,
         mapped_at_creation: false,
     });
-    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let r = map_read(&gpu.device, &wrong, 0..16, std::time::Duration::from_secs(5), |_| ());
-    let err = pollster::block_on(scope.pop());
+    let r = map_read(&device, &wrong, 0..16, std::time::Duration::from_secs(5), |_| ());
     assert_eq!(r, Err(ReadFailure::Failed));
-    let text = err.map(|e| e.to_string()).unwrap_or_default().to_lowercase();
-    assert!(!text.contains("not mapped") && !text.contains("unmap"), "unmap raised: {text}");
+    assert_eq!(seen.load(Ordering::SeqCst), 1, "only the refusal itself may raise an error");
+}
+
+#[test]
+fn a_timed_out_read_retires_the_shared_device_and_the_next_call_gets_a_fresh_one() {
+    use graffux_wgpu::gpu_wait::ReadFailure;
+    use graffux_wgpu::wgpu;
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+        common::no_adapter("vulkan");
+        return;
+    };
+    let staging = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("staging"),
+        size: 16,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let before = DEVICES_CREATED.load(Ordering::SeqCst);
+    let r = gpu.read_with(&staging, 0..16, |_| Err(wgpu::PollError::Timeout), |_| ());
+    assert_eq!(r, Err(ReadFailure::TimedOut));
+    let fresh = graffux_wgpu::shared_gpu::shared(Backends::VULKAN).expect("a replacement device");
+    assert!(!std::sync::Arc::ptr_eq(&gpu, &fresh), "the hung device was handed out again");
+    assert_eq!(DEVICES_CREATED.load(Ordering::SeqCst), before + 1);
+    // A refusal that is not a timeout does not retire it.
+    let r = fresh.read_with(&staging, 0..16, |_| Err(wgpu::PollError::WrongSubmissionIndex(0, 0)), |_| ());
+    assert_eq!(r, Err(ReadFailure::Failed));
+    assert!(std::sync::Arc::ptr_eq(&fresh, &graffux_wgpu::shared_gpu::shared(Backends::VULKAN).unwrap()));
 }
 
 #[test]

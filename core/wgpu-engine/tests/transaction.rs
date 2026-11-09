@@ -156,7 +156,9 @@ fn a_dab_that_cannot_be_split_is_refused_not_run_unbounded() {
 
 #[test]
 fn production_chunks_give_bit_identical_results_to_one_dispatch() {
-    use graffux_wgpu::transaction::{try_run_chunked, MAX_CHUNK_COST, MAX_CHUNK_DABS, MAX_DAB_COST};
+    use graffux_wgpu::transaction::{
+        try_run_chunked, TransactionError, MAX_CHUNK_COST, MAX_CHUNK_DABS, MAX_DAB_COST,
+    };
     let f = load();
     let n = f.input.dabs.len() / DAB_FLOATS;
     let mut input = f.input.clone();
@@ -166,9 +168,14 @@ fn production_chunks_give_bit_identical_results_to_one_dispatch() {
     let total = 41 * n;
     for (name, backends) in [("vulkan", wgpu::Backends::VULKAN), ("gl", wgpu::Backends::GL)] {
         // With GRAFFUX_REQUIRE_GPU naming the backend a missing adapter panics here rather than passing.
-        let Ok(whole) = try_run_chunked(backends, &input, u64::MAX, u64::MAX, usize::MAX) else {
-            common::no_adapter(name);
-            continue;
+        let whole = match try_run_chunked(backends, &input, u64::MAX, u64::MAX, usize::MAX) {
+            Ok(w) => w,
+            // Only "no adapter / does not fit" is a skip; any other failure of the baseline is a failure.
+            Err(TransactionError::Unavailable) => {
+                common::no_adapter(name);
+                continue;
+            }
+            Err(other) => panic!("[{name}] the unchunked baseline failed: {other:?}"),
         };
         assert_eq!(whole.dispatches, 1);
         // The production plan: several dispatches, each of many dabs, all but the first starting past dab 0.

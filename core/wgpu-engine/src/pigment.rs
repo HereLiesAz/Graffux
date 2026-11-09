@@ -4,7 +4,6 @@
 //! entry (its own device) used by the parity test against `tests/fixtures/pigment_golden.txt`; the
 //! per-pixel paint transaction (phase P5) reuses the same shader function.
 
-use crate::gpu_wait::{map_read, READBACK_TIMEOUT};
 use crate::shared_gpu;
 
 pub const PIGMENT_WGSL: &str = include_str!("shaders/pigment.wgsl");
@@ -107,7 +106,7 @@ pub fn mix_on_gpu(
     }
     encoder.copy_buffer_to_buffer(&out_buf, 0, &staging, 0, out_bytes);
     queue.submit([encoder.finish()]);
-    map_read(device, &staging, 0..out_bytes, READBACK_TIMEOUT, |v| {
+    gpu.read(&staging, 0..out_bytes, |v| {
         bytemuck::cast_slice::<u8, f32>(v).to_vec()
     })
     .ok()

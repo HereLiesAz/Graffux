@@ -4,7 +4,6 @@
 //! by the parity test against `tests/fixtures/watercolour_golden.txt`; adding the passes to the wet
 //! simulation's ADVANCE family on the resident layer is part of the integration phase (P6b).
 
-use crate::gpu_wait::{map_read, READBACK_TIMEOUT};
 use crate::shared_gpu;
 
 pub const WATERCOLOUR_WGSL: &str = include_str!("shaders/watercolour.wgsl");
@@ -187,7 +186,7 @@ pub fn run_on_gpu(backends: wgpu::Backends, input: &WatercolourInput) -> Option<
     let mut out = Vec::new();
     for staging in [&s_wet, &s_pig] {
         out.push(
-            map_read(device, staging, 0..bytes, READBACK_TIMEOUT, |v| {
+            gpu.read(staging, 0..bytes, |v| {
                 bytemuck::cast_slice::<u8, f32>(v).to_vec()
             })
             .ok()?,

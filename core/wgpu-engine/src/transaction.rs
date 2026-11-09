@@ -4,7 +4,7 @@
 //! used by the parity test against `tests/fixtures/transaction_golden.txt`; wiring it to the resident
 //! layer, the stamp pipeline and the editor is the remaining part of phase P5.
 
-use crate::gpu_wait::{map_read, wait_for, ReadFailure, READBACK_TIMEOUT};
+use crate::gpu_wait::{wait_submission, ReadFailure, READBACK_TIMEOUT};
 use crate::shared_gpu;
 
 pub const TRANSACTION_WGSL: &str = include_str!("shaders/transaction.wgsl");
@@ -246,9 +246,10 @@ pub fn try_run_chunked(
             pass.set_bind_group(0, &bind, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        queue.submit([encoder.finish()]);
-        // Each dispatch is its own bounded submission: a stroke never holds the GPU for longer than one chunk.
-        if let Err(why) = wait_for(device, chunk_timeout(cost)) {
+        let submission = queue.submit([encoder.finish()]);
+        // Each chunk is its own submission and is waited for by its own index, so other users' work queued on the
+        // shared device cannot make this chunk look stalled (and get a healthy device retired).
+        if let Err(why) = wait_submission(device, submission, chunk_timeout(cost)) {
             if why == ReadFailure::TimedOut {
                 // Work may still be running on the shared device: stop handing it out.
                 gpu.mark_stalled();
@@ -276,7 +277,7 @@ pub fn try_run_chunked(
     queue.submit([encoder.finish()]);
     let mut results: Vec<Vec<f32>> = Vec::new();
     for (staging, len) in &stagings {
-        let v = match map_read(device, staging, 0..((*len).max(1) * 4) as u64, READBACK_TIMEOUT, |b| {
+        let v = match gpu.read(staging, 0..((*len).max(1) * 4) as u64, |b| {
             bytemuck::cast_slice::<u8, f32>(b)[..*len].to_vec()
         }) {
             Ok(v) => v,

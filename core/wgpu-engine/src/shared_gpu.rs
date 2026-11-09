@@ -55,10 +55,11 @@ impl<T> Registry<T> {
     pub(crate) fn get(
         &mut self,
         key: u32,
-        now: std::time::Instant,
+        clock: impl Fn() -> std::time::Instant,
         is_dead: impl Fn(&T) -> bool,
         create: impl FnOnce() -> Option<T>,
     ) -> Option<Arc<T>> {
+        let now = clock();
         match self.slots.iter().find(|(k, _)| *k == key).map(|(_, s)| s) {
             Some(Slot::Ready(v)) if !is_dead(v) => return Some(v.clone()),
             Some(Slot::Failed(at)) if now.duration_since(*at) < RETRY_AFTER => return None,
@@ -70,7 +71,8 @@ impl<T> Registry<T> {
             key,
             match &made {
                 Some(v) => Slot::Ready(v.clone()),
-                None => Slot::Failed(now),
+                // Stamped after `create` returns, so a slow attempt is not already stale when it fails.
+                None => Slot::Failed(clock()),
             },
         ));
         made
@@ -85,7 +87,7 @@ pub fn shared(backends: wgpu::Backends) -> Option<Arc<SharedGpu>> {
     let mut devices = DEVICES.lock().unwrap_or_else(|e| e.into_inner());
     devices.get(
         backends.bits(),
-        std::time::Instant::now(),
+        std::time::Instant::now,
         |gpu| gpu.is_lost(),
         || SharedGpu::create(backends),
     )
@@ -152,6 +154,43 @@ impl SharedGpu {
         v
     }
 
+    /// Reads `range` of the staging `buffer` with the bounded wait. A timeout means the GPU stopped answering on this
+    /// device, so it is marked stalled and [`shared`] replaces it: otherwise every later call would reuse a hung
+    /// device and wait out the timeout again.
+    pub fn read<R>(
+        &self,
+        buffer: &wgpu::Buffer,
+        range: std::ops::Range<u64>,
+        read: impl FnOnce(&[u8]) -> R,
+    ) -> Result<R, crate::gpu_wait::ReadFailure> {
+        self.read_with(
+            buffer,
+            range,
+            |d| {
+                d.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(crate::gpu_wait::READBACK_TIMEOUT),
+                })
+            },
+            read,
+        )
+    }
+
+    /// [`SharedGpu::read`] with the wait supplied (tests stand in for a GPU that never answers).
+    pub fn read_with<R>(
+        &self,
+        buffer: &wgpu::Buffer,
+        range: std::ops::Range<u64>,
+        wait: impl FnOnce(&wgpu::Device) -> Result<wgpu::PollStatus, wgpu::PollError>,
+        read: impl FnOnce(&[u8]) -> R,
+    ) -> Result<R, crate::gpu_wait::ReadFailure> {
+        let r = crate::gpu_wait::map_read_with(&self.device, buffer, range, wait, read);
+        if r.as_ref().err() == Some(&crate::gpu_wait::ReadFailure::TimedOut) {
+            self.mark_stalled();
+        }
+        r
+    }
+
     /// Runs `body` inside validation and out-of-memory error scopes. Returns its value, or None when it returned
     /// None or either scope caught an error (logged); the device stays usable.
     pub fn scoped<R>(&self, label: &str, body: impl FnOnce() -> Option<R>) -> Option<R> {
@@ -201,15 +240,16 @@ mod tests {
     fn a_failure_is_remembered_briefly_then_retried_and_recovers() {
         let mut r: Registry<u32> = Registry::new();
         let t0 = Instant::now();
+        let at = |d: Duration| move || t0 + d;
         let mut calls = 0;
-        assert!(r.get(1, t0, |_| false, || { calls += 1; None }).is_none());
+        assert!(r.get(1, at(Duration::ZERO), |_| false, || { calls += 1; None }).is_none());
         // Inside the window the failure is answered without trying again.
-        assert!(r.get(1, t0 + Duration::from_millis(500), |_| false, || { calls += 1; Some(7) }).is_none());
+        assert!(r.get(1, at(Duration::from_millis(500)), |_| false, || { calls += 1; Some(7) }).is_none());
         assert_eq!(calls, 1);
         // After it, the factory runs again and a transient failure is gone for good.
-        let got = r.get(1, t0 + RETRY_AFTER, |_| false, || { calls += 1; Some(7) });
+        let got = r.get(1, at(RETRY_AFTER), |_| false, || { calls += 1; Some(7) });
         assert_eq!((got.map(|v| *v), calls), (Some(7), 2));
-        assert!(r.get(1, t0 + RETRY_AFTER, |_| false, || { calls += 1; None }).is_some());
+        assert!(r.get(1, at(RETRY_AFTER), |_| false, || { calls += 1; None }).is_some());
         assert_eq!(calls, 2, "a live device is not rebuilt");
     }
 
@@ -217,9 +257,23 @@ mod tests {
     fn a_dead_value_is_replaced_and_keys_are_independent() {
         let mut r: Registry<u32> = Registry::new();
         let t0 = Instant::now();
-        assert_eq!(r.get(1, t0, |_| false, || Some(1)).map(|v| *v), Some(1));
-        assert_eq!(r.get(2, t0, |_| false, || Some(2)).map(|v| *v), Some(2));
-        assert_eq!(r.get(1, t0, |v| *v == 1, || Some(10)).map(|v| *v), Some(10));
-        assert_eq!(r.get(2, t0, |_| false, || Some(99)).map(|v| *v), Some(2));
+        let c = move || t0;
+        assert_eq!(r.get(1, c, |_| false, || Some(1)).map(|v| *v), Some(1));
+        assert_eq!(r.get(2, c, |_| false, || Some(2)).map(|v| *v), Some(2));
+        assert_eq!(r.get(1, c, |v| *v == 1, || Some(10)).map(|v| *v), Some(10));
+        assert_eq!(r.get(2, c, |_| false, || Some(99)).map(|v| *v), Some(2));
+    }
+
+    #[test]
+    fn a_slow_failed_attempt_is_stamped_when_it_ends() {
+        let mut r: Registry<u32> = Registry::new();
+        let t0 = Instant::now();
+        let now = std::cell::Cell::new(t0);
+        let clock = || now.get();
+        // create() takes longer than RETRY_AFTER and fails: the failure must still be fresh afterwards.
+        assert!(r.get(1, clock, |_| false, || { now.set(t0 + RETRY_AFTER * 2); None }).is_none());
+        let mut retried = false;
+        assert!(r.get(1, clock, |_| false, || { retried = true; Some(1) }).is_none());
+        assert!(!retried, "retried immediately although the failure had just happened");
     }
 }
