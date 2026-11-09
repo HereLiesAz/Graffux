@@ -2590,6 +2590,7 @@ class EditorViewModel @Inject constructor(
                         restoreModelLayers(project.id, layers)
                         restorePaletteBoard(project.id)
                         strokeRecordSync.open(project.id)
+                        recipeLibrary.show(project.id)
                         viewModelScope.launch(dispatchers.io) { recipeLibrary.openProject(project.id) }
                         updateUi {
                             it.copy(
@@ -12914,6 +12915,8 @@ class EditorViewModel @Inject constructor(
                 projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
             }
 
+            override suspend fun readApp(): String? = settingsRepository.savedRecipes.firstOrNull()
+
             override suspend fun updateApp(transform: (String?) -> String?) =
                 settingsRepository.updateSavedRecipes(transform)
 
@@ -12941,36 +12944,51 @@ class EditorViewModel @Inject constructor(
 
     val savedMixes: StateFlow<List<SavedMix>> =
         kotlinx.coroutines.flow.combine(recipeLibrary.project, recipeLibrary.app) { project, app ->
-            project.map { SavedMix(it, RecipeLibrary.Scope.PROJECT) } +
-                app.map { SavedMix(it, RecipeLibrary.Scope.APP) }
+            project.recipes.map { SavedMix(it, RecipeLibrary.Scope.PROJECT, project.id) } +
+                app.map { SavedMix(it, RecipeLibrary.Scope.APP, null) }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Where a change for [scope] goes, fixed NOW (when the user acted), not when the coroutine happens to run. */
+    private fun targetNow(scope: RecipeLibrary.Scope): RecipeLibrary.Target? = when (scope) {
+        RecipeLibrary.Scope.APP -> RecipeLibrary.Target.App
+        RecipeLibrary.Scope.PROJECT -> _uiState.value.projectId?.let { RecipeLibrary.Target.Project(it) }
+    }
+
+    /** The target of an existing [mix]: the project it was shown for, never whichever is open when this runs. */
+    private fun targetOf(mix: SavedMix): RecipeLibrary.Target? = when (mix.scope) {
+        RecipeLibrary.Scope.APP -> RecipeLibrary.Target.App
+        RecipeLibrary.Scope.PROJECT -> mix.projectId?.let { RecipeLibrary.Target.Project(it) }
+    }
+
+    private fun mixChange(
+        target: RecipeLibrary.Target?,
+        failure: String,
+        change: suspend (RecipeLibrary.Target) -> Boolean,
+    ) {
+        if (target == null) {
+            notify(failure, NoticeKind.WARNING) // no project open: there is nowhere to put it
+            return
+        }
+        viewModelScope.launch(dispatchers.io) {
+            if (!change(target)) notify(failure, NoticeKind.WARNING)
+        }
+    }
 
     /** What the mixer's saved-mixes strip can ask for; failures are told to the user here. */
     fun mixActions() = MixActions(
         save = { recipe, scope ->
-            viewModelScope.launch(dispatchers.io) {
-                if (!recipeLibrary.save(scope, recipe)) notify("Couldn't save the mix.", NoticeKind.WARNING)
-            }
+            mixChange(targetNow(scope), "Couldn't save the mix.") { recipeLibrary.save(it, recipe) }
         },
         saveColour = { colour ->
             val recipe = com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
                 .fromSwatch(colour.toArgb(), MIXER_TUBES, paletteBoard)
-            viewModelScope.launch(dispatchers.io) {
-                val done = recipeLibrary.save(RecipeLibrary.Scope.APP, recipe)
-                if (!done) notify("Couldn't save the colour.", NoticeKind.WARNING)
-            }
+            mixChange(RecipeLibrary.Target.App, "Couldn't save the colour.") { recipeLibrary.save(it, recipe) }
         },
         rename = { mix, name ->
-            viewModelScope.launch(dispatchers.io) {
-                val done = recipeLibrary.rename(mix.scope, mix.recipe.id, name)
-                if (!done) notify("Couldn't rename the mix.", NoticeKind.WARNING)
-            }
+            mixChange(targetOf(mix), "Couldn't rename the mix.") { recipeLibrary.rename(it, mix.recipe.id, name) }
         },
         delete = { mix ->
-            viewModelScope.launch(dispatchers.io) {
-                val done = recipeLibrary.delete(mix.scope, mix.recipe.id)
-                if (!done) notify("Couldn't delete the mix.", NoticeKind.WARNING)
-            }
+            mixChange(targetOf(mix), "Couldn't delete the mix.") { recipeLibrary.delete(it, mix.recipe.id) }
         },
     )
 
@@ -12985,7 +13003,7 @@ class EditorViewModel @Inject constructor(
             val swatches = settingsRepository.savedPalette.firstOrNull().orEmpty()
             val recipes = com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
                 .migrateSwatches(swatches, MIXER_TUBES, paletteBoard)
-            if (recipeLibrary.addMissing(RecipeLibrary.Scope.APP, recipes)) settingsRepository.setSwatchesMigrated()
+            if (recipeLibrary.addMissing(RecipeLibrary.Target.App, recipes)) settingsRepository.setSwatchesMigrated()
         }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
     }
 

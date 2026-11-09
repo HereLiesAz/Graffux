@@ -9,10 +9,17 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * The saved mixes (spec/painterly.md 6.4): the open PROJECT's (`palette-recipes.json`, saved with the project) and
- * the APP's (one DataStore string, every project). Saving offers a [Scope]. All changes to a scope go through one lock
- * and a read-modify-write of what is stored, so nothing is lost to a concurrent change; a stored book that cannot be
- * read is never replaced by one built from nothing (the change is refused and the user told).
+ * The saved mixes (spec/painterly.md 6.4): a PROJECT's (`palette-recipes.json`, saved with that project) and the APP's
+ * (one DataStore string, every project).
+ *
+ * **No mutable "current project" decides where a change goes.** Every change names its [Target], captured when the user
+ * acted (a project id, or the app), and is a read-modify-write of what is STORED for that target at that moment, under
+ * one lock: it never depends on what the library happened to have loaded, so it cannot be misrouted by a project switch
+ * and cannot be ordered wrongly against the initial load or the swatch migration. The open project's book is only what
+ * the strip DISPLAYS ([project], [openProject]).
+ *
+ * Preserving what could not be read: a stored book that is not a recipe book, or could not be read, is never replaced;
+ * a book some of whose recipes were bad is backed up (once) before a repaired one replaces it, with the user told.
  *
  * File format `azphalt-recipes/1` (see [RecipeBook]): `{"format","recipes":[{id,name,conc[16 u8, sum 255],
  * slots[12 of {id,dataVersion}],load,approximate,originalArgb}]}`, at most 200 recipes, names at most 64 characters.
@@ -20,13 +27,25 @@ import kotlinx.coroutines.sync.withLock
 class RecipeLibrary(private val store: Store) {
     enum class Scope { PROJECT, APP }
 
+    /** Where a change goes: a named project, or the app. */
+    sealed interface Target {
+        data class Project(val id: String) : Target
+        data object App : Target
+    }
+
+    /** The open project's recipes as shown, with which project they belong to. */
+    class ProjectBook(val id: String?, val recipes: List<PaletteRecipe>)
+
     interface Store {
         suspend fun readProject(projectId: String): ArtifactRead
         suspend fun writeProject(projectId: String, text: String)
 
+        /** The stored app book text right now (null: none, or it could not be read). */
+        suspend fun readApp(): String?
+
         /**
-         * The app book changed under one edit: [transform] sees the stored text; null leaves it untouched. True only
-         * if a new text was really persisted.
+         * The app book changed under one edit: [transform] sees the text stored AT THE TIME OF THE EDIT; null leaves it
+         * untouched. True only if a new text was really persisted.
          */
         suspend fun updateApp(transform: (String?) -> String?): Boolean
 
@@ -43,124 +62,74 @@ class RecipeLibrary(private val store: Store) {
     }
 
     private val lock = Mutex()
-    private val projectBook = MutableStateFlow(emptyList<PaletteRecipe>())
+    private val projectBook = MutableStateFlow(ProjectBook(null, emptyList()))
     private val appBook = MutableStateFlow(emptyList<PaletteRecipe>())
-    private var projectId: String? = null
-    private var projectReadable = true
-    private var appText: String? = null
-    private var appBackedUp = false
+
+    private val projects = ProjectBooks(store)
+    private val appEditor = AppBook(store)
+
+    @Volatile
+    private var wanted: String? = null
 
     /** The open project's recipes. */
-    val project: StateFlow<List<PaletteRecipe>> = projectBook.asStateFlow()
+    val project: StateFlow<ProjectBook> = projectBook.asStateFlow()
 
     /** The app-level recipes (fed by [onAppStored]). */
     val app: StateFlow<List<PaletteRecipe>> = appBook.asStateFlow()
 
     /** The stored app text changed (or was first read): what the app list shows. */
     fun onAppStored(text: String?) {
-        appText = text
         appBook.value = text?.let { RecipeBook.fromJsonRepairing(it)?.first?.recipes } ?: emptyList()
     }
 
-    /** Project [id] opened: its recipes are read; a file that cannot be read leaves the list empty and unsaved over. */
-    suspend fun openProject(id: String) = lock.withLock {
-        projectId = id
-        projectBook.value = emptyList()
-        projectReadable = true
-        val text = when (val read = store.readProject(id)) {
-            ArtifactRead.Absent -> return@withLock
-            is ArtifactRead.Unreadable -> {
-                // present but unreadable: never written over (there are no bytes to keep), and the user is told
-                projectReadable = false
-                store.onUnreadable(Scope.PROJECT)
-                return@withLock
-            }
-            is ArtifactRead.Found -> String(read.bytes)
-        }
-        val parsed = RecipeBook.fromJsonRepairing(text)
-        if (parsed == null) {
-            projectReadable = false
-            store.onUnreadable(Scope.PROJECT)
-            return@withLock
-        }
-        projectBook.value = parsed.first.recipes
-        if (parsed.second > 0) {
-            // some recipes were bad: the original is kept BEFORE a repaired book can overwrite it, and the user is told
-            val kept = store.keepProjectBackup(id, text)
-            if (!kept) projectReadable = false // never overwrite what could not be preserved
-            store.onRepaired(Scope.PROJECT, parsed.second, kept)
-        }
+    /** Project [id] is now the open one (call synchronously when it opens, before [openProject] runs). */
+    fun show(id: String) {
+        wanted = id
+        projectBook.value = ProjectBook(id, emptyList())
     }
 
-    /** Adds [recipe] to [scope] (an id already there is replaced). False if it could not be saved. */
-    suspend fun save(scope: Scope, recipe: PaletteRecipe): Boolean = change(scope) { list ->
+    /**
+     * Loads project [id]'s recipes for display and preserves/reports a damaged stored book right away. It shows them
+     * only if [id] is still the project asked for (the loads of two quick switches may run in either order).
+     */
+    suspend fun openProject(id: String) = lock.withLock {
+        val read = projects.read(id)
+        if (read != null && wanted == id) projectBook.value = ProjectBook(id, read)
+    }
+
+    /** Adds [recipe] to [target] (an id already there is replaced). False if it could not be saved. */
+    suspend fun save(target: Target, recipe: PaletteRecipe): Boolean = change(target) { list ->
         (list.filterNot { it.id == recipe.id } + recipe).takeLast(RecipeBook.MAX_RECIPES)
     }
 
-    suspend fun rename(scope: Scope, id: String, name: String): Boolean = change(scope) { list ->
+    suspend fun rename(target: Target, id: String, name: String): Boolean = change(target) { list ->
         list.map { if (it.id == id) it.copy(name = name.trim()) else it }
     }
 
-    suspend fun delete(scope: Scope, id: String): Boolean = change(scope) { list -> list.filterNot { it.id == id } }
+    suspend fun delete(target: Target, id: String): Boolean = change(target) { list -> list.filterNot { it.id == id } }
 
-    /** Puts [list] into [scope] where it is not already (by id), for the swatch migration; never removes anything. */
-    suspend fun addMissing(scope: Scope, list: List<PaletteRecipe>): Boolean = change(scope) { current ->
+    /** Puts [list] into [target] where it is not already (by id), for the swatch migration; never removes anything. */
+    suspend fun addMissing(target: Target, list: List<PaletteRecipe>): Boolean = change(target) { current ->
         current + list.filter { n -> current.none { it.id == n.id } }
     }
 
     private suspend fun change(
-        scope: Scope,
+        target: Target,
         edit: (List<PaletteRecipe>) -> List<PaletteRecipe>,
     ): Boolean = lock.withLock {
-        when (scope) {
-            Scope.PROJECT -> changeProject(edit)
-            Scope.APP -> appMayBeChanged() && persistApp(edit)
+        when (target) {
+            is Target.Project -> changeProject(target.id, edit)
+            Target.App -> appEditor.change(edit)?.also { appBook.value = it } != null
         }
     }
 
-    private suspend fun changeProject(edit: (List<PaletteRecipe>) -> List<PaletteRecipe>): Boolean {
-        val id = projectId
-        val next = edit(projectBook.value)
-        // no project open, a file that could not be read (never written over), or a malformed result: refused
-        if (id == null || !projectReadable || next.any { it.problem() != null }) return false
+    // the stored book is read now, for THIS project: nothing depends on which project is shown
+    private suspend fun changeProject(id: String, edit: (List<PaletteRecipe>) -> List<PaletteRecipe>): Boolean {
+        val next = projects.read(id)?.let(edit)
+        if (next == null || !projects.writable(id, next)) return false
         return runCatching { store.writeProject(id, RecipeBook(recipes = next).toJson()) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-            .onSuccess { if (projectId == id) projectBook.value = next }
+            .onSuccess { if (projectBook.value.id == id) projectBook.value = ProjectBook(id, next) }
             .isSuccess
-    }
-
-    /** False when the stored app book is not a recipe book (left alone) or its original could not be preserved. */
-    private suspend fun appMayBeChanged(): Boolean {
-        val stored = appText ?: return true
-        val parsed = RecipeBook.fromJsonRepairing(stored)
-        if (parsed == null) store.onUnreadable(Scope.APP) // not a recipe book: left exactly as it is
-        if (parsed != null && parsed.second > 0 && !appBackedUp) {
-            // some recipes were bad: keep the original before a repaired book replaces it (once), and say so
-            appBackedUp = store.keepAppBackup(stored)
-            store.onRepaired(Scope.APP, parsed.second, appBackedUp)
-        }
-        return parsed != null && (parsed.second == 0 || appBackedUp)
-    }
-
-    private suspend fun persistApp(edit: (List<PaletteRecipe>) -> List<PaletteRecipe>): Boolean {
-        var next: List<PaletteRecipe>? = null
-        val persisted = store.updateApp { current ->
-            val book = current?.let { RecipeBook.fromJsonRepairing(it) }
-            val edited = edit(book?.first?.recipes.orEmpty())
-            val refused = (current != null && book == null) || edited.any { it.problem() != null }
-            if (refused) {
-                null
-            } else {
-                next = edited
-                RecipeBook(recipes = edited).toJson()
-            }
-        }
-        // published only after the write really happened: a failed write is not a saved mix
-        val result = next
-        if (persisted && result != null) {
-            appBook.value = result
-            appText = RecipeBook(recipes = result).toJson()
-        }
-        return persisted
     }
 }

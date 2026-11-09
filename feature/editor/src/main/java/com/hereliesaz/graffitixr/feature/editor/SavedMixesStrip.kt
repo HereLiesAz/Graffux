@@ -39,8 +39,8 @@ import com.hereliesaz.graffitixr.common.azphalt.PigmentConcentration
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 
-/** A saved mix and where it is kept. */
-class SavedMix(val recipe: PaletteRecipe, val scope: RecipeLibrary.Scope)
+/** A saved mix and where it is kept: for a project mix, WHICH project (so a later change goes to that project). */
+class SavedMix(val recipe: PaletteRecipe, val scope: RecipeLibrary.Scope, val projectId: String? = null)
 
 /**
  * What the strip asks the owner to do; recalling is local (the strip owns the board). Failures are the owner's to
