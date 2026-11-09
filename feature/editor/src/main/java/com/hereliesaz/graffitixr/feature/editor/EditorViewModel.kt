@@ -425,6 +425,10 @@ private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
 private const val MAX_MATERIAL_SIDECAR_BYTES = 160L * 1024 * 1024
 /** The palette board sidecar is at most a 1024 x 1024 board (16 B per texel plus height): bounded well below this. */
 private const val MAX_PALETTE_SIDECAR_BYTES = 64L * 1024 * 1024
+private const val MAX_RECORDED_STROKES = 2_000
+private const val MAX_RECORDED_SAMPLES = 300_000
+private const val STROKE_RECORD_SAVE_DELAY_MS = 2_000L
+private const val STROKE_RECORD_FILE = "strokes.json"
 
 /**
  * Whether the azphalt stamp-brush live-preview path can use a GPU compute stamp shader instead of
@@ -2066,6 +2070,11 @@ class EditorViewModel @Inject constructor(
     // brush in hand's load and leaves what it did not spend.
     override val paletteBoard: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard = newMixerBoard()
     private var paletteSaveJob: Job? = null
+
+    // Persistent stamp-stroke capture (spec/painterly.md P7b): every committed stamp stroke is kept in a
+    // serialisable record, saved with the project, so a demo can be replayed after reopen or shared.
+    private val strokeRecords = ArrayList<com.hereliesaz.graffitixr.common.azphalt.StampStrokeRecord>()
+    private var strokeRecordSaveJob: Job? = null
     /** (amount the brush held, fill fraction the stroke started with) for the stroke in progress, or null. */
     private var paletteStrokeStart: Pair<Float, Float>? = null
     private val stampLengthPredictor = StrokeLengthPredictor()
@@ -2527,6 +2536,7 @@ class EditorViewModel @Inject constructor(
                         loadAdjustmentMasks(layers)
                         restoreModelLayers(project.id, layers)
                         restorePaletteBoard(project.id)
+                        restoreStrokeRecords(project.id)
                         updateUi {
                             it.copy(
                                 sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
@@ -3713,6 +3723,67 @@ class EditorViewModel @Inject constructor(
             rawColor = impasto?.rawColor?.copyOf(),
             mediumTiles = impasto?.tileSnapshots() ?: emptyList(),
         )
+    }
+
+    /** Keeps a committed stamp stroke as a serialisable record and schedules the project save. */
+    private fun captureStrokeRecord(command: StrokeCommand) {
+        val brush = command.stampBrush ?: return
+        if (command.tool != Tool.BRUSH || command.brushSamples.isEmpty()) return
+        val record = com.hereliesaz.graffitixr.common.azphalt.StampStrokeRecord(
+            brush = brush,
+            brushRef = brush.name,
+            seed = command.seed,
+            diameterPx = command.brushSize.coerceAtLeast(1f),
+            colorArgb = command.brushColor,
+            secondaryArgb = command.secondaryBrushColor,
+            samples = command.brushSamples,
+            priorFilm = command.paintPrior?.let(com.hereliesaz.graffitixr.common.azphalt.RecordedFilm::of),
+            canvasWidth = command.canvasSize.width,
+            canvasHeight = command.canvasSize.height,
+            layerScale = command.layerScale,
+            layerOffsetX = command.layerOffset.x,
+            layerOffsetY = command.layerOffset.y,
+            layerRotationZ = command.layerRotationZ,
+        )
+        strokeRecords += record
+        // Bounded so the saved recording always passes the reader's limits: oldest strokes drop first.
+        var samples = strokeRecords.sumOf { it.samples.size }
+        while (strokeRecords.size > MAX_RECORDED_STROKES || samples > MAX_RECORDED_SAMPLES) {
+            samples -= strokeRecords.removeAt(0).samples.size
+        }
+        saveStrokeRecordsLater()
+    }
+
+    private fun saveStrokeRecordsLater() {
+        val projectId = _uiState.value.projectId ?: return
+        strokeRecordSaveJob?.cancel()
+        strokeRecordSaveJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(STROKE_RECORD_SAVE_DELAY_MS)
+            val state = _uiState.value
+            val recording = com.hereliesaz.graffitixr.common.azphalt.StrokeRecording(
+                canvasWidth = state.documentWidth.coerceAtLeast(1),
+                canvasHeight = state.documentHeight.coerceAtLeast(1),
+                substrateId = state.canvasSubstrateId,
+                strokes = strokeRecords.toList(),
+            )
+            withContext(dispatchers.io) {
+                runCatching {
+                    projectRepository.saveArtifact(projectId, STROKE_RECORD_FILE, recording.toJson().toByteArray())
+                }.onFailure { android.util.Log.e("EditorViewModel", "Failed to save stroke records", it) }
+            }
+        }
+    }
+
+    /** Reloads the project's recorded strokes; absent or invalid data leaves the list empty (fail closed). */
+    private fun restoreStrokeRecords(projectId: String) {
+        viewModelScope.launch(dispatchers.io) {
+            val loaded = readProjectArtifact(projectId, STROKE_RECORD_FILE)
+                ?.let { com.hereliesaz.graffitixr.common.azphalt.StrokeRecording.fromJson(String(it)) }
+            withContext(dispatchers.main) {
+                strokeRecords.clear()
+                if (loaded != null) strokeRecords += loaded.strokes
+            }
+        }
     }
 
     /** A painterly brush starts from what the palette's brush in hand holds (its recipe and how full it is). */
@@ -9330,6 +9401,7 @@ class EditorViewModel @Inject constructor(
             paintFilm = paintFilm,
         )
         layerStore.addStroke(layerId, command)
+        captureStrokeRecord(command)
         // A stroke that joined an undo chunk keeps no GPU undo snapshot (the chunk has none), so its
         // commit does not capture one.
         val joinedChunk = pushDrawNotingInk(layerId, command, chunkable = !strokeChangesCanonicalMaterial(command))
