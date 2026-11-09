@@ -466,6 +466,118 @@ that is what makes older hosts degrade safely, and must stay true. New keys pars
   against six test strokes. Add a seventh, **the petal pull** (swell, hold, lift with tail), and
   render the demo scene of section 5.4. Output includes `peakOps` as today.
 
+### 3.11 E9 — Draw the brush itself at the contact point
+
+Owner's idea, three goals: (1) **realism** — show what the bristles are doing (splay, flattening under
+pressure, rotation and direction, tilt and azimuth on a pen); (2) **load** — show how much paint is on
+the brush, at the bristle tips, depleting, with no numeric slider (it is the visible half of the
+finite-paint design, 3.3 and 6.3); (3) **latency** — let the bristles cover the area where the stroke
+lags.
+
+**What exists today (read from source).**
+
+- A **hover** brush already draws: `DrawingCanvas.kt:436-500` renders the tip hull and the bristle
+  cells from `BrushTipTopology.preview(...)` posed by `BrushDevicePresentationModel` (device attitude),
+  as a dark under-stroke plus a bright hairline "without hiding the art beneath it". It is shown while
+  hovering and cleared when contact starts (`brushCursorPosition = null`, `DrawingCanvas.kt:~242`). It is
+  the *static* tip shape; it does not use the live contact state.
+- The live contact state exists but is private: `IncrementalDynamicDabGenerator` keeps
+  `mechanicalState` and a per-step `contact` (`BrushContactState`) (`E/IncrementalDynamicDabGenerator.kt:53,200-202`) and
+  uses it for the dab. Nothing outside the generator can read it.
+- **Latency work that exists:** a stroke-prediction tournament with a drawn predicted tail whose reach
+  is the *measured touch-to-paint latency* (`feature/editor/.../prediction/GesturePrediction.kt:92,205-233`,
+  `tailLeadMs`), and a direct-display path where the wgpu engine presents the in-progress stroke into a
+  `SurfaceView` above the window (`LiveStrokeOverlayHost.kt`; the design is in
+  `docs/Native Rendering Engine Design.md` section 3, front-buffer presentation). Predicted samples never
+  enter stroke history (`BrushSample.predicted`).
+
+**Data per frame (verified).** The model already computes, for every sample, everything a drawn brush
+needs: `BrushContactState` (`E/BrushContactModel.kt:125-149`): `widthMultiplier`, `tipRatioMultiplier`,
+`angleOffsetDeg` (lag of the drag angle), `offsetXFraction`/`offsetYFraction` (contact-centre drag),
+`bend`, `compression`, `lean`, `splay`, `contactDepth`, `tipLeanX/Y`, `tipTwistDeg`, and `tufts`: a list
+of `BrushTuftContact` (`E/BrushTuftTopology.kt:161-181`) with `id`, `rootLateralFraction`, offsets,
+`radiusScale`, `angleOffsetDeg`, `splitAmount`, `touchdownAmount`, `liftAmount`, `reversalImpulse`,
+`physicalRadiusPx`, `contactWeight`. Tilt and azimuth arrive on `BrushSample`
+(`tiltRadians`, `orientationRadians`) with confidence in `BrushDeviceAttitude`, and
+`BrushTelemetryMetadata` says which axes are real. **Not available today:** the contact state outside
+the generator; per-bristle *load* (the load design, 3.3, supplies a Kotlin budget per lane, which is
+what the drawn brush shows).
+
+**Design.**
+
+1. **Single source of truth.** The drawn brush is a *view of the same numbers that make the paint*. The
+   generator, in the step that emits a dab, also publishes an immutable `BrushPresentationFrame`
+   (contact state, tuft contacts, the sample's tilt/azimuth/pressure/time, the lane load budget) as a
+   read-only accessor. The overlay **never re-simulates and never recomputes mechanics**; it only
+   draws, and interpolates between the last two frames. So the drawn brush cannot disagree with the
+   paint: a bristle drawn splayed is a tuft the dab expander used. (Same rule as 3.0: Kotlin decides,
+   the renderer draws.) For hover, before any contact, the existing `BrushTipTopology.preview` is used
+   unchanged.
+2. **Anchoring: the tip is exactly at the contact point.** The contact patch is drawn at the **dab
+   centre** (`sample + offset * contactDiameter`, `E/IncrementalDynamicDabGenerator.kt:249-250`), mapped through the *same*
+   function that maps a stroke sample to the layer and the screen as the dabs use, including layer
+   scale, offset, rotation, zoom, pan and the 3D-surface mapping (`OverlayGeometry`). No second
+   transform, no per-overlay offset constant. The body of the brush is drawn trailing from that point;
+   the patch never moves relative to the dab centre. A recent fix addressed strokes landing away from
+   the finger; this is the same class of bug, so the invariant is a required test (anchor within 0.5 px
+   of the dab centre across zoom, pan, rotation and layer transforms, section 8.2).
+3. **Latency: what it does and does not do.** *It does not reduce real latency.* Paint still reaches
+   the screen L milliseconds after the touch (the measured touch-to-paint latency that
+   `tailLeadMs` already carries); drawing a brush adds work and cannot make paint arrive sooner. *It can
+   reduce perceived lag*, because the brush is drawn at the latest touch position at display rate and
+   its bristles cover the gap between the paint's leading edge and the finger **only while the lag
+   distance, speed x L, is smaller than the brush's own extent**. A large flat brush hides the lag; a
+   rigger or a fine tip does not (lag distance exceeds the brush, the gap shows). So the claim is bounded:
+   "less visible lag for brushes larger than the lag distance", never "zero lag". Relationship to the
+   existing prediction tail: the tail draws *speculative paint* ahead of the real stroke; the drawn brush
+   draws *no paint*. They compose: the brush sits at the latest real sample (with extrapolation of at most
+   one frame, clamped by the same prediction confidence), the tail stays as is, and neither writes
+   history. The brush must be **in the same presentation layer as the paint**: if the stroke is shown in the
+   direct-display `SurfaceView` and the brush is a Compose overlay drawn a frame later, the brush would lag
+   the paint and defeat goal 3. So: v1 draws in Compose and makes **no latency claim** (goals 1 and 2
+   only); v2 draws the brush shape in the direct-display layer (a small extra pass in the wgpu
+   swapchain) and is measured against the existing touch-to-paint figure before the claim is made.
+4. **Occlusion.** A brush hides canvas. A finger already covers the contact patch; a stylus hand
+   covers the area to one side. Rules: the **contact patch** is always drawn as an outline plus
+   bristle tips (as hover does: dark under-stroke, bright hairline) and never fills opaque, so the
+   painted result stays visible; the **body** (ferrule and handle) is drawn along the real azimuth for a
+   pen and, for a finger or a pen without azimuth, along a default direction away from the hand
+   (the editor already knows handedness, `isRightHanded`), at low opacity and fading with speed;
+   bristle tips are drawn in their **load colour** at higher opacity than the body. Three user modes:
+   **Off**, **Tip only** (patch, bristles, load colour; no body), **Full** (adds the ghosted body).
+   **Recommended default: Tip only.** It delivers goals 1 and 2 with the least occlusion and is what the hover
+   already approximates; Full is for demos. A tiny brush (under about 6 px) is drawn as the hairline
+   cursor only, because bristles at that size are noise.
+5. **Honesty about telemetry.** The drawn brush never fabricates an axis a device does not report
+   (status doc section B). A finger or pressure-only pen is drawn at a default pose, not with invented tilt;
+   splay, flattening and drag still show because they come from pressure and motion.
+6. **Load display (goal 2).** Each tuft's tip is coloured from its lane's *budget* colour (the Kotlin
+   prediction of the load, 3.3; colour from the lane's tube concentrations by `PigmentMixer`, which is
+   per-colour work and fits the CPU side of 3.0) and its drawn length of coloured tip shrinks as the
+   budget falls; a dry lane shows bare hair. Because the budget is a *prediction*, the picture can differ a
+   little from the GPU truth; it is corrected at stroke end when the true load is read back (3.3). No
+   number is shown; the cue is the paint itself (decision 6). When the GPU transaction (P5) is not active
+   (a non-painterly brush), the tip is drawn in the brush colour at full length, as hover does today.
+7. **Cost and budget (mid-range Android; targets, not measurements).** The overlay draws at most the
+   tier's tuft count (16 / 32 / 96, `E/BrushPerformancePolicy.kt:10-21`) as short strokes, not every hair,
+   and at most the tier's `maxPreviewCells` (96 / 192 / 1024) for the hair texture; target under 0.5 ms
+   of draw per frame on BALANCED. Frame building is allocation-free in the step loop (reuse one mutable
+   frame), and interpolation is two lerps per tuft. The presentation frame adds nothing to the dab path
+   beyond copying a handful of floats and the tuft list. If a frame misses budget the overlay drops to
+   Tip-only for that frame and never delays paint.
+8. **Accessibility.** A setting and a quick toggle control the three modes; **Off loses no function**,
+   since the overlay is purely presentational and no input, paint or load behaviour depends on it. The
+   load cue has non-visual and non-colour equivalents: the coloured length of the tip, not hue alone;
+   a polite screen-reader announcement when a lane runs dry ("brush running low"); optional haptic
+   tick; colour-vision safe (length and pattern carry the information). Contrast follows the hover rule
+   (dark under-stroke and bright hairline, readable on light and dark art). Reduced motion: the overlay
+   adds no easing of its own; it only interpolates real frames.
+9. **Phase placement.** **P4b**, after brush load (P4): needs the load budget for goal 2. The
+   geometry-only part (goal 1) has no dependency and could ship earlier if wanted. The latency layer
+   (goal 3, direct-display pass) is a separate task in P9 with its own measurement gate.
+
+**Effort:** M for the frame accessor and the Compose overlay; M-L for the direct-display pass.
+
 ## 4. Backward-compatibility and determinism rules (normative)
 
 1. A brush with no `painterly` key renders byte-identically to the previous build. Pinned by a
@@ -1043,6 +1155,7 @@ hardware floor (Android 10, Vulkan 1.1, `ARCHITECTURE.md` "Graffux's hardware fl
 | Load state | At most 128 cells, copied per step as a small array, no allocation in the step loop |
 | Palette board | 512 x 512 default, at most 1024 x 1024; 12 B per texel of concentration plus height and wetness, at most about 20 MB at the cap (3 MB plus sidecar at default); knife mixing uses the same budgets |
 | Memory added by a painterly document | Default board under 8 MB, canvas latent about 4 B per touched pixel (about 5 MB at 30% coverage of 2048 x 2048), lookup 128 KB; at most 40 MB beyond today at the board cap |
+| Drawn brush (E9) | At most the tier's tuft count as short strokes and `maxPreviewCells` hair cells; under 0.5 ms draw per frame on BALANCED; allocation-free frame build |
 | Shading (E5) | One extra dot product and one `pow` approximation per shaded pixel; at most +10% on the existing impasto shade pass |
 
 CONSTRAINED devices degrade deterministically by capping lane count and disabling `transaction` (the brush then draws without lift or wet mixing), in the
@@ -1060,12 +1173,13 @@ material work. Phases 1 to 3 need no new pigment model.
 | **P2 — Edge ridge and highlight** (E5) | `emit h`, `heightMul`, `sheen`, shading port, stamp-engine-diff scenario | P1 | Rim bead and dry highlight visible; CPU and wgpu parity within tolerance; `sheen = 0` byte-identical |
 | **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, pigment data format (`dataQuality`/`dataVersion`), ~12 placeholder tubes, **concentration quantiser (sum-255, largest remainder) with an error-bound test**, basis-latent lookup generator (4 fixed basis pigments, residual); **WGSL port of the per-pixel mixer and the lookup as a 3-D texture**; Rust parity test | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
 | **P4 — Brush load** (E2) | `load` block; Kotlin budget; **GPU load buffer** carried between batches and read back at stroke end; finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically (same device) |
+| **P4b — Live brush rendering** (E9) | `BrushPresentationFrame` accessor on the generator (read-only, allocation-free), Compose overlay (Off / Tip only / Full, default Tip only), anchor invariant, load-coloured tips from the Kotlin budget, golden frames; **no latency claim** | P4 (load) | Brush drawn at the contact point with splay, pressure flattening, tilt/azimuth where reported, depleting load; toggle Off changes nothing in strokes |
 | **P5 — Paint transaction** (E3) | **GPU `paint_transaction` pass**: sample, lift (consuming `avail` and the surface), draw, K-M wet mix; `snap_color`/`avail` buffers; Kotlin reference; Rust tests including the repeated-lift-cannot-refill case and own-deposit-not-lifted case | P3, P4 | Petal pull over wet paint picks up and blends; lifts deplete the source; parity within tolerance; replay-equality across an undo cycle |
 | **P6 — Palette/mixer replaces picker** | Board with **12-channel persisted concentration field and slot table**, **material sidecar v4 (`FLAG_CONCENTRATION`, `FLAG_LATENT`)** and codec tests (v3 fail-closed, v4 round trip), canvas basis-latent tiles written by the transaction, Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
 | **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
 | **P7b — Stroke capture and demo replay** | **Persistent stamp-stroke capture** (`StampStrokeRecord`: brush ref by pack id and version plus a params hash, stroke seed, full `BrushSample`s with tilt/time/phase, colour or recipe, size, opacity, canvas transform, substrate preset, wet-ledger prior film if the brush uses it) in a new per-layer project sidecar; a **replay consumer** that feeds recorded strokes through the editor's stroke pipeline at recorded timing; a `StrokeRecording` export/import; project-format version bump with a fail-closed reader | P7 | A recorded petal replays pixel-identically on the same device after reopen, and within tolerance on another; a pack plus a recording shares a demo |
 | **P8 — Watercolour engine** (E7) | GPU wicking/bleed (absorbency texture), granulation, edge flux in the ADVANCE family; Kotlin reference extended; Rust `cpu_advance` extended | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
-| **P9 — Hardening** | Device matrix, GPU dispatch and memory tuning, accessibility audit | all | Budgets in 6.7 met on at least one mid-range device |
+| **P9 — Hardening** | Device matrix, GPU dispatch and memory tuning, accessibility audit, **brush drawn in the direct-display layer and its latency measured against touch-to-paint** (E9 item 3) | all | Budgets in 6.7 met on at least one mid-range device |
 
 P7b exists because the project does not persist stamp strokes today (5.5); demo sharing (decision 9) depends on it and is not claimed before it lands. Order of implementation PRs follows the owner's instruction: engine gaps (P1-P5) first, then the
 palette/mixer UI (P6), then the packs (P7), with P8 slotted before P7's water pack. Each phase is its
@@ -1104,6 +1218,7 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
 | Golden images | Render the petal pull, the Loaded Petal Flat, and a six-brush strip through the harness and compare to committed PNGs with a per-pixel tolerance; images are regenerated only by an explicit script and reviewed by eye. Stay small (256 px) to keep the repository light |
 | CPU/GPU parity | New `tools/stamp-engine-diff` scenarios: dab with explicit pigment colour, `heightMul`, `sheen`; assert within the existing 1 to 2 level tolerance |
 | Layout parity | Extend `layout_parity.rs` for any appended dab slot |
+| Drawn brush | Golden frames (desktop CPU rasteriser of the overlay, committed PNGs, per-pixel tolerance) for brush x pose x pressure x load; **anchor invariant** (contact patch within 0.5 px of the dab centre across zoom, pan, rotation, layer transform and the 3D mapping); single-source test (overlay inputs are the generator's published frame, not recomputed); determinism (same samples give the same frame); toggle-Off leaves dabs byte-identical; frame-build cost relative guard |
 | Perf | A harness `peakOps` and wall-time guard over the demo pack; fail above the 6.7 budgets on the desktop test machine (a relative, not absolute, check) |
 | Accessibility | Compose semantics tests for names/descriptions/targets (min 48 dp); a colour-vision simulation unit test on the palette |
 | Manual device | Matrix on a low-end, a mid-range and a high-end device for budgets and for the felt quality of the petal pull; recorded, not CI |
@@ -1139,6 +1254,7 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
   spec adds can be parity-tested against their Kotlin references here and in CI, but **only on a
   software Vulkan driver**: nothing here runs on Mali/Adreno, so device-specific float behaviour and
   real performance remain unverified until the P9 device matrix.
+- **Drawn brush (E9), not measured:** the real touch-to-paint latency on a device and whether a Compose overlay lags the direct-display paint; whether `BrushPresentationFrame` can be published without measurable cost in the live path (`EditorViewModel` is very large and I did not trace the live generator call site). The hover code and the contact state were read, not run.
 - **Whether a K-M latent lookup in a compute pass meets the 2 ms target** is a design estimate.
 
 ## 10. Owner decisions
@@ -1175,6 +1291,10 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 | Canvas cannot tell metamers apart | Two recipes with the same basis projection mix alike on the canvas | Stated in 6.2; tube identity lives on the board and in the brush's tube part; accept for v1 |
 | Concentration quantisation drift | Repeated mixes round to u8 each time | Largest-remainder rule; error-bound test; limit mixes per texel per stroke; P3 test of 50 repeated mixes |
 | Sidecar v4 | Older builds drop board/latent | Fail-closed per layer; board is regenerable from slot table only if the field survives, so back up is the project file |
+| Drawn brush hides the work | Occlusion, clutter | Tip-only default, translucent body, tiny-brush hairline, toggle (E9 item 4) |
+| Brush overlay lags the paint | Perceived lag gets worse | Overlay in a later layer than direct display: v1 makes no latency claim; v2 draws in the direct-display layer and is measured (E9 item 3) |
+| Drawn brush disagrees with the paint | Mistrust | One source: a read-only frame published by the same generator step; never recomputed (E9 item 1); the load picture is a budget corrected at stroke end |
+| Overlay cost on mid-range | Frame drops | Tuft cap by tier, under 0.5 ms target, drops to Tip-only for a frame, never delays paint |
 | Dab-level mixing looks banded against the canvas | Visible lane edges | Lane count tuned by tier; sub-pixel overlap; `mixWet` is a gradient, not a step |
 | K-M data quality | Colours look wrong or muddy | Source real data first (P0); golden vectors; allow tube tuning in packs |
 | 8-bit canvas quantisation of repeated mixes | Muddy drift after many mixes | Residual in the lookup keeps unmixed pixels exact; limit mixes per pixel per stroke; test with 50 repeated mixes |
