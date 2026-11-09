@@ -133,6 +133,53 @@ In short: the picker models a **selected colour**. It does not model paint.
 
 ## 3. Engine capabilities (extensions to the stroke-program contract)
 
+### 3.0 Where each computation runs (CPU/GPU split)
+
+Amended after the owner asked "why is it using CPU to do wetness?". The rule is:
+
+> **Per-dab scalars are Kotlin. Per-pixel fields that are read, written or evolved over time are
+> GPU (wgpu) compute passes, each with a Kotlin reference that is the test oracle.**
+
+What the repository already does (read from source): the Impasto v2 wet material simulation is a
+wgpu simulation, `GpuWetSimulation` ("there is no CPU path: the wet stage then fails",
+`core/nativebridge/.../GpuWetSimulation.kt:1-8`), with passes TRANSFER, DEPOSIT, PIGMENT, ADVANCE,
+LEVEL, SHADE and GPU checkpoints (`:56-70`, `core/wgpu-engine/src/wet.rs`, `shaders/wet.wgsl`).
+Persistent-wetness Color Smudge also runs on that simulation (`feature/editor/.../GpuWetSmudge.kt:1-20`).
+The Kotlin `WetMaterialTransport`, `PersistentWetnessField` and `ImpastoEngine.transferMaterialStroke` are the
+reference implementations the Rust tests compare against (`core/wgpu-engine/tests/wet.rs`,
+`cpu_transfer`, `cpu_level`, `cpu_advance`). The status doc's sentence that persistent-wetness smudge
+"intentionally uses the CPU correctness path" (Phase 4) predates `GpuWetSmudge` and is out of date.
+
+This spec's first draft contradicted that by putting wet sampling and pickup in a Kotlin "probe". That
+is withdrawn. The audit of every place it assigned wetness, pickup or mixing to the CPU:
+
+| Where (first draft) | What it did on the CPU | Verdict | Now |
+|---|---|---|---|
+| 1 audit rows (wet pickup, mixing) | Describes today's code | Accurate, but must say Impasto v2 wet is already GPU | Corrected in 1 |
+| 3.3 E2 brush load | Load columns evolved and read in Kotlin | Per-dab scalar bookkeeping is fine in Kotlin; the *truth* of how much paint reached the canvas is a field effect | Split: Kotlin load **budget** (prediction for authoring), GPU load **buffer** (truth) |
+| 3.4 E3 `underWet`/`underMix`/`lift` | Footprint reads of a CPU copy of the layer and the wetness field, from Kotlin | **Wrong.** A footprint sample is a per-pixel field read; it forces a CPU copy or a readback of a GPU-resident layer, and the CPU copy goes stale as the field evolves | Moved to a GPU **paint transaction** pass (3.4) |
+| 3.5 E4 `PigmentMixer` | Pure Kotlin | Right for per-dab mixing (brush, palette recipe); wrong for canvas-wide mixing (decision 3), which is per pixel | Kotlin reference + WGSL port + a 3-D lookup texture |
+| 3.8 E7 wicking, granulation, edge darkening | "extend `WetMaterialTransport`" (CPU class) | **Wrong.** It is a time-evolving field | GPU ADVANCE-family pass; `WetMaterialTransport` stays the oracle |
+| 6.3 palette board | "same engine" | Right in intent; the board is a small surface on the same GPU machinery | Stated explicitly |
+| 3.1 principle 3 "renderers stay dumb" | Everything resolved in Kotlin | Too strong | Rewritten below |
+| 4 rule 4 replay purity | Pure function of samples, layer state, load | Missing the GPU state that now evolves | Extended in 4 |
+| 6.7 budgets | CPU-side budgets only | Missing GPU dispatch and memory | Added |
+
+What stays on the CPU, and why each is right:
+
+- **Program execution and `emit`.** Per-dab scalars, bounded by the existing 40,000-op budget; it must
+  precede the GPU (the GPU consumes its dabs). Pure function of samples, so replay is exact.
+- **The brush-load budget.** A few dozen floats per step; depletion by distance and pressure is a
+  closed form (`BrushReservoirModel.stateAtDistance`). It is a *prediction* used for authoring
+  decisions (a script's dry-out threshold). It never decides a pixel (3.3).
+- **Pigment recipes, the eyedropper solve and lookup-table generation.** Per-colour or offline work, not
+  per pixel, not per frame.
+- **Reference implementations** of every GPU stage, as test oracles and for desktop tests.
+
+What moves to, or stays on, the GPU: everything that samples or changes pixels of colour, wetness or
+height: wet pickup, lift and draw sampling across a footprint, K-M mixing against the surface, glazing,
+wicking, bleed, diffusion, wet-edge behaviour, film spread, drying, levelling, shading.
+
 ### 3.1 Principles for every extension
 
 1. **Reuse the contract.** The program language, `emit`, outputs, limits and the "pure function of
@@ -144,27 +191,32 @@ In short: the picker models a **selected colour**. It does not model paint.
    to the current build; this is a required test (section 8.2). New `Dab` fields are **appended at
    the end of the data class with defaults**, as `contactDepth` was (`E/BrushStamps.kt:58-66`), so
    positional callers keep their meaning.
-3. **Resolve in Kotlin; renderers stay dumb.** The Kotlin generator (`IncrementalDynamicDabGenerator`,
-   `E/IncrementalDynamicDabGenerator.kt:59-118`) already is the single place programs run, for live
-   strokes, commits and undo replay. The wgpu engine receives resolved dabs and already supports
-   an explicit colour per dab (`stamp.wgsl:156-160`, `WgpuDabs.kt:32-37,87`). Pigment mixing,
-   load evolution and pickup are therefore decided **in Kotlin, per dab**, and reach the GPU as
-   ordinary resolved colour. This is why one implementation can serve both engines.
-4. **Two engines, one oracle.** The Kotlin math is the specification and the test oracle. The Rust
-   wgpu engine (`core/wgpu-engine`) implements only the parts that must run per pixel (stamping,
-   height deposit, shading). Where a feature adds per-pixel GPU work (E5 shading), the WGSL must
-   be a statement-for-statement port of a named Kotlin function, with a fixture test pinning both,
-   following the convention already used for the RYB transform (`color_smudge.wgsl:108-140` is a
-   port of `MaterialColor.kt`) and the stamp port (`stamp.wgsl:1-10`). `tools/stamp-engine-diff`
-   extends to cover each new scenario; expected parity is the existing tolerance (within 1 to 2
-   levels, `tools/stamp-engine-diff/README.md`).
-5. **Determinism.** No wall clock, no unseeded randomness, no hardware-dependent math in anything a
-   replay depends on. `rand()` stays a stream seeded by the stroke; new noise is `hash`/`noise`.
-   Time enters only through recorded `dt`/`time`. Material time advances from recorded sample uptime
-   and is never persisted as portable time (status doc, Phase 5).
+3. **Kotlin decides intent; the GPU executes material transactions.** The Kotlin generator
+   (`IncrementalDynamicDabGenerator`, `E/IncrementalDynamicDabGenerator.kt:59-118`) stays the single
+   place programs run, for live strokes, commits and undo replay. It resolves **geometry and per-dab
+   scalars**: where, how big, how hard, which lane, how much it *intends* to draw or lift. It does not
+   read or modify per-pixel fields. The wgpu engine executes the **transaction** each dab implies
+   against the resident fields (sample the surface, lift, draw, mix, update wetness and height), in
+   recorded dab order. This relaxes "renderers remain dumb consumers of resolved geometry"
+   (`E/BrushTuftDabExpander.kt:3-14`; status doc M6) in exactly one place: the renderer now owns the
+   *material* state (colour, wetness, height under the footprint) and the transaction on it. It still
+   owns no *decisions*: it never chooses geometry, timing or amounts beyond clamping an intent to what the
+   field can supply. Everything geometry-shaped stays as dumb as before.
+4. **One law, two implementations, one oracle.** Each GPU stage has a Kotlin reference
+   (`commonMain`, pure, desktop-testable) that is the specification. The WGSL is a statement-for-statement
+   port (the convention already used for the RYB transform, `color_smudge.wgsl:108-140`, the stamp
+   port, `stamp.wgsl:1-10`, and the wet stage, `wet.wgsl` against `wet.rs` tests). There is no CPU
+   *runtime* path for a painterly layer, matching the existing wet stage; a device that cannot run wgpu
+   already cannot draw (`ARCHITECTURE.md` "Retired" section). Parity tests run the real WGSL on lavapipe
+   (section 8) with stated tolerances. A stage with no parity test does not ship.
+5. **Determinism (extended in section 4).** No wall clock, no unseeded randomness, no unordered float
+   atomics. `rand()` stays a stream seeded by the stroke; new noise is `hash`/`noise`. **Material time is
+   the recorded stroke clock, quantised to a fixed timestep** (4.5). Material time advances from recorded
+   sample uptime and is never persisted as portable time (status doc, Phase 5).
 6. **Bounded cost.** Every extension counts against the existing operation budget (40,000 per step,
-   `E/StrokeProgram.kt:124`) in proportion to the work done, and has a hard cap stated below.
-   Budgets that exceed the cap behave as today: roll back program state, paint the brush's own dabs.
+   `E/StrokeProgram.kt:124`) in proportion to the work done, and has a hard cap stated below. GPU stages
+   have dispatch and memory caps (6.7). Budgets that exceed the cap behave as today: roll back program
+   state, paint the brush's own dabs.
 7. **Versioned.** Brush `params` gain `"painterly": 1` (section 3.9). A host that predates it ignores
    the field and the rest of `params` still parses, so a new pack degrades to a plain brush on an old
    build rather than failing to install.
@@ -194,7 +246,7 @@ In short: the picker models a **selected colour**. It does not model paint.
 stroke-level float in the Color Smudge reservoir. Neither knows what colour the paint is, or where
 on the brush it sits.
 
-**Extension:** a declared `BrushLoad`, evolved in Kotlin, readable by programs.
+**Extension:** a declared `BrushLoad` with two coordinated representations.
 
 ~~~json
 "load": {
@@ -210,80 +262,115 @@ on the brush it sits.
 ~~~
 
 - `lanes` is the resolution across the brush width, `depth` the number of layers along bristle
-  length (tip layer is spent first, as on a real brush). Both are bounded (lanes at most 32, depth at
-  most 4) so state is at most 128 cells, each a `(PigmentMix, amount)`.
-- Initial fill is **from the palette** (section 6): the brush starts a stroke with the load it had
-  at the end of the last one, not a fresh full charge. Between strokes the load persists in the
-  editor session and in the project (section 6.5). A fresh tube-load is an explicit user action.
+  length (tip layer is spent first, as on a real brush). Bounded (lanes at most 32, depth at most 4):
+  at most 128 cells, each a `(latent colour, amount)`.
+- **Truth (GPU).** The load lives in a small GPU storage buffer for the stroke. The paint transaction
+  (3.4) draws from it and lifts into it, in dab order. At stroke end it is read back (a few hundred
+  bytes) and stored with the editor session and the project, so the brush starts the next stroke with
+  what it still holds (this is the same pattern as the existing reservoir slot carried between transfer
+  batches, `wet.wgsl` `ctl[p.flags_off - 1]`, `transfer_batches_carry_the_reservoir` in
+  `core/wgpu-engine/tests/wet.rs`). A fresh tube-load is an explicit user action (6.3).
+- **Budget (Kotlin).** The generator keeps a *prediction* of each column's amount using depletion by
+  distance and pressure only (no pickup), so a program can branch on "this lane is nearly dry". It
+  is a pure function of the samples, so program output is deterministic. It can differ from the GPU
+  truth when a lift refilled a column; that is an **authoring inexactness, not non-determinism**: the
+  program's inputs are identical on every replay, and the GPU result is a deterministic function of
+  the resulting dabs. Packs are written against the budget and tolerate the difference; the spec does
+  not ask for the program to see GPU state (that would need a per-dab readback).
 - Program functions (all deterministic, all cost-counted):
-  - `loadAmount(lane)` returns 0..1, total paint in that column.
+  - `loadAmount(lane)` returns 0..1, the budget's predicted amount for that column.
   - `loadMix(lane)` returns 0..1, the fraction of the column's colour that is its second pigment
-    (a scalar, because the language has no vectors; the colour itself is applied by the engine
-    when the dab names its `lane`).
-  - An `emit` naming `lane` and `draw` takes `draw` from the column's tip layer, scales the dab's
-    alpha by `min(1, available / draw)`, colours the dab with the column's mixture, and depletes it.
+    (a scalar, because the language has no vectors).
+  - An `emit` naming `lane` and `draw` is an **intent**: draw up to `draw` from that column.
+    The GPU colours the dab from the column's actual mixture and scales its alpha by what the
+    column can supply.
 - Depletion keeps the existing exponential envelope as its default law
   (`BrushReservoirModel.stateAtDistance`, `E/BrushReservoirModel.kt:35`) and exposes the rate to
-  the pack, so existing packs' feel can be matched.
+  the pack, so existing packs' feel can be matched. The Kotlin reference of the GPU transaction
+  uses the same law; one definition, two implementations.
 
 **Compatibility:** a brush without a `load` block has none of this state and behaves as today.
 Programs that keep their own scalar `load` variable keep working; the name does not collide
 because engine load is read through functions, not a variable.
-**Cost:** O(lanes) per step to evolve; cell count capped.
+**Cost:** O(lanes) per dab on the GPU; cell count capped.
 **Effort:** M.
 
-### 3.4 E3 — Reading the surface: wet colour pickup inside programs
+### 3.4 E3 — Paint transactions on the GPU: wet pickup, lift and draw
 
 **Gap:** programs cannot read colour; colour pickup exists only as the Color Smudge tool
-(section 1). This is the structural gap behind R4.
+(section 1). This is the structural gap behind R4. The first draft put it in a Kotlin surface probe;
+that is replaced (3.0).
 
-**Constraint that shapes the design.** Programs run in the Kotlin generator, which sees only
-samples. The canvas is rendered on the GPU. Pickup that depended on pixels the stroke itself just
-painted could not be reproduced identically in live view and in replay without the generator and the
-renderer being coupled step for step.
+**Design.** A new GPU pass, `paint_transaction`, extends the existing wet stage
+(`core/wgpu-engine/src/wet.rs`, `shaders/wet.wgsl`, `GpuWetSimulation`) and runs once per painterly
+dab, in recorded order, with the same deterministic reduction pattern the transfer pass already uses
+(workgroup partial sums, no float atomics; `wet.wgsl` pass 1 / pass 2).
 
-**Extension (recommended):** a **stroke-start surface probe**.
+Per dab, the transaction does, over the dab's footprint:
 
-- At touchdown, the editor hands the generator a read-only view of the layer as it was *before the
-  stroke*: premultiplied colour (the CPU copy that already exists for commit and undo; the
-  persistent wetness field already has a CPU representation, `E/PersistentWetnessField.kt:19-72`) and
-  wetness. Replay constructs the generator with the layer state as of that stroke, which it already
-  must have to composite the stroke.
-- New program functions, cost-counted by footprint area like `wetAt`:
-  - `underWet(x, y, r)` returns 0..1 (the persistent wetness field, normalised) — distinct from
-    the existing `wetAt`, which is film thickness in micrometres from sprayed strokes only.
-  - `underMix(x, y, r)` returns 0..1, the fraction of the surface's colour that differs from the
-    brush's current column colour, used with `emit { mixWet: }` (the engine mixes the surface colour
-    in; the script never sees raw channels, keeping the language scalar).
-  - `lift(lane, x, y, r, amount)` moves surface paint into the named load column (an upper bound
-    on `amount`, limited by `underWet` and the column's free capacity), and `drain`s the same amount
-    from the program wet ledger so the two records agree.
-- A stroke never sees its own paint through the probe. **v1 decision (owner, section 10):** a stroke
-does not pick up its own wet pass; the probe is a snapshot at touchdown. The door stays open: a later
-version may add self-pickup by moving it into the compositor (the rejected alternative below), which
-would be a new probe version flagged by the brush, never a silent change. Self-overlap is deliberately not picked up.
-  Real brushes do pick up their own earlier paint, but only the *non-reproducible live pixels*
-  could supply it, so that case is left to the lane `load` state itself (a stroke that returns over
-  itself carries what it still holds).
+1. **Sample** the surface: colour (as K-M latent through the lookup texture, 6.2), wetness and height.
+2. **Lift** (`lift` intent): move paint from the surface into the named load column, limited by the
+   remaining *source quantity* (below), the dab's footprint weight and the column's free capacity.
+3. **Draw** (`draw` intent): deposit the column's mixture onto the surface; where the surface is wet
+   (`mixWet`), mix the deposited colour with the surface colour in latent space by wetness; add
+   height (`heightMul`, E5) and wetness.
+4. **Write** colour, wetness, height and the load column back, so the next dab in the stroke sees the
+   consequences of this one.
 
-**Rejected alternative:** put load evolution and pickup into the compositor (as the existing Color
-Smudge reservoir stages `4..7` do, `color_smudge.wgsl:9`). It handles self-overlap exactly, but it
-makes colour a GPU-side effect the Kotlin oracle must re-implement per pixel, it forces the script
-to run on a surrogate that can disagree with the truth, and it breaks the "renderers are dumb"
-rule. It remains the documented route for a later self-pickup version (decision 5).
+**Source quantities (fixes the refill-forever hazard).** A lift draws from a stroke-local
+*remaining liftable amount* per pixel, `avail`, initialised at touchdown from the committed surface's
+wet film (wetness and paint height). Every lift **consumes** `avail` and applies the matching removal to
+the committed surface field (wetness and height decrease where paint was lifted). Repeated lifts from
+one patch therefore deplete it; a stroke cannot refill from a patch indefinitely. The same applies to a
+palette blob: a blob is a region of the board surface's paint field (6.3), so a lift from a blob
+consumes that blob, and finite paint on the board follows from the same rule with no separate ledger.
+Colour for a lift is sampled from `snap_color`, a GPU copy of the surface colour taken at touchdown
+(the existing `SAVE_RAW` op, `GpuWetSimulation.kt:56-58`), **for colour sampling only**; quantities
+come from `avail`, not from the snapshot.
 
-**Compatibility:** no probe is supplied unless the brush declares `"surface": true`; the functions
-return 0 without it. Existing programs are unaffected.
-**Cost:** footprint reads on a CPU copy; capped at the existing 320 px footprint clamp.
-**Effort:** L (the probe plumbing in `:feature:editor` is most of it).
+**No self-pickup (owner decision 5, v1).** The stroke's own deposits are written to the surface but not
+added to `avail` or to `snap_color`, so a stroke never lifts its own wet pass. The door stays open: a
+later `transaction: 2` could add own deposits to `avail`; it would be flagged on the brush and never a
+silent change to existing strokes.
+
+**What this replaces in the program ledger.** `spray`/`drain`/`wetAt` (`E/PaintLedger.kt:24-132`,
+`E/StrokeProgram.kt:829-841`) stay as they are for existing packs. They are a spray-only,
+thickness-only, in-memory ledger: `drain` only subtracts thickness, clamps at zero, reports nothing and
+never touches the persistent surface. It must **not** be used for pickup bookkeeping on painterly brushes;
+`lift` supersedes it (a brush uses one or the other, never both, enforced at compile time by the
+`painterly` flag).
+
+**Program surface.** No new surface-reading functions. A program says what it intends, on an `emit`:
+`lane`, `draw`, `lift` (amount to lift into the lane at this dab's footprint) and `mixWet` (0..1 upper
+bound on mixing with the wet surface). It reads only the Kotlin budget (3.3) and its own inputs.
+
+**Why GPU (justification against the owner's criteria).**
+
+| Criterion | Kotlin probe (withdrawn) | GPU transaction (adopted) |
+|---|---|---|
+| Mid-range Android perf | Footprint reads of a CPU copy: 48 lanes x 16x16 samples per step, plus a CPU copy of a GPU-resident layer (`ARCHITECTURE.md`: layers stay resident; readback only of the dirty rect) | Runs where the layer already is; no readback in the live path |
+| Determinism and replay | Exact on the CPU, but the CPU copy goes stale as wetness evolves | Deterministic within the contract in 4.5; same device identical, cross-device within stated tolerance |
+| One implementation | One, but a second is still needed on the GPU to display it | Kotlin reference + WGSL port; parity-tested |
+| Existing GPU wet shading | A CPU wetness read would not agree with the GPU field `shade_material` lights (`wet.wgsl:584-627`) | Same field the specular-while-wet shading already reads |
+
+**Compatibility:** none of this runs unless the brush declares `"painterly": 1` with a `load` block.
+**Cost:** one extra dispatch per dab batch; footprint capped at the existing 320 px clamp.
+**Effort:** L.
 
 ### 3.5 E4 — Subtractive pigment mixing
 
-Specified in section 6.2 (it belongs with the palette because the same model mixes on the palette
-and on the brush). The engine surface is `PigmentMixer` in `:core:engine` `commonMain`, pure Kotlin,
-no Android dependency, so it runs on desktop and in tests. The existing `MaterialMixingModel` enum
-gains a third value `PIGMENT_KM` (appended; the two existing values keep their ABI meaning, as the
-status doc requires, "Native mode values preserve historical ABI meaning").
+Specified in section 6.2. Two implementations of one law:
+
+- **Kotlin (`:core:engine` `commonMain`, pure, no Android dependency):** `PigmentMixer` is the reference
+  and the oracle, and runs at runtime for the **per-colour** work: palette recipes, the eyedropper
+  solve, the brush's budget, and tube/blob colour on the board UI.
+- **WGSL (`wet.wgsl` family):** the same mixer applied **per pixel** for canvas mixing (decision 3):
+  wet blends, glazes, overlap. The RGB-to-latent lookup is a 3-D texture generated by the Kotlin
+  reference and uploaded once; the WGSL samples it and does the K-M algebra in the paint transaction.
+
+The existing `MaterialMixingModel` enum gains a third value `PIGMENT_KM` (appended; the two existing
+values keep their ABI meaning, as the status doc requires, "Native mode values preserve historical ABI
+meaning").
 
 **Effort:** L.
 
@@ -327,19 +414,28 @@ No new engine mechanism is needed; this is a **contract clarification plus a tes
 
 **Effort:** S.
 
-### 3.8 E7 — Watercolour (optional, medium-scoped)
+### 3.8 E7 — Watercolour (GPU field passes)
 
-Required: watercolour is one of the four media (decision 1). The pieces:
+Required: watercolour is one of the four media (decision 1). It is a set of **time-evolving per-pixel
+fields**, so it is GPU work, not CPU (3.0). The pieces, all as additions to the existing wet stage's
+ADVANCE family (`GpuWetSimulation.ADVANCE/LEVEL/PIGMENT`):
 
-- `absorbency` from `SubstrateSample` (`E/SubstrateDeposition.kt:15-35`) drives wicking in
-  `WetMaterialTransport` (it currently exchanges colour between neighbours with no paper term,
-  `E/WetMaterialTransport.kt:24-31`).
-- Pigment *granulation* (pigment settling into tooth valleys) is a per-pigment property (section 6.1)
-  applied at deposit; the tooth field already exists.
-- Edge darkening on drying comes from the same conserved-volume wetness transport (a drying
-  boundary pulls pigment outward).
+- **Wicking and bleed.** Paper `absorbency` (from `SubstrateSample`, `E/SubstrateDeposition.kt:15-35`,
+  already carried but unused for wet behaviour) drives lateral wetness flux. The existing pass
+  exchanges wetness and pigment between neighbours with no paper term; the new term scales the
+  exchange by a per-pixel absorbency texture (the substrate tile already uploads as a static R8 texture).
+- **Granulation.** A per-pigment property (6.1) applied at deposit: pigment settles into tooth valleys
+  (the substrate height texture), a per-pixel modulation of deposited amount.
+- **Wet-edge behaviour and edge darkening.** A drying boundary pulls pigment outward: a conserved-volume
+  flux toward pixels that dry first, using the same fixed-timestep pass.
+- **Wet film spread and drying.** Exponential drying per tick already exists (`ADVANCE`); the film
+  spread is the existing wetness flux with the absorbency term.
 
-**Effort:** L. Cheapest of the media to *get wrong*, so it is built last of the engine work.
+The Kotlin `WetMaterialTransport` (`E/WetMaterialTransport.kt:24-31`) gains the matching reference
+(absorbency, granulation, edge flux) and the Rust tests extend `cpu_advance` accordingly. The first
+draft's wording "extend `WetMaterialTransport`" meant the runtime; it is the oracle only.
+
+**Effort:** L.
 
 ### 3.9 E8 — Declaring and versioning
 
@@ -376,10 +472,24 @@ that is what makes older hosts degrade safely, and must stay true. New keys pars
    field; a project written by this build and opened by an older one loses only the load, never
    the paint. The material sidecar's fail-closed rule (status doc Phase 5) is the model: absent or
    corrupt load state means "start empty", never an error.
-4. Replay: `load`, `lift`, the surface probe and every new function are pure functions of
-   (samples, stroke seed, layer state at stroke start, recorded load at stroke start). All four are
-   persisted or derivable. A stroke records its starting load.
-5. Float determinism: pigment math uses `Float` with a fixed evaluation order, no `fastMath`, no
+4. Replay: the *Kotlin* side (program output, dabs, load budget) is a pure function of
+   (samples, stroke seed, recorded load at stroke start). The *GPU* side (the paint transaction and the
+   wet passes) is a deterministic function of (those dabs, the canonical surface state at stroke
+   start, the recorded stroke clock). A stroke records its starting load.
+4a. **GPU determinism contract.** (i) Passes run in recorded dab order; (ii) reductions use the fixed
+   workgroup-order pattern of `wet.wgsl` (no float atomics, no unordered accumulation); (iii) no
+   wall-clock input; (iv) **fixed timestep:** material time advances in whole ticks of `TICK_MS`
+   derived from the recorded stroke clock (`WetnessReplayState.advanceMaterialTo`), with the existing
+   iteration caps (2 default, 4 hard cap for colour transport, status doc Phase 4), so the number of ticks
+   is a function of recorded times only; (v) drying uses the per-tick constant, never a measured delta;
+   (vi) the same device and driver reproduces a replay exactly; across devices results agree within the
+   tolerances in section 8 (height and wetness 2e-4 absolute as `wet.rs` already uses; colour within 2
+   levels per channel, the `tools/stamp-engine-diff` figure). (vii) **Replay windows are short:**
+   a commit stores the canonical state in the material sidecar (`MaterialStateCodec`), and undo replays at
+   most the undo depth (20 entries, `EditHistory`) from a GPU checkpoint or the canonical CPU state, so
+   cross-device drift cannot accumulate over a document's history. Undo past a material-changing stroke
+   already bypasses the pixel-only fast path and reconstructs canonical state (status doc Phase 5).
+5. Float determinism: pigment math (Kotlin and WGSL) uses `f32` with a fixed evaluation order, no `fastMath`, no
    `kotlin.math` functions whose results differ between JVM and Android ART beyond the existing
    test tolerance. Where an exponential or power is needed it goes through a table or a documented
    polynomial, so the Kotlin oracle and the WGSL port agree to the stated tolerance.
@@ -595,8 +705,15 @@ phase (P7) lands, ready to copy into `azphalt/submissions/`; nothing in azphalt 
 A demo is **sharable** (decision 9) because it is a brush pack plus a stroke list: the shareable unit is the pack
 (the brushes) and a project file or a recorded stroke replay (the pull), which the editor already
 serialises as samples (`spec/stroke-program.md` "Where it runs": replay feeds the recorded samples).
-Video export is a later, separate feature. No new sharing format is needed beyond a "play this stroke list with this pack" convention, which is
-an azphalt `template` or `image` asset (existing types) — coordination item below.
+Video export is a later, separate feature. **This does not exist yet and is a dependency, not an assumption.** The first draft said the editor
+"already serialises" strokes as samples; that was wrong, as P0 found. The serialisable project stroke,
+`BrushStroke` (`core/common/.../model/EditorModels.kt:444-460`), has points, pressures, colour, size,
+opacity, a tool ordinal and an Ink utensil id, but **no stamp brush, no stroke seed, no samples with
+tilt/time/phase, and no wet-ledger input**. Stamp strokes exist only as the in-memory `StrokeCommand`
+(`EditorViewModel.kt:146`) in the undo history. So a pack plus a project cannot replay a demo after
+reopen or share. Phase **P7b** (section 7) adds persistent stamp-stroke capture and a replay consumer;
+until it lands, demo sharing is not available and nothing in the packs depends on it. The shareable
+unit then is the pack (brush references by id and version) plus a `StrokeRecording` file: see P7b.
 
 **Coordination with HereLiesAz/azphalt (do not change it):**
 
@@ -773,8 +890,10 @@ The palette is a surface you work on, not a list of swatches.
   rule, with the same lift/draw physics as the canvas (it *is* the same engine: the palette is a
   surface the probe (E3) reads). Mixing is incremental and spatial, not a slider: more passes,
   more homogeneous.
-- **Finite paint (decision 6).** Paint in the mixer is finite: a blob runs out, and a brush holds a
-  limited load. Wetness and the amount loaded are **felt through use, never shown as numeric
+- **Finite paint (decision 6).** Paint in the mixer is finite: a blob is a region of the board
+  surface's paint field, and every lift from it consumes that field (3.4, source quantities), so a blob
+  runs out by the same rule as wet canvas paint and needs no separate ledger. A brush holds a limited
+  load. Wetness and the amount loaded are **felt through use, never shown as numeric
   sliders**: you dip, the brush takes paint and is visibly fuller; you paint and it depletes, strokes
   thin and break up; a dry brush drags. The only readouts are physical ones (the brush's load strip,
   6.6, and the look of the blob). Section 6.4 lists what is infinite on purpose (refills, cleaning).
