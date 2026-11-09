@@ -14199,7 +14199,7 @@ class EditorViewModel @Inject constructor(
     fun importModelLayer(uri: Uri, displayName: String? = null) {
         viewModelScope.launch(dispatchers.io) {
             val result = runCatching {
-                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                val bytes = context.contentResolver.openInputStream(uri)?.use { ModelFiles.readBounded(it) }
                     ?: throw java.io.IOException("Couldn't open that file")
                 com.hereliesaz.graffitixr.common.scene.ModelMesh(
                     com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(bytes.decodeToString()),
@@ -14453,6 +14453,33 @@ class EditorViewModel @Inject constructor(
     /** Model layers whose saved texture file could not be read: painting them is refused. */
     private val modelTextureLoadFailed = HashSet<String>()
 
+    /**
+     * A model layer's saved paint from [dir], or null when the layer names none (or the file is gone). Throws
+     * when the file is there but unusable: a PNG cut short by a partial write, or one that will not decode,
+     * either of which would otherwise restart blank and be saved over the file.
+     */
+    private fun readSavedPaint(dir: File, textureFile: String?): WrittenTexture? {
+        val file = ModelFiles.safe(textureFile)?.let { File(dir, it) }?.takeIf { it.isFile } ?: return null
+        val png = file.readBytes()
+        if (!ModelCoopCodec.isCompletePng(png)) throw java.io.IOException("the image file is incomplete")
+        val texture = com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(png)
+        // Decoded now, while the failure can still be reported: the renderer needs the pixels anyway.
+        if (texture.pixels() == null) throw java.io.IOException("the image could not be decoded")
+        return WrittenTexture(texture, file.name)
+    }
+
+    /** One warning per model layer that did not open, and one per layer whose saved paint could not be read. */
+    private fun reportUnreadModels(unopened: List<Pair<String, String>>, paintUnread: List<Pair<String, String>>) {
+        val kept = "The file is kept in the project."
+        unopened.forEach { (name, why) ->
+            notify("The model of \"$name\" can't be opened: $why. $kept", NoticeKind.WARNING)
+        }
+        paintUnread.forEach { (name, why) ->
+            notify("The model of \"$name\" opened, but its paint can't be read: $why. $kept", NoticeKind.WARNING)
+        }
+    }
+
+    @Suppress("CyclomaticComplexMethod") // load, texture, report: one pass per layer
     private fun restoreModelLayers(projectId: String, layers: List<Layer>) {
         modelTexturesOnDisk.clear()
         writtenModelTextures.clear()
@@ -14462,6 +14489,11 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val dir = File(context.filesDir, "projects/$projectId")
             val textures = HashMap<String, WrittenTexture>()
+            // Layers whose model could not be opened, with why: the user is told (below), never left
+            // with an empty layer and no explanation. Their files stay in the project untouched.
+            val unopened = mutableListOf<Pair<String, String>>()
+            // Layers whose mesh opened but whose saved paint could not be read: left unpaintable, and told.
+            val paintUnread = mutableListOf<Pair<String, String>>()
             for (layer in pending) {
                 val content = layer.model ?: continue
                 runCatching {
@@ -14470,20 +14502,27 @@ class EditorViewModel @Inject constructor(
                     val key = "$projectId/$objFile"
                     if (modelMeshCache[key] == null) {
                         modelMeshCache[key] = com.hereliesaz.graffitixr.common.scene.ModelMesh(
-                            com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(File(dir, objFile).readText()),
-                        )
-                    }
-                    ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
-                        textures[layer.id] = WrittenTexture(
-                            com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(it.readBytes()), it.name,
+                            com.hereliesaz.graffitixr.common.mesh.ObjParser.parse(
+                                ModelFiles.readTextBounded(File(dir, objFile)),
+                            ),
                         )
                     }
                 }.onFailure {
                     android.util.Log.w("EditorViewModel", "Couldn't load the model of layer ${layer.id}", it)
+                    unopened += layer.name to (it.message ?: it.javaClass.simpleName)
+                }
+                // The paint is its own read: when it fails the mesh is still good, and the layer is only
+                // left unpaintable (modelTextureLoadFailed below), so it must not say the model failed.
+                runCatching {
+                    readSavedPaint(dir, content.textureFile)?.let { textures[layer.id] = it }
+                }.onFailure {
+                    android.util.Log.w("EditorViewModel", "Couldn't load the paint of layer ${layer.id}", it)
+                    paintUnread += layer.name to (it.message ?: "it could not be read")
                 }
             }
             withContext(dispatchers.main) {
                 if (_uiState.value.projectId != projectId) return@withContext
+                reportUnreadModels(unopened, paintUnread)
                 textures.forEach { (id, written) -> modelTexturesOnDisk[id] = written.texture }
                 writtenModelTextures.putAll(textures)
                 // a saved texture that did not load stays unpaintable (and unsaved over), never blank-and-overwritten
@@ -14530,8 +14569,34 @@ class EditorViewModel @Inject constructor(
         val texture = content.texture
         viewModelScope.launch(dispatchers.io) {
             val obj = if (withMesh) {
-                ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
-                    ?.takeIf { it.isFile }?.readBytes()?.let(ModelCoopCodec::deflate) ?: return@launch
+                val file = ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
+                    ?.takeIf { it.isFile }
+                if (file == null) {
+                    withContext(dispatchers.main) {
+                        if (_uiState.value.projectId == projectId) {
+                            notify(
+                                "Couldn't share the model of \"${layer.name}\" with your co-op peers: " +
+                                    "its file isn't in the project",
+                                NoticeKind.WARNING,
+                            )
+                        }
+                    }
+                    return@launch
+                }
+                // One bounded read, not a length check and then readBytes(): the file can change between them.
+                val bytes = runCatching { file.inputStream().use { ModelFiles.readBounded(it) } }.getOrElse { e ->
+                    withContext(dispatchers.main) {
+                        if (_uiState.value.projectId == projectId) {
+                            notify(
+                                "Couldn't share the model of \"${layer.name}\" with your co-op peers: " +
+                                    (e.message ?: "its file could not be read"),
+                                NoticeKind.WARNING,
+                            )
+                        }
+                    }
+                    return@launch
+                }
+                ModelCoopCodec.deflate(bytes)
             } else {
                 null
             }
@@ -14567,8 +14632,17 @@ class EditorViewModel @Inject constructor(
                 )
                 projectRepository.saveArtifact(projectId, op.objFile, bytes)
                 mesh
-            }.onFailure { android.util.Log.w("EditorViewModel", "Couldn't install a peer's model", it) }.getOrNull()
-                ?: return@launch
+            }.onFailure {
+                android.util.Log.w("EditorViewModel", "Couldn't install a peer's model", it)
+                withContext(dispatchers.main) {
+                    // As on the success path: a failure that lands after a project switch is about a layer
+                    // that is no longer here.
+                    if (_uiState.value.projectId == projectId) {
+                        val why = it.message ?: "it could not be read"
+                        notify("A peer's model for \"${layer.name}\" can't be shown: $why", NoticeKind.WARNING)
+                    }
+                }
+            }.getOrNull() ?: return@launch
             withContext(dispatchers.main) {
                 if (_uiState.value.projectId != projectId) return@withContext
                 modelMeshCache["$projectId/${op.objFile}"] = parsed
