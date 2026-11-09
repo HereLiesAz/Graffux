@@ -30,16 +30,21 @@ object ObjParser {
      *   by index and checked before a single character is copied, so a 60 MB line (or a file with no
      *   newline at all) is refused without ever being split into tokens.
      *
-     * Memory at the caps, beyond the file's own text (computed from the array sizes, not measured on a device):
+     * Memory at the caps, beyond the file's own text (computed from the array sizes in decimal MB, GC slack
+     * ignored, not measured on a device):
      * the position, uv and normal lists are primitive arrays capped at their limit (3, 2 and 3 floats per
-     * index: 38 MB at 1.2 million), the emitted vertices 32 bytes each (38 MB), the dedupe map 12 bytes a slot
-     * at under 60% load (25 MB at 2^21 slots) and the indices 12 bytes a triangle (5 MB): about 107 MB held
-     * at the end of the parse, and up to about 125 MB during the last growth step of a list or the map, when
-     * the old and new arrays are both alive. `build` drops the position, uv, normal and map storage before
-     * it takes the vertex and index arrays, which are the exact size and so are not copied again. Around the
-     * parse, `importModelLayer` holds the file's bytes (up to 64 MB) and the text (64 MB, or 128 MB if the file
-     * has non-Latin-1 characters), so the worst case on the import path is about 250 MB (310 MB with such
-     * text); the app asks for a large heap. A typical model is a small fraction of all of this.
+     * index x 1.2 million x 4 bytes = 14.4 + 9.6 + 14.4 = 38.4 MB), the emitted vertices 8 floats each
+     * (9.6 million floats = 38.4 MB), the dedupe map 12 bytes a slot (8 for the key, 4 for the value) at under
+     * 60% load, which is 2^21 = 2,097,152 slots = 25.2 MB from the 1,048,577th entry on, and the indices
+     * 3 x 400,000 ints = 4.8 MB. That is 38.4 + 38.4 + 25.2 + 4.8 = 106.8 MB held at the end of the parse.
+     * The peak is the last growth step of the vertex list, from 8,388,608 to 9,600,000 floats at vertex
+     * 1,048,577, when the old array (33.6 MB) and the new one (38.4 MB) are both alive: 71.9 MB for the
+     * list, plus the three full input lists (38.4), the map (25.2) and about 1.05 million indices (4.2),
+     * about 140 MB. `build` drops the position, uv, normal and map storage before it takes the vertex and
+     * index arrays, which are exactly full at the caps and so are not copied. Around the parse,
+     * `importModelLayer` holds the file's bytes (up to 64 MB) and its text (64 MB, 128 MB with non-Latin-1
+     * characters): 64 + 64 + 140 = about 268 MB on the import path (332 MB for such text), on a build that
+     * asks for a large heap. A typical model is a small fraction of all of this.
      */
     const val MAX_TRIANGLES = 400_000
     const val MAX_VERTICES = 3 * MAX_TRIANGLES

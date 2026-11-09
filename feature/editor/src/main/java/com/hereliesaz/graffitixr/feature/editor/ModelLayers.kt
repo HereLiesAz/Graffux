@@ -50,6 +50,13 @@ internal object ModelCoopCodec {
         }
     }
 
+    /** Whether [png] decodes far enough to name a size: a saved paint that does not is unreadable. */
+    fun isDecodable(png: ByteArray): Boolean {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(png, 0, png.size, o)
+        return o.outWidth > 0 && o.outHeight > 0
+    }
+
     /** Whether [png]'s header names a texture no larger than [MAX_TEXTURE_SIDE] a side. */
     fun textureInBounds(png: ByteArray): Boolean {
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }

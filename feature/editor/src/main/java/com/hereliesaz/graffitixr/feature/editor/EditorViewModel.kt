@@ -14453,6 +14453,17 @@ class EditorViewModel @Inject constructor(
     /** Model layers whose saved texture file could not be read: painting them is refused. */
     private val modelTextureLoadFailed = HashSet<String>()
 
+    /** One warning per model layer that did not open, and one per layer whose saved paint could not be read. */
+    private fun reportUnreadModels(unopened: List<Pair<String, String>>, paintUnread: List<Pair<String, String>>) {
+        val kept = "The file is kept in the project."
+        unopened.forEach { (name, why) ->
+            notify("The model of \"$name\" can't be opened: $why. $kept", NoticeKind.WARNING)
+        }
+        paintUnread.forEach { (name, why) ->
+            notify("The model of \"$name\" opened, but its paint can't be read: $why. $kept", NoticeKind.WARNING)
+        }
+    }
+
     @Suppress("CyclomaticComplexMethod") // load, texture, report: one pass per layer
     private fun restoreModelLayers(projectId: String, layers: List<Layer>) {
         modelTexturesOnDisk.clear()
@@ -14466,6 +14477,8 @@ class EditorViewModel @Inject constructor(
             // Layers whose model could not be opened, with why: the user is told (below), never left
             // with an empty layer and no explanation. Their files stay in the project untouched.
             val unopened = mutableListOf<Pair<String, String>>()
+            // Layers whose mesh opened but whose saved paint could not be read: left unpaintable, and told.
+            val paintUnread = mutableListOf<Pair<String, String>>()
             for (layer in pending) {
                 val content = layer.model ?: continue
                 runCatching {
@@ -14487,22 +14500,20 @@ class EditorViewModel @Inject constructor(
                 // left unpaintable (modelTextureLoadFailed below), so it must not say the model failed.
                 runCatching {
                     ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
+                        val png = it.readBytes()
+                        if (!ModelCoopCodec.isDecodable(png)) throw java.io.IOException("it is not a readable image")
                         textures[layer.id] = WrittenTexture(
-                            com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(it.readBytes()), it.name,
+                            com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(png), it.name,
                         )
                     }
                 }.onFailure {
                     android.util.Log.w("EditorViewModel", "Couldn't load the paint of layer ${layer.id}", it)
+                    paintUnread += layer.name to (it.message ?: "it could not be read")
                 }
             }
             withContext(dispatchers.main) {
                 if (_uiState.value.projectId != projectId) return@withContext
-                unopened.forEach { (name, why) ->
-                    notify(
-                        "The model of \"$name\" can't be opened: $why. The file is kept in the project.",
-                        NoticeKind.WARNING,
-                    )
-                }
+                reportUnreadModels(unopened, paintUnread)
                 textures.forEach { (id, written) -> modelTexturesOnDisk[id] = written.texture }
                 writtenModelTextures.putAll(textures)
                 // a saved texture that did not load stays unpaintable (and unsaved over), never blank-and-overwritten
@@ -14565,7 +14576,8 @@ class EditorViewModel @Inject constructor(
                 val bytes = runCatching { file.inputStream().use { ModelFiles.readBounded(it) } }.getOrElse { e ->
                     withContext(dispatchers.main) {
                         notify(
-                            "Couldn't share the model of \"${layer.name}\" with your co-op peers: ${e.message}",
+                            "Couldn't share the model of \"${layer.name}\" with your co-op peers: " +
+                                (e.message ?: "its file could not be read"),
                             NoticeKind.WARNING,
                         )
                     }
@@ -14610,7 +14622,12 @@ class EditorViewModel @Inject constructor(
             }.onFailure {
                 android.util.Log.w("EditorViewModel", "Couldn't install a peer's model", it)
                 withContext(dispatchers.main) {
-                    notify("A peer's model for \"${layer.name}\" can't be shown: ${it.message}", NoticeKind.WARNING)
+                    // As on the success path: a failure that lands after a project switch is about a layer
+                    // that is no longer here.
+                    if (_uiState.value.projectId == projectId) {
+                        val why = it.message ?: "it could not be read"
+                        notify("A peer's model for \"${layer.name}\" can't be shown: $why", NoticeKind.WARNING)
+                    }
                 }
             }.getOrNull() ?: return@launch
             withContext(dispatchers.main) {

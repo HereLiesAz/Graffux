@@ -665,4 +665,38 @@ class ModelLayerTest {
         assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("Peer head") })
         assertNull(vm.uiState.value.layers.single { it.id == "peer" }.model!!.mesh)
     }
+
+    @Test
+    fun `a saved paint that cannot be read says so, and does not claim the model failed`() = runTest(dispatcher) {
+        val (seen, job) = collectNotices()
+        File(projectDir(), "model_m.obj").writeText(objText)
+        File(projectDir(), "model_tex_m.png").writeBytes("this is not a png".toByteArray())
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj", "model_tex_m.png")),
+        ))
+        idle()
+        job.cancel()
+        assertNotNull(model().model!!.mesh)
+        assertTrue(seen.toString(), seen.none { it.text.contains("can't be opened") })
+        assertTrue(seen.toString(), seen.any {
+            it.kind == NoticeKind.WARNING && it.text.contains("Head") && it.text.contains("paint") && it.text.contains("kept")
+        })
+        assertTrue("the unreadable paint file is left on disk", File(projectDir(), "model_tex_m.png").exists())
+    }
+
+    @Test
+    fun `a model with a good mesh and a good paint opens without a notice`() = runTest(dispatcher) {
+        val (seen, job) = collectNotices()
+        File(projectDir(), "model_m.obj").writeText(objText)
+        val paint = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.GREEN) }
+        File(projectDir(), "model_tex_m.png").outputStream().use { paint.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj", "model_tex_m.png")),
+        ))
+        idle()
+        job.cancel()
+        assertNotNull(model().model!!.mesh)
+        assertNotNull(model().model!!.texture)
+        assertTrue(seen.toString(), seen.isEmpty())
+    }
 }
