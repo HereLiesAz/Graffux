@@ -174,13 +174,21 @@ used to open the window, now imports into a layer.
 - **Import.** `EditorViewModel.importModelLayer` reads the OBJ (at most 64 MB, the same cap the co-op
   path uses; loading a saved project's OBJ and sending one to co-op peers are capped the same way) and
   parses it (`ObjParser`). The parse refuses, with an `ObjParseException`, a line over 64 K characters
-  (measured before it is copied, so one 60 MB line or a file with no newline is never split), a face of
-  more than 16,384 corners, more than 400,000 triangles, and more than 1,200,000 positions, uvs, normals
-  or emitted vertices (three per triangle, the most a flat-shaded or UV-seamed mesh emits). Its
-  accumulators are primitive arrays and an unboxed open-addressed map: about 150 MB at the caps beyond
-  the file's own text, a small fraction of that for a typical model. A saved project whose model is
-  over a cap (or otherwise unreadable) keeps its layer and its file, and a notice names the layer and the
-  reason; a co-op host whose model cannot be sent is told the same way. The file is copied
+  (measured before it is copied, so one 60 MB line or a file with no newline is never split; `\n`, `\r\n`
+  and a bare `\r` each end a line), a face of more than 16,384 corners, more than 400,000 triangles, and
+  more than 1,200,000 positions, uvs, normals or emitted vertices (three per triangle, the most a
+  flat-shaded or UV-seamed mesh emits). The corner limit is in practice also bounded by the line limit: an
+  n-gon of about 10,000 six-digit corners is some 70 K characters, so it is refused, where the earlier
+  parser accepted it. Its accumulators are primitive arrays, each capped at its limit, and an unboxed
+  open-addressed map. Memory at the caps, computed from the array sizes and not measured on a device: about
+  107 MB held at the end of the parse and up to about 125 MB at the last growth step of a list or the map,
+  beyond the text; `importModelLayer` also holds the file's bytes (up to 64 MB) and its text (64 MB, 128 MB
+  with non-Latin-1 characters), so the import path peaks near 250 MB (310 MB for such text), on a build that
+  asks for a large heap. A typical model is a small fraction of that. A saved project whose model is over a
+  cap (or otherwise unreadable) keeps its layer and its file, and a notice names the layer and the reason;
+  a co-op host whose model cannot be sent (too large, or its file missing from the project) and a guest
+  whose peer's model cannot be parsed are told the same way. A model's paint that cannot be read leaves the
+  layer unpaintable and says nothing about the mesh. The file is copied
   into the project folder as `model_<layerId>.obj`, and adds a layer on top with
   `Layer.model: ModelLayerContent`, which makes it a 3D layer: the rail shows the axis
   cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule

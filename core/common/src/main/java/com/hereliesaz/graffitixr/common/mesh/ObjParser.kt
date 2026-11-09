@@ -30,11 +30,16 @@ object ObjParser {
      *   by index and checked before a single character is copied, so a 60 MB line (or a file with no
      *   newline at all) is refused without ever being split into tokens.
      *
-     * Memory at the caps, beyond the file's own text: the position, uv and normal lists are primitive
-     * arrays (32 bytes per index, 38 MB at 1.2 million), the emitted vertices 32 bytes each (38 MB, plus the
-     * copy `build` makes), the dedupe map 12 bytes a slot at under 60% load (25 MB) and the indices 12
-     * bytes a triangle (5 MB): about 150 MB peak, not the several hundred a boxed `ArrayList<Float>` would
-     * take. A typical model is a small fraction of that.
+     * Memory at the caps, beyond the file's own text (computed from the array sizes, not measured on a device):
+     * the position, uv and normal lists are primitive arrays capped at their limit (3, 2 and 3 floats per
+     * index: 38 MB at 1.2 million), the emitted vertices 32 bytes each (38 MB), the dedupe map 12 bytes a slot
+     * at under 60% load (25 MB at 2^21 slots) and the indices 12 bytes a triangle (5 MB): about 107 MB held
+     * at the end of the parse, and up to about 125 MB during the last growth step of a list or the map, when
+     * the old and new arrays are both alive. `build` drops the position, uv, normal and map storage before
+     * it takes the vertex and index arrays, which are the exact size and so are not copied again. Around the
+     * parse, `importModelLayer` holds the file's bytes (up to 64 MB) and the text (64 MB, or 128 MB if the file
+     * has non-Latin-1 characters), so the worst case on the import path is about 250 MB (310 MB with such
+     * text); the app asks for a large heap. A typical model is a small fraction of all of this.
      */
     const val MAX_TRIANGLES = 400_000
     const val MAX_VERTICES = 3 * MAX_TRIANGLES
@@ -104,14 +109,14 @@ object ObjParser {
      */
     @Suppress("MagicNumber")
     private class Builder(private val limits: Limits) {
-        private val positions = FloatList()
-        private val uvs = FloatList()
-        private val normals = FloatList()
+        private val positions = FloatList(3 * limits.maxVertices)
+        private val uvs = FloatList(2 * limits.maxVertices)
+        private val normals = FloatList(3 * limits.maxVertices)
 
         // Corner key ("v/vt/vn" resolved to absolute 0-based indices, each plus one) -> emitted vertex.
         private val emitted = LongIntMap()
-        private val outVertices = FloatList()
-        private val outIndices = IntList()
+        private val outVertices = FloatList(Mesh.FLOATS_PER_VERTEX * limits.maxVertices)
+        private val outIndices = IntList(3 * limits.maxTriangles)
 
         // Emitted vertices whose corner carried no usable normal. Tracked per vertex, not per file:
         // a file can have `vn` lines and still have faces that don't reference them.
@@ -156,6 +161,11 @@ object ObjParser {
 
         fun build(): Mesh {
             if (outIndices.size == 0) throw ObjParseException("No faces found — this doesn't look like an OBJ model")
+            // What the parse needed and the mesh does not goes first, so the final arrays are not built on top of it.
+            positions.release()
+            uvs.release()
+            normals.release()
+            emitted.release()
             val vertices = outVertices.toArray()
             val indices = outIndices.toArray()
             if (!missingNormals.isEmpty) generateNormals(vertices, indices, missingNormals)
@@ -182,6 +192,8 @@ object ObjParser {
             val known = emitted[key]
             if (known >= 0) return known
 
+            val index = outVertices.size / Mesh.FLOATS_PER_VERTEX
+            roomFor(index, limits.maxVertices, "vertices")
             val out = outVertices
             out.add(positions[vi * 3]); out.add(positions[vi * 3 + 1]); out.add(positions[vi * 3 + 2])
             if (ni >= 0) {
@@ -195,8 +207,6 @@ object ObjParser {
                 out.add(0f); out.add(0f)
             }
 
-            val index = out.size / Mesh.FLOATS_PER_VERTEX - 1
-            roomFor(index, limits.maxVertices, "vertices")
             if (ni < 0) missingNormals.set(index)
             emitted[key] = index
             return index
@@ -296,34 +306,56 @@ object ObjParser {
 /** Indices are packed 21 bits to a field in a corner key. */
 private const val INDEX_LIMIT = (1 shl 21) - 1
 
-/** A growable `FloatArray`: the parse keeps millions of floats and boxing each one would cost 5x the memory. */
-private class FloatList {
-    private var data = FloatArray(INITIAL_CAPACITY)
+/**
+ * A growable `FloatArray` that never grows past [maxCapacity]: doubling from a power of two would leave
+ * a list at the limit holding up to twice what it needs (a 9.6M-float list becomes 16.8M). The parse's
+ * limits fix every list's largest possible size, so that is passed in.
+ */
+internal class FloatList(private val maxCapacity: Int) {
+    private var data = FloatArray(minOf(INITIAL_CAPACITY, maxCapacity))
     var size = 0
         private set
 
+    /** Floats the backing array can hold now. */
+    val capacity: Int get() = data.size
+
     fun add(value: Float) {
-        if (size == data.size) data = data.copyOf(size * 2)
+        if (size == data.size) {
+            check(size < maxCapacity) { "list is full at $maxCapacity" }
+            data = data.copyOf(minOf(size * 2, maxCapacity))
+        }
         data[size++] = value
     }
 
     operator fun get(index: Int): Float = data[index]
 
-    fun toArray(): FloatArray = data.copyOf(size)
+    /** The contents: the backing array itself when it is exactly full, else a trimmed copy. */
+    fun toArray(): FloatArray = if (size == data.size) data else data.copyOf(size)
+
+    /** Drops the contents and lets the memory go. */
+    fun release() {
+        data = FloatArray(0)
+        size = 0
+    }
 }
 
-/** A growable `IntArray`. */
-private class IntList {
-    private var data = IntArray(INITIAL_CAPACITY)
+/** A growable `IntArray`, capped like [FloatList]. */
+internal class IntList(private val maxCapacity: Int) {
+    private var data = IntArray(minOf(INITIAL_CAPACITY, maxCapacity))
     var size = 0
         private set
 
+    val capacity: Int get() = data.size
+
     fun add(value: Int) {
-        if (size == data.size) data = data.copyOf(size * 2)
+        if (size == data.size) {
+            check(size < maxCapacity) { "list is full at $maxCapacity" }
+            data = data.copyOf(minOf(size * 2, maxCapacity))
+        }
         data[size++] = value
     }
 
-    fun toArray(): IntArray = data.copyOf(size)
+    fun toArray(): IntArray = if (size == data.size) data else data.copyOf(size)
 }
 
 /**
@@ -351,6 +383,13 @@ internal class LongIntMap {
             probes++
         }
         return -1
+    }
+
+    /** Drops every entry and lets the memory go; the map is not used afterwards. */
+    fun release() {
+        keys = LongArray(1) { EMPTY }
+        values = IntArray(1)
+        count = 0
     }
 
     operator fun set(key: Long, value: Int) {

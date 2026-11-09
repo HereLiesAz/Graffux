@@ -14479,14 +14479,20 @@ class EditorViewModel @Inject constructor(
                             ),
                         )
                     }
+                }.onFailure {
+                    android.util.Log.w("EditorViewModel", "Couldn't load the model of layer ${layer.id}", it)
+                    unopened += layer.name to (it.message ?: it.javaClass.simpleName)
+                }
+                // The paint is its own read: when it fails the mesh is still good, and the layer is only
+                // left unpaintable (modelTextureLoadFailed below), so it must not say the model failed.
+                runCatching {
                     ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
                         textures[layer.id] = WrittenTexture(
                             com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(it.readBytes()), it.name,
                         )
                     }
                 }.onFailure {
-                    android.util.Log.w("EditorViewModel", "Couldn't load the model of layer ${layer.id}", it)
-                    unopened += layer.name to (it.message ?: it.javaClass.simpleName)
+                    android.util.Log.w("EditorViewModel", "Couldn't load the paint of layer ${layer.id}", it)
                 }
             }
             withContext(dispatchers.main) {
@@ -14544,7 +14550,17 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val obj = if (withMesh) {
                 val file = ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
-                    ?.takeIf { it.isFile } ?: return@launch
+                    ?.takeIf { it.isFile }
+                if (file == null) {
+                    withContext(dispatchers.main) {
+                        notify(
+                            "Couldn't share the model of \"${layer.name}\" with your co-op peers: " +
+                                "its file isn't in the project",
+                            NoticeKind.WARNING,
+                        )
+                    }
+                    return@launch
+                }
                 // One bounded read, not a length check and then readBytes(): the file can change between them.
                 val bytes = runCatching { file.inputStream().use { ModelFiles.readBounded(it) } }.getOrElse { e ->
                     withContext(dispatchers.main) {
@@ -14591,8 +14607,12 @@ class EditorViewModel @Inject constructor(
                 )
                 projectRepository.saveArtifact(projectId, op.objFile, bytes)
                 mesh
-            }.onFailure { android.util.Log.w("EditorViewModel", "Couldn't install a peer's model", it) }.getOrNull()
-                ?: return@launch
+            }.onFailure {
+                android.util.Log.w("EditorViewModel", "Couldn't install a peer's model", it)
+                withContext(dispatchers.main) {
+                    notify("A peer's model for \"${layer.name}\" can't be shown: ${it.message}", NoticeKind.WARNING)
+                }
+            }.getOrNull() ?: return@launch
             withContext(dispatchers.main) {
                 if (_uiState.value.projectId != projectId) return@withContext
                 modelMeshCache["$projectId/${op.objFile}"] = parsed

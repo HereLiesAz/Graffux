@@ -634,4 +634,35 @@ class ModelLayerTest {
         assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("co-op") })
         assertTrue(emitted.filterIsInstance<Op.ModelData>().none { it.objDeflated != null })
     }
+
+    private fun collectNotices(): Pair<MutableList<EditorNotice>, kotlinx.coroutines.Job> {
+        val seen = mutableListOf<EditorNotice>()
+        return seen to kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.notices.collect { seen += it } }
+    }
+
+    @Test
+    fun `a model whose file is missing from the project is reported to the co-op host`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val (seen, job) = collectNotices()
+        coopActive = true
+        addModel() // no model_m.obj in the project folder
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("co-op") })
+    }
+
+    @Test
+    fun `a peer's model that cannot be parsed is reported, not dropped silently`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val (seen, job) = collectNotices()
+        val peerLayer = com.hereliesaz.graffitixr.common.model.Layer("peer", "Peer head", model = ModelLayerContent("model_peer.obj"))
+        vm.applySpectatorOp(Op.LayerAdd(peerLayer))
+        vm.applySpectatorOp(Op.ModelData("peer", "model_peer.obj", ModelCoopCodec.deflate("not an obj".toByteArray()), null))
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("Peer head") })
+        assertNull(vm.uiState.value.layers.single { it.id == "peer" }.model!!.mesh)
+    }
 }

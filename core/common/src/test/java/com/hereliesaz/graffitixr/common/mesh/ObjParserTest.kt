@@ -419,4 +419,29 @@ class ObjParserTest {
         assertEquals(4, mesh.vertexCount)
         assertEquals(3, mesh.triangleCount)
     }
+
+    // Memory: lists stop growing at their limit, instead of doubling past it.
+
+    @Test
+    fun `a list never grows past its limit and hands back an exact array without a copy`() {
+        val floats = FloatList(maxCapacity = 3_000)
+        repeat(3_000) { floats.add(it.toFloat()) }
+        assertEquals(3_000, floats.capacity)
+        assertTrue(floats.toArray() === floats.toArray())
+        assertEquals(2_999f, floats[2_999], 0f)
+        assertTrue(runCatching { floats.add(1f) }.isFailure)
+        val ints = IntList(maxCapacity = 1_500)
+        repeat(1_500) { ints.add(it) }
+        assertEquals(1_500, ints.capacity)
+        val partial = FloatList(maxCapacity = 1_000_000).apply { repeat(10) { add(1f) } }
+        assertEquals(10, partial.toArray().size)
+    }
+
+    @Test
+    fun `a model that fills its limits builds from lists that are exactly full`() {
+        val limits = ObjParser.Limits(maxVertices = 6, maxTriangles = 2)
+        val mesh = ObjParser.parse("v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nf 1 2 3\nf 2 4 3\n", limits)
+        assertEquals(2, mesh.triangleCount)
+        assertEquals(4, mesh.vertexCount)
+    }
 }
