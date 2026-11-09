@@ -1,0 +1,29 @@
+{
+  "azphalt": "0.1",
+  "id": "com.hereliesaz.azphalt.painterly.pigments",
+  "name": "Painterly Pigments (placeholder data)",
+  "version": "1.0.0",
+  "kind": "asset",
+  "license": "Apache-2.0",
+  "compat": ">=0.1",
+  "description": "Twelve generic-named tube pigments for the painterly mixer. The numbers are hand-tuned and believable, not measured; the format accepts calibrated data later.",
+  "author": "HereLiesAz",
+  "targetApps": [
+    "com.hereliesaz.graffux"
+  ],
+  "assets": [
+    {
+      "type": "palette",
+      "path": "assets/pigments.json",
+      "tags": [
+        "painterly",
+        "pigments",
+        "placeholder"
+      ],
+      "params": {
+        "format": "azphalt-pigments/1",
+        "dataQuality": "placeholder"
+      }
+    }
+  ]
+}
