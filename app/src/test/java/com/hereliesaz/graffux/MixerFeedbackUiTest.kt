@@ -93,6 +93,15 @@ class MixerFeedbackUiTest {
     }
 
     @Test
+    fun `dipping or mixing with nothing to lift says so instead of reporting a dip or a mix`() {
+        compose()
+        boardAction("Dip the brush")
+        status().assertTextContains("Nothing on the board there to pick up", substring = true)
+        rule.onNodeWithTag("mixer.mixOnce").performScrollTo().performClick()
+        status().assertTextContains("holds no paint, so there was nothing to mix", substring = true)
+    }
+
+    @Test
     fun `wiping or rinsing an empty brush says so and asks nothing`() {
         compose()
         rule.onNodeWithTag("mixer.wipe").performScrollTo().performClick()

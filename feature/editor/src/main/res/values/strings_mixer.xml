@@ -6,6 +6,8 @@
     <string name="mixer_status_hand">%1$s brush in hand</string>
     <string name="mixer_status_squeezed">Squeezed %1$s onto the board</string>
     <string name="mixer_status_dipped">Dipped the %1$s brush</string>
+    <string name="mixer_status_nothing_to_lift">Nothing on the board there to pick up: the %1$s brush holds no paint</string>
+    <string name="mixer_status_nothing_to_mix">The %1$s brush holds no paint, so there was nothing to mix</string>
     <string name="mixer_status_mixed">Mixed with the %1$s brush</string>
     <string name="mixer_status_mixed_more">Mixed more with the %1$s brush</string>
     <string name="mixer_status_wiped">Wiped the %1$s brush</string>

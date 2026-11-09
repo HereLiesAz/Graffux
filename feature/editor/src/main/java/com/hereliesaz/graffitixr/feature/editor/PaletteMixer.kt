@@ -227,7 +227,14 @@ fun PaletteMixerDialog(
     }
     fun dipAt(b: Offset) {
         ops.dip(b.x, b.y)
-        say(R.string.mixer_status_dipped, handName())
+        // A dip on bare board lifts nothing: say that, not that the brush was dipped.
+        if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_nothing_to_lift, handName())
+        else say(R.string.mixer_status_dipped, handName())
+    }
+    // Mixing works with the paint the brush holds; an empty brush has none, so nothing was mixed.
+    fun mixed(id: Int) {
+        if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_nothing_to_mix, handName())
+        else say(id, handName())
     }
 
     fun toBoard(p: Offset): Offset = Offset(
@@ -375,7 +382,7 @@ fun PaletteMixerDialog(
                         var last = Offset.Zero
                         detectDragGestures(
                             onDragEnd = {
-                                if (tool == MixerTool.MIX) say(R.string.mixer_status_mixed, handName())
+                                if (tool == MixerTool.MIX) mixed(R.string.mixer_status_mixed)
                                 else say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
                             },
                             onDragStart = { p ->
@@ -428,7 +435,7 @@ fun PaletteMixerDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GraffuxButton(
                     text = "Mix once",
-                    onClick = { ops.mixStep(anchor.x, anchor.y); say(R.string.mixer_status_mixed, handName()) },
+                    onClick = { ops.mixStep(anchor.x, anchor.y); mixed(R.string.mixer_status_mixed) },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier
                         .semantics { contentDescription = "Mix once. Runs the brush round the board once" }
@@ -437,7 +444,7 @@ fun PaletteMixerDialog(
                     text = "Mix more",
                     onClick = {
                         ops.mixStep(anchor.x, anchor.y, MIX_MORE_PASSES)
-                        say(R.string.mixer_status_mixed_more, handName())
+                        mixed(R.string.mixer_status_mixed_more)
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier
