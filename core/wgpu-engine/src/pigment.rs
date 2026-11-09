@@ -105,8 +105,8 @@ pub fn mix_on_gpu(
         pass.dispatch_workgroups(((m + 63) / 64) as u32, 1, 1);
     }
     encoder.copy_buffer_to_buffer(&out_buf, 0, &staging, 0, out_bytes);
-    queue.submit([encoder.finish()]);
-    gpu.read(&staging, 0..out_bytes, |v| {
+    let submission = queue.submit([encoder.finish()]);
+    gpu.read(&staging, 0..out_bytes, submission, |v| {
         bytemuck::cast_slice::<u8, f32>(v).to_vec()
     })
     .ok()

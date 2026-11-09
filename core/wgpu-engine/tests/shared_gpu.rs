@@ -188,3 +188,28 @@ fn limits_are_checked_before_any_buffer_exists() {
     let groups = Limits { max_compute_workgroups_per_dimension: 10, ..Limits::default() };
     assert!(groups_fit(&groups, 10) && !groups_fit(&groups, 11));
 }
+
+#[test]
+fn a_read_waits_for_its_own_submission_not_the_devices_latest() {
+    use graffux_wgpu::gpu_wait::{wait_poll, READBACK_TIMEOUT};
+    use graffux_wgpu::wgpu;
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(gpu) = graffux_wgpu::shared_gpu::shared(Backends::VULKAN) else {
+        common::no_adapter("vulkan");
+        return;
+    };
+    let mine = gpu.queue.submit([gpu.device.create_command_encoder(&Default::default()).finish()]);
+    // Another thread's later submission moves "the latest" on; the wait must still name mine.
+    let _later = gpu.queue.submit([gpu.device.create_command_encoder(&Default::default()).finish()]);
+    match wait_poll(Some(mine.clone()), READBACK_TIMEOUT) {
+        wgpu::PollType::Wait { submission_index: Some(i), timeout: Some(t) } => {
+            assert_eq!(format!("{i:?}"), format!("{mine:?}"), "the index named is the caller's own");
+            assert_eq!(t, READBACK_TIMEOUT);
+        }
+        other => panic!("not a wait on a specific submission: {other:?}"),
+    }
+    assert!(matches!(
+        wait_poll(None, READBACK_TIMEOUT),
+        wgpu::PollType::Wait { submission_index: None, .. }
+    ));
+}

@@ -11,8 +11,22 @@ use std::time::Duration;
 
 /// How long a readback may wait for the GPU. A frame of dabs or a whole-layer read finishes in milliseconds, even
 /// on software Vulkan; five seconds is far beyond any queued backlog a healthy device has, and well inside the
-/// time after which Android declares the app unresponsive.
+/// time after which Android declares the app unresponsive. These waits run on the caller's thread: callers keep them
+/// off the UI and input threads (nothing calls the standalone entries from the app yet).
 pub const READBACK_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The wait for work submitted so far (`submission: None`, the device's most recent submission at the time of the poll,
+/// which includes anything other threads queue after this caller's own) or for exactly one submission (`Some`, the
+/// index `Queue::submit` returned). Callers that share a device wait on their own index.
+pub fn wait_poll(
+    submission: Option<wgpu::SubmissionIndex>,
+    timeout: Duration,
+) -> wgpu::PollType {
+    wgpu::PollType::Wait {
+        submission_index: submission,
+        timeout: Some(timeout),
+    }
+}
 
 /// Why [`map_read`] returned no data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

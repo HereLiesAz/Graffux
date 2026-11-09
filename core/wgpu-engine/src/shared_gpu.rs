@@ -154,24 +154,21 @@ impl SharedGpu {
         v
     }
 
-    /// Reads `range` of the staging `buffer` with the bounded wait. A timeout means the GPU stopped answering on this
-    /// device, so it is marked stalled and [`shared`] replaces it: otherwise every later call would reuse a hung
-    /// device and wait out the timeout again.
+    /// Reads `range` of the staging `buffer`, waiting at most [`READBACK_TIMEOUT`] for `submission` (the index
+    /// `Queue::submit` returned for the copy that fills it) and nothing after it: work other threads queue later on
+    /// this shared device does not lengthen the wait. A timeout marks the device stalled and [`shared`] replaces it:
+    /// otherwise every later call would reuse a hung device and wait out the timeout again.
     pub fn read<R>(
         &self,
         buffer: &wgpu::Buffer,
         range: std::ops::Range<u64>,
+        submission: wgpu::SubmissionIndex,
         read: impl FnOnce(&[u8]) -> R,
     ) -> Result<R, crate::gpu_wait::ReadFailure> {
         self.read_with(
             buffer,
             range,
-            |d| {
-                d.poll(wgpu::PollType::Wait {
-                    submission_index: None,
-                    timeout: Some(crate::gpu_wait::READBACK_TIMEOUT),
-                })
-            },
+            |d| d.poll(crate::gpu_wait::wait_poll(Some(submission), crate::gpu_wait::READBACK_TIMEOUT)),
             read,
         )
     }
