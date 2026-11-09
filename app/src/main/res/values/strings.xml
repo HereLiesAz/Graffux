@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Graffux</string>
-    <string name="pivot_prompt">Tap the scene to set the point it rotates about.</string>
-    <string name="pivot_cancel">Cancel</string>
 </resources>
