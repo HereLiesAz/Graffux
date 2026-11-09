@@ -118,4 +118,25 @@ class PaletteBoardTest {
         b.swapBrushes()
         assertTrue(b.brushes[0].conc.contentEquals(white))
     }
+
+    @Test
+    fun aFastDragPaintsEveryPointAlongTheSegmentNotJustItsEnds() {
+        val b = board()
+        repeat(4) { b.dip(14f, 20f) } // white on the brush
+        b.drag(floatArrayOf(20f, 30f, 60f, 30f)) // 40 texels in one step, far more than two brush radii
+        for (x in listOf(20, 30, 40, 50, 60)) {
+            assertTrue(b.surface.amount[30 * 64 + x] > 0f, "paint reaches x=$x, including the midpoint")
+        }
+    }
+
+    @Test
+    fun aDragWithOnePointStillDabsAndAnEmptyPathDoesNothing() {
+        val b = board()
+        repeat(4) { b.dip(14f, 20f) }
+        b.drag(floatArrayOf(20f, 40f))
+        assertTrue(b.surface.amount[40 * 64 + 20] > 0f)
+        val before = b.surface.amount.sum()
+        b.drag(floatArrayOf())
+        assertEquals(before, b.surface.amount.sum(), 0f)
+    }
 }

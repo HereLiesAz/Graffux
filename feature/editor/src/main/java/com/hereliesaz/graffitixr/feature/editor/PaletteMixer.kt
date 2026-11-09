@@ -72,6 +72,39 @@ private enum class MixerTool(val label: String, val hint: String) {
     MIX("Dip and mix", "Touch to dip the brush, drag to mix and pull paint along"),
 }
 
+/**
+ * The board operations the mixer's gestures perform, and what each does to the editor's colour. **Board-only**
+ * operations (squeezing a tube) just redraw: they never apply a colour, because the editor's colour may have been
+ * set since (the eyedropper) and does not come from the brush. Operations that change what the brush holds
+ * (dip, mix) redraw and apply the brush's colour.
+ */
+internal class MixerOps(
+    private val board: PaletteBoard,
+    private val applyColour: (Color) -> Unit,
+    private val redraw: () -> Unit,
+) {
+    fun squeeze(slot: Int, x: Float, y: Float, radius: Float, amount: Float) {
+        board.squeeze(slot, x, y, radius, amount)
+        redraw()
+    }
+
+    fun dip(x: Float, y: Float) {
+        board.dip(x, y)
+        applyBrush()
+    }
+
+    fun drag(path: FloatArray) {
+        board.drag(path)
+        applyBrush()
+    }
+
+    /** The brush now holds something different: redraw and apply its colour (if it holds any paint). */
+    fun applyBrush() {
+        redraw()
+        if (board.brush.amount[0] > 0f) applyColour(Color(board.brushColour()))
+    }
+}
+
 /** What [matchHexToBrush] says when the text is not a colour. */
 internal const val NOT_A_COLOUR = "Not a colour"
 
@@ -130,14 +163,16 @@ fun PaletteMixerDialog(
     var match by remember { mutableStateOf<String?>(null) }
     var boardSize by remember { mutableStateOf(IntSize(1, 1)) }
 
-    fun push() {
-        version++
-        onChanged()
-        if (board.brush.amount[0] > 0f) {
-            val c = Color(board.brushColour())
-            if (board.hand == 0) onSelectColor(c) else onSelectSecondaryColor(c)
-        }
-    }
+    // Every board or brush change is a palette change (saved with the project); only operations that change what the
+    // brush holds also apply its colour (MixerOps).
+    val ops = MixerOps(
+        board,
+        applyColour = { c -> if (board.hand == 0) onSelectColor(c) else onSelectSecondaryColor(c) },
+        redraw = {
+            version++
+            onChanged()
+        },
+    )
 
     fun toBoard(p: Offset): Offset = Offset(
         p.x / boardSize.width * MIXER_BOARD_SIZE,
@@ -246,9 +281,7 @@ fun PaletteMixerDialog(
                         boardSize = size
                         detectTapGestures { p ->
                             val b = toBoard(p)
-                            if (tool == MixerTool.SQUEEZE) board.squeeze(slot, b.x, b.y, 7f, 0.9f) else board.dip(b.x,
-                                b.y)
-                            push()
+                            if (tool == MixerTool.SQUEEZE) ops.squeeze(slot, b.x, b.y, 7f, 0.9f) else ops.dip(b.x, b.y)
                         }
                     }
                     .pointerInput(tool, slot) {
@@ -257,16 +290,20 @@ fun PaletteMixerDialog(
                         detectDragGestures(
                             onDragStart = { p ->
                                 last = toBoard(p)
-                                if (tool == MixerTool.MIX) board.dip(last.x, last.y) else board.squeeze(slot, last.x,
-                                    last.y, 4f, 0.4f)
-                                push()
+                                if (tool == MixerTool.MIX) {
+                                    ops.dip(last.x, last.y)
+                                } else {
+                                    ops.squeeze(slot, last.x, last.y, 4f, 0.4f)
+                                }
                             },
                             onDrag = { change, _ ->
                                 val now = toBoard(change.position)
-                                if (tool == MixerTool.MIX) board.drag(floatArrayOf(last.x, last.y, now.x, now.y))
-                                else board.squeeze(slot, now.x, now.y, 4f, 0.4f)
+                                if (tool == MixerTool.MIX) {
+                                    ops.drag(floatArrayOf(last.x, last.y, now.x, now.y))
+                                } else {
+                                    ops.squeeze(slot, now.x, now.y, 4f, 0.4f)
+                                }
                                 last = now
-                                push()
                             },
                         )
                     }
@@ -286,9 +323,11 @@ fun PaletteMixerDialog(
 
             // Cleaning the brush: wipe takes part of the load, rinse all of it.
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                GraffuxButton(text = "Wipe brush", onClick = { board.clean(PaletteBoard.Clean.WIPE); push() },
+                GraffuxButton(text = "Wipe brush", onClick = { board.clean(PaletteBoard.Clean.WIPE); ops.applyBrush() },
                     shape = GraffuxButtonShape.RECTANGLE)
-                GraffuxButton(text = "Rinse brush", onClick = { board.clean(PaletteBoard.Clean.RINSE); push() },
+                GraffuxButton(
+                    text = "Rinse brush",
+                    onClick = { board.clean(PaletteBoard.Clean.RINSE); ops.applyBrush() },
                     shape = GraffuxButtonShape.RECTANGLE)
             }
             Spacer(Modifier.height(10.dp))
@@ -308,7 +347,7 @@ fun PaletteMixerDialog(
                     text = "Match",
                     onClick = {
                         match = matchHexToBrush(board, hex)
-                        if (match != NOT_A_COLOUR) push()
+                        if (match != NOT_A_COLOUR) ops.applyBrush()
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                 )
