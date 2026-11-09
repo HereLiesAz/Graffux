@@ -616,31 +616,38 @@ pattern.
 
 Decision 10: a brush a new one supersedes is **removed**, not kept. The candidates are the
 loaded-hair and painterly brushes the new packs replace (Square Flat, Rigger, Fan Softener, Scrub,
-Glaze Mop, Trowel, Heavy Oil, Matte Gouache, Cauliflower Bloom, Impasto Knife). Existing projects must
-keep replaying. The rules:
+Glaze Mop, Trowel, Heavy Oil, Matte Gouache, Cauliflower Bloom, Impasto Knife).
 
-1. **Alias table, not deletion.** A host-side `BrushAliasTable` (id or name -> replacement brush
-   name and `painterly` params) maps each removed brush to its successor. A project stroke that names a
-   removed brush resolves through the alias and renders with the successor's mechanics.
-2. **Honest about appearance.** The successor does not reproduce the old pixels. For an old stroke the
-   **committed layer bitmap is authoritative**: replay re-renders only the strokes since the last
-   commit or after an undo past a commit boundary. Before removal ships, the editor must **bake**:
-   on first open of a project that references a removed brush, flatten every affected stroke into its
-   committed layer (the existing "legacy edits flatten the current presentation" pattern from status
-   doc Phase 5), then drop the stroke's replay dependency on the removed brush. Undo past that point
-   is a documented one-time loss for such projects, surfaced in a one-line notice.
-3. **Never crash, never silently recolour.** A stroke whose brush resolves to neither the alias table
-   nor an installed pack falls back to the plain Round, the behaviour for an unknown brush today
-   (`BrushStroke.inkUtensilId` documents the same fallback rule for Ink utensils,
-   `EditorModels.kt:456-459`).
-4. **The old store packs.** The submissions in `azphalt/submissions/` are not edited from this repo.
-   Their removal from the store is an azphalt-side change the owner makes; the host stops listing them
-   as brush sets once the alias table ships. Users who already installed them keep the files; the
-   alias table takes precedence at resolve time.
-5. **Unverified:** how a stamp-brush stroke persists its brush in the project (by name, by embedded
-   params, or by pack id) is not confirmed. I found the `BrushStroke` model (`EditorModels.kt:444`) and
-   `activeBrushName`, but not the stamp-stroke persistence path. Task P0 in section 7 is to read it and
-   fix rule 2 accordingly before any brush is removed.
+**P0 finding (read from source, not run): saved projects do not depend on the brush that drew them.**
+
+- A stamp stroke's replay record is `StrokeCommand` (`EditorViewModel.kt:146`), a plain in-memory data
+  class (no `@Serializable`; no reference to it in `:core:data` or `:core:common`). It embeds the whole
+  `AzphaltBrush` snapshot in `stampBrush` (`EditorViewModel.kt:~175`), the samples, the colour and the
+  wet-ledger snapshot. It lives only in the undo/redo history (`EditHistory`, 20 entries,
+  `EditHistory.kt:~14`) and is never written to the project file.
+- A project persists **bitmaps** per layer (plus the material sidecar). The brush that painted them
+  is not stored. The project-level `BrushStroke` model (`EditorModels.kt:444`) stores colour, size,
+  points and pressures for the legacy round brush; it has no stamp-brush field.
+- Therefore removing a brush from the store or from the app cannot change any saved pixel, and an
+  in-session undo of a stroke drawn with a now-removed brush replays from the embedded snapshot, not
+  from a lookup by name.
+
+Consequently the migration the first draft proposed (alias-then-bake of strokes) is **not needed for
+stroke replay**. What does reference a brush by name, and must be handled:
+
+1. **Favorites and the active brush.** `activeBrushName` (`EditorModels.kt:607`) and the favorites list
+   (read by `BottomCarousel`/`RailPackWheel`) hold names. A `BrushAliasTable` (removed name -> successor
+   name) resolves them once at load; a name with no alias and no installed pack falls back to `Round`,
+   the existing default (`BuiltInBrushes.DEFAULT_NAME`).
+2. **Installed old packs.** Users who installed the old store packs keep the files; the host stops
+   listing them as brush sets after the alias table ships. The submissions in `azphalt/submissions/` are
+   not edited from this repo; withdrawing them is an azphalt-side action for the owner.
+3. **Appearance of new strokes** on an old layer is the new brush's, as with any new stroke.
+4. **Tests:** an alias-resolution unit test (every removed name resolves; unknown falls back to Round),
+   and a fixture asserting that opening a project and undoing a pre-removal stroke in the same session
+   still replays from the embedded snapshot.
+
+Not verified: the exact favorites persistence key (I did not trace it) and the `EditHistory` entry size.
 
 ## 6. Palette and colour — a physical model
 
@@ -888,7 +895,7 @@ material work. Phases 1 to 3 need no new pigment model.
 | **P4 — Brush load** (E2) | `load` block, lane functions, load persisted across strokes, finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically |
 | **P5 — Surface probe and wet pickup** (E3) | Touchdown-snapshot probe, `lift`, `mixWet`, wet blend | P3, P4 | Petal pull over wet paint picks up and blends; replay-equality across an undo cycle |
 | **P6 — Palette/mixer replaces picker** | Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
-| **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table and bake (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
+| **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
 | **P8 — Watercolour engine** (E7) | Absorbency wicking, granulation, edge darkening | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
 | **P9 — Hardening** | Device matrix, perf tuning, accessibility audit, stroke-list sharing | all | Budgets in 6.7 met on at least one mid-range device |
 
@@ -973,14 +980,14 @@ The ten questions in the first draft are answered. Recorded here so the spec and
 | 7 | No real manufacturer names. Generic pigment names are fine; if a product must be referenced, an off-brand wink in the Mr. Pibb / Dr Thunder spirit (6.1). |
 | 8 | Pricing is free (decision 1). |
 | 9 | Demo sharing: a pack plus a replayable stroke list. Video export later (5.5). In plain terms: the app plays your recorded pen movements back through the brushes, so someone else sees the same petal being painted; a video file is a separate, later feature. |
-| 10 | Superseded old brushes are removed, with an alias table and a one-time bake so existing projects still open and replay (5.6). |
+| 10 | Superseded old brushes are removed. Saved projects hold bitmaps, not brush references, so they are unaffected; favorites and the active brush resolve through an alias table with a Round fallback (5.6). |
 
 ### 10.1 What is still open
 
 Not owner questions; implementation unknowns that the groundwork phase (P0) resolves:
 
-- How stamp-brush strokes persist their brush in the project (5.6 rule 5).
-- Whether the touchdown snapshot is available on the live path without a GPU readback (section 9).
+- ~~How stamp-brush strokes persist their brush in the project~~ Resolved in P0 (5.6): they do not.
+- Touchdown snapshot (E3): P0 found `commitStampStroke` receives `startBitmap`, "the layer bitmap the stroke started on (and its live GPU layer was seeded from)" (`EditorViewModel.kt:~9208`), so a CPU copy exists at stroke start. Still to confirm: that it is the pre-stroke content for a stroke on a resident GPU layer, and how it reaches the dab generator. Settled in P5.
 - The final wavelength band count once the lookup cost is measured on a device.
 - Whether CPU-only canvas K-M is fast enough on the CONSTRAINED tier, or the lookup must also run as a GPU texture (it will for BALANCED and FULL regardless).
 
@@ -994,7 +1001,7 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 | 8-bit canvas quantisation of repeated mixes | Muddy drift after many mixes | Residual in the lookup keeps unmixed pixels exact; limit mixes per pixel per stroke; test with 50 repeated mixes |
 | Mid-range cost | Lag in the live path | Tier caps; ops budgets; `surface` disabled on CONSTRAINED |
 | Watercolour engine scope | Delays the water pack | P8 is bounded to wicking, granulation, edge darkening; the rest of the water pack works without it |
-| Removing old brushes breaks old projects | Lost or changed strokes | Alias table plus one-time bake (5.6); P0 confirms persistence first; replay test over fixture projects |
+| Removing old brushes breaks saved state | Favorites/active brush dangling | Alias table with Round fallback (5.6); saved projects are unaffected |
 | Canvas-wide K-M cost | Slow painterly layers | Lookup as a GPU texture; ops/budget caps in 6.7; non-painterly layers keep the old path |
 | Existing users lose the familiar picker | Churn | Digital eyedropper and hex remain; saved palettes migrate to recipes (6.4) |
 | The two engines disagree | Pixels differ live vs committed | Kotlin is the oracle; only shading is ported; parity scenarios in `tools/stamp-engine-diff` |
