@@ -16,4 +16,8 @@
     <exclude domain="file" path="azphalt-entitlements.json.bak" />
     <exclude domain="file" path="azphalt-entitlements.json.tmp" />
     <exclude domain="file" path="azphalt-entitlements.json.corrupt" />
+    <!-- Consent is per device: never restore it onto a device whose user was not asked. -->
+    <exclude domain="sharedpref" path="privacy_consent.xml" />
+    <exclude domain="sharedpref" path="stroke_prediction.xml" />
+    <exclude domain="file" path="stroke-data" />
 </full-backup-content>
