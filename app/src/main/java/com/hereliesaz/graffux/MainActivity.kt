@@ -895,14 +895,17 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val toolTop = if (uiState.isRightHanded) RailTopInset else LayersRailTopInset
     val layersTop = if (uiState.isRightHanded) LayersRailTopInset else RailTopInset
     val toolRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = toolTop, bottom = railBottom)
-    // The rotation triangle sits in the bottom corner on the layers rail's side; the rail stops above it.
-    val gizmoReserve = if (vm.rotationGizmoVisible(uiState)) {
-        GizmoHeight * GIZMO_DEFAULT_SCALE + GizmoBand + GizmoEdgeMargin
-    } else {
-        0.dp
+    // The rotation triangle sits in the bottom corner on the layers rail's side (and slides up to clear the set
+    // wheel); the dock reports how much of the screen's height it occupies, from the same `gizmoCorner` that places
+    // it, and the rail stops above that, whatever the wheel or the retained insets do to its position.
+    val gizmoOccupiedPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val gizmoDensity = LocalDensity.current
+    val gizmoSafeBottomPx = WindowInsets.safeDrawing.getBottom(gizmoDensity)
+    val gizmoClearance = with(gizmoDensity) {
+        gizmoRailClearancePx(gizmoOccupiedPx.intValue, gizmoSafeBottomPx, GizmoEdgeMargin.roundToPx()).toDp()
     }
     val layersRailPadding = Modifier.padding(horizontal = RailSideInset)
-        .padding(top = layersTop, bottom = railBottom + gizmoReserve)
+        .padding(top = layersTop, bottom = maxOf(railBottom, gizmoClearance))
     val besideRail = RailWidth + RailEdgeGap * 2
     val layersRailBesideTools = Modifier
         .padding(horizontal = RailSideInset + RailWidth + RailSideInset)
@@ -1311,7 +1314,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         // and of the sheet's handle, and does not move with the sheet. Its three touch bands take input; the rest
         // of it lets canvas strokes through.
         if (vm.rotationGizmoVisible(uiState)) {
-            RotationGizmoDock(rightHanded = uiState.isRightHanded, avoid = { setWheelBounds.value }) { gizmoScale ->
+            androidx.compose.runtime.DisposableEffect(Unit) { onDispose { gizmoOccupiedPx.intValue = 0 } }
+            RotationGizmoDock(
+                rightHanded = uiState.isRightHanded,
+                avoid = { setWheelBounds.value },
+                onOccupied = { gizmoOccupiedPx.intValue = it },
+            ) { gizmoScale ->
                 RotationGizmo(
                     scale = gizmoScale,
                     onTurn = vm::onRotationGizmoTurn,

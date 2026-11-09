@@ -312,4 +312,61 @@ class RotationGizmoUiTest {
         val side = androidx.compose.ui.geometry.Rect(0f, 1900f, 600f, 2000f)
         assertEquals(2000 - 250, gizmoCorner(1000, 2000, 300, 250, true, 0, 0, 0, avoid = side, gap = 10).y)
     }
+
+    // ---- the layers rail stops above the triangle, wherever the triangle is ----
+
+    /** Codex's example: 390 x 844dp (xhdpi: 780 x 1688px), a retained 24dp nav inset, the set wheel open. */
+    @Test
+    fun `the rail stops above the triangle's top when the wheel lifts it, with a retained nav inset`() {
+        val d = 2
+        val navInset = 24 * d
+        val margin = 8 * d
+        val boxW = ((GizmoWidth.value * GIZMO_DEFAULT_SCALE + GizmoBand.value) * d).toInt()
+        val boxH = ((GizmoHeight.value * GIZMO_DEFAULT_SCALE + GizmoBand.value) * d).toInt()
+        val wheelTop = 1688 - navInset - 76 * d
+        for (right in listOf(true, false)) {
+            val wheelX = if (right) 780f - 272 * d else 0f
+            val wheel = androidx.compose.ui.geometry.Rect(wheelX, wheelTop.toFloat(), wheelX + 272 * d, 1688f - navInset)
+            for (avoid in listOf(wheel, null)) {
+                val at = gizmoCorner(780, 1688, boxW, boxH, right, margin, margin, navInset + margin, avoid, margin)
+                val occupied = 1688 - at.y
+                // the rail's container ends at the bottom safe inset; its bottom edge in root px:
+                val clearance = gizmoRailClearancePx(occupied, navInset, margin)
+                val railBottomRoot = 1688 - navInset - clearance
+                assertTrue(
+                    "right=$right wheel=${avoid != null}: rail bottom $railBottomRoot above triangle top ${at.y}",
+                    railBottomRoot <= at.y - margin + 1,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `no triangle needs no rail clearance`() {
+        assertEquals(0, gizmoRailClearancePx(0, 48, 16))
+    }
+
+    @Test
+    fun `the dock reports the height it occupies, from the same position it places the triangle at`() {
+        var occupied = 0
+        val bounds = androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalSetWheelOnRight provides true,
+                LocalSetWheelBounds provides bounds,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselTabList(wheelSections, "Favorites", onSelect = {})
+                    }
+                    RotationGizmoDock(rightHanded = true, avoid = { bounds.value }, onOccupied = { occupied = it }) {
+                        RotationGizmo({ _, _ -> }, {}, { _, _ -> }, scale = it)
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val b = box()
+        assertEquals(1688f - b.top, occupied.toFloat(), 1f)
+    }
 }

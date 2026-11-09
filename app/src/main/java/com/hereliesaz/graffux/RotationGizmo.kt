@@ -91,6 +91,14 @@ internal fun gizmoCorner(
     return IntOffset(x, max(0, y))
 }
 
+/**
+ * How far the layers rail must stop short of the screen's bottom so it ends [gapPx] above the triangle's top: the
+ * triangle occupies [occupiedPx] of the container's height (from [gizmoCorner]'s position, wheel and insets
+ * included), and the rail's own container already excludes [safeBottomPx]. 0 with no triangle.
+ */
+internal fun gizmoRailClearancePx(occupiedPx: Int, safeBottomPx: Int, gapPx: Int): Int =
+    if (occupiedPx <= 0) 0 else max(0, occupiedPx - safeBottomPx + gapPx)
+
 /** The clip that makes only the touch bands take pointer input: their union as an outline. */
 private class BandsShape(private val triangle: RotationTriangle, private val inset: Float) : Shape {
     override fun createOutline(size: Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: Density): Outline {
@@ -266,6 +274,8 @@ private fun GizmoLetter(letter: String, at: IntOffset, edge: TriangleEdge) {
 internal fun RotationGizmoDock(
     rightHanded: Boolean,
     avoid: () -> androidx.compose.ui.geometry.Rect? = { null },
+    /** Told how far the triangle's top is above the container's bottom, in px, whenever it is placed. */
+    onOccupied: (Int) -> Unit = {},
     content: @Composable (scale: Float) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -288,6 +298,7 @@ internal fun RotationGizmoDock(
                         avoid = avoid(),
                         gap = margin,
                     )
+                    onOccupied(constraints.maxHeight - at.y)
                     placeable.place(at)
                 }
             }
