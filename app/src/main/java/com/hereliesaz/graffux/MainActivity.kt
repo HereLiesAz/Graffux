@@ -893,7 +893,14 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     val toolTop = if (uiState.isRightHanded) RailTopInset else LayersRailTopInset
     val layersTop = if (uiState.isRightHanded) LayersRailTopInset else RailTopInset
     val toolRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = toolTop, bottom = railBottom)
-    val layersRailPadding = Modifier.padding(horizontal = RailSideInset).padding(top = layersTop, bottom = railBottom)
+    // The rotation triangle sits in the bottom corner on the layers rail's side; the rail stops above it.
+    val gizmoReserve = if (vm.rotationGizmoVisible(uiState)) {
+        GizmoHeight * GIZMO_DEFAULT_SCALE + GizmoBand + GizmoEdgeMargin
+    } else {
+        0.dp
+    }
+    val layersRailPadding = Modifier.padding(horizontal = RailSideInset)
+        .padding(top = layersTop, bottom = railBottom + gizmoReserve)
     val besideRail = RailWidth + RailEdgeGap * 2
     val layersRailBesideTools = Modifier
         .padding(horizontal = RailSideInset + RailWidth + RailSideInset)
@@ -1295,15 +1302,13 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             ExpandedHeroLayer(heroExpansion)
         }
 
-        // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so where it overlaps
-        // the sheet (short window, full detent) it is above it in drawing and hit-testing. Only with an active 3D
-        // surface group, in the right corner on the top edge of the bottom sheet (the bottom safe area with none). Its
-        // three touch bands take input; the rest of it lets canvas strokes through.
+        // The rotation triangle (spec/3d-space.md, "Rotation triangle"), composed AFTER the sheet so it is above it in
+        // drawing and hit-testing. Only with an active 3D surface group. It sits small in the bottom corner on the
+        // brush hand's side (bottom-right right-handed, bottom-left left-handed), clear of the system gesture areas
+        // and of the sheet's handle, and does not move with the sheet. Its three touch bands take input; the rest
+        // of it lets canvas strokes through.
         if (vm.rotationGizmoVisible(uiState)) {
-            RotationGizmoDock(
-                sheetTop = { if (carouselOnScreen && carouselUi.sheetOpen) sheetTopPx.floatValue else Float.NaN },
-                sideClearance = besideRail,
-            ) { gizmoScale ->
+            RotationGizmoDock(rightHanded = uiState.isRightHanded) { gizmoScale ->
                 RotationGizmo(
                     scale = gizmoScale,
                     onTurn = vm::onRotationGizmoTurn,
