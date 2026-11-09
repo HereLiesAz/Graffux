@@ -46,6 +46,89 @@ class PaletteBoard(
         padded + PigmentLookup.BASIS_IDS.map { id -> set.pigments.first { it.id == id } }
     }
 
+    // The texels changed since the last [takeDirty] (inclusive bounds; empty while min > max). Touched only by the
+    // thread that edits the board (the editor's), so it needs no lock; the snapshot [takeDirty] returns is what
+    // another thread may render.
+    private var dirtyMinX = Int.MAX_VALUE
+    private var dirtyMinY = Int.MAX_VALUE
+    private var dirtyMaxX = -1
+    private var dirtyMaxY = -1
+
+    private fun markDirty(minX: Int, minY: Int, maxX: Int, maxY: Int) {
+        val x0 = max(0, minX)
+        val y0 = max(0, minY)
+        val x1 = min(size - 1, maxX)
+        val y1 = min(size - 1, maxY)
+        if (x0 > x1 || y0 > y1) return // wholly off the board
+        dirtyMinX = min(dirtyMinX, x0)
+        dirtyMinY = min(dirtyMinY, y0)
+        dirtyMaxX = max(dirtyMaxX, x1)
+        dirtyMaxY = max(dirtyMaxY, y1)
+    }
+
+    /** Marks the disc of [radius] around ([x], [y]) changed, the box a dab or a squeeze touches. */
+    private fun markDisc(x: Float, y: Float, radius: Float) =
+        markDirty(floor(x - radius).toInt(), floor(y - radius).toInt(), ceil(x + radius).toInt(), ceil(y + radius).toInt())
+
+    /** The whole board changed under the board's feet (a restore wrote [surface] directly): redraw all of it. */
+    fun markAllDirty() = markDirty(0, 0, size - 1, size - 1)
+
+    /** Whether any texel changed since the last [takeDirty]. */
+    fun hasDirty(): Boolean = dirtyMinX <= dirtyMaxX && dirtyMinY <= dirtyMaxY
+
+    /**
+     * The texels changed since the previous call, copied so another thread can colour them while this one keeps
+     * editing; null when nothing changed. Resets the changed area. Colour the copy with [render].
+     */
+    fun takeDirty(): DirtySnapshot? {
+        if (!hasDirty()) return null
+        val x = dirtyMinX
+        val y = dirtyMinY
+        val w = dirtyMaxX - dirtyMinX + 1
+        val h = dirtyMaxY - dirtyMinY + 1
+        val conc = FloatArray(w * h * CH)
+        val amount = FloatArray(w * h)
+        for (row in 0 until h) {
+            val src = (y + row) * size + x
+            surface.amount.copyInto(amount, row * w, src, src + w)
+            surface.conc.copyInto(conc, row * w * CH, src * CH, (src + w) * CH)
+        }
+        dirtyMinX = Int.MAX_VALUE
+        dirtyMinY = Int.MAX_VALUE
+        dirtyMaxX = -1
+        dirtyMaxY = -1
+        return DirtySnapshot(x, y, w, h, conc, amount)
+    }
+
+    /** A copy of the changed texels' recipes and amounts (see [takeDirty]); immutable once made. */
+    class DirtySnapshot internal constructor(
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int,
+        internal val conc: FloatArray,
+        internal val amount: FloatArray,
+    ) {
+        /** How many texels [render] will colour. */
+        val texels: Int get() = width * height
+    }
+
+    /**
+     * Colours [snapshot]'s texels into [out], a full board (`size * size`, row-major, like [render]); nothing outside
+     * the snapshot's rectangle is written. Reads only the snapshot and the board's fixed pigments, so it is safe off
+     * the thread that edits the board.
+     */
+    fun render(snapshot: DirtySnapshot, out: IntArray) {
+        require(out.size >= size * size) { "out must hold the whole board" }
+        for (row in 0 until snapshot.height) {
+            for (col in 0 until snapshot.width) {
+                val i = row * snapshot.width + col
+                out[(snapshot.y + row) * size + snapshot.x + col] =
+                    if (snapshot.amount[i] > VISIBLE_AMOUNT) colourOf(snapshot.conc, i * CH) else 0
+            }
+        }
+    }
+
     /** Squeezes [amount] of tube [slot] onto the board in a blob of [radius] texels at ([x], [y]). */
     fun squeeze(slot: Int, x: Float, y: Float, radius: Float, amount: Float) {
         require(slot in tubes.indices)
@@ -53,6 +136,7 @@ class PaletteBoard(
         val maxX = min(size - 1, ceil(x + radius).toInt())
         val minY = max(0, floor(y - radius).toInt())
         val maxY = min(size - 1, ceil(y + radius).toInt())
+        markDirty(minX, minY, maxX, maxY)
         for (py in minY..maxY) for (px in minX..maxX) {
             val dx = px + 0.5f - x
             val dy = py + 0.5f - y
@@ -70,11 +154,13 @@ class PaletteBoard(
 
     /** Dips the brush into the board at a point: lifts paint into the brush. */
     fun dip(x: Float, y: Float, radius: Float = DEFAULT_TOUCH_RADIUS, lift: Float = 0.2f) {
+        markDisc(x, y, radius)
         PaintTransaction.run(surface, brush, listOf(PaintTransaction.Dab(x, y, radius, 0.5f, 0, lift = lift)))
     }
 
     /** Dabs the brush onto the board, mixing with what is there (`mixWet`) by [mix]. */
     fun dab(x: Float, y: Float, radius: Float = DEFAULT_TOUCH_RADIUS, draw: Float = 0.2f, mix: Float = 0.7f) {
+        markDisc(x, y, radius)
         PaintTransaction.run(surface, brush, listOf(PaintTransaction.Dab(x, y, radius, 0.5f, 0, draw = draw,
             mixWet = mix)))
     }
@@ -93,6 +179,7 @@ class PaletteBoard(
         val drawPerTexel = draw * perTexel
         val dabs = ArrayList<PaintTransaction.Dab>()
         fun at(x: Float, y: Float) {
+            markDisc(x, y, radius)
             dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, lift = liftPerTexel)
             dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, draw = drawPerTexel, mixWet = mix)
         }
@@ -116,6 +203,7 @@ class PaletteBoard(
 
     /** Empties the board and both brushes (a new project, or a failed restore). */
     fun clear() {
+        markAllDirty()
         surface.conc.fill(0f)
         surface.amount.fill(0f)
         for (b in brushes) { b.amount.fill(0f); b.conc.fill(0f) }
@@ -239,7 +327,7 @@ class PaletteBoard(
 
     /** Every texel's colour (ARGB; transparent where there is no paint), row-major. */
     fun render(out: IntArray = IntArray(size * size)): IntArray {
-        for (i in 0 until size * size) out[i] = if (surface.amount[i] > 0.01f) colourOf(surface.conc, i * CH) else 0
+        for (i in 0 until size * size) out[i] = if (surface.amount[i] > VISIBLE_AMOUNT) colourOf(surface.conc, i * CH) else 0
         return out
     }
 
@@ -252,6 +340,9 @@ class PaletteBoard(
         const val DEFAULT_SIZE = 512
         const val BRUSH_CAPACITY = 1.0f
         private const val STATE_EPS = 1e-4f
+
+        /** A texel holding at least this much paint is drawn; less reads as bare board. */
+        private const val VISIBLE_AMOUNT = 0.01f
 
         /** Share of the brush's capacity one drag dab lifts / lays (a dab's footprint shares it out). */
         const val DRAG_LIFT_SHARE = 0.12f

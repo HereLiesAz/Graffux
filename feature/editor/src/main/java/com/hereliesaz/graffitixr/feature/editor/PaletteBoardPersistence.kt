@@ -111,6 +111,8 @@ internal object PaletteBoardPersistence {
         val n = board.size
         val conc = snap.concentration
         val amount = snap.heightMap
+        // Written straight into the surface, so the board cannot see what changed: a displayed copy redraws it all.
+        board.markAllDirty()
         board.surface.conc.fill(0f)
         board.surface.amount.fill(0f)
         if (conc != null && amount != null) {
