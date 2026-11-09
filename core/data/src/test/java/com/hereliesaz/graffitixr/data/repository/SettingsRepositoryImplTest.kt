@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import androidx.compose.ui.graphics.toArgb
 import com.hereliesaz.graffitixr.common.model.DEFAULT_CANVAS_BACKGROUND
@@ -158,5 +159,74 @@ class SettingsRepositoryImplTest {
         repo.setBrushSizeFixedOnScreen(true)
         assertTrue(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).brushSizeFixedOnScreen.first())
         repo.setBrushSizeFixedOnScreen(false)
+    }
+
+    @Test
+    fun `concurrent swatch saves do not lose each other`() = runTest {
+        repo.setSavedPalette(emptyList())
+        val colours = (1..40).map { 0xFF000000.toInt() or (it * 0x010203) }
+        kotlinx.coroutines.coroutineScope {
+            colours.map { c -> launch(kotlinx.coroutines.Dispatchers.Default) { repo.addSavedSwatch(c) } }
+        }
+        assertEquals(colours.toSet(), repo.savedPalette.first().toSet())
+        kotlinx.coroutines.coroutineScope {
+            colours.take(20).map { c -> launch(kotlinx.coroutines.Dispatchers.Default) { repo.removeSavedSwatch(c) } }
+        }
+        assertEquals(colours.drop(20).toSet(), repo.savedPalette.first().toSet())
+    }
+
+    @Test
+    fun `re-saving a swatch already there changes nothing`() = runTest {
+        repo.setSavedPalette(listOf(0xFF112233.toInt()))
+        repo.addSavedSwatch(0xFF112233.toInt())
+        assertEquals(listOf(0xFF112233.toInt()), repo.savedPalette.first())
+    }
+
+    @Test
+    fun `two corrupt files in the same millisecond are both kept, never overwritten or skipped`() = runTest {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test-same-ms")
+        dir.mkdirs()
+        val bad = java.io.File(dir, "settings.preferences_pb")
+        val frozen = { 1_700_000_000_000L } // the same millisecond every time
+        bad.writeBytes(byteArrayOf(1, 2, 3))
+        val first = SettingsCorruptionHandler.keepCopy(bad, frozen)
+        bad.writeBytes(byteArrayOf(9, 8, 7, 6)) // a second, different corrupt file
+        val second = SettingsCorruptionHandler.keepCopy(bad, frozen)
+        bad.writeBytes(byteArrayOf(5))
+        val third = SettingsCorruptionHandler.keepCopy(bad, frozen)
+        assertTrue(first != null && second != null && third != null)
+        assertEquals(3, setOf(first, second, third).size)
+        assertTrue(first!!.readBytes().contentEquals(byteArrayOf(1, 2, 3)))
+        assertTrue(second!!.readBytes().contentEquals(byteArrayOf(9, 8, 7, 6)))
+        assertTrue(third!!.readBytes().contentEquals(byteArrayOf(5)))
+    }
+
+    @Test
+    fun `a failed copy is reported as null, not silently pretended`() = runTest {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test-fail")
+        dir.mkdirs()
+        val bad = java.io.File(dir, "settings.preferences_pb").also { it.writeBytes(byteArrayOf(1)) }
+        assertEquals(null, SettingsCorruptionHandler.keepCopy(java.io.File(dir, "missing")))
+        val locked = java.io.File(dir, "ro").also { it.mkdirs() }
+        val inLocked = java.io.File(locked, "settings.preferences_pb").also { it.writeBytes(byteArrayOf(1)) }
+        locked.setWritable(false)
+        val result = SettingsCorruptionHandler.keepCopy(inLocked, { 5L })
+        locked.setWritable(true)
+        // as root the write may still succeed: only a null (reported) or a real copy are acceptable
+        assertTrue(result == null || result.readBytes().contentEquals(byteArrayOf(1)))
+        assertTrue(bad.exists())
+    }
+
+    @Test
+    fun `the handler keeps a copy and returns defaults`() = runTest {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test")
+        dir.mkdirs()
+        val bad = java.io.File(dir, "settings.preferences_pb")
+        bad.writeBytes(byteArrayOf(0x7F, 0x00, 0x13, 0x37))
+        SettingsCorruptionHandler.file = bad
+        val fresh = SettingsCorruptionHandler.handler.handleCorruption(androidx.datastore.core.CorruptionException("x"))
+        assertTrue(fresh.asMap().isEmpty())
+        val copies = dir.listFiles { f -> f.name.contains(".corrupt-") }!!
+        assertTrue(copies.isNotEmpty() && copies.all { it.readBytes().contentEquals(bad.readBytes()) })
     }
 }

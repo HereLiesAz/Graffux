@@ -63,7 +63,7 @@ class PaletteStrokeLoadReviewTest {
     // FINDING (reported, not fixed here): PaletteBoard.brushLoad() builds a fresh BrushLoadConfig(lanes, fill) and the
     // editor replaces the brush's own `load` block with it, so a brush's own capacity (and any other fills) are lost
     // when the stroke starts from the palette. Remove @Ignore when brushLoad() carries the brush's config over.
-    @Ignore("finding: palette load drops the brush's own capacity")
+    @Ignore("finding: palette load drops the brush's own capacity, see #780")
     @Test
     fun theLoadTheBoardBuildsKeepsTheBrushsOwnCapacityAndDepth() {
         val own = AzphaltBrush.fromParams(

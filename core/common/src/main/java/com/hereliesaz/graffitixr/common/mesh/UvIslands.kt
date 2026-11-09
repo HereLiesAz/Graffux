@@ -68,6 +68,59 @@ class UvIslands private constructor(
         return out.toFloatArray()
     }
 
+    /**
+     * The UV corners of the triangles of every island EXCEPT [island] that overlap [area]: the texels
+     * that belong to some other part of the model, which a dab must never reach (not even through
+     * the padding gutter, see `PaintableTexture.GUTTER_TEXELS`).
+     */
+    fun neighbourTrianglesNear(island: Int, area: UvBox): FloatArray {
+        val out = ArrayList<Float>()
+        for (t in islandOfTriangle.indices) {
+            if (islandOfTriangle[t] != island && UvBox.of(mesh, t).overlaps(area)) {
+                for (c in 0 until CORNERS) {
+                    val o = uvOffset(mesh, t, c)
+                    out += mesh.vertices[o]
+                    out += mesh.vertices[o + 1]
+                }
+            }
+        }
+        return out.toFloatArray()
+    }
+
+    /** UV-per-length of every triangle (see [SurfaceContinuity.uvPerLength]), computed on first use. */
+    private val density: DoubleArray by lazy {
+        DoubleArray(islandOfTriangle.size) { SurfaceContinuity.uvPerLength(mesh, it) }
+    }
+
+    /**
+     * The largest UV-per-length among [island]'s triangles whose position bounding box overlaps the
+     * box [lo]..[hi] (mesh coordinates, x y z). The surface between two hits is not just the two
+     * triangles they landed on: a narrow, densely mapped strip between them spans far more UV than
+     * either end triangle's density suggests.
+     */
+    fun maxDensityNear(island: Int, lo: FloatArray, hi: FloatArray): Double {
+        var best = 0.0
+        for (t in trianglesOfIsland.getOrNull(island) ?: IntArray(0)) {
+            if (density[t] > best && overlapsBox(t, lo, hi)) best = density[t]
+        }
+        return best
+    }
+
+    private fun overlapsBox(t: Int, lo: FloatArray, hi: FloatArray): Boolean {
+        val v = mesh.vertices
+        for (axis in 0 until CORNERS) {
+            var min = Float.MAX_VALUE
+            var max = -Float.MAX_VALUE
+            for (c in 0 until CORNERS) {
+                val x = v[mesh.indices[t * CORNERS + c] * Mesh.FLOATS_PER_VERTEX + axis]
+                min = minOf(min, x)
+                max = maxOf(max, x)
+            }
+            if (max < lo[axis] || min > hi[axis]) return false
+        }
+        return true
+    }
+
     /** An axis-aligned rectangle in UV space. */
     class UvBox(val minU: Float, val minV: Float, val maxU: Float, val maxV: Float) {
         /** Whether this and [other] share any area (touching counts). */
@@ -114,12 +167,20 @@ class UvIslands private constructor(
         private fun uvOffset(mesh: Mesh, t: Int, c: Int): Int =
             mesh.indices[t * CORNERS + c] * Mesh.FLOATS_PER_VERTEX + Mesh.UV_OFFSET
 
+        /**
+         * The bits of [value] as a match key. `-0f` and `0f` are the same number but different bits
+         * ([ObjParser] keeps the sign of a zero it reads), and adding `0f` turns -0 into +0 without
+         * touching anything else. Every NaN already collapses to one bit pattern in `toBits`, so
+         * NaN corners match each other (a mesh with NaN coordinates cannot be picked anyway).
+         */
+        private fun key(value: Float): Int = (value + 0f).toBits()
+
         private fun cornerKey(mesh: Mesh, t: Int, c: Int): Corner {
             val v = mesh.vertices
             val o = mesh.indices[t * CORNERS + c] * Mesh.FLOATS_PER_VERTEX
             return Corner(
-                v[o].toBits(), v[o + 1].toBits(), v[o + 2].toBits(),
-                v[o + Mesh.UV_OFFSET].toBits(), v[o + Mesh.UV_OFFSET + 1].toBits(),
+                key(v[o]), key(v[o + 1]), key(v[o + 2]),
+                key(v[o + Mesh.UV_OFFSET]), key(v[o + Mesh.UV_OFFSET + 1]),
             )
         }
 

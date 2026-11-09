@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -29,12 +30,13 @@ class PaletteProjectSyncTest {
         io: kotlinx.coroutines.CoroutineDispatcher? = null,
         encoder: ((com.hereliesaz.graffitixr.common.azphalt.PaletteBoard) -> PaletteProjectSync.Encoded)? = null,
         val readOnly: () -> Boolean = { false },
+        vmScope: kotlinx.coroutines.CoroutineScope? = null,
     ) {
         val disk = Disk()
         val board = newMixerBoard()
         val sync = PaletteProjectSync(
             board = board,
-            scope = scope,
+            scope = vmScope ?: scope,
             io = io ?: StandardTestDispatcher(scope.testScheduler),
             store = object : PaletteProjectSync.Store {
                 override fun isReadOnly() = readOnly()
@@ -61,12 +63,12 @@ class PaletteProjectSyncTest {
         r.board.dip(20f, 20f)
     }
 
-    private fun combined(board: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard) = PaletteBoardPersistence.pack(
+    private fun combined(board: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard) = PaletteFile.pack(
         MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(board)),
         PaletteBoardPersistence.encodeBrushes(board),
     )
 
-    private fun key(id: String, f: String = PaletteBoardPersistence.COMBINED_FILE) = "$id/$f"
+    private fun key(id: String, f: String = PaletteFile.COMBINED_FILE) = "$id/$f"
 
     @Test
     fun aPendingSaveForProjectAIsFlushedUnderAAndNeverWrittenUnderB() = runTest {
@@ -84,7 +86,7 @@ class PaletteProjectSyncTest {
         r.sync.changed("B")
         advanceUntilIdle()
         assertTrue(r.disk.files.containsKey(key("B")))
-        val a = requireNotNull(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")])))
+        val a = requireNotNull(PaletteFile.unpack(requireNotNull(r.disk.files[key("A")])))
         val fresh = newMixerBoard()
         assertTrue(PaletteBoardPersistence.restore(fresh, requireNotNull(MaterialStateCodec.decode(a.first))))
         assertTrue("A's file holds A's paint (tube 2), not B's", fresh.surface.amount[20 * fresh.size + 20] > 0f)
@@ -135,7 +137,7 @@ class PaletteProjectSyncTest {
         advanceUntilIdle()
         assertTrue("no spurious save failure from cancellation: ${r.disk.errors}", r.disk.errors.isEmpty())
         assertEquals("one file, so the pair cannot be split", listOf(key("A")), r.disk.files.keys.toList())
-        assertTrue(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")])) != null)
+        assertTrue(PaletteFile.unpack(requireNotNull(r.disk.files[key("A")])) != null)
     }
 
     @Test
@@ -147,14 +149,14 @@ class PaletteProjectSyncTest {
         r.sync.open("A")
         advanceUntilIdle()
         assertEquals(listOf("A"), r.disk.unreadable)
-        val bak = key("A", PaletteBoardPersistence.COMBINED_FILE + ".bak")
+        val bak = key("A", PaletteFile.COMBINED_FILE + ".bak")
         assertTrue("kept as a backup", r.disk.files[bak]!!.contentEquals(bad))
         assertEquals(0f, r.board.surface.amount.sum(), 0f)
         // the next edit overwrites the live file but not the backup
         r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
         r.sync.changed("A")
         advanceUntilIdle()
-        assertTrue(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")])) != null)
+        assertTrue(PaletteFile.unpack(requireNotNull(r.disk.files[key("A")])) != null)
         assertTrue(r.disk.files[bak]!!.contentEquals(bad))
         assertEquals("the user is told once", 1, r.disk.unreadable.size)
     }
@@ -169,7 +171,7 @@ class PaletteProjectSyncTest {
         r.sync.open("A")
         advanceUntilIdle()
         assertEquals(listOf("A"), r.disk.unreadable)
-        val bak = key("A", PaletteBoardPersistence.COMBINED_FILE + ".bak")
+        val bak = key("A", PaletteFile.COMBINED_FILE + ".bak")
         assertTrue(r.disk.files[bak]!!.contentEquals(bytes))
     }
 
@@ -190,7 +192,7 @@ class PaletteProjectSyncTest {
         r.board.clear()
         advanceUntilIdle()
         val fresh = newMixerBoard()
-        val bytes = requireNotNull(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")]))).first
+        val bytes = requireNotNull(PaletteFile.unpack(requireNotNull(r.disk.files[key("A")]))).first
         val snap = requireNotNull(MaterialStateCodec.decode(bytes))
         assertTrue(PaletteBoardPersistence.restore(fresh, snap))
         assertTrue("the paint that was there at the change is what was saved", fresh.surface.amount.sum() > 0f)
@@ -285,5 +287,50 @@ class PaletteProjectSyncTest {
         advanceUntilIdle()
         assertEquals(1, encodes)
         assertEquals("and it encoded the latest board", final, lastAmount, 1e-3f)
+    }
+
+    @Test
+    fun aFlushHandedOffThenTheScopeCancelledIsStillWrittenByFlush() = runTest {
+        val job = kotlinx.coroutines.SupervisorJob()
+        val vmScope = kotlinx.coroutines.CoroutineScope(job + StandardTestDispatcher(testScheduler))
+        val r = Rig(this, vmScope = vmScope)
+        paint(r)
+        r.sync.changed("A")
+        r.sync.flushAsync()
+        vmScope.cancel() // the ViewModel clears before the queued write started
+        r.sync.flush() // onCleared
+        assertTrue("the edit was not lost", r.disk.files.containsKey(key("A")))
+        assertEquals("written once", 1, r.disk.writes.size)
+    }
+
+    @Test
+    fun anEditDuringTheReadDoesNotSkipTheBackupOfAnUnreadableFile() = runTest {
+        val r = Rig(this)
+        val good = combined(newMixerBoard().also { it.squeeze(2, 20f, 20f, 8f, 0.9f) })
+        val bad = good.copyOf().also { it[it.size / 2] = (it[it.size / 2] + 1).toByte() }
+        r.disk.files[key("A")] = bad
+        r.sync.open("A")
+        // the user edits before the read completes, and the edit is saved over the file
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A")
+        advanceUntilIdle()
+        val bak = key("A", PaletteFile.COMBINED_FILE + ".bak")
+        assertTrue("the unreadable file was preserved", r.disk.files[bak]!!.contentEquals(bad))
+        assertEquals("and reported once", listOf("A"), r.disk.unreadable)
+        val live = PaletteFile.unpack(r.disk.files[key("A")]!!)
+        assertTrue("the edit is what is in the live file", live != null)
+        assertTrue("the edit was not wiped", r.board.surface.amount[50 * r.board.size + 50] > 0f)
+    }
+
+    @Test
+    fun aUsablePaletteReadDuringAnEditIsNotAppliedButNotReportedEither() = runTest {
+        val r = Rig(this)
+        r.disk.files[key("A")] = combined(newMixerBoard().also { it.squeeze(2, 20f, 20f, 8f, 0.9f) })
+        r.sync.open("A")
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A")
+        advanceUntilIdle()
+        assertTrue(r.disk.unreadable.isEmpty())
+        assertEquals(0f, r.board.surface.amount[20 * r.board.size + 20], 0f)
     }
 }

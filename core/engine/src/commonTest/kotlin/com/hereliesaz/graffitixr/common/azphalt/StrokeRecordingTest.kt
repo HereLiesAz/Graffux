@@ -90,4 +90,30 @@ class StrokeRecordingTest {
         val backwards = samples().reversed()
         assertNull(StrokeRecording.fromJson(StrokeRecording(canvasWidth = 10, canvasHeight = 10, strokes = listOf(record().copy(samples = backwards))).toJson()))
     }
+
+    @Test
+    fun theProjectsOwnReaderDropsOnlyTheBadStrokes() {
+        val json = recording(record(1), record(2), record(3)).toJson()
+        // damage the middle stroke only: a zero brush size
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(json) as kotlinx.serialization.json.JsonObject
+        val strokes = (root["strokes"] as kotlinx.serialization.json.JsonArray).toMutableList()
+        val bad = (strokes[1] as kotlinx.serialization.json.JsonObject).toMutableMap().also { it["diameterPx"] = kotlinx.serialization.json.JsonPrimitive(0) }
+        strokes[1] = kotlinx.serialization.json.JsonObject(bad)
+        val damaged = kotlinx.serialization.json.JsonObject(root + ("strokes" to kotlinx.serialization.json.JsonArray(strokes))).toString()
+        assertNull(StrokeRecording.fromJson(damaged), "a shared recording is still read strictly")
+        val repaired = assertNotNull(StrokeRecording.fromJsonRepairing(damaged))
+        assertEquals(1, repaired.dropped)
+        assertEquals(listOf(1L, 3L), repaired.recording.strokes.map { it.seed })
+    }
+
+    @Test
+    fun aStrokeThatIsNotEvenAStrokeIsDroppedAndAnUnsoundHeaderRefusesTheFile() {
+        val ok = recording(record(1)).toJson()
+        val junk = ok.replace("\"strokes\":[", "\"strokes\":[42,")
+        assertEquals(1, assertNotNull(StrokeRecording.fromJsonRepairing(junk)).dropped)
+        // AzphaltJson omits the default format, so state an unknown one explicitly
+        assertNull(StrokeRecording.fromJsonRepairing(ok.replaceFirst("{", "{\"format\":\"other/9\",")))
+        assertNull(StrokeRecording.fromJsonRepairing("not json"))
+        assertEquals(0, assertNotNull(StrokeRecording.fromJsonRepairing(ok)).dropped)
+    }
 }

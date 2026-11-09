@@ -132,4 +132,49 @@ class UvIslandsTest {
         b.idx += a + c
         assertEquals(2, UvIslands.of(b.mesh()).count)
     }
+
+    @Test
+    fun `a quad split into triangles whose shared edge differs only in signed zero is one island`() {
+        // The diagonal is written as z = 0 in one triangle and z = -0 in the other; ObjParser keeps
+        // the sign, and exact bit matching used to call them different corners.
+        val verts = floatArrayOf(
+            0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f,
+            1f, 0f, 0f, 0f, 0f, 1f, 1f, 0f,
+            1f, 1f, 0f, 0f, 0f, 1f, 1f, 1f,
+            0f, 0f, -0f, 0f, 0f, 1f, -0f, 0f,
+            1f, 1f, -0f, 0f, 0f, 1f, 1f, 1f,
+            0f, 1f, 0f, 0f, 0f, 1f, 0f, 1f,
+        )
+        val islands = UvIslands.of(Mesh(verts, intArrayOf(0, 1, 2, 3, 4, 5)))
+        assertEquals(1, islands.count)
+        assertTrue(islands.sameIsland(0, 1))
+    }
+
+    @Test
+    fun `a signed zero in the uv does not split an island either`() {
+        val verts = floatArrayOf(
+            0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f,
+            1f, 0f, 0f, 0f, 0f, 1f, 1f, 0f,
+            1f, 1f, 0f, 0f, 0f, 1f, 1f, 1f,
+            0f, 0f, 0f, 0f, 0f, 1f, -0f, -0f,
+            1f, 1f, 0f, 0f, 0f, 1f, 1f, 1f,
+            0f, 1f, 0f, 0f, 0f, 1f, 0f, 1f,
+        )
+        assertEquals(1, UvIslands.of(Mesh(verts, intArrayOf(0, 1, 2, 3, 4, 5))).count)
+    }
+
+    @Test
+    fun `nan corners are matched as one value rather than splitting or throwing`() {
+        val nan = Float.NaN
+        val verts = floatArrayOf(
+            0f, 0f, 0f, 0f, 0f, 1f, nan, 0f,
+            1f, 0f, 0f, 0f, 0f, 1f, 1f, 0f,
+            1f, 1f, 0f, 0f, 0f, 1f, 1f, 1f,
+            0f, 0f, 0f, 0f, 0f, 1f, nan, 0f,
+            1f, 1f, 0f, 0f, 0f, 1f, 1f, 1f,
+            0f, 1f, 0f, 0f, 0f, 1f, 0f, 1f,
+        )
+        // Different NaN payloads compare equal through toBits, so this is one island, deterministically.
+        assertEquals(1, UvIslands.of(Mesh(verts, intArrayOf(0, 1, 2, 3, 4, 5))).count)
+    }
 }

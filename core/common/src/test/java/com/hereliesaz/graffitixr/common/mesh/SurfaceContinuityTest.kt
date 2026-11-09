@@ -73,8 +73,8 @@ class SurfaceContinuityTest {
         assertEquals("front panel", 0.0333f, front.u, 1e-3f)
         assertEquals("back panel", 0.76f, back.u, 1e-3f)
         assertTrue(UvIslands.of(mesh).sameIsland(front.triangleIndex, back.triangleIndex))
-        assertFalse(SurfaceContinuity.continuous(mesh, front, back))
-        assertFalse(SurfaceContinuity.continuous(mesh, back, front))
+        assertFalse(SurfaceContinuity.continuous(mesh, UvIslands.of(mesh), front, back))
+        assertFalse(SurfaceContinuity.continuous(mesh, UvIslands.of(mesh), back, front))
     }
 
     @Test
@@ -84,8 +84,8 @@ class SurfaceContinuityTest {
         // Across most of the panel, on different triangles.
         val b = hit(mesh, 0.1f, 0.5f)
         assertTrue(a.triangleIndex != b.triangleIndex)
-        assertTrue(SurfaceContinuity.continuous(mesh, a, b))
-        assertTrue(SurfaceContinuity.continuous(mesh, a, a))
+        assertTrue(SurfaceContinuity.continuous(mesh, UvIslands.of(mesh), a, b))
+        assertTrue(SurfaceContinuity.continuous(mesh, UvIslands.of(mesh), a, a))
     }
 
     @Test
@@ -105,7 +105,7 @@ class SurfaceContinuityTest {
         val left = floatArrayOf(-1f, 0f, 0f)
         val onFlat = MeshPicker.raycast(mesh, MeshPicker.Ray(floatArrayOf(-0.5f, 0.5f, 5f), down))!!
         val onWall = MeshPicker.raycast(mesh, MeshPicker.Ray(floatArrayOf(5f, 0.5f, -0.5f), left))!!
-        assertTrue(SurfaceContinuity.continuous(mesh, onFlat, onWall))
+        assertTrue(SurfaceContinuity.continuous(mesh, UvIslands.of(mesh), onFlat, onWall))
     }
 
     @Test
@@ -128,6 +128,48 @@ class SurfaceContinuityTest {
         assertEquals(0.0, SurfaceContinuity.uvPerLength(flat, 0), 0.0)
         val a = MeshPicker.Hit(0, 1f, 0f, 0f)
         val b = MeshPicker.Hit(1, 1f, 0.9f, 0.9f)
-        assertTrue(SurfaceContinuity.continuous(flat, a, b))
+        assertTrue(SurfaceContinuity.continuous(flat, UvIslands.of(flat), a, b))
+    }
+
+    /**
+     * Coplanar and seamless, with a narrow strip (x -0.004..0.004) mapped much more densely than the
+     * triangles either side of it: outer UV-per-length 0.1, strip 12.5. Codex's numbers.
+     */
+    private fun denseStripMesh(): Mesh {
+        val xs = floatArrayOf(-1f, -0.004f, 0.004f, 1f)
+        val us = floatArrayOf(0.3502f, 0.4498f, 0.5502f, 0.6498f)
+        val verts = ArrayList<Float>()
+        val idx = ArrayList<Int>()
+        for (q in 0 until 3) {
+            val base = verts.size / Mesh.FLOATS_PER_VERTEX
+            for ((x, u, y) in listOf(Triple(xs[q], us[q], 0f), Triple(xs[q + 1], us[q + 1], 0f),
+                Triple(xs[q + 1], us[q + 1], 1f), Triple(xs[q], us[q], 1f))) {
+                verts += listOf(x, y, 0f, 0f, 0f, 1f, u, y * 0.05f)
+            }
+            idx += listOf(base, base + 1, base + 2, base, base + 2, base + 3)
+        }
+        return Mesh(verts.toFloatArray(), idx.toIntArray())
+    }
+
+    @Test
+    fun `a dense strip between the two hits does not make a seamless move discontinuous`() {
+        val mesh = denseStripMesh()
+        val islands = UvIslands.of(mesh)
+        assertEquals(1, islands.count)
+        val a = hit(mesh, -0.005f, 0.5f)
+        val b = hit(mesh, 0.005f, 0.5f)
+        assertEquals(0.4497f, a.u, 1e-4f)
+        assertEquals(0.5503f, b.u, 1e-4f)
+        // The end triangles are 0.1 per length: on their own they bound 0.1006 of UV by about 0.002.
+        assertEquals(0.1, SurfaceContinuity.uvPerLength(mesh, a.triangleIndex), 1e-3)
+        assertTrue(SurfaceContinuity.continuous(mesh, islands, a, b))
+        assertTrue(SurfaceContinuity.continuous(mesh, islands, b, a))
+    }
+
+    @Test
+    fun `the occlusion drop is still discontinuous when the surface between is searched`() {
+        val mesh = foldedStrip()
+        val islands = UvIslands.of(mesh)
+        assertFalse(SurfaceContinuity.continuous(mesh, islands, hit(mesh, 0.1f, 0f), hit(mesh, 0.3f, 0f)))
     }
 }

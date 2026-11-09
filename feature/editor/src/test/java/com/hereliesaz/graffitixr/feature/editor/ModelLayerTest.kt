@@ -303,6 +303,50 @@ class ModelLayerTest {
         assertEquals("the other island is untouched, though within the brush", 0, alphaAt(0.52f))
     }
 
+    /** Islands 0..0.45 and 0.452..0.95: 2 texels (of 1024) between them, less than the padding gutter. */
+    private val tightIslandObj = twoIslandObj
+        .replace("vt 0.5 0\n", "vt 0.452 0\n").replace("vt 0.5 1", "vt 0.452 1")
+
+    private fun addTightIslandModel() {
+        vm.addModelLayer("m", "head.obj", "model_m.obj", ModelMesh(ObjParser.parse(tightIslandObj)))
+        idle()
+        vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+        vm.setActiveTool(Tool.BRUSH)
+        vm.setBrushSize(200f)
+        vm.onLayerActivated("m")
+        idle()
+    }
+
+    private fun alphaAtPixel(x: Int, y: Int = 512): Int =
+        Color.alpha(model().model!!.texture!!.pixels()!!.getPixel(x, y))
+
+    @Test
+    fun `a dab at an island edge paints the filter gutter and nothing of the island beside it`() = runTest(dispatcher) {
+        addTightIslandModel()
+        // u 0.40 is x -0.111 on the left quad; the island ends at texel 460.8.
+        vm.onModelPaintStart(pointOnTwoIsland(-1f + 0.40f / 0.45f))
+        vm.onModelPaintEnd()
+        idle()
+        assertTrue("last texel of the island", alphaAtPixel(460) > 0)
+        assertTrue("first texel of padding: bilinear sampling at the edge reaches it", alphaAtPixel(461) > 0)
+        assertTrue("second texel of padding", alphaAtPixel(462) > 0)
+        assertEquals("the neighbouring island's texel, though within the brush", 0, alphaAtPixel(463))
+        assertEquals("far side", 0, alphaAtPixel(520))
+    }
+
+    @Test
+    fun `a seam painted from both sides has no half-coverage texel`() = runTest(dispatcher) {
+        addTightIslandModel()
+        vm.onModelPaintStart(pointOnTwoIsland(-1f + 0.40f / 0.45f))
+        vm.onModelPaintEnd()
+        idle()
+        vm.onLayerActivated("m")
+        vm.onModelPaintStart(pointOnTwoIsland((0.50f - 0.452f) / 0.498f))
+        vm.onModelPaintEnd()
+        idle()
+        for (x in 455..470) assertTrue("texel $x has alpha ${alphaAtPixel(x)}", alphaAtPixel(x) >= 250)
+    }
+
     @Test
     fun `a step across an island boundary does not stripe through the texture between them`() = runTest(dispatcher) {
         addTwoIslandModel(brushSize = 60f)
@@ -316,6 +360,59 @@ class ModelLayerTest {
         assertTrue("ends on the right island", alphaAt(0.52f) > 0)
         assertEquals("nothing is painted across the gap", 0, alphaAt(0.475f))
     }
+
+    /**
+     * A strip folded in two and mapped continuously, so it is ONE UV island: a front panel that stops
+     * at x = 0.2 (u 0.4 down to 0 as x rises), the fold at x = -1 (u 0.4..0.5), and a back panel
+     * behind it that runs on to x = 1 (u 0.5..0.9). Each corner is x y z u v (v in GL convention).
+     */
+    private val foldedObj: String = run {
+        fun face(vararg c: Float) = c.toList().chunked(5)
+        val faces = listOf(
+            face(0.2f, -1f, 0f, 0f, 0f, -1f, -1f, 0f, 0.4f, 0f, -1f, 1f, 0f, 0.4f, 1f, 0.2f, 1f, 0f, 0f, 1f),
+            face(-1f, -1f, 0f, 0.4f, 0f, -1f, -1f, -0.2f, 0.5f, 0f, -1f, 1f, -0.2f, 0.5f, 1f, -1f, 1f, 0f, 0.4f, 1f),
+            face(-1f, -1f, -0.2f, 0.5f, 0f, 1f, -1f, -0.2f, 0.9f, 0f, 1f, 1f, -0.2f, 0.9f, 1f, -1f, 1f, -0.2f, 0.5f, 1f),
+        )
+        buildString {
+            var n = 0
+            for (f in faces) {
+                for (c in f) appendLine("v ${c[0]} ${c[1]} ${c[2]}")
+                for (c in f) appendLine("vt ${c[3]} ${1f - c[4]}")
+                appendLine("f " + (1..4).joinToString(" ") { "${n + it}/${n + it}" })
+                n += 4
+            }
+        }
+    }
+
+    @Test
+    fun `a stroke does not paint the hidden fold between a front panel and the back one it drops onto`() =
+        runTest(dispatcher) {
+            val fold = ModelMesh(ObjParser.parse(foldedObj))
+            vm.addModelLayer("m", "head.obj", "model_m.obj", fold)
+            idle()
+            vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+            vm.setActiveTool(Tool.BRUSH)
+            vm.setBrushSize(30f)
+            vm.onLayerActivated("m")
+            idle()
+            fun at(x: Float, y: Float): Offset {
+                val l = model()
+                val toScene = ModelSpace.meshToScene(listOf(com.hereliesaz.graffitixr.common.scene.PlanePose(
+                    l.offset.x, l.offset.y, l.positionZ, l.rotationX, l.rotationY, l.rotationZ, l.scale,
+                )), fold, size.width.toFloat(), size.height.toFloat())
+                val (px, py) = SceneMath.frame(vm.uiState.value.sceneCamera, size.width.toFloat(), size.height.toFloat())
+                    .project(toScene.apply(x, y, 0f))!!
+                return Offset(px, py)
+            }
+            // Right across the front panel's end at x = 0.2: front (u 0.03) then, with no miss, back (u 0.76).
+            vm.onModelPaintStart(at(0.1f, 0f))
+            vm.onModelPaintMove(at(0.3f, 0f))
+            vm.onModelPaintEnd()
+            idle()
+            assertTrue("paints where the finger started", alphaAt(0.033f, 0.5f) > 0)
+            assertTrue("and where it ended", alphaAt(0.76f, 0.5f) > 0)
+            assertEquals("not the fold's texels between them", 0, alphaAt(0.45f, 0.5f))
+        }
 
     /** The alpha of the quad's texture at (u, v), after one stroke painted with the current brush. */
     private fun quadAlphaAt(u: Float, v: Float = 0.5f): Int {
