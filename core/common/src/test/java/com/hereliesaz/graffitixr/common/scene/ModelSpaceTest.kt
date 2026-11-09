@@ -91,7 +91,15 @@ class ModelSpaceTest {
         val toScene = ModelSpace.meshToScene(listOf(PlanePose()), quad, w, h)
         // The quad spans 2 * 0.3 * h pixels and the whole 1024 texture.
         val k = ModelSpace.texelsPerPixel(quad, 0, toScene, frame, 1024, 1024)
-        assertEquals(1024f / (2 * ModelSpace.FRAME_FRACTION * h), k, 1e-2f)
+        assertEquals(1024f / (2 * ModelSpace.FRAME_FRACTION * h), k!!, 1e-2f)
+    }
+
+    @Test
+    fun `texels per pixel is null where the triangle has no usable scale`() {
+        val frame = SceneMath.frame(SceneCamera(), w, h)
+        val toScene = ModelSpace.meshToScene(listOf(PlanePose()), quad, w, h)
+        // A triangle index past the end has no corners to project.
+        assertEquals(null, ModelSpace.texelsPerPixel(quad, 999, toScene, frame, 1024, 1024))
     }
 
     @Test
