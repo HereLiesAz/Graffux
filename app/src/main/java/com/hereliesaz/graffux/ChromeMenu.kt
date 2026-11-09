@@ -106,6 +106,12 @@ internal class MenuBuilder {
     }
 }
 
+/** The top of the logo menu: New first, then the View… page. */
+internal fun MenuBuilder.mainMenuLead(newLabel: String, viewLabel: String, onNew: () -> Unit, onView: () -> Unit) {
+    listItem(newLabel, onNew)
+    page(viewLabel, onView)
+}
+
 internal fun buildMenu(block: MenuBuilder.() -> Unit): List<MenuRow> = MenuBuilder().apply(block).rows
 
 private val MenuShape = RoundedCornerShape(14.dp)
