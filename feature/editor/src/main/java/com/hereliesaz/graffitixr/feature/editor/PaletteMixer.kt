@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +79,9 @@ internal val MIXER_TUBES = PlaceholderPigments.set.pigments.take(PigmentConcentr
 
 /** A new board for an editing session. Hoist it so closing and reopening the mixer keeps the paint. */
 fun newMixerBoard(): PaletteBoard = PaletteBoard(MIXER_BOARD_SIZE, MIXER_TUBES)
+
+/** One spoken line, numbered so an identical line said twice is still a new announcement. */
+internal data class MixerAnnouncement(val id: Int, val text: String)
 
 private enum class MixerTool(val label: String, val hint: String) {
     SQUEEZE("Squeeze", "Touch the board to squeeze out the chosen tube"),
@@ -202,13 +206,21 @@ fun PaletteMixerDialog(
     var boardSize by remember { mutableStateOf(IntSize(1, 1)) }
     // What the last board action did, announced politely: the board changes only as pixels and the brush's
     // recipe, so without this a screen reader (and anyone who is not looking at the board) hears nothing.
-    var status by remember { mutableStateOf("") }
-    var rinsing by remember { mutableStateOf(false) }
+    // Each announcement carries a new id, so saying the same thing twice (a second squeeze) is still a change
+    // the live region sees: the line is keyed on the id, and a new node announces again.
+    var status by remember { mutableStateOf(MixerAnnouncement(0, "")) }
+    // The hand whose brush the open "Rinse it?" question is about, or null. Any other change to the board, the
+    // brushes or the hand closes it, so "Rinse it" can never rinse a brush the question was not about.
+    var rinsing by remember { mutableStateOf<Int?>(null) }
     val resources = LocalContext.current.resources
     fun handName() = resources.getString(
         if (board.hand == 0) R.string.mixer_hand_foreground else R.string.mixer_hand_background,
     )
-    fun say(id: Int, vararg args: Any) { status = resources.getString(id, *args) }
+    fun announce(text: String) {
+        rinsing = null
+        status = MixerAnnouncement(status.id + 1, text)
+    }
+    fun say(id: Int, vararg args: Any) = announce(resources.getString(id, *args))
 
     // Every board or brush change is a palette change (saved with the project); only operations that change what the
     // brush holds also apply its colour (MixerOps).
@@ -217,6 +229,7 @@ fun PaletteMixerDialog(
         applyColour = { c -> if (board.hand == 0) onSelectColor(c) else onSelectSecondaryColor(c) },
         redraw = {
             version++
+            rinsing = null // the board or a brush changed (a gesture, a recalled mix): the question is stale
             onChanged()
         },
     )
@@ -226,10 +239,12 @@ fun PaletteMixerDialog(
         say(R.string.mixer_status_squeezed, MIXER_TUBES[slot].name)
     }
     fun dipAt(b: Offset) {
+        val before = board.brush.amount[0]
         ops.dip(b.x, b.y)
-        // A dip on bare board lifts nothing: say that, not that the brush was dipped.
-        if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_nothing_to_lift, handName())
-        else say(R.string.mixer_status_dipped, handName())
+        // What the dip actually added to the brush decides what is said: bare board, or a brush already full,
+        // lifts nothing, and must not be reported as a dip.
+        if (board.brush.amount[0] > before) say(R.string.mixer_status_dipped, handName())
+        else say(R.string.mixer_status_nothing_to_lift, handName())
     }
     // Mixing works with the paint the brush holds; an empty brush has none, so nothing was mixed.
     fun mixed(id: Int) {
@@ -287,7 +302,7 @@ fun PaletteMixerDialog(
                                 role = Role.RadioButton) {
                                 board.hand = i
                                 version++
-                                rinsing = false
+                                rinsing = null
                                 say(R.string.mixer_status_hand, handName().replaceFirstChar(Char::uppercase))
                             }
                             .semantics { contentDescription = "$label brush" }
@@ -304,7 +319,7 @@ fun PaletteMixerDialog(
                         onSwapColors()
                         version++
                         onChanged()
-                        rinsing = false
+                        rinsing = null
                         say(R.string.mixer_status_swapped)
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
@@ -458,7 +473,7 @@ fun PaletteMixerDialog(
                 GraffuxButton(
                     text = "Wipe brush",
                     onClick = {
-                        rinsing = false
+                        rinsing = null
                         if (board.brush.amount[0] <= 0f) {
                             say(R.string.mixer_status_already_clean, handName())
                         } else {
@@ -475,12 +490,12 @@ fun PaletteMixerDialog(
                         // Rinsing takes all the paint off the brush in hand, so it asks first; an empty
                         // brush has nothing to lose and says so instead.
                         if (board.brush.amount[0] <= 0f) say(R.string.mixer_status_already_clean, handName())
-                        else rinsing = true
+                        else rinsing = board.hand
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier.testTag("mixer.rinse"))
             }
-            if (rinsing) {
+            if (rinsing == board.hand) {
                 Column(Modifier.testTag("mixer.rinseRow"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         stringResource(R.string.mixer_rinse_ask, handName()),
@@ -490,7 +505,7 @@ fun PaletteMixerDialog(
                         GraffuxButton(
                             text = stringResource(R.string.mixer_rinse_it),
                             onClick = {
-                                rinsing = false
+                                rinsing = null
                                 board.clean(PaletteBoard.Clean.RINSE)
                                 ops.applyBrush()
                                 say(R.string.mixer_status_rinsed, handName())
@@ -499,7 +514,7 @@ fun PaletteMixerDialog(
                             modifier = Modifier.testTag("mixer.confirmRinse"))
                         GraffuxButton(
                             text = stringResource(R.string.mixer_keep_it),
-                            onClick = { rinsing = false },
+                            onClick = { rinsing = null },
                             shape = GraffuxButtonShape.RECTANGLE)
                     }
                 }
@@ -535,7 +550,7 @@ fun PaletteMixerDialog(
                             ops.applyBrush()
                             say(R.string.mixer_status_matched, result, handName())
                         } else {
-                            status = result
+                            announce(result)
                         }
                     },
                     shape = GraffuxButtonShape.RECTANGLE,
@@ -545,14 +560,16 @@ fun PaletteMixerDialog(
                 modifier = Modifier.testTag("mixer.match")) }
             // Announced politely whenever it changes (hidden to the eye only by being empty until a board
             // action happens; it is the line under the board the action's words are written to).
-            Text(
-                status,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .semantics { liveRegion = LiveRegionMode.Polite }
-                    .testTag("mixer.status"),
-            )
+            key(status.id) {
+                Text(
+                    status.text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .testTag("mixer.status"),
+                )
+            }
         }
     }
 }

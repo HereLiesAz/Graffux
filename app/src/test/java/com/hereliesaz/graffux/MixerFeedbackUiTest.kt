@@ -14,7 +14,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
+import com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
 import com.hereliesaz.graffitixr.feature.editor.PaletteMixerDialog
+import com.hereliesaz.graffitixr.feature.editor.RecipeLibrary
+import com.hereliesaz.graffitixr.feature.editor.SavedMix
 import com.hereliesaz.graffitixr.feature.editor.newMixerBoard
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -41,10 +48,13 @@ class MixerFeedbackUiTest {
     private val board = newMixerBoard()
     private var swaps = 0
 
+    private var mixes = emptyList<SavedMix>()
+
     private fun compose() {
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 PaletteMixerDialog(
+                    mixes = mixes,
                     board = board,
                     currentColor = Color.Red,
                     secondaryColor = Color.Blue,
@@ -96,7 +106,7 @@ class MixerFeedbackUiTest {
     fun `dipping or mixing with nothing to lift says so instead of reporting a dip or a mix`() {
         compose()
         boardAction("Dip the brush")
-        status().assertTextContains("Nothing on the board there to pick up", substring = true)
+        status().assertTextContains("Nothing picked up", substring = true)
         rule.onNodeWithTag("mixer.mixOnce").performScrollTo().performClick()
         status().assertTextContains("holds no paint, so there was nothing to mix", substring = true)
     }
@@ -143,5 +153,104 @@ class MixerFeedbackUiTest {
         rule.onNodeWithText("Swap").performScrollTo().performClick()
         assertEquals(1, swaps)
         status().assertTextContains("Swapped the foreground and background brushes")
+    }
+
+    @Test
+    fun `the same action twice is announced twice`() {
+        compose()
+        boardAction("Squeeze the chosen tube")
+        val first = status().fetchSemanticsNode()
+        boardAction("Squeeze the chosen tube")
+        val second = status().fetchSemanticsNode()
+        val text = SemanticsProperties.Text
+        assertEquals(first.config.getOrNull(text), second.config.getOrNull(text))
+        assertTrue("an identical line must be a new live-region node", first.id != second.id)
+    }
+
+    @Test
+    fun `a dip that adds nothing to a full brush is not reported as a dip`() {
+        compose()
+        boardAction("Squeeze the chosen tube")
+        repeat(40) { boardAction("Dip the brush") }
+        val full = board.brush.amount[0]
+        boardAction("Dip the brush")
+        assertEquals("the brush is full, so the dip lifts nothing", full, board.brush.amount[0], 0f)
+        status().assertTextContains("Nothing picked up", substring = true)
+    }
+
+    @Test
+    fun `ending a drag announces it`() {
+        compose()
+        rule.onNodeWithTag("mixer.board").performScrollTo().performTouchInput { swipeRight() }
+        rule.waitForIdle()
+        status().assertTextContains("Squeezed", substring = true)
+        loadBrush()
+        rule.onNodeWithText("Dip and mix").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.board").performScrollTo().performTouchInput { swipeLeft() }
+        rule.waitForIdle()
+        status().assertTextContains("Mixed with the foreground brush", substring = true)
+    }
+
+    @Test
+    fun `changing hand closes the rinse question and it does not come back`() {
+        compose()
+        loadBrush()
+        rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.rinseRow").assertExists()
+        rule.onNodeWithTag("mixer.hand.1").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
+        status().assertTextContains("Background brush in hand")
+        rule.onNodeWithTag("mixer.hand.0").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a board gesture or a Match closes the rinse question`() {
+        compose()
+        loadBrush()
+        rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
+        boardAction("Squeeze the chosen tube")
+        rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
+
+        rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.rinseRow").assertExists()
+        rule.onNodeWithTag("mixer.hex").performScrollTo().performTextInput("#FF8800")
+        rule.onNodeWithText("Match").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
+        status().assertTextContains("loaded on the foreground brush", substring = true)
+    }
+
+    @Test
+    fun `an unreadable colour is announced and leaves the brush alone`() {
+        compose()
+        loadBrush()
+        val held = board.brush.amount[0]
+        rule.onNodeWithTag("mixer.hex").performScrollTo().performTextInput("hello")
+        rule.onNodeWithText("Match").performScrollTo().performClick()
+        status().assertTextContains("Not a colour")
+        assertEquals(held, board.brush.amount[0], 0f)
+    }
+
+    @Test
+    fun `recalling a mix onto the other brush closes a pending rinse and never rinses that brush`() {
+        // A saved mix made from a loaded foreground brush; the board is set up directly, before composing.
+        board.squeeze(0, 48f, 48f, 7f, 0.9f)
+        board.dip(48f, 48f)
+        val recipe = requireNotNull(PaletteRecipes.fromBrush(board, "m1", "Sap"))
+        mixes = listOf(SavedMix(recipe, RecipeLibrary.Scope.PROJECT))
+        compose()
+        val foreground = board.brushes[0].amount[0]
+        assertTrue(foreground > 0f)
+        rule.onNodeWithTag("mixer.rinse").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.rinseRow").assertExists()
+
+        rule.onNodeWithTag("mixer.mix.m1").performScrollTo().performClick()
+        rule.onNodeWithTag("mixer.recall.1").performScrollTo().performClick()
+        rule.waitForIdle()
+
+        assertEquals("the recall puts the background brush in hand", 1, board.hand)
+        rule.onNodeWithTag("mixer.rinseRow").assertDoesNotExist()
+        assertTrue("the recalled paint is on the background brush", board.brushes[1].amount[0] > 0f)
+        assertEquals("the foreground brush was never rinsed", foreground, board.brushes[0].amount[0], 0f)
     }
 }
