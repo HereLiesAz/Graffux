@@ -268,7 +268,7 @@ on the brush it sits.
   "capacity": 1.0,
   "fill": [
     { "pigment": "cadmium-red-medium", "lanes": [0, 3],   "amount": 0.9 },
-    { "pigment": "cadmium-red-medium+titanium-white:0.5", "lanes": [4, 11], "amount": 1.0 },
+    { "pigment": "cadmium-red-medium:1+titanium-white:1", "lanes": [4, 11], "amount": 1.0 },
     { "pigment": "cadmium-red-medium", "lanes": [12, 15], "amount": 0.9 }
   ]
 }
