@@ -35,7 +35,10 @@ The installer enforces, in order, on every install:
 
 1. **Cumulative decompressed-size ceiling**: `MAX_PACKAGE_BYTES = 64 MiB`. This is a zip-bomb guard
    on untrusted input; per the code comment, "Asset packages are small (bundled multi-GB models use
-   `remoteUrl`, not the archive)."
+   `remoteUrl`, not the archive)." Alongside it: at most `MAX_ENTRIES = 10,000` entries of any kind
+   (directories count, so a bomb of empty entries is stopped before it costs a map slot each), a
+   `manifest.json` of at most 4 MiB and a `signature.json` of at most 64 KiB (both are parsed whole
+   before anything is trusted; real ones are a few KB). Each refusal is an `InstallException`.
 2. **Unsafe entry paths are rejected**: an entry name that is absolute (`/…`, `\…`), contains a drive
    letter (`:`), or contains a `..` path segment anywhere throws `InstallException`.
 3. **Duplicate entry names are rejected.** Two ZIP entries under the same name is a "ZIP confusion"
