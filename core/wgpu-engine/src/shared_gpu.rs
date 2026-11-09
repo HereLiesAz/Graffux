@@ -221,6 +221,10 @@ impl SharedGpu {
         let oom = pollster::block_on(oom.pop());
         if let Some(err) = validation.or(oom) {
             log::error!("graffux-wgpu {label}: {err}");
+            // A pipeline created in this call may be the invalid handle wgpu returns after a failed creation (an
+            // out-of-memory that has since cleared, say), and which entry it was is unknown: forget them all so the
+            // next call builds again instead of reusing a handle that can never work.
+            self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
             return None;
         }
         out
