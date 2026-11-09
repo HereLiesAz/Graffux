@@ -39,6 +39,11 @@ data class StrokeProgramSpec(
      * a distance step (a held pen, or a very slow one), so a brush can keep spraying where it is.
      */
     val tickMs: Float = 0f,
+    /**
+     * A painterly brush (spec/painterly.md): the load functions (`loadAmount`, `loadMix`) are available
+     * and the legacy wet ledger (`spray`, `drain`, `wetAt`) is not; a program uses one or the other.
+     */
+    val painterly: Boolean = false,
 )
 
 /** The result of compiling a [StrokeProgramSpec]: a runnable [StrokeProgram] or the reason it can't run. */
@@ -147,6 +152,8 @@ class StrokeProgram private constructor(
         /** The fields an `emit { ... }` may set. */
         val EMIT_FIELDS = listOf(
             "x", "y", "size", "alpha", "angle", "tip", "hard", "hue", "sat", "val", "mix", "flow", "h",
+            // paint-transaction intents (spec/painterly.md E3): indices 13..17
+            "lane", "draw", "lift", "mixWet", "dispose",
         )
 
         fun compile(spec: StrokeProgramSpec): StrokeProgramCompilation = try {
@@ -171,8 +178,8 @@ class StrokeProgram private constructor(
                 }
             }
             val layout = Layout(stateNames)
-            val init = Parser(Lexer(spec.init).tokens(), layout).parseProgram()
-            val step = Parser(Lexer(spec.step).tokens(), layout).parseProgram()
+            val init = Parser(Lexer(spec.init).tokens(), layout, spec.painterly).parseProgram()
+            val step = Parser(Lexer(spec.step).tokens(), layout, spec.painterly).parseProgram()
             val defaults = FloatArray(stateNames.size) { i ->
                 spec.state.getValue(stateNames[i]).takeIf { it.isFinite() } ?: 0f
             }
@@ -215,6 +222,8 @@ class StrokeProgram private constructor(
     internal class Emit(val values: FloatArray, val present: Int)
 
     internal class Vm(val mem: FloatArray, val rng: Random, val seed: Int, val ledger: StrokeLedger) {
+        /** The stroke's load budget, or null for a brush with no `load` block. */
+        var load: BrushLoadBudget? = null
         var nowMs = 0L
         var ops = 0
         var emitsThisStep = 0
@@ -320,7 +329,11 @@ class StrokeProgram private constructor(
 
     // ---- parser / compiler -------------------------------------------------------------------
 
-    private class Parser(private val tokens: List<Token>, private val layout: Layout) {
+    private class Parser(
+        private val tokens: List<Token>,
+        private val layout: Layout,
+        private val painterly: Boolean = false,
+    ) {
         private var pos = 0
         private var depth = 0
         private var exprDepth = 0
@@ -697,8 +710,20 @@ class StrokeProgram private constructor(
             return Expr { vm -> vm.mem[slot] }
         }
 
+        private fun functionFor(t: Token): Fn {
+            if (painterly) {
+                if (t.text in HOST_FUNCTIONS) {
+                    fail("'${t.text}' is the legacy wet ledger and is not available on a painterly brush; use emit { lift, dispose, mixWet }", t)
+                }
+                LOAD_FUNCTIONS[t.text]?.let { return it }
+            } else if (t.text in LOAD_FUNCTIONS) {
+                fail("'${t.text}' needs a painterly brush (set \"painterly\": 1 and a load block)", t)
+            }
+            return HOST_FUNCTIONS[t.text] ?: fail("'${t.text}' is not a function", t)
+        }
+
         private fun call(t: Token): Expr {
-            val fn = FUNCTIONS[t.text] ?: HOST_FUNCTIONS[t.text] ?: fail("'${t.text}' is not a function", t)
+            val fn = FUNCTIONS[t.text] ?: functionFor(t)
             expectOp("(")
             val args = ArrayList<Expr>()
             if (!isOp(")")) {
@@ -844,6 +869,12 @@ private val HOST_FUNCTIONS: Map<String, Fn> = mapOf(
     },
 )
 
+/** Reads of the brush-load budget (spec/painterly.md 3.3); only on painterly brushes. */
+private val LOAD_FUNCTIONS: Map<String, Fn> = mapOf(
+    "loadAmount" to Fn(1) { vm, lane, _, _, _ -> finite(vm.load?.amount(lane) ?: 0f) },
+    "loadMix" to Fn(1) { vm, lane, _, _, _ -> finite(vm.load?.mix(lane) ?: 0f) },
+)
+
 private fun footprintCost(r: Float): Int {
     val reach = if (r.isFinite()) r.coerceIn(0f, FOOTPRINT_COST_REACH_PX) else 0f
     return (reach * reach / FOOTPRINT_COST_DIVISOR).toInt()
@@ -871,6 +902,10 @@ class StrokeProgramRunner internal constructor(
         (seed xor (seed ushr 32)).toInt() xor 0x5EED,
         ledger,
     )
+
+    init {
+        vm.load = brush.load?.let(::BrushLoadBudget)
+    }
 
     /** The film this stroke touched, as it stands at [nowMs], for the host to hand to the next stroke. */
     fun film(nowMs: Long): PaintSnapshot = ledger.film(nowMs)
@@ -969,7 +1004,12 @@ class StrokeProgramRunner internal constructor(
                 )
             }
         }
-        for (e in vm.emitted) emitted(e, template)?.let(out::add)
+        for (e in vm.emitted) {
+            val dab = emitted(e, template) ?: continue
+            // The budget predicts the load the dab's draw intent will take; the GPU decides the truth.
+            if (dab.hasLaneIntent && dab.draw > 0f) vm.load?.consume(dab.lane, dab.draw)
+            out.add(dab)
+        }
         val gap = output("gapMul").coerceIn(StrokeProgram.MIN_GAP, StrokeProgram.MAX_GAP)
         return StrokeProgramStep(out, gap)
     }
@@ -997,6 +1037,11 @@ class StrokeProgramRunner internal constructor(
             colorMix = field(10)?.coerceIn(0f, 1f) ?: template.colorMix,
             flowMultiplier = field(11)?.coerceAtLeast(0f) ?: template.flowMultiplier,
             heightMul = field(12)?.coerceAtLeast(0f) ?: template.heightMul,
+            lane = field(13)?.coerceIn(-1f, 1f) ?: Dab.NO_LANE,
+            draw = field(14)?.coerceAtLeast(0f) ?: 0f,
+            lift = field(15)?.coerceAtLeast(0f) ?: 0f,
+            mixWet = field(16)?.coerceIn(0f, 1f) ?: 0f,
+            dispose = (field(17) ?: 0f) != 0f,
             sourceRandom = vm.rng.nextFloat(),
             mask = null,
         )

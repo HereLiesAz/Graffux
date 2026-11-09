@@ -71,7 +71,27 @@ data class Dab(
      * Appended at the end of the value contract like [contactDepth]. See spec/painterly.md E5.
      */
     val heightMul: Float = 1f,
-)
+    /**
+     * Paint-transaction intents (spec/painterly.md E1/E3). [lane] is a -1..1 coordinate across the
+     * brush width, or [NO_LANE] for the historical path. [draw] is how much to take from that load
+     * column, [lift] how much to lift from the surface into it, [mixWet] (0..1) how far to mix with the
+     * wet surface, [dispose] removes lifted paint without loading it (scrapers). These are intents the
+     * GPU transaction (phase P5) executes; the generator resolves no pixel from them. All default to
+     * "no intent", so existing dabs are unchanged.
+     */
+    val lane: Float = NO_LANE,
+    val draw: Float = 0f,
+    val lift: Float = 0f,
+    val mixWet: Float = 0f,
+    val dispose: Boolean = false,
+) {
+    val hasLaneIntent: Boolean get() = lane in -1f..1f
+
+    companion object {
+        /** Out of the -1..1 range: this dab names no load column. */
+        const val NO_LANE = 2f
+    }
+}
 
 object BrushStamps {
     fun place(points: List<Float>, stepPx: Float): List<Float> {

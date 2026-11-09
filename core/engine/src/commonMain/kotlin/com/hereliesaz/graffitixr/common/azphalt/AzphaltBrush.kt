@@ -343,6 +343,14 @@ data class AzphaltBrush(
      * and serialization contract.
      */
     val program: StrokeProgramSpec? = null,
+    /**
+     * Painterly brush (spec/painterly.md): 0 = not painterly (the default; every existing brush). 1 =
+     * the program may use the load functions and the paint-transaction emit intents, and may not use
+     * the legacy wet ledger. Appended to preserve the positional constructor and serialization contract.
+     */
+    val painterly: Int = 0,
+    /** Declared brush load (spec/painterly.md 3.3); null = none. */
+    val load: BrushLoadConfig? = null,
 ) {
     fun sanitized(): AzphaltBrush = copy(
         name = name.trim().ifBlank { "Custom Brush" },
@@ -473,6 +481,7 @@ data class AzphaltBrush(
                 runCatching { AzphaltJson.decodeFromJsonElement<BrushBlot>(element) }.getOrNull()
             }?.sanitized() ?: BrushBlot()
 
+            val painterlyFlag = (f("painterly") ?: 0f).toInt().coerceIn(0, 1)
             return AzphaltBrush(
                 name = name,
                 spacing = normalizedSpacing().coerceIn(0.01f, 4f),
@@ -528,7 +537,9 @@ data class AzphaltBrush(
                 impastoMaterial = impastoMaterial,
                 tipFormat = tipFormat,
                 substrateResponse = (f("substrateResponse") ?: 0f).coerceIn(0f, 1f),
-                program = (params?.get("program") as? JsonObject)?.let(::programSpecOf),
+                program = (params?.get("program") as? JsonObject)?.let { programSpecOf(it, painterlyFlag) },
+                painterly = painterlyFlag,
+                load = (params?.get("load") as? JsonObject)?.let(::loadConfigOf)?.takeIf { painterlyFlag > 0 },
             ).sanitized()
         }
 
@@ -537,7 +548,25 @@ data class AzphaltBrush(
          * (easier to read in JSON); both become one newline-joined string. Anything malformed means
          * no program, so the brush still paints as its plain self.
          */
-        private fun programSpecOf(obj: JsonObject): StrokeProgramSpec? {
+        private fun loadConfigOf(obj: JsonObject): BrushLoadConfig {
+            fun num(key: String): Float? = (obj[key] as? JsonPrimitive)?.floatOrNull?.takeIf { it.isFinite() }
+            val fills = (obj["fill"] as? JsonArray).orEmpty().mapNotNull { e ->
+                val o = e as? JsonObject ?: return@mapNotNull null
+                val recipe = (o["pigment"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val range = (o["lanes"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.floatOrNull?.toInt() }
+                if (range == null || range.size != 2) return@mapNotNull null
+                val amount = (o["amount"] as? JsonPrimitive)?.floatOrNull ?: 1f
+                BrushLoadFill(recipe, range[0], range[1], amount)
+            }
+            return BrushLoadConfig(
+                lanes = num("lanes")?.toInt() ?: BrushLoadConfig.DEFAULT_LANES,
+                depth = num("depth")?.toInt() ?: BrushLoadConfig.DEFAULT_DEPTH,
+                capacity = num("capacity") ?: 1f,
+                fill = fills,
+            ).sanitized()
+        }
+
+        private fun programSpecOf(obj: JsonObject, painterly: Int = 0): StrokeProgramSpec? {
             fun source(key: String): String = when (val e = obj[key]) {
                 is JsonPrimitive -> e.contentOrNull.orEmpty()
                 is JsonArray -> e.joinToString("\n") { (it as? JsonPrimitive)?.contentOrNull.orEmpty() }
@@ -552,6 +581,7 @@ data class AzphaltBrush(
                 init = source("init"),
                 step = source("step"),
                 tickMs = if (tick >= StrokeProgram.MIN_TICK_MS) tick else 0f,
+                painterly = painterly > 0,
             )
             return spec.takeIf { it.step.isNotBlank() }
         }

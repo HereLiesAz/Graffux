@@ -118,6 +118,7 @@ defaults to `px, py`. `size` is a diameter in px; a dab with `size <= 0` or `alp
 | `mix` | foreground→background colour mix 0..1 |
 | `flow` | flow multiplier |
 | `h` | impasto height multiplier for this dab (default 1; 0 lays colour but no paint height). A flat brush gives its edge lanes a larger `h` than its centre for a rim ridge. Only brushes with impasto (`impastoThicknessRate` or `impastoMaterial`) show it |
+| `lane`, `draw`, `lift`, `mixWet`, `dispose` | **Paint-transaction intents** for a painterly brush (`"painterly": 1` in the brush params; see `spec/painterly.md` E1/E3). `lane` is a -1..1 coordinate across the brush width (the nearest load column serves it); `draw` how much to take from that column; `lift` how much to lift from the surface into it; `mixWet` (0..1) how far to mix with the wet surface; `dispose` (non-zero) removes the lifted paint instead of loading it. They are intents: the GPU paint transaction (a later phase) executes them, and the generator resolves no pixel from them. Unset, a dab names no lane and is unchanged |
 
 Emitted dabs are painted after the brush's own dabs, in emit order, so emit order is paint order.
 
@@ -125,6 +126,7 @@ Emitted dabs are painted after the brush's own dabs, in emit order, so emit orde
 
 `abs min max clamp(v,lo,hi) lerp(a,b,t) smoothstep(e0,e1,x) gate(edge,x)` (1 once `x >= edge`) ·
 `sin cos tan atan2(y,x)` (degrees) · `sqrt pow exp log floor ceil round fract mod sign hypot` ·
+`loadAmount(lane)` and `loadMix(lane)` (painterly brushes only: the brush-load budget, a Kotlin *prediction* of how full the column serving that -1..1 coordinate is, and the share of its paint that is its second pigment; a painterly brush may not call the legacy `spray`/`drain`/`wetAt`, and a non-painterly brush may not call these) ·
 `hash(n)` and `hash2(a,b)` (stateless, 0..1, seeded by the stroke) ·
 `noise(t)` and `noise2(x,y)` (smooth value noise, 0..1, seeded by the stroke) ·
 `rand()` (0..1) and `rands()` (−1..1), a sequential stream seeded by the stroke.
