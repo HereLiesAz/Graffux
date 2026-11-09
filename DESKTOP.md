@@ -82,7 +82,7 @@ sound finished — see each claim's own verification note.
   mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
   gone. `desktop/.../FloatingWindow.kt` began as a copy of `core:design`'s former `FloatingWindow`
   composable (Android has since replaced floating windows with adaptive containers; see
-  ARCHITECTURE.md), adapted for desktop. It is Graffux's own composable (dragging and onscreen clamping are in
+  ARCHITECTURE.md), adapted for desktop. It is Graffux's own composable (dragging is in
   `FloatingWindow.kt`); it no longer wraps AzNavRail's `AzWindow`. "Tool Options" (brush
   radius/flow/color swatches) and "Color" (the HSV wheel, see below) are now each their own
   draggable, closable `FloatingWindow`, Procreate-style, matching how Android's
@@ -90,8 +90,7 @@ sound finished — see each claim's own verification note.
   artwork at once, and closing one doesn't block the canvas the way a modal dialog would.
   Simplifications versus Android's version: no rail-avoidance obstruction (this app's rail is a
   translucent overlay, not docked/inset, so there's no strip a panel needs to stay clear of) and no
-  mount-time re-clamp effect (`AzWindow` itself, 11.38+, already keeps a window onscreen on its
-  own).
+  onscreen clamp at all (`FloatingWindow.kt` only offsets by the drag, so a window can be dragged partly or wholly off screen).
 - Verified visually, not just by compiling: built and ran the real desktop app under Xvfb
   (`:desktop:run`, software-rendered — `Cannot create Linux GL context` is expected in this
   GPU-less container and Skiko falls back automatically) and screenshotted it. The black
