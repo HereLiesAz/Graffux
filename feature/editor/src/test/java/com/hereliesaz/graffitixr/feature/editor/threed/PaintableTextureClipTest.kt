@@ -23,8 +23,10 @@ class PaintableTextureClipTest {
 
     private fun texture() = PaintableTexture(Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888))
 
+    private val red = SurfaceBrush(Color.RED, 1f, 1f, 1f, false)
+
     private fun PaintableTexture.dab() =
-        stamp(listOf(TexturePaint.Stamp(30f, 50f)), Color.RED, radiusPx = 60f, hardness = 1f)
+        stamp(listOf(TexturePaint.Stamp(30f, 50f)), radiusPx = 60f, brush = red)
 
     private fun PaintableTexture.alpha(x: Int) = Color.alpha(bitmap.getPixel(x, 50))
 
@@ -68,7 +70,7 @@ class PaintableTextureClipTest {
         val left = texture().apply { clipTo(rect(0f, 0.5f), rect(0.51f, 1f)); dab() }
         // Paint the right island on the same bitmap.
         left.clipTo(rect(0.51f, 1f), rect(0f, 0.5f))
-        left.stamp(listOf(TexturePaint.Stamp(70f, 50f)), Color.RED, radiusPx = 60f, hardness = 1f)
+        left.stamp(listOf(TexturePaint.Stamp(70f, 50f)), radiusPx = 60f, brush = red)
         for (x in 40..60) assertTrue("texel $x alpha ${left.alpha(x)}", left.alpha(x) == 255)
     }
 }

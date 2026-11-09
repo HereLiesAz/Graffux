@@ -3,11 +3,13 @@ package com.hereliesaz.graffitixr.feature.editor.threed
 import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import com.hereliesaz.graffitixr.common.mesh.TexturePaint
+import kotlin.math.roundToInt
 
 /**
  * The paint of a 3D model layer while a stroke is on it: dabs go into [bitmap] at the UV the touch
@@ -80,37 +82,86 @@ class PaintableTexture(val bitmap: Bitmap) {
     var isPainted: Boolean = false
         private set
 
+    /** The stroke's own dabs, and the surface as it was before them: only an opacity under 1 needs them. */
+    private var strokeLayer: Bitmap? = null
+    private var strokeBase: Bitmap? = null
+    private var layerCanvas: Canvas? = null
+
     /**
-     * Paints [stamps] (texture pixels, from [TexturePaint.stamps]) in [color], or clears them when
-     * [erase]. [hardness] runs 0..1: 1 is a hard round dab, lower values feather the edge.
+     * Paints [stamps] (texture pixels, from [TexturePaint.stamps]) with [brush]'s colour at radius
+     * [radiusPx], or takes them off when it erases. [SurfaceBrush.hardness] feathers the edge and
+     * [SurfaceBrush.flow] is each dab's own strength, so overlapping dabs build up.
+     *
+     * With [SurfaceBrush.opacity] under 1 the dabs go to a layer of their own and the surface is
+     * recomposed from what it was before the stroke plus that layer at the opacity, so the stroke
+     * can never be more opaque than the ceiling however many times it crosses itself.
      */
-    fun stamp(
-        stamps: List<TexturePaint.Stamp>,
-        color: Int,
-        radiusPx: Float,
-        hardness: Float = 0.8f,
-        erase: Boolean = false,
-    ) {
+    fun stamp(stamps: List<TexturePaint.Stamp>, radiusPx: Float, brush: SurfaceBrush) {
         if (stamps.isEmpty()) return
-        val radius = radiusPx.coerceAtLeast(0.5f)
+        val radius = radiusPx.coerceAtLeast(TexturePaint.MIN_RADIUS_TEXELS)
         synchronized(bitmap) {
-            paint.reset()
-            paint.isAntiAlias = true
-            paint.color = color
-            paint.style = Paint.Style.FILL
-            paint.xfermode = if (erase) PorterDuffXfermode(PorterDuff.Mode.CLEAR) else null
-            val feather = (1f - hardness.coerceIn(0f, 1f)) * radius
-            paint.maskFilter = if (feather > 0.5f) BlurMaskFilter(feather, BlurMaskFilter.Blur.NORMAL) else null
+            val layered = brush.opacity < 1f || strokeLayer != null
+            val target = if (layered) ensureLayer() else canvas
+            dabPaint(brush, radius, onLayer = layered)
             val limit = clip
-            if (limit != null) canvas.save().also { canvas.clipPath(limit) }
-            stamps.forEach { canvas.drawCircle(it.x, it.y, radius, paint) }
-            if (limit != null) canvas.restore()
+            if (limit != null) target.save().also { target.clipPath(limit) }
+            stamps.forEach { target.drawCircle(it.x, it.y, radius, paint) }
+            if (limit != null) target.restore()
+            if (layered) recompose(brush)
             isPainted = true
+        }
+    }
+
+    /** The paint a dab is drawn with. Erasing ignores the colour's own alpha: coverage alone erases. */
+    private fun dabPaint(brush: SurfaceBrush, radius: Float, onLayer: Boolean) {
+        paint.reset()
+        paint.isAntiAlias = true
+        paint.style = Paint.Style.FILL
+        val base = if (brush.erase) Color.BLACK else brush.color
+        paint.color = base
+        paint.alpha = (Color.alpha(base) * brush.flow.coerceIn(0f, 1f)).roundToInt()
+        // On the stroke layer the dabs only gather coverage; the erase happens when it is recomposed.
+        paint.xfermode = if (brush.erase && !onLayer) PorterDuffXfermode(PorterDuff.Mode.DST_OUT) else null
+        val feather = (1f - brush.hardness.coerceIn(0f, 1f)) * radius
+        paint.maskFilter = if (feather > MIN_FEATHER_PX) BlurMaskFilter(feather, BlurMaskFilter.Blur.NORMAL) else null
+    }
+
+    private fun ensureLayer(): Canvas {
+        layerCanvas?.let { return it }
+        strokeBase = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        val layer = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        strokeLayer = layer
+        return Canvas(layer).also { layerCanvas = it }
+    }
+
+    /** The surface = what it was before the stroke, with the stroke's layer put on (or off) at the opacity. */
+    private fun recompose(brush: SurfaceBrush) {
+        val base = strokeBase ?: return
+        val layer = strokeLayer ?: return
+        val copy = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC) }
+        canvas.drawBitmap(base, 0f, 0f, copy)
+        val over = Paint().apply {
+            alpha = (brush.opacity.coerceIn(0f, 1f) * OPAQUE).roundToInt()
+            xfermode = if (brush.erase) PorterDuffXfermode(PorterDuff.Mode.DST_OUT) else null
+        }
+        canvas.drawBitmap(layer, 0f, 0f, over)
+    }
+
+    /** Frees the stroke's working bitmaps. The painted [bitmap] itself is left alone: it is the result. */
+    fun release() {
+        synchronized(bitmap) {
+            strokeLayer?.recycle()
+            strokeBase?.recycle()
+            strokeLayer = null
+            strokeBase = null
+            layerCanvas = null
         }
     }
 
     companion object {
         private const val CORNERS = 3
+        private const val OPAQUE = 255f
+        private const val MIN_FEATHER_PX = 0.5f
 
         /**
          * How far past an island's edge a dab is allowed into empty padding, in texels. One texel is

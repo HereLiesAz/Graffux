@@ -45,6 +45,7 @@ import com.hereliesaz.graffitixr.common.importer.DocumentImporter
 import com.hereliesaz.graffitixr.common.importer.ImportedDocument
 import com.hereliesaz.graffitixr.common.model.*
 import com.hereliesaz.graffitixr.feature.editor.threed.PaintableTexture
+import com.hereliesaz.graffitixr.feature.editor.threed.SurfaceBrush
 import com.hereliesaz.graffitixr.common.model.Selection
 import com.hereliesaz.graffitixr.common.model.SelectionOp
 import com.hereliesaz.graffitixr.common.util.ContourTrace
@@ -14218,7 +14219,7 @@ class EditorViewModel @Inject constructor(
         }
         val clip = islandClip(mesh, hit.triangleIndex, stamps, radius, surface)
         surface.clipTo(clip?.first, clip?.second)
-        surface.stamp(stamps, st.activeColor.toArgb(), radius, erase = stroke.erase)
+        surface.stamp(stamps, radius, SurfaceBrush.of(st, st.activeColor.toArgb(), stroke.erase))
         stroke.lastUv = hit.u to hit.v
         stroke.lastHit = hit
         return true
@@ -14253,6 +14254,7 @@ class EditorViewModel @Inject constructor(
     fun onModelPaintEnd() {
         val stroke = modelStroke ?: return
         modelStroke = null
+        stroke.surface.release()
         if (!stroke.edited) {
             updateUi { it.copy(modelDraft = null) }
             return

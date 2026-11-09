@@ -201,7 +201,7 @@ used to open the window, now imports into a layer.
   it (an island whose UVs tile the texture is left unclipped). The brush's on-screen size is
   converted to texels at each hit (`ModelSpace.texelsPerPixel`: the triangle's texel area over its
   projected area; where that is degenerate the stroke keeps its last radius,
-  `TexturePaint.radiusTexels`). A second finger ends the stroke. The 2D paint pipeline is not touched.
+  `TexturePaint.radiusTexels`). The dab takes the 2D brush's settings as the 2D pipeline resolves them (`SurfaceBrush`): hardness is one minus the feathering, flow is per-dab strength (stamp brushes only), and opacity caps the whole stroke's coverage however often it crosses itself (the stroke is painted on a layer of its own and composed onto the pre-stroke surface at that opacity). A second finger ends the stroke. The 2D paint pipeline is not touched.
 - **Selection.** Tap-select and the one-finger move's hit check cast the tap onto the model's
   surface (the same ray as painting), ranked by the depth of the surface hit; the selection outline
   is the mesh's framed x/y bounds on the layer's plane.
