@@ -14453,6 +14453,21 @@ class EditorViewModel @Inject constructor(
     /** Model layers whose saved texture file could not be read: painting them is refused. */
     private val modelTextureLoadFailed = HashSet<String>()
 
+    /**
+     * A model layer's saved paint from [dir], or null when the layer names none (or the file is gone). Throws
+     * when the file is there but unusable: a PNG cut short by a partial write, or one that will not decode,
+     * either of which would otherwise restart blank and be saved over the file.
+     */
+    private fun readSavedPaint(dir: File, textureFile: String?): WrittenTexture? {
+        val file = ModelFiles.safe(textureFile)?.let { File(dir, it) }?.takeIf { it.isFile } ?: return null
+        val png = file.readBytes()
+        if (!ModelCoopCodec.isCompletePng(png)) throw java.io.IOException("the image file is incomplete")
+        val texture = com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(png)
+        // Decoded now, while the failure can still be reported: the renderer needs the pixels anyway.
+        if (texture.pixels() == null) throw java.io.IOException("the image could not be decoded")
+        return WrittenTexture(texture, file.name)
+    }
+
     /** One warning per model layer that did not open, and one per layer whose saved paint could not be read. */
     private fun reportUnreadModels(unopened: List<Pair<String, String>>, paintUnread: List<Pair<String, String>>) {
         val kept = "The file is kept in the project."
@@ -14499,14 +14514,7 @@ class EditorViewModel @Inject constructor(
                 // The paint is its own read: when it fails the mesh is still good, and the layer is only
                 // left unpaintable (modelTextureLoadFailed below), so it must not say the model failed.
                 runCatching {
-                    ModelFiles.safe(content.textureFile)?.let { File(dir, it) }?.takeIf { it.isFile }?.let {
-                        val png = it.readBytes()
-                        if (!ModelCoopCodec.isCompletePng(png)) throw java.io.IOException("the image file is incomplete")
-                        val texture = com.hereliesaz.graffitixr.common.scene.ModelTexture.ofPng(png)
-                        // Decoded now, while the failure can still be reported: the renderer needs the pixels anyway.
-                        if (texture.pixels() == null) throw java.io.IOException("the image could not be decoded")
-                        textures[layer.id] = WrittenTexture(texture, it.name)
-                    }
+                    readSavedPaint(dir, content.textureFile)?.let { textures[layer.id] = it }
                 }.onFailure {
                     android.util.Log.w("EditorViewModel", "Couldn't load the paint of layer ${layer.id}", it)
                     paintUnread += layer.name to (it.message ?: "it could not be read")
