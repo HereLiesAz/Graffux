@@ -16,8 +16,8 @@ import com.hereliesaz.graffitixr.domain.repository.ProjectNotSavedException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.hereliesaz.graffitixr.common.util.AtomicFiles
 import java.io.File
-import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -197,25 +197,30 @@ class ProjectRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun deleteArtifact(projectId: String, filename: String): Boolean = withContext(Dispatchers.IO) {
+        require(projectManager.isSafeProjectId(projectId)) { "Unsafe project id: $projectId" }
+        val root = File(context.filesDir, "projects/$projectId")
+        val file = requireNotNull(projectManager.resolveInside(root, filename)) {
+            "Unsafe artifact filename: $filename"
+        }
+        saveMutex.withLock {
+            if (projectId in deletedIds) return@withLock true
+            // A read-only project keeps every file the newer build wrote; its session copy lives in the cache.
+            projectManager.writeIfWritable(context, projectId) { AtomicFiles.deleteDurably(file) }
+                ?: readOnlyScratchFile(projectId, filename).let { AtomicFiles.deleteDurably(it) }
+        }
+    }
+
     /** Where a read-only project's session artifacts go: the cache, never `projects/<id>/`. */
     private fun readOnlyScratchFile(projectId: String, filename: String): File {
         val root = File(context.cacheDir, "readonly_artifacts/$projectId")
         return requireNotNull(projectManager.resolveInside(root, filename)) { "Unsafe artifact filename: $filename" }
     }
 
-    // Atomic write: a half-written artifact can be read back as truncated data. A unique temp name so
-    // concurrent writers to one filename can't share (and truncate) it.
+    // Atomic and durable: written to a unique temp file, fsynced, then atomically renamed over the target
+    // (AtomicFiles). A failure leaves the old file untouched; there is no non-atomic fallback copy.
     private fun writeAtomically(file: File, data: ByteArray): String {
-        file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, "${file.name}.${UUID.randomUUID()}.tmp")
-        try {
-            tmp.writeBytes(data)
-            if (!tmp.renameTo(file)) {
-                tmp.copyTo(file, overwrite = true)
-            }
-        } finally {
-            if (tmp.exists()) tmp.delete()
-        }
+        AtomicFiles.write(file, data)
         return file.absolutePath
     }
 
