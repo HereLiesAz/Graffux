@@ -34,6 +34,7 @@ class RecipeLibraryTest {
 
         /** Simulates another writer changing the stored app text between our read and our edit. */
         var appChangesOnceBeforeEdit: String? = null
+        val readOnly = HashSet<String>()
     }
 
     private fun library(disk: Disk) = RecipeLibrary(object : RecipeLibrary.Store {
@@ -41,6 +42,7 @@ class RecipeLibraryTest {
             if (projectId in disk.unreadableProjects) return ArtifactRead.Unreadable("I/O error")
             return disk.project[projectId]?.let { ArtifactRead.Found(it.toByteArray()) } ?: ArtifactRead.Absent
         }
+        override fun isReadOnly(projectId: String) = projectId in disk.readOnly
         override suspend fun writeProject(projectId: String, text: String) {
             check(!disk.failWrites) { "disk full" }
             disk.project[projectId] = text
@@ -315,5 +317,23 @@ class RecipeLibraryTest {
         lib.show("A"); lib.openProject("A")
         assertTrue(disk.unreadable.isEmpty())
         assertTrue(lib.save(projA, recipe("r1")))
+    }
+
+    @Test
+    fun aReadOnlyProjectsBookIsNeverWrittenOrBackedUpAndItsMixesAreStillShown() = runTest {
+        val disk = Disk()
+        val good = recipe("r1", "Keep")
+        val original = RecipeBook(recipes = listOf(good, good.copy(id = "bad", load = 9f))).toJson()
+        disk.project["A"] = original
+        disk.readOnly += "A"
+        val lib = library(disk)
+        lib.show("A"); lib.openProject("A")
+        assertEquals(listOf("Keep"), lib.project.value.recipes.map { it.name })
+        assertTrue("no backup claimed for a project that is never overwritten", disk.projectBackup.isEmpty())
+        assertTrue(disk.repaired.isEmpty())
+        assertFalse(lib.save(projA, recipe("r2")))
+        assertFalse(lib.rename(projA, "r1", "X"))
+        assertFalse(lib.delete(projA, "r1"))
+        assertEquals(original, disk.project["A"])
     }
 }

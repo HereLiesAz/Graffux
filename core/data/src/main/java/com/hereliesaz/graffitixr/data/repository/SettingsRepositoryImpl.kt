@@ -21,6 +21,7 @@ import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import com.hereliesaz.graffitixr.domain.repository.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -182,6 +183,16 @@ class SettingsRepositoryImpl @Inject constructor(
     override val savedPalette: Flow<List<Int>> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
         .map { preferences -> PaletteCodec.decode(preferences[SAVED_PALETTE]) }
+
+    override suspend fun readSavedPalette(): List<Int>? = try {
+        PaletteCodec.decode(context.dataStore.data.first()[SAVED_PALETTE])
+    } catch (e: IOException) {
+        android.util.Log.w("SettingsRepository", "Could not read the saved swatches", e)
+        null
+    } catch (e: CorruptionException) {
+        android.util.Log.w("SettingsRepository", "Could not read the saved swatches (unreadable store)", e)
+        null
+    }
 
     override suspend fun addSavedSwatch(argb: Int) {
         // read, change and write inside ONE edit: two concurrent saves cannot lose each other's swatch, and a read

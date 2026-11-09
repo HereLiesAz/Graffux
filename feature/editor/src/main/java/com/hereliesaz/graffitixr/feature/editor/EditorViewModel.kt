@@ -4565,6 +4565,10 @@ class EditorViewModel @Inject constructor(
             com.hereliesaz.graffitixr.common.model.isNewerFormat(it.formatVersion)
         } == true
 
+    /** Whether [projectId] is the open project and it is read-only (newer format). */
+    private fun isProjectReadOnly(projectId: String): Boolean =
+        projectRepository.currentProject.value?.id == projectId && openProjectIsReadOnly()
+
     /** Whether [path] is inside the open project's folder while that project is read-only. */
     private fun isInReadOnlyProject(path: String): Boolean {
         val id = projectRepository.currentProject.value?.id
@@ -12911,6 +12915,8 @@ class EditorViewModel @Inject constructor(
         object : RecipeLibrary.Store {
             override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
 
+            override fun isReadOnly(projectId: String) = isProjectReadOnly(projectId)
+
             override suspend fun writeProject(projectId: String, text: String) {
                 projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
             }
@@ -12969,6 +12975,11 @@ class EditorViewModel @Inject constructor(
             notify(failure, NoticeKind.WARNING) // no project open: there is nowhere to put it
             return
         }
+        if (target is RecipeLibrary.Target.Project && isProjectReadOnly(target.id)) {
+            // a newer-format project is read-only: its book is never written (a session copy would not be re-read)
+            notify("This project is from a newer version, so mixes can't be saved to it.", NoticeKind.WARNING)
+            return
+        }
         viewModelScope.launch(dispatchers.io) {
             if (!change(target)) notify(failure, NoticeKind.WARNING)
         }
@@ -12992,19 +13003,9 @@ class EditorViewModel @Inject constructor(
         },
     )
 
-    /**
-     * Once per install: the old saved swatches become mixes (nearest tube mix, original colour kept, approximate flagged).
-     * The old list is left where it is, so it can be undone, and a mix deleted later is not brought back (a flag, not a
-     * re-run on every launch).
-     */
     private fun migrateSwatchesToMixes() = viewModelScope.launch(dispatchers.io) {
-        runCatching {
-            if (settingsRepository.swatchesMigrated.firstOrNull() != false) return@runCatching
-            val swatches = settingsRepository.savedPalette.firstOrNull().orEmpty()
-            val recipes = com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
-                .migrateSwatches(swatches, MIXER_TUBES, paletteBoard)
-            if (recipeLibrary.addMissing(RecipeLibrary.Target.App, recipes)) settingsRepository.setSwatchesMigrated()
-        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        runCatching { SwatchMigration.run(settingsRepository, recipeLibrary, paletteBoard) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
     }
 
     init {

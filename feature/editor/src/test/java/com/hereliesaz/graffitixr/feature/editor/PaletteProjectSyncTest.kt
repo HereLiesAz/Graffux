@@ -371,4 +371,14 @@ class PaletteProjectSyncTest {
         advanceUntilIdle()
         assertTrue(r.disk.writes.isNotEmpty())
     }
+
+    @Test
+    fun anUnusablePaletteInAReadOnlyProjectIsNotBackedUpToASessionCopyOrReported() = runTest {
+        val r = Rig(this, readOnly = { true })
+        r.disk.files[key("A")] = byteArrayOf(1, 2, 3) // present but not a palette
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertTrue("nothing written (a backup would go to a scratch copy that is never read)", r.disk.writes.isEmpty())
+        assertTrue("and no false 'kept as a backup' notice", r.disk.unreadable.isEmpty())
+    }
 }

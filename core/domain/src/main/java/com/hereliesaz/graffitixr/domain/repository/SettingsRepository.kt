@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.domain.repository
 
+import kotlinx.coroutines.flow.first
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import kotlinx.coroutines.flow.Flow
@@ -75,6 +76,12 @@ interface SettingsRepository {
     val savedPalette: Flow<List<Int>>
 
     suspend fun setSavedPalette(colors: List<Int>)
+
+    /**
+     * The saved swatches as really stored, or null if the store could not be read (unlike [savedPalette], which shows
+     * an empty list then): for work that must not treat a failed read as "no swatches" (the swatch migration).
+     */
+    suspend fun readSavedPalette(): List<Int>? = runCatching { savedPalette.first() }.getOrNull()
 
     /**
      * Adds [argb] to the saved palette (a no-op if it is there), as ONE atomic read-modify-write so two saves at once

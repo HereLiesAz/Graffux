@@ -24,7 +24,7 @@ internal class ProjectBooks(private val store: RecipeLibrary.Store) {
 
     private suspend fun inspect(id: String, text: String): List<PaletteRecipe>? {
         val parsed = RecipeBook.fromJsonRepairing(text) ?: return block(id)
-        if (parsed.second > 0 && preserved.add(id)) {
+        if (parsed.second > 0 && !store.isReadOnly(id) && preserved.add(id)) {
             val kept = store.keepProjectBackup(id, text)
             if (!kept) blocked += id // never overwrite what could not be preserved
             store.onRepaired(RecipeLibrary.Scope.PROJECT, parsed.second, kept)

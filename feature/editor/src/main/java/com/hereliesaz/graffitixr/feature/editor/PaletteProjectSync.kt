@@ -168,8 +168,11 @@ internal class PaletteProjectSync(
                 // as a backup before anything can overwrite it, and tell the user once. This does not depend on an
                 // edit having been made meanwhile, or on another project having been opened: the bytes are preserved.
                 if (saved.raw == null) blocked += projectId // it could not even be read: never overwrite it
-                withContext(NonCancellable + io) { keepBackup(projectId, saved) }
-                store.onUnreadable(projectId)
+                // (a read-only project's file is never overwritten, and a "backup" would go to a session copy)
+                if (!store.isReadOnly()) {
+                    withContext(NonCancellable + io) { keepBackup(projectId, saved) }
+                    store.onUnreadable(projectId)
+                }
             }
             // Applying the saved state is separate: an edit made meanwhile (or another project) wins over the file.
             if (snap != null && mine == generation && startRevision == revision) {

@@ -40,6 +40,12 @@ class RecipeLibrary(private val store: Store) {
         suspend fun readProject(projectId: String): ArtifactRead
         suspend fun writeProject(projectId: String, text: String)
 
+        /**
+         * Project [projectId] is read-only (made by a newer version): its book is never written, backed up or
+         * replaced (a write would go to a session copy that is never read back).
+         */
+        fun isReadOnly(projectId: String): Boolean = false
+
         /** The stored app book text right now (null: none, or it could not be read). */
         suspend fun readApp(): String?
 
@@ -125,7 +131,7 @@ class RecipeLibrary(private val store: Store) {
 
     // the stored book is read now, for THIS project: nothing depends on which project is shown
     private suspend fun changeProject(id: String, edit: (List<PaletteRecipe>) -> List<PaletteRecipe>): Boolean {
-        val next = projects.read(id)?.let(edit)
+        val next = if (store.isReadOnly(id)) null else projects.read(id)?.let(edit)
         if (next == null || !projects.writable(id, next)) return false
         return runCatching { store.writeProject(id, RecipeBook(recipes = next).toJson()) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
