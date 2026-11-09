@@ -93,3 +93,40 @@ fn wgsl_transaction_matches_the_kotlin_reference() {
         assert_eq!(out.amount, again.amount, "[{name}] repeat run differs");
     }
 }
+
+#[test]
+fn a_long_stroke_runs_as_several_bounded_dispatches_with_the_same_result() {
+    use graffux_wgpu::transaction::{plan_chunks, run_chunked, MAX_CHUNK_DABS, MAX_CHUNK_TEXELS};
+    let f = load();
+    // The plan covers every dab exactly once, in order, within budget.
+    let n = f.input.dabs.len() / DAB_FLOATS;
+    let plan = plan_chunks(&f.input.dabs, f.input.width, f.input.height, 40, 3);
+    assert!(plan.len() > 1, "the fixture must split under a small budget");
+    assert_eq!(plan.first().unwrap().start, 0);
+    assert_eq!(plan.last().unwrap().end, n);
+    assert!(plan.windows(2).all(|w| w[0].end == w[1].start));
+    assert!(plan.iter().all(|r| r.len() <= 3));
+    // A heavy stroke (many big dabs) no longer goes to the GPU as one dispatch.
+    let mut heavy = f.input.dabs.clone();
+    for _ in 0..200 {
+        heavy.extend_from_slice(&f.input.dabs);
+    }
+    let big = plan_chunks(&heavy, 1024, 1024, MAX_CHUNK_TEXELS, MAX_CHUNK_DABS);
+    eprintln!("{} dabs: before 1 dispatch, now {}", heavy.len() / DAB_FLOATS, big.len());
+    assert!(big.len() > 1 || heavy.len() / DAB_FLOATS <= MAX_CHUNK_DABS);
+    for (name, backends) in [("vulkan", wgpu::Backends::VULKAN), ("gl", wgpu::Backends::GL)] {
+        let Some(whole) = run_chunked(backends, &f.input, u64::MAX, usize::MAX) else {
+            common::no_adapter(name);
+            continue;
+        };
+        assert_eq!(whole.dispatches, 1);
+        // One dab per dispatch: the order-dependent transaction composes bit-identically.
+        let split = run_chunked(backends, &f.input, 1, 1).unwrap();
+        assert_eq!(split.dispatches, n, "[{name}]");
+        assert_eq!(whole.conc, split.conc, "[{name}] conc");
+        assert_eq!(whole.amount, split.amount, "[{name}] amount");
+        assert_eq!(whole.avail, split.avail, "[{name}] avail");
+        assert_eq!(whole.load_amount, split.load_amount, "[{name}] load");
+        assert_eq!(whole.load_conc, split.load_conc, "[{name}] load conc");
+    }
+}
