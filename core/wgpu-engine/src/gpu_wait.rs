@@ -33,6 +33,18 @@ pub fn wait_bounded(device: &wgpu::Device, timeout: Duration) -> bool {
         .is_ok()
 }
 
+/// [`wait_bounded`] that says whether it timed out or failed.
+pub fn wait_for(device: &wgpu::Device, timeout: Duration) -> Result<(), ReadFailure> {
+    match device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(timeout),
+    }) {
+        Ok(_) => Ok(()),
+        Err(wgpu::PollError::Timeout) => Err(ReadFailure::TimedOut),
+        Err(_) => Err(ReadFailure::Failed),
+    }
+}
+
 /// Maps `range` of `buffer` (a `MAP_READ` staging buffer the caller has already filled by a submitted copy), waits
 /// at most `timeout` for the GPU, runs `read` over the bytes and unmaps. The buffer is left unmapped on every path,
 /// including a timeout (the pending map is cancelled, or the next `map_async` on the buffer would be a validation
@@ -81,8 +93,13 @@ pub fn map_read_with<R>(
         });
     }
     // The wait returns once the callbacks have run, so the answer is already in the channel.
-    if !matches!(rx.try_recv(), Ok(true)) {
-        return Err(ReadFailure::Failed);
+    match settle(rx.try_recv()) {
+        MapState::Mapped => {}
+        MapState::Refused => return Err(ReadFailure::Failed),
+        MapState::Pending => {
+            buffer.unmap();
+            return Err(ReadFailure::Failed);
+        }
     }
     let out = match slice.get_mapped_range() {
         Ok(mapped) => Ok(read(&mapped)),
@@ -90,4 +107,42 @@ pub fn map_read_with<R>(
     };
     buffer.unmap();
     out
+}
+
+/// What the map callback's channel said after the wait.
+#[derive(Debug, PartialEq, Eq)]
+enum MapState {
+    /// The buffer is mapped.
+    Mapped,
+    /// The map was refused. wgpu-core has already put the buffer back to idle before calling back, so there is
+    /// nothing to unmap: unmapping an idle buffer is a validation error, which unscoped callers would see as an
+    /// uncaptured error (a panic by default).
+    Refused,
+    /// The callback has not run: the map is still pending and must be cancelled by `unmap`, which is legal, so that
+    /// the next `map_async` on the buffer does not find a map in flight.
+    Pending,
+}
+
+fn settle(r: Result<bool, std::sync::mpsc::TryRecvError>) -> MapState {
+    match r {
+        Ok(true) => MapState::Mapped,
+        Ok(false) => MapState::Refused,
+        Err(_) => MapState::Pending,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc::{channel, TryRecvError};
+
+    #[test]
+    fn only_a_callback_that_never_ran_needs_an_unmap() {
+        assert_eq!(settle(Ok(true)), MapState::Mapped);
+        assert_eq!(settle(Ok(false)), MapState::Refused);
+        let (tx, rx) = channel::<bool>();
+        assert_eq!(settle(rx.try_recv()), MapState::Pending);
+        drop(tx);
+        assert_eq!(settle(Err(TryRecvError::Disconnected)), MapState::Pending);
+    }
 }

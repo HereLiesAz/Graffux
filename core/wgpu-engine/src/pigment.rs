@@ -4,6 +4,9 @@
 //! entry (its own device) used by the parity test against `tests/fixtures/pigment_golden.txt`; the
 //! per-pixel paint transaction (phase P5) reuses the same shader function.
 
+use crate::gpu_wait::{map_read, READBACK_TIMEOUT};
+use crate::shared_gpu;
+
 pub const PIGMENT_WGSL: &str = include_str!("shaders/pigment.wgsl");
 
 /// Floats per pigment in the tables buffer: K0..K6 then S0..S6.
@@ -25,33 +28,33 @@ pub fn mix_on_gpu(
     if m == 0 {
         return Some(Vec::new());
     }
-    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    desc.backends = backends;
-    let instance = wgpu::Instance::new(desc);
-    let adapters = pollster::block_on(instance.enumerate_adapters(backends));
-    let adapter = adapters.into_iter().find(|a| {
-        a.get_downlevel_capabilities()
-            .flags
-            .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
-    })?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("graffux-pigment"),
-        required_limits: adapter.limits(),
-        ..Default::default()
-    }))
-    .ok()?;
-
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("pigment"),
-        source: wgpu::ShaderSource::Wgsl(PIGMENT_WGSL.into()),
-    });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("pigment km_mix"),
-        layout: None,
-        module: &module,
-        entry_point: Some("km_mix"),
-        compilation_options: Default::default(),
-        cache: None,
+    let gpu = shared_gpu::shared(backends)?;
+    let (device, queue) = (&gpu.device, &gpu.queue);
+    let out_bytes = (m * 3 * 4) as u64;
+    if !shared_gpu::fits(
+        &gpu.limits,
+        &[(tables.len() * 4) as u64, (mixtures.len() * 4) as u64, out_bytes],
+        3,
+        64,
+    ) || !shared_gpu::groups_fit(&gpu.limits, m.div_ceil(64) as u64)
+    {
+        log::warn!("graffux-wgpu pigment: {m} mixtures of {n} pigments exceed this adapter's limits");
+        return None;
+    }
+    gpu.scoped("pigment", || {
+    let pipeline = gpu.cached("pigment km_mix", || {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pigment"),
+            source: wgpu::ShaderSource::Wgsl(PIGMENT_WGSL.into()),
+        });
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("pigment km_mix"),
+            layout: None,
+            module: &module,
+            entry_point: Some("km_mix"),
+            compilation_options: Default::default(),
+            cache: None,
+        })
     });
     let storage = |label: &str, bytes: &[u8], extra: wgpu::BufferUsages| {
         let buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -65,7 +68,6 @@ pub fn mix_on_gpu(
     };
     let tables_buf = storage("tables", bytemuck::cast_slice(tables), wgpu::BufferUsages::empty());
     let mix_buf = storage("mixtures", bytemuck::cast_slice(mixtures), wgpu::BufferUsages::empty());
-    let out_bytes = (m * 3 * 4) as u64;
     let out_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("out"),
         size: out_bytes,
@@ -105,19 +107,9 @@ pub fn mix_on_gpu(
     }
     encoder.copy_buffer_to_buffer(&out_buf, 0, &staging, 0, out_bytes);
     queue.submit([encoder.finish()]);
-    let slice = staging.slice(0..out_bytes);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |r| {
-        let _ = tx.send(r.is_ok());
-    });
-    device.poll(wgpu::PollType::wait_indefinitely()).ok()?;
-    if rx.recv() != Ok(true) {
-        return None;
-    }
-    let out = {
-        let view = slice.get_mapped_range().ok()?;
-        bytemuck::cast_slice::<u8, f32>(&view).to_vec()
-    };
-    staging.unmap();
-    Some(out)
+    map_read(device, &staging, 0..out_bytes, READBACK_TIMEOUT, |v| {
+        bytemuck::cast_slice::<u8, f32>(v).to_vec()
+    })
+    .ok()
+    })
 }
