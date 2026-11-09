@@ -47,6 +47,35 @@ pub fn wait_bounded(device: &wgpu::Device, timeout: Duration) -> bool {
         .is_ok()
 }
 
+/// [`wait_bounded`] that says whether it timed out or failed.
+pub fn wait_for(device: &wgpu::Device, timeout: Duration) -> Result<(), ReadFailure> {
+    match device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(timeout),
+    }) {
+        Ok(_) => Ok(()),
+        Err(wgpu::PollError::Timeout) => Err(ReadFailure::TimedOut),
+        Err(_) => Err(ReadFailure::Failed),
+    }
+}
+
+/// Waits for one submission (the index `Queue::submit` returned) for at most `timeout`. Only that submission's own
+/// work counts, so a device shared with other users does not make it look stalled.
+pub fn wait_submission(
+    device: &wgpu::Device,
+    submission: wgpu::SubmissionIndex,
+    timeout: Duration,
+) -> Result<(), ReadFailure> {
+    match device.poll(wgpu::PollType::Wait {
+        submission_index: Some(submission),
+        timeout: Some(timeout),
+    }) {
+        Ok(_) => Ok(()),
+        Err(wgpu::PollError::Timeout) => Err(ReadFailure::TimedOut),
+        Err(_) => Err(ReadFailure::Failed),
+    }
+}
+
 /// Maps `range` of `buffer` (a `MAP_READ` staging buffer the caller has already filled by a submitted copy), waits
 /// at most `timeout` for the GPU, runs `read` over the bytes and unmaps. The buffer is left unmapped on every path,
 /// including a timeout (the pending map is cancelled, or the next `map_async` on the buffer would be a validation
