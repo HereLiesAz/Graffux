@@ -200,13 +200,13 @@ class PaletteBoardPersistenceTest {
         val board = painted()
         val b = MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(board))
         val k = PaletteBoardPersistence.encodeBrushes(board)
-        val packed = PaletteBoardPersistence.pack(b, k)
-        val parts = requireNotNull(PaletteBoardPersistence.unpack(packed))
+        val packed = PaletteFile.pack(b, k)
+        val parts = requireNotNull(PaletteFile.unpack(packed))
         assertArrayEquals(b, parts.first)
         assertArrayEquals(k, parts.second)
-        assertTrue("truncated", PaletteBoardPersistence.unpack(packed.copyOf(packed.size - 3)) == null)
+        assertTrue("truncated", PaletteFile.unpack(packed.copyOf(packed.size - 3)) == null)
         val flipped = packed.copyOf().also { it[20] = (it[20] + 1).toByte() }
-        assertTrue("one flipped byte", PaletteBoardPersistence.unpack(flipped) == null)
-        assertTrue("not a palette", PaletteBoardPersistence.unpack(byteArrayOf(1, 2, 3)) == null)
+        assertTrue("one flipped byte", PaletteFile.unpack(flipped) == null)
+        assertTrue("not a palette", PaletteFile.unpack(byteArrayOf(1, 2, 3)) == null)
     }
 }

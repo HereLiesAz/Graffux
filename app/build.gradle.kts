@@ -68,6 +68,7 @@ android {
         // Robolectric needs merged resources to inflate a Compose host (BottomCarouselUiTest).
         testOptions { unitTests { isIncludeAndroidResources = true } }
         compileSdk = 37
+        ndkVersion = providers.gradleProperty("graffux.ndkVersion").get()
 
         defaultConfig {
             applicationId = "com.hereliesaz.graffux"

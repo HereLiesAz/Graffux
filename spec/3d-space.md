@@ -193,8 +193,10 @@ used to open the window, now imports into a layer.
   way (`ModelSpace.pickAlong`, every half brush width, at most 8 samples), so a flick across a
   silhouette is not joined through paint the finger never crossed: a sample that hits nothing ends
   the run. Consecutive hits are joined only within one UV island (`UvIslands`: triangles continuous
-  in position and UV, matched by corner value so a triangle soup still forms islands); a step
-  across an island boundary paints only its destination (`TexturePaint.stampsAlong`). Each dab is
+  in position and UV across a shared edge, matched by the value of both its ends so a triangle soup still forms islands and a one-corner contact does not); a step
+  across an island boundary paints only its destination (`TexturePaint.stampsAlong`), and so does
+  one that drops onto a different stretch of the same island, such as a fold behind the front panel
+  (`SurfaceContinuity`: the UV distance is bounded by the 3D distance times the UV-per-length). Each dab is
   clipped to its island's triangles, so it cannot bleed onto the texels of the island laid out beside
   it (an island whose UVs tile the texture is left unclipped). The brush's on-screen size is
   converted to texels at each hit (`ModelSpace.texelsPerPixel`: the triangle's texel area over its
