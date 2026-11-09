@@ -1,5 +1,6 @@
 package com.hereliesaz.graffux
 
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,13 +22,15 @@ internal fun GpuTierRow() {
     val tuning by controller.tuning.collectAsState()
     val state by controller.coordinator.state.collectAsState()
     ActionRow(
-        title = "Re-run calibration",
-        subtitle = "Detected tier: " + tuning.describe() +
+        title = stringResource(R.string.settings_gpu_recalibrate),
+        subtitle = stringResource(
             when (state) {
-                CalibrationState.RUNNING -> ". Measuring now…"
-                CalibrationState.FAILED -> ". The last calibration did not finish; the default is in use."
-                else -> "."
-            } + " Tap to measure this GPU again in the background (a few seconds; drawing cancels it).",
+                CalibrationState.RUNNING -> R.string.settings_gpu_tier_measuring
+                CalibrationState.FAILED -> R.string.settings_gpu_tier_failed
+                else -> R.string.settings_gpu_tier_ready
+            },
+            tuning.describe(),
+        ) + stringResource(R.string.settings_gpu_tier_tap),
         onClick = { controller.coordinator.rerun() },
     )
 }
