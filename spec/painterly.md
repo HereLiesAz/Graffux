@@ -450,7 +450,7 @@ A brush using any of the above declares it:
 ~~~json
 "painterly": 1,
 "load": { ... },
-"surface": true,
+"transaction": 1,
 "heightProfile": [[-1, 1.0], [-0.6, 0.35], [0, 0.2], [0.6, 0.35], [1, 1.0]]
 ~~~
 
@@ -568,7 +568,7 @@ Existing: partly **Dry Rake** (kinetic.depletion) and Matte Gouache.
 
 **9. Scumble brush (old stiff round).** Worn, short hairs scrubbed in circles to lay a broken,
 semi-opaque veil over a darker layer. Medium: oil, acrylic. Surface: C. Parameters: round, short
-hairs, high `scatter`; `pickupRate` low. Program: mix of new over old at lane level using `underMix`
+hairs, high `scatter`; `pickupRate` low. Program: mix of new over old at lane level using `lift`/`mixWet` intents
 (E3), so veil colours optically mix.
 
 **10. Wash (flat wash brush, 1 to 3 inch).** Wide flat with a thin ferrule and soft fine hair; one
@@ -645,7 +645,7 @@ for i in 0..32 {
       emit { x: px - ny * off, y: py + nx * off,
              size: len, tip: cw / len, angle: ang,
              lane: u, draw: stepPx * 0.004 * streak, // [new] E2
-             mixWet: underWet(px, py, diameter * 0.4) * 0.6,   // [new] E3
+             lift: stepPx * 0.002, mixWet: 0.6,                  // [new] E3 intents; the GPU samples the surface
              h: heightRim(u) * avail };                       // [new] E5
     }
   }
@@ -894,7 +894,7 @@ The palette is a surface you work on, not a list of swatches.
   paint; the blob loses it. The amount loaded depends on pressure and dwell.
 - **Mix by working it.** Dragging a palette knife or the brush through blobs mixes them by the K-M
   rule, with the same lift/draw physics as the canvas (it *is* the same engine: the palette is a
-  surface the probe (E3) reads). Mixing is incremental and spatial, not a slider: more passes,
+  surface the paint transaction (E3) acts on). Mixing is incremental and spatial, not a slider: more passes,
   more homogeneous.
 - **Finite paint (decision 6).** Paint in the mixer is finite: a blob is a region of the board
   surface's paint field, and every lift from it consumes that field (3.4, source quantities), so a blob
@@ -1006,7 +1006,7 @@ hardware floor (Android 10, Vulkan 1.1, `ARCHITECTURE.md` "Graffux's hardware fl
 | Memory added by a painterly document | At most 24 MB beyond today (board, load, lookup table) |
 | Shading (E5) | One extra dot product and one `pow` approximation per shaded pixel; at most +10% on the existing impasto shade pass |
 
-CONSTRAINED devices degrade deterministically by capping lane count and disabling `surface`, in the
+CONSTRAINED devices degrade deterministically by capping lane count and disabling `transaction` (the brush then draws without lift or wet mixing), in the
 same way the tuft cap is frozen into the per-stroke brush snapshot, so live and replay agree.
 
 ## 7. Phased build plan
@@ -1016,7 +1016,7 @@ material work. Phases 1 to 3 need no new pigment model.
 
 | Phase | Deliver | Depends on | Exit gate |
 |---|---|---|---|
-| **P0 — Read-only groundwork** | Read the stamp-stroke persistence path (5.6 rule 5); read the live-stroke path for the touchdown snapshot (E3); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
+| **P0 — Read-only groundwork** | Read the stamp-stroke persistence path (5.6 rule 5); read how a live stamp stroke reaches the wet simulation and `SAVE_RAW` (E3, now P5's first task); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
 | **P1 — Lift tail and the petal harness** (E6) | Phase-3 emit tests; "petal pull" test stroke in `PackRenderHarness`; proof-of-concept Loaded Petal Flat from today's features | P0 | Harness renders a recognisable petal; tests pin tail determinism and replay |
 | **P2 — Edge ridge and highlight** (E5) | `emit h`, `heightMul`, `sheen`, shading port, stamp-engine-diff scenario | P1 | Rim bead and dry highlight visible; CPU and wgpu parity within tolerance; `sheen = 0` byte-identical |
 | **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, lookup-table generator, `PIGMENT_KM`, ~20 placeholder tubes; **WGSL port of the per-pixel mixer and the lookup as a 3-D texture**; Rust parity test | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
@@ -1085,10 +1085,10 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
   (16/32/96) are real; everything else is proposed.
 - **Whether the proprietary kinetic sets are priced.** The owner says they are free; no manifest says
   so either way (no price field exists in them), and I did not read the live registry.
-- **Whether the stroke-start probe (E3) is cheap in the live path.** It depends on whether the CPU
-  copy of the layer at stroke start is available without a GPU readback during a live stroke. I
-  read that "the CPU commit is the committed layer" (`ARCHITECTURE.md` near line 529) but did not
-  trace the live path through `EditorViewModel` (a very large file) to confirm the probe point.
+- **Whether the GPU `snap_color` copy at touchdown (E3) is available on every painterly path.** The
+  `SAVE_RAW` op exists on the wet simulation (`GpuWetSimulation.kt:56-58`) and `commitStampStroke`
+  receives `startBitmap` (`EditorViewModel.kt:~9208`), but I did not trace how a live stamp stroke on a
+  resident layer reaches the wet simulation, which is the P5 starting task.
 - **`E/IncrementalDynamicDabGenerator.kt` internals beyond lines 59-118 and 355** (where
   `StrokeProgramFrame` is built) were not read in full.
 - The `Project` format change for persisting load (6.5) was not designed against the current project
@@ -1132,7 +1132,7 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Replay divergence from probe/load | Undo shows different paint | Persist load and probe inputs per stroke; replay-equality test is a merge gate (4.4) |
+| Replay divergence from GPU material state/load | Undo shows different paint | Persist load per stroke, restore canonical state or a GPU checkpoint, fixed timestep (4a); replay-equality test is a merge gate (4.4) |
 | Dab-level mixing looks banded against the canvas | Visible lane edges | Lane count tuned by tier; sub-pixel overlap; `mixWet` is a gradient, not a step |
 | K-M data quality | Colours look wrong or muddy | Source real data first (P0); golden vectors; allow tube tuning in packs |
 | 8-bit canvas quantisation of repeated mixes | Muddy drift after many mixes | Residual in the lookup keeps unmixed pixels exact; limit mixes per pixel per stroke; test with 50 repeated mixes |
