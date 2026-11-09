@@ -178,7 +178,7 @@ Implemented and merged in PR #394:
 - ✅ Undo back to a never-wet history clears stale live wetness state.
 - ✅ New wetness deposition respects the active selection while already-wet material may continue its global deterministic evolution.
 - ✅ Legacy/no-field Color Smudge remains byte-identical and stays eligible for the existing wgpu path.
-- ✅ Persistent-wetness Color Smudge intentionally uses the CPU correctness path until native Color Smudge owns an equivalent canonical wetness image; this is a performance/backend optimization, not a missing Phase-4 behavior.
+- ✅ Persistent-wetness Color Smudge runs on the GPU wet simulation (`GpuWetSmudge`, `GpuWetSimulation`, `core/wgpu-engine/src/wet.rs`); the Kotlin `WetnessReplayState`/`WetMaterialTransport` path is the reference oracle that the Rust tests compare against. (Earlier text here said it used the CPU path; that was true before `GpuWetSmudge` landed.)
 - ✅ Hosted `testDebugUnitTest test` and `assembleDebug` passed on the Phase-4 merge head.
 
 Phase-4 roadmap exit conditions are therefore met. Phase 5 now persists the shared canonical height + wetness state in the versioned per-layer material sidecar; Phase 4 still does not create a second wet-mix engine.
