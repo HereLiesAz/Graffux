@@ -26,8 +26,9 @@ If the App crashes or freezes, it writes a technical report to its own private c
   <https://github.com/HereLiesAz/Graffux>, where anyone can read them. Reports from before you
   switched it on are never sent.
 - **Redaction:** before a report is saved or sent, the App removes GPS coordinates, auth tokens,
-  passwords, bearer and basic auth headers (including GitHub and Figma tokens), cookies, IP
-  addresses, email addresses, file and content addresses and private storage paths. Redaction of
+  passwords, authorization headers, JWTs and API keys (including GitHub, Figma, Google, AWS,
+  Stripe and Slack ones), cookies, IP and MAC addresses, email addresses, file and content
+  addresses, and private storage and home-directory paths. Redaction of
   free-form text cannot be perfect.
 - **Stroke-prediction rankings:** with the same token connected, the App also files a short
   ranking of its stroke-prediction models (your device model, Android and App version, and timing
