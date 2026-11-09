@@ -106,6 +106,8 @@ class SettingsRepositoryImpl @Inject constructor(
     private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }
     private val carouselFavoritesKey = stringPreferencesKey("carousel_favorites")
     private val carouselItemSettingsKey = stringPreferencesKey("carousel_item_settings")
+    private val savedRecipesKey = stringPreferencesKey("saved_recipes")
+    private val swatchesMigratedKey = booleanPreferencesKey("swatches_migrated_to_recipes")
 
     override val isRightHanded: Flow<Boolean> = context.dataStore.data
         .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
@@ -240,6 +242,25 @@ class SettingsRepositoryImpl @Inject constructor(
             val next = if (key in current) current - key else current + key
             prefs[carouselFavoritesKey] = next.joinToString(CAROUSEL_FAVORITES_SEPARATOR)
         }
+    }
+
+    override val savedRecipes: Flow<String?> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { it[savedRecipesKey] }
+
+    override suspend fun updateSavedRecipes(transform: (String?) -> String?) {
+        update { prefs ->
+            val next = transform(prefs[savedRecipesKey])
+            if (next != null) prefs[savedRecipesKey] = next
+        }
+    }
+
+    override val swatchesMigrated: Flow<Boolean> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { it[swatchesMigratedKey] ?: false }
+
+    override suspend fun setSwatchesMigrated() {
+        update { it[swatchesMigratedKey] = true }
     }
 
     override val carouselItemSettings: Flow<Map<String, CarouselItemSettings>> = context.dataStore.data

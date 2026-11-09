@@ -128,6 +128,21 @@ interface SettingsRepository {
     /** Stars [key], or un-stars it if already starred. Un-starring keeps the rest in place. */
     suspend fun toggleCarouselFavorite(key: String)
 
+    /** The app-level saved mixes (spec/painterly.md 6.4) as the recipe-book JSON, or null when there are none. */
+    val savedRecipes: Flow<String?> get() = kotlinx.coroutines.flow.flowOf(null)
+
+    /**
+     * Changes the app-level recipe book in ONE atomic DataStore edit: [transform] gets the stored text (null: none) and
+     * returns the new text, or null to leave it exactly as it is (for example when the stored text could not be read:
+     * it is never replaced by a book built from nothing). No-op by default (fakes).
+     */
+    suspend fun updateSavedRecipes(transform: (String?) -> String?) {}
+
+    /** Whether the old saved swatches were turned into recipes once (they are left in place, so it can be undone). */
+    val swatchesMigrated: Flow<Boolean> get() = kotlinx.coroutines.flow.flowOf(true)
+
+    suspend fun setSwatchesMigrated() {}
+
     /**
      * Each bottom-carousel item's own paint settings, by the same stable keys as
      * [carouselFavorites]. An item with no entry has never been adjusted and uses its defaults.

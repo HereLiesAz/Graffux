@@ -103,6 +103,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -426,6 +427,7 @@ private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
  */
 private const val MAX_MATERIAL_SIDECAR_BYTES = 160L * 1024 * 1024
 /** The palette board sidecar is at most a 1024 x 1024 board (16 B per texel plus height): bounded well below this. */
+private const val RECIPE_FILE = "palette-recipes.json"
 private const val MAX_PALETTE_SIDECAR_BYTES = 64L * 1024 * 1024
 
 /**
@@ -2581,6 +2583,7 @@ class EditorViewModel @Inject constructor(
                         restoreModelLayers(project.id, layers)
                         restorePaletteBoard(project.id)
                         strokeRecordSync.open(project.id)
+                        viewModelScope.launch(dispatchers.io) { recipeLibrary.openProject(project.id) }
                         updateUi {
                             it.copy(
                                 sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
@@ -12834,6 +12837,84 @@ class EditorViewModel @Inject constructor(
         settingsRepository.savedPalette
             .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
+    val recipeLibrary = RecipeLibrary(
+        object : RecipeLibrary.Store {
+            override suspend fun readProject(projectId: String) =
+                readProjectArtifact(projectId, RECIPE_FILE)?.let { String(it) }
+
+            override suspend fun writeProject(projectId: String, text: String) {
+                projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
+            }
+
+            override suspend fun updateApp(transform: (String?) -> String?) {
+                settingsRepository.updateSavedRecipes(transform)
+            }
+
+            override fun onUnreadable(scope: RecipeLibrary.Scope) {
+                notify("The saved mixes couldn't be read, so they were left as they are.", NoticeKind.WARNING)
+            }
+        },
+    )
+
+    val savedMixes: StateFlow<List<SavedMix>> =
+        kotlinx.coroutines.flow.combine(recipeLibrary.project, recipeLibrary.app) { project, app ->
+            project.map { SavedMix(it, RecipeLibrary.Scope.PROJECT) } +
+                app.map { SavedMix(it, RecipeLibrary.Scope.APP) }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** What the mixer's saved-mixes strip can ask for; failures are told to the user here. */
+    fun mixActions() = MixActions(
+        save = { recipe, scope ->
+            viewModelScope.launch(dispatchers.io) {
+                if (!recipeLibrary.save(scope, recipe)) notify("Couldn't save the mix.", NoticeKind.WARNING)
+            }
+        },
+        saveColour = { colour ->
+            val recipe = com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
+                .fromSwatch(colour.toArgb(), MIXER_TUBES, paletteBoard)
+            viewModelScope.launch(dispatchers.io) {
+                val done = recipeLibrary.save(RecipeLibrary.Scope.APP, recipe)
+                if (!done) notify("Couldn't save the colour.", NoticeKind.WARNING)
+            }
+        },
+        rename = { mix, name ->
+            viewModelScope.launch(dispatchers.io) {
+                val done = recipeLibrary.rename(mix.scope, mix.recipe.id, name)
+                if (!done) notify("Couldn't rename the mix.", NoticeKind.WARNING)
+            }
+        },
+        delete = { mix ->
+            viewModelScope.launch(dispatchers.io) {
+                val done = recipeLibrary.delete(mix.scope, mix.recipe.id)
+                if (!done) notify("Couldn't delete the mix.", NoticeKind.WARNING)
+            }
+        },
+    )
+
+    /**
+     * Once per install: the old saved swatches become mixes (nearest tube mix, original colour kept, approximate flagged).
+     * The old list is left where it is, so it can be undone, and a mix deleted later is not brought back (a flag, not a
+     * re-run on every launch).
+     */
+    private fun migrateSwatchesToMixes() = viewModelScope.launch(dispatchers.io) {
+        runCatching {
+            if (settingsRepository.swatchesMigrated.firstOrNull() != false) return@runCatching
+            val swatches = settingsRepository.savedPalette.firstOrNull().orEmpty()
+            val recipes = com.hereliesaz.graffitixr.common.azphalt.PaletteRecipes
+                .migrateSwatches(swatches, MIXER_TUBES, paletteBoard)
+            if (recipeLibrary.addMissing(RecipeLibrary.Scope.APP, recipes)) settingsRepository.setSwatchesMigrated()
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+    }
+
+    init {
+        viewModelScope.launch {
+            runCatching { settingsRepository.savedRecipes.collect { recipeLibrary.onAppStored(it) } }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+        }
+        migrateSwatchesToMixes()
+    }
 
     /** Adds [color] to the saved palette. Re-saving a colour already in it is a no-op. Atomic in the store. */
     fun onSavePaletteColor(color: androidx.compose.ui.graphics.Color) {
