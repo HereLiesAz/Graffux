@@ -101,7 +101,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -5258,20 +5260,16 @@ class EditorViewModel @Inject constructor(
 
     /** The bottom carousel's starred entry keys, in starring order (its Favorites page). */
     val carouselFavorites: StateFlow<List<String>> =
-        settingsRepository.carouselFavorites.stateIn(
+        kotlinx.coroutines.flow.flow {
+            carouselMigration.ensure() // never emit the old keys
+            emitAll(settingsRepository.carouselFavorites)
+        }.stateIn(
             viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
         )
 
-    /**
-     * One-time per launch: favourites (and their per-item settings) that name a built-in brush the painterly packs
-     * superseded are moved to its successor, or to Round, so no favourite is left pointing at nothing.
-     */
-    private fun migrateRemovedBrushFavourites() = viewModelScope.launch(dispatchers.io) {
-        val keys = settingsRepository.carouselFavorites.first() +
-            settingsRepository.carouselItemSettings.first().keys
-        val names = builtInBrushes.map { it.name }.toSet()
-        val renames = com.hereliesaz.graffitixr.common.azphalt.BrushAliasTable.carouselKeyRenames(keys) { it in names }
-        if (renames.isNotEmpty()) settingsRepository.renameCarouselKeys(renames)
+    /** The one-time brush-alias migration of carousel keys; every reader goes through [CarouselMigration.ensure]. */
+    private val carouselMigration by lazy {
+        CarouselMigration(settingsRepository) { builtInBrushes.map { it.name }.toSet() }
     }
 
     /** Stars or un-stars the carousel entry with stable key [key]. */
@@ -5296,6 +5294,7 @@ class EditorViewModel @Inject constructor(
     fun loadCarouselItemSettings() {
         if (carouselItemSettingsLoad != null) return
         carouselItemSettingsLoad = viewModelScope.launch(dispatchers.io) {
+            carouselMigration.ensure() // the keys it reads are the migrated ones
             val stored = runCatching { settingsRepository.carouselItemSettings.first() }.getOrNull().orEmpty()
             // Anything set before the read landed wins over what was on disk.
             _carouselItemSettings.update { current -> stored + current.orEmpty() }
@@ -5309,6 +5308,7 @@ class EditorViewModel @Inject constructor(
         carouselItemSettingsPersist?.cancel()
         carouselItemSettingsPersist = viewModelScope.launch(dispatchers.io) {
             delay(CAROUSEL_SETTINGS_PERSIST_DEBOUNCE_MS)
+            carouselMigration.ensure() // a whole-map write after the migration, never over it
             settingsRepository.setCarouselItemSettings(_carouselItemSettings.value.orEmpty())
         }
     }
@@ -15578,9 +15578,9 @@ class EditorViewModel @Inject constructor(
     val builtInBrushes: List<com.hereliesaz.graffitixr.common.azphalt.AzphaltBrush> =
         com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes.presets
 
-    // after builtInBrushes exists: the migration reads it from a coroutine
+    // after builtInBrushes exists: start the migration now so it is usually done before anything reads
     init {
-        migrateRemovedBrushFavourites()
+        viewModelScope.launch(dispatchers.io) { carouselMigration.ensure() }
     }
 
     /** Selects one of [builtInBrushes] by name. A silent no-op if [name] doesn't match one. */
