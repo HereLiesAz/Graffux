@@ -224,6 +224,46 @@ internal class ActivePlaneMapping private constructor(
     fun toFlatByFootprint(screen: Offset, footprintRadius: Float): Offset? =
         toFlatAt(world(screen), footprintRadius / viewportZoom.coerceAtLeast(MIN_ZOOM))
 
+    private fun footprintWorld(radiusPx: Float) = radiusPx / viewportZoom.coerceAtLeast(MIN_ZOOM)
+
+    /**
+     * The surface-stroke invariant ([com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard]) for a touch
+     * at [touch] (screen) accepted as [flat] on a layer drawn in 3D: it shows within the footprint of the touch.
+     * Always true for a flat layer, and for a cap region (which has no 2D map back).
+     */
+    fun flatOnFinger(touch: Offset, flat: Offset, radiusPx: Float): Boolean {
+        if (chain == null) return true
+        val t = world(touch)
+        val b = flatToWorld(flat) ?: return false
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx))
+    }
+
+    /** [flatOnFinger] for a multi-view surface's [ViewFlat]. */
+    fun viewFlatOnFinger(touch: Offset, f: com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat, radiusPx: Float): Boolean {
+        if (f.region != 0) return true
+        val t = world(touch)
+        val b = viewFlatToWorld(f.view, Offset(f.x, f.y)) ?: return false
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.sampleOk(t.x, t.y, b.x, b.y, footprintWorld(radiusPx))
+    }
+
+    /** The stroke from ([touchA], [flatA]) to ([touchB], [flatB]) stays on the surface between them. */
+    fun flatJoinOnFinger(touchA: Offset, flatA: Offset, touchB: Offset, flatB: Offset, radiusPx: Float): Boolean {
+        if (chain == null) return true
+        val a = world(touchA)
+        val b = world(touchB)
+        val m = flatToWorld(Offset((flatA.x + flatB.x) / 2f, (flatA.y + flatB.y) / 2f)) ?: return false
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(a.x, a.y, b.x, b.y, m.x, m.y, footprintWorld(radiusPx))
+    }
+
+    /** [flatJoinOnFinger] for two touches on one face of a multi-view surface. */
+    fun viewJoinOnFinger(touchA: Offset, a: ViewSample<BrushSample>, touchB: Offset, b: ViewSample<BrushSample>, radiusPx: Float): Boolean {
+        if (b.region != 0) return true
+        val wa = world(touchA)
+        val wb = world(touchB)
+        val m = viewFlatToWorld(b.view, Offset((a.flat.x + b.flat.x) / 2f, (a.flat.y + b.flat.y) / 2f)) ?: return false
+        return com.hereliesaz.graffitixr.common.scene.SurfaceStrokeGuard.joinOk(wa.x, wa.y, wb.x, wb.y, m.x, m.y, footprintWorld(radiusPx))
+    }
+
     /** A flat point back to where it shows in world space; null behind the eye. */
     fun flatToWorld(flat: Offset): Offset? {
         val c = chain ?: return flat
@@ -320,6 +360,7 @@ internal class ActivePlaneMapping private constructor(
  * segment across it. The segments are still one gesture: the view-model keeps them in one undo step
  * and a later cancel (a second finger) takes every one of them back, not only the last.
  */
+@Suppress("LongParameterList", "ComplexCondition")
 internal class PlaneStrokeFeed<S>(
     private val toLayer: (S) -> S?,
     private val start: (S) -> Unit,
@@ -328,8 +369,14 @@ internal class PlaneStrokeFeed<S>(
     private val cancel: () -> Unit,
     /** Ends a segment at a gap without ending the gesture; [end] or [cancel] still closes it. */
     private val segmentEnd: () -> Unit = end,
+    /** Whether [toLayer]'s result for a raw sample shows near it (the surface-stroke invariant); false drops it like a miss. */
+    private val sampleOk: (raw: S, mapped: S) -> Boolean = { _, _ -> true },
+    /** Whether the stroke between the previous accepted sample and this one stays on the surface; false cuts the stroke there. */
+    private val joinOk: (prevRaw: S, prevMapped: S, raw: S, mapped: S) -> Boolean = { _, _, _, _ -> true },
 ) {
     private var started = false
+    private var lastRaw: S? = null
+    private var lastMapped: S? = null
 
     /** A sample missed the plane since the last one that hit. */
     private var gap = false
@@ -348,10 +395,13 @@ internal class PlaneStrokeFeed<S>(
 
     private fun feed(sample: S) {
         val mapped = toLayer(sample)
-        if (mapped == null) {
+        if (mapped == null || !sampleOk(sample, mapped)) {
             gap = started
             return
         }
+        val pr = lastRaw
+        val pm = lastMapped
+        if (started && !gap && pr != null && pm != null && !joinOk(pr, pm, sample, mapped)) gap = true
         if (started && gap) {
             segmentEnd()
             started = false
@@ -363,12 +413,16 @@ internal class PlaneStrokeFeed<S>(
             started = true
             start(mapped)
         }
+        lastRaw = sample
+        lastMapped = mapped
     }
 
     private fun finish(then: () -> Unit) {
         if (started) then() else cancel()
         started = false
         gap = false
+        lastRaw = null
+        lastMapped = null
     }
 }
 
@@ -420,7 +474,7 @@ internal class ViewSample<S>(
  * left unpainted. The segments are one gesture (the view-model chains them into one undo step).
  * A gap (a sample off the surface) breaks the stroke exactly as in [PlaneStrokeFeed].
  */
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "ComplexCondition", "CyclomaticComplexMethod")
 internal class ViewStrokeFeed<S>(
     private val toView: (S) -> ViewSample<S>?,
     /** The flat samples either side of the crease between consecutive touches in different views, or null for none. */
@@ -430,6 +484,10 @@ internal class ViewStrokeFeed<S>(
     private val end: () -> Unit,
     private val cancel: () -> Unit,
     private val segmentEnd: () -> Unit = end,
+    /** The surface-stroke invariant for one touch ([PlaneStrokeFeed.sampleOk]). */
+    private val sampleOk: (ViewSample<S>) -> Boolean = { true },
+    /** The surface-stroke invariant for the stroke between two touches on one face ([PlaneStrokeFeed.joinOk]). */
+    private val joinOk: (ViewSample<S>, ViewSample<S>) -> Boolean = { _, _ -> true },
 ) {
     private var last: ViewSample<S>? = null
     private var gap = false
@@ -448,11 +506,12 @@ internal class ViewStrokeFeed<S>(
 
     private fun feed(raw: S) {
         val mapped = toView(raw)
-        if (mapped == null) {
+        if (mapped == null || !sampleOk(mapped)) {
             gap = last != null
             return
         }
         val prev = last
+        if (prev != null && !gap && prev.view == mapped.view && prev.region == mapped.region && !joinOk(prev, mapped)) gap = true
         when {
             prev == null -> start(mapped.view, mapped.flat)
             gap -> {

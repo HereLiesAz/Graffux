@@ -663,6 +663,34 @@ fun EditorScreen(
             // The feed outlives recompositions (it holds whether the stroke has started); the
             // mapping it calls is always this composition's.
             val mapSample = rememberUpdatedState<(BrushSample) -> BrushSample?> { toWorldSample(it) }
+            // The surface-stroke invariant, read through the latest composition like the mappings above.
+            val planeSampleOk = rememberUpdatedState<(BrushSample, BrushSample) -> Boolean> { raw, mapped ->
+                (strokePlane.value ?: activePlane)
+                    .flatOnFinger(
+                        Offset(raw.x, raw.y), Offset(mapped.x, mapped.y), uiState.effectiveScreenBrushSize() / 2f,
+                    )
+            }
+            val planeJoinOk = rememberUpdatedState<(BrushSample, BrushSample, BrushSample, BrushSample) -> Boolean> {
+                pr, pm, r, m ->
+                (strokePlane.value ?: activePlane).flatJoinOnFinger(
+                    Offset(pr.x, pr.y), Offset(pm.x, pm.y), Offset(r.x, r.y), Offset(m.x, m.y),
+                    uiState.effectiveScreenBrushSize() / 2f,
+                )
+            }
+            val viewSampleOk = rememberUpdatedState<(ViewSample<BrushSample>) -> Boolean> { s ->
+                (strokePlane.value ?: activePlane).viewFlatOnFinger(
+                    Offset(s.raw.x, s.raw.y),
+                    com.hereliesaz.graffitixr.common.scene.SurfaceMath.ViewFlat(s.view, s.flat.x, s.flat.y, s.region),
+                    uiState.effectiveScreenBrushSize() / 2f,
+                )
+            }
+            val viewJoinOk = rememberUpdatedState<(ViewSample<BrushSample>, ViewSample<BrushSample>) -> Boolean> {
+                x, y ->
+                (strokePlane.value ?: activePlane).viewJoinOnFinger(
+                    Offset(x.raw.x, x.raw.y), x, Offset(y.raw.x, y.raw.y), y,
+                    uiState.effectiveScreenBrushSize() / 2f,
+                )
+            }
             val strokeFeed = remember(vm) {
                 PlaneStrokeFeed<BrushSample>(
                     toLayer = { mapSample.value(it) },
@@ -671,6 +699,8 @@ fun EditorScreen(
                     end = { vm.onStrokeEnd() },
                     cancel = { vm.onStrokeCancel() },
                     segmentEnd = { vm.onStrokeSegmentEnd() },
+                    sampleOk = { raw, mapped -> planeSampleOk.value(raw, mapped) },
+                    joinOk = { pr, pm, r, m -> planeJoinOk.value(pr, pm, r, m) },
                 )
             }
             // A multi-view surface paints a stroke per view image (spec/3d-space.md, "Paint per view").
@@ -706,6 +736,8 @@ fun EditorScreen(
                     end = { vm.onStrokeEnd() },
                     cancel = { vm.onStrokeCancel() },
                     segmentEnd = { vm.onStrokeSegmentEnd() },
+                    sampleOk = { v -> viewSampleOk.value(v) },
+                    joinOk = { x, y -> viewJoinOk.value(x, y) },
                 )
             }
             DrawingCanvas(
