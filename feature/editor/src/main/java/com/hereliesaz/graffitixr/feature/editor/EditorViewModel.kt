@@ -2092,7 +2092,6 @@ class EditorViewModel @Inject constructor(
     // Persistent stamp-stroke capture (spec/painterly.md P7b): every committed stamp stroke is kept in a
     // serialisable record, saved with the project, so a demo can be replayed after reopen or shared.
     private val strokeRecordSync = StrokeRecordSync(
-        scope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + dispatchers.main),
         io = dispatchers.io,
         store = object : StrokeRecordSync.Store {
             override fun isReadOnly() = openProjectIsReadOnly()

@@ -5,10 +5,7 @@ import com.hereliesaz.graffitixr.common.azphalt.BrushSampleBuilder
 import com.hereliesaz.graffitixr.common.azphalt.StampStrokeRecord
 import com.hereliesaz.graffitixr.common.azphalt.StrokeRecording
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -29,18 +26,18 @@ class StrokeRecordSyncTest {
         val backedUp = ArrayList<Boolean>()
         val delays = ArrayDeque<Long>()
         var failBak = false
+        var reads = 0
+        var readDelayMs = 0L
     }
 
     private class Rig(
         scope: TestScope,
-        vmScope: CoroutineScope? = null,
         io: kotlinx.coroutines.CoroutineDispatcher? = null,
         decoder: ((String) -> StrokeRecording.Companion.Repaired?)? = null,
         val readOnly: () -> Boolean = { false },
     ) {
         val disk = Disk()
         val sync = StrokeRecordSync(
-            scope = vmScope ?: scope,
             io = io ?: StandardTestDispatcher(scope.testScheduler),
             store = object : StrokeRecordSync.Store {
                 override fun isReadOnly() = readOnly()
@@ -54,7 +51,11 @@ class StrokeRecordSyncTest {
                     disk.files["$projectId/$file"] = bytes
                     disk.writes += "$projectId/$file"
                 }
-                override suspend fun read(projectId: String, file: String) = disk.files["$projectId/$file"]
+                override suspend fun read(projectId: String, file: String): ByteArray? {
+                    disk.reads++
+                    if (disk.readDelayMs > 0) kotlinx.coroutines.delay(disk.readDelayMs)
+                    return disk.files["$projectId/$file"]
+                }
             },
             limits = StrokeRecordSync.Limits(maxStrokes = 5, maxSamples = 1_000),
             decoder = decoder ?: StrokeRecording::fromJsonRepairing,
@@ -99,13 +100,11 @@ class StrokeRecordSyncTest {
     }
 
     @Test
-    fun flushHandedOffThenScopeCancelledIsStillWritten() = runTest {
-        val vm = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
-        val r = Rig(this, vm)
+    fun aHandedOffFlushThenTheFinalFlushWritesOnce() = runTest {
+        val r = Rig(this)
         r.sync.record("A", stroke(1), doc)
         r.sync.flushAsync()
-        vm.cancel()
-        r.sync.flush()
+        r.sync.flush() // onCleared
         assertEquals(1, r.disk.writes.size)
     }
 
@@ -142,6 +141,8 @@ class StrokeRecordSyncTest {
     @Test
     fun theOldestStrokesDropFirstAtTheCap() = runTest {
         val r = Rig(this)
+        r.sync.open("A")
+        advanceUntilIdle()
         (1L..8L).forEach { r.sync.record("A", stroke(it), doc) }
         assertEquals((4L..8L).toList(), r.sync.current().map { it.seed })
     }
@@ -255,5 +256,48 @@ class StrokeRecordSyncTest {
         advanceUntilIdle()
         assertEquals(listOf(1L, 2L, 9L), requireNotNull(file(r, "A")).strokes.map { it.seed })
         assertTrue(r.sync.current().isEmpty())
+    }
+
+    @Test
+    fun switchingAwayAndBackWhileTheRestoreIsOutJoinsTheSameRestoreAndKeepsEveryEdit() = runTest {
+        val r = Rig(this)
+        r.disk.files["A/strokes.json"] = recording(1, 2).toByteArray()
+        r.disk.readDelayMs = 5_000
+        r.sync.open("A")
+        r.sync.record("A", stroke(9), doc) // first session, held
+        r.sync.open("B")
+        r.sync.open("A") // second session while the first restore is still out
+        r.sync.record("A", stroke(10), doc) // held too
+        advanceUntilIdle()
+        assertEquals("one restore, not two", 1, r.disk.reads - 1) // B's read is the other one
+        assertEquals(listOf(1L, 2L, 9L, 10L), requireNotNull(file(r, "A")).strokes.map { it.seed })
+        assertEquals(listOf(1L, 2L, 9L, 10L), r.sync.current().map { it.seed })
+    }
+
+    @Test
+    fun theFinalFlushDuringARestoreStillSavesTheHeldEdits() = runTest {
+        // onCleared: the ViewModel scope is already gone, so nothing may depend on it
+        val r = Rig(this)
+        r.disk.files["A/strokes.json"] = recording(1, 2).toByteArray()
+        r.disk.readDelayMs = 5_000
+        r.sync.open("A")
+        r.sync.record("A", stroke(9), doc)
+        r.sync.flush()
+        assertEquals(listOf(1L, 2L, 9L), requireNotNull(file(r, "A")).strokes.map { it.seed })
+    }
+
+    @Test
+    fun aReopenedProjectSeesItsStrokesEvenBeforeItsLastWriteLanded() = runTest {
+        val r = Rig(this)
+        r.disk.delays += 3_000L // the close-flush write is slow
+        r.sync.open("A")
+        advanceUntilIdle()
+        r.sync.record("A", stroke(1), doc)
+        r.sync.open("B") // flushes A's [1] (slowly)
+        r.sync.open("A") // reopened before that write landed: the kept state, not a stale re-read
+        assertEquals(listOf(1L), r.sync.current().map { it.seed })
+        r.sync.record("A", stroke(2), doc)
+        advanceUntilIdle()
+        assertEquals(listOf(1L, 2L), requireNotNull(file(r, "A")).strokes.map { it.seed })
     }
 }
