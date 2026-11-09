@@ -661,6 +661,16 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   - A piece with no point further than 5% of its length from its line becomes exactly straight, exactly
     horizontal or vertical within 8 degrees, and meets a neighbour at exactly 90 degrees within 12.
     Other pieces keep their shape with the jitter smoothed out ([1 2 1] passes, then simplified). Corners stay.
+  - Closure is the profile's own rule (the ends meet within 12% of the path and `SurfacePayload.isClosedOutline`
+    holds), not a shape-recognition threshold, so a thin bar is a closed bar. Tolerances scale with the stroke's
+    size, or three times its thickness for a thin closed shape (never below 5% of the diagonal). A cleanup that
+    changes the enclosed area by more than 25% to 33%, or moves an open stroke's end by more than 15% of the
+    diagonal, is not trusted and the stroke is kept as drawn.
+  - Sides are made parallel only within 3 degrees (so a trapezoid's legs stay as drawn), perpendicular within 12.
+    Outline assist is tested on a library of exact clean shapes (bars from 1:1 to 1:40, V, W, trapezoids, arcs,
+    3 to 8 sided regular polygons, circles, ellipses to 1:10, L, T, U) at several rotations, translations and
+    windings: they come back with the same area (2%), closure, corners and bounding box (1% of the diagonal), and
+    cleaning them again changes nothing.
   - A near-circular closed stroke whose radius swings once per side (5 to 8 sides, 2% or more, and following the
     polygon to within 5%) is a *regular polygon*, not a circle: pentagon to octagon keep their exact straight
     sides. Circles and ellipses are checked after that, so they still snap.

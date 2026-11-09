@@ -59,8 +59,16 @@ object OutlineAssist {
         val minSizePx: Double = 12.0,
         /** The ends of a stroke are "meeting" when their gap is at most this fraction of the path length. */
         val closeGapFraction: Double = 0.12,
-        /** A stroke counts as enclosing area when `area / perimeter^2` reaches this (a circle is 0.080, a square 0.063). */
-        val minClosedAreaRatio: Double = 0.01,
+        /** For a thin closed shape, tolerances scale with this many times its thickness (never more than the diagonal). */
+        val thinShapeScale: Double = 3.0,
+        /** ...but never below this fraction of the diagonal. */
+        val minScaleFraction: Double = 0.05,
+        /** A closed cleanup that leaves less or more than this fraction of the drawn area is not trusted; the stroke is kept. */
+        val areaKeepMin: Double = 0.75,
+        /** See [areaKeepMin]. */
+        val areaKeepMax: Double = 1.33,
+        /** An open cleanup that moves an end further than this fraction of the diagonal is not trusted. */
+        val endMoveFraction: Double = 0.15,
         /** Corner detection simplifies the stroke to this tolerance first (Ramer-Douglas-Peucker). */
         val cornerSimplifyFraction: Double = 0.03,
         /** A bend of at least this many degrees (summed over neighbouring vertices) is a corner. */
@@ -69,6 +77,8 @@ object OutlineAssist {
         val cornerFineAngleDegrees: Double = 50.0,
         /** The arc length each side of a corner over which [cornerFineAngleDegrees] is measured. */
         val cornerWindowFraction: Double = 0.06,
+        /** Neighbouring bends are summed into one corner only while they total at most this many degrees. */
+        val cornerClusterMaxDegrees: Double = 150.0,
         /** Vertices closer than this are one bend when their turning angles are summed (a rounded corner). */
         val cornerClusterFraction: Double = 0.12,
         /** A piece is straight when no point strays further than this fraction of its chord. */
@@ -77,6 +87,8 @@ object OutlineAssist {
         val axisSnapDegrees: Double = 8.0,
         /** An angle between two straight pieces within this many degrees of 90 is made exactly 90. */
         val rightAngleDegrees: Double = 12.0,
+        /** Straight pieces within this many degrees of parallel to the reference side are made exactly parallel (tighter than a right angle: a trapezoid's legs are not parallel). */
+        val parallelAngleDegrees: Double = 3.0,
         /** A rectangle whose sides differ by at most this fraction of the longer is a square. */
         val squareAspectTolerance: Double = 0.12,
         /** A triangle whose sides differ by at most this fraction of their mean is equilateral. */
@@ -93,6 +105,8 @@ object OutlineAssist {
         val polygonMaxSides: Int = 8,
         /** The cleaned closed outline starts at the stroke's first point; within this fraction of the diagonal of a vertex it starts on that vertex. */
         val startSnapFraction: Double = 0.01,
+        /** An elongated ellipse also gets this many vertices spaced evenly in direction, so its tips are round. */
+        val ellipseTipSteps: Int = 72,
         /** Vertices of the ellipse or circle drawn in place of the stroke. */
         val ellipseVertices: Int = 64,
         /** Smoothing samples are this far apart along a curve. */
@@ -143,12 +157,15 @@ object OutlineAssist {
         val box = Box.of(raw, n)
         val length = pathLength(raw, n)
         if (length < config.minSizePx || box.diag < config.minSizePx) return points
-        val d = box.diag
-        // Jitter inflates a stroke's length and perimeter; judge closure on a lightly simplified copy.
-        val keep = rdp(raw, 0, n - 1, config.cornerSimplifyFraction * d)
+        // Jitter inflates a stroke's length; judge the end gap on a lightly simplified copy. Whether it encloses
+        // area is the profile's own rule (SurfacePayload.isClosedOutline), not a shape-recognition threshold.
+        val keep = rdp(raw, 0, n - 1, config.cornerSimplifyFraction * box.diag)
         val lite = DoubleArray(keep.size * 2)
         for (i in keep.indices) { lite[i * 2] = raw[keep[i] * 2]; lite[i * 2 + 1] = raw[keep[i] * 2 + 1] }
-        val closed = isClosed(lite, keep.size, pathLength(lite, keep.size), config)
+        val closed = n >= 3 && hypot(raw[0] - raw[n * 2 - 2], raw[1] - raw[n * 2 - 1]) <= config.closeGapFraction * pathLength(lite, keep.size) &&
+            SurfacePayload.isClosedOutline(points)
+        // Tolerances scale with the stroke's size; a thin closed shape (a bar) scales with its thickness instead.
+        val d = if (closed) max(min(box.diag, config.thinShapeScale * minorExtent(raw, n)), config.minScaleFraction * box.diag) else box.diag
         val loop = if (closed) raw.copyOf(raw.size + 2).also { it[raw.size] = raw[0]; it[raw.size + 1] = raw[1] } else raw
         val shape = (if (closed) assistClosed(loop, d, config) else assistOpen(loop, d, config)) ?: return points
         val symmetric = (if (shape.exact) null else symmetrise(shape, d, config)) ?: shape
@@ -157,6 +174,7 @@ object OutlineAssist {
         for (i in 0 until finalXy.size / 2) out += finalXy[i * 2].toFloat() to finalXy[i * 2 + 1].toFloat()
         if (!isValidOutline(out, config)) return points
         if (closed && !SurfacePayload.isClosedOutline(out)) return points
+        if (!preservesShape(raw, n, finalXy, closed, box.diag, config)) return points
         return out
     }
 
@@ -206,18 +224,48 @@ object OutlineAssist {
         return s
     }
 
-    private fun isClosed(xy: DoubleArray, n: Int, length: Double, c: Config): Boolean {
-        if (n < 3) return false
-        val gap = hypot(xy[0] - xy[n * 2 - 2], xy[1] - xy[n * 2 - 1])
-        if (gap > c.closeGapFraction * length) return false
-        var area = 0.0
-        var perimeter = 0.0
+    /** The thickness of [xy]'s points across their principal axis: the shorter extent in the frame of the covariance axes. */
+    private fun minorExtent(xy: DoubleArray, n: Int): Double {
+        var mx = 0.0
+        var my = 0.0
+        for (i in 0 until n) { mx += xy[i * 2]; my += xy[i * 2 + 1] }
+        mx /= n; my /= n
+        var sxx = 0.0
+        var syy = 0.0
+        var sxy = 0.0
         for (i in 0 until n) {
-            val j = (i + 1) % n
-            area += xy[i * 2] * xy[j * 2 + 1] - xy[j * 2] * xy[i * 2 + 1]
-            perimeter += hypot(xy[j * 2] - xy[i * 2], xy[j * 2 + 1] - xy[i * 2 + 1])
+            val dx = xy[i * 2] - mx
+            val dy = xy[i * 2 + 1] - my
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy
         }
-        return perimeter > 0 && abs(area) / 2 / (perimeter * perimeter) >= c.minClosedAreaRatio
+        val a = 0.5 * atan2(2 * sxy, sxx - syy)
+        val ca = cos(a)
+        val sa = sin(a)
+        var u0 = Double.MAX_VALUE
+        var u1 = -Double.MAX_VALUE
+        var v0 = Double.MAX_VALUE
+        var v1 = -Double.MAX_VALUE
+        for (i in 0 until n) {
+            val dx = xy[i * 2] - mx
+            val dy = xy[i * 2 + 1] - my
+            val u = dx * ca + dy * sa
+            val v = -dx * sa + dy * ca
+            u0 = min(u0, u); u1 = max(u1, u); v0 = min(v0, v); v1 = max(v1, v)
+        }
+        return min(u1 - u0, v1 - v0)
+    }
+
+    /** A cleanup that changed the enclosed area, or moved an open stroke's ends, by more than expected is not trusted. */
+    private fun preservesShape(raw: DoubleArray, n: Int, out: DoubleArray, closed: Boolean, diag: Double, c: Config): Boolean {
+        val m = out.size / 2
+        if (closed) {
+            val before = abs(signedArea(raw, n))
+            val after = abs(signedArea(out, m - 1))
+            return before <= 0 || (after / before in c.areaKeepMin..c.areaKeepMax)
+        }
+        val e0 = hypot(raw[0] - out[0], raw[1] - out[1])
+        val e1 = hypot(raw[n * 2 - 2] - out[m * 2 - 2], raw[n * 2 - 1] - out[m * 2 - 1])
+        return max(e0, e1) <= c.endMoveFraction * diag
     }
 
     // ---------------------------------------------------------------- open strokes
@@ -315,14 +363,27 @@ object OutlineAssist {
             val snapped = (tilt / quarter).roundToInt() * quarter
             if (abs(tilt - snapped) <= Math.toRadians(c.axisSnapDegrees)) tilt = snapped
         }
-        val k = c.ellipseVertices
+        // Evenly spaced round the ellipse, plus (for an elongated one) evenly spaced in direction, so the tips are not kinked.
+        val ts = ArrayList<Double>()
+        for (i in 0 until c.ellipseVertices) ts += 2 * PI * i / c.ellipseVertices
+        if (max(semiA, semiB) > 1.3 * min(semiA, semiB)) {
+            val steps = c.ellipseTipSteps
+            for (i in 0 until steps) {
+                val phi = 2 * PI * i / steps
+                ts += atan2(-cos(phi) / semiA, sin(phi) / semiB).let { if (it < 0) it + 2 * PI else it }
+            }
+        }
+        ts.sort()
+        val dedup = ArrayList<Double>()
+        for (t in ts) if (dedup.isEmpty() || t - dedup.last() > 1e-3) dedup += t
+        if (dedup.size > 1 && 2 * PI - dedup.last() <= 1e-3) dedup.removeAt(dedup.size - 1)
+        val k = dedup.size
         val xy = DoubleArray((k + 1) * 2)
         val ctt = cos(tilt)
         val stt = sin(tilt)
         for (i in 0 until k) {
-            val t = 2 * PI * i / k
-            val u = semiA * cos(t)
-            val v = semiB * sin(t)
+            val u = semiA * cos(dedup[i])
+            val v = semiB * sin(dedup[i])
             xy[i * 2] = mx + u * ctt - v * stt
             xy[i * 2 + 1] = my + u * stt + v * ctt
         }
@@ -512,40 +573,58 @@ object OutlineAssist {
         val first = if (closed) 0 else 1
         val last = if (closed) v.size - 1 else v.size - 2
         if (v.size < 3 || last < first) return IntArray(0)
-        val count = last - first + 1
-        val cand = IntArray(count)
-        val turn = DoubleArray(count)
-        for (k in 0 until count) {
+        val count0 = last - first + 1
+        val cand0 = IntArray(count0)
+        val turn0 = DoubleArray(count0)
+        for (k in 0 until count0) {
             val i = first + k
             val prev = v[(i - 1 + v.size) % v.size]
             val cur = v[i]
             val next = v[(i + 1) % v.size]
             val a1 = atan2(xy[cur * 2 + 1] - xy[prev * 2 + 1], xy[cur * 2] - xy[prev * 2])
             val a2 = atan2(xy[next * 2 + 1] - xy[cur * 2 + 1], xy[next * 2] - xy[cur * 2])
-            cand[k] = cur
-            turn[k] = normalize(a2 - a1)
+            cand0[k] = cur
+            turn0[k] = normalize(a2 - a1)
         }
         val gap = c.cornerClusterFraction * d
-        // Cluster consecutive candidates that are close; the wrap-around joins the last to the first.
+        val minTurn = Math.toRadians(10.0)
+        // Vertices that barely bend (a stroke's start point on a side, a collinear point) are not corners and
+        // must not join two real ones together.
+        val sig = (0 until count0).filter { abs(turn0[it]) > minTurn }
+        val count = sig.size
+        if (count == 0) return IntArray(0)
+        val cand = IntArray(count) { cand0[sig[it]] }
+        val turn = DoubleArray(count) { turn0[sig[it]] }
+        // Cluster consecutive bends that are close and turn the same way (a rounded corner), up to a
+        // sharp corner's worth; the wrap-around joins the last to the first.
+        val maxSum = Math.toRadians(c.cornerClusterMaxDegrees)
         val clusterOf = IntArray(count)
         var cl = 0
+        var run = 0.0
         for (k in 0 until count) {
-            if (k > 0 && hypot(xy[cand[k] * 2] - xy[cand[k - 1] * 2], xy[cand[k] * 2 + 1] - xy[cand[k - 1] * 2 + 1]) > gap) cl++
+            if (k > 0) {
+                val far = hypot(xy[cand[k] * 2] - xy[cand[k - 1] * 2], xy[cand[k] * 2 + 1] - xy[cand[k - 1] * 2 + 1]) > gap
+                val flips = turn[k] * turn[k - 1] < 0
+                if (far || flips || abs(run + turn[k]) > maxSum) { cl++; run = 0.0 }
+            }
+            run += turn[k]
             clusterOf[k] = cl
         }
         var clusters = cl + 1
-        if (closed && clusters > 1 && hypot(xy[cand[0] * 2] - xy[cand[count - 1] * 2], xy[cand[0] * 2 + 1] - xy[cand[count - 1] * 2 + 1]) <= gap) {
+        if (closed && clusters > 1 && hypot(xy[cand[0] * 2] - xy[cand[count - 1] * 2], xy[cand[0] * 2 + 1] - xy[cand[count - 1] * 2 + 1]) <= gap &&
+            turn[0] * turn[count - 1] > 0 &&
+            abs((0 until count).filter { clusterOf[it] == 0 || clusterOf[it] == clusters - 1 }.sumOf { turn[it] }) <= maxSum
+        ) {
             for (k in 0 until count) if (clusterOf[k] == clusters - 1) clusterOf[k] = 0
             clusters--
         }
         val sum = DoubleArray(clusters + 1)
         val bestTurn = DoubleArray(clusters + 1)
         val bestIdx = IntArray(clusters + 1) { -1 }
-        val bestPos = IntArray(clusters + 1)
         for (k in 0 until count) {
             val g = clusterOf[k]
             sum[g] += turn[k]
-            if (abs(turn[k]) > bestTurn[g]) { bestTurn[g] = abs(turn[k]); bestIdx[g] = cand[k]; bestPos[g] = first + k }
+            if (abs(turn[k]) > bestTurn[g]) { bestTurn[g] = abs(turn[k]); bestIdx[g] = cand[k] }
         }
         // Simplifying cuts corners and a wavy side bends gently at coarse scale: the corner is where the stroke
         // itself turns sharply over a short distance, searched for round the candidate.
@@ -740,6 +819,7 @@ object OutlineAssist {
         val quarter = PI / 2
         val axisTol = Math.toRadians(c.axisSnapDegrees)
         val rightTol = Math.toRadians(c.rightAngleDegrees)
+        val parallelTol = Math.toRadians(c.parallelAngleDegrees)
         if (!ref.isNaN()) {
             val snapped = (ref / quarter).roundToInt() * quarter
             if (abs(ref - snapped) <= axisTol) ref = snapped
@@ -752,7 +832,7 @@ object OutlineAssist {
             val k = (rel / quarter).roundToInt()
             val axisK = (raw / quarter).roundToInt()
             theta[j] = when {
-                abs(rel - k * quarter) <= rightTol -> { onGrid[j] = k; ref + k * quarter }
+                abs(rel - k * quarter) <= (if (k % 2 == 0) parallelTol else rightTol) -> { onGrid[j] = k; ref + k * quarter }
                 abs(raw - axisK * quarter) <= axisTol -> axisK * quarter
                 else -> raw
             }
@@ -778,7 +858,7 @@ object OutlineAssist {
             vx[j] = p[0]; vy[j] = p[1]
         }
         if (closed) { vx[pieces] = vx[0]; vy[pieces] = vy[0] }
-        if (closed && straight.all { it }) regularPolygon(vx, vy, pieces, onGrid, ref, c)
+        val regular = closed && straight.all { it } && regularPolygon(vx, vy, pieces, onGrid, ref, c)
         // Assemble.
         val ox = ArrayList<Double>()
         val corner = ArrayList<Boolean>()
@@ -813,7 +893,7 @@ object OutlineAssist {
         val arr = DoubleArray(ox.size)
         for (i in arr.indices) arr[i] = ox[i]
         val flags = BooleanArray(corner.size) { corner[it] }
-        return Shape(arr, flags, closed)
+        return Shape(arr, flags, closed, exact = regular)
     }
 
     /**
@@ -821,7 +901,7 @@ object OutlineAssist {
      * [Config.squareAspectTolerance]; three straight sides: equilateral when within
      * [Config.equalSideTolerance]. Edits the corner arrays in place.
      */
-    private fun regularPolygon(vx: DoubleArray, vy: DoubleArray, pieces: Int, onGrid: IntArray, ref: Double, c: Config) {
+    private fun regularPolygon(vx: DoubleArray, vy: DoubleArray, pieces: Int, onGrid: IntArray, ref: Double, c: Config): Boolean {
         if (pieces == 4 && (0 until 4).all { onGrid[it] != Int.MIN_VALUE && Math.floorMod(onGrid[it] - onGrid[0], 2) == it % 2 }) {
             val w = hypot(vx[1] - vx[0], vy[1] - vy[0])
             val h = hypot(vx[2] - vx[1], vy[2] - vy[1])
@@ -840,6 +920,7 @@ object OutlineAssist {
                     vy[i] = my + su * side / 2 * uy + sv * side / 2 * ux
                 }
                 vx[4] = vx[0]; vy[4] = vy[0]
+                return true
             }
         } else if (pieces == 3) {
             val s0 = hypot(vx[1] - vx[0], vy[1] - vy[0])
@@ -868,8 +949,10 @@ object OutlineAssist {
                     vy[i] = my + r * sin(a)
                 }
                 vx[3] = vx[0]; vy[3] = vy[0]
+                return true
             }
         }
+        return false
     }
 
     // ---------------------------------------------------------------- curves
@@ -945,7 +1028,7 @@ object OutlineAssist {
     // ---------------------------------------------------------------- symmetry
 
     private fun symmetrise(s: Shape, d: Double, c: Config): Shape? {
-        if (s.n < 4) return null
+        if (s.n < (if (s.closed) 4 else 3)) return null
         if (!s.closed) return mirrorOpen(s, d, c)
         var cur = s
         var changed = false

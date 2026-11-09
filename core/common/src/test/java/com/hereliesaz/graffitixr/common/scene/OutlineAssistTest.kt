@@ -225,6 +225,26 @@ class OutlineAssistTest {
         for (v in hex) assertTrue(corners.any { dist(it, v) < 0.5 })
     }
 
+    @Test fun `a thin closed bar stays a thin rectangle`() {
+        for (h in listOf(20f, 15f, 10f)) {
+            val bar = listOf(100f to 100f, 700f to 100f, 700f to 100f + h, 100f to 100f + h)
+            val out = OutlineAssist.assist(closedPoly(bar, 25, 0f))
+            assertClean(out, true)
+            val corners = cornersOf(out)
+            assertEquals("h=$h ${out.joinToString { "(%.0f,%.0f)".format(it.first, it.second) }}", 4, corners.size)
+            assertEquals(600.0, corners.maxOf { it.first } - corners.minOf { it.first }.toDouble(), 1.0)
+            assertEquals(h.toDouble(), corners.maxOf { it.second } - corners.minOf { it.second }.toDouble(), 1.0)
+        }
+    }
+
+    @Test fun `a three vertex open V is made exactly symmetric`() {
+        val out = OutlineAssist.assist(openPoly(listOf(100f to 300f, 205f to 100f, 300f to 300f)))
+        assertClean(out, false)
+        val cx = (out.first().first + out.last().first) / 2
+        assertMirror(out, cx)
+        assertEquals(3, out.size)
+    }
+
     @Test fun `ellipse stays an ellipse`() {
         val r = ring(OutlineAssist.assist(noisy(ellipse(300f, 300f, 160f, 80f), 2f, 5)))
         val w = r.maxOf { it.first } - r.minOf { it.first }
