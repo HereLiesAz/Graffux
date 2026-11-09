@@ -25,7 +25,8 @@
  *   GH_REPO     (var)     "HereLiesAz/Graffux"
  *   DATA_BRANCH (var)     "stroke-data"; must already exist. The Worker never creates it, so a
  *                         deleted branch shows up as 503s instead of being silently re-cut.
- *   RATE_LIMITER (binding, optional)  Workers Rate Limiting binding; keyed by client address.
+ *   RATE_LIMITER (binding, required)  Workers Rate Limiting binding; keyed by client address. Without
+ *                         it, or if it throws, uploads are refused with 503 rather than served unlimited.
  */
 
 export const MAX_BYTES = 8 * 1024 * 1024;
@@ -38,6 +39,13 @@ export const MAX_INFLATED = 24 * 1024 * 1024;
 /** One stroke line: samples, sensors at 200 Hz and up to 384 KiB of heatmap (512 KiB as base64). */
 export const MAX_LINE = 2 * 1024 * 1024;
 const MAX_STRING = 256;
+/**
+ * Nesting the schema can need is about 5 (record > sensors > name > rows > values). Anything past this
+ * is a crafted value built to exhaust the stack or the CPU, not a recording.
+ */
+export const MAX_DEPTH = 12;
+/** The recorder rolls to a new file at 100 strokes (StrokeDataStore): a header plus that many, with headroom. */
+export const MAX_LINES = 1000;
 /** `heatmap.frames`: base64 of at most 384 KiB of int16 cells (SCHEMA.md § heatmap). */
 export const MAX_FRAMES = 4 * Math.ceil((384 * 1024) / 3);
 const KEY = /^[A-Za-z][A-Za-z0-9_]{0,47}$/;
@@ -94,20 +102,31 @@ async function inflate(bytes) {
 }
 
 /**
- * True when every key is a short identifier and every string a short label, except the base64
- * heatmap frames at `heatmap.frames` (capped at [MAX_FRAMES]).
+ * True when every key is a short identifier, every string a short label, and nothing nests deeper than
+ * [MAX_DEPTH], except the base64 heatmap frames at `heatmap.frames` (capped at [MAX_FRAMES]). Walked with
+ * an explicit stack: a recursive walk of a hostile, deeply nested value overflowed the call stack and
+ * took the request down with an exception.
  */
-function stringsAreData(value, path = []) {
-  if (typeof value === "string") {
-    const n = path.length;
-    if (n >= 2 && path[n - 1] === "frames" && path[n - 2] === "heatmap") {
-      return value.length <= MAX_FRAMES && BASE64.test(value);
+function stringsAreData(root) {
+  const stack = [{ value: root, key: null, parent: null, depth: 0 }];
+  while (stack.length > 0) {
+    const { value, key, parent, depth } = stack.pop();
+    if (typeof value === "string") {
+      const ok = key === "frames" && parent === "heatmap"
+        ? value.length <= MAX_FRAMES && BASE64.test(value)
+        : value.length <= MAX_STRING;
+      if (!ok) return false;
+    } else if (value && typeof value === "object") {
+      if (depth >= MAX_DEPTH) return false;
+      if (Array.isArray(value)) {
+        for (const item of value) stack.push({ value: item, key, parent, depth: depth + 1 });
+      } else {
+        for (const [k, v] of Object.entries(value)) {
+          if (!KEY.test(k)) return false;
+          stack.push({ value: v, key: k, parent: key, depth: depth + 1 });
+        }
+      }
     }
-    return value.length <= MAX_STRING;
-  }
-  if (Array.isArray(value)) return value.every((v) => stringsAreData(v, path));
-  if (value && typeof value === "object") {
-    return Object.entries(value).every(([k, v]) => KEY.test(k) && stringsAreData(v, [...path, k]));
   }
   return true;
 }
@@ -122,7 +141,7 @@ export async function strokeDataText(bytes) {
   const text = await inflate(bytes);
   if (text === null) return null;
   const lines = text.split("\n").filter((l) => l.length > 0);
-  if (lines.length === 0) return null;
+  if (lines.length === 0 || lines.length > MAX_LINES) return null;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].length > MAX_LINE) return null;
     let record;
@@ -195,6 +214,34 @@ async function commit(env, token, path, bytes, message, sleep) {
   return last;
 }
 
+/**
+ * The request body, or null once it passes [MAX_BYTES]. Read chunk by chunk and cancelled at the cap, so
+ * a Content-Length that understates the body cannot make the Worker buffer an arbitrary amount.
+ */
+async function readCapped(request) {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > MAX_BYTES) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
 export async function handle(request, env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   const url = new URL(request.url);
   const match = /^\/v1\/stroke-data\/([^/]+)\/([^/]+)$/.exec(url.pathname);
@@ -208,14 +255,20 @@ export async function handle(request, env, { sleep = (ms) => new Promise((r) => 
   if (!request.headers.has("Content-Length") || !Number.isFinite(declared)) return json(411, { error: "length required" });
   if (declared > MAX_BYTES) return json(413, { error: "too large" });
 
-  if (env.RATE_LIMITER) {
+  // The limit is the relay's only abuse control, so a missing or failing limiter closes the relay
+  // instead of silently running it unlimited.
+  if (!env.RATE_LIMITER) return json(503, { error: "rate limiter unavailable" });
+  try {
     const key = request.headers.get("CF-Connecting-IP") || "unknown";
     const { success } = await env.RATE_LIMITER.limit({ key });
     if (!success) return json(429, { error: "slow down" });
+  } catch (error) {
+    console.error("stroke relay: rate limiter failed", error);
+    return json(503, { error: "rate limiter unavailable" });
   }
 
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length === 0 || bytes.length > MAX_BYTES) return json(413, { error: "bad size" });
+  const bytes = await readCapped(request);
+  if (bytes === null || bytes.length === 0) return json(413, { error: "bad size" });
   const text = await strokeDataText(bytes);
   if (text === null) return json(415, { error: "not stroke data" });
   const stored = await gzip(text);
