@@ -2,7 +2,7 @@ package com.hereliesaz.graffitixr.common.mesh
 
 /**
  * A mesh's UV islands: the maximal sets of triangles whose texture coordinates are continuous, i.e.
- * that join each other through corners sharing both a position and a UV.
+ * that join each other across edges whose ends share both a position and a UV.
  *
  * Painting needs this because a UV map cuts the surface into islands laid out side by side in the
  * texture. Two points that are neighbours on the model can be far apart in the texture, and two
@@ -11,9 +11,11 @@ package com.hereliesaz.graffitixr.common.mesh
  * the next only within an island ([sameIsland]), and a dab is clipped to its island so it cannot
  * bleed onto the neighbouring island's texels ([trianglesNear]).
  *
- * Corners are matched by position *and* UV rather than by index, so a triangle-soup mesh (every
- * triangle with its own vertices, as scans and some exporters write them) still forms islands
- * wherever it is geometrically continuous. Normals are ignored: a hard edge is not a UV cut.
+ * Triangles are joined across a shared *edge*, matched by the position and UV of both its ends rather
+ * than by index, so a triangle-soup mesh (every triangle with its own vertices, as scans and some
+ * exporters write them) still forms islands wherever it is geometrically continuous. Both ends must
+ * agree: a single shared corner is a point contact, and the UV may run off in different directions
+ * along the edge from it. Normals are ignored: a hard edge is not a UV cut.
  *
  * Pure and immutable; build once per mesh.
  */
@@ -91,7 +93,18 @@ class UvIslands private constructor(
         }
     }
 
-    private data class Corner(val x: Int, val y: Int, val z: Int, val u: Int, val v: Int)
+    private data class Corner(val x: Int, val y: Int, val z: Int, val u: Int, val v: Int) : Comparable<Corner> {
+        override fun compareTo(other: Corner): Int =
+            compareValuesBy(this, other, Corner::x, Corner::y, Corner::z, Corner::u, Corner::v)
+    }
+
+    /** An undirected edge between two corners, each a position and a UV. */
+    private class Edge(a: Corner, b: Corner) {
+        private val lo = if (a <= b) a else b
+        private val hi = if (a <= b) b else a
+        override fun equals(other: Any?) = other is Edge && lo == other.lo && hi == other.hi
+        override fun hashCode() = 31 * lo.hashCode() + hi.hashCode()
+    }
 
     companion object {
         private const val UNIT_SLACK = 1e-4f
@@ -122,10 +135,14 @@ class UvIslands private constructor(
                 }
                 return x
             }
-            val seen = HashMap<Corner, Int>()
+            // Triangles join across an edge whose BOTH ends agree in position and UV. Matching one
+            // corner is not enough: two triangles can meet at a point while the UV runs off in
+            // different directions along their common edge, which is a seam, not a continuation.
+            val seen = HashMap<Edge, Int>()
             for (t in 0 until triangles) {
                 for (c in 0 until CORNERS) {
-                    val other = seen.putIfAbsent(cornerKey(mesh, t, c), t)
+                    val edge = Edge(cornerKey(mesh, t, c), cornerKey(mesh, t, (c + 1) % CORNERS))
+                    val other = seen.putIfAbsent(edge, t)
                     if (other != null) parent[find(t)] = find(other)
                 }
             }
