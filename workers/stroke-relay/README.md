@@ -17,8 +17,10 @@ The app only sends after the user switches on Settings → "Contribute strokes t
 [`tools/stroke-model/SCHEMA.md`](../../tools/stroke-model/SCHEMA.md); the privacy policy is
 [`docs/PRIVACY_POLICY.md`](../../docs/PRIVACY_POLICY.md) § 4. The branch is public.
 
-What leaves the device, and what stays: the relay upload is the only path stroke paths take off the device.
-Graffux's co-op emitter is a no-op (`app/.../di/CoopModule.kt`), so no strokes go to other devices. Before
+What leaves the device, and what stays: the relay upload is the only automatic, background path for stroke training data.
+Stroke programs a project records for replay are a different thing: `strokes.json` is saved into the project folder
+(`ProjectRepositoryImpl.saveArtifact`, under `projects/<id>`), so a project export (`ProjectManager.writeProjectArchive` zips the
+whole folder) and a device-to-device transfer carry it, but only when you do those. Graffux's co-op emitter is a no-op (`app/.../di/CoopModule.kt`), so no strokes go to other devices. Before
 upload, session files sit in the app's private `stroke-data` directory, which Android backup and device
 transfer exclude (`app/src/main/res/xml/data_extraction_rules.xml`, `backup_rules.xml`); a file is deleted
 once the relay has it, or when the relay rejects it for good (`StrokeDataUploader.kt`). The file path on the

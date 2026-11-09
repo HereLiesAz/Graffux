@@ -176,8 +176,8 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## Decisions
 
-- **Graffux's own chrome, not a rail library.** `ToolRail`, `LayersRail`, `ChromeMenu`, `LogoMenu`
-  and the carousel are this repository's composables (`:app`). AzNavRail was replaced (commit
+- **Graffux's own chrome, not a rail library.** `ToolRail`, `LayersRail`, `LogoMenu`, the menu
+  panel (`MenuPanel`, `buildMenu`; `ChromeMenu.kt`) and the carousel are this repository's composables (`:app`). AzNavRail was replaced (commit
   `5b8abfce`) and now supplies only the About reader (`AboutReader.kt`). Tool surfaces
   (`ToolSurface`, below) hold anything that is not a rail item.
 - **No floating windows on phones or tablets; each tool opens in the container its kind calls
@@ -320,7 +320,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   (carry alpha, sample merged); Stabilizer (level, and the algorithm while it is on); Selection
   (threshold for Automatic, and feather while a selection exists). Per-item fields edit the item's
   own settings; the rest edit their one global value. The card scrolls if it overflows. It is drawn by
-  `ExpandedHeroLayer`, composed directly after the carousel sheet in the same `Box`, so it overlaps the neighbouring cards without the carousel reflowing, and
+  `ExpandedHeroLayer`, composed right after the carousel's `Box`, inside the same `if (carouselOnScreen && sheetOpen)` block (`MainActivity.kt:1308`), so it draws in front of the sheet and overlaps the neighbouring cards without the carousel reflowing, and
   never pushes the tabs. `HeroExpansion` is shared by both pages: the carousel publishes its content
   and the hero's anchor to it. It closes on Less, on a second More, on Back, when another card takes
   the hero slot, when a stroke starts, or when the carousel leaves the screen.
@@ -355,11 +355,10 @@ codebase is deferred scope or a real gap in the install-report flow.
   item in hand this session with nothing saved *adopts* the live (formerly global) values. Every
   other item starts from its preset. So the brush in hand does not change on upgrade, and the
   presets are not flattened into one value.
-  **Rail.** The old Undo · Fit · Redo row is gone. Fit is a rail item, declared last so it sits at
-  the bottom of the rail (11.52 has no footer slot). Undo and Redo live only at the ends of the tab
-  row; with the sheet shut there is no undo/redo button (gestures only). Fit is disabled while the
-  view is already fitted.
-- **The rails get out of the way while a stroke is painted (`DrawingRailFold`, `:app`).** The
+  **Rail.** The old Undo · Fit · Redo row is gone. Fit is a button on the tool rail
+  (`rail.view.fit`, `ToolRail.kt`) that is present only while the view has moved or the 3D camera is off its default. Undo and Redo live only at the ends of the tab
+  row; with the sheet shut there is no undo/redo button (gestures only).
+- **The rails get out of the way while a stroke is painted (`DrawingUiHidden.kt`, `:app`).** The
   source is `StrokeGate.strokeActive`, the snapshot-state flag the drawing surfaces already set on
   stroke start and clear on end, cancel (second finger) and dispose; pan/zoom never set it. Nothing
   reads it directly: `rememberDrawingUiHidden` (`DrawingUiHidden.kt`) derives the "UI hidden for
@@ -367,7 +366,7 @@ codebase is deferred scope or a real gap in the install-report flow.
   constant to tune) after it ends. A stroke that starts inside that hold cancels the pending return
   (`collectLatest` drops the `delay`), so nothing flickers back between strokes. The rails and the
   carousel sheet read only that flag. The rails and menus are ghosted by `ShownWhenNotDrawing`
-  (below); the four-finger `hideUiForCapture` gate removes the tool rail outright.
+  (below); the four-finger `hideUiForCapture` gate (`MainActivity.kt:1340`) skips the whole chrome block (tool rail, layers rail, logo menu and the rest of it), and a small button brings it back.
   Nothing is added to the pointer path; the UI just observes the flag.
   **Ghosted, not gone.** The chrome MainActivity wraps in `ShownWhenNotDrawing` (rails, rail menus,
   logo menu) and the editor's `HiddenWhileDrawing` (nib-angle dial) go through `GhostWhileDrawing`
@@ -706,10 +705,10 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
 in per-pixel depth. Crossing semi-transparent edges occlude rather than blend. Onion-skin fading
 does not apply to depth-pass members. Full detail: `spec/3d-space.md`, "Limits".
 
-## Painterly realism (design only)
+## Painterly realism (partly built)
 
 `spec/painterly.md` audits how closely the stroke-program, wet-paint, impasto and Color Smudge systems
 reproduce a loaded paintbrush, and specifies the extensions, a painter's brush set (as azphalt asset
-packs) and a physical palette that would close the gaps. Nothing in it is implemented. It extends the
+packs) and a physical palette that would close the gaps. It is partly built: see its "Build status" for what is and is not on `main`. It extends the
 contract in `spec/stroke-program.md` and keeps the "colour is not medium" and "renderers consume
 resolved geometry" rules.

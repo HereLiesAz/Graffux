@@ -10,7 +10,7 @@ Graffux is a "local-first" application. We do not require you to create an accou
 
 ## 2. Data Storage
 
-All your creative work—including sketches, photos, and project layers—is stored locally on your device. We do not have access to your creative content. Projects and downloaded models are left out of Android's cloud backup (it has a size cap that would fail the whole backup); they do travel in a device-to-device transfer to a new phone. Your privacy choices, the purchase licences and buyer session, installed extensions and any stroke-training files not yet uploaded are never included in cloud backup or device transfer. It is your responsibility to back up your projects yourself (for example by manual file transfer).
+All your creative work—including sketches, photos, and project layers—is stored locally on your device. We do not have access to your creative content. Android cloud backup leaves out projects, downloaded models and installed extensions (its size cap would fail the whole backup). A device-to-device transfer to a new phone carries projects but not downloaded models or installed extensions; the models are fetched again. In both, your consent choices (privacy_consent and stroke-prediction preferences), the purchase licences and buyer session, the extension state and trust keys, and any stroke-training files not yet uploaded are left out. It is your responsibility to back up your projects yourself (for example by manual file transfer).
 
 ## 3. Crash Reports (Opt-In)
 
@@ -59,7 +59,7 @@ training". Nothing is recorded or uploaded before then, and switching it off sto
   kept in a private dataset used for training. The App keeps no credential for this; the relay
   holds the key. The file's public path contains your device model and the session's start time
   (`stroke-data/<device-model>/session-<time>.jsonl.gz`). Files wait in the App's private storage until
-  the relay has them, then are deleted from the device.
+  the relay has them, then are deleted from the device. A file the relay rejects for good (a bad name, too large, or not stroke data) is also deleted, without being stored.
 - **Removal:** files already uploaded are not tied to you, so we cannot tell which are yours.
   Contact us (section 9) with the device model and approximate date and we will remove matching
   files from the branch, though copies that others have already downloaded cannot be recalled.

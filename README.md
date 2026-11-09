@@ -129,6 +129,7 @@ line, body-read and limiter bounds.
   `repository-api.md` are cited by the code and do not exist (`ARCHITECTURE.md`; `spec/package-format.md` and
   `spec/store-app.md`, "Open items"). The `audio` capability is declared but has no host bridge, and `EXTRA_ENTITLEMENT`
   and `EXTRA_REPORT_TOKEN` are read but never spent.
+- **Planning notes.** `docs/planning/` holds earlier verification-contract checklists (`objective-verification-contract.md`, `todo-verification-contract.md`, `verification-contract-remaining-todos.md`, `verification-contract-todo-items.md`, `verification-contract-todos.md`). Their README calls them non-authoritative and overlapping; they carry TODO items this audit did not triage against `main`.
 - **Material-aware engine.** Pending items are in `docs/Material-Aware Paint Engine Implementation Status.md`, "Remaining prioritized TODO".
 - **Upstream.** `app/.../carousel/Keylines.kt:254` keeps `TODO(b/420998605)`, an upstream Material 3 carousel issue the fork
   inherits; remove it when the fork is rebased onto a release that has it.
