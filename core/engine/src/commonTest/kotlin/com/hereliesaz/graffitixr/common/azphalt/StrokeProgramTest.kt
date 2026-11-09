@@ -227,6 +227,77 @@ class StrokeProgramTest {
         assertEquals(1f, dabs(b).first().x)
     }
 
+    // ---- lift-off tail (spec/painterly.md E6) --------------------------------------------------
+
+    /** [samples] with the final one marked as the pen leaving the surface. */
+    private fun lifted(samples: List<BrushSample>): List<BrushSample> {
+        val last = samples.last()
+        return samples.dropLast(1) + last.copy(
+            telemetry = last.telemetry.copy(contactPhase = BrushContactPhase.LIFT_OFF),
+        )
+    }
+
+    /** A tail: at lift-off (phase 3) lay three shrinking dabs ahead of the pen along +x, by pen speed. */
+    private val tailProgram = """
+        if (phase == 3) {
+          let reach = speed * 200;
+          for k in 0..3 {
+            emit { x: px + reach * (k + 1) / 3, y: py, size: 6 - 2 * k, alpha: 1 };
+          }
+        }
+    """.trimIndent()
+
+    @Test
+    fun aLiftOffTailIsPaintedPastTheLastSample() {
+        val samples = lifted(line())
+        val last = samples.last()
+        val out = dabs(brush(tailProgram), samples = samples)
+        val tail = out.filter { it.x > last.x + 0.5f }
+        assertEquals(3, tail.size, "three tail dabs")
+        assertEquals(listOf(6f, 4f, 2f), tail.map { it.radius * 2f })
+        assertTrue(tail.zipWithNext().all { (a, b) -> b.x > a.x }, "the tail runs ahead of the pen")
+    }
+
+    @Test
+    fun noTailWithoutALiftOffSample() {
+        val samples = line()
+        val out = dabs(brush(tailProgram), samples = samples)
+        assertTrue(out.none { it.x > samples.last().x + 0.5f })
+    }
+
+    @Test
+    fun theTailFollowsPenSpeedAndVanishesAtRest() {
+        val moving = lifted(line())
+        val builder = BrushSampleBuilder()
+        // The same stroke, then the pen sits still for 400 ms before it lifts.
+        val resting = lifted(
+            moving.dropLast(1) + (1..4).map { i ->
+                builder.add(moving[moving.size - 2].x, 40f, uptimeMillis = moving.size * 8L + i * 100L, pressure = 0.8f)
+            },
+        )
+        val reachMoving = dabs(brush(tailProgram), samples = moving).filter { it.x > moving.last().x + 0.5f }
+        assertEquals(3, reachMoving.size)
+        val restLast = resting.last()
+        val reachResting = dabs(brush(tailProgram), samples = resting).filter { it.x > restLast.x + 0.5f }
+        assertTrue(reachResting.isEmpty() || reachResting.last().x - restLast.x < reachMoving.last().x - moving.last().x)
+    }
+
+    @Test
+    fun theTailIsTheSameLiveAndOnReplay() {
+        val b = brush(tailProgram)
+        val samples = lifted(line())
+        val live = IncrementalDynamicDabGenerator(16f, b, 5L).appendLive(samples)
+        assertEquals(live, LiveStrokeDabs.movementDabs(samples, 16f, b, 5L))
+    }
+
+    @Test
+    fun theTailIsLaidOnlyOnce() {
+        val samples = lifted(line())
+        // A repeated lift-off sample (a duplicate event) must not paint a second tail.
+        val out = dabs(brush(tailProgram), samples = samples + samples.last())
+        assertEquals(3, out.count { it.x > samples.last().x + 0.5f })
+    }
+
     // ---- package parsing ---------------------------------------------------------------------
 
     @Test
