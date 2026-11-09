@@ -21,12 +21,17 @@ import java.util.UUID
  */
 object AtomicFiles {
     /** Replaces [file] with [data]. Throws [IOException] if it could not be done; [file] is then unchanged. */
-    fun write(file: File, data: ByteArray) = write(file) { it.write(data) }
+    fun write(file: File, data: ByteArray) = write(file, true) { it.write(data) }
 
-    /** Replaces [file] with what [produce] writes. Throws [IOException] on failure; [file] is then unchanged. */
-    fun write(file: File, produce: (OutputStream) -> Unit) {
+    /**
+     * Replaces [file] with what [produce] writes. Throws [IOException] on failure; [file] is then unchanged.
+     * With [createParent] false the parent directory MUST already exist: a write can then never recreate a directory
+     * that was deleted meanwhile (a deleted project's folder), it just fails.
+     */
+    fun write(file: File, createParent: Boolean = true, produce: (OutputStream) -> Unit) {
         val dir = file.absoluteFile.parentFile ?: throw IOException("no parent directory for ${file.name}")
-        dir.mkdirs()
+        if (createParent) dir.mkdirs()
+        if (!dir.isDirectory) throw IOException("directory for ${file.name} does not exist")
         val tmp = File(dir, "${file.name}.${UUID.randomUUID()}.tmp")
         try {
             FileOutputStream(tmp).use { out ->
@@ -52,8 +57,29 @@ object AtomicFiles {
         }
     }
 
-    /** Makes the rename itself durable. Not every filesystem allows opening a directory: then it is skipped. */
-    private fun syncDirectory(dir: File) {
-        runCatching { FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) } }
+    /**
+     * Makes a rename or delete in [dir] durable. Returns false when the filesystem will not let a directory be
+     * opened and synced (the caller then relies on the in-place invalidation of [deleteDurably] instead).
+     */
+    fun syncDirectory(dir: File): Boolean =
+        runCatching { FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) } }.isSuccess
+
+    /** Empties [file] in place and syncs it (no directory change needed). False if that could not be done. */
+    fun emptyInPlace(file: File): Boolean =
+        runCatching { FileChannel.open(file.toPath(), StandardOpenOption.WRITE).use { it.truncate(0); it.force(true) } }
+            .isSuccess
+
+    /**
+     * Deletes [file] so the deletion survives power loss: its bytes are first emptied IN PLACE and synced (an empty
+     * file is invalid wherever the file is read as data, even if the unlink itself is lost), then it is unlinked and
+     * the directory synced. True if the file is gone (or never existed); a file that could not be removed is left
+     * empty, never half there.
+     */
+    fun deleteDurably(file: File): Boolean {
+        if (!file.exists()) return true
+        emptyInPlace(file)
+        val gone = file.delete() || !file.exists()
+        file.absoluteFile.parentFile?.let { syncDirectory(it) }
+        return gone
     }
 }

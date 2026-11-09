@@ -3696,6 +3696,15 @@ class EditorViewModel @Inject constructor(
 
     private val pendingWrites = java.util.concurrent.ConcurrentHashMap<String, PendingLayerWrite>()
 
+    /** A project is being deleted: its layers' pending saves must not run (the folder is going away). */
+    private fun dropPendingLayerSavesFor(projectId: String) {
+        val layers = pendingWrites.filterValues { it.projectId == projectId }.keys
+        layers.forEach { id ->
+            pendingSaveJobs.remove(id)?.cancel()
+            pendingWrites.remove(id)
+        }
+    }
+
     private fun restoredRawColor(
         bitmap: Bitmap,
         snapshot: MaterialStateCodec.Snapshot,
@@ -3846,14 +3855,32 @@ class EditorViewModel @Inject constructor(
         file.takeIf { inside && it.isFile && it.length() in 1..MAX_PALETTE_SIDECAR_BYTES }?.readBytes()
     }.getOrNull()
 
-    /** Removes [layerId]'s material sidecar (under the repository's save lock); true if it is gone or never was. */
+    /**
+     * Removes [layerId]'s material sidecar (durably, under the repository's save lock); true if it is gone or never
+     * was. A failure is logged (an exception and "not deleted" are told apart) and shown through the same
+     * save-failure notice the bitmap and material writers use, so autosaves that cannot persist are not silent.
+     */
     private suspend fun deleteMaterialState(layerId: String, projectId: String?): Boolean {
         if (projectId == null || (openProjectIsReadOnly() && projectRepository.currentProject.value?.id == projectId)) {
             return true
         }
-        return runCatching {
+        val outcome = runCatching {
             projectRepository.deleteArtifact(projectId, MaterialStateCodec.fileNameForLayer(layerId))
-        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }.getOrDefault(false)
+        }
+        outcome.exceptionOrNull()?.let { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            android.util.Log.e("EditorViewModel", "Deleting the material sidecar of $layerId threw", e)
+        }
+        val deleted = outcome.getOrNull() == true
+        if (outcome.isSuccess && !deleted) {
+            android.util.Log.e("EditorViewModel", "The material sidecar of $layerId could not be deleted")
+        }
+        if (!deleted) {
+            withContext(dispatchers.main) {
+                notify("Couldn't save your changes — storage may be full", NoticeKind.WARNING)
+            }
+        }
+        return deleted
     }
 
     private suspend fun writeMaterialState(
@@ -4103,7 +4130,8 @@ class EditorViewModel @Inject constructor(
                 return true
             }
             // fsynced temp file, then an atomic rename: a crash leaves the old PNG or the new one, never a torn file
-            com.hereliesaz.graffitixr.common.util.AtomicFiles.write(java.io.File(path)) { out ->
+            // createParent = false: a project deleted meanwhile must not have its folder recreated by this write
+            com.hereliesaz.graffitixr.common.util.AtomicFiles.write(java.io.File(path), createParent = false) { out ->
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) { "Bitmap compression failed" }
             }
             publishForkIfWritten(layerId, path)
@@ -12180,8 +12208,10 @@ class EditorViewModel @Inject constructor(
     }
 
     fun deleteProjectById(id: String) {
+        dropPendingLayerSavesFor(id)
         viewModelScope.launch(dispatchers.io) {
             projectRepository.deleteProject(id)
+            dropPendingLayerSavesFor(id) // one more, for a save that was scheduled while the delete was starting
             // Deleting the open project leaves the editor pointing at nothing: fall back to the
             // most recent survivor, or a fresh project — the same policy as the boot bootstrap.
             if (_uiState.value.projectId == id) {

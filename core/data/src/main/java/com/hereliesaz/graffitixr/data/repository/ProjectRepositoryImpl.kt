@@ -206,8 +206,8 @@ class ProjectRepositoryImpl @Inject constructor(
         saveMutex.withLock {
             if (projectId in deletedIds) return@withLock true
             // A read-only project keeps every file the newer build wrote; its session copy lives in the cache.
-            projectManager.writeIfWritable(context, projectId) { !file.exists() || file.delete() }
-                ?: readOnlyScratchFile(projectId, filename).let { !it.exists() || it.delete() }
+            projectManager.writeIfWritable(context, projectId) { AtomicFiles.deleteDurably(file) }
+                ?: readOnlyScratchFile(projectId, filename).let { AtomicFiles.deleteDurably(it) }
         }
     }
 

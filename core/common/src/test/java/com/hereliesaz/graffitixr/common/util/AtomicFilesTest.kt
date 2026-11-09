@@ -64,4 +64,40 @@ class AtomicFilesTest {
         assertTrue("one writer's bytes throughout", bytes.all { it == bytes[0] })
         assertFalse(leftovers(tmp.root).isNotEmpty())
     }
+
+    @Test
+    fun `without createParent a missing directory fails and is not recreated`() {
+        val gone = File(tmp.root, "deleted-project")
+        val failed = runCatching { AtomicFiles.write(File(gone, "layer.png"), createParent = false) { it.write(1) } }
+        assertTrue(failed.exceptionOrNull() is IOException)
+        assertFalse("the deleted folder was not brought back", gone.exists())
+    }
+
+    @Test
+    fun `createParent false still writes when the directory exists`() {
+        val f = File(tmp.root, "ok.png")
+        AtomicFiles.write(f, createParent = false) { it.write(7) }
+        assertArrayEquals(byteArrayOf(7), f.readBytes())
+    }
+
+    @Test
+    fun `deleteDurably removes a file, and a missing one counts as gone`() {
+        val f = File(tmp.root, "side.gxmt").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
+        assertTrue(AtomicFiles.deleteDurably(f))
+        assertFalse(f.exists())
+        assertTrue(AtomicFiles.deleteDurably(f))
+    }
+
+    @Test
+    fun `a file is emptied in place so a lost unlink still leaves nothing readable`() {
+        val f = File(tmp.root, "side.gxmt").also { it.writeBytes(ByteArray(100) { 9 }) }
+        assertTrue(AtomicFiles.emptyInPlace(f))
+        assertTrue(f.exists())
+        assertEquals("an empty sidecar is rejected by every reader", 0L, f.length())
+    }
+
+    @Test
+    fun `a directory can be synced`() {
+        assertTrue(AtomicFiles.syncDirectory(tmp.root))
+    }
 }
