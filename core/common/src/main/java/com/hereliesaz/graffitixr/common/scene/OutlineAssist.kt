@@ -85,6 +85,14 @@ object OutlineAssist {
         val ellipseFitTolerance: Double = 0.05,
         /** An ellipse whose axes differ by at most this fraction of the longer is a circle. */
         val circleAspectTolerance: Double = 0.12,
+        /** A near-circular fit is a regular polygon, not a circle, when its radius swings this much (relative) with this many sides per turn. */
+        val polygonHarmonicTolerance: Double = 0.02,
+        /** Fewest sides of a regular polygon recognised this way (fewer sides are found by their corners). */
+        val polygonMinSides: Int = 5,
+        /** Most sides of a regular polygon recognised this way (more look like a circle). */
+        val polygonMaxSides: Int = 8,
+        /** The cleaned closed outline starts at the stroke's first point; within this fraction of the diagonal of a vertex it starts on that vertex. */
+        val startSnapFraction: Double = 0.01,
         /** Vertices of the ellipse or circle drawn in place of the stroke. */
         val ellipseVertices: Int = 64,
         /** Smoothing samples are this far apart along a curve. */
@@ -143,9 +151,10 @@ object OutlineAssist {
         val closed = isClosed(lite, keep.size, pathLength(lite, keep.size), config)
         val loop = if (closed) raw.copyOf(raw.size + 2).also { it[raw.size] = raw[0]; it[raw.size + 1] = raw[1] } else raw
         val shape = (if (closed) assistClosed(loop, d, config) else assistOpen(loop, d, config)) ?: return points
-        val symmetric = symmetrise(shape, d, config) ?: shape
-        val out = ArrayList<Pair<Float, Float>>(symmetric.n)
-        for (i in 0 until symmetric.n) out += symmetric.xy[i * 2].toFloat() to symmetric.xy[i * 2 + 1].toFloat()
+        val symmetric = (if (shape.exact) null else symmetrise(shape, d, config)) ?: shape
+        val finalXy = if (closed) orient(symmetric.xy, raw, d, config) else symmetric.xy
+        val out = ArrayList<Pair<Float, Float>>(finalXy.size / 2)
+        for (i in 0 until finalXy.size / 2) out += finalXy[i * 2].toFloat() to finalXy[i * 2 + 1].toFloat()
         if (!isValidOutline(out, config)) return points
         if (closed && !SurfacePayload.isClosedOutline(out)) return points
         return out
@@ -154,7 +163,7 @@ object OutlineAssist {
     // ---------------------------------------------------------------- shapes
 
     /** A cleaned stroke: [xy] interleaved, [corner] per point; a closed one ends on its first point. */
-    private class Shape(val xy: DoubleArray, val corner: BooleanArray, val closed: Boolean) {
+    private class Shape(val xy: DoubleArray, val corner: BooleanArray, val closed: Boolean, val exact: Boolean = false) {
         val n: Int get() = xy.size / 2
     }
 
@@ -284,6 +293,8 @@ object OutlineAssist {
         if (a2 <= 0 || b2 <= 0) return null
         var semiA = 1 / sqrt(a2)
         var semiB = 1 / sqrt(b2)
+        // A near-circular stroke may be a regular polygon, which an ellipse fits only roughly.
+        if (abs(semiA - semiB) <= c.circleAspectTolerance * max(semiA, semiB)) fitRegularPolygon(pts, count, mx, my, c)?.let { return it }
         var err = 0.0
         for (i in 0 until count) {
             val dx = pts[i * 2] - mx
@@ -316,7 +327,118 @@ object OutlineAssist {
             xy[i * 2 + 1] = my + u * stt + v * ctt
         }
         xy[k * 2] = xy[0]; xy[k * 2 + 1] = xy[1]
-        return Shape(xy, BooleanArray(k + 1), closed = true)
+        return Shape(xy, BooleanArray(k + 1), closed = true, exact = true)
+    }
+
+    /**
+     * The regular polygon (5 to 8 sides) a near-circular closed stroke is, found from the harmonics of its
+     * radius round the centre ([mx], [my]); null when it is a circle. A polygon's radius swings once per side.
+     */
+    private fun fitRegularPolygon(pts: DoubleArray, count: Int, mx: Double, my: Double, c: Config): Shape? {
+        val th = DoubleArray(count)
+        val rad = DoubleArray(count)
+        for (i in 0 until count) {
+            th[i] = atan2(pts[i * 2 + 1] - my, pts[i * 2] - mx)
+            rad[i] = hypot(pts[i * 2] - mx, pts[i * 2 + 1] - my)
+        }
+        val dth = DoubleArray(count) { normalize(th[(it + 1) % count] - th[it]) }
+        val turn = dth.sum()
+        if (abs(abs(turn) - 2 * PI) > 0.5) return null
+        val sign = if (turn >= 0) 1.0 else -1.0
+        // Midpoint rule over the angle swept between neighbouring samples.
+        val tm = DoubleArray(count) { th[it] + dth[it] / 2 }
+        val rm = DoubleArray(count) { (rad[it] + rad[(it + 1) % count]) / 2 }
+        var c0 = 0.0
+        for (i in 0 until count) c0 += rm[i] * dth[i] * sign
+        c0 /= 2 * PI
+        if (c0 <= 0) return null
+        var bestN = 0
+        var bestAmp = 0.0
+        var bestPhase = 0.0
+        for (n in c.polygonMinSides..c.polygonMaxSides) {
+            var re = 0.0
+            var im = 0.0
+            for (i in 0 until count) {
+                val w = rm[i] * dth[i] * sign
+                re += w * cos(n * tm[i]); im += w * sin(n * tm[i])
+            }
+            val amp = 2 * hypot(re, im) / (2 * PI) / c0
+            if (amp > bestAmp) { bestAmp = amp; bestN = n; bestPhase = atan2(im, re) / n }
+        }
+        if (bestN == 0 || bestAmp < c.polygonHarmonicTolerance) return null
+        val half = PI / bestN
+        val meanFactor = cos(half) * (bestN / PI) * kotlin.math.ln(1 / cos(half) + kotlin.math.tan(half))
+        val radius = c0 / meanFactor
+        // It must really be that polygon: the radius follows the polygon's to within the ellipse tolerance.
+        var resid = 0.0
+        val apothem = radius * cos(half)
+        for (i in 0 until count) {
+            var rel = (th[i] - bestPhase) % (2 * half)
+            if (rel < 0) rel += 2 * half
+            val expected = apothem / cos(rel - half)
+            resid += ((rad[i] - expected) / c0).let { it * it }
+        }
+        if (sqrt(resid / count) > c.ellipseFitTolerance) return null
+        val xy = DoubleArray((bestN + 1) * 2)
+        for (k in 0 until bestN) {
+            val a = bestPhase + 2 * PI * k / bestN
+            xy[k * 2] = mx + radius * cos(a)
+            xy[k * 2 + 1] = my + radius * sin(a)
+        }
+        xy[bestN * 2] = xy[0]; xy[bestN * 2 + 1] = xy[1]
+        return Shape(xy, BooleanArray(bestN + 1) { true }, closed = true, exact = true)
+    }
+
+    /**
+     * A closed [ring] (ending on its first point) turned to run the way [raw] ran and to start at the
+     * point of the outline nearest [raw]'s first point, so the arc-length origin of the paint does not move.
+     */
+    private fun orient(ring: DoubleArray, raw: DoubleArray, d: Double, c: Config): DoubleArray {
+        val m = ring.size / 2 - 1
+        var pts = ring.copyOf(m * 2)
+        if (signedArea(raw, raw.size / 2) * signedArea(pts, m) < 0) {
+            val rev = DoubleArray(m * 2)
+            for (i in 0 until m) { rev[i * 2] = pts[(m - 1 - i) * 2]; rev[i * 2 + 1] = pts[(m - 1 - i) * 2 + 1] }
+            pts = rev
+        }
+        // The nearest point of the outline to the stroke's first point.
+        var bestEdge = 0
+        var bestT = 0.0
+        var bestD = Double.MAX_VALUE
+        for (i in 0 until m) {
+            val j = (i + 1) % m
+            val ex = pts[j * 2] - pts[i * 2]
+            val ey = pts[j * 2 + 1] - pts[i * 2 + 1]
+            val l2 = ex * ex + ey * ey
+            val t = if (l2 < 1e-18) 0.0 else (((raw[0] - pts[i * 2]) * ex + (raw[1] - pts[i * 2 + 1]) * ey) / l2).coerceIn(0.0, 1.0)
+            val dd = hypot(raw[0] - (pts[i * 2] + ex * t), raw[1] - (pts[i * 2 + 1] + ey * t))
+            if (dd < bestD) { bestD = dd; bestEdge = i; bestT = t }
+        }
+        val j = (bestEdge + 1) % m
+        val sx = pts[bestEdge * 2] + (pts[j * 2] - pts[bestEdge * 2]) * bestT
+        val sy = pts[bestEdge * 2 + 1] + (pts[j * 2 + 1] - pts[bestEdge * 2 + 1]) * bestT
+        val snap = c.startSnapFraction * d
+        val onStart = hypot(sx - pts[bestEdge * 2], sy - pts[bestEdge * 2 + 1]) <= snap
+        val onEnd = hypot(sx - pts[j * 2], sy - pts[j * 2 + 1]) <= snap
+        val out = ArrayList<Double>(m * 2 + 4)
+        if (onStart || onEnd) {
+            val first = if (onStart) bestEdge else j
+            for (k in 0 until m) { val i = (first + k) % m; out += pts[i * 2]; out += pts[i * 2 + 1] }
+        } else {
+            out += sx; out += sy
+            for (k in 1..m) { val i = (bestEdge + k) % m; out += pts[i * 2]; out += pts[i * 2 + 1] }
+        }
+        out += out[0]; out += out[1]
+        return DoubleArray(out.size) { out[it] }
+    }
+
+    private fun signedArea(xy: DoubleArray, n: Int): Double {
+        var a = 0.0
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            a += xy[i * 2] * xy[j * 2 + 1] - xy[j * 2] * xy[i * 2 + 1]
+        }
+        return a
     }
 
     /** A closed stroke with no corners and no ellipse in it: the jitter smoothed out all the way round. */

@@ -60,6 +60,21 @@ class OutlineAssistTest {
 
     /** The corners of a closed result: all but the repeated last point. */
     private fun ring(p: Pts) = p.dropLast(1)
+    /** The corners of a closed result: ring points where the outline really turns (a start vertex on a side is not one). */
+    private fun cornersOf(p: Pts): Pts {
+        val r = ring(p)
+        return r.indices.filter { i -> angleAt(r[i], r[(i + r.size - 1) % r.size], r[(i + 1) % r.size]) < 175.0 }.map { r[it] }
+    }
+
+    private fun signedArea(p: Pts): Double {
+        var a = 0.0
+        for (i in 0 until p.size - 1) a += p[i].first.toDouble() * p[i + 1].second - p[i + 1].first.toDouble() * p[i].second
+        return a + p.last().first.toDouble() * p[0].second - p[0].first.toDouble() * p.last().second
+    }
+
+    private fun regular(n: Int, radius: Float = 120f, phase: Double = 0.2): List<Pair<Float, Float>> =
+        (0 until n).map { (300f + radius * cos(phase + 2 * PI * it / n).toFloat()) to (300f + radius * sin(phase + 2 * PI * it / n).toFloat()) }
+
     private fun dist(a: Pair<Float, Float>, b: Pair<Float, Float>) = hypot((a.first - b.first).toDouble(), (a.second - b.second).toDouble())
 
     private fun angleAt(p: Pair<Float, Float>, a: Pair<Float, Float>, b: Pair<Float, Float>): Double {
@@ -102,7 +117,7 @@ class OutlineAssistTest {
         for (seed in 1L..20L) {
             val out = OutlineAssist.assist(noisy(closedPoly(square), 2f, seed))
             assertClean(out, true)
-            val r = ring(out)
+            val r = cornersOf(out)
             assertEquals("seed $seed", 4, r.size)
             val sides = (0 until 4).map { dist(r[it], r[(it + 1) % 4]) }
             sides.forEach { assertEquals(sides[0], it, 1e-3) }
@@ -117,7 +132,7 @@ class OutlineAssistTest {
     @Test fun `tilted noisy square stays a square at its own angle`() {
         val a = Math.toRadians(25.0)
         val tilted = square.map { (x, y) -> (200 + (x - 200) * cos(a) - (y - 200) * sin(a)).toFloat() to (200 + (x - 200) * sin(a) + (y - 200) * cos(a)).toFloat() }
-        val r = ring(OutlineAssist.assist(noisy(closedPoly(tilted), 2f, 3)))
+        val r = cornersOf(OutlineAssist.assist(noisy(closedPoly(tilted), 2f, 3)))
         assertEquals(4, r.size)
         val sides = (0 until 4).map { dist(r[it], r[(it + 1) % 4]) }
         sides.forEach { assertEquals(sides[0], it, 1e-3) }
@@ -128,7 +143,7 @@ class OutlineAssistTest {
     @Test fun `noisy rectangle keeps its aspect`() {
         val rect = listOf(100f to 100f, 400f to 100f, 400f to 250f, 100f to 250f)
         for (seed in 1L..20L) {
-            val r = ring(OutlineAssist.assist(noisy(closedPoly(rect), 2f, seed)))
+            val r = cornersOf(OutlineAssist.assist(noisy(closedPoly(rect), 2f, seed)))
             assertEquals(4, r.size)
             val w = dist(r[0], r[1])
             val h = dist(r[1], r[2])
@@ -151,6 +166,65 @@ class OutlineAssistTest {
         }
     }
 
+    @Test fun `an already clean circle keeps its start point and winding`() {
+        for (dir in listOf(1, -1)) {
+            val circle = (0..96).map {
+                val t = PI + dir * 2 * PI * it / 96
+                (300f + 120f * cos(t).toFloat()) to (300f + 120f * sin(t).toFloat())
+            }
+            val out = OutlineAssist.assist(circle)
+            assertClean(out, true)
+            assertTrue("start ${out.first()}", dist(out.first(), circle.first()) < 8.0)
+            assertEquals(Math.signum(signedArea(circle)), Math.signum(signedArea(out)), 0.0)
+        }
+    }
+
+    @Test fun `every closed shape keeps its start point and winding`() {
+        val shapes = mapOf(
+            "square" to square,
+            "rectangle" to listOf(100f to 100f, 400f to 100f, 400f to 250f, 100f to 250f),
+            "triangle" to listOf(100f to 300f, 300f to 300f, 150f to 120f),
+            "polygon" to listOf(100f to 300f, 300f to 300f, 300f to 180f, 130f to 80f, 100f to 180f),
+            "hexagon" to regular(6),
+        )
+        for ((name, v) in shapes) for (dir in listOf(1, -1)) {
+            val verts = if (dir == 1) v else v.reversed()
+            val input = noisy(closedPoly(verts), 1f, 4)
+            val out = OutlineAssist.assist(input)
+            assertClean(out, true)
+            assertEquals("$name winding", Math.signum(signedArea(input)), Math.signum(signedArea(out)), 0.0)
+            assertTrue("$name start ${out.first()} vs ${input.first()}", dist(out.first(), input.first()) < 6.0)
+        }
+        for (dir in listOf(1, -1)) {
+            val input = noisy(ellipse(300f, 300f, 160f, 80f).let { if (dir == 1) it else it.reversed() }, 1f, 5)
+            val out = OutlineAssist.assist(input)
+            assertEquals(Math.signum(signedArea(input)), Math.signum(signedArea(out)), 0.0)
+            assertTrue(dist(out.first(), input.first()) < 12.0)
+        }
+    }
+
+    @Test fun `regular polygons stay polygons with straight sides`() {
+        for (n in 5..8) {
+            for (seed in 1L..5L) {
+                val out = OutlineAssist.assist(noisy(closedPoly(regular(n), 25), 1f, seed))
+                assertClean(out, true)
+                val corners = cornersOf(out)
+                assertEquals("$n-gon seed $seed ${out.joinToString { "(%.0f,%.0f)".format(it.first, it.second) }}", n, corners.size)
+                val sides = corners.indices.map { dist(corners[it], corners[(it + 1) % n]) }
+                sides.forEach { assertEquals(sides[0], it, 1.0) }
+                corners.forEach { assertEquals(120.0, dist(it, 300f to 300f), 3.0) }
+            }
+        }
+    }
+
+    @Test fun `a clean hexagon is not changed`() {
+        val hex = regular(6)
+        val out = OutlineAssist.assist(closedPoly(hex, 25, 0f))
+        val corners = cornersOf(out)
+        assertEquals(6, corners.size)
+        for (v in hex) assertTrue(corners.any { dist(it, v) < 0.5 })
+    }
+
     @Test fun `ellipse stays an ellipse`() {
         val r = ring(OutlineAssist.assist(noisy(ellipse(300f, 300f, 160f, 80f), 2f, 5)))
         val w = r.maxOf { it.first } - r.minOf { it.first }
@@ -163,14 +237,14 @@ class OutlineAssistTest {
         for (seed in 1L..10L) {
             val out = OutlineAssist.assist(noisy(closedPoly(tri), 2f, seed))
             assertClean(out, true)
-            assertEquals(3, ring(out).size)
+            assertEquals(3, cornersOf(out).size)
         }
     }
 
     @Test fun `near equilateral triangle becomes equilateral`() {
         val h = (200 * sqrt3 / 2).toFloat()
         val tri = listOf(100f to 300f, 300f to 300f, 200f to 300f - h)
-        val r = ring(OutlineAssist.assist(noisy(closedPoly(tri), 1.5f, 2)))
+        val r = cornersOf(OutlineAssist.assist(noisy(closedPoly(tri), 1.5f, 2)))
         assertEquals(3, r.size)
         val s = (0 until 3).map { dist(r[it], r[(it + 1) % 3]) }
         s.forEach { assertEquals(s[0], it, 1e-3) }

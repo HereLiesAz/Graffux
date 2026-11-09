@@ -661,6 +661,12 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   - A piece with no point further than 5% of its length from its line becomes exactly straight, exactly
     horizontal or vertical within 8 degrees, and meets a neighbour at exactly 90 degrees within 12.
     Other pieces keep their shape with the jitter smoothed out ([1 2 1] passes, then simplified). Corners stay.
+  - A near-circular closed stroke whose radius swings once per side (5 to 8 sides, 2% or more, and following the
+    polygon to within 5%) is a *regular polygon*, not a circle: pentagon to octagon keep their exact straight
+    sides. Circles and ellipses are checked after that, so they still snap.
+  - A closed result runs the way the stroke ran and starts at the point of the cleaned outline nearest the stroke's
+    first point (a vertex is added there unless one is within 1% of the diagonal), because the paint's arc
+    length starts at the profile's first vertex; cleaning, or undoing it, does not turn or flip the artwork.
   - Four right-angled sides are a rectangle, a square when the sides are within 12%; three sides within 10%
     of each other are an equilateral triangle.
   - *Symmetry:* a shape that mirrors itself about a vertical axis (closed: also horizontal) to within 2.5% RMS
