@@ -269,7 +269,7 @@ on the brush it sits.
 
 - `lanes` is the resolution across the brush width, `depth` the number of layers along bristle
   length (tip layer is spent first, as on a real brush). Bounded (lanes at most 32, depth at most 4):
-  at most 128 cells, each a `(latent colour, amount)`.
+  at most 128 cells, each a `(12 tube concentrations + 4 canvas-origin basis concentrations, amount)` (6.2 item 4).
 - **Truth (GPU).** The load lives in a small GPU storage buffer for the stroke. The paint transaction
   (3.4) draws from it and lifts into it, in dab order. At stroke end it is read back (a few hundred
   bytes) and stored with the editor session and the project, so the brush starts the next stroke with
@@ -490,7 +490,7 @@ that is what makes older hosts degrade safely, and must stay true. New keys pars
    is a function of recorded times only; (v) drying uses the per-tick constant, never a measured delta;
    (vi) the same device and driver reproduces a replay exactly; across devices results agree within the
    tolerances in section 8 (height and wetness 2e-4 absolute as `wet.rs` already uses; colour within 2
-   levels per channel, the `tools/stamp-engine-diff` figure). (vii) **Replay windows are short:**
+   levels per channel, the `tools/stamp-engine-diff` figure). (vii) **Concentrations are canonical state:** the board's 12 channels and the canvas latent tiles are read and written by the transaction under the quantisation rule in 6.2 (deterministic largest-remainder, identical in Kotlin and WGSL), stored in the sidecar at commit, and included in GPU checkpoints, so a replay starts from exact concentrations and never re-derives them from RGB. (viii) **Replay windows are short:**
    a commit stores the canonical state in the material sidecar (`MaterialStateCodec`), and undo replays at
    most the undo depth (20 entries, `EditHistory`) from a GPU checkpoint or the canonical CPU state, so
    cross-device drift cannot accumulate over a document's history. Undo past a material-changing stroke
@@ -851,16 +851,52 @@ lookup so the 8-bit canvas storage does not change.** Concretely:
    that the alpha then composites. A glaze is a low alpha of a transparent pigment, composited
    in **latent** space against the underlying colour rather than in RGB, which is what makes
    glazes shift colour correctly.
-4. **The canvas stays RGBA8.** Pixels do not store pigment. When paint must mix with a pixel
-   (a lift, a wet blend, a smudge), the pixel's RGB is mapped to a latent vector by a **baked 3-D
-   lookup table** (proposed 32-cube, 4 channels, about 130 KB in 8 bits), the mix happens in latent
-   space, and the result is converted back. The reconstruction error is carried as a small RGB
-   residual added after the conversion, so a pure, unmixed pixel round-trips exactly. This is the
-   approach Mixbox popularised; we do **not** use Mixbox's code or data (section 9, licensing).
-5. **Brush and palette store the exact thing.** The brush load (E2) and the palette hold
-   `PigmentMix` as concentrations of named tubes, which are exact; only the *canvas* uses the
-   lookup. This is why the physical palette (6.3) can be accurate where the canvas readback is
-   approximate.
+4. **Two representations, because the palette and the canvas have different jobs** (amended after
+   review: the first draft said the board was an RGBA8 surface and also that it kept exact recipes;
+   those contradict, because `MaterialStateCodec.Snapshot` stores only ARGB, height, wetness and medium
+   (`feature/editor/.../MaterialStateCodec.kt:23-35`), so a recipe reconstructed from RGB cannot tell
+   two recipes with the same colour apart, and they would mix identically afterwards).
+   - **Palette board: a persisted concentration field.** Each board texel stores the *recipe*:
+     concentrations of up to **12 board tubes** (`BOARD_TUBES = 12`) as **12 x u8**, plus paint amount
+     in the existing height channel. Board tubes are slots assigned when the palette is set up; the
+     slot table (slot -> pigment id + `dataVersion`) is stored with the board. **Palette pickup and
+     board mixing read and write this field; they never use the canvas RGB-to-latent lookup.** Two
+     recipes that happen to share an RGB stay distinguishable and mix as what they are. The visible
+     colour of a texel is computed from its concentrations by the K-M mixer, not stored.
+     *Quantisation:* concentrations are normalised to sum 255 by a deterministic largest-remainder rule
+     (ties to the lower slot), so every texel sums to exactly 255 and the rule is identical in Kotlin and
+     WGSL. A step of 1/255 of one tube changes colour by at most about one 8-bit level for the
+     placeholder set; P3 pins this with a test.
+     *Budget:* 12 B per board texel. Board size **512 x 512 by default (3 MB), at most 1024 x 1024
+     (12 MB)**, so the earlier "8 MB with sidecar" figure is replaced (6.7).
+   - **Canvas: a sparse basis-latent field plus the colour it already has.** Painterly canvas layers
+     keep their RGBA8 colour (and the existing sparse raw-pigment tiles) **and** a **4 x u8 basis
+     concentration** per pixel, allocated lazily per 64 x 64 tile only where a painterly stroke has
+     deposited (the way wetness and raw pigment already allocate, status doc Phase 4/5). The four
+     basis pigments are fixed (the lookup header records their ids and `dataVersion`). Elsewhere, and
+     for paint that predates the field, a pixel's latent comes from the **baked RGB-to-latent lookup**
+     (a 32-cube, 4 channels, about 128 KB). The reconstruction error is carried as an RGB residual
+     (the stored colour minus the mixer's output for the stored concentrations) re-added after a mix, so
+     an unmixed pixel round-trips exactly. This is the approach Mixbox popularised; we do **not** use
+     Mixbox's code or data (section 9, licensing).
+   - **Consequences, stated plainly.** (i) On the **canvas, recipes are exact only up to projection onto
+     the four basis pigments.** Two canvas paints that differ in tube (say ultramarine versus a phthalo
+     blue and white metamer) but project to the same basis concentrations mix identically afterwards.
+     The board keeps tube identity; the canvas does not. (ii) Paint **lifted from the canvas into a
+     brush** carries basis-origin concentrations, so it can no longer be named as tubes. A brush load
+     cell therefore holds 12 tube concentrations plus 4 canvas-origin basis concentrations (3.3), and
+     the UI names only the tube part ("about 40% cadmium red, the rest picked up from the canvas").
+     (iii) Memory: canvas latent is 4 B per *touched* pixel, about 16 KB per 64 x 64 tile; a layer
+     where 30% of a 2048 x 2048 canvas is painted costs about 5 MB, never the full 16 MB.
+     (iv) Canvas mixing is approximate where the lookup is used (unpainted-by-latent or legacy paint),
+     exact to the basis where the field exists.
+   - **Sidecar format.** `MaterialStateCodec` goes from `VERSION` 3 (sheen, phase P2) to **4**: two new
+     per-tile flags, `FLAG_CONCENTRATION` (board: 12 B per texel, plus the slot table in the header) and
+     `FLAG_LATENT` (canvas: 4 B per texel). A v3 reader of a v4 file fails closed to "no material"
+     for that layer (the existing rule); a v4 reader of v3 treats both fields as absent. This lands
+     with the board in P6 (the field is meaningless before the transaction in P5 writes it).
+5. **Brush load keeps the exact thing it can.** The brush load (E2) holds tube concentrations, exact,
+   plus canvas-origin basis concentrations when it has lifted canvas paint.
 
 **Why K-M and not the alternatives**
 
@@ -918,7 +954,10 @@ sidecar the canvas layers use) stored in the project. It costs one more layer's 
 reuses the existing wet/height/pigment machinery, so no second engine (consistent with the status
 doc's "no second wet-mix engine" rule, Phase 4). **The board is a GPU surface**: knife and brush
 mixing on it run through the same paint transaction as canvas strokes (3.4), on a small resident
-layer, so the palette and the canvas are one implementation.
+layer, so the palette and the canvas share one implementation of the transaction. They differ in
+what a texel holds: the board stores recipes (12 concentration channels), the canvas stores colour plus
+a lazily allocated 4-channel basis latent (6.2 item 4), and the transaction reads whichever the surface
+has. Board pickup never goes through the RGB-to-latent lookup.
 
 ### 6.4 What stays digital, and why
 
@@ -1000,10 +1039,10 @@ hardware floor (Android 10, Vulkan 1.1, `ARCHITECTURE.md` "Graffux's hardware fl
 | Emits per step | At most 48 lanes per step on BALANCED, 24 on CONSTRAINED, 96 on FULL; extends the existing tier cap |
 | Pigment mix | At most 12 latent mixes per dab step; table-driven exp/pow |
 | Paint transaction (GPU) | At most 48 dabs per batch, footprint at most 64 x 64 px each at 1x; one extra dispatch per batch; target under 2 ms per batch on a mid-range Mali/Adreno (to measure) |
-| GPU memory | Latent lookup texture 32^3 x 4 B (about 128 KB), `avail` and `snap_color` buffers sized to the dirty rect, load buffer under 1 KB |
+| GPU memory | Latent lookup texture 32^3 x 4 B (about 128 KB), `avail` and `snap_color` buffers sized to the dirty rect, load buffer under 8 KB (128 cells x 16 floats) |
 | Load state | At most 128 cells, copied per step as a small array, no allocation in the step loop |
-| Palette board | At most 1024 x 1024 working surface, at most 8 MB with sidecar; knife mixing uses the same budgets |
-| Memory added by a painterly document | At most 24 MB beyond today (board, load, lookup table) |
+| Palette board | 512 x 512 default, at most 1024 x 1024; 12 B per texel of concentration plus height and wetness, at most about 20 MB at the cap (3 MB plus sidecar at default); knife mixing uses the same budgets |
+| Memory added by a painterly document | Default board under 8 MB, canvas latent about 4 B per touched pixel (about 5 MB at 30% coverage of 2048 x 2048), lookup 128 KB; at most 40 MB beyond today at the board cap |
 | Shading (E5) | One extra dot product and one `pow` approximation per shaded pixel; at most +10% on the existing impasto shade pass |
 
 CONSTRAINED devices degrade deterministically by capping lane count and disabling `transaction` (the brush then draws without lift or wet mixing), in the
@@ -1019,10 +1058,10 @@ material work. Phases 1 to 3 need no new pigment model.
 | **P0 — Read-only groundwork** | Read the stamp-stroke persistence path (5.6 rule 5); read how a live stamp stroke reaches the wet simulation and `SAVE_RAW` (E3, now P5's first task); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
 | **P1 — Lift tail and the petal harness** (E6) | Phase-3 emit tests; "petal pull" test stroke in `PackRenderHarness`; proof-of-concept Loaded Petal Flat from today's features | P0 | Harness renders a recognisable petal; tests pin tail determinism and replay |
 | **P2 — Edge ridge and highlight** (E5) | `emit h`, `heightMul`, `sheen`, shading port, stamp-engine-diff scenario | P1 | Rim bead and dry highlight visible; CPU and wgpu parity within tolerance; `sheen = 0` byte-identical |
-| **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, lookup-table generator, `PIGMENT_KM`, ~20 placeholder tubes; **WGSL port of the per-pixel mixer and the lookup as a 3-D texture**; Rust parity test | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
+| **P3 — Pigment model** (E4) | Kotlin `PigmentMixer` (reference/oracle), K-M, pigment data format (`dataQuality`/`dataVersion`), ~12 placeholder tubes, **concentration quantiser (sum-255, largest remainder) with an error-bound test**, basis-latent lookup generator (4 fixed basis pigments, residual); **WGSL port of the per-pixel mixer and the lookup as a 3-D texture**; Rust parity test | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; Kotlin vs WGSL (lavapipe) within 2 levels |
 | **P4 — Brush load** (E2) | `load` block; Kotlin budget; **GPU load buffer** carried between batches and read back at stroke end; finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically (same device) |
 | **P5 — Paint transaction** (E3) | **GPU `paint_transaction` pass**: sample, lift (consuming `avail` and the surface), draw, K-M wet mix; `snap_color`/`avail` buffers; Kotlin reference; Rust tests including the repeated-lift-cannot-refill case and own-deposit-not-lifted case | P3, P4 | Petal pull over wet paint picks up and blends; lifts deplete the source; parity within tolerance; replay-equality across an undo cycle |
-| **P6 — Palette/mixer replaces picker** | Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
+| **P6 — Palette/mixer replaces picker** | Board with **12-channel persisted concentration field and slot table**, **material sidecar v4 (`FLAG_CONCENTRATION`, `FLAG_LATENT`)** and codec tests (v3 fail-closed, v4 round trip), canvas basis-latent tiles written by the transaction, Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
 | **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
 | **P7b — Stroke capture and demo replay** | **Persistent stamp-stroke capture** (`StampStrokeRecord`: brush ref by pack id and version plus a params hash, stroke seed, full `BrushSample`s with tilt/time/phase, colour or recipe, size, opacity, canvas transform, substrate preset, wet-ledger prior film if the brush uses it) in a new per-layer project sidecar; a **replay consumer** that feeds recorded strokes through the editor's stroke pipeline at recorded timing; a `StrokeRecording` export/import; project-format version bump with a fail-closed reader | P7 | A recorded petal replays pixel-identically on the same device after reopen, and within tolerance on another; a pack plus a recording shares a demo |
 | **P8 — Watercolour engine** (E7) | GPU wicking/bleed (absorbency texture), granulation, edge flux in the ADVANCE family; Kotlin reference extended; Rust `cpu_advance` extended | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
@@ -1133,6 +1172,9 @@ Not owner questions; implementation unknowns that the groundwork phase (P0) reso
 | Risk | Effect | Mitigation |
 |---|---|---|
 | Replay divergence from GPU material state/load | Undo shows different paint | Persist load per stroke, restore canonical state or a GPU checkpoint, fixed timestep (4a); replay-equality test is a merge gate (4.4) |
+| Canvas cannot tell metamers apart | Two recipes with the same basis projection mix alike on the canvas | Stated in 6.2; tube identity lives on the board and in the brush's tube part; accept for v1 |
+| Concentration quantisation drift | Repeated mixes round to u8 each time | Largest-remainder rule; error-bound test; limit mixes per texel per stroke; P3 test of 50 repeated mixes |
+| Sidecar v4 | Older builds drop board/latent | Fail-closed per layer; board is regenerable from slot table only if the field survives, so back up is the project file |
 | Dab-level mixing looks banded against the canvas | Visible lane edges | Lane count tuned by tier; sub-pixel overlap; `mixWet` is a gradient, not a step |
 | K-M data quality | Colours look wrong or muddy | Source real data first (P0); golden vectors; allow tube tuning in packs |
 | 8-bit canvas quantisation of repeated mixes | Muddy drift after many mixes | Residual in the lookup keeps unmixed pixels exact; limit mixes per pixel per stroke; test with 50 repeated mixes |
