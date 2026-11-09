@@ -121,6 +121,8 @@ internal sealed interface EditorIntent {
     data class SetImperialUnits(val value: Boolean) : EditorIntent
     /** Mirrors the persisted Settings "Brush size locked to screen" toggle into live UiState. */
     data class SetBrushSizeFixedOnScreen(val value: Boolean) : EditorIntent
+    /** Mirrors the persisted Settings "Clean up surface outlines" toggle into live UiState. */
+    data class SetSurfaceOutlineAssist(val value: Boolean) : EditorIntent
     /** Mirrors the persisted per-gesture action mapping into live UiState. */
     data class SetGestureMapping(val mapping: Map<GestureSlot, GestureAction>) : EditorIntent
     data object FeedbackShown : EditorIntent

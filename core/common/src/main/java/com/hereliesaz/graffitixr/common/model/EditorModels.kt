@@ -590,6 +590,9 @@ data class EditorUiState(
     // level, so the real mark it leaves shrinks as you zoom in and grows as you zoom out. See
     // EditorViewModel.effectivePaintBrushSize, the single place this is applied.
     val brushSizeFixedOnScreen: Boolean = false,
+    // Mirrors the persisted Settings "Clean up surface outlines" toggle (default on): when a surface
+    // outline stroke ends, EditorViewModel.onSurfaceProfileDrawn runs OutlineAssist on it.
+    val surfaceOutlineAssist: Boolean = true,
     // Feathering [0..1]: 0 = hard edge, 1 = fully soft (blur radius = brushSize)
     val brushFeathering: Float = 0f,
     // Stroke-level opacity ceiling [0..1] for the built-in round brush (Tool.BRUSH with no azphalt

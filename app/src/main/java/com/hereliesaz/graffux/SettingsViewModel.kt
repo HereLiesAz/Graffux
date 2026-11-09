@@ -23,6 +23,7 @@ import javax.inject.Inject
  * the gesture map. Each flow is
  * cached as a [StateFlow] for the UI; writes are persisted off the main thread.
  */
+@Suppress("TooManyFunctions")
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
@@ -93,6 +94,13 @@ class SettingsViewModel @Inject constructor(
 
     fun setImperialUnits(imperial: Boolean) = viewModelScope.launch(dispatchers.io) {
         settings.setImperialUnits(imperial)
+    }
+
+    val surfaceOutlineAssist: StateFlow<Boolean> =
+        settings.surfaceOutlineAssist.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    fun setSurfaceOutlineAssist(enabled: Boolean) = viewModelScope.launch(dispatchers.io) {
+        settings.setSurfaceOutlineAssist(enabled)
     }
 
     val brushSizeFixedOnScreen: StateFlow<Boolean> =

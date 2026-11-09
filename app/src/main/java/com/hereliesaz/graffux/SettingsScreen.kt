@@ -85,6 +85,7 @@ fun SettingsScreen(
     val storedPlacement by vm.propertiesPlacement.collectAsStateWithLifecycle()
     val smallestWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp
     val brushSizeFixedOnScreen by vm.brushSizeFixedOnScreen.collectAsStateWithLifecycle()
+    val surfaceOutlineAssist by vm.surfaceOutlineAssist.collectAsStateWithLifecycle()
     val sampleRate by vm.inputSampleRateHz.collectAsStateWithLifecycle()
     val renderScale by vm.canvasRenderScale.collectAsStateWithLifecycle()
     val gestureMapping by vm.gestureMapping.collectAsStateWithLifecycle()
@@ -168,6 +169,14 @@ fun SettingsScreen(
                     "the Size slider remains the base diameter.",
                 checked = !brushSizeFixedOnScreen,
                 onCheckedChange = { followsZoom -> vm.setBrushSizeFixedOnScreen(!followsZoom) },
+            )
+            HorizontalDivider()
+            SwitchRow(
+                title = "Clean up surface outlines",
+                subtitle = "When you lift your finger after drawing a surface, straighten lines, square up " +
+                    "corners, make circles and mirrored shapes exact. Undo brings back your raw line.",
+                checked = surfaceOutlineAssist,
+                onCheckedChange = { vm.setSurfaceOutlineAssist(it) },
             )
             HorizontalDivider()
             // No language picker. The only translations `:core:design` carried were GraffitiXR's —

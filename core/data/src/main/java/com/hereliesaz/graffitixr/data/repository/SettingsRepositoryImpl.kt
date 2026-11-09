@@ -37,6 +37,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val IS_IMPERIAL_UNITS = booleanPreferencesKey("is_imperial_units")
     private val propertiesPlacementKey = stringPreferencesKey("properties_placement")
     private val BRUSH_SIZE_FIXED_ON_SCREEN = booleanPreferencesKey("brush_size_fixed_on_screen")
+    private val surfaceOutlineAssistKey = booleanPreferencesKey("surface_outline_assist")
     private val HIDDEN_BRUSH_TIP_IDS = stringSetPreferencesKey("hidden_brush_tip_ids")
     private val BACKGROUND_COLOR = intPreferencesKey("background_color")
     private val SAVED_PALETTE = stringPreferencesKey("saved_palette")
@@ -85,6 +86,16 @@ class SettingsRepositoryImpl @Inject constructor(
     override suspend fun setBrushSizeFixedOnScreen(fixed: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[BRUSH_SIZE_FIXED_ON_SCREEN] = fixed
+        }
+    }
+
+    override val surfaceOutlineAssist: Flow<Boolean> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { preferences -> preferences[surfaceOutlineAssistKey] ?: true }
+
+    override suspend fun setSurfaceOutlineAssist(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[surfaceOutlineAssistKey] = enabled
         }
     }
 

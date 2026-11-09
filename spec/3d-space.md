@@ -646,6 +646,30 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
     camera goes back when the stroke is captured, on Cancel/Back, or if the group vanishes. The chip says
     what to do for each view and shows "Front: done. Side: not drawn yet. Top: ..." (words, not just
     colour). Switching between views while armed keeps the first camera to return to.
+- **Outline assist.** When the finger lifts on a surface outline (the front profile or a side or top view),
+  `OutlineAssist` (`:core:common`, pure Kotlin on the canvas points, run once, before `SurfaceMath.capture`)
+  cleans the stroke, so a square drawn wobbly is a square. The raw stroke is committed first and the
+  cleaned one as a second undo step, so one undo brings back exactly what was drawn. Settings has
+  "Clean up surface outlines" (default on, `SettingsRepository.surfaceOutlineAssist`, mirrored into
+  `EditorUiState.surfaceOutlineAssist`). What it does:
+  - A stroke too small to be a shape (path or bounding diagonal under 12 px) is left as drawn.
+  - *Closed* (ends meet within 12% of the path length and it encloses area): one that fits an ellipse
+    (mean radial error 5%) becomes a circle (axes within 12%) or an ellipse (axis-aligned within 8
+    degrees); otherwise it is split at its corners.
+  - Corners are bends of 60 degrees or more at the scale of the stroke that are still 50 degrees or more
+    over a 6% window, so a wavy side is not cut into straight lengths.
+  - A piece with no point further than 5% of its length from its line becomes exactly straight, exactly
+    horizontal or vertical within 8 degrees, and meets a neighbour at exactly 90 degrees within 12.
+    Other pieces keep their shape with the jitter smoothed out ([1 2 1] passes, then simplified). Corners stay.
+  - Four right-angled sides are a rectangle, a square when the sides are within 12%; three sides within 10%
+    of each other are an equilateral triangle.
+  - *Symmetry:* a shape that mirrors itself about a vertical axis (closed: also horizontal) to within 2.5% RMS
+    and 7% worst of its bounding diagonal is made exactly symmetric by averaging its two halves, corner to
+    corner; an open stroke mirrors onto itself reversed. Lopsided shapes are left alone.
+  - The result is checked the way the profile is: finite, at most `SurfaceMath.MAX_POINTS`, at least the
+    capture's minimum length, and it still encloses area when the input did; otherwise the raw stroke is used.
+    A closed result ends on its first point (the hull joins last to first).
+  Every threshold is a field of `OutlineAssist.Config`, documented there.
 - **Limits.** Blend modes and clipping masks inside a profiled group composite as normal
   (source-over) when its profile is curved, except that a layer's own blend or clip on a straight
   profile, and the group's blend on a straight profile, draw in the stack. glTF fades a translucent
