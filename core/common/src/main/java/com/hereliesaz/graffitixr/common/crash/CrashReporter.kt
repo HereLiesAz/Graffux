@@ -163,26 +163,39 @@ class CrashReporter internal constructor(
             Regex("""-?\d{1,3}\.\d{4,}\s*,\s*-?\d{1,3}\.\d{4,}""") to "[REDACTED_COORDS]",
             // key=value / key: value latitude / longitude fields.
             Regex("""(?i)\b(lat(?:itude)?)\s*[=:]\s*-?\d{1,3}\.\d+""") to "$1=[REDACTED]",
-            Regex("""(?i)\b(lon(?:g(?:itude)?)?)\s*[=:]\s*-?\d{1,3}\.\d+""") to "$1=[REDACTED]",
+            Regex("""(?i)\b(l(?:on(?:g(?:itude)?)?|ng))\s*[=:]\s*-?\d{1,3}\.\d+""") to "$1=[REDACTED]",
             // Bearer/auth headers and token-/secret-/key-/session-shaped key=value pairs.
             Regex("""(?i)\bBearer\s+[A-Za-z0-9\-_.=]{8,}""") to "Bearer [REDACTED]",
             // Basic credentials and whole Cookie / Set-Cookie headers (session cookies are bearer credentials).
             Regex("""(?i)\bBasic\s+[A-Za-z0-9+/=]{8,}""") to "Basic [REDACTED]",
             Regex("""(?i)\b(set-cookie|cookie)\s*:\s*[^\r\n]+""") to "$1: [REDACTED]",
+            // The whole Authorization header, in any scheme but Bearer and Basic (their own patterns keep the scheme).
+            Regex("""(?i)\bauthorization\s*:(?!\s*(?:bearer|basic)\b)\s*[^\r\n]+""") to "Authorization: [REDACTED]",
+            // Prefixed names count too: access_*, client_*, x-api-key, id_*, ...
             Regex(
-                """(?i)\b(token|secret|api[_-]?key|session[_-]?id|auth|password|passwd|pwd)""" +
+                """(?i)\b([\w-]*(?:token|secret|api[_-]?key|session[_-]?id|auth|password|passwd|pwd))""" +
                     """\s*[=:]\s*[^\s&,;"']{3,}""",
             ) to
                 "$1=[REDACTED]",
             // The same keys as JSON: "token":"value".
-            Regex("""(?i)"(token|secret|api[_-]?key|session[_-]?id|auth|password)"\s*:\s*"[^"]*"""") to
+            Regex("""(?i)"([\w-]*(?:token|secret|api[_-]?key|session[_-]?id|auth|password))"\s*:\s*"[^"]*"""") to
                 "\"$1\":\"[REDACTED]\"",
             // Bare GitHub, Figma and similar prefixed tokens.
             Regex("""\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|figd_[\w\-]{20,})""") to
                 "[REDACTED_TOKEN]",
+            // JWTs, and other prefixed provider keys that turn up in URLs and messages.
+            Regex("""\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]*""") to "[REDACTED_TOKEN]",
+            Regex(
+                """\bAIza[\w-]{30,}|\b(?:AKIA|ASIA)[A-Z0-9]{16}\b|\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}""" +
+                    """|\bxox[abprs]-[A-Za-z0-9-]{10,}""",
+            ) to "[REDACTED_TOKEN]",
             // Content and file URIs and app-private paths name the user's own files.
             Regex("""\b(?:content|file)://\S+""") to "[REDACTED_URI]",
             Regex("""/(?:data/(?:user/\d+|data)|storage/emulated/\d+|sdcard)/\S+""") to "[REDACTED_PATH]",
+            // Removable storage (/storage/<volume-id>/...), and a person's home directory on any OS.
+            Regex("""/storage/[^/\s]+/\S+""") to "[REDACTED_PATH]",
+            Regex("""/(?:home|Users)/[^/\s]+(?:/\S*)?""") to "[REDACTED_PATH]",
+            Regex("""(?i)\b[A-Z]:\\Users\\[^\\\s]+(?:\\\S*)?""") to "[REDACTED_PATH]",
             // IPv4 and IPv6 addresses (a client address identifies a user's network).
             // Not a four-part version: "1.53.2.1 (140010150)" is this app's build label, and "v1.2.3.4" a version.
             Regex(
@@ -195,6 +208,8 @@ class CrashReporter internal constructor(
                     """|\b(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}:?){1,6}\b""",
             ) to
                 "[REDACTED_IP]",
+            // MAC / BSSID addresses identify a device or the network it is on.
+            Regex("""(?i)(?<![\w:])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![\w:])""") to "[REDACTED_MAC]",
             // Email addresses.
             Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[REDACTED_EMAIL]",
         )
