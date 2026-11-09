@@ -184,4 +184,52 @@ class SheetStageTapUiTest {
     }
 
     private var composed = false
+
+    @Test
+    fun `at the half grid the star of the first row still toggles its favorite, and the control still works`() {
+        val entries = (0 until 6).map { i ->
+            CarouselEntry("e$i", "Brush $i", CarouselAction.BuiltInBrush("Round"), selected = false)
+        }
+        val toggled = mutableListOf<String>()
+        ui = CarouselUi(
+            CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true, detent = CarouselDetent.HALF,
+        )
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    CarouselSheet(
+                        open = true,
+                        onOpenChange = {},
+                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = false),
+                    ) {
+                        BottomCarousel(
+                            ui = ui,
+                            onUiChange = { ui = it },
+                            content = CarouselContent(
+                                entries = entries,
+                                brushColor = androidx.compose.ui.graphics.Color.White,
+                                secondaryColor = androidx.compose.ui.graphics.Color.Black,
+                                extensionPreviews = emptyMap(),
+                            ),
+                            onEntryClick = {},
+                            onToggleFavorite = { toggled += it.key },
+                        )
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val up = rule.onNodeWithTag("carousel.stage.up").fetchSemanticsNode().boundsInRoot
+        val stars = rule.onAllNodes(androidx.compose.ui.test.hasContentDescription("Add to favorites"), true)
+            .fetchSemanticsNodes()
+        assertTrue("the grid shows stars", stars.isNotEmpty())
+        stars.forEach {
+            assertFalse("a star under the control: ${it.boundsInRoot} vs $up", it.boundsInRoot.overlaps(up))
+        }
+        rule.onAllNodes(androidx.compose.ui.test.hasContentDescription("Add to favorites"), true)[0].performClick()
+        assertEquals(listOf("e0"), toggled)
+        assertEquals("tapping the star must not step the sheet", CarouselDetent.HALF, ui.detent)
+        tap("carousel.stage.up")
+        assertEquals(CarouselDetent.FULL, ui.detent)
+    }
 }

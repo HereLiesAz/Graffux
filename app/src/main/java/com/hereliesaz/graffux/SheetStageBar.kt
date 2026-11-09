@@ -102,3 +102,6 @@ private fun StageButton(
 }
 
 private val StageButtonSize = 48.dp
+
+/** The strip along the top of a grid stage that the stage controls own: nothing interactive is laid in it. */
+internal val StageControlClearance = StageButtonSize

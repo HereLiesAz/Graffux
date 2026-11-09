@@ -112,7 +112,9 @@ class CarouselPickerPositionUiTest {
         /** The strip's 56dp and the column gap above it, at 420dpi. */
         const val STRIP_ROOM = 158f
         const val PEEK_TOP = STRIP_ERA_PEEK_TOP + STRIP_ROOM
-        const val HALF_TOP = 1009f + STRIP_ROOM
+        /** The grid's top strip (48dp at 420dpi) that the stage controls own; the grid's height is unchanged. */
+        const val STAGE_STRIP = 126f
+        const val HALF_TOP = 1009f + STRIP_ROOM + STAGE_STRIP
         const val CARDS_BOTTOM = 2188f + STRIP_ROOM
     }
 }
