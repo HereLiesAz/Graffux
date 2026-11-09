@@ -109,6 +109,97 @@ pub fn affine_usable(m: &[f32; 6]) -> bool {
     m.iter().all(|v| v.is_finite()) && det.is_finite() && det.abs() > 1e-12
 }
 
+/// One value kept for as long as its key stays the same: the present pass's bind group per source buffer. The pass
+/// used to build a bind group every frame; its inputs (the source buffer, the stroke's base, the uniform) only change
+/// when the source buffer is swapped (multipass display buffer vs the layer) or the base is reallocated.
+pub(crate) struct KeyedCache<K, V> {
+    slot: Option<(K, V)>,
+    builds: u64,
+}
+
+impl<K: PartialEq + Clone, V: Clone> KeyedCache<K, V> {
+    pub(crate) fn new() -> Self {
+        KeyedCache { slot: None, builds: 0 }
+    }
+
+    /// The value for `key`, built by `build` only when there is none or it was made for another key.
+    pub(crate) fn get_or_build(&mut self, key: &K, build: impl FnOnce() -> V) -> V {
+        if let Some((k, v)) = &self.slot {
+            if k == key {
+                return v.clone();
+            }
+        }
+        let v = build();
+        self.slot = Some((key.clone(), v.clone()));
+        self.builds += 1;
+        v
+    }
+
+    /// Forgets the value (something it was built from changed without the key changing).
+    pub(crate) fn invalidate(&mut self) {
+        self.slot = None;
+    }
+
+    /// How many values were built.
+    pub(crate) fn builds(&self) -> u64 {
+        self.builds
+    }
+}
+
+/// What a swapchain acquisition told us, with the frame type left generic so the recovery logic below can be
+/// tested without a window.
+pub(crate) enum Acquired<T> {
+    /// A frame to draw into (a suboptimal one is still drawable).
+    Frame(T),
+    /// The surface's configuration is stale (rotation, resize): `configure` it again.
+    Outdated,
+    /// The surface itself is gone (the window's producer was torn down and rebuilt): it must be recreated from the
+    /// window, then configured. Reconfiguring the dead surface cannot bring it back.
+    Lost,
+    /// Nothing to draw into right now (timeout, occluded, validation): skip this frame.
+    Skip,
+}
+
+pub(crate) fn classify_acquire(status: wgpu::CurrentSurfaceTexture) -> Acquired<wgpu::SurfaceTexture> {
+    use wgpu::CurrentSurfaceTexture as C;
+    match status {
+        C::Success(t) | C::Suboptimal(t) => Acquired::Frame(t),
+        C::Outdated => Acquired::Outdated,
+        C::Lost => Acquired::Lost,
+        C::Timeout | C::Occluded | C::Validation => Acquired::Skip,
+    }
+}
+
+/// Acquires a frame, recovering once from a stale or lost surface: `Outdated` reconfigures, `Lost` recreates the
+/// surface (`recreate` returns false when it cannot, and the frame is skipped). A frame that is still not there
+/// after the one recovery is skipped, never retried in a loop.
+pub(crate) fn acquire_with_recovery<T>(
+    mut get: impl FnMut() -> Acquired<T>,
+    mut reconfigure: impl FnMut(),
+    mut recreate: impl FnMut() -> bool,
+) -> Option<T> {
+    match get() {
+        Acquired::Frame(t) => Some(t),
+        Acquired::Outdated => {
+            reconfigure();
+            match get() {
+                Acquired::Frame(t) => Some(t),
+                _ => None,
+            }
+        }
+        Acquired::Lost => {
+            if !recreate() {
+                return None;
+            }
+            match get() {
+                Acquired::Frame(t) => Some(t),
+                _ => None,
+            }
+        }
+        Acquired::Skip => None,
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct DirectUniform {
@@ -129,7 +220,9 @@ const FLAG_STRAIGHT: i32 = 2;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 enum Target {
     Surface {
-        surface: wgpu::Surface<'static>,
+        /// None only between dropping a lost surface and creating its replacement (see
+        /// [`acquire_with_recovery`]); the next frame tries again.
+        surface: Option<wgpu::Surface<'static>>,
         config: wgpu::SurfaceConfiguration,
     },
     Offscreen {
@@ -151,6 +244,41 @@ pub(crate) struct Direct {
     stroke: bool,
     matrix: [f32; 6],
     presents: u64,
+    /// The present pass's bind group, kept per source buffer (see [`KeyedCache`]).
+    bind: KeyedCache<wgpu::Buffer, wgpu::BindGroup>,
+}
+
+/// A surface on the Android window `window` (an `ANativeWindow*`), or None (the reason is logged). Off Android there
+/// is no window to make one from.
+///
+/// # Safety
+/// `window` must be a valid `ANativeWindow*` that outlives the returned surface.
+#[cfg(target_os = "android")]
+unsafe fn create_window_surface(
+    instance: &wgpu::Instance,
+    window: usize,
+) -> Option<wgpu::Surface<'static>> {
+    use wgpu::rwh::{
+        AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    let ptr = std::ptr::NonNull::new(window as *mut std::ffi::c_void)?;
+    let target = wgpu::SurfaceTargetUnsafe::RawHandle {
+        raw_display_handle: Some(RawDisplayHandle::Android(AndroidDisplayHandle::new())),
+        raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(ptr)),
+    };
+    // SAFETY: the caller guarantees the window outlives the surface.
+    match unsafe { instance.create_surface_unsafe(target) } {
+        Ok(s) => Some(s),
+        Err(err) => {
+            log::warn!("graffux-wgpu: direct display surface: {err}");
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+unsafe fn create_window_surface(_: &wgpu::Instance, _: usize) -> Option<wgpu::Surface<'static>> {
+    None
 }
 
 fn fragment_storage_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -238,6 +366,7 @@ impl Direct {
             stroke: false,
             matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
             presents: 0,
+            bind: KeyedCache::new(),
         }
     }
 
@@ -303,15 +432,12 @@ impl Engine {
     ) -> bool {
         #[cfg(target_os = "android")]
         {
-            use wgpu::rwh::{
-                AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
-            };
             if width <= 0 || height <= 0 || !self.direct_adapter_ok() {
                 return false;
             }
-            let Some(ptr) = std::ptr::NonNull::new(window) else {
+            if std::ptr::NonNull::new(window).is_none() {
                 return false;
-            };
+            }
             if let Some(Direct {
                 target: Target::Surface { config, .. },
                 ..
@@ -328,22 +454,16 @@ impl Engine {
             let Some(instance) = self.instance.as_ref() else {
                 return false;
             };
-            let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                raw_display_handle: Some(RawDisplayHandle::Android(AndroidDisplayHandle::new())),
-                raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(ptr)),
-            };
             // SAFETY: the caller guarantees the window outlives the surface (see the doc).
-            let surface = match unsafe { instance.create_surface_unsafe(target) } {
-                Ok(s) => s,
-                Err(err) => {
-                    log::warn!("graffux-wgpu: direct display surface: {err}");
-                    return false;
-                }
+            let Some(surface) = (unsafe { create_window_surface(instance, window as usize) }) else {
+                return false;
             };
+            // Set before the first draw, so a surface lost on it can be recreated from this window.
+            self.direct_window = Some(window as usize);
             if self.direct_configure(surface, width as u32, height as u32) {
-                self.direct_window = Some(window as usize);
                 true
             } else {
+                self.direct_window = None;
                 false
             }
         }
@@ -396,7 +516,15 @@ impl Engine {
         config.desired_maximum_frame_latency = 1;
         surface.configure(&self.device, &config);
         let flags = (if srgb { FLAG_SRGB } else { 0 }) | (if straight { FLAG_STRAIGHT } else { 0 });
-        let direct = Direct::new(self, Target::Surface { surface, config }, format, flags);
+        let direct = Direct::new(
+            self,
+            Target::Surface {
+                surface: Some(surface),
+                config,
+            },
+            format,
+            flags,
+        );
         self.direct = Some(Box::new(direct));
         // Start transparent: the SurfaceView sits over the whole canvas.
         let ok = self.direct_draw(MODE_CLEAR, None) && self.ok();
@@ -466,6 +594,8 @@ impl Engine {
         if d.base_size != (w, h) {
             d.base = Direct::base_buffer(&self.device, bytes);
             d.base_size = (w, h);
+            // The cached bind group names the old base buffer.
+            d.bind.invalidate();
         }
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&self.layer, 0, &d.base, 0, bytes);
@@ -510,6 +640,11 @@ impl Engine {
             None => return false,
         }
         self.direct_draw(MODE_CLEAR, None) && self.ok()
+    }
+
+    /// Bind groups the present pass has built since the target was attached (tests, telemetry).
+    pub fn direct_bind_group_builds(&self) -> u64 {
+        self.direct.as_ref().map_or(0, |d| d.bind.builds())
     }
 
     /// Presents so far in this stroke (tests, telemetry).
@@ -593,41 +728,65 @@ impl Engine {
         };
         self.queue
             .write_buffer(&d.uniform, 0, bytemuck::bytes_of(&u));
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("direct display"),
-            layout: &d.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: d.base.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: d.uniform.as_entire_binding(),
-                },
-            ],
-        });
-        let (frame, view) = match &d.target {
+        let bind_group = {
+            let (device, layout, base, uniform) = (&self.device, &d.layout, &d.base, &d.uniform);
+            d.bind.get_or_build(&src, || {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("direct display"),
+                    layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: src.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: base.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: uniform.as_entire_binding(),
+                        },
+                    ],
+                })
+            })
+        };
+        let (frame, view) = match &mut d.target {
             Target::Offscreen { texture } => (None, texture.create_view(&Default::default())),
-            Target::Surface { surface, config } => {
-                let acquired = match surface.get_current_texture() {
-                    wgpu::CurrentSurfaceTexture::Success(t) => Some(t),
-                    wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
-                    wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                        // The window changed under us (rotation, resize): reconfigure once.
-                        surface.configure(&self.device, config);
-                        match surface.get_current_texture() {
-                            wgpu::CurrentSurfaceTexture::Success(t)
-                            | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
-                            _ => None,
+            Target::Surface {
+                surface: slot,
+                config,
+            } => {
+                let device = &self.device;
+                let instance = self.instance.as_ref();
+                let window = self.direct_window;
+                let slot = std::cell::RefCell::new(slot);
+                let acquired = acquire_with_recovery(
+                    || match slot.borrow().as_ref() {
+                        Some(s) => classify_acquire(s.get_current_texture()),
+                        None => Acquired::Lost,
+                    },
+                    || {
+                        if let Some(s) = slot.borrow().as_ref() {
+                            s.configure(device, config);
                         }
-                    }
-                    _ => None,
-                };
+                    },
+                    || {
+                        let (Some(instance), Some(window)) = (instance, window) else {
+                            return false;
+                        };
+                        // The dead surface goes first: a window takes one producer at a time.
+                        drop(slot.borrow_mut().take());
+                        // SAFETY: the window is the one `direct_attach_window` was given, which its caller
+                        // keeps valid until detach (see its safety contract).
+                        let Some(new) = (unsafe { create_window_surface(instance, window) }) else {
+                            return false;
+                        };
+                        new.configure(device, config);
+                        **slot.borrow_mut() = Some(new);
+                        true
+                    },
+                );
                 let Some(frame) = acquired else {
                     return false;
                 };
@@ -758,6 +917,90 @@ mod tests {
         assert!(affine_usable(&[0.5, -0.2, 10.0, 0.2, 0.5, -3.0]));
         assert!(!affine_usable(&[1.0, 2.0, 0.0, 2.0, 4.0, 0.0]));
         assert!(!affine_usable(&[f32::NAN, 0.0, 0.0, 0.0, 1.0, 0.0]));
+    }
+
+    #[test]
+    fn keyed_cache_builds_once_per_key_until_invalidated() {
+        let mut c: KeyedCache<u32, String> = KeyedCache::new();
+        let mut built = 0;
+        let mut get = |c: &mut KeyedCache<u32, String>, k: u32, built: &mut u32| {
+            c.get_or_build(&k, || {
+                *built += 1;
+                format!("group for {k}")
+            })
+        };
+        for _ in 0..50 {
+            assert_eq!(get(&mut c, 1, &mut built), "group for 1");
+        }
+        assert_eq!((built, c.builds()), (1, 1), "fifty frames on one source, one build");
+        assert_eq!(get(&mut c, 2, &mut built), "group for 2", "a new source buffer rebuilds");
+        assert_eq!(get(&mut c, 2, &mut built), "group for 2");
+        assert_eq!(built, 2);
+        c.invalidate();
+        assert_eq!(get(&mut c, 2, &mut built), "group for 2", "an invalidated entry rebuilds");
+        assert_eq!(built, 3);
+    }
+
+    /// Drives `acquire_with_recovery` with scripted acquisitions: what the swapchain says, in order, and how many
+    /// times each recovery ran.
+    fn run_acquire(
+        script: Vec<Acquired<u32>>,
+        recreate_ok: bool,
+    ) -> (Option<u32>, usize, usize) {
+        let mut script = script.into_iter();
+        let (mut reconfigured, mut recreated) = (0usize, 0usize);
+        let got = acquire_with_recovery(
+            || script.next().expect("acquired more than the script allows"),
+            || reconfigured += 1,
+            || {
+                recreated += 1;
+                recreate_ok
+            },
+        );
+        (got, reconfigured, recreated)
+    }
+
+    #[test]
+    fn an_outdated_surface_is_reconfigured_once() {
+        let (got, reconf, recre) = run_acquire(vec![Acquired::Outdated, Acquired::Frame(7)], true);
+        assert_eq!((got, reconf, recre), (Some(7), 1, 0));
+    }
+
+    #[test]
+    fn a_lost_surface_is_recreated_not_just_reconfigured() {
+        // The bug: Lost was handled like Outdated, so a dead surface was reconfigured and never came back.
+        let (got, reconf, recre) = run_acquire(vec![Acquired::Lost, Acquired::Frame(9)], true);
+        assert_eq!((got, reconf, recre), (Some(9), 0, 1));
+    }
+
+    #[test]
+    fn a_surface_that_cannot_be_recreated_skips_the_frame() {
+        let (got, reconf, recre) = run_acquire(vec![Acquired::Lost], false);
+        assert_eq!((got, reconf, recre), (None, 0, 1));
+    }
+
+    #[test]
+    fn recovery_is_tried_once_then_the_frame_is_skipped() {
+        let (got, _, recre) = run_acquire(vec![Acquired::Lost, Acquired::Lost], true);
+        assert_eq!((got, recre), (None, 1));
+        let (got, reconf, _) = run_acquire(vec![Acquired::Outdated, Acquired::Outdated], true);
+        assert_eq!((got, reconf), (None, 1));
+    }
+
+    #[test]
+    fn timeouts_and_occlusion_skip_without_recovering() {
+        let (got, reconf, recre) = run_acquire(vec![Acquired::Skip], true);
+        assert_eq!((got, reconf, recre), (None, 0, 0));
+    }
+
+    #[test]
+    fn swapchain_statuses_map_to_the_right_recovery() {
+        use wgpu::CurrentSurfaceTexture as C;
+        assert!(matches!(classify_acquire(C::Outdated), Acquired::Outdated));
+        assert!(matches!(classify_acquire(C::Lost), Acquired::Lost));
+        for skip in [C::Timeout, C::Occluded, C::Validation] {
+            assert!(matches!(classify_acquire(skip), Acquired::Skip));
+        }
     }
 
     #[test]
