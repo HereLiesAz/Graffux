@@ -36,6 +36,10 @@ object MeshPicker {
         val v: Float,
         /** Whether the ray met the triangle's outward side ([facesRay]); false = the camera sees its back. */
         val frontFacing: Boolean = true,
+        /** The hit point in mesh coordinates; NaN when a [Hit] was built without one. */
+        val x: Float = Float.NaN,
+        val y: Float = Float.NaN,
+        val z: Float = Float.NaN,
     )
 
     /**
@@ -177,6 +181,9 @@ object MeshPicker {
             u = uvU.toFloat(),
             v = uvV.toFloat(),
             frontFacing = facesRay(mesh, bestTri, ray.direction),
+            x = (ox + bestT * dx).toFloat(),
+            y = (oy + bestT * dy).toFloat(),
+            z = (oz + bestT * dz).toFloat(),
         )
     }
 

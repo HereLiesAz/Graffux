@@ -317,6 +317,59 @@ class ModelLayerTest {
         assertEquals("nothing is painted across the gap", 0, alphaAt(0.475f))
     }
 
+    /**
+     * A strip folded in two and mapped continuously, so it is ONE UV island: a front panel that stops
+     * at x = 0.2 (u 0.4 down to 0 as x rises), the fold at x = -1 (u 0.4..0.5), and a back panel
+     * behind it that runs on to x = 1 (u 0.5..0.9). Each corner is x y z u v (v in GL convention).
+     */
+    private val foldedObj: String = run {
+        fun face(vararg c: Float) = c.toList().chunked(5)
+        val faces = listOf(
+            face(0.2f, -1f, 0f, 0f, 0f, -1f, -1f, 0f, 0.4f, 0f, -1f, 1f, 0f, 0.4f, 1f, 0.2f, 1f, 0f, 0f, 1f),
+            face(-1f, -1f, 0f, 0.4f, 0f, -1f, -1f, -0.2f, 0.5f, 0f, -1f, 1f, -0.2f, 0.5f, 1f, -1f, 1f, 0f, 0.4f, 1f),
+            face(-1f, -1f, -0.2f, 0.5f, 0f, 1f, -1f, -0.2f, 0.9f, 0f, 1f, 1f, -0.2f, 0.9f, 1f, -1f, 1f, -0.2f, 0.5f, 1f),
+        )
+        buildString {
+            var n = 0
+            for (f in faces) {
+                for (c in f) appendLine("v ${c[0]} ${c[1]} ${c[2]}")
+                for (c in f) appendLine("vt ${c[3]} ${1f - c[4]}")
+                appendLine("f " + (1..4).joinToString(" ") { "${n + it}/${n + it}" })
+                n += 4
+            }
+        }
+    }
+
+    @Test
+    fun `a stroke does not paint the hidden fold between a front panel and the back one it drops onto`() =
+        runTest(dispatcher) {
+            val fold = ModelMesh(ObjParser.parse(foldedObj))
+            vm.addModelLayer("m", "head.obj", "model_m.obj", fold)
+            idle()
+            vm.setActiveColor(androidx.compose.ui.graphics.Color.Red)
+            vm.setActiveTool(Tool.BRUSH)
+            vm.setBrushSize(30f)
+            vm.onLayerActivated("m")
+            idle()
+            fun at(x: Float, y: Float): Offset {
+                val l = model()
+                val toScene = ModelSpace.meshToScene(listOf(com.hereliesaz.graffitixr.common.scene.PlanePose(
+                    l.offset.x, l.offset.y, l.positionZ, l.rotationX, l.rotationY, l.rotationZ, l.scale,
+                )), fold, size.width.toFloat(), size.height.toFloat())
+                val (px, py) = SceneMath.frame(vm.uiState.value.sceneCamera, size.width.toFloat(), size.height.toFloat())
+                    .project(toScene.apply(x, y, 0f))!!
+                return Offset(px, py)
+            }
+            // Right across the front panel's end at x = 0.2: front (u 0.03) then, with no miss, back (u 0.76).
+            vm.onModelPaintStart(at(0.1f, 0f))
+            vm.onModelPaintMove(at(0.3f, 0f))
+            vm.onModelPaintEnd()
+            idle()
+            assertTrue("paints where the finger started", alphaAt(0.033f, 0.5f) > 0)
+            assertTrue("and where it ended", alphaAt(0.76f, 0.5f) > 0)
+            assertEquals("not the fold's texels between them", 0, alphaAt(0.45f, 0.5f))
+        }
+
     private fun project(layers: List<OverlayLayer>) = GraffitiProject(id = "p1", name = "P", layers = layers)
 
     private fun projectDir() = File(RuntimeEnvironment.getApplication().filesDir, "projects/p1").apply { mkdirs() }

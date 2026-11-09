@@ -106,4 +106,30 @@ class UvIslandsTest {
         assertEquals(0, islands.trianglesNear(0, UvIslands.UvBox(0.5f, 0f, 0.55f, 1f)).size)
         assertEquals(0, islands.trianglesNear(7, UvIslands.UvBox(0f, 0f, 1f, 1f)).size)
     }
+
+    @Test
+    fun `triangles sharing an edge that agrees at only one end are separate islands`() {
+        // Both triangles have the edge P0-P1 in space. At P0 their UVs agree (0,0); at P1 one says
+        // (0.4, 0) and the other (1, 1), so the UV runs off in different directions: a seam.
+        val b = Builder()
+        val a0 = b.vertex(0f, 0f, 0f, 0f)
+        val a1 = b.vertex(1f, 0f, 0.4f, 0f)
+        val a2 = b.vertex(0f, 1f, 0f, 0.5f)
+        val c0 = b.vertex(0f, 0f, 0f, 0f)
+        val c1 = b.vertex(1f, 0f, 1f, 1f)
+        val c2 = b.vertex(0f, -1f, 0.2f, 0.5f)
+        b.idx += listOf(a0, a1, a2, c0, c1, c2)
+        val islands = UvIslands.of(b.mesh())
+        assertEquals(2, islands.count)
+        assertFalse(islands.sameIsland(0, 1))
+    }
+
+    @Test
+    fun `triangles sharing only a corner are not joined`() {
+        val b = Builder()
+        val a = listOf(b.vertex(0f, 0f, 0f, 0f), b.vertex(1f, 0f, 0.2f, 0f), b.vertex(0f, 1f, 0f, 0.2f))
+        val c = listOf(b.vertex(0f, 0f, 0f, 0f), b.vertex(-1f, 0f, 0.2f, 0f), b.vertex(0f, -1f, 0f, 0.2f))
+        b.idx += a + c
+        assertEquals(2, UvIslands.of(b.mesh()).count)
+    }
 }

@@ -14013,8 +14013,8 @@ class EditorViewModel @Inject constructor(
         var lastUv: Pair<Float, Float>? = null
         /** The last radius painted, kept across a triangle with no usable texel scale. */
         var lastRadius: Float? = null
-        /** The triangle [lastUv] is on, to tell a joined step from a seam crossing. */
-        var lastTriangle: Int = -1
+        /** The hit [lastUv] came from, to tell a joined step from a seam or an occlusion edge. */
+        var lastHit: com.hereliesaz.graffitixr.common.mesh.MeshPicker.Hit? = null
         /** The canvas point of the previous move, where the next move's samples start from. */
         var lastWorld: Offset? = null
         var edited = false
@@ -14150,7 +14150,7 @@ class EditorViewModel @Inject constructor(
         for (hit in hits) {
             if (hit == null) {
                 stroke.lastUv = null
-                stroke.lastTriangle = -1
+                stroke.lastHit = null
             } else if (paintModelHit(stroke, st, mesh, toScene to frame, hit)) {
                 painted = true
             }
@@ -14182,7 +14182,14 @@ class EditorViewModel @Inject constructor(
         stroke.lastRadius = radius
         val last = stroke.lastUv
         val from = last ?: (hit.u to hit.v)
-        val connected = last == null || mesh.islands.sameIsland(stroke.lastTriangle, hit.triangleIndex)
+        // Joined only on one island AND one stretch of surface: a fold of the same island can sit
+        // behind the foreground, and a hit that drops from the front panel onto the back one would
+        // otherwise paint the hidden fold between them.
+        val previous = stroke.lastHit
+        val connected = last == null || previous == null || (
+            mesh.islands.sameIsland(previous.triangleIndex, hit.triangleIndex) &&
+                com.hereliesaz.graffitixr.common.mesh.SurfaceContinuity.continuous(mesh.mesh, previous, hit)
+            )
         val stamps = com.hereliesaz.graffitixr.common.mesh.TexturePaint.stampsAlong(
             com.hereliesaz.graffitixr.common.mesh.TexturePaint.UvStep(from.first, from.second, hit.u, hit.v),
             surface.width, surface.height, spacingPx = radius / 4f, connected = connected,
@@ -14194,7 +14201,7 @@ class EditorViewModel @Inject constructor(
         surface.clipTo(islandClip(mesh, hit.triangleIndex, stamps, radius, surface))
         surface.stamp(stamps, st.activeColor.toArgb(), radius, erase = stroke.erase)
         stroke.lastUv = hit.u to hit.v
-        stroke.lastTriangle = hit.triangleIndex
+        stroke.lastHit = hit
         return true
     }
 
