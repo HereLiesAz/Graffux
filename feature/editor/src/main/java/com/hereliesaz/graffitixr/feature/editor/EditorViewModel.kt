@@ -425,10 +425,6 @@ private const val MAX_PROCREATE_THUMBNAIL_BYTES = 64 * 1024 * 1024
 private const val MAX_MATERIAL_SIDECAR_BYTES = 160L * 1024 * 1024
 /** The palette board sidecar is at most a 1024 x 1024 board (16 B per texel plus height): bounded well below this. */
 private const val MAX_PALETTE_SIDECAR_BYTES = 64L * 1024 * 1024
-private const val MAX_RECORDED_STROKES = 2_000
-private const val MAX_RECORDED_SAMPLES = 300_000
-private const val STROKE_RECORD_SAVE_DELAY_MS = 2_000L
-private const val STROKE_RECORD_FILE = "strokes.json"
 
 /**
  * Whether the azphalt stamp-brush live-preview path can use a GPU compute stamp shader instead of
@@ -2095,8 +2091,23 @@ class EditorViewModel @Inject constructor(
 
     // Persistent stamp-stroke capture (spec/painterly.md P7b): every committed stamp stroke is kept in a
     // serialisable record, saved with the project, so a demo can be replayed after reopen or shared.
-    private val strokeRecords = ArrayList<com.hereliesaz.graffitixr.common.azphalt.StampStrokeRecord>()
-    private var strokeRecordSaveJob: Job? = null
+    private val strokeRecordSync = StrokeRecordSync(
+        scope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + dispatchers.main),
+        io = dispatchers.io,
+        store = object : StrokeRecordSync.Store {
+            override fun isReadOnly() = openProjectIsReadOnly()
+            override fun onError(error: Throwable) {
+                android.util.Log.e("EditorViewModel", "Failed to save stroke records", error)
+            }
+            override fun onUnreadable(projectId: String, dropped: Int) {
+                notify("Some saved strokes couldn't be read. The original file was kept as a backup.")
+            }
+            override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
+                projectRepository.saveArtifact(projectId, file, bytes)
+            }
+            override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+        },
+    )
     /** (amount the brush held, fill fraction the stroke started with) for the stroke in progress, or null. */
     private var paletteStrokeStart: Pair<Float, Float>? = null
     private val stampLengthPredictor = StrokeLengthPredictor()
@@ -2506,7 +2517,7 @@ class EditorViewModel @Inject constructor(
 
         viewModelScope.launch(dispatchers.main) {
             projectRepository.currentProject.collect { project ->
-                if (project == null) paletteSync.close()
+                if (project == null) { paletteSync.close(); strokeRecordSync.close() }
                 if (project != null) {
                     val projectIdChanged = _uiState.value.projectId != project.id
 
@@ -2559,7 +2570,7 @@ class EditorViewModel @Inject constructor(
                         loadAdjustmentMasks(layers)
                         restoreModelLayers(project.id, layers)
                         restorePaletteBoard(project.id)
-                        restoreStrokeRecords(project.id)
+                        strokeRecordSync.open(project.id)
                         updateUi {
                             it.copy(
                                 sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
@@ -3373,7 +3384,7 @@ class EditorViewModel @Inject constructor(
 
     override fun onCleared() {
         // The last palette edit may still be waiting for its debounce: write it before the ViewModel goes.
-        runCatching { kotlinx.coroutines.runBlocking { paletteSync.flush() } }
+        runCatching { kotlinx.coroutines.runBlocking { strokeRecordSync.flush(); paletteSync.flush() } }
             .onFailure { android.util.Log.w("EditorViewModel", "Palette flush on clear failed", it) }
         runCatching { context.unregisterComponentCallbacks(highResTrimCallbacks) }
         com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.remove(onDeviceLost)
@@ -3771,45 +3782,11 @@ class EditorViewModel @Inject constructor(
             layerOffsetY = command.layerOffset.y,
             layerRotationZ = command.layerRotationZ,
         )
-        strokeRecords += record
-        // Bounded so the saved recording always passes the reader's limits: oldest strokes drop first.
-        var samples = strokeRecords.sumOf { it.samples.size }
-        while (strokeRecords.size > MAX_RECORDED_STROKES || samples > MAX_RECORDED_SAMPLES) {
-            samples -= strokeRecords.removeAt(0).samples.size
-        }
-        saveStrokeRecordsLater()
-    }
-
-    private fun saveStrokeRecordsLater() {
-        val projectId = _uiState.value.projectId ?: return
-        strokeRecordSaveJob?.cancel()
-        strokeRecordSaveJob = viewModelScope.launch(dispatchers.main) {
-            kotlinx.coroutines.delay(STROKE_RECORD_SAVE_DELAY_MS)
-            val state = _uiState.value
-            val recording = com.hereliesaz.graffitixr.common.azphalt.StrokeRecording(
-                canvasWidth = state.documentWidth.coerceAtLeast(1),
-                canvasHeight = state.documentHeight.coerceAtLeast(1),
-                substrateId = state.canvasSubstrateId,
-                strokes = strokeRecords.toList(),
-            )
-            withContext(dispatchers.io) {
-                runCatching {
-                    projectRepository.saveArtifact(projectId, STROKE_RECORD_FILE, recording.toJson().toByteArray())
-                }.onFailure { android.util.Log.e("EditorViewModel", "Failed to save stroke records", it) }
-            }
-        }
-    }
-
-    /** Reloads the project's recorded strokes; absent or invalid data leaves the list empty (fail closed). */
-    private fun restoreStrokeRecords(projectId: String) {
-        viewModelScope.launch(dispatchers.io) {
-            val loaded = readProjectArtifact(projectId, STROKE_RECORD_FILE)
-                ?.let { com.hereliesaz.graffitixr.common.azphalt.StrokeRecording.fromJson(String(it)) }
-            withContext(dispatchers.main) {
-                strokeRecords.clear()
-                if (loaded != null) strokeRecords += loaded.strokes
-            }
-        }
+        val state = _uiState.value
+        strokeRecordSync.record(
+            state.projectId, record,
+            StrokeRecordSync.Doc(state.documentWidth, state.documentHeight, state.canvasSubstrateId),
+        )
     }
 
     /** A painterly brush starts from what the palette's brush in hand holds (its recipe and how full it is). */
@@ -4160,6 +4137,7 @@ class EditorViewModel @Inject constructor(
      */
     fun flushPendingSaves() {
         paletteSync.flushAsync()
+        strokeRecordSync.flushAsync()
         val outstanding = pendingWrites.entries.map { it.key to it.value }
         pendingSaveJobs.values.forEach { it.cancel() }
         pendingSaveJobs.clear()
