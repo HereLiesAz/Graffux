@@ -83,12 +83,18 @@ class PaletteBoard(
      * Drags the brush or knife along [path] (x, y pairs): at each point it lifts, then lays what it holds,
      * so paint is pulled along and blended. One pass is a stroke of the transaction; more passes mix more.
      */
-    fun drag(path: FloatArray, radius: Float = DEFAULT_TOUCH_RADIUS, lift: Float = 0.12f, draw: Float = 0.12f,
-        mix: Float = 0.8f) {
+    fun drag(path: FloatArray, radius: Float = DEFAULT_TOUCH_RADIUS, lift: Float = DRAG_LIFT_SHARE,
+        draw: Float = DRAG_DRAW_SHARE, mix: Float = 0.8f) {
+        // [lift] and [draw] are shares of the brush's capacity per dab, spread over the dab's footprint, so an
+        // ordinary gesture leaves usable paint on the brush at any radius (a per-texel amount over a footprint of
+        // tens of texels asked for several times the whole capacity and emptied the brush on the first dab).
+        val perTexel = brush.capacity / footprintWeight(radius)
+        val liftPerTexel = lift * perTexel
+        val drawPerTexel = draw * perTexel
         val dabs = ArrayList<PaintTransaction.Dab>()
         fun at(x: Float, y: Float) {
-            dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, lift = lift)
-            dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, draw = draw, mixWet = mix)
+            dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, lift = liftPerTexel)
+            dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, draw = drawPerTexel, mixWet = mix)
         }
         // Resample every segment at a spacing of at most half a radius, so a fast swipe (a long step between
         // two touch events) paints a continuous line instead of two separate dabs.
@@ -106,6 +112,17 @@ class PaletteBoard(
             i += 2
         }
         PaintTransaction.run(surface, brush, dabs)
+    }
+
+    /** The sum of a dab's per-texel weights (hardness 0.5), so amounts can be set as a share of capacity. */
+    private fun footprintWeight(radius: Float): Float {
+        val r = ceil(radius).toInt()
+        var sum = 0f
+        for (y in -r..r) for (x in -r..r) {
+            val d = sqrt((x + 0.5f) * (x + 0.5f) + (y + 0.5f) * (y + 0.5f)) / radius
+            if (d < 1f) sum += if (d <= 0.5f) 1f else (1f - d) / 0.5f
+        }
+        return sum.coerceAtLeast(1f)
     }
 
     /** Exchanges the paint on the foreground and background brushes (with the editor's colour swap). */
@@ -177,6 +194,10 @@ class PaletteBoard(
         private const val MAX_DRAG_DABS = 4000
         const val DEFAULT_SIZE = 512
         const val BRUSH_CAPACITY = 1.0f
+
+        /** Share of the brush's capacity one drag dab lifts / lays (a dab's footprint shares it out). */
+        const val DRAG_LIFT_SHARE = 0.12f
+        const val DRAG_DRAW_SHARE = 0.06f
         const val DEFAULT_TOUCH_RADIUS = 6f
         private const val WIPE_KEEP = 0.4f
     }
