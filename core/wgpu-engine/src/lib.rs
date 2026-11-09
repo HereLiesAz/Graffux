@@ -12,6 +12,7 @@ pub mod diag;
 pub mod draft;
 pub mod engine;
 pub mod jni_api;
+pub mod pigment;
 pub mod progress;
 pub mod reference;
 pub mod resident;
