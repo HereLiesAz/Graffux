@@ -72,4 +72,45 @@ class PaletteMixerHexTest {
         empty.applyBrush()
         assertEquals(before, applied.size)
     }
+
+    @Test
+    fun mixOnceAndMixMoreBlendWithoutAnyDrag() {
+        fun spread(passes: Int): Int {
+            val board = newMixerBoard()
+            board.squeeze(4, 40f, 48f, 7f, 0.9f)
+            board.squeeze(8, 56f, 48f, 7f, 0.9f)
+            val ops = MixerOps(board, applyColour = {}, redraw = {})
+            ops.dip(40f, 48f)
+            ops.mixStep(48f, 48f, passes)
+            return (35..60).count { x -> board.recipeAt(x, 48).tubes.size >= 2 }
+        }
+        val once = spread(1)
+        val more = spread(MIX_MORE_PASSES)
+        assertTrue("one tap mixes paint together on the board ($once)", once > 0)
+        assertTrue("mix more blends at least as widely ($more >= $once)", more >= once)
+    }
+
+    @Test
+    fun mixStepIsDeterministicAndAppliesTheBrushColour() {
+        val applied = ArrayList<androidx.compose.ui.graphics.Color>()
+        fun run(): FloatArray {
+            val b = newMixerBoard()
+            b.squeeze(4, 48f, 48f, 8f, 0.9f)
+            MixerOps(b, applyColour = { applied += it }, redraw = {}).also { it.dip(48f, 48f); it.mixStep(48f, 48f, 2) }
+            return b.brush.conc.copyOf()
+        }
+        assertTrue(run().contentEquals(run()))
+        assertTrue(applied.isNotEmpty())
+    }
+
+    @Test
+    fun aSavedSwatchChipLoadsTheNearestMixAndKeepsItsOriginalHex() {
+        val orange = androidx.compose.ui.graphics.Color(0xFFFF8800)
+        assertEquals("#FF8800", swatchHex(orange))
+        val board = newMixerBoard()
+        matchHexToBrush(board, swatchHex(orange))
+        val got = rgbOf(board)
+        assertTrue(got[0] > got[1] && got[1] > got[2] && got.sum() > 200)
+        assertEquals(1f, board.brush.amount[0], 0f)
+    }
 }

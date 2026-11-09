@@ -49,6 +49,8 @@ fun EditorUi(
     val screenHeight = configuration.screenHeightDp.dp
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
+    val savedPalette by actions.savedPalette.collectAsState()
+
     Box(modifier = Modifier.fillMaxSize()) {
 
         // The physical palette replaces the colour picker (spec/painterly.md 6.3). The board is the view model's
@@ -63,6 +65,9 @@ fun EditorUi(
             onDismiss = { actions.onColorPickerDismissed() },
             onChanged = actions::onPaletteChanged,
             board = actions.paletteBoard,
+            savedPalette = savedPalette,
+            onSavePaletteColor = actions::onSavePaletteColor,
+            onRemovePaletteColor = actions::onRemovePaletteColor,
         )
 
         GestureFeedback(

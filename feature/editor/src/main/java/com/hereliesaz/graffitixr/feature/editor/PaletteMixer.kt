@@ -6,6 +6,7 @@ import android.graphics.Bitmap as AndroidBitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -98,12 +99,35 @@ internal class MixerOps(
         applyBrush()
     }
 
+    /**
+     * The non-drag mix (spec 6.6 item 5): one tap runs a fixed loop of the brush around ([cx], [cy]), the same
+     * transaction a drag runs. [passes] > 1 is "mix more". Deterministic, so it needs no fine motor control.
+     */
+    fun mixStep(cx: Float, cy: Float, passes: Int = 1) {
+        val n = MIX_LOOP_POINTS
+        val path = FloatArray((n + 1) * 2)
+        for (i in 0..n) {
+            val a = 2.0 * Math.PI * i / n
+            path[i * 2] = cx + (MIX_LOOP_RADIUS * Math.cos(a)).toFloat()
+            path[i * 2 + 1] = cy + (MIX_LOOP_RADIUS * Math.sin(a)).toFloat()
+        }
+        repeat(passes) { board.drag(path) }
+        applyBrush()
+    }
+
     /** The brush now holds something different: redraw and apply its colour (if it holds any paint). */
     fun applyBrush() {
         redraw()
         if (board.brush.amount[0] > 0f) applyColour(Color(board.brushColour()))
     }
 }
+
+private const val MIX_LOOP_POINTS = 8
+private const val MIX_LOOP_RADIUS = 10f
+internal const val MIX_MORE_PASSES = 3
+
+/** The hex text for a saved swatch chip, so its original colour is readable, not only visible. */
+internal fun swatchHex(c: Color): String = "#%06X".format(c.toArgb() and 0xFFFFFF)
 
 /** What [matchHexToBrush] says when the text is not a colour. */
 internal const val NOT_A_COLOUR = "Not a colour"
@@ -155,7 +179,11 @@ fun PaletteMixerDialog(
     onSwapColors: () -> Unit,
     onDismiss: () -> Unit,
     onChanged: () -> Unit = {},
+    savedPalette: List<Color> = emptyList(),
+    onSavePaletteColor: (Color) -> Unit = {},
+    onRemovePaletteColor: (Color) -> Unit = {},
 ) {
+    var anchor by remember { mutableStateOf(Offset(MIXER_BOARD_SIZE / 2f, MIXER_BOARD_SIZE / 2f)) }
     var version by remember { mutableIntStateOf(0) }
     var tool by remember { mutableStateOf(MixerTool.SQUEEZE) }
     var slot by remember { mutableIntStateOf(0) }
@@ -281,6 +309,7 @@ fun PaletteMixerDialog(
                         boardSize = size
                         detectTapGestures { p ->
                             val b = toBoard(p)
+                            anchor = b
                             if (tool == MixerTool.SQUEEZE) ops.squeeze(slot, b.x, b.y, 7f, 0.9f) else ops.dip(b.x, b.y)
                         }
                     }
@@ -321,6 +350,25 @@ fun PaletteMixerDialog(
             }
             Spacer(Modifier.height(8.dp))
 
+            // Mixing without dragging: each press runs the brush round the last touched spot.
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                GraffuxButton(
+                    text = "Mix once",
+                    onClick = { ops.mixStep(anchor.x, anchor.y) },
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier
+                        .semantics { contentDescription = "Mix once. Runs the brush round the board once" }
+                        .testTag("mixer.mixOnce"))
+                GraffuxButton(
+                    text = "Mix more",
+                    onClick = { ops.mixStep(anchor.x, anchor.y, MIX_MORE_PASSES) },
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier
+                        .semantics { contentDescription = "Mix more. Runs the brush round the board several times" }
+                        .testTag("mixer.mixMore"))
+            }
+            Spacer(Modifier.height(8.dp))
+
             // Cleaning the brush: wipe takes part of the load, rinse all of it.
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GraffuxButton(text = "Wipe brush", onClick = { board.clean(PaletteBoard.Clean.WIPE); ops.applyBrush() },
@@ -329,6 +377,48 @@ fun PaletteMixerDialog(
                     text = "Rinse brush",
                     onClick = { board.clean(PaletteBoard.Clean.RINSE); ops.applyBrush() },
                     shape = GraffuxButtonShape.RECTANGLE)
+            }
+            Spacer(Modifier.height(10.dp))
+
+            // Saved swatches (the old picker's Palettes tab): tap loads the nearest tube mix, the chip keeps the
+            // original colour and its hex. Long-press removes.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Saved", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                GraffuxButton(
+                    text = "Save current",
+                    onClick = { onSavePaletteColor(if (board.hand == 0) currentColor else secondaryColor) },
+                    shape = GraffuxButtonShape.RECTANGLE,
+                    modifier = Modifier.testTag("mixer.saveSwatch"))
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("mixer.swatches")) {
+                savedPalette.forEach { c ->
+                    val hexText = swatchHex(c)
+                    Row(
+                        Modifier
+                            .heightIn(min = 48.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                RoundedCornerShape(8.dp))
+                            .combinedClickable(
+                                onClick = {
+                                    match = matchHexToBrush(board, hexText)
+                                    if (match != NOT_A_COLOUR) ops.applyBrush()
+                                },
+                                onLongClick = { onRemovePaletteColor(c) })
+                            .padding(horizontal = 8.dp)
+                            .semantics {
+                                contentDescription = "Saved swatch $hexText. Tap to mix the nearest tube colour, " +
+                                    "long-press to remove"
+                            }
+                            .testTag("mixer.swatch.$hexText"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(Modifier.size(18.dp).background(c, CircleShape))
+                        Text(hexText, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
             Spacer(Modifier.height(10.dp))
 
@@ -376,6 +466,9 @@ fun PaletteMixerHost(
     onChanged: () -> Unit = {},
     board: PaletteBoard? = null,
     onBoard: (PaletteBoard) -> Unit = {},
+    savedPalette: List<Color> = emptyList(),
+    onSavePaletteColor: (Color) -> Unit = {},
+    onRemovePaletteColor: (Color) -> Unit = {},
 ) {
     // A view-model-owned board (saved with the project) when given, else one held for the session; either way
     // it is held outside the `show` condition.
@@ -391,6 +484,9 @@ fun PaletteMixerHost(
             onSwapColors = onSwapColors,
             onDismiss = onDismiss,
             onChanged = onChanged,
+            savedPalette = savedPalette,
+            onSavePaletteColor = onSavePaletteColor,
+            onRemovePaletteColor = onRemovePaletteColor,
         )
     }
 }
