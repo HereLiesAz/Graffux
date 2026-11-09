@@ -89,8 +89,38 @@ class LocalizeArchiveUrisTest {
     // User text is not a URI just because it looks like one: only Uri-typed fields are localized.
     @Test fun `text that looks like a uri is kept outside uri fields`() {
         val json = """{"name":"file: notes","textParams":{"text":"https://azphalt.store","fontName":"content:x"},""" +
-            """"layers":[{"name":"file:///etc/hosts","note":"android.resource://x/1"}]}"""
+            """"layers":[{"name":"file:///etc/hosts","opacity":1.0}]}"""
         assertEquals(json, localizeArchiveUris(json, root))
+    }
+
+    // A newer-format project is installed from this JSON as written, so a field this build does not know
+    // is neutralized if it could name a file; fields the model knows keep their text.
+    @Test fun `unknown fields of a newer format cannot carry a file reference`() {
+        val json = """{"formatVersion":99,"name":"Mural","layers":[{"name":"file: notes",""" +
+            """"sourceImage":"file:///data/data/p/files/other.png","modelFile":"../../x",""" +
+            """"stencil":"/etc/hosts","other":"a\\..\\b","frames":["content://m/1","ok"],"label":"Mural"}]}"""
+        val expected = """{"formatVersion":99,"name":"Mural","layers":[{"name":"file: notes",""" +
+            """"sourceImage":"","modelFile":"","stencil":"","other":"","frames":["","ok"],"label":"Mural"}]}"""
+        assertEquals(expected, localizeArchiveUris(json, root))
+    }
+
+    @Test fun `the known keys are found from the model, including nested user text`() {
+        val keys = MODEL_KEYS
+        assertTrue(keys.toString(), keys.containsAll(listOf("name", "textParams", "text", "fontName", "layers", "uri")))
+    }
+
+    @Test fun `an unknown field naming a file inside the project is re-rooted`() = assertEquals(
+        """{"sourceImage":"${root}layers/a.png"}""",
+        localizeArchiveUris("""{"sourceImage":"file:///x/projects/old/layers/a.png"}""", root),
+    )
+
+    @Test fun `unicode digits are not hex in an escape`() {
+        // Android's Uri.decode reads ASCII hex only: %\uFF12f is a literal, harmless file name.
+        val name = "a%\uFF12fb.png"
+        assertEquals(
+            """{"uri":"${root}layers/$name"}""",
+            localizeArchiveUris("""{"uri":"file:///x/projects/old/layers/$name"}""", root),
+        )
     }
 
     /** Every Uri-typed field of the real model, so a new one cannot be added without being localized. */
@@ -102,7 +132,8 @@ class LocalizeArchiveUrisTest {
                 name?.let(found::add)
                 return
             }
-            if (!seen.add(d.serialName + name)) return
+            val isClass = d.kind == kotlinx.serialization.descriptors.StructureKind.CLASS
+            if (isClass && !seen.add(d.serialName.removeSuffix("?") + name)) return
             val list = d.kind == kotlinx.serialization.descriptors.StructureKind.LIST
             for (i in 0 until d.elementsCount) {
                 walk(d.getElementDescriptor(i), if (list) name else d.getElementName(i))

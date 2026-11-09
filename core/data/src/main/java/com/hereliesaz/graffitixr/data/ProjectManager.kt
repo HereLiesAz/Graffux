@@ -14,6 +14,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -847,6 +850,9 @@ class ProjectManager @Inject constructor(
     }
 }
 
+/** A string that names a resource: any `scheme://`, or `file:` / `content:` / `android.resource:`. */
+private val URI_LIKE = Regex("""^(?:[a-zA-Z][a-zA-Z0-9+.-]*://|(?:file|content|android\.resource):)""")
+
 /** `file://<anything>/projects/<id>/<rest>`: <rest> is what stays. */
 private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
 
@@ -857,10 +863,12 @@ private val IN_PROJECT = Regex("^file://.*?/projects/[^/]+/(.+)$")
  *
  * Works on the parsed JSON, not on its text: a string can spell the same URI as `file:\/\/\/etc\/hosts` or
  * `file\u003a///etc/hosts`, and the model only ever sees the decoded value. Only values under a key that
- * names a Uri ([namesUri]) are touched, so a scheme-less `/data/...` path there is dropped too, while
- * user text that merely looks like a URI (a text layer reading `https://azphalt.store`, a name like
- * `file: notes`) is kept as written. Text that is not JSON is returned as it came; decoding it fails
- * the same way.
+ * names a Uri ([namesUri]) are localized, so a scheme-less `/data/...` path there is dropped too, and
+ * user text under a field this build's model has (a text layer reading `https://azphalt.store`, a name
+ * like `file: notes`) is kept as written. A field the model does not have belongs to a newer format,
+ * which is installed from this JSON as written and read later by a build that would open it: there
+ * a URI is localized and a path-looking value is blanked ([localizeString]). Text that is not JSON is
+ * returned as it came; decoding it fails the same way.
  */
 internal fun localizeArchiveUris(projectJson: String, localRoot: String): String {
     val root = runCatching { Json.parseToJsonElement(projectJson) }.getOrNull() ?: return projectJson
@@ -870,15 +878,40 @@ internal fun localizeArchiveUris(projectJson: String, localRoot: String): String
 private fun localizeNode(node: JsonElement, key: String?, localRoot: String): JsonElement = when (node) {
     is JsonObject -> JsonObject(node.mapValues { (k, v) -> localizeNode(v, k, localRoot) })
     is JsonArray -> JsonArray(node.map { localizeNode(it, key, localRoot) })
-    is JsonPrimitive ->
-        if (node.isString && namesUri(key)) JsonPrimitive(localizeUri(node.content, localRoot)) else node
+    is JsonPrimitive -> if (node.isString) JsonPrimitive(localizeString(node.content, key, localRoot)) else node
+}
+
+private fun localizeString(value: String, key: String?, localRoot: String): String = when {
+    namesUri(key) -> localizeUri(value, localRoot)
+    key == null || key in MODEL_KEYS -> value
+    URI_LIKE.containsMatchIn(value) -> localizeUri(value, localRoot)
+    value.startsWith("/") || value.split('/', '\\').any { it == ".." } -> ""
+    else -> value
+}
+
+/** Every field name of the current model, found from its serial descriptors rather than listed by hand. */
+@OptIn(ExperimentalSerializationApi::class)
+internal val MODEL_KEYS: Set<String> by lazy {
+    val names = HashSet<String>()
+    val seen = HashSet<String>()
+    fun walk(d: SerialDescriptor) {
+        // Classes are visited once (they can nest themselves); lists and maps share a serial name
+        // whatever they hold, so those are always walked into.
+        if (d.kind == StructureKind.CLASS && !seen.add(d.serialName.removeSuffix("?"))) return
+        for (i in 0 until d.elementsCount) {
+            names += d.getElementName(i)
+            walk(d.getElementDescriptor(i))
+        }
+    }
+    walk(GraffitiProject.serializer().descriptor)
+    names
 }
 
 /**
  * Whether [key] is a field that holds a Uri: the model's are `uri`, `backgroundImageUri`,
- * `overlayImageUri`, `thumbnailUri`, `targetImageUris`, `evolutionImageUris`, ... A newer format's
- * Uri field follows the same naming. LocalizeArchiveUrisTest walks the real model's serial descriptors
- * and fails if a Uri-typed field is ever named otherwise.
+ * `overlayImageUri`, `thumbnailUri`, `targetImageUris`, `evolutionImageUris`, ...
+ * LocalizeArchiveUrisTest walks the real model's serial descriptors and fails if a Uri-typed field is
+ * ever named otherwise. (A field of a newer format is handled by [localizeString] whatever its name.)
  */
 private fun namesUri(key: String?): Boolean =
     key != null && (key == "uri" || key.endsWith("Uri") || key.endsWith("Uris"))
@@ -924,8 +957,8 @@ private fun lenientPercentDecode(text: String): String {
     val out = java.io.ByteArrayOutputStream()
     var i = 0
     while (i < text.length) {
-        val high = if (text[i] == '%') text.getOrNull(i + 1)?.digitToIntOrNull(HEX_RADIX) else null
-        val low = if (high != null) text.getOrNull(i + 2)?.digitToIntOrNull(HEX_RADIX) else null
+        val high = if (text[i] == '%') text.getOrNull(i + 1)?.let(::asciiHex) else null
+        val low = if (high != null) text.getOrNull(i + 2)?.let(::asciiHex) else null
         if (high != null && low != null) {
             out.write(high * HEX_RADIX + low)
             i += ESCAPE_LENGTH
@@ -938,6 +971,15 @@ private fun lenientPercentDecode(text: String): String {
     return out.toString(Charsets.UTF_8.name())
 }
 
+/** The value of an ASCII hex digit, like Android's Uri.decode; Unicode digits (fullwidth `\uFF12`) are not hex. */
+private fun asciiHex(c: Char): Int? = when (c) {
+    in '0'..'9' -> c - '0'
+    in 'a'..'f' -> c - 'a' + HEX_LETTER_OFFSET
+    in 'A'..'F' -> c - 'A' + HEX_LETTER_OFFSET
+    else -> null
+}
+
+private const val HEX_LETTER_OFFSET = 10
 private const val HEX_RADIX = 16
 private const val ESCAPE_LENGTH = 3
 
