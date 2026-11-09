@@ -1,6 +1,6 @@
 # Painterly realism — `spec/painterly.md`
 
-Status: **design only**. Nothing here is implemented. This file audits what the engine does today,
+Status: **design only, owner decisions incorporated** (section 10). Nothing here is implemented. This file audits what the engine does today,
 specifies the extensions that would make a Graffux brush stroke behave like a loaded paintbrush, a
 complete painter's brush set to ship as azphalt asset packs, and a palette that replaces the HSV
 colour wheel as the primary way to choose paint. It changes no engine, UI or azphalt code.
@@ -35,11 +35,10 @@ Consequences this spec holds itself to:
      keeps this by splitting a tube into a *pigment* (optical) and a *medium* (binder).
    - "Renderers remain dumb consumers of resolved geometry" (`E/BrushTuftDabExpander.kt:3-14`;
      status doc, M6). All new behaviour is resolved in Kotlin before it reaches a renderer.
-   - Full spectral / Kubelka-Munk mixing was "research only, not required unless the bounded mixer
-     visibly fails" (status doc, Phase 1). Named pigments and white-tinting make that condition
-     true; section 6.2 asks the owner to lift the restriction (question 3).
-   - The existing packs are free v1.0.0 sets and keep their ids and licences. Nothing here edits
-     them. New work ships as new package ids (section 5.3).
+   - Full spectral / Kubelka-Munk mixing was "research only" (status doc, Phase 1). **Lifted by the
+     owner** (section 10, decision 3): Kubelka-Munk is adopted and applies to the canvas as well.
+   - The existing packs keep their ids and licences until the owner-directed removal of superseded
+     brushes (section 5.6). New work ships as new package ids (section 5.5).
 
 ### 0.1 The reference behaviour, decomposed
 
@@ -259,7 +258,10 @@ renderer being coupled step for step.
   - `lift(lane, x, y, r, amount)` moves surface paint into the named load column (an upper bound
     on `amount`, limited by `underWet` and the column's free capacity), and `drain`s the same amount
     from the program wet ledger so the two records agree.
-- A stroke never sees its own paint through the probe. Self-overlap is deliberately not picked up.
+- A stroke never sees its own paint through the probe. **v1 decision (owner, section 10):** a stroke
+does not pick up its own wet pass; the probe is a snapshot at touchdown. The door stays open: a later
+version may add self-pickup by moving it into the compositor (the rejected alternative below), which
+would be a new probe version flagged by the brush, never a silent change. Self-overlap is deliberately not picked up.
   Real brushes do pick up their own earlier paint, but only the *non-reproducible live pixels*
   could supply it, so that case is left to the lane `load` state itself (a stroke that returns over
   itself carries what it still holds).
@@ -268,7 +270,7 @@ renderer being coupled step for step.
 Smudge reservoir stages `4..7` do, `color_smudge.wgsl:9`). It handles self-overlap exactly, but it
 makes colour a GPU-side effect the Kotlin oracle must re-implement per pixel, it forces the script
 to run on a surrogate that can disagree with the truth, and it breaks the "renderers are dumb"
-rule. It remains the fallback if the probe proves too coarse (question 6).
+rule. It remains the documented route for a later self-pickup version (decision 5).
 
 **Compatibility:** no probe is supplied unless the brush declares `"surface": true`; the functions
 return 0 without it. Existing programs are unaffected.
@@ -327,7 +329,7 @@ No new engine mechanism is needed; this is a **contract clarification plus a tes
 
 ### 3.8 E7 — Watercolour (optional, medium-scoped)
 
-Needed only if watercolour is in scope (question 1). The pieces:
+Required: watercolour is one of the four media (decision 1). The pieces:
 
 - `absorbency` from `SubstrateSample` (`E/SubstrateDeposition.kt:15-35`) drives wicking in
   `WetMaterialTransport` (it currently exchanges colour between neighbours with no paper term,
@@ -337,7 +339,7 @@ Needed only if watercolour is in scope (question 1). The pieces:
 - Edge darkening on drying comes from the same conserved-volume wetness transport (a drying
   boundary pulls pigment outward).
 
-**Effort:** L. Cheapest of the three media to *get wrong*, so it is last.
+**Effort:** L. Cheapest of the media to *get wrong*, so it is built last of the engine work.
 
 ### 3.9 E8 — Declaring and versioning
 
@@ -395,8 +397,7 @@ are keys in `params`. Every brush is a `type: "brush"` asset in a `kind: "asset"
 
 Colour is not medium: a brush asset names a *medium* (`impastoMaterial`, load behaviour), never a
 colour. Colour comes from the palette (section 6). Brushes marked **existing** are in the packs of
-section 1.2 and are not to be re-shipped or edited; where the new set needs a better one, it ships
-under a new name in a new pack.
+section 1.2; the new brush supersedes them and they are removed under section 5.6.
 
 Surface codes: P = cold-press paper, C = canvas weave, G = gessoed panel (smooth, low tooth),
 W = wall (brick/concrete preset). These map to `SubstratePreset` (`E/SubstratePreset.kt:18-60`)
@@ -569,20 +570,32 @@ Constraints from the code and spec read: `kind: "asset"`, `type: "brush"` assets
 packs stay `kind: "asset"` (`package-format.md` §2.6). `AssetType` `palette` and `material` already
 parse but have no consumer (`package-format.md` §2.6.1).
 
-Proposed packs (all new ids; none touches an existing pack):
+Packs (decision 1): **four media packs, all free, Apache-2.0, bundled with the app**, and each also
+gets an azphalt store listing so the same files can be installed, updated and shared through the
+store. Bundled means the app ships the `.azp` content in its assets and installs it on first run
+through the same `AzpInstaller` path as a store install (no second loader); the store listing is a
+normal `kind: "asset"` submission. All new ids; none touches an existing pack.
 
-| Pack id (suffix) | Contents | Needs |
-|---|---|---|
-| `brushes.painters-bristles` | Flat, Filbert, Round, Rigger (long), Fan, Mop, Hog, Dry-brush, Scumble, Wash, Dagger | E2 for load; plain bristle morphology works without |
-| `brushes.painters-tools` | Palette knife, Sponge, Rag, Stipple, Sgraffito | E3, E5 |
-| `brushes.petal-demo` | Loaded Petal Flat, Loaded Petal Round, Comma/Leaf, Double-Load Flat, Glaze Flat, Impasto Bead, plus a preview image and a shareable demo scene | E1 to E6 |
-| `brushes.watercolour` | Mop, wash, wet-in-wet round, granulating wash | E7 |
-| `palette.tube-pigments` | The named pigment set (section 6.1) | `palette` asset type consumer (new host code) |
+| Pack id (suffix) | Medium | Contents | Needs |
+|---|---|---|---|
+| `painterly.acrylic` | acrylic | Flat, Filbert, Round, Rigger/Liner, Fan, Hog, Dry-brush, Scumble, Dagger, Palette Knife, Sponge, Rag, Stipple, Sgraffito, Loaded Petal Flat, Loaded Petal Round, Comma/Leaf, Double-Load Flat, Glaze Flat, Impasto Bead | E1-E6 |
+| `painterly.oil` | oil | The same tool shapes tuned for long open time, soft blending and heavy body, plus Blender (fan, mop) | E1-E6 |
+| `painterly.water` | watercolour | Mop, Wash Flat, Wet-in-Wet Round, Granulating Wash, Rigger, Sponge lift, Rag lift | E1-E7 (E7 is no longer optional) |
+| `painterly.ink` | ink | Brush Pen, Sumi Round, Dip-Nib line, Ruling line, Dry-Brush Ink, Ink Wash | E1-E3, E6 |
+| `painterly.pigments` | (data) | The named pigment set, a `palette` asset (6.1), installed alongside whichever packs are present | host `palette` consumer |
 
-A demo is **sharable** because it is a brush pack plus a stroke list: the shareable unit is the pack
+Full ids are `com.hereliesaz.azphalt.painterly.<name>`, matching the existing
+`com.hereliesaz.azphalt.brushes.*` / `kinetic.*` convention. Manifests follow the existing brush
+submissions: `azphalt: "0.1"`, `kind: "asset"`, `license: "Apache-2.0"`, `compat: ">=0.1"`,
+`targetApps: ["com.hereliesaz.graffux"]`, one `assets[]` entry per brush with `type: "brush"`,
+`path` to a tip image, `tags`, and `params`. A `LICENSE` file is required by the submission layout.
+The submission folders are prepared in `spec/painterly-packs/` as manifests-only drafts when the pack
+phase (P7) lands, ready to copy into `azphalt/submissions/`; nothing in azphalt is edited from here.
+
+A demo is **sharable** (decision 9) because it is a brush pack plus a stroke list: the shareable unit is the pack
 (the brushes) and a project file or a recorded stroke replay (the pull), which the editor already
 serialises as samples (`spec/stroke-program.md` "Where it runs": replay feeds the recorded samples).
-No new sharing format is needed beyond a "play this stroke list with this pack" convention, which is
+Video export is a later, separate feature. No new sharing format is needed beyond a "play this stroke list with this pack" convention, which is
 an azphalt `template` or `image` asset (existing types) — coordination item below.
 
 **Coordination with HereLiesAz/azphalt (do not change it):**
@@ -592,15 +605,42 @@ an azphalt `template` or `image` asset (existing types) — coordination item be
    only records the proposal.
 2. `packages/azp` validates assets only by path safety (`/home/user/azphalt/packages/azp/src/index.ts:121-153`),
    so a new `params` shape needs no change there. Unknown `params` keys on a brush pass.
-3. Paid packs use the existing `priceStatus: "paid"` mechanism and entitlements
-   (`/home/user/azphalt/spec/repository-api.md` §§ paid downloads, Play purchase exchange); no new
-   commerce code is proposed. The licence field for a paid set is the author's choice
-   (`extension-manifest.md` line 13: "permits closed/sold extensions").
+3. All four packs are free (`priceStatus` free); no commerce code is involved.
 4. A `preview` block (`{image, clip}`) already exists for store cards (`package-format.md` §2.7); the
    petal pack should use `clip` for its pull.
 
 Sizing: kinetic packs run 5 to 18 brushes. `painters-bristles` at 11 and `petal-demo` at 6 fit that
 pattern.
+
+### 5.6 Superseded brushes are removed: migration and replay
+
+Decision 10: a brush a new one supersedes is **removed**, not kept. The candidates are the
+loaded-hair and painterly brushes the new packs replace (Square Flat, Rigger, Fan Softener, Scrub,
+Glaze Mop, Trowel, Heavy Oil, Matte Gouache, Cauliflower Bloom, Impasto Knife). Existing projects must
+keep replaying. The rules:
+
+1. **Alias table, not deletion.** A host-side `BrushAliasTable` (id or name -> replacement brush
+   name and `painterly` params) maps each removed brush to its successor. A project stroke that names a
+   removed brush resolves through the alias and renders with the successor's mechanics.
+2. **Honest about appearance.** The successor does not reproduce the old pixels. For an old stroke the
+   **committed layer bitmap is authoritative**: replay re-renders only the strokes since the last
+   commit or after an undo past a commit boundary. Before removal ships, the editor must **bake**:
+   on first open of a project that references a removed brush, flatten every affected stroke into its
+   committed layer (the existing "legacy edits flatten the current presentation" pattern from status
+   doc Phase 5), then drop the stroke's replay dependency on the removed brush. Undo past that point
+   is a documented one-time loss for such projects, surfaced in a one-line notice.
+3. **Never crash, never silently recolour.** A stroke whose brush resolves to neither the alias table
+   nor an installed pack falls back to the plain Round, the behaviour for an unknown brush today
+   (`BrushStroke.inkUtensilId` documents the same fallback rule for Ink utensils,
+   `EditorModels.kt:456-459`).
+4. **The old store packs.** The submissions in `azphalt/submissions/` are not edited from this repo.
+   Their removal from the store is an azphalt-side change the owner makes; the host stops listing them
+   as brush sets once the alias table ships. Users who already installed them keep the files; the
+   alias table takes precedence at resolve time.
+5. **Unverified:** how a stamp-brush stroke persists its brush in the project (by name, by embedded
+   params, or by pack id) is not confirmed. I found the `BrushStroke` model (`EditorModels.kt:444`) and
+   `activeBrushName`, but not the stamp-stroke persistence path. Task P0 in section 7 is to read it and
+   fix rule 2 accordingly before any brush is removed.
 
 ## 6. Palette and colour — a physical model
 
@@ -616,46 +656,58 @@ medium and stays with the brush (preserving "colour is not medium").
   "params": {
     "pigments": [
       { "id": "titanium-white",      "name": "Titanium White",      "pigment": "PW6",
-        "hiding": 0.98, "tinting": 1.0,  "granulation": 0.05, "bands": [ ... ] },
+        "hiding": 0.98, "tinting": 1.0,  "granulation": 0.05, "dataQuality": "placeholder", "dataVersion": 1, "wavelengths": [450,480,510,540,570,600,630], "K": [ ... ], "S": [ ... ] },
       { "id": "cadmium-red-medium",  "name": "Cadmium Red Medium",  "pigment": "PR108",
-        "hiding": 0.95, "tinting": 0.8,  "granulation": 0.10, "bands": [ ... ] },
+        "hiding": 0.95, "tinting": 0.8,  "granulation": 0.10, "dataQuality": "placeholder", "dataVersion": 1, "K": [ ... ], "S": [ ... ] },
       { "id": "ultramarine-blue",    "name": "Ultramarine Blue",    "pigment": "PB29",
-        "hiding": 0.45, "tinting": 0.55, "granulation": 0.55, "bands": [ ... ] },
+        "hiding": 0.45, "tinting": 0.55, "granulation": 0.55, "dataQuality": "placeholder", "dataVersion": 1, "K": [ ... ], "S": [ ... ] },
       { "id": "phthalo-blue",        "name": "Phthalo Blue (GS)",   "pigment": "PB15:3",
-        "hiding": 0.30, "tinting": 1.0,  "granulation": 0.0,  "bands": [ ... ] }
+        "hiding": 0.30, "tinting": 1.0,  "granulation": 0.0,  "dataQuality": "placeholder", "dataVersion": 1, "K": [ ... ], "S": [ ... ] }
     ]
   }
 }
 ~~~
 
 - **`pigment`** is the Colour Index generic name (PW6, PR108, PB29 …) so a tube is unambiguous.
-- **`bands`** is the pigment's absorption and scattering at the model's wavelength samples (6.2).
-  The values must come from published reflectance data or measurement, never from invention. I
-  have not sourced any, and the spec leaves them `[ ... ]` (section 9). The baseline set below
-  is a *selection* to source, not a data table.
+- **`bands`** is the pigment's absorption `K` and scattering `S` at the model's wavelength samples
+  (6.2), each array the same length as `wavelengths`. **Data format (decision 4):** the format
+  accepts calibrated numbers later, so each pigment carries `"dataQuality": "placeholder" | "calibrated"`
+  and a `"source"` string. v1 ships **hand-tuned, believable K/S marked `"placeholder"`**; the host
+  shows no claim of accuracy for a placeholder pigment, `PackRenderHarness` and the golden tests mark
+  its vectors as placeholder-pinned (they pin *current* output, not truth), and replacing a pigment's
+  numbers with calibrated ones bumps that pigment's `dataVersion` so recorded strokes keep resolving the
+  numbers they used (the `PaintMediaProfile.version` rule, `E/PaintMediaProfile.kt:14-22`).
+  Hand-tuned values are derived by fitting K/S so that a pigment's masstone, tint-with-white and a
+  few complementary mixes land near the artist-intended look; the fitting script is committed with the
+  data so the numbers are reproducible, not magic.
 - **`hiding`** (0..1) is opacity: how much of the surface below shows through at working
   thickness. It drives the dab's alpha ceiling for a given load.
 - **`tinting`** (0..1, relative to 1.0 for the strongest tinter) is tinting strength: how far the
   pigment overpowers white. Phthalo blue is a strong tinter; ultramarine is weaker. This one number
   is what makes mixed paint feel real and is exactly what RYB lacks.
 - **`granulation`** (0..1) is the tendency to settle into tooth; used by E7 and by dry-brush.
+- **Naming (decision 7):** generic pigment names only (cadmium red, ultramarine, titanium white);
+  no manufacturer or product-line names anywhere in code, data, UI or docs. If a specific product ever
+  has to be referenced, use an off-brand wink in the Mr. Pibb / Dr Thunder spirit rather than the
+  real name.
 - **Baseline hand-pigment set (a selection, not data):** titanium white, zinc white, ivory black,
   cadmium yellow light, cadmium yellow medium, yellow ochre, raw sienna, burnt sienna, cadmium red
   medium, alizarin crimson (or a lightfast quinacridone substitute), quinacridone magenta, burnt
   umber, raw umber, ultramarine blue, cobalt blue, cerulean blue, phthalo blue, phthalo green,
   viridian, sap-green equivalent. About twenty tubes, a classic limited-but-complete palette.
-  Which to include is question 7.
+  The exact list is an authoring task for P4, not an open owner question.
 
 **Naming rule.** The UI shows the tube name and a one-line physical note ("opaque, warm, granulating"),
 never only a swatch. This is also an accessibility requirement (6.6).
 
 ### 6.2 The mixing model — Kubelka-Munk, and why
 
-**Decision: a Kubelka-Munk (K-M) model of the mixture, sampled at a small fixed set of wavelength
-bands, with a baked RGB-to-latent lookup so the 8-bit canvas does not change.** Concretely:
+**Decision (owner, 3): a Kubelka-Munk (K-M) model of the mixture, sampled at a small fixed set of
+wavelength bands, applied to the canvas as well as the palette and brush, with a baked RGB-to-latent
+lookup so the 8-bit canvas storage does not change.** Concretely:
 
 1. **Forward model.** Each pigment has absorption `K(λ)` and scattering `S(λ)` at `B` bands
-   (proposed `B = 7`; to be settled by measurement against the pigment data, question 4). A mixture
+   (proposed `B = 7`; revisited when calibrated data arrives). A mixture
    with concentrations `c_i` has `K_mix = Σ c_i K_i`, `S_mix = Σ c_i S_i` (K-M's linearity in
    concentration, which is the whole point). Reflectance of an infinitely thick film is
    `R∞(λ) = 1 + K/S − sqrt((K/S)² + 2 K/S)`. Converted through a fixed observer to linear sRGB,
@@ -688,12 +740,15 @@ bands, with a baked RGB-to-latent lookup so the 8-bit canvas does not change.** 
 | RYB (today's `PIGMENT_RYB`) | Fixes yellow + blue only. No white, no tinting strength, no named pigments, hue-only. Keep for back-compat. |
 | Weighted geometric mean / Beer-Lambert in RGB | Cheap and decent for transparent glazes, bad for white, cannot represent tinting strength. |
 | Full spectral (30+ bands, two-constant K-M) | Most accurate. Per-pixel cost and the 8-bit canvas make it poor value on mid-range Android. |
-| Mixbox | Does what is wanted, but its licence is non-commercial by default (from memory, to verify; section 9). A commercial paid app needs a licence or an own implementation. |
+| Mixbox | Does what is wanted, but its licence is non-commercial by default (from memory, to verify; section 9). A commercial app needs a licence or an own implementation. |
 | **K-M, few bands, LUT readback (chosen)** | Correct white and tinting behaviour, linear concentration algebra, exact on the palette, bounded on the canvas, and ours to ship under our own licence. |
 
-The status doc's earlier rule — K-M only if the bounded mixer visibly fails — is satisfied by the
-named-pigment requirement itself, because tinting strength cannot be expressed in RYB. The owner
-should confirm (question 3).
+The status doc's earlier rule (K-M only if the bounded mixer visibly fails) is superseded by the
+owner's decision; it is also satisfied independently, because tinting strength cannot be expressed in
+RYB. Canvas-wide K-M means every overlap and every wet blend on a painterly layer uses the lookup,
+which makes the lookup table the performance-critical piece (6.7) and means the CPU oracle and the
+WGSL port must both implement it (section 3.1, rule 4). `PIGMENT_RYB` and `LEGACY_RGB` remain for old
+projects and non-painterly brushes.
 
 Mixed in practice: a dab drawn from a load column asks `PigmentMixer` for the column's current
 concentration vector and receives one ARGB; wet mixing with the canvas is one LUT lookup plus one mix.
@@ -711,8 +766,11 @@ The palette is a surface you work on, not a list of swatches.
   rule, with the same lift/draw physics as the canvas (it *is* the same engine: the palette is a
   surface the probe (E3) reads). Mixing is incremental and spatial, not a slider: more passes,
   more homogeneous.
-- **Finite paint.** Blobs run out. A squeeze is a deliberate act. Section 6.4 lists what is
-  *infinite* on purpose.
+- **Finite paint (decision 6).** Paint in the mixer is finite: a blob runs out, and a brush holds a
+  limited load. Wetness and the amount loaded are **felt through use, never shown as numeric
+  sliders**: you dip, the brush takes paint and is visibly fuller; you paint and it depletes, strokes
+  thin and break up; a dry brush drags. The only readouts are physical ones (the brush's load strip,
+  6.6, and the look of the blob). Section 6.4 lists what is infinite on purpose (refills, cleaning).
 - **Cleaning the brush.** Three physical actions, each cheap and deterministic:
   - **Wipe on a rag:** removes the tip layer (depth 0) of the load, partially.
   - **Rinse (water / solvent):** removes more, depends on the medium; for water-based media it is
@@ -739,18 +797,23 @@ should be physical.
 | **Undo / redo** | Physically impossible; the central digital gift. Material-aware undo already exists (status doc Phase 5). |
 | **Infinite, instant palette cleaning** (a "clean board" action) | Real boards need scraping; here it is a single tap. Using a tube still spends paint (6.3). |
 | **Unlimited tube refills** | A tube is a mark of a physical limit, but running out of paint mid-stroke is not the experience the app should enforce at scale. Refill is free. |
-| **Eyedropper from the canvas and from a reference photo** | A painter matches colour by eye and mixing; sampling is impossible and useful. The sampled colour becomes a **target** shown beside the brush, plus the engine's best **recipe** of tubes (6.5), rather than a magic colour. It does not paint the picked colour directly. |
+| **Eyedropper from the canvas and from a reference photo** | A painter matches colour by eye and mixing; sampling is impossible and useful. The sampled colour (or typed hex) becomes a **target** shown beside the brush, plus the engine's best **recipe** of tubes (6.5), rather than a magic colour. It does not paint the picked colour directly. |
 | **Layers, blend modes, masks, selections** | Not paint. Not the painterly scope. Retained as-is. |
 | **Reference overlays, tracing** | The app's core purpose in the wider product. Retained. |
 | **Symmetry, transforms** | Impossible with a brush; keep. |
 | **Dry time control** (fast-forward drying) | A real glaze waits hours; here the artist can say "dry now". Affects the wet field only. |
 | **Alpha lock, clipping** | Standard masking, not paint behaviour. |
 | **Cloud / pack sharing, replaying a stroke list** | Inherently digital; the demo-sharing goal depends on it. |
-| **Brush physics tuning sliders** (stiffness, load capacity) | Real brushes are fixed; letting the artist choose their tool's behaviour is digital and kept under an "Advanced" fold. |
+| **Brush tool choice and size** | Real artists pick a tool; picking and sizing remain. Wetness and load are deliberately **not** sliders (decision 6): they are felt through dipping and use. |
 
-Not kept as primary: the HSV disc, a free-floating opacity slider detached from any pigment, and
-"pick any colour from 16 million". The hex field and wheel survive only inside the **Advanced**
-fold, labelled as non-physical, so existing users and imports are not stranded (question 2).
+**The physical palette/mixer replaces the current colour picker entirely (decision 2).** The HSV
+disc, Harmony tab, free-floating opacity slider and the saved-ARGB swatch list are removed. The only
+survivors are small, clearly labelled **"Digital"** affordances: the eyedropper (from the reference
+or canvas, returning a recipe, 6.5) and **hex entry** (trivially cheap; it also returns a recipe, and
+says when the nearest tube mixture is off). Existing saved palettes (`PaletteCodec`) are migrated by
+treating each saved ARGB as an eyedropper target and storing its recipe, so no user's swatches are
+lost (the original ARGB is kept next to the recipe for exactness). A project whose strokes record
+`colorArgb` (`EditorModels.kt:446`) keeps replaying it as before; only *choosing* colour changes.
 
 ### 6.5 The eyedropper as recipe
 
@@ -818,16 +881,20 @@ material work. Phases 1 to 3 need no new pigment model.
 
 | Phase | Deliver | Depends on | Exit gate |
 |---|---|---|---|
-| **P0 — Spec acceptance** | Owner answers questions 1 to 10; baseline pigment list; measured reflectance source chosen | none | Questions answered; pigment data source named |
-| **P1 — Lift tail and the petal harness** (E6) | Phase-3 emit tests; "petal pull" test stroke in `PackRenderHarness`; a **proof-of-concept** Loaded Petal Flat built from today's features only (gradient, `mix`, lanes, tail) in a scratch pack | none | Harness renders a recognisable petal; tests pin tail determinism and replay |
+| **P0 — Read-only groundwork** | Read the stamp-stroke persistence path (5.6 rule 5); read the live-stroke path for the touchdown snapshot (E3); write the K/S fitting script and placeholder data format | none | Findings written into this spec; no code behaviour change |
+| **P1 — Lift tail and the petal harness** (E6) | Phase-3 emit tests; "petal pull" test stroke in `PackRenderHarness`; proof-of-concept Loaded Petal Flat from today's features | P0 | Harness renders a recognisable petal; tests pin tail determinism and replay |
 | **P2 — Edge ridge and highlight** (E5) | `emit h`, `heightMul`, `sheen`, shading port, stamp-engine-diff scenario | P1 | Rim bead and dry highlight visible; CPU and wgpu parity within tolerance; `sheen = 0` byte-identical |
-| **P3 — Brush load** (E2) | `load` block, lane functions, persistence of load across strokes; **still RGB mixing** | P1 | A flat double-loaded with two colours depletes unevenly and replays identically |
-| **P4 — Pigment model** (E4) | `PigmentMixer`, lookup table generator, `PIGMENT_KM`, ~20-tube data, golden vectors | P0 data, P3 | Mixed-pigment golden fixtures pass; white-tint behaviour pinned; lookup round-trips |
-| **P5 — Surface probe and wet pickup** (E3) | Probe plumbing, `lift`, `mixWet`, wet blend in the petal | P3, P4 | Petal pull over wet paint picks up and blends; replay-equality test over an undo cycle |
-| **P6 — Palette board** | Board surface, blob/knife/brush mixing, cleaning, recipe eyedropper, Advanced fold keeps HSV | P4, P5 | A user can squeeze, mix, load and paint a petal with only the palette; accessibility checks pass |
-| **P7 — Packs** | `painters-bristles`, `painters-tools`, `petal-demo`, pigment `palette` asset; harness renders and previews | P2 to P6 | Packs install in the store flow; each brush has a rendered preview |
-| **P8 — Watercolour** (E7), optional | Absorbency wicking, granulation, edge darkening, `brushes.watercolour` | P4, P5, owner scope | Only if question 1 includes watercolour |
+| **P3 — Pigment model** (E4) | `PigmentMixer`, K-M, lookup table generator, `PIGMENT_KM`, ~20 placeholder tubes, golden vectors, WGSL port for canvas mixing | P0 | Golden fixtures pass; white-tint behaviour pinned; lookup round-trips; CPU/GPU parity |
+| **P4 — Brush load** (E2) | `load` block, lane functions, load persisted across strokes, finite depletion | P3 | A double-loaded flat depletes unevenly and replays identically |
+| **P5 — Surface probe and wet pickup** (E3) | Touchdown-snapshot probe, `lift`, `mixWet`, wet blend | P3, P4 | Petal pull over wet paint picks up and blends; replay-equality across an undo cycle |
+| **P6 — Palette/mixer replaces picker** | Board, blobs, knife/brush mixing, dip/load/clean, recipe eyedropper and hex, saved-palette migration, removal of the old picker | P3-P5 | Paint a petal using only the mixer; accessibility checks pass; old palettes migrate |
+| **P7 — Four packs** | `painterly.{acrylic,oil,water,ink}` + `painterly.pigments`, bundled, store-listing manifests prepared; brush alias table and bake (5.6); removal of superseded brushes | P2-P6 | Packs install on first run; every brush has a rendered preview; old projects open and replay |
+| **P8 — Watercolour engine** (E7) | Absorbency wicking, granulation, edge darkening | P3, P5 | Needed by `painterly.water`; can run in parallel with P6 |
 | **P9 — Hardening** | Device matrix, perf tuning, accessibility audit, stroke-list sharing | all | Budgets in 6.7 met on at least one mid-range device |
+
+Order of implementation PRs follows the owner's instruction: engine gaps (P1-P5) first, then the
+palette/mixer UI (P6), then the packs (P7), with P8 slotted before P7's water pack. Each phase is its
+own PR.
 
 Phase P1 is deliberately useful on its own: it shows what the owner's reference needs *without any
 engine risk*, and its result informs how much of P3 to P5 is worth the cost.
@@ -891,48 +958,31 @@ engine risk*, and its result informs how much of P3 to P5 is worth the cost.
 - The `Project` format change for persisting load (6.5) was not designed against the current project
   version; it is proposed as an optional block only.
 
-## 10. Owner questions
+## 10. Owner decisions
 
-Only decisions I cannot make from the code or from the stated direction.
+The ten questions in the first draft are answered. Recorded here so the spec and the code agree.
 
-1. **Medium scope.** Which media are in scope for the first release: acrylic only, acrylic and oil,
-   or also watercolour? Oil and acrylic differ mainly in open time and in how they blend; watercolour
-   needs the whole of E7 (paper wicking, granulation, edge darkening) and is the largest single cost.
-   I recommend acrylic and oil first, watercolour as a later pack (phase P8).
-2. **Palette replaces or augments the picker?** Three options: (a) the physical palette is the only
-   way to choose paint (HSV survives nowhere); (b) the palette is primary and the HSV disc and hex
-   field survive under an Advanced fold (this spec's default); (c) the palette is an add-on beside
-   the current picker. Option (a) is purest but strands imports, reference-colour matching and
-   existing projects' saved palettes (`PaletteCodec`).
-3. **Pigment mixing model and cost.** This spec picks Kubelka-Munk with a few bands and a lookup
-   table (6.2), which reverses the earlier "K-M research only" note. Do you accept the model and the
-   extra work (phase P4, plus the data sourcing), or hold at the existing RYB for now? If accepted,
-   do you want it for the canvas as well as the palette, or palette and brush only?
-4. **Fidelity versus cost on mid-range devices.** More bands are more accurate and slower. Is the
-   target "believably right on a normal screen" (7 bands, this spec) or "calibrated" (needs measured
-   pigment data and a larger model)?
-5. **Self-overlap pickup.** E3's probe excludes a stroke's own paint, so a stroke doesn't pick up its
-   own wet earlier pass within the same stroke. Is that acceptable, or must a brush also smear its
-   own pass, which means moving pickup into the compositor and giving up the "renderers stay dumb"
-   rule for that feature (the rejected alternative in 3.4)?
-6. **Finite paint on the palette.** Should tubes be literally finite (a squeeze is spent) or
-   infinite? This spec defaults to finite blobs but free refills (6.4). Strictly finite is closer to
-   real life and creates friction; if friction is not wanted, say so.
-7. **The tube list.** Which pigments and brands are in the first set? A short fixed list of about
-   twenty (6.1) is simpler to validate; named real-world paint lines (a manufacturer's range) raise
-   licensing and trademark questions I cannot resolve.
-8. **Pricing and distribution.** Existing sets are free v1.0.0 and keep their ids. For the new
-   packs: free, paid, or a split (for example the bristle set free and `petal-demo` plus
-   `painters-tools` paid)? Proprietary or CC0 for the free ones? The mechanism for paid packs already
-   exists; the policy is yours. Also: should the demo scene be a free, shareable "starter" that
-   advertises the paid set?
-9. **Sharing a demo.** Is the shareable unit "this pack plus a recorded stroke list that plays back"
-   (this spec's assumption, no new format), or a video export, or both? Video export is a separate
-   feature.
-10. **Existing brushes that overlap.** The set proposes better versions of Square Flat, Rigger, Fan,
-    Glaze Mop, Scrub, Trowel and Impasto Knife under new names in new packs, leaving the originals.
-    Do you want that duplication, or should the originals be upgraded in place with a version bump
-    (which changes how existing users' strokes look when replayed)?
+| # | Decision |
+|---|---|
+| 1 | Four separate packs: acrylic, oil, water(colour), ink. All free, Apache-2.0, bundled with the app, each also listed in the azphalt store as `kind: "asset"`. azphalt itself is not changed; submission manifests are prepared in the style of the existing brush submissions (5.5). |
+| 2 | The physical palette/mixer replaces the colour picker entirely. Only small, clearly labelled "Digital" affordances remain: eyedropper, and hex entry (6.4). |
+| 3 | Kubelka-Munk applies to the canvas as well as the palette and brush (6.2). |
+| 4 | Calibrated pigment data is the goal. v1 ships believable hand-tuned K/S behind a data format that accepts calibrated numbers later; placeholder data is marked (`dataQuality`, 6.1). |
+| 5 | v1: a stroke does not pick up its own wet pass (touchdown snapshot). Documented in E3; the door stays open. |
+| 6 | Paint is finite in the mixer. Wetness and loaded amount are felt through use, not shown as numeric sliders (6.3). |
+| 7 | No real manufacturer names. Generic pigment names are fine; if a product must be referenced, an off-brand wink in the Mr. Pibb / Dr Thunder spirit (6.1). |
+| 8 | Pricing is free (decision 1). |
+| 9 | Demo sharing: a pack plus a replayable stroke list. Video export later (5.5). In plain terms: the app plays your recorded pen movements back through the brushes, so someone else sees the same petal being painted; a video file is a separate, later feature. |
+| 10 | Superseded old brushes are removed, with an alias table and a one-time bake so existing projects still open and replay (5.6). |
+
+### 10.1 What is still open
+
+Not owner questions; implementation unknowns that the groundwork phase (P0) resolves:
+
+- How stamp-brush strokes persist their brush in the project (5.6 rule 5).
+- Whether the touchdown snapshot is available on the live path without a GPU readback (section 9).
+- The final wavelength band count once the lookup cost is measured on a device.
+- Whether CPU-only canvas K-M is fast enough on the CONSTRAINED tier, or the lookup must also run as a GPU texture (it will for BALANCED and FULL regardless).
 
 ## 11. Risks
 
@@ -943,7 +993,9 @@ Only decisions I cannot make from the code or from the stated direction.
 | K-M data quality | Colours look wrong or muddy | Source real data first (P0); golden vectors; allow tube tuning in packs |
 | 8-bit canvas quantisation of repeated mixes | Muddy drift after many mixes | Residual in the lookup keeps unmixed pixels exact; limit mixes per pixel per stroke; test with 50 repeated mixes |
 | Mid-range cost | Lag in the live path | Tier caps; ops budgets; `surface` disabled on CONSTRAINED |
-| Scope creep into watercolour | Never ships | It is phase P8 and optional (question 1) |
-| Existing users lose the familiar picker | Churn | Advanced fold; imports keep working |
+| Watercolour engine scope | Delays the water pack | P8 is bounded to wicking, granulation, edge darkening; the rest of the water pack works without it |
+| Removing old brushes breaks old projects | Lost or changed strokes | Alias table plus one-time bake (5.6); P0 confirms persistence first; replay test over fixture projects |
+| Canvas-wide K-M cost | Slow painterly layers | Lookup as a GPU texture; ops/budget caps in 6.7; non-painterly layers keep the old path |
+| Existing users lose the familiar picker | Churn | Digital eyedropper and hex remain; saved palettes migrate to recipes (6.4) |
 | The two engines disagree | Pixels differ live vs committed | Kotlin is the oracle; only shading is ported; parity scenarios in `tools/stamp-engine-diff` |
 | Authoring difficulty | Few good packs | The petal pack is the template; `PackRenderHarness` previews; the idioms (lane, tail, ridge) are documented in section 5 |
