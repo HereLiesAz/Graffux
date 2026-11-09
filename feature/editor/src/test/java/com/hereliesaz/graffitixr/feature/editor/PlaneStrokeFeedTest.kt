@@ -47,6 +47,7 @@ class PlaneStrokeFeedTest {
             end = { ended++ },
             cancel = { cancelled++ },
             segmentEnd = { segments++ },
+            sampleOk = TestGuards.planeSampleOk, joinOk = TestGuards.planeJoinOk,
         )
     }
 
@@ -148,16 +149,16 @@ class PlaneStrokeFeedTest {
     @Test
     fun `a finished stroke is cut into the runs that hit the plane, in sample order`() {
         val path = listOf(Offset(0f, 0f), Offset(1f, 0f), Offset(2f, 0f), Offset(3f, 0f), Offset(4f, 0f))
-        val segments = planeSegments(path) { p -> p.takeIf { it.x != 2f }?.let { Offset(it.x * 10f, 5f) } }
+        val segments = acceptAllSegments(path) { p -> p.takeIf { it.x != 2f }?.let { Offset(it.x * 10f, 5f) } }
         assertEquals(listOf(listOf(0, 1), listOf(3, 4)), segments.map { s -> s.map { it.first } })
         assertEquals(Offset(30f, 5f), segments[1][0].second)
-        assertTrue(planeSegments(path) { null }.isEmpty())
+        assertTrue(acceptAllSegments(path) { null }.isEmpty())
     }
 
     @Test
     fun `a finished stroke on a tilted layer maps like the live brush does`() {
         val plane = ActivePlaneMapping.of(state(Layer(id = "a", name = "a", rotationX = 40f)))
-        val seg = planeSegments(touches, toFlat = plane::worldToFlat).single()
+        val seg = acceptAllSegments(touches, plane::worldToFlat).single()
         assertEquals(touches.map { plane.toFlat(it) }, seg.map { it.second })
     }
 }
@@ -211,6 +212,7 @@ class SurfaceFootprintStrokeTest {
             end = {},
             cancel = { cancelled++ },
             segmentEnd = { segments++ },
+            sampleOk = TestGuards.planeSampleOk, joinOk = TestGuards.planeJoinOk,
         )
         touches.forEachIndexed { i, t -> if (i == 0) feed.onStart(t) else feed.onPoint(t) }
         feed.onEnd()
@@ -277,7 +279,7 @@ class SurfaceFootprintStrokeTest {
             end = { r.ended++ },
             cancel = { r.cancelled++ },
             segmentEnd = { r.segments++ },
-            sampleOk = { raw, _ -> raw.x < 500f },
+            sampleOk = { raw, _ -> raw.x < 500f }, joinOk = TestGuards.planeJoinOk,
         )
         feed.onStart(Offset(10f, 0f))
         feed.onPoint(Offset(20f, 0f))
@@ -301,6 +303,7 @@ class SurfaceFootprintStrokeTest {
             end = { r.ended++ },
             cancel = { r.cancelled++ },
             segmentEnd = { r.segments++ },
+            sampleOk = TestGuards.planeSampleOk,
             joinOk = { _, pm, _, m -> kotlin.math.abs(m.x - pm.x) < 100f },
         )
         feed.onStart(Offset(0f, 0f))
