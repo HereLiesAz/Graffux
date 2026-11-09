@@ -326,4 +326,56 @@ class ObjParserTest {
         val ok = ObjParser.parse(v + "v 1 1 0\nf 1 2 3\nf 2 3 4\n", limits)
         assertEquals(2, ok.triangleCount)
     }
+
+    // The bound must hold before anything is materialised: a line is measured, not split, first.
+
+    private val tri = "v 0 0 0\nv 1 0 0\nv 0 1 0\n"
+
+    private fun assertRefused(text: String, containing: String) {
+        val e = runCatching { ObjParser.parse(text) }.exceptionOrNull()
+        assertTrue(e.toString(), e is ObjParser.ObjParseException && e.message.orEmpty().contains(containing))
+    }
+
+    @Test(timeout = 30_000)
+    fun `one enormous face line is refused without being split`() =
+        assertRefused(tri + "f " + "1 ".repeat(500_000) + "\n", "line")
+
+    @Test(timeout = 30_000)
+    fun `one enormous position line is refused without being split`() =
+        assertRefused("v " + "0 ".repeat(4_000_000) + "\n" + tri, "line")
+
+    @Test(timeout = 30_000)
+    fun `a body with no newline at all is refused`() = assertRefused("x".repeat(10_000_000), "line")
+
+    @Test
+    fun `a long comment is skipped, not refused`() {
+        val comment = "# " + "x".repeat(1_000_000) + "\n"
+        val mesh = ObjParser.parse(comment + tri + "f 1 2 3 # " + "y".repeat(100_000) + "\n")
+        assertEquals(1, mesh.triangleCount)
+    }
+
+    @Test
+    fun `a face with an absurd number of corners is refused`() =
+        assertRefused(tri + "f " + "1 ".repeat(ObjParser.MAX_FACE_CORNERS + 1) + "\n", "corners")
+
+    @Test(timeout = 120_000)
+    fun `a flat-shaded model at the triangle cap still imports`() {
+        // Every corner has its own position, so 400,000 triangles emit 1,200,000 vertices: three per triangle.
+        val triangles = ObjParser.MAX_TRIANGLES
+        val obj = StringBuilder(triangles * 40)
+        for (t in 0 until triangles) {
+            obj.append("v ").append(t).append(" 0 0\nv ").append(t).append(" 1 0\nv ").append(t).append(" 0 1\n")
+        }
+        for (t in 0 until triangles) {
+            val a = 3 * t + 1
+            obj.append("f ").append(a).append(' ').append(a + 1).append(' ').append(a + 2).append('\n')
+        }
+        val mesh = ObjParser.parse(obj.toString())
+        assertEquals(triangles, mesh.triangleCount)
+        assertEquals(3 * triangles, mesh.vertexCount)
+    }
+
+    @Test
+    fun `the vertex cap is three times the triangle cap`() =
+        assertEquals(3 * ObjParser.MAX_TRIANGLES, ObjParser.MAX_VERTICES)
 }

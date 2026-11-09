@@ -30,6 +30,7 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -593,5 +594,44 @@ class ModelLayerTest {
         assertTrue(artifacts.containsKey("model_peer.obj"))
         // And nothing was echoed back for it.
         assertTrue(emitted.filterIsInstance<Op.ModelData>().none { it.layerId == "peer" })
+    }
+
+    /** A sparse file of [bytes]: over any cap, without the disk it would take. */
+    private fun sparse(name: String, bytes: Long): File =
+        File(projectDir(), name).also { f -> java.io.RandomAccessFile(f, "rw").use { it.setLength(bytes) } }
+
+    @Test
+    fun `a saved model too large to open is reported and its file is kept`() = runTest(dispatcher) {
+        val seen = mutableListOf<EditorNotice>()
+        val job = kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.notices.collect { seen += it } }
+        val big = sparse("model_m.obj", ModelCoopCodec.MAX_OBJ_BYTES + 1L)
+        currentProject.value = project(listOf(
+            OverlayLayer(id = "m", name = "Head", uri = android.net.Uri.parse(""), model = ModelLayerContent("model_m.obj")),
+        ))
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any {
+            it.kind == NoticeKind.WARNING && it.text.contains("Head") && it.text.contains("larger than") &&
+                it.text.contains("kept")
+        })
+        // Still a model layer, just without a mesh; nothing was deleted or rewritten.
+        assertNull(model().model!!.mesh)
+        assertTrue(big.exists())
+        assertEquals(ModelCoopCodec.MAX_OBJ_BYTES + 1L, big.length())
+    }
+
+    @Test
+    fun `a model too large to share with co-op peers tells the host`() = runTest(dispatcher) {
+        currentProject.value = project(emptyList())
+        idle()
+        val seen = mutableListOf<EditorNotice>()
+        val job = kotlinx.coroutines.CoroutineScope(dispatcher).launch { vm.notices.collect { seen += it } }
+        sparse("model_m.obj", ModelCoopCodec.MAX_OBJ_BYTES + 1L)
+        coopActive = true
+        addModel()
+        idle()
+        job.cancel()
+        assertTrue(seen.toString(), seen.any { it.kind == NoticeKind.WARNING && it.text.contains("co-op") })
+        assertTrue(emitted.filterIsInstance<Op.ModelData>().none { it.objDeflated != null })
     }
 }

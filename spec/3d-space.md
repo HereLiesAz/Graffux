@@ -172,9 +172,15 @@ its "Add view to canvas" snapshot are retired). The 3D toolbox's **Import 3D mod
 used to open the window, now imports into a layer.
 
 - **Import.** `EditorViewModel.importModelLayer` reads the OBJ (at most 64 MB, the same cap the co-op
-  path uses; loading a saved project's OBJ is capped the same way) and parses it (`ObjParser`, which
-  refuses more than 1,000,000 positions, uvs, normals or emitted vertices, or 2,000,000 triangles, with
-  an `ObjParseException`), copies the file
+  path uses; loading a saved project's OBJ and sending one to co-op peers are capped the same way) and
+  parses it (`ObjParser`). The parse refuses, with an `ObjParseException`, a line over 64 K characters
+  (measured before it is copied, so one 60 MB line or a file with no newline is never split), a face of
+  more than 16,384 corners, more than 400,000 triangles, and more than 1,200,000 positions, uvs, normals
+  or emitted vertices (three per triangle, the most a flat-shaded or UV-seamed mesh emits). Its
+  accumulators are primitive arrays and an unboxed open-addressed map: about 150 MB at the caps beyond
+  the file's own text, a small fraction of that for a typical model. A saved project whose model is
+  over a cap (or otherwise unreadable) keeps its layer and its file, and a notice names the layer and the
+  reason; a co-op host whose model cannot be sent is told the same way. The file is copied
   into the project folder as `model_<layerId>.obj`, and adds a layer on top with
   `Layer.model: ModelLayerContent`, which makes it a 3D layer: the rail shows the axis
   cycler and the layers rail the 3D outlines. Its plane is placed by the view-plane rule

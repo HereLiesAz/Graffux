@@ -14453,6 +14453,7 @@ class EditorViewModel @Inject constructor(
     /** Model layers whose saved texture file could not be read: painting them is refused. */
     private val modelTextureLoadFailed = HashSet<String>()
 
+    @Suppress("CyclomaticComplexMethod") // load, texture, report: one pass per layer
     private fun restoreModelLayers(projectId: String, layers: List<Layer>) {
         modelTexturesOnDisk.clear()
         writtenModelTextures.clear()
@@ -14462,6 +14463,9 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch(dispatchers.io) {
             val dir = File(context.filesDir, "projects/$projectId")
             val textures = HashMap<String, WrittenTexture>()
+            // Layers whose model could not be opened, with why: the user is told (below), never left
+            // with an empty layer and no explanation. Their files stay in the project untouched.
+            val unopened = mutableListOf<Pair<String, String>>()
             for (layer in pending) {
                 val content = layer.model ?: continue
                 runCatching {
@@ -14482,10 +14486,17 @@ class EditorViewModel @Inject constructor(
                     }
                 }.onFailure {
                     android.util.Log.w("EditorViewModel", "Couldn't load the model of layer ${layer.id}", it)
+                    unopened += layer.name to (it.message ?: it.javaClass.simpleName)
                 }
             }
             withContext(dispatchers.main) {
                 if (_uiState.value.projectId != projectId) return@withContext
+                unopened.forEach { (name, why) ->
+                    notify(
+                        "The model of \"$name\" can't be opened: $why. The file is kept in the project.",
+                        NoticeKind.WARNING,
+                    )
+                }
                 textures.forEach { (id, written) -> modelTexturesOnDisk[id] = written.texture }
                 writtenModelTextures.putAll(textures)
                 // a saved texture that did not load stays unpaintable (and unsaved over), never blank-and-overwritten
@@ -14532,9 +14543,19 @@ class EditorViewModel @Inject constructor(
         val texture = content.texture
         viewModelScope.launch(dispatchers.io) {
             val obj = if (withMesh) {
-                ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
-                    ?.takeIf { it.isFile && it.length() <= ModelCoopCodec.MAX_OBJ_BYTES }
-                    ?.readBytes()?.let(ModelCoopCodec::deflate) ?: return@launch
+                val file = ModelFiles.safe(content.objFile)?.let { File(context.filesDir, "projects/$projectId/$it") }
+                    ?.takeIf { it.isFile } ?: return@launch
+                // One bounded read, not a length check and then readBytes(): the file can change between them.
+                val bytes = runCatching { file.inputStream().use { ModelFiles.readBounded(it) } }.getOrElse { e ->
+                    withContext(dispatchers.main) {
+                        notify(
+                            "Couldn't share the model of \"${layer.name}\" with your co-op peers: ${e.message}",
+                            NoticeKind.WARNING,
+                        )
+                    }
+                    return@launch
+                }
+                ModelCoopCodec.deflate(bytes)
             } else {
                 null
             }
