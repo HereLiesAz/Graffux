@@ -1595,6 +1595,33 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `outline assist straightens a wobbly surface stroke and one undo gives back the raw stroke`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val wobbly = (0..40).map { Offset(200f + it * 15f, 1000f + (if (it % 2 == 0) 3f else -3f)) }
+        fun draw(assist: Boolean): com.hereliesaz.graffitixr.common.scene.SurfaceProfile? {
+            viewModel.setLayers(
+                listOf(
+                    lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP),
+                    lyr("c").copy(parentId = "g"),
+                ),
+            )
+            viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+            viewModel.dispatchForTest(EditorIntent.SetSurfaceOutlineAssist(assist))
+            viewModel.onArmSurfaceDraw("g")
+            viewModel.onSurfaceProfileDrawn(wobbly)
+            testDispatcher.scheduler.advanceUntilIdle()
+            return viewModel.uiState.value.layers.first { it.id == "g" }.surface
+        }
+        val raw = draw(assist = false)
+        assertTrue(raw != null && raw.count > 2)
+        val assisted = draw(assist = true)
+        assertEquals(2, assisted?.count)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(raw, viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+    }
+
+    @Test
     fun `the surface grid toggle shows every visible group's grid`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val floor = com.hereliesaz.graffitixr.common.scene.SurfaceMath.capture(

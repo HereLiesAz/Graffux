@@ -259,6 +259,7 @@ internal object EditorReducer {
         is EditorIntent.SetHandedness -> state.copy(isRightHanded = intent.value)
         is EditorIntent.SetImperialUnits -> state.copy(isImperialUnits = intent.value)
         is EditorIntent.SetBrushSizeFixedOnScreen -> state.copy(brushSizeFixedOnScreen = intent.value)
+        is EditorIntent.SetSurfaceOutlineAssist -> state.copy(surfaceOutlineAssist = intent.value)
         is EditorIntent.SetGestureMapping -> state.copy(gestureMapping = intent.mapping)
         EditorIntent.FeedbackShown -> state.copy(showRotationAxisFeedback = false)
         EditorIntent.ToggleColorPanel ->

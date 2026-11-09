@@ -614,7 +614,10 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   arms "Draw surface" (`surfaceDrawGroupId`, or `surfaceDrawWrapLayerId` for a layer in no group,
   which `onSurfaceProfileDrawn` wraps in a new group in the same undo step as the profile) and
   every refusal sets `surfaceDrawNotice`; `SurfacePromptChip` (`:app`) words both, from
-  `SurfaceStrings`. On a 3D layer that is not on a surface group the slot and a double-tap step the axis; on a
+  `SurfaceStrings`. When the stroke ends, `onSurfaceProfileDrawn` commits the raw profile, then (setting
+  `surfaceOutlineAssist`, default on) a second undo step with the stroke cleaned by `OutlineAssist`
+  (`:core:common`, pure Kotlin: shape snapping, corner-preserving smoothing, mirror symmetry; every threshold in
+  `OutlineAssist.Config`; spec/3d-space.md, "Outline assist"). On a 3D layer that is not on a surface group the slot and a double-tap step the axis; on a
   surface group's layer the slot opens the "Surface drawings" chooser (`surfaceViewsMenuOpen`,
   `surfaceViewChoices`, `onPickSurfaceView`; entries reuse `onArmSurfaceDraw` / `onArmSurfaceView`) and the rotation
   slider gives way to the rotation triangle (below). The layers rail's 3D

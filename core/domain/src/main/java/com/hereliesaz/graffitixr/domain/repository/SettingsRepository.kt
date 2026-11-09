@@ -45,6 +45,14 @@ interface SettingsRepository {
     suspend fun setBrushSizeFixedOnScreen(fixed: Boolean)
 
     /**
+     * Whether a freehand surface outline is cleaned up when the finger lifts (straight lines straightened,
+     * squares and circles made exact, symmetric shapes mirrored; `OutlineAssist`). On by default.
+     */
+    val surfaceOutlineAssist: Flow<Boolean>
+
+    suspend fun setSurfaceOutlineAssist(enabled: Boolean)
+
+    /**
      * Installed brush-tip ids the user has hidden from pickers (the brush rail, the brush group) --
      * an extension can bundle many brushes, and not every one belongs in a strip reached for
      * mid-painting. Each id is `"<extensionId>::<assetIndex>"`, matching
