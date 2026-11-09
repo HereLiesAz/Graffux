@@ -160,6 +160,22 @@ class SurfaceVisibilityTest {
         assertFalse("camera depth 2 near is drawn and hides it", vis(listOf(drawn)).visible(target))
     }
 
+    @Test fun `a folded sheet's farther strip still hides what is behind it when the nearer crossing is past the reach`() {
+        // Drawn to t = 490: a ray through (500, 500, 0) crosses the near strip at t = 500 (not drawn), then the far strip at ~438 (drawn).
+        val fold = Layer(
+            id = "fold", name = "fold", type = LayerType.GROUP,
+            surface = SurfaceProfile(listOf(0f, 0f, 0f, 1000f, 0f, 0f, 1000f, 0f, 400f, 0f, 0f, 400f), 0f, 1f, 0f),
+        )
+        val child = Layer("c", "c", parentId = "fold")
+        val layers = listOf(fold, child)
+        val eye = SceneMath.frame(SceneCamera(), w, h).eye
+        val through = floatArrayOf(500f, 500f, 0f)
+        val k = (1000f - eye[2]) / (through[2] - eye[2])
+        val behind = FloatArray(3) { eye[it] + (through[it] - eye[it]) * k }
+        val v = SurfaceVisibility.of(layers, SceneCamera(), w, h, imageRect = { if (it.id == "c") floatArrayOf(0f, 0f, 1000f, 490f) else null })
+        assertFalse(v.visible(behind))
+    }
+
     // ── Fuzz against an independent triangle oracle ──
 
     private class Tri(val a: FloatArray, val b: FloatArray, val c: FloatArray)

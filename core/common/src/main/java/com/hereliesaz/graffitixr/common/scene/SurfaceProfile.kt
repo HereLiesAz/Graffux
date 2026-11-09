@@ -1,4 +1,4 @@
-@file:Suppress("MagicNumber", "ReturnCount", "LongParameterList", "TooManyFunctions", "MaxLineLength", "ComplexCondition", "LoopWithTooManyJumpStatements")
+@file:Suppress("MagicNumber", "CyclomaticComplexMethod", "ReturnCount", "LongParameterList", "TooManyFunctions", "MaxLineLength", "ComplexCondition", "LoopWithTooManyJumpStatements")
 
 package com.hereliesaz.graffitixr.common.scene
 
@@ -294,6 +294,8 @@ object SurfaceMath {
         cam: CameraFrame,
         /** The smallest ray parameter that counts; the default is the near plane's distance along an axial ray. */
         near: Float = SceneMath.nearPlane(cam.focal),
+        /** The farthest sweep distance that counts: a hit past it is not the surface, and a farther fold can still be (the nearest within reach wins). */
+        maxT: Float = Float.POSITIVE_INFINITY,
     ): SurfaceHit? {
         val inv = model.inverse() ?: return null
         val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
@@ -314,13 +316,27 @@ object SurfaceMath {
             val s = det3(rhs, ne, nd) / det
             val a = det3(dir, rhs, nd) / det
             val t = det3(dir, ne, rhs) / det
-            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE) continue
+            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE || t > maxT) continue
             if (best == null || s < best.distance) {
                 val seg = profile.arcLengths[i + 1] - profile.arcLengths[i]
                 best = SurfaceHit(profile.arcLengths[i] + a.coerceIn(0f, 1f) * seg, t.coerceAtLeast(0f), s)
             }
         }
         return best
+    }
+
+    /**
+     * The unrolled range a layer image drawn at [rect] (left, top, right, bottom in the leaf's box) covers on the
+     * surface: (uMin, uMax, tMin, tMax). The one place the mesh the depth pass draws ([mesh] over this range, in
+     * `DepthScene.surfaceMesh`) and the extent the visibility cast uses ([SurfaceVisibility]) both read, so they cannot differ.
+     */
+    fun unrolledRange(innerChain: List<PlanePose>, rect: FloatArray, width: Float, height: Float): FloatArray {
+        val toUnrolled = boxToUnrolled(innerChain, width, height)
+        val corners = listOf(
+            toUnrolled.apply(rect[0], rect[1], 0f), toUnrolled.apply(rect[2], rect[1], 0f),
+            toUnrolled.apply(rect[2], rect[3], 0f), toUnrolled.apply(rect[0], rect[3], 0f),
+        )
+        return floatArrayOf(corners.minOf { it[0] }, corners.maxOf { it[0] }, corners.minOf { it[1] }, corners.maxOf { it[1] })
     }
 
     /**

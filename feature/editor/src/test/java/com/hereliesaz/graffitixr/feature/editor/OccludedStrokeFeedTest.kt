@@ -250,4 +250,70 @@ class OccludedStrokeFeedTest {
         assertEquals(2, bridged.size)
         assertTrue(bridged.all { it.samples.size == 2 })
     }
+
+    // ── One rendered extent: what DepthScene meshes is what visibility casts ──
+
+    @Test fun `visibility reach equals the mesh DepthScene builds, over random bitmap and vector layers`() {
+        val rnd = java.util.Random(5)
+        var checked = 0
+        repeat(400) {
+            val group = Layer(
+                id = "g", name = "g", type = LayerType.GROUP,
+                surface = SurfaceProfile(listOf(0f, 0f, 0f, 1000f + rnd.nextFloat() * 500f, 0f, 0f), 0f, 1f, 0f),
+            )
+            val vector = rnd.nextBoolean()
+            val leaf = Layer(id = "l", name = "l", parentId = "g").copy(
+                offset = Offset((rnd.nextFloat() - 0.5f) * 400f, (rnd.nextFloat() - 0.5f) * 400f),
+                originX = rnd.nextInt(200) - 100, originY = rnd.nextInt(200) - 100,
+                frameWidth = if (rnd.nextBoolean()) 200 + rnd.nextInt(800) else 0,
+                frameHeight = if (rnd.nextBoolean()) 200 + rnd.nextInt(800) else 0,
+                shapes = if (vector) {
+                    listOf(
+                        com.hereliesaz.graffitixr.common.model.VectorShape(
+                            com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE,
+                            width = 50f + rnd.nextFloat() * 4000f, height = 50f + rnd.nextFloat() * 4000f, strokeWidth = rnd.nextFloat() * 20f,
+                        ),
+                    )
+                } else {
+                    emptyList()
+                },
+            )
+            val bw = 100 + rnd.nextInt(2000)
+            val bh = 100 + rnd.nextInt(2000)
+            val rectOf = { l: Layer -> com.hereliesaz.graffitixr.common.scene.DepthComposite.renderedRect(l, bw, bh, w, h) }
+            val layers = listOf(group, leaf)
+            val byId = layers.associateBy { it.id }
+            val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(byId, "l")!!
+            val rect = rectOf(leaf) ?: return@repeat
+            val mesh = DepthScene.surfaceMesh(owner, rect, w, h) ?: return@repeat
+            var meshT = Float.NEGATIVE_INFINITY
+            var i = 0
+            while (i < mesh.size) { meshT = maxOf(meshT, mesh[i + 1]); i += 5 }
+            val reach = com.hereliesaz.graffitixr.common.scene.SurfaceVisibility.renderedReach(layers, byId, group, w, h, rectOf)!!
+            assertEquals("vector=$vector rect=${rect.toList()}", meshT, reach, 0.5f)
+            if (vector) {
+                // With no bitmap supplied, visibility derives the vector rectangle itself, exactly as VectorRaster does.
+                val own = com.hereliesaz.graffitixr.common.scene.SurfaceVisibility.renderedReach(layers, byId, group, w, h)!!
+                val half = VectorRaster.halfExtent(leaf)
+                assertEquals(rect[2] - rect[0], half * 2f, 1e-3f)
+                assertEquals(reach, own, 1e-3f)
+            }
+            checked++
+        }
+        assertTrue("checked $checked", checked > 200)
+    }
+
+    @Test fun `a vector rectangle larger than the canvas is cast to its drawn extent`() {
+        val big = Layer(
+            id = "l", name = "l", parentId = "g",
+            shapes = listOf(com.hereliesaz.graffitixr.common.model.VectorShape(com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE, width = 4000f, height = 4000f)),
+        )
+        val group = Layer(
+            id = "g", name = "g", type = LayerType.GROUP,
+            surface = SurfaceProfile(listOf(0f, 0f, 0f, 1000f, 0f, 0f), 0f, 1f, 0f),
+        )
+        val layers = listOf(group, big)
+        val reach = com.hereliesaz.graffitixr.common.scene.SurfaceVisibility.renderedReach(layers, layers.associateBy { it.id }, group, w, h)!!
+        assertEquals("half 2000 about the box centre (800): to 2800, not the canvas's 1600", 2800f, reach, 0.5f)
+    }
 }

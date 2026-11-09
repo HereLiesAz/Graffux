@@ -59,9 +59,9 @@ class SurfaceVisibility private constructor(
             if (g.hull != null) {
                 s = (g.hull.hit(eye, d, near) ?: continue).distance
             } else {
-                val hit = SurfaceMath.hitRay(dir, g.profile, g.model, cam, near) ?: continue
-                // The sheet is swept without bound but drawn only as far as the guide grid reaches.
-                if (g.profile.relief == null && hit.t > g.gridReach) continue
+                // The sheet is swept without bound but drawn only to its reach: the nearest hit within it, so a
+                // fold's farther strip can still hide what is behind it when the nearer crossing is past the reach.
+                val hit = SurfaceMath.hitRay(dir, g.profile, g.model, cam, near, if (g.profile.relief == null) g.gridReach else Float.POSITIVE_INFINITY) ?: continue
                 s = hit.distance
             }
             if (s < best) best = s
@@ -132,26 +132,20 @@ class SurfaceVisibility private constructor(
             return opacity > 0f
         }
 
-        private fun defaultImageRect(layer: Layer, width: Float, height: Float): FloatArray? {
-            val bmp = layer.bitmap
-            return when {
-                bmp != null -> DepthComposite.imageRect(layer, bmp.width, bmp.height, width, height)
-                layer.shapes.isNotEmpty() -> floatArrayOf(0f, 0f, width, height)
-                else -> null
-            }
-        }
+        private fun defaultImageRect(layer: Layer, width: Float, height: Float): FloatArray? =
+            DepthComposite.renderedRect(layer, layer.bitmap?.width, layer.bitmap?.height, width, height)
 
         /**
          * How far along the sweep the images painted on the sheet [group] are drawn (the farthest unrolled `t` of
          * any drawn child's image rectangle, as `DepthScene.surfaceMesh` meshes it); null when none draws an image.
          */
-        private fun renderedReach(
+        fun renderedReach(
             layers: List<Layer>,
             byId: Map<String, Layer>,
             group: Layer,
             width: Float,
             height: Float,
-            imageRect: (Layer) -> FloatArray?,
+            imageRect: (Layer) -> FloatArray? = { defaultImageRect(it, width, height) },
         ): Float? {
             var reach: Float? = null
             for (child in layers) {
@@ -159,11 +153,7 @@ class SurfaceVisibility private constructor(
                 if (!drawn(byId, child)) continue
                 val owner = SurfaceMath.ownerOf(byId, child.id)?.takeIf { it.group.id == group.id } ?: continue
                 val r = imageRect(child) ?: continue
-                val toUnrolled = SurfaceMath.boxToUnrolled(owner.innerChain, width, height)
-                val t = maxOf(
-                    toUnrolled.apply(r[0], r[1], 0f)[1], toUnrolled.apply(r[2], r[1], 0f)[1],
-                    toUnrolled.apply(r[2], r[3], 0f)[1], toUnrolled.apply(r[0], r[3], 0f)[1],
-                )
+                val t = SurfaceMath.unrolledRange(owner.innerChain, r, width, height)[3]
                 reach = maxOf(reach ?: 0f, t)
             }
             return reach

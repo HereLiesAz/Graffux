@@ -82,10 +82,10 @@ internal object DepthScene {
             }
             val (bitmap, token, rect) = if (layer.shapes.isNotEmpty()) {
                 val image = vectors(layer) ?: continue
-                Triple(image.bitmap, layer.shapes.hashCode().toLong(), image.rect)
+                Triple(image.bitmap, layer.shapes.hashCode().toLong(), DepthComposite.renderedRect(layer, null, null, width, height) ?: image.rect)
             } else {
                 val (bmp, tok) = pixels.of(layer) ?: continue
-                val r = DepthComposite.imageRect(layer, bmp.width, bmp.height, width, height) ?: continue
+                val r = DepthComposite.renderedRect(layer, bmp.width, bmp.height, width, height) ?: continue
                 Triple(bmp, tok, r)
             }
             if (owner != null) {
@@ -204,10 +204,8 @@ internal object DepthScene {
         val toBox = toUnrolled.inverse() ?: return null
         val (l, t, r, b) = rect.toList()
         if (r <= l || b <= t) return null
-        val corners = listOf(toUnrolled.apply(l, t, 0f), toUnrolled.apply(r, t, 0f), toUnrolled.apply(r, b, 0f), toUnrolled.apply(l, b, 0f))
-        val mesh = math.mesh(
-            owner.profile, corners.minOf { it[0] }, corners.maxOf { it[0] }, corners.minOf { it[1] }, corners.maxOf { it[1] },
-        )
+        val range = math.unrolledRange(owner.innerChain, rect, width, height)
+        val mesh = math.mesh(owner.profile, range[0], range[1], range[2], range[3])
         if (mesh.isEmpty()) return null
         var i = 0
         while (i < mesh.size) {
