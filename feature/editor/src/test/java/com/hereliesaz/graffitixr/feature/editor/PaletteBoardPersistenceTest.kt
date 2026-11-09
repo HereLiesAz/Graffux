@@ -173,4 +173,40 @@ class PaletteBoardPersistenceTest {
             assertFalse("amount=$bad", PaletteBoardPersistence.decodeBrushes(newMixerBoard(), amountBytes(bad)))
         }
     }
+
+    @Test
+    fun aNanOrInfiniteConcentrationIsSanitisedNotFatal() {
+        val board = painted()
+        val i = 20 * board.size + 20
+        board.surface.conc[i * 16 + 2] = Float.NaN
+        board.surface.conc[i * 16 + 3] = Float.POSITIVE_INFINITY
+        val snap = PaletteBoardPersistence.snapshot(board) // used to throw from roundToInt()
+        val bytes = MaterialStateCodec.encode(snap)
+        assertTrue(PaletteBoardPersistence.restore(newMixerBoard(), requireNotNull(MaterialStateCodec.decode(bytes))))
+    }
+
+    @Test
+    fun aTexelWithPaintButNoRecipeIsSavedAsEmpty() {
+        val board = newMixerBoard()
+        val i = 5 * board.size + 5
+        board.surface.amount[i] = 0.5f // paint, but every channel is zero
+        val snap = PaletteBoardPersistence.snapshot(board)
+        assertEquals(0f, snap.heightMap!![i], 0f)
+        MaterialStateCodec.encode(snap)
+    }
+
+    @Test
+    fun theCombinedFileRoundTripsAndRefusesDamage() {
+        val board = painted()
+        val b = MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(board))
+        val k = PaletteBoardPersistence.encodeBrushes(board)
+        val packed = PaletteBoardPersistence.pack(b, k)
+        val parts = requireNotNull(PaletteBoardPersistence.unpack(packed))
+        assertArrayEquals(b, parts.first)
+        assertArrayEquals(k, parts.second)
+        assertTrue("truncated", PaletteBoardPersistence.unpack(packed.copyOf(packed.size - 3)) == null)
+        val flipped = packed.copyOf().also { it[20] = (it[20] + 1).toByte() }
+        assertTrue("one flipped byte", PaletteBoardPersistence.unpack(flipped) == null)
+        assertTrue("not a palette", PaletteBoardPersistence.unpack(byteArrayOf(1, 2, 3)) == null)
+    }
 }
