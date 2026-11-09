@@ -86,10 +86,23 @@ class PaletteBoard(
     fun drag(path: FloatArray, radius: Float = DEFAULT_TOUCH_RADIUS, lift: Float = 0.12f, draw: Float = 0.12f,
         mix: Float = 0.8f) {
         val dabs = ArrayList<PaintTransaction.Dab>()
+        fun at(x: Float, y: Float) {
+            dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, lift = lift)
+            dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, draw = draw, mixWet = mix)
+        }
+        // Resample every segment at a spacing of at most half a radius, so a fast swipe (a long step between
+        // two touch events) paints a continuous line instead of two separate dabs.
+        val spacing = (radius * MAX_DRAG_SPACING_RADII).coerceAtLeast(0.5f)
         var i = 0
-        while (i + 1 < path.size) {
-            dabs += PaintTransaction.Dab(path[i], path[i + 1], radius, 0.5f, 0, lift = lift)
-            dabs += PaintTransaction.Dab(path[i], path[i + 1], radius, 0.5f, 0, draw = draw, mixWet = mix)
+        if (path.size >= 2) at(path[0], path[1])
+        while (i + 3 < path.size && dabs.size < MAX_DRAG_DABS) {
+            val x0 = path[i]; val y0 = path[i + 1]; val x1 = path[i + 2]; val y1 = path[i + 3]
+            val length = sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0))
+            val steps = ceil(length / spacing).toInt().coerceAtLeast(1)
+            for (k in 1..steps) {
+                val t = k / steps.toFloat()
+                at(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+            }
             i += 2
         }
         PaintTransaction.run(surface, brush, dabs)
@@ -158,6 +171,10 @@ class PaletteBoard(
 
     companion object {
         const val MAX_SIZE = 1024
+
+        /** A drag lays a dab at least this often, in brush radii. */
+        const val MAX_DRAG_SPACING_RADII = 0.5f
+        private const val MAX_DRAG_DABS = 4000
         const val DEFAULT_SIZE = 512
         const val BRUSH_CAPACITY = 1.0f
         const val DEFAULT_TOUCH_RADIUS = 6f
