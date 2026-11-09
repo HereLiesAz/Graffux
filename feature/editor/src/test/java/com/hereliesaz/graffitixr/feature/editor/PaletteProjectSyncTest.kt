@@ -18,6 +18,9 @@ class PaletteProjectSyncTest {
     private class Disk {
         val files = HashMap<String, ByteArray>()
         val writes = ArrayList<String>()
+        val errors = ArrayList<Throwable>()
+        val unreadable = ArrayList<String>()
+        var writeDelayMs = 0L
         fun key(id: String, f: String) = "$id/$f"
     }
 
@@ -35,7 +38,10 @@ class PaletteProjectSyncTest {
             io = io ?: StandardTestDispatcher(scope.testScheduler),
             store = object : PaletteProjectSync.Store {
                 override fun isReadOnly() = readOnly()
+                override fun onError(error: Throwable) { disk.errors += error }
+                override fun onUnreadable(projectId: String) { disk.unreadable += projectId }
                 override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
+                    if (disk.writeDelayMs > 0) kotlinx.coroutines.delay(disk.writeDelayMs)
                     disk.files[disk.key(projectId, file)] = bytes
                     disk.writes += disk.key(projectId, file)
                 }
@@ -55,22 +61,124 @@ class PaletteProjectSyncTest {
         r.board.dip(20f, 20f)
     }
 
+    private fun combined(board: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard) = PaletteBoardPersistence.pack(
+        MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(board)),
+        PaletteBoardPersistence.encodeBrushes(board),
+    )
+
+    private fun key(id: String, f: String = PaletteBoardPersistence.COMBINED_FILE) = "$id/$f"
+
     @Test
-    fun aPendingSaveForProjectANeverWritesProjectBsBoard() = runTest {
+    fun aPendingSaveForProjectAIsFlushedUnderAAndNeverWrittenUnderB() = runTest {
         val r = Rig(this)
         paint(r)
         r.sync.changed("A")
         advanceTimeBy(500)
-        // the user opens project B before A's debounce fires: B starts empty
+        // the user opens project B before A's debounce fires: A's edit is saved under A, B starts empty
         r.sync.open("B")
         advanceUntilIdle()
-        assertTrue("nothing was written for A after the switch", r.disk.writes.isEmpty())
+        assertTrue("A's last edit was written under A", r.disk.files.containsKey(key("A")))
+        assertFalse("and nothing under B", r.disk.files.keys.any { it.startsWith("B/") })
         assertEquals(0f, r.board.surface.amount.sum(), 0f)
         r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
         r.sync.changed("B")
         advanceUntilIdle()
-        assertTrue(r.disk.writes.all { it.startsWith("B/") })
-        assertFalse(r.disk.files.keys.any { it.startsWith("A/") })
+        assertTrue(r.disk.files.containsKey(key("B")))
+        val a = requireNotNull(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")])))
+        val fresh = newMixerBoard()
+        assertTrue(PaletteBoardPersistence.restore(fresh, requireNotNull(MaterialStateCodec.decode(a.first))))
+        assertTrue("A's file holds A's paint (tube 2), not B's", fresh.surface.amount[20 * fresh.size + 20] > 0f)
+        assertEquals("and not B's squeeze", 0f, fresh.surface.amount[50 * fresh.size + 50], 0f)
+    }
+
+    @Test
+    fun closingTheProjectWritesItsPendingEditUnderItsOwnId() = runTest {
+        val r = Rig(this)
+        paint(r)
+        r.sync.changed("A")
+        r.sync.close()
+        advanceUntilIdle()
+        assertTrue(r.disk.files.containsKey(key("A")))
+    }
+
+    @Test
+    fun flushWritesAPendingEditWithoutWaitingForTheDebounce() = runTest {
+        val r = Rig(this)
+        paint(r)
+        r.sync.changed("A")
+        r.sync.flush()
+        assertTrue("written before 1.5 s passed", r.disk.files.containsKey(key("A")))
+        advanceUntilIdle()
+        assertEquals("and not written twice", 1, r.disk.writes.size)
+    }
+
+    @Test
+    fun aReadOnlyProjectIsNotFlushed() = runTest {
+        val r = Rig(this, readOnly = { true })
+        paint(r)
+        r.sync.changed("A")
+        r.sync.close()
+        r.sync.flush()
+        advanceUntilIdle()
+        assertTrue(r.disk.writes.isEmpty())
+    }
+
+    @Test
+    fun aNewerChangeCancellingTheDebounceNeverSplitsOrFailsAWrite() = runTest {
+        val r = Rig(this)
+        r.disk.writeDelayMs = 300
+        paint(r)
+        r.sync.changed("A")
+        advanceTimeBy(1600) // the write has started and is waiting
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A") // cancels the (finished) debounce job; the in-flight write must still complete
+        advanceUntilIdle()
+        assertTrue("no spurious save failure from cancellation: ${r.disk.errors}", r.disk.errors.isEmpty())
+        assertEquals("one file, so the pair cannot be split", listOf(key("A")), r.disk.files.keys.toList())
+        assertTrue(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")])) != null)
+    }
+
+    @Test
+    fun aDamagedPaletteIsKeptAsABackupBeforeAnyEditOverwritesIt() = runTest {
+        val r = Rig(this)
+        val good = combined(newMixerBoard().also { it.squeeze(2, 20f, 20f, 8f, 0.9f) })
+        val bad = good.also { it[it.size / 2] = (it[it.size / 2] + 1).toByte() }
+        r.disk.files[key("A")] = bad
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertEquals(listOf("A"), r.disk.unreadable)
+        val bak = key("A", PaletteBoardPersistence.COMBINED_FILE + ".bak")
+        assertTrue("kept as a backup", r.disk.files[bak]!!.contentEquals(bad))
+        assertEquals(0f, r.board.surface.amount.sum(), 0f)
+        // the next edit overwrites the live file but not the backup
+        r.board.squeeze(4, 50f, 50f, 8f, 0.9f)
+        r.sync.changed("A")
+        advanceUntilIdle()
+        assertTrue(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")])) != null)
+        assertTrue(r.disk.files[bak]!!.contentEquals(bad))
+        assertEquals("the user is told once", 1, r.disk.unreadable.size)
+    }
+
+    @Test
+    fun aBoardForADifferentTubeSetIsKeptAsABackupAndReported() = runTest {
+        val r = Rig(this)
+        val other = com.hereliesaz.graffitixr.common.azphalt.PaletteBoard(MIXER_BOARD_SIZE, MIXER_TUBES.reversed())
+            .also { it.squeeze(2, 20f, 20f, 8f, 0.9f) }
+        val bytes = combined(other)
+        r.disk.files[key("A")] = bytes
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertEquals(listOf("A"), r.disk.unreadable)
+        val bak = key("A", PaletteBoardPersistence.COMBINED_FILE + ".bak")
+        assertTrue(r.disk.files[bak]!!.contentEquals(bytes))
+    }
+
+    @Test
+    fun aMissingPaletteIsNotAnError() = runTest {
+        val r = Rig(this)
+        r.sync.open("A")
+        advanceUntilIdle()
+        assertTrue(r.disk.unreadable.isEmpty() && r.disk.errors.isEmpty() && r.disk.writes.isEmpty())
     }
 
     @Test
@@ -82,20 +190,10 @@ class PaletteProjectSyncTest {
         r.board.clear()
         advanceUntilIdle()
         val fresh = newMixerBoard()
-        val bytes = requireNotNull(r.disk.files["A/" + PaletteBoardPersistence.BOARD_FILE])
+        val bytes = requireNotNull(PaletteBoardPersistence.unpack(requireNotNull(r.disk.files[key("A")]))).first
         val snap = requireNotNull(MaterialStateCodec.decode(bytes))
         assertTrue(PaletteBoardPersistence.restore(fresh, snap))
         assertTrue("the paint that was there at the change is what was saved", fresh.surface.amount.sum() > 0f)
-    }
-
-    @Test
-    fun closingAProjectCancelsItsPendingSave() = runTest {
-        val r = Rig(this)
-        paint(r)
-        r.sync.changed("A")
-        r.sync.close()
-        advanceUntilIdle()
-        assertTrue(r.disk.writes.isEmpty())
     }
 
     @Test
@@ -118,8 +216,7 @@ class PaletteProjectSyncTest {
     fun anEditMadeWhileTheFileIsBeingReadIsNotWipedByTheRestore() = runTest {
         val r = Rig(this)
         val saved = newMixerBoard().also { it.squeeze(4, 60f, 60f, 8f, 0.9f) }
-        r.disk.files["A/" + PaletteBoardPersistence.BOARD_FILE] =
-            MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(saved))
+        r.disk.files[key("A")] = combined(saved)
         r.sync.open("A")
         // the user squeezes a tube before the read completes
         r.board.squeeze(2, 20f, 20f, 8f, 0.9f)
@@ -133,8 +230,7 @@ class PaletteProjectSyncTest {
     fun anUntouchedBoardIsRestoredFromTheProjectAndAStaleRestoreForAnotherProjectIsDropped() = runTest {
         val r = Rig(this)
         val saved = newMixerBoard().also { it.squeeze(4, 60f, 60f, 8f, 0.9f) }
-        r.disk.files["A/" + PaletteBoardPersistence.BOARD_FILE] =
-            MaterialStateCodec.encode(PaletteBoardPersistence.snapshot(saved))
+        r.disk.files[key("A")] = combined(saved)
         r.sync.open("A")
         advanceUntilIdle()
         assertTrue(r.board.surface.amount[60 * r.board.size + 60] > 0f)

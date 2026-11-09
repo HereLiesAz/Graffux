@@ -27,6 +27,11 @@ internal object PaletteBoardPersistence {
     private const val SUM_TOLERANCE = 1e-3f
     private const val AMOUNT_TOLERANCE = 1e-4f
     const val BRUSH_FILE = "palette-brushes.bin"
+
+    /** The board and both brushes in ONE file, so the pair is written (and read) together. */
+    const val COMBINED_FILE = "palette.gxpl"
+    private const val COMBINED_MAGIC = 0x4758504C // "GXPL"
+    private const val COMBINED_VERSION = 1
     private const val BRUSH_MAGIC = 0x50425253 // "PBRS"
     private const val BRUSH_VERSION = 1
     private const val CH = PaintTransaction.CH
@@ -34,6 +39,29 @@ internal object PaletteBoardPersistence {
     private const val BYTE_MASK = 0xFF
 
     private fun byteAt(bytes: ByteArray, index: Int): Int = bytes[index].toInt() and BYTE_MASK
+
+    /**
+     * Writes texel [i]'s recipe into [conc] as 255ths summing to 255 (a rounding drift is repaired on its largest
+     * channel); false when it has no recipe at all (paint but every channel zero), which is saved as empty. A NaN or
+     * infinite channel counts as none (it would make roundToInt() throw and abort every save).
+     */
+    private fun quantiseTexel(board: PaletteBoard, i: Int, conc: ByteArray): Boolean {
+        var sum = 0
+        for (c in 0 until CH) {
+            val raw = board.surface.conc[i * CH + c].let { if (it.isFinite()) it else 0f }
+            val q = (raw * PigmentConcentration.SUM).roundToInt().coerceIn(0, PigmentConcentration.SUM)
+            conc[i * CH + c] = q.toByte()
+            sum += q
+        }
+        if (sum == 0) return false
+        if (sum != PigmentConcentration.SUM) {
+            var big = 0
+            for (c in 1 until CH) if (byteAt(conc, i * CH + c) > byteAt(conc, i * CH + big)) big = c
+            val fixed = byteAt(conc, i * CH + big) + (PigmentConcentration.SUM - sum)
+            conc[i * CH + big] = fixed.coerceIn(0, PigmentConcentration.SUM).toByte()
+        }
+        return true
+    }
 
     fun snapshot(board: PaletteBoard): MaterialStateCodec.Snapshot {
         val n = board.size
@@ -43,21 +71,7 @@ internal object PaletteBoardPersistence {
         }
         val conc = ByteArray(n * n * CH)
         for (i in 0 until n * n) {
-            if (board.surface.amount[i] <= 0f) continue
-            var sum = 0
-            for (c in 0 until CH) {
-                val q = (board.surface.conc[i * CH + c] * PigmentConcentration.SUM).roundToInt().coerceIn(0,
-                    PigmentConcentration.SUM)
-                conc[i * CH + c] = q.toByte()
-                sum += q
-            }
-            // a texel must be a recipe (sum 255) or empty; repair a rounding drift on its largest channel
-            if (sum != 0 && sum != PigmentConcentration.SUM) {
-                var big = 0
-                for (c in 1 until CH) if (byteAt(conc, i * CH + c) > byteAt(conc, i * CH + big)) big = c
-                val fixed = byteAt(conc, i * CH + big) + (PigmentConcentration.SUM - sum)
-                conc[i * CH + big] = fixed.coerceIn(0, PigmentConcentration.SUM).toByte()
-            }
+            if (board.surface.amount[i] > 0f && !quantiseTexel(board, i, conc)) amount[i] = 0f
         }
         return MaterialStateCodec.Snapshot(
             width = n,
@@ -144,4 +158,41 @@ internal object PaletteBoardPersistence {
         }
         true
     }.getOrDefault(false)
+
+    /** One file holding [board] and [brushes] bytes: magic, version, two length-prefixed parts, a CRC32 of all. */
+    fun pack(board: ByteArray, brushes: ByteArray): ByteArray {
+        val raw = ByteArrayOutputStream()
+        DataOutputStream(raw).use { out ->
+            out.writeInt(COMBINED_MAGIC)
+            out.writeInt(COMBINED_VERSION)
+            out.writeInt(board.size)
+            out.write(board)
+            out.writeInt(brushes.size)
+            out.write(brushes)
+            val crc = java.util.zip.CRC32().also { it.update(raw.toByteArray()) }
+            out.writeLong(crc.value)
+        }
+        return raw.toByteArray()
+    }
+
+    /** The (board, brushes) bytes of a [pack]ed file, or null when it is truncated, damaged or not one. */
+    fun unpack(bytes: ByteArray): Pair<ByteArray, ByteArray>? = runCatching {
+        require(bytes.size >= MIN_PACKED)
+        val body = bytes.copyOfRange(0, bytes.size - Long.SIZE_BYTES)
+        val stored = DataInputStream(ByteArrayInputStream(bytes, body.size, Long.SIZE_BYTES)).readLong()
+        require(java.util.zip.CRC32().also { it.update(body) }.value == stored) { "checksum" }
+        DataInputStream(ByteArrayInputStream(body)).use { input ->
+            require(input.readInt() == COMBINED_MAGIC && input.readInt() == COMBINED_VERSION) { "not a palette file" }
+            val boardLen = input.readInt()
+            require(boardLen in 0..body.size)
+            val board = ByteArray(boardLen).also { input.readFully(it) }
+            val brushLen = input.readInt()
+            require(brushLen in 0..body.size)
+            val brushes = ByteArray(brushLen).also { input.readFully(it) }
+            require(input.read() == -1) { "trailing bytes" }
+            board to brushes
+        }
+    }.getOrNull()
+
+    private const val MIN_PACKED = 4 + 4 + 4 + 4 + Long.SIZE_BYTES
 }

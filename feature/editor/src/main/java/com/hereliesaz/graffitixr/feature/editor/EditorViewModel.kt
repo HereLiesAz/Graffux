@@ -2069,6 +2069,7 @@ class EditorViewModel @Inject constructor(
     // project (sidecar v4 + a small brush file) and restored on open; a painterly stroke starts from the
     // brush in hand's load and leaves what it did not spend.
     override val paletteBoard: com.hereliesaz.graffitixr.common.azphalt.PaletteBoard = newMixerBoard()
+    private var paletteSaveFailureShown = false
     private val paletteSync = PaletteProjectSync(
         board = paletteBoard,
         scope = kotlinx.coroutines.CoroutineScope(viewModelScope.coroutineContext + dispatchers.main),
@@ -2077,11 +2078,18 @@ class EditorViewModel @Inject constructor(
             override fun isReadOnly() = openProjectIsReadOnly()
             override fun onError(error: Throwable) {
                 android.util.Log.e("EditorViewModel", "Failed to save the palette board", error)
+                if (!paletteSaveFailureShown) {
+                    paletteSaveFailureShown = true
+                    notify("The palette couldn't be saved.", NoticeKind.WARNING)
+                }
             }
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)
             }
             override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+            override fun onUnreadable(projectId: String) {
+                notify("The saved palette for this project couldn't be read. The file was kept as a backup.")
+            }
         },
     )
 
@@ -3364,6 +3372,9 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        // The last palette edit may still be waiting for its debounce: write it before the ViewModel goes.
+        runCatching { kotlinx.coroutines.runBlocking { paletteSync.flush() } }
+            .onFailure { android.util.Log.w("EditorViewModel", "Palette flush on clear failed", it) }
         runCatching { context.unregisterComponentCallbacks(highResTrimCallbacks) }
         com.hereliesaz.graffitixr.nativebridge.GpuDeviceLoss.listeners.remove(onDeviceLost)
         // Cleared mid-stroke, the in-flight stamp/round-brush/smudge GPU engines would otherwise leak:
@@ -4148,6 +4159,7 @@ class EditorViewModel @Inject constructor(
      * leaving is never a decision the user has to make.
      */
     fun flushPendingSaves() {
+        paletteSync.flushAsync()
         val outstanding = pendingWrites.entries.map { it.key to it.value }
         pendingSaveJobs.values.forEach { it.cancel() }
         pendingSaveJobs.clear()
