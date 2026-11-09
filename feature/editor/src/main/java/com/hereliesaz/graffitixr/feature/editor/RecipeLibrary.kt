@@ -21,7 +21,7 @@ class RecipeLibrary(private val store: Store) {
     enum class Scope { PROJECT, APP }
 
     interface Store {
-        suspend fun readProject(projectId: String): String?
+        suspend fun readProject(projectId: String): ArtifactRead
         suspend fun writeProject(projectId: String, text: String)
 
         /**
@@ -67,7 +67,16 @@ class RecipeLibrary(private val store: Store) {
         projectId = id
         projectBook.value = emptyList()
         projectReadable = true
-        val text = store.readProject(id) ?: return@withLock
+        val text = when (val read = store.readProject(id)) {
+            ArtifactRead.Absent -> return@withLock
+            is ArtifactRead.Unreadable -> {
+                // present but unreadable: never written over (there are no bytes to keep), and the user is told
+                projectReadable = false
+                store.onUnreadable(Scope.PROJECT)
+                return@withLock
+            }
+            is ArtifactRead.Found -> String(read.bytes)
+        }
         val parsed = RecipeBook.fromJsonRepairing(text)
         if (parsed == null) {
             projectReadable = false

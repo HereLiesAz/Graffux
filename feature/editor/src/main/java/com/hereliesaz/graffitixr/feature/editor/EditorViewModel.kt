@@ -2087,7 +2087,7 @@ class EditorViewModel @Inject constructor(
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)
             }
-            override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+            override suspend fun read(projectId: String, file: String) = readProjectArtifactOutcome(projectId, file)
             override fun onUnreadable(projectId: String) {
                 notify("The saved palette for this project couldn't be read. The file was kept as a backup.")
             }
@@ -2118,7 +2118,7 @@ class EditorViewModel @Inject constructor(
             override suspend fun write(projectId: String, file: String, bytes: ByteArray) {
                 projectRepository.saveArtifact(projectId, file, bytes)
             }
-            override suspend fun read(projectId: String, file: String) = readProjectArtifact(projectId, file)
+            override suspend fun read(projectId: String, file: String) = readProjectArtifactOutcome(projectId, file)
         },
     )
     /** (amount the brush held, fill fraction the stroke started with) for the stroke in progress, or null. */
@@ -3870,13 +3870,37 @@ class EditorViewModel @Inject constructor(
     /** Loads the project's palette board and brush loads; an absent, corrupt or mismatched board leaves it empty. */
     private fun restorePaletteBoard(projectId: String) = paletteSync.open(projectId)
 
-    private fun readProjectArtifact(projectId: String, filename: String): ByteArray? = runCatching {
-        val root = File(context.filesDir, "projects").canonicalFile
-        val dir = File(root, projectId).canonicalFile
-        val file = File(dir, filename).canonicalFile
+    /** Reads a project file, telling "absent" from "present but unreadable" (never one for the other). */
+    private fun readProjectArtifactOutcome(projectId: String, filename: String): ArtifactRead {
+        val resolved = runCatching {
+            val root = File(context.filesDir, "projects").canonicalFile
+            val dir = File(root, projectId).canonicalFile
+            Triple(root, dir, File(dir, filename).canonicalFile)
+        }
+        // a real I/O failure resolving the path is "unreadable"; anything else (no storage directory at all, as in a
+        // bare test context) means nothing can have been saved there
+        resolved.exceptionOrNull()?.let {
+            return if (it is java.io.IOException) ArtifactRead.Unreadable("path") else ArtifactRead.Absent
+        }
+        val (root, dir, file) = resolved.getOrThrow()
         val inside = dir.path.startsWith(root.path + File.separator) && file.path.startsWith(dir.path + File.separator)
-        file.takeIf { inside && it.isFile && it.length() in 1..MAX_PALETTE_SIDECAR_BYTES }?.readBytes()
-    }.getOrNull()
+        return try {
+            when {
+                !inside -> ArtifactRead.Unreadable("unsafe path")
+                !file.exists() -> ArtifactRead.Absent
+                !file.isFile -> ArtifactRead.Unreadable("not a regular file")
+                file.length() == 0L -> ArtifactRead.Absent // an empty leftover of a torn write: nothing to lose
+                file.length() > MAX_PALETTE_SIDECAR_BYTES -> ArtifactRead.Unreadable("too large")
+                else -> ArtifactRead.Found(file.readBytes())
+            }
+        } catch (e: java.io.IOException) {
+            android.util.Log.w("EditorViewModel", "Could not read $filename of $projectId", e)
+            ArtifactRead.Unreadable(e.message ?: "I/O error")
+        } catch (e: SecurityException) {
+            android.util.Log.w("EditorViewModel", "Could not read $filename of $projectId", e)
+            ArtifactRead.Unreadable(e.message ?: "not permitted")
+        }
+    }
 
     /**
      * Removes [layerId]'s material sidecar (durably, under the repository's save lock); true if it is gone or never
@@ -12884,8 +12908,7 @@ class EditorViewModel @Inject constructor(
     /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
     val recipeLibrary = RecipeLibrary(
         object : RecipeLibrary.Store {
-            override suspend fun readProject(projectId: String) =
-                readProjectArtifact(projectId, RECIPE_FILE)?.let { String(it) }
+            override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
 
             override suspend fun writeProject(projectId: String, text: String) {
                 projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())

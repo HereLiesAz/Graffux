@@ -75,8 +75,14 @@ data class RecipeBook(
         fun fromJsonRepairing(text: String): Pair<RecipeBook, Int>? {
             val root = runCatching { AzphaltJson.parseToJsonElement(text) }.getOrNull()
                 as? kotlinx.serialization.json.JsonObject ?: return null
-            if ((root["format"] as? kotlinx.serialization.json.JsonPrimitive)?.content.let { it != null && it != FORMAT }) return null
-            val items = root["recipes"] as? kotlinx.serialization.json.JsonArray ?: return RecipeBook() to 0
+            // a field that is present must be well formed: a present-but-wrong "format" or "recipes" is a damaged book,
+            // never an empty healthy one (which would skip the backup and be overwritten)
+            val format = root["format"]
+            val formatOk = format == null ||
+                (format is kotlinx.serialization.json.JsonPrimitive && format.isString && format.content == FORMAT)
+            val rawItems = root["recipes"]
+            if (!formatOk || (rawItems != null && rawItems !is kotlinx.serialization.json.JsonArray)) return null
+            val items = rawItems as? kotlinx.serialization.json.JsonArray ?: return RecipeBook() to 0
             val good = ArrayList<PaletteRecipe>()
             val seen = HashSet<String>()
             items.forEach { el ->

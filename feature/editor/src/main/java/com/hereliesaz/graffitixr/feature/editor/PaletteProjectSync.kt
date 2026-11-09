@@ -42,7 +42,7 @@ internal class PaletteProjectSync(
         /** The saved palette exists but could not be read; the file was kept as a backup. */
         fun onUnreadable(projectId: String) {}
         suspend fun write(projectId: String, file: String, bytes: ByteArray)
-        suspend fun read(projectId: String, file: String): ByteArray?
+        suspend fun read(projectId: String, file: String): ArtifactRead
     }
 
     private var saveJob: Job? = null
@@ -70,7 +70,7 @@ internal class PaletteProjectSync(
      */
     fun changed(projectId: String?) {
         revision++
-        if (projectId == null || store.isReadOnly()) return
+        if (projectId == null || store.isReadOnly() || projectId in blocked) return
         val copy = pending ?: PaletteBoard(board.size, board.tubes).also { pending = it }
         board.surface.conc.copyInto(copy.surface.conc)
         board.surface.amount.copyInto(copy.surface.amount)
@@ -146,11 +146,15 @@ internal class PaletteProjectSync(
     }
 
     /** What was read from the project: the board and brushes bytes, and the file they came from. */
-    private class Saved(val board: ByteArray?, val brushes: ByteArray?, val file: String, val raw: ByteArray)
+    private class Saved(val board: ByteArray?, val brushes: ByteArray?, val file: String, val raw: ByteArray?)
+
+    /** Projects whose saved palette exists but could not be read at all: nothing is written over it until reopened. */
+    private val blocked = HashSet<String>()
 
     /** Project [projectId] opened: start from an empty board and load its saved one unless edited meanwhile. */
     fun open(projectId: String) {
         close()
+        blocked -= projectId // reopening tries to read it again
         board.clear()
         val mine = generation
         val startRevision = revision
@@ -163,6 +167,7 @@ internal class PaletteProjectSync(
                 // The palette exists but cannot be used (damaged, or for a different board or tube set): keep the file
                 // as a backup before anything can overwrite it, and tell the user once. This does not depend on an
                 // edit having been made meanwhile, or on another project having been opened: the bytes are preserved.
+                if (saved.raw == null) blocked += projectId // it could not even be read: never overwrite it
                 withContext(NonCancellable + io) { keepBackup(projectId, saved) }
                 store.onUnreadable(projectId)
             }
@@ -175,19 +180,34 @@ internal class PaletteProjectSync(
 
     /** The saved palette: the combined file, else the older two files; null if the project has none. */
     private suspend fun readSaved(projectId: String): Saved? {
-        val bytes = store.read(projectId, PaletteFile.COMBINED_FILE)
-        if (bytes != null) {
-            val parts = PaletteFile.unpack(bytes)
-            return Saved(parts?.first, parts?.second, PaletteFile.COMBINED_FILE, bytes)
+        val combined = store.read(projectId, PaletteFile.COMBINED_FILE)
+        val legacy = if (combined is ArtifactRead.Absent) {
+            store.read(projectId, PaletteBoardPersistence.BOARD_FILE)
+        } else {
+            ArtifactRead.Absent
         }
-        return store.read(projectId, PaletteBoardPersistence.BOARD_FILE)?.let { legacy ->
-            val brushes = store.read(projectId, PaletteBoardPersistence.BRUSH_FILE)
-            Saved(legacy, brushes, PaletteBoardPersistence.BOARD_FILE, legacy)
+        val brushes = if (legacy is ArtifactRead.Found) {
+            store.read(projectId, PaletteBoardPersistence.BRUSH_FILE)
+        } else {
+            ArtifactRead.Absent
+        }
+        return when {
+            // present but unreadable: no bytes to back up, so the caller refuses to write over it
+            combined is ArtifactRead.Unreadable || legacy is ArtifactRead.Unreadable ||
+                brushes is ArtifactRead.Unreadable -> Saved(null, null, PaletteFile.COMBINED_FILE, null)
+            combined is ArtifactRead.Found -> PaletteFile.unpack(combined.bytes).let {
+                Saved(it?.first, it?.second, PaletteFile.COMBINED_FILE, combined.bytes)
+            }
+            legacy is ArtifactRead.Found -> Saved(
+                legacy.bytes, (brushes as? ArtifactRead.Found)?.bytes, PaletteBoardPersistence.BOARD_FILE, legacy.bytes,
+            )
+            else -> null
         }
     }
 
     private suspend fun keepBackup(projectId: String, saved: Saved) {
-        runCatching { store.write(projectId, "${saved.file}.bak", saved.raw) }
+        val raw = saved.raw ?: return
+        runCatching { store.write(projectId, "${saved.file}.bak", raw) }
             .onFailure { if (it is CancellationException) throw it else store.onError(it) }
     }
 

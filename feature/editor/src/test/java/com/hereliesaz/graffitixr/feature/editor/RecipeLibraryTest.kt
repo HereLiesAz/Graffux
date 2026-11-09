@@ -22,6 +22,7 @@ class RecipeLibraryTest {
         val unreadable = ArrayList<RecipeLibrary.Scope>()
         var failWrites = false
         var appWritesFail = false
+        val unreadableProjects = HashSet<String>()
         var backupFails = false
         val projectBackup = HashMap<String, String>()
         val repaired = ArrayList<Int>()
@@ -29,7 +30,10 @@ class RecipeLibraryTest {
     }
 
     private fun library(disk: Disk) = RecipeLibrary(object : RecipeLibrary.Store {
-        override suspend fun readProject(projectId: String) = disk.project[projectId]
+        override suspend fun readProject(projectId: String): ArtifactRead {
+            if (projectId in disk.unreadableProjects) return ArtifactRead.Unreadable("I/O error")
+            return disk.project[projectId]?.let { ArtifactRead.Found(it.toByteArray()) } ?: ArtifactRead.Absent
+        }
         override suspend fun writeProject(projectId: String, text: String) {
             check(!disk.failWrites) { "disk full" }
             disk.project[projectId] = text
@@ -214,5 +218,26 @@ class RecipeLibraryTest {
         assertEquals(listOf(1), disk.repaired)
         assertTrue(lib.save(RecipeLibrary.Scope.APP, recipe("r3")))
         assertEquals("told once, not on every save", listOf(1), disk.repaired)
+    }
+
+    @Test
+    fun aProjectBookThatExistsButCannotBeReadIsNeverWrittenOverAndTheUserIsTold() = runTest {
+        val disk = Disk()
+        disk.unreadableProjects += "A"
+        disk.project["A"] = "the real book, unreadable right now"
+        val lib = library(disk)
+        lib.openProject("A")
+        assertEquals(listOf(RecipeLibrary.Scope.PROJECT), disk.unreadable)
+        assertFalse(lib.save(RecipeLibrary.Scope.PROJECT, recipe("r1")))
+        assertEquals("the stored book is untouched", "the real book, unreadable right now", disk.project["A"])
+    }
+
+    @Test
+    fun anAbsentProjectBookIsFineToWrite() = runTest {
+        val disk = Disk()
+        val lib = library(disk)
+        lib.openProject("A")
+        assertTrue(disk.unreadable.isEmpty())
+        assertTrue(lib.save(RecipeLibrary.Scope.PROJECT, recipe("r1")))
     }
 }
