@@ -218,7 +218,7 @@ wicking, bleed, diffusion, wet-edge behaviour, film spread, drying, levelling, s
    (section 8) with stated tolerances. A stage with no parity test does not ship.
 5. **Determinism (extended in section 4).** No wall clock, no unseeded randomness, no unordered float
    atomics. `rand()` stays a stream seeded by the stroke; new noise is `hash`/`noise`. **Material time is
-   the recorded stroke clock, quantised to a fixed timestep** (4.5). Material time advances from recorded
+   the recorded stroke clock, quantised to a fixed timestep** (rule 4a). Material time advances from recorded
    sample uptime and is never persisted as portable time (status doc, Phase 5).
 6. **Bounded cost.** Every extension counts against the existing operation budget (40,000 per step,
    `E/StrokeProgram.kt:124`) in proportion to the work done, and has a hard cap stated below. GPU stages
@@ -367,7 +367,7 @@ column serves it), never a column index; `loadAmount(lane)` and `loadMix(lane)` 
 | Criterion | Kotlin probe (withdrawn) | GPU transaction (adopted) |
 |---|---|---|
 | Mid-range Android perf | Footprint reads of a CPU copy: 48 lanes x 16x16 samples per step, plus a CPU copy of a GPU-resident layer (`ARCHITECTURE.md`: layers stay resident; readback only of the dirty rect) | Runs where the layer already is; no readback in the live path |
-| Determinism and replay | Exact on the CPU, but the CPU copy goes stale as wetness evolves | Deterministic within the contract in 4.5; same device identical, cross-device within stated tolerance |
+| Determinism and replay | Exact on the CPU, but the CPU copy goes stale as wetness evolves | Deterministic within the contract in rule 4a; same device identical, cross-device within stated tolerance |
 | One implementation | One, but a second is still needed on the GPU to display it | Kotlin reference + WGSL port; parity-tested |
 | Existing GPU wet shading | A CPU wetness read would not agree with the GPU field `shade_material` lights (`wet.wgsl:584-627`) | Same field the specular-while-wet shading already reads |
 
@@ -1190,7 +1190,7 @@ hardware floor (Android 10, Vulkan 1.1, `ARCHITECTURE.md` "Graffux's hardware fl
 | GPU memory | Latent lookup texture 32^3 x 4 B (about 128 KB), `avail` and `snap_color` buffers sized to the dirty rect, load buffer under 8 KB (128 cells x 16 floats) |
 | Load state | At most 128 cells, copied per step as a small array, no allocation in the step loop |
 | Palette board | 512 x 512 default (6 MB), at most 1024 x 1024 (24 MB); 16 B per texel of concentration plus 4 B height and 4 B wetness; knife mixing uses the same budgets |
-| Memory added by a painterly document | Default board under 8 MB, canvas latent about 4 B per touched pixel (about 5 MB at 30% coverage of 2048 x 2048), lookup 128 KB; at most 40 MB beyond today at the board cap |
+| Memory added by a painterly document | Default board 6 MB, canvas latent about 4 B per touched pixel (about 5 MB at 30% coverage of 2048 x 2048), lookup 128 KB: about 12 MB typical; at most about 35 MB beyond today at the board cap |
 | Drawn brush (E9) | At most the tier's tuft count as short strokes and `maxPreviewCells` hair cells; under 0.5 ms draw per frame on BALANCED; allocation-free frame build |
 | Shading (E5) | One extra dot product and one `pow` approximation per shaded pixel; at most +10% on the existing impasto shade pass |
 
@@ -1315,9 +1315,9 @@ The ten questions in the first draft are answered. Recorded here so the spec and
 Not owner questions; implementation unknowns that the groundwork phase (P0) resolves:
 
 - ~~How stamp-brush strokes persist their brush in the project~~ Resolved in P0 (5.6): they do not.
-- Touchdown snapshot (E3): P0 found `commitStampStroke` receives `startBitmap`, "the layer bitmap the stroke started on (and its live GPU layer was seeded from)" (`EditorViewModel.kt:~9208`), so a CPU copy exists at stroke start. Still to confirm: that it is the pre-stroke content for a stroke on a resident GPU layer, and how it reaches the dab generator. Settled in P5.
+- Touchdown snapshot (E3): P0 found `commitStampStroke` receives `startBitmap`, "the layer bitmap the stroke started on (and its live GPU layer was seeded from)" (`EditorViewModel.kt:~9208`), so a CPU copy exists at stroke start. Still to confirm: that it is the pre-stroke content for a stroke on a resident GPU layer, and how a live stamp stroke reaches the wet simulation so the GPU can take `snap_color` with `SAVE_RAW` (the generator never reads it). Settled at the start of P5.
 - The final wavelength band count once the lookup cost is measured on a device.
-- Whether CPU-only canvas K-M is fast enough on the CONSTRAINED tier, or the lookup must also run as a GPU texture (it will for BALANCED and FULL regardless).
+- Whether canvas K-M meets the budget on the CONSTRAINED tier. The lookup runs as a GPU texture on every tier (there is no CPU runtime path, 3.0); the open question is the cost, not the placement.
 
 ## 11. Risks
 
