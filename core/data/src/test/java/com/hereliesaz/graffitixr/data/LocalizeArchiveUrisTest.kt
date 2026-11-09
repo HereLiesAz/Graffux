@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -265,5 +266,28 @@ class LocalizeArchiveUrisTest {
         }
         val kept = """{"x":"Mural: v2","y":"https://azphalt.store","z":"HTTPS://azphalt.store","w":"12:30"}"""
         assertEquals(kept, localizeArchiveUris(kept, root))
+    }
+
+    // The depth scan must know which quotes end a string: \" does not, and \\ followed by " does.
+
+    @Test fun `an escaped quote followed by many brackets inside a string is not depth`() {
+        val json = """{"name":"a\"""" + "[".repeat(100) + """"}"""
+        assertEquals(json, localizeArchiveUris(json, root))
+        assertFalse(exceedsJsonDepth(json))
+    }
+
+    @Test fun `real depth after a string with an escaped quote is still refused`() {
+        val deep = """{"name":"a\"b","extra":""" + "[".repeat(100_000) + "]".repeat(100_000) + "}"
+        assertTrue(exceedsJsonDepth(deep))
+        val failure = runCatching { localizeArchiveUris(deep, root) }.exceptionOrNull()
+        assertTrue(failure.toString(), failure is IllegalArgumentException)
+    }
+
+    @Test fun `an escaped backslash before the closing quote ends the string`() {
+        val deep = """{"name":"a\\","extra":""" + "[".repeat(100) + "]".repeat(100) + "}"
+        assertTrue(exceedsJsonDepth(deep))
+        val shallow = """{"name":"a\\","extra":[["x"]]}"""
+        assertFalse(exceedsJsonDepth(shallow))
+        assertEquals(shallow, localizeArchiveUris(shallow, root))
     }
 }

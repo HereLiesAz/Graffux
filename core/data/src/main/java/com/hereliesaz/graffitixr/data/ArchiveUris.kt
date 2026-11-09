@@ -56,8 +56,13 @@ internal fun exceedsJsonDepth(text: String): Boolean {
     var escaped = false
     for (c in text) {
         if (inString) {
-            escaped = !escaped && c == '\\'
-            inString = escaped || c != '"'
+            // Whether THIS character is escaped is decided by the state before it: after a backslash a quote
+            // is part of the string, and a backslash that was itself escaped escapes nothing.
+            when {
+                escaped -> escaped = false
+                c == '\\' -> escaped = true
+                c == '"' -> inString = false
+            }
         } else if (c == '"') {
             inString = true
         } else if (c == '[' || c == '{') {

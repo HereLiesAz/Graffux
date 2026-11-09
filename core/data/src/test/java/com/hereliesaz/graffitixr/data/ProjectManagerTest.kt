@@ -222,6 +222,13 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `import refuses deep nesting that follows a string with an escaped quote`() = runTest {
+        val deep = """{"id":"esc_quote","name":"a\"b","extra":""" + "[".repeat(100_000) + "]".repeat(100_000) + "}"
+        assertNull(importZip(zipOf("project.json" to deep.toByteArray())))
+        assertFalse(File(tempFilesDir, "projects/esc_quote").exists())
+    }
+
+    @Test
     fun `import still accepts a project json that is nested moderately`() = runTest {
         val nested = """{"id":"nested_ok","name":"fine","extra":""" + "[".repeat(20) + "1" + "]".repeat(20) + "}"
         assertNotNull(importZip(zipOf("project.json" to nested.toByteArray())))
