@@ -281,7 +281,7 @@ internal fun DesignNumberField(
         }
     } else {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = modifier) {
-            Text(label, color = DesignInk.Faint, fontSize = 11.sp, fontFamily = RobotoMonoFamily, modifier = Modifier.width(18.dp))
+            Text(label, color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily, modifier = Modifier.width(18.dp))
             Box(
                 contentAlignment = Alignment.CenterStart,
                 modifier = Modifier

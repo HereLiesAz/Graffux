@@ -208,7 +208,7 @@ private fun RailButtonFace(light: RailLight, accent: Color, badge: String?, cont
                 Text(
                     badge,
                     color = Color.White,
-                    fontSize = 9.sp,
+                    fontSize = 12.sp,
                     maxLines = 1,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
