@@ -69,9 +69,9 @@ consumes the same modules for its 2D work and adds AR on top.
   Poster PDF tiles the artwork (after the document crop) at real size across Letter, A4, A3 or
   Legal pages, with margins, overlap, crop and registration marks and row/column labels.
 
-The UI is driven by [AzNavRail](https://github.com/HereLiesAz/AzNavRail) — the rail hosts the design
-tools; the canvas is its full-screen background. See `ARCHITECTURE.md` for module boundaries,
-invariants, and the AzNavRail version floors the layers panel depends on.
+The chrome is Graffux's own: a tool rail, a layers rail, menus and a bottom carousel over a
+full-screen canvas. [AzNavRail](https://github.com/HereLiesAz/AzNavRail) supplies only the About
+reader. See `ARCHITECTURE.md` for module boundaries and invariants.
 
 ## Architecture
 
@@ -80,7 +80,7 @@ orchestrates side effects (history, persistence) around each dispatch.
 
 | Module | Responsibility |
 |---|---|
-| `:app` | The Graffux application shell — `MainActivity` hosts the AzNavRail + the shared editor. |
+| `:app` | The Graffux application shell — `MainActivity` hosts the rails, carousel and the shared editor. |
 | `:feature:editor` | The editor: reducer, view-model, canvas, panels, brush/stroke engine, export. |
 | `:core:engine` | Kotlin Multiplatform engine shared with desktop: azphalt brush/manifest models, dab generation. |
 | `:desktop` | The desktop (Linux/Windows) Compose app; see `DESKTOP.md`. |
@@ -104,10 +104,46 @@ the shared single source of truth. Only `:app` is Graffux-specific (`com.herelie
 
 ## Roadmap
 
-Graffux is growing toward a full, touch-first design tool. Near-term:
+Graffux is growing toward a full, touch-first design tool.
 
+**Landed in the audit round** (each checked on `main`): per-project palette, recipe and stroke persistence with
+atomic writes and `.bak` recovery; consent and recorded stroke data kept out of backup and device transfer; imported
+`.fux` URIs localized and percent-encoded traversal refused; `.azp` entry-count and manifest/signature size caps; one
+shared GPU device for the standalone compute entries and long paint transactions run as bounded chunks; relay nesting,
+line, body-read and limiter bounds.
+
+**Open**
+
+- **Relay authentication.** The relay limits abuse; it does not authenticate. The next step is Play Integrity
+  attestation, which needs a Google Cloud project and a server-side key (`workers/stroke-relay/README.md`).
+- **Content-provider exposure (owner decision).** `ExtensionStateProvider` is `exported="true"`, guarded by a
+  `normal`-level permission any app can hold (`app/src/main/AndroidManifest.xml`); `spec/state-reporting.md` describes why.
+- **wgpu cost weights are unmeasured on hardware.** `COST_PER_TEXEL`, `MAX_CHUNK_COST`, `MAX_DAB_COST` and the chunk
+  timeout in `core/wgpu-engine/src/transaction.rs` are guesses; `spec/painterly-device-matrix.md` lists the measurements.
+- **`DabTooLarge` has no user-visible refusal yet.** The transaction planner returns it for a dab over `MAX_DAB_COST`, and no
+  app code calls the standalone entries yet (`transaction.rs`); the eventual production caller must surface it.
+- **Painterly build.** Resident-canvas transaction, bundled packs, lift tail, drawn brush, demo replay and device
+  verification: see "Build status" in `spec/painterly.md`.
+- **Legal documents.** See "Privacy policy and Terms" below.
+- **Missing specs.** `spec/extension-manifest.md`, `pack.md`, `companion-app.md`, `mcp-server.md`, `ui-schema.md` and
+  `repository-api.md` are cited by the code and do not exist (`ARCHITECTURE.md`; `spec/package-format.md` and
+  `spec/store-app.md`, "Open items"). The `audio` capability is declared but has no host bridge, and `EXTRA_ENTITLEMENT`
+  and `EXTRA_REPORT_TOKEN` are read but never spent.
+- **Material-aware engine.** Pending items are in `docs/Material-Aware Paint Engine Implementation Status.md`, "Remaining prioritized TODO".
+- **Upstream.** `app/.../carousel/Keylines.kt:254` keeps `TODO(b/420998605)`, an upstream Material 3 carousel issue the fork
+  inherits; remove it when the fork is rebased onto a release that has it.
 - Bind layers to the artboard (letterbox) and export at exact document pixels.
 - Snapping, smart guides, and align / distribute.
+
+## Privacy policy and Terms
+
+- `docs/PRIVACY_POLICY.md` is deployed with the site (`docs/.assetsignore` lets it through) and served at
+  <https://graffux.hereliesaz.workers.dev/PRIVACY_POLICY.md>.
+- `docs/TERMS_OF_SERVICE.md` is **not** deployed: `docs/.assetsignore` excludes every other `*.md`, and that address
+  returns 404 for it. It is in the repository only.
+- The landing page (`docs/index.html`) links to neither. No link to either was found in the app's own screens; the About
+  reader (`AboutReader.kt`) is AzNavRail's, pointed at the repository, and which documents it lists is not verified here.
+  The Play listing's policy URL is set in Play Console and is not in this repository.
 
 ## License
 

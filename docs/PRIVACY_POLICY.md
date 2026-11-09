@@ -10,7 +10,7 @@ Graffux is a "local-first" application. We do not require you to create an accou
 
 ## 2. Data Storage
 
-All your creative work—including sketches, photos, and project layers—is stored locally on your device. We do not have access to your creative content. It is your responsibility to back up your data using your device's backup services (e.g., Google Drive, iCloud, or manual file transfers).
+All your creative work—including sketches, photos, and project layers—is stored locally on your device. We do not have access to your creative content. Projects and downloaded models are left out of Android's cloud backup (it has a size cap that would fail the whole backup); they do travel in a device-to-device transfer to a new phone. Your privacy choices, the purchase licences and buyer session, installed extensions and any stroke-training files not yet uploaded are never included in cloud backup or device transfer. It is your responsibility to back up your projects yourself (for example by manual file transfer).
 
 ## 3. Crash Reports (Opt-In)
 
@@ -48,7 +48,7 @@ training". Nothing is recorded or uploaded before then, and switching it off sto
   contact size, tilt, timing), the phone's motion-sensor readings around it (accelerometer,
   gyroscope, magnetometer, rotation), your device manufacturer and model, screen size and refresh
   rate, the App's version, the time the session started, the brush settings in use, and the name of
-  the touch controller. The separate "Raw touch heatmap" setting (rooted devices only, also off by
+  the touch controller. Other fingers, a resting palm and the stylus hovering just before contact are recorded too. The separate "Raw touch heatmap" setting (rooted devices only, also off by
   default) adds the touch controller's raw sensor image.
 - **What is not recorded:** your name, an account, your location, or any image, layer, photo or
   project content. A stroke is a path of points, so if you write or sign something while this is
@@ -57,7 +57,9 @@ training". Nothing is recorded or uploaded before then, and switching it off sto
   the developer, which saves them to the **public** `stroke-data` branch of
   <https://github.com/HereLiesAz/Graffux>. Anyone can read and download that data, and a copy is
   kept in a private dataset used for training. The App keeps no credential for this; the relay
-  holds the key.
+  holds the key. The file's public path contains your device model and the session's start time
+  (`stroke-data/<device-model>/session-<time>.jsonl.gz`). Files wait in the App's private storage until
+  the relay has them, then are deleted from the device.
 - **Removal:** files already uploaded are not tied to you, so we cannot tell which are yours.
   Contact us (section 9) with the device model and approximate date and we will remove matching
   files from the branch, though copies that others have already downloaded cannot be recalled.

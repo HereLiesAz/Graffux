@@ -82,12 +82,8 @@ sound finished — see each claim's own verification note.
   mechanical recolor.** The fixed top-toolbar `Row` (brush size/flow sliders, inline swatches) is
   gone. `desktop/.../FloatingWindow.kt` began as a copy of `core:design`'s former `FloatingWindow`
   composable (Android has since replaced floating windows with adaptive containers; see
-  ARCHITECTURE.md), adapted for desktop; both wrap the same `AzWindow`/`AzWindowState` primitive from `aznavrail-cmp`
-  (11.47 at the time, now 11.57; already a `:desktop` dependency) — confirmed by decompiling
-  `aznavrail-cmp-desktop-11.47.jar` and reading `aznavrail-cmp`'s own `commonMain` source
-  (`AzWindow.kt`) before writing this, not assumed. This is a genuine reuse of Android's real
-  floating-window mechanism (dragging, onscreen clamping, z-index stacking all come from the same
-  library code both platforms call), not a second hand-built implementation. "Tool Options" (brush
+  ARCHITECTURE.md), adapted for desktop. It is Graffux's own composable (dragging and onscreen clamping are in
+  `FloatingWindow.kt`); it no longer wraps AzNavRail's `AzWindow`. "Tool Options" (brush
   radius/flow/color swatches) and "Color" (the HSV wheel, see below) are now each their own
   draggable, closable `FloatingWindow`, Procreate-style, matching how Android's
   `SketchToolsDialog`/`ColorPickerDialog` present themselves — multiple can be open over the
@@ -151,7 +147,7 @@ sound finished — see each claim's own verification note.
   `BrushSample.tiltRadians`) has no desktop input source yet.
 - **The rail has a brush-preset switcher, a real About screen, and edit actions
   (Undo/Redo/Clear/Save), but not the rest of the Android rail's tool set.**
-  `AzHostActivityLayout`/`azConfig`/`azRailItem` are real and wired up (see above), and colour
+  The rail is the project's own `DesktopRail.kt` (see above), and colour
   selection has both a fixed 8-swatch row and a real HSV disc picker (see below), but the desktop
   app doesn't yet reproduce layers, selection tools, Brush Studio, or an extensions manager. This is
   a UI population gap now, not a library-capability gap.
@@ -232,13 +228,13 @@ Earlier passes:
   scripted pointer drag visibly paints a soft-edged stroke reaching its actual endpoint (screenshots
   captured during this session, before and after the glee-caught fixes above).
 - `:desktop:packageDeb` was run to completion and produced a real, installable
-  `graffux_1.39.74_amd64.deb` (self-contained JRE runtime image + app jars, `dpkg -c` verified its
+  `graffux_1.39.74_amd64.deb` (a snapshot from when this was run; the version is whatever `version.properties` says now; self-contained JRE runtime image + app jars, `dpkg -c` verified its
   layout under `/opt/graffux`). The version in that filename is read live from the repo's own
   `version.properties` (`desktop/build.gradle.kts`'s `desktopPackageVersion`, read-only — it does
   NOT advance the shared version counter the Android release pipeline owns), not a hardcoded
   placeholder, so a `.deb`/`.rpm`/`.msi` built alongside a given APK reports the same
   major.minor.patch. `:desktop:packageRpm` was also run to completion (after installing the `rpm`
-  package, which provides `rpmbuild`) and produced a real `graffux-1.39.74-1.x86_64.rpm`. `Msi`
+  package, which provides `rpmbuild`) and produced a real `graffux-1.39.74-1.x86_64.rpm` (same snapshot). `Msi`
   still cannot be built from Linux at all — it needs the WiX Toolset, only available on a Windows
   host (see "CI: desktop installers are not built yet" above).
 - The rail, brush-preset switching, colour palette, and Undo were all re-verified
