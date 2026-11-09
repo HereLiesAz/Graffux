@@ -205,18 +205,16 @@ object MeshPicker {
         val e2x = (v[c] - v[a]).toDouble()
         val e2y = (v[c + 1] - v[a + 1]).toDouble()
         val e2z = (v[c + 2] - v[a + 2]).toDouble()
-        var nx = e1y * e2z - e1z * e2y
-        var ny = e1z * e2x - e1x * e2z
-        var nz = e1x * e2y - e1y * e2x
-        if (nx == 0.0 && ny == 0.0 && nz == 0.0) return null
+        val nx = e1y * e2z - e1z * e2y
+        val ny = e1z * e2x - e1x * e2z
+        val nz = e1x * e2y - e1y * e2x
         val o = Mesh.NORMAL_OFFSET
         val sx = (v[a + o] + v[b + o] + v[c + o]).toDouble()
         val sy = (v[a + o + 1] + v[b + o + 1] + v[c + o + 1]).toDouble()
         val sz = (v[a + o + 2] + v[b + o + 2] + v[c + o + 2]).toDouble()
-        if (nx * sx + ny * sy + nz * sz < 0.0) {
-            nx = -nx; ny = -ny; nz = -nz
-        }
-        return doubleArrayOf(nx, ny, nz)
+        // Flip to agree with the vertex normals when they disagree with the winding.
+        val sign = if (nx * sx + ny * sy + nz * sz < 0.0) -1.0 else 1.0
+        return if (nx == 0.0 && ny == 0.0 && nz == 0.0) null else doubleArrayOf(sign * nx, sign * ny, sign * nz)
     }
 
     /** Convenience: screen point straight to a hit, for the paint path. */
