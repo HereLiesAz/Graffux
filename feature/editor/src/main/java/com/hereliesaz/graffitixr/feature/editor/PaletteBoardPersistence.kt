@@ -7,6 +7,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -16,7 +17,14 @@ import kotlin.math.roundToInt
  * slots differ from the current set is not restored (the paint is never reinterpreted as different tubes).
  */
 internal object PaletteBoardPersistence {
-    const val BOARD_FILE = "palette-board.gxmt"
+    // v2: amounts are stored divided by [AMOUNT_SCALE] (the sidecar codec clamps a channel to 0..1, and a texel
+    // can hold more than 1 of paint), so the file name changed with the meaning; a v1 board is simply not read.
+    const val BOARD_FILE = "palette-board-v2.gxmt"
+
+    /** The most paint a texel is saved with; amounts above it are capped (documented, tested). */
+    const val MAX_AMOUNT = 8f
+    private const val AMOUNT_SCALE = MAX_AMOUNT
+    private const val SUM_TOLERANCE = 1e-3f
     const val BRUSH_FILE = "palette-brushes.bin"
     private const val BRUSH_MAGIC = 0x50425253 // "PBRS"
     private const val BRUSH_VERSION = 1
@@ -28,7 +36,10 @@ internal object PaletteBoardPersistence {
 
     fun snapshot(board: PaletteBoard): MaterialStateCodec.Snapshot {
         val n = board.size
-        val amount = FloatArray(n * n) { board.surface.amount[it].coerceIn(0f, 1f) }
+        val amount = FloatArray(n * n) {
+            val a = board.surface.amount[it]
+            (if (a.isFinite()) a.coerceIn(0f, MAX_AMOUNT) else 0f) / AMOUNT_SCALE
+        }
         val conc = ByteArray(n * n * CH)
         for (i in 0 until n * n) {
             if (board.surface.amount[i] <= 0f) continue
@@ -56,18 +67,27 @@ internal object PaletteBoardPersistence {
         )
     }
 
+    /** Whether [snap] is this board's data: same size and tubes, and every amount a real, bounded number. */
+    private fun accepts(board: PaletteBoard, snap: MaterialStateCodec.Snapshot): Boolean {
+        val n = board.size
+        val slots = board.tubes.map { MaterialStateCodec.SlotEntry(it.id, it.dataVersion) }
+        val sameShape = snap.width == n && snap.height == n && snap.slotTable == slots
+        val amountsOk = snap.heightMap?.all { it.isFinite() && it >= 0f && it * AMOUNT_SCALE <= MAX_AMOUNT } != false
+        val concOk = snap.concentration?.let { it.size == n * n * CH } != false
+        return sameShape && amountsOk && concOk
+    }
+
     /** Restores [board] from [snap]; false (board untouched) when it is not this board's data. */
     fun restore(board: PaletteBoard, snap: MaterialStateCodec.Snapshot): Boolean {
-        val slots = board.tubes.map { MaterialStateCodec.SlotEntry(it.id, it.dataVersion) }
-        if (snap.width != board.size || snap.height != board.size || snap.slotTable != slots) return false
+        if (!accepts(board, snap)) return false
         val n = board.size
-        board.surface.conc.fill(0f)
-        board.surface.amount.fill(0f)
         val conc = snap.concentration
         val amount = snap.heightMap
+        board.surface.conc.fill(0f)
+        board.surface.amount.fill(0f)
         if (conc != null && amount != null) {
             for (i in 0 until n * n) {
-                board.surface.amount[i] = amount[i]
+                board.surface.amount[i] = amount[i] * AMOUNT_SCALE
                 for (c in 0 until CH) {
                     board.surface.conc[i * CH + c] = byteAt(conc, i * CH + c) / PigmentConcentration.SUM.toFloat()
                 }
@@ -94,14 +114,25 @@ internal object PaletteBoardPersistence {
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             require(input.readInt() == BRUSH_MAGIC && input.readInt() == BRUSH_VERSION) { "not a brush file" }
             val hand = input.readInt()
+            require(hand in board.brushes.indices) { "hand out of range" }
             val amounts = FloatArray(board.brushes.size)
             val conc = Array(board.brushes.size) { FloatArray(CH) }
             for (i in board.brushes.indices) {
-                amounts[i] = input.readFloat().also { require(it.isFinite() && it >= 0f) }
-                for (c in 0 until CH) conc[i][c] = input.readFloat().also { require(it.isFinite() && it >= 0f) }
+                amounts[i] = input.readFloat().also {
+                    require(it.isFinite() && it >= 0f && it <= PaletteBoard.BRUSH_CAPACITY) { "amount out of range" }
+                }
+                var sum = 0f
+                for (c in 0 until CH) {
+                    conc[i][c] = input.readFloat().also { require(it.isFinite() && it in 0f..1f) { "conc range" } }
+                    sum += conc[i][c]
+                }
+                // a recipe sums to 1; a brush holding nothing may hold nothing
+                require(sum <= 1f + SUM_TOLERANCE && (amounts[i] <= 0f || abs(sum - 1f) <= SUM_TOLERANCE)) {
+                    "recipe does not sum to 1"
+                }
             }
             for (i in board.brushes.indices) {
-                board.brushes[i].amount[0] = amounts[i].coerceAtMost(PaletteBoard.BRUSH_CAPACITY)
+                board.brushes[i].amount[0] = amounts[i]
                 conc[i].copyInto(board.brushes[i].conc)
             }
             board.hand = hand
