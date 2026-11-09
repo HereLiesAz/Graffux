@@ -238,4 +238,78 @@ class RotationGizmoUiTest {
         rule.waitForIdle()
         assertEquals(1, downs[0])
     }
+
+    // ---- the set wheel owns its corner: the triangle's bands slide up the edge to clear it ----
+
+    private val wheelSections = listOf(
+        CarouselTabSection(
+            "ALL",
+            listOf("Favorites", "Round", "Flat").map { CarouselTabGroup(it, it, CarouselCategory.BRUSHES, emptyList()) },
+        ),
+    )
+
+    private fun dockWithWheel(rightHanded: Boolean) {
+        val bounds = androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalSetWheelOnRight provides rightHanded,
+                LocalSetWheelBounds provides bounds,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselTabList(wheelSections, "Favorites", onSelect = {})
+                    }
+                    RotationGizmoDock(rightHanded = rightHanded, avoid = { bounds.value }) {
+                        RotationGizmo({ a, d -> turns += a to d }, { ends++ }, { a, d -> steps += a to d }, scale = it)
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+    }
+
+    private fun wheel() = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
+
+    private fun assertClearOfWheel(touchXdp: Float) {
+        val b = box()
+        val wb = wheel()
+        assertTrue("triangle box ${b.top}..${b.bottom} is above the wheel top ${wb.top}", b.bottom <= wb.top + 0.5f)
+        // the 390dp example: a touch 50dp above the bottom edge at this x is on the wheel, not on a triangle band
+        val x = touchXdp * 2f
+        val y = 844f * 2f - 50f * 2f
+        assertTrue("that point is on the wheel", wb.contains(Offset(x, y)))
+        assertTrue("and not in the triangle's box", !b.contains(Offset(x, y)))
+    }
+
+    @Test
+    fun `right-handed with the set wheel open, the triangle clears the wheel and the touch at 330dp reaches the wheel`() {
+        dockWithWheel(rightHanded = true)
+        assertClearOfWheel(330f)
+        val b = box()
+        assertTrue("still in the right-hand corner column", b.right > 780f - 40f)
+        assertTrue("on screen", b.top >= 0f)
+    }
+
+    @Test
+    fun `left-handed with the set wheel open, the triangle clears the wheel and a touch at 60dp reaches the wheel`() {
+        dockWithWheel(rightHanded = false)
+        assertClearOfWheel(60f)
+        assertTrue("still in the left-hand corner column", box().left < 40f)
+    }
+
+    @Test
+    fun `with no wheel the triangle sits in the corner as before`() {
+        dockInWindow(rightHanded = true)
+        assertTrue(box().bottom > 844f * 2f - 40f)
+    }
+
+    @Test
+    fun `gizmoCorner slides only as far as needed and only when it overlaps`() {
+        val wheel = androidx.compose.ui.geometry.Rect(100f, 1900f, 900f, 2000f)
+        val clear = gizmoCorner(1000, 2000, 300, 250, true, 0, 0, 0, avoid = wheel, gap = 10)
+        assertEquals(1900 - 10 - 250, clear.y)
+        // a wheel that does not reach the box's columns changes nothing
+        val side = androidx.compose.ui.geometry.Rect(0f, 1900f, 600f, 2000f)
+        assertEquals(2000 - 250, gizmoCorner(1000, 2000, 300, 250, true, 0, 0, 0, avoid = side, gap = 10).y)
+    }
 }

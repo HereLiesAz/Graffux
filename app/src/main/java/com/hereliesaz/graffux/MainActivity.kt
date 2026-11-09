@@ -351,6 +351,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
     var meshMenuOpen by rememberSaveable { mutableStateOf(false) }
     // The bottom sheet's top edge in root px, for the rotation triangle that rides it.
     val sheetTopPx = remember { androidx.compose.runtime.mutableFloatStateOf(Float.NaN) }
+    // Where the set wheel is while it shows; the rotation triangle keeps its touch bands off it.
+    val setWheelBounds = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var layerMenuFor by rememberSaveable { mutableStateOf<String?>(null) }
     var showAbout by rememberSaveable { mutableStateOf(false) }
     var showGestureHelp by rememberSaveable { mutableStateOf(false) }
@@ -1141,6 +1143,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     // The set wheel sits on the side away from the rail (CarouselSetWheel.kt).
                     androidx.compose.runtime.CompositionLocalProvider(
                         LocalSetWheelOnRight provides uiState.isRightHanded,
+                        LocalSetWheelBounds provides setWheelBounds,
                     ) {
                     if (designMode) {
                         DesignSheetBody(
@@ -1308,7 +1311,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         // and of the sheet's handle, and does not move with the sheet. Its three touch bands take input; the rest
         // of it lets canvas strokes through.
         if (vm.rotationGizmoVisible(uiState)) {
-            RotationGizmoDock(rightHanded = uiState.isRightHanded) { gizmoScale ->
+            RotationGizmoDock(rightHanded = uiState.isRightHanded, avoid = { setWheelBounds.value }) { gizmoScale ->
                 RotationGizmo(
                     scale = gizmoScale,
                     onTurn = vm::onRotationGizmoTurn,

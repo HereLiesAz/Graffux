@@ -77,10 +77,18 @@ internal fun gizmoCorner(
     left: Int,
     right: Int,
     bottom: Int,
+    /** A control with touch priority (the set wheel) the triangle's box must stay off, in container px. */
+    avoid: androidx.compose.ui.geometry.Rect? = null,
+    gap: Int = 0,
 ): IntOffset {
-    val x = if (rightHanded) containerWidth - right - boxWidth else left
-    val y = containerHeight - bottom - boxHeight
-    return IntOffset(max(0, x), max(0, y))
+    val x = max(0, if (rightHanded) containerWidth - right - boxWidth else left)
+    var y = containerHeight - bottom - boxHeight
+    // Slide up the screen edge, no further than needed, when the box would overlap the avoided control.
+    val overlapsColumns = avoid != null && x < avoid.right && x + boxWidth > avoid.left
+    if (avoid != null && overlapsColumns && y + boxHeight > avoid.top) {
+        y = (avoid.top - gap - boxHeight).toInt()
+    }
+    return IntOffset(x, max(0, y))
 }
 
 /** The clip that makes only the touch bands take pointer input: their union as an outline. */
@@ -257,6 +265,7 @@ private fun GizmoLetter(letter: String, at: IntOffset, edge: TriangleEdge) {
 @Composable
 internal fun RotationGizmoDock(
     rightHanded: Boolean,
+    avoid: () -> androidx.compose.ui.geometry.Rect? = { null },
     content: @Composable (scale: Float) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -276,6 +285,8 @@ internal fun RotationGizmoDock(
                         left = max(gestures.getLeft(density, ld), max(nav.getLeft(density, ld), cutout.getLeft(density, ld))) + margin,
                         right = max(gestures.getRight(density, ld), max(nav.getRight(density, ld), cutout.getRight(density, ld))) + margin,
                         bottom = max(gestures.getBottom(density), nav.getBottom(density)) + margin,
+                        avoid = avoid(),
+                        gap = margin,
                     )
                     placeable.place(at)
                 }

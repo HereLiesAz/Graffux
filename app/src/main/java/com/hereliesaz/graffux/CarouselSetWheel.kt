@@ -85,6 +85,13 @@ import kotlin.math.sin
 internal val LocalSetWheelOnRight = staticCompositionLocalOf { true }
 
 /**
+ * Where the set wheel is on screen (root px), or null when it is not shown. The wheel writes it; the rotation
+ * triangle's dock reads it to keep its touch bands off the wheel (the wheel has the touch priority).
+ */
+internal val LocalSetWheelBounds =
+    staticCompositionLocalOf<androidx.compose.runtime.MutableState<androidx.compose.ui.geometry.Rect?>?> { null }
+
+/**
  * The wheel's outer radius. Its hub sits far below the screen, so the visible part is a wide, shallow
  * band along the sheet's bottom corner rather than a quarter disc.
  */
