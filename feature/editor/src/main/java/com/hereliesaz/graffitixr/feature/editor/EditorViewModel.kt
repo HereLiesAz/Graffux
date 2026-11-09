@@ -12246,23 +12246,33 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Deletes project [id] for good, then refreshes the Open screen so its card is gone once (and only
+     * once) the delete has actually finished. The caller used to refresh right after this returned, which
+     * raced the delete on the IO pool and could list the project that was being deleted; the refresh also
+     * runs if the delete throws, so the list shows what is really on disk.
+     */
     fun deleteProjectById(id: String) {
         dropPendingLayerSavesFor(id)
         viewModelScope.launch(dispatchers.io) {
-            projectRepository.deleteProject(id)
-            dropPendingLayerSavesFor(id) // one more, for a save that was scheduled while the delete was starting
-            // Deleting the open project leaves the editor pointing at nothing: fall back to the
-            // most recent survivor, or a fresh project — the same policy as the boot bootstrap.
-            if (_uiState.value.projectId == id) {
-                val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
-                if (mostRecent != null) {
-                    projectRepository.loadProject(mostRecent.id)
-                } else if (projectGateEnabled) {
-                    // Graffux: nothing to work in yet, so the mandatory project dialog asks for one.
-                    showProjectGate()
-                } else {
-                    createProjectWithScreenSize("Untitled")
+            try {
+                projectRepository.deleteProject(id)
+                dropPendingLayerSavesFor(id) // one more, for a save that was scheduled while the delete was starting
+                // Deleting the open project leaves the editor pointing at nothing: fall back to the
+                // most recent survivor, or a fresh project — the same policy as the boot bootstrap.
+                if (_uiState.value.projectId == id) {
+                    val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
+                    if (mostRecent != null) {
+                        projectRepository.loadProject(mostRecent.id)
+                    } else if (projectGateEnabled) {
+                        // Graffux: nothing to work in yet, so the mandatory project dialog asks for one.
+                        showProjectGate()
+                    } else {
+                        createProjectWithScreenSize("Untitled")
+                    }
                 }
+            } finally {
+                refreshOpenScreen()
             }
         }
     }
