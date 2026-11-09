@@ -12824,23 +12824,14 @@ class EditorViewModel @Inject constructor(
             .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Adds [color] to the saved palette. Re-saving a colour already in it is a no-op. */
+    /** Adds [color] to the saved palette. Re-saving a colour already in it is a no-op. Atomic in the store. */
     fun onSavePaletteColor(color: androidx.compose.ui.graphics.Color) {
-        viewModelScope.launch {
-            val current = settingsRepository.savedPalette.first()
-            val next = com.hereliesaz.graffitixr.common.util.PaletteCodec.add(current, color.toArgb())
-            if (next !== current) settingsRepository.setSavedPalette(next)
-        }
+        viewModelScope.launch { settingsRepository.addSavedSwatch(color.toArgb()) }
     }
 
-    /** Removes every swatch matching [color] from the saved palette. */
+    /** Removes every swatch matching [color] from the saved palette. Atomic in the store. */
     fun onRemovePaletteColor(color: androidx.compose.ui.graphics.Color) {
-        viewModelScope.launch {
-            val argb = color.toArgb()
-            val current = settingsRepository.savedPalette.first()
-            val next = current.filterNot { it == argb }
-            if (next.size != current.size) settingsRepository.setSavedPalette(next)
-        }
+        viewModelScope.launch { settingsRepository.removeSavedSwatch(color.toArgb()) }
     }
 
     /**

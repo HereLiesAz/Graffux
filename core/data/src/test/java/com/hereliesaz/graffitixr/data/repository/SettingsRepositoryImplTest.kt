@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import androidx.compose.ui.graphics.toArgb
 import com.hereliesaz.graffitixr.common.model.DEFAULT_CANVAS_BACKGROUND
@@ -158,5 +159,43 @@ class SettingsRepositoryImplTest {
         repo.setBrushSizeFixedOnScreen(true)
         assertTrue(SettingsRepositoryImpl(RuntimeEnvironment.getApplication()).brushSizeFixedOnScreen.first())
         repo.setBrushSizeFixedOnScreen(false)
+    }
+
+    @Test
+    fun `concurrent swatch saves do not lose each other`() = runTest {
+        repo.setSavedPalette(emptyList())
+        val colours = (1..40).map { 0xFF000000.toInt() or (it * 0x010203) }
+        kotlinx.coroutines.coroutineScope {
+            colours.map { c -> launch(kotlinx.coroutines.Dispatchers.Default) { repo.addSavedSwatch(c) } }
+        }
+        assertEquals(colours.toSet(), repo.savedPalette.first().toSet())
+        kotlinx.coroutines.coroutineScope {
+            colours.take(20).map { c -> launch(kotlinx.coroutines.Dispatchers.Default) { repo.removeSavedSwatch(c) } }
+        }
+        assertEquals(colours.drop(20).toSet(), repo.savedPalette.first().toSet())
+    }
+
+    @Test
+    fun `re-saving a swatch already there changes nothing`() = runTest {
+        repo.setSavedPalette(listOf(0xFF112233.toInt()))
+        repo.addSavedSwatch(0xFF112233.toInt())
+        assertEquals(listOf(0xFF112233.toInt()), repo.savedPalette.first())
+    }
+
+    @Test
+    fun `a corrupt settings file is kept as a copy and the handler falls back to defaults`() = runTest {
+        val dir = java.io.File(RuntimeEnvironment.getApplication().filesDir, "corrupt-test")
+        dir.mkdirs()
+        val bad = java.io.File(dir, "settings.preferences_pb")
+        bad.writeBytes(byteArrayOf(0x7F, 0x00, 0x13, 0x37))
+        SettingsCorruptionHandler.keepCopy(bad)
+        val copies = dir.listFiles { f -> f.name.startsWith("settings.preferences_pb.corrupt-") }!!
+        assertEquals(1, copies.size)
+        assertTrue(copies.single().readBytes().contentEquals(bad.readBytes()))
+        SettingsCorruptionHandler.keepCopy(java.io.File(dir, "missing")) // never throws
+        SettingsCorruptionHandler.file = bad
+        val fresh = SettingsCorruptionHandler.handler.handleCorruption(androidx.datastore.core.CorruptionException("x"))
+        assertTrue(fresh.asMap().isEmpty())
+        assertEquals("a second copy was kept", 2, dir.listFiles { f -> f.name.contains(".corrupt-") }!!.size)
     }
 }
