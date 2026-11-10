@@ -339,6 +339,8 @@ internal class SheetStages(
     val canStepUp: () -> Boolean,
     /** Whether [onStepDown] would show less (true) or shut the sheet (false), which the control then says. */
     val canStepDown: () -> Boolean,
+    /** Whether the stage showing is the set-picker wheel, which fills one bottom corner of the content. */
+    val showsSetWheel: () -> Boolean,
 )
 
 /** Whether a release can step the sheet up: it has stages, is showing open, and sits fully open. */

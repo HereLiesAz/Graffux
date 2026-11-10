@@ -19,11 +19,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
@@ -136,7 +138,7 @@ class SheetStageTapUiTest {
         rule.waitForIdle()
         assertNull("photo sheet: no grid above the carousel", click("carousel.stage.up"))
         // ...but their tab list still steps up to the carousel.
-        ui = ui.copy(showingCarousel = false)
+        ui = ui.copy(showingCarousel = false, tab = "levels")
         rule.waitForIdle()
         tap("carousel.stage.up")
         assertTrue(ui.showingCarousel)
@@ -231,5 +233,101 @@ class SheetStageTapUiTest {
         assertEquals("tapping the star must not step the sheet", CarouselDetent.HALF, ui.detent)
         tap("carousel.stage.up")
         assertEquals(CarouselDetent.FULL, ui.detent)
+    }
+
+    // ---- the set wheel's corner ----------------------------------------------------------------
+
+    private val setNames = listOf("Favorites", "Round", "Flat", "Ink", "My Brushes", "Spray Caps")
+    private val picked = mutableListOf<String>()
+    private var wheelOnRight by mutableStateOf(true)
+
+    private fun composeWithWheel() {
+        val sections = listOf(
+            CarouselTabSection(
+                "ALL",
+                setNames.map { CarouselTabGroup(it.lowercase(), it, CarouselCategory.EFFECTS, emptyList()) },
+            ),
+        )
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                CompositionLocalProvider(LocalSetWheelOnRight provides wheelOnRight) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselSheet(
+                            open = true,
+                            onOpenChange = {},
+                            bottomInset = 16.dp,
+                            stages = sheetStagesFor({ ui }, { ui = it }, designMode = false),
+                        ) { CarouselTabList(sections, "favorites", onSelect = { picked += it.label }) }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+    }
+
+    private fun assertNoControlOverWheel() {
+        val items = rule.onAllNodesWithTag("carousel.wheel.item", useUnmergedTree = true).fetchSemanticsNodes()
+        listOf("carousel.stage.up", "carousel.stage.down").filter { has(it) }.forEach { tag ->
+            val control = rule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            items.forEach {
+                assertFalse("$tag $control covers a wheel name ${it.boundsInRoot}", it.boundsInRoot.overlaps(control))
+            }
+        }
+    }
+
+    @Test
+    fun `at the tab list the controls sit in the corner the wheel leaves free, in both handednesses`() {
+        listOf(true, false).forEach { right ->
+            wheelOnRight = right
+            if (!composedWheel) { composeWithWheel(); composedWheel = true }
+            rule.waitForIdle()
+            val both = has("carousel.stage.up") && has("carousel.stage.down")
+            assertTrue("both controls fit beside the wheel at 411dp", both)
+            assertNoControlOverWheel()
+            // A real tap on a set still selects it rather than stepping the sheet.
+            val before = picked.size
+            val wheel = rule.onNodeWithTag("carousel.wheel").fetchSemanticsNode().boundsInRoot
+            val target = rule.onAllNodesWithTag("carousel.wheel.item", useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .first {
+                    it.config.getOrNull(SemanticsProperties.Text)?.single()?.text == if (right) "Round" else "Flat"
+                }
+            val at = androidx.compose.ui.geometry.Offset(
+                target.boundsInRoot.center.x - wheel.left,
+                target.boundsInRoot.center.y - wheel.top,
+            )
+            rule.onNodeWithTag("carousel.wheel").performTouchInput { click(at) }
+            rule.waitForIdle()
+            rule.mainClock.advanceTimeBy(300)
+            assertTrue("a tap on a set picks it (right-handed=$right)", picked.size > before)
+            assertFalse("and did not step the sheet", ui.showingCarousel)
+            picked.clear()
+        }
+    }
+
+    private var composedWheel = false
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h800dp-xxhdpi", application = Application::class)
+    fun `on a narrow screen only the closing control fits beside the wheel`() {
+        composeWithWheel()
+        assertTrue(has("carousel.stage.down"))
+        assertFalse("no room for show more", has("carousel.stage.up"))
+        assertNoControlOverWheel()
+    }
+
+    // ---- the photo sheet's first opening -----------------------------------------------------------
+
+    @Test
+    fun `the photo sheet has nothing to show more of until a tab is chosen`() {
+        ui = CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = false, photo = true, tab = null)
+        compose()
+        assertNull("no show-more with no tab", click("carousel.stage.up"))
+        assertEquals(listOf("Close sheet"), rule.onNodeWithTag("carousel.stage.down").fetchSemanticsNode().config
+            .getOrNull(SemanticsProperties.ContentDescription))
+        ui = ui.copy(tab = "levels")
+        rule.waitForIdle()
+        tap("carousel.stage.up")
+        assertTrue("with a tab it steps up", ui.showingCarousel)
     }
 }

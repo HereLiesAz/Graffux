@@ -2,6 +2,8 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -27,11 +29,16 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
 internal fun sheetStagesFor(ui: () -> CarouselUi, set: (CarouselUi) -> Unit, designMode: Boolean): SheetStages {
     fun gridAllowed() = !designMode && !ui().photo
     fun brushPage() = gridAllowed() && carouselContextOf(ui().category) == CarouselContext.BRUSHES
+    // The photo sheet opens on its tab list with no tab chosen; its body is blank until one is, so there is
+    // nothing to step up to yet (picking a set on the wheel is how it gets one).
+    fun somethingAbove() = !ui().photo || ui().tab != null
+    fun canUp() = somethingAbove() && ui().steppedUp(gridAllowed = gridAllowed()) != ui()
     return SheetStages(
-        onStepUp = { set(ui().steppedUp(gridAllowed = gridAllowed())) },
+        onStepUp = { if (canUp()) set(ui().steppedUp(gridAllowed = gridAllowed())) },
         onStepDown = { ui().steppedDown(tabListStage = !brushPage())?.let(set) != null },
-        canStepUp = { ui().steppedUp(gridAllowed = gridAllowed()) != ui() },
+        canStepUp = { canUp() },
         canStepDown = { ui().steppedDown(tabListStage = !brushPage()) != null },
+        showsSetWheel = { !ui().showingCarousel && !brushPage() },
     )
 }
 
@@ -49,21 +56,41 @@ internal fun SheetStageControls(stages: SheetStages, onClose: () -> Unit, modifi
     val canUp = stages.canStepUp()
     val downLabel = stringResource(if (canDown) R.string.sheet_show_less else R.string.sheet_close)
     val upLabel = stringResource(R.string.sheet_show_more)
-    Box(modifier.testTag("carousel.stageBar")) {
-        StageButton(
-            icon = GraffuxIcons.ChevronDown,
-            label = downLabel,
-            tag = "carousel.stage.down",
-            enabled = true,
-            modifier = Modifier.align(Alignment.TopStart),
-        ) { if (!stages.onStepDown()) onClose() }
-        StageButton(
-            icon = GraffuxIcons.ChevronUp,
-            label = upLabel,
-            tag = "carousel.stage.up",
-            enabled = canUp,
-            modifier = Modifier.align(Alignment.TopEnd),
-        ) { stages.onStepUp() }
+    val wheelOnRight = LocalSetWheelOnRight.current
+    BoxWithConstraints(modifier.testTag("carousel.stageBar")) {
+        // With the set wheel showing (the tab-list stage) it fills the corner away from the rail; the controls
+        // go to the free corner beside it, mirrored for a left-handed layout, and when that corner has room
+        // for only one control it is the one that closes.
+        val wheelSide = stages.showsSetWheel()
+        val free = maxWidth - minOf(maxWidth - PickerGap * 2, WheelMaxWidth) - PickerGap * 2
+        val room = if (wheelSide) (free / StageButtonSize).toInt() else 2
+        val atStart = if (wheelSide) wheelOnRight else true
+        val downAlign = if (atStart) Alignment.TopStart else Alignment.TopEnd
+        val upAlign = if (wheelSide) downAlign else Alignment.TopEnd
+        if (room >= 1) {
+            StageButton(
+                icon = GraffuxIcons.ChevronDown,
+                label = downLabel,
+                tag = "carousel.stage.down",
+                enabled = true,
+                modifier = Modifier.align(downAlign),
+            ) { if (!stages.onStepDown()) onClose() }
+        }
+        if (room >= 2) {
+            StageButton(
+                icon = GraffuxIcons.ChevronUp,
+                label = upLabel,
+                tag = "carousel.stage.up",
+                enabled = canUp,
+                modifier = Modifier
+                    .align(upAlign)
+                    // Beside the other control, toward the middle, when both share one corner.
+                    .padding(
+                        start = if (wheelSide && atStart) StageButtonSize else 0.dp,
+                        end = if (wheelSide && !atStart) StageButtonSize else 0.dp,
+                    ),
+            ) { stages.onStepUp() }
+        }
     }
 }
 
