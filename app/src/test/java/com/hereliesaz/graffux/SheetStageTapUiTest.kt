@@ -254,7 +254,7 @@ class SheetStageTapUiTest {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                         CarouselSheet(
                             open = true,
-                            onOpenChange = {},
+                            onOpenChange = { ui = ui.copy(sheetOpen = it, showingCarousel = false) },
                             bottomInset = 16.dp,
                             stages = sheetStagesFor({ ui }, { ui = it }, designMode = false),
                         ) { CarouselTabList(sections, "favorites", onSelect = { picked += it.label }) }
@@ -308,12 +308,25 @@ class SheetStageTapUiTest {
     private var composedWheel = false
 
     @Test
-    @Config(sdk = [34], qualifiers = "w360dp-h800dp-xxhdpi", application = Application::class)
-    fun `on a narrow screen only the closing control fits beside the wheel`() {
-        composeWithWheel()
-        assertTrue(has("carousel.stage.down"))
-        assertFalse("no room for show more", has("carousel.stage.up"))
-        assertNoControlOverWheel()
+    @Config(sdk = [34], qualifiers = "w320dp-h800dp-xxhdpi", application = Application::class)
+    fun `on a 320dp screen Close sheet is always there, 48dp, clear of the wheel, in both handednesses`() {
+        listOf(true, false).forEach { right ->
+            wheelOnRight = right
+            if (!composedWheel) { composeWithWheel(); composedWheel = true }
+            rule.waitForIdle()
+            assertTrue("Close sheet must exist (right-handed=$right)", has("carousel.stage.down"))
+            val node = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode()
+            val min = 48 * rule.density.density
+            assertTrue("48dp", node.size.width >= min && node.size.height >= min)
+            assertEquals(listOf("Close sheet"), node.config.getOrNull(SemanticsProperties.ContentDescription))
+            assertNoControlOverWheel()
+            assertFalse("no room for show more", has("carousel.stage.up"))
+            // The control actually closes the sheet.
+            tap("carousel.stage.down")
+            assertFalse("closing from the tab list", ui.sheetOpen)
+            ui = ui.copy(sheetOpen = true)
+            rule.waitForIdle()
+        }
     }
 
     // ---- the photo sheet's first opening -----------------------------------------------------------
@@ -329,5 +342,14 @@ class SheetStageTapUiTest {
         rule.waitForIdle()
         tap("carousel.stage.up")
         assertTrue("with a tab it steps up", ui.showingCarousel)
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w320dp-h800dp-xxhdpi", application = Application::class)
+    fun `at 320dp the photo sheet with no tab offers Close and no show-more`() {
+        ui = CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = false, photo = true, tab = null)
+        compose()
+        assertTrue(has("carousel.stage.down"))
+        assertFalse(has("carousel.stage.up"))
     }
 }

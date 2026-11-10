@@ -62,7 +62,7 @@ internal fun SheetStageControls(stages: SheetStages, onClose: () -> Unit, modifi
         // go to the free corner beside it, mirrored for a left-handed layout, and when that corner has room
         // for only one control it is the one that closes.
         val wheelSide = stages.showsSetWheel()
-        val free = maxWidth - minOf(maxWidth - PickerGap * 2, WheelMaxWidth) - PickerGap * 2
+        val free = maxWidth - setWheelWidth(maxWidth - PickerGap * 2) - PickerGap * 2
         val room = if (wheelSide) (free / StageButtonSize).toInt() else 2
         val atStart = if (wheelSide) wheelOnRight else true
         val downAlign = if (atStart) Alignment.TopStart else Alignment.TopEnd
