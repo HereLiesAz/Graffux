@@ -4,7 +4,7 @@ Status: **partly built; owner decisions incorporated** (section 10). Sections 1 
 spec was written and specify the extensions; sections 5 and 6 specify the brush set and the palette. The state of the
 build is in "Build status" below; where a section says "today" it describes the audited code, not necessarily `main`.
 
-## Build status (checked against `064377e3`; later commits on `main` are version bumps only)
+## Build status (checked against `064377e3`; since then `core/engine`, `core/wgpu-engine` and the palette sources are unchanged (checked to `f2323481`))
 
 Built, with the file that shows it:
 

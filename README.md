@@ -106,22 +106,44 @@ the shared single source of truth. Only `:app` is Graffux-specific (`com.herelie
 
 Graffux is growing toward a full, touch-first design tool.
 
-**Landed in the audit round** (each checked on `main`): per-project palette, recipe and stroke persistence with
-atomic writes and `.bak` recovery; consent and recorded stroke data kept out of backup and device transfer; imported
-`.fux` URIs localized and percent-encoded traversal refused; `.azp` entry-count and manifest/signature size caps; one
-shared GPU device for the standalone compute entries and long paint transactions run as bounded chunks; relay nesting,
-line, body-read and limiter bounds.
+**Landed in the audit round** (each checked on `main`):
+- Per-project palette, recipe and stroke persistence with atomic writes and `.bak` recovery (#785, #789).
+- Consent and recorded stroke data kept out of backup and device transfer (#796); projects and models out of cloud backup (#790).
+- `.fux` import hardening (#807): only `Uri` fields are localized, escapes decode leniently, JSON depth is capped at 64
+  (`MAX_JSON_DEPTH`) and a URI over 4096 characters is refused (`core/data/.../ArchiveUris.kt:52,165`).
+- OBJ import caps (#809): 64 MiB read (`ModelCoopCodec.MAX_OBJ_BYTES`, enforced by `ModelFiles.readBounded`),
+  400,000 triangles, 64 K characters per line, 16,384 corners per face (`ObjParser.MAX_TRIANGLES`,
+  `MAX_LINE_CHARS`, `MAX_FACE_CORNERS`); memory figures in `spec/3d-space.md` (Import).
+- `.azp` entry-count and manifest/signature size caps (#811).
+- Extension-list disclosure and failure-reason scrub (#813): `docs/PRIVACY_POLICY.md` (effective November 9, 2026) and
+  `spec/state-reporting.md` (`sanitizeReason()`: per-token redaction, first 400 characters in, 200 out).
+- One shared GPU device for the standalone compute entries (#805) and long paint transactions as bounded chunks (#806).
+- Relay nesting, line, body-read and limiter bounds (#802).
+- Type scale floored at 12sp (#808, `core/design/.../theme/Typography.kt:57`); Settings insets, announced title and
+  strings in resources (#810).
+- Accessibility and UX (audit package 7): pane titles, traversal order and logo menu semantics (#812); dialog and
+  window buttons holding their label at large font scales (#814); project delete control, confirmation and list
+  refresh (#815); pivot prompt placement and the 48dp set-wheel touch band (#818).
 
 **Open**
 
 - **Relay authentication.** The relay limits abuse; it does not authenticate. The next step is Play Integrity
   attestation, which needs a Google Cloud project and a server-side key (`workers/stroke-relay/README.md`).
-- **Content-provider exposure (owner decision).** `ExtensionStateProvider` is `exported="true"`, guarded by a
-  `normal`-level permission any app can hold (`app/src/main/AndroidManifest.xml`); `spec/state-reporting.md` describes why.
+- **Content-provider exposure (owner decision).** `ExtensionStateProvider` is `exported="true"` behind a `normal`-level
+  permission any installed app can declare. #813 discloses it; whether to keep it is undecided
+  (`app/src/main/AndroidManifest.xml`, `spec/state-reporting.md`).
 - **wgpu cost weights are unmeasured on hardware.** `COST_PER_TEXEL`, `MAX_CHUNK_COST`, `MAX_DAB_COST` and the chunk
   timeout in `core/wgpu-engine/src/transaction.rs` are guesses; `spec/painterly-device-matrix.md` lists the measurements.
 - **`DabTooLarge` has no user-visible refusal yet.** The transaction planner returns it for a dab over `MAX_DAB_COST`, and no
-  app code calls the standalone entries yet (`transaction.rs`); the eventual production caller must surface it.
+  app code calls the standalone entries yet (`transaction.rs`); the first production caller must surface it.
+- **Co-op `LayerAdd` carries a peer-supplied `Layer` (`core/common/.../model/Op.kt:15`), including its `uri`.** Not traced.
+  Co-op is a no-op in the app (`app/.../di/CoopModule.kt`), so it is unreachable until co-op is wired.
+- **UX PRs awaiting review, not landed:** #817 (mixer feedback, rinse confirmation), #819 (tap and accessibility
+  alternatives to the sheet's stage swipes), #820 (dead code, stale comments, more strings in resources).
+- **Hard-coded UI strings remain:** the labels in `ToolCatalog.kt` (the `ToolEntry("tool.brush", "Brush", ...)` entries), about 150 in other
+  `feature/editor` windows (count from the audit, not re-counted here), `desktop/`, and the gesture enum labels.
+- **Set-wheel names are still ellipsized** (`CarouselSetWheel.kt`: the name is measured with `overflow = TextOverflow.Ellipsis, maxLines = 1`).
+- **Compare is hold-only** (`PhotoSheet.kt`: the button's description is "Hold to compare with original"); there is no toggle.
 - **Painterly build.** Resident-canvas transaction, bundled packs, lift tail, drawn brush, demo replay and device
   verification: see "Build status" in `spec/painterly.md`.
 - **Legal documents.** See "Privacy policy and Terms" below.
