@@ -69,17 +69,25 @@ abstract class ToolSurfaceSemanticsTest(private val phone: Boolean) {
         }
     }
 
+    /** The kinds whose container has a scrim behind it (a popover, a bottom sheet, a centred sheet). */
+    private fun hasScrim(kind: SurfaceKind): Boolean = when (kind) {
+        SurfaceKind.VALUE -> true
+        SurfaceKind.PICKER, SurfaceKind.FORM -> true
+        SurfaceKind.EDITOR, SurfaceKind.TIMELINE, SurfaceKind.BROWSER -> false
+    }
+
     @Test
-    fun `a screen reader reaches the surface before the scrim behind it`() {
-        listOf(SurfaceKind.VALUE, SurfaceKind.PICKER, SurfaceKind.FORM).forEach { kind ->
+    fun `exactly the kinds with a scrim have one, and a screen reader reaches the surface before it`() {
+        SurfaceKind.entries.forEach { kind ->
             open(kind, "T")
-            val scrims = rule.onAllNodesWithTag("surface.scrim", useUnmergedTree = true)
-            if (scrims.fetchSemanticsNodes().isEmpty()) return@forEach
-            val scrim = rule.onNodeWithTag("surface.scrim", useUnmergedTree = true).fetchSemanticsNode()
-            val panel = rule.onNodeWithTag(tagFor(kind), useUnmergedTree = true).fetchSemanticsNode()
-            val scrimIndex = scrim.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
-            val panelIndex = panel.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
-            assertTrue("$kind: scrim $scrimIndex must follow the panel $panelIndex", scrimIndex > panelIndex)
+            val scrims = rule.onAllNodesWithTag("surface.scrim", useUnmergedTree = true).fetchSemanticsNodes()
+            assertEquals("$kind scrim count", if (hasScrim(kind)) 1 else 0, scrims.size)
+            if (hasScrim(kind)) {
+                val panel = rule.onNodeWithTag(tagFor(kind), useUnmergedTree = true).fetchSemanticsNode()
+                val scrimIndex = scrims.single().config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
+                val panelIndex = panel.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
+                assertTrue("$kind: scrim $scrimIndex must follow the panel $panelIndex", scrimIndex > panelIndex)
+            }
         }
     }
 

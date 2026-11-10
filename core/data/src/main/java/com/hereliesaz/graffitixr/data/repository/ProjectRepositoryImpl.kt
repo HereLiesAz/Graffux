@@ -139,6 +139,9 @@ class ProjectRepositoryImpl @Inject constructor(
 
     override suspend fun updateProject(project: GraffitiProject) {
         saveMutex.withLock {
+            // Deleted while this save was queued: writing would recreate the directory as an orphan (as
+            // saveArtifact refuses for the same reason). Opening or creating the project again lifts this.
+            if (project.id in deletedIds) return@withLock
             // A refused write must not look like a save: memory stays as it was and the caller hears.
             if (!projectManager.saveProject(context, project)) throw ProjectNotSavedException(project.id)
             if (_currentProject.value?.id == project.id) {

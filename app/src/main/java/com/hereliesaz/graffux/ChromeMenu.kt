@@ -216,12 +216,13 @@ private fun MenuText(text: String, trailing: String? = null, color: Color? = nul
 
 /**
  * An on/off row that stays open. The drawn row says "label: shown" with a dot; a screen reader gets a
- * checkbox named by the label alone, with its state, rather than a button that reads the dot out as
- * "black circle".
+ * checkbox with its state, named by that same visible text (so a voice-control user can say what they see),
+ * and the dot is left out rather than read as "black circle".
  */
 @Suppress("FunctionNaming")
 @Composable
 private fun MenuToggle(row: MenuRow.Toggle) {
+    val visible = stringResource(if (row.checked) R.string.menu_toggle_shown else R.string.menu_toggle_hidden, row.label)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -229,10 +230,10 @@ private fun MenuToggle(row: MenuRow.Toggle) {
             .heightIn(min = MenuRowHeight)
             .toggleable(value = row.checked, role = Role.Checkbox, onValueChange = { row.onToggle(it) })
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clearAndSetSemantics { contentDescription = row.label },
+            .clearAndSetSemantics { contentDescription = visible },
     ) {
         Text(
-            stringResource(if (row.checked) R.string.menu_toggle_shown else R.string.menu_toggle_hidden, row.label),
+            visible,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
