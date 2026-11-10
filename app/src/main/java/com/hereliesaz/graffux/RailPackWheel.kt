@@ -48,6 +48,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.CollectionItemInfo
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -372,6 +373,8 @@ private fun PackWheelDisc(
     onPick: (CarouselTabGroup) -> Unit,
     onClose: () -> Unit,
 ) {
+    val packWheelDescription = stringResource(R.string.pack_wheel_description)
+    val selectLabel = stringResource(R.string.wheel_select_action)
     val opensRight = layout.opensRight
     val count = sets.size
     val selectedIndex = sets.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
@@ -480,7 +483,7 @@ private fun PackWheelDisc(
             .testTag("rail.packwheel")
             .semantics {
                 selectableGroup()
-                contentDescription = "Brush packs"
+                contentDescription = packWheelDescription
                 packWheelRadiusPx = radius
                 collectionInfo = CollectionInfo(rowCount = count, columnCount = 1)
                 customActions = listOf(
@@ -623,7 +626,7 @@ private fun PackWheelDisc(
                         role = Role.Tab
                         collectionItemInfo = CollectionItemInfo(i, 1, 0, 1)
                         packNameEllipsized = cut
-                        onClick(label = "Select") {
+                        onClick(label = selectLabel) {
                             settleTo(packLandingFor(i, position.floatValue, count), commitNow = true)
                             true
                         }

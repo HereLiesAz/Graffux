@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -235,7 +236,7 @@ internal fun ColorStylesSection(
                     modifier = Modifier.weight(1f).padding(start = 10.dp).testTag("design.${title.lowercase()}.value"),
                 )
                 if (bound != null) {
-                    Text("style", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
+                    Text(stringResource(R.string.design_style_tag), color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
                 }
             }
             library.colorStyles.forEach { style ->
@@ -389,7 +390,7 @@ internal fun PaintSummary(links: DesignLinks, library: DesignLibrary) {
             color = DesignInk.Ink, fontSize = 14.sp, fontFamily = RobotoCondensedFamily, maxLines = 1,
             modifier = Modifier.weight(1f).padding(start = 10.dp).testTag("design.summary.fill"),
         )
-        if (fillStyle != null) Text("style", color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
+        if (fillStyle != null) Text(stringResource(R.string.design_style_tag), color = DesignInk.Faint, fontSize = 12.sp, fontFamily = RobotoMonoFamily)
     }
     DesignRow("Stroke", density) {
         val none = links.strokeWidth <= 0f
@@ -398,7 +399,7 @@ internal fun PaintSummary(links: DesignLinks, library: DesignLibrary) {
             color = DesignInk.Ink, fontSize = 13.sp, fontFamily = RobotoMonoFamily, maxLines = 1,
             modifier = Modifier.weight(1f).testTag("design.summary.stroke"),
         )
-        if (none) Text("None", color = DesignInk.Faint, fontSize = 13.sp, fontFamily = RobotoCondensedFamily)
+        if (none) Text(stringResource(R.string.design_none), color = DesignInk.Faint, fontSize = 13.sp, fontFamily = RobotoCondensedFamily)
     }
 }
 

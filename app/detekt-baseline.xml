@@ -89,8 +89,5 @@
     <ID>TopLevelPropertyNaming:CarouselState.kt$internal const val MinPageOffset = -0.5f</ID>
     <ID>TopLevelPropertyNaming:CarouselState.kt$private const val MaxPagesForAnimateScroll = 3</ID>
     <ID>UnusedPrivateMember:Carousel.kt$private fun Modifier.drawDebugLines( state: CarouselState, pageSize: CarouselPageSize, strokeColor: Color = Color.Magenta, strokeWidth: Dp = 4.dp, ): Modifier</ID>
-    <ID>UnusedPrivateProperty:MainActivity.kt$/** Floor for brush opacity: a fully transparent brush paints nothing and just reads as a broken tool. */ private const val MIN_BRUSH_ALPHA = 0.05f</ID>
-    <ID>UnusedPrivateProperty:MainActivity.kt$val documentPicker = rememberLauncherForActivityResult( ActivityResultContracts.OpenDocument() ) { uri -&gt; uri?.let { vm.onImportDocument(it) } }</ID>
-    <ID>UnusedPrivateProperty:MainActivity.kt$val photoPicker = rememberLauncherForActivityResult( ActivityResultContracts.PickVisualMedia() ) { uri -&gt; uri?.let { vm.onAddLayer(it) } }</ID>
   </CurrentIssues>
 </SmellBaseline>

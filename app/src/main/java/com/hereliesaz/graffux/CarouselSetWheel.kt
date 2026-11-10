@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -269,6 +270,8 @@ private fun SetWheelBand(
     height: Dp,
     onPick: (CarouselTabGroup) -> Unit,
 ) {
+    val setsDescription = stringResource(R.string.wheel_sets_description)
+    val selectLabel = stringResource(R.string.wheel_select_action)
     val onRight = LocalSetWheelOnRight.current
     val count = sets.size
     val selectedIndex = sets.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
@@ -357,7 +360,7 @@ private fun SetWheelBand(
             .testTag("carousel.wheel")
             .semantics {
                 selectableGroup()
-                contentDescription = "Sets"
+                contentDescription = setsDescription
                 wheelGeometryWidth = widthPx
                 collectionInfo = CollectionInfo(rowCount = count, columnCount = 1)
                 customActions = listOf(
@@ -477,7 +480,7 @@ private fun SetWheelBand(
                         role = Role.Tab
                         collectionItemInfo = CollectionItemInfo(i, 1, 0, 1)
                         wheelNameEllipsized = cut
-                        onClick(label = "Select") { settleTo(i, commitNow = true); true }
+                        onClick(label = selectLabel) { settleTo(i, commitNow = true); true }
                     }
                     .testTag("carousel.wheel.item"),
             )

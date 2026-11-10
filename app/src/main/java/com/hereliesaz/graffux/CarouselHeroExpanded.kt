@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -257,7 +258,7 @@ private fun ExpandedHeroCard(
                     contentPadding = PaddingValues(horizontal = 6.dp),
                     modifier = Modifier.height(MORE_ROW_DP.dp).testTag("carousel.expanded.less"),
                 ) {
-                    Text("Less", color = tint, style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.hero_less), color = tint, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }

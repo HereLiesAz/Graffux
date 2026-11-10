@@ -4,6 +4,7 @@ package com.hereliesaz.graffux
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.border
@@ -39,6 +40,7 @@ import com.hereliesaz.graffitixr.common.model.RotationAxis
 import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.common.model.is3DIn
 import com.hereliesaz.graffitixr.design.GraffuxIcons
+import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.design.RailIcons
 import com.hereliesaz.graffitixr.design.theme.Cyan
 import com.hereliesaz.graffitixr.design.theme.HotPink
@@ -198,7 +200,7 @@ internal fun ToolRail(
         // the brush menu.
         BrushSizeChip(uiState, vm, callbacks.onToolOptions, callbacks.onBrushMenu)
         RailButton(
-            label = "Colour",
+            label = stringResource(DesignR.string.rail_colour),
             light = light("tool.color"),
             testTag = "rail.tool.color",
             onClick = { vm.onColorClicked() },
@@ -226,30 +228,30 @@ internal fun ToolRail(
                 fontFamily = RobotoCondensedFamily,
             )
         }
-        group("grp.vector", "Vector", RailIcons.Vector, CarouselCategory.VECTOR)
+        group("grp.vector", stringResource(DesignR.string.rail_vector), RailIcons.Vector, CarouselCategory.VECTOR)
         group(
             "grp.select", "Selection", RailIcons.Select, CarouselCategory.SELECTION,
             badge = uiState.savedSelections.size.takeIf { it > 0 }?.toString(),
         )
-        group("grp.transform", "Crop & Transform", RailIcons.Transform, CarouselCategory.TRANSFORM)
+        group("grp.transform", stringResource(DesignR.string.rail_crop_transform), RailIcons.Transform, CarouselCategory.TRANSFORM)
         // Retouch: Heal, Clone, Blur, Sharpen, Smudge, Liquify, Dodge, Burn and Colorize, as one
         // group that puts the sheet on the Effects page (lit while one of them is in hand).
         RailButton(
-            label = "Retouch",
+            label = stringResource(R.string.rail_retouch),
             light = light(RETOUCH_RAIL_ID),
             testTag = "rail.$RETOUCH_RAIL_ID",
             onClick = { callbacks.onToolGroup(CarouselCategory.EFFECTS) },
         ) { RailGlyph(TOOL_CATALOG.getValue(Tool.HEAL).icon, active = RETOUCH_RAIL_ID in lit) }
         // The design tools: frames, the properties and the panels that act on them.
         ModeButton(
-            label = "Frame",
+            label = stringResource(DesignR.string.rail_frame),
             tag = "rail.tool.frame",
             icon = RailIcons.Frame,
             on = uiState.activeTool == Tool.FRAME,
             onClick = { vm.setActiveTool(if (uiState.activeTool == Tool.FRAME) Tool.NONE else Tool.FRAME) },
         )
         ModeButton(
-            label = "Adjust photo",
+            label = stringResource(DesignR.string.rail_adjust_photo),
             tag = "rail.$PHOTO_RAIL_ID",
             icon = RailIcons.Adjust,
             on = PHOTO_RAIL_ID in lit,
@@ -409,7 +411,7 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, surfaceViews
 @Composable
 private fun SurfaceMeshButton(on: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
     RailButton(
-        label = "Surface wire mesh",
+        label = stringResource(R.string.rail_surface_mesh),
         onLongClick = onLongClick,
         testTag = "rail.$SURFACE_MESH_RAIL_ID",
         onClick = onClick,
@@ -505,20 +507,23 @@ private fun BrushSizeChip(state: EditorUiState, vm: ToolRailActions, onOpenOptio
     // Which value this drag moves, decided once per gesture, so a drag up for size no longer drifts
     // the hardness with finger jitter (and vice versa).
     var axis by remember { mutableStateOf<DragAxis?>(null) }
+    val sizeDescription = stringResource(DesignR.string.rail_brush_chip, size, hardnessPercent)
+    val setSizeLabel = stringResource(DesignR.string.rail_set_brush_size)
+    val brushMenuLabel = stringResource(DesignR.string.rail_brush_menu)
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .size(RailTouchSize)
             .combinedClickable(
-                onClickLabel = "Set brush size",
-                onLongClickLabel = "Brush menu",
+                onClickLabel = setSizeLabel,
+                onLongClickLabel = brushMenuLabel,
                 onLongClick = onBrushMenu,
                 onClick = onOpenOptions,
             )
             // TalkBack: a slider of the size (volume keys / swipe up-down adjust it), with the
             // hardness read out alongside, so the drag isn't the only way in.
             .semantics {
-                contentDescription = "Brush size $size, hardness $hardnessPercent percent"
+                contentDescription = sizeDescription
                 progressBarRangeInfo = ProgressBarRangeInfo(state.brushSize, MIN_BRUSH_SIZE..MAX_BRUSH_SIZE)
                 setProgress { target ->
                     vm.setBrushSize(target.coerceIn(MIN_BRUSH_SIZE, MAX_BRUSH_SIZE))
