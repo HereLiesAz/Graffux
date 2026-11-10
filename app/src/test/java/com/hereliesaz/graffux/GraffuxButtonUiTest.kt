@@ -43,8 +43,8 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * Buttons at large font scales. A full-width button had a fixed 32dp height; under the app's theme the label is
- * labelLarge (14sp text on a 16sp line) plus 12dp of padding, so the content needs more than 32dp from a
- * font scale of about 1.2 up (measured below under the app theme: it fits at 1.0, is cut at 1.3 and 2.0). A
+ * labelLarge (14sp text on a 16sp line) plus 12dp of padding, so the content needs more than 32dp above a
+ * font scale of about 1.25 (16sp + 12dp > 32dp; measured below under the app theme: 1.0 fits, 1.3 and 2.0 cut). A
  * confirm dialog's message was clipped, not scrolled, so a long message or a large font hid text with no way to
  * reach it.
  */
@@ -160,7 +160,7 @@ class GraffuxButtonUiTest {
     }
 
     @Test
-    fun `a fixed 32dp height cuts the label at 1_3 and 1_5`() {
+    fun `a fixed 32dp height cuts the label at 1_3`() {
         assertTrue("1.3", cutAt(1.3f))
     }
 
@@ -168,7 +168,6 @@ class GraffuxButtonUiTest {
     fun `a fixed 32dp height cuts the label at 2_0`() {
         assertTrue("2.0", cutAt(2f))
     }
-
 
     private fun heightOf(label: String) =
         rule.onNode(hasClickAction() and hasText(label)).fetchSemanticsNode().size.height

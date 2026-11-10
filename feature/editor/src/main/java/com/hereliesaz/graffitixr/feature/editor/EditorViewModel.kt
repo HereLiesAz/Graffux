@@ -12085,17 +12085,25 @@ class EditorViewModel @Inject constructor(
     /** Shows the project dialog and starts calibration behind it (skipped when a tier is stored). */
     fun showProjectGate() {
         viewModelScope.launch(dispatchers.io) {
-            val n = projectRepository.getProjects().size + 1
-            if (_projectGate.value == null) {
-                val (w, h) = screenSize()
-                _projectGate.value = ProjectGateState(
-                    defaultName = "Untitled $n",
-                    defaultWidth = w,
-                    defaultHeight = h,
-                    cancellable = projectRepository.currentProject.value != null,
-                )
+            try {
+                val n = projectRepository.getProjects().size + 1
+                if (_projectGate.value == null) {
+                    val (w, h) = screenSize()
+                    _projectGate.value = ProjectGateState(
+                        defaultName = "Untitled $n",
+                        defaultWidth = w,
+                        defaultHeight = h,
+                        cancellable = projectRepository.currentProject.value != null,
+                    )
+                }
+                gpuTuning?.coordinator?.onProjectDialogShown()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // This runs in its own coroutine, so a throw here would otherwise escape every caller's guard.
+                android.util.Log.w("EditorViewModel", "Showing the project dialog failed", e)
+                warn("Couldn't open the new-project dialog: ${e.message ?: e.javaClass.simpleName}")
             }
-            gpuTuning?.coordinator?.onProjectDialogShown()
         }
     }
 

@@ -277,4 +277,22 @@ class EditorViewModelDeleteProjectTest {
         coVerify(exactly = 0) { projectRepository.createProject(any<GraffitiProject>()) }
         assertEquals(null, vm.projectGate.value)
     }
+
+    @Test
+    fun `a failure showing the project dialog is reported, not lost in its own coroutine`() = runTest(testDispatcher) {
+        projects.clear()
+        EditorViewModel.projectGateEnabled = true
+        deletingClearsTheOpenProject()
+        var calls = 0
+        coEvery { projectRepository.getProjects() } answers {
+            if (calls++ == 0) emptyList() else throw java.io.IOException("scan failed")
+        }
+        val vm = viewModel()
+        val notices = mutableListOf<EditorNotice>()
+        backgroundScope.launch { vm.notices.collect { notices += it } }
+        advanceUntilIdle()
+        vm.deleteProjectById("open-one")
+        advanceUntilIdle()
+        assertTrue(notices.any { it.text.contains("Couldn't open the new-project dialog") })
+    }
 }
