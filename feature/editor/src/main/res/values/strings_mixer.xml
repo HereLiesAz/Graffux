@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PaletteMixerDialog: what each board action says happened (a polite live region). -->
+    <string name="mixer_hand_foreground">foreground</string>
+    <string name="mixer_hand_background">background</string>
+    <string name="mixer_status_hand">%1$s brush in hand</string>
+    <string name="mixer_status_squeezed">Squeezed %1$s onto the board</string>
+    <string name="mixer_status_dipped">Dipped the %1$s brush</string>
+    <string name="mixer_status_nothing_to_lift">Nothing picked up: the board is bare there or the %1$s brush is full</string>
+    <string name="mixer_status_nothing_to_mix">The %1$s brush holds no paint, so there was nothing to mix</string>
+    <string name="mixer_status_mixed">Mixed with the %1$s brush</string>
+    <string name="mixer_status_mixed_more">Mixed more with the %1$s brush</string>
+    <string name="mixer_status_wiped">Wiped the %1$s brush</string>
+    <string name="mixer_status_rinsed">Rinsed the %1$s brush</string>
+    <string name="mixer_status_already_clean">The %1$s brush holds no paint</string>
+    <string name="mixer_status_swapped">Swapped the foreground and background brushes</string>
+    <string name="mixer_status_matched">%1$s, loaded on the %2$s brush</string>
+    <string name="mixer_rinse_ask">Rinse the %1$s brush? All the paint on it is removed.</string>
+    <string name="mixer_rinse_it">Rinse it</string>
+    <string name="mixer_status_kept">Kept the %1$s brush</string>
+    <string name="mixer_keep_it">Keep it</string>
+    <string name="mixer_action_squeeze">Squeeze the chosen tube</string>
+    <string name="mixer_action_dip">Dip the brush</string>
+    <string name="mixer_board_description">Mixing board. %1$s</string>
+</resources>
