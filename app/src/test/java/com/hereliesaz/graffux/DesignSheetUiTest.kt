@@ -27,6 +27,7 @@ import androidx.compose.ui.test.performTextReplacement
 import com.hereliesaz.graffitixr.common.model.FrameOps
 import com.hereliesaz.graffitixr.common.model.Rect
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -168,5 +169,31 @@ class DesignSheetUiTest {
         assertEquals(PropertiesPlacement.SIDE_PANEL, PropertiesPlacement.resolve(null, 800))
         assertEquals(PropertiesPlacement.BOTTOM_SHEET, PropertiesPlacement.resolve("bottom_sheet", 800))
         assertEquals(PropertiesPlacement.SIDE_PANEL, PropertiesPlacement.resolve("nonsense", 600))
+    }
+
+    @Test
+    fun `the stage controls never sit over the design panel's title`() {
+        val recorder = Recorder().apply { target = pay }
+        var ui by mutableStateOf(CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true))
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F)), contentAlignment = Alignment.BottomCenter) {
+                    CarouselSheet(
+                        open = true,
+                        onOpenChange = {},
+                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = true),
+                    ) {
+                        DesignSheetBody(
+                            tab = DesignTab.FRAME, showingControls = true, target = recorder.target,
+                            actions = recorder, onSelectTab = {},
+                        )
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val title = rule.onNodeWithTag("design.title", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("title $title under Show less $down", !title.overlaps(down))
     }
 }

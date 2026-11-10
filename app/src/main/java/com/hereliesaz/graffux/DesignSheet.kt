@@ -175,7 +175,7 @@ internal fun DesignSheetBody(
             Column(Modifier.widthIn(max = 390.dp).fillMaxWidth().testTag("design.panel.${tab.key}")) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = SheetHeaderHeight).padding(start = 20.dp, end = 12.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = SheetHeaderHeight).padding(start = StageHeaderStart, end = 12.dp),
                 ) {
                     Text(
                         target?.name ?: "Frames",

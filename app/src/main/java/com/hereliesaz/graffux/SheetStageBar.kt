@@ -132,3 +132,10 @@ private val StageButtonSize = 48.dp
 
 /** The strip along the top of a grid stage that the stage controls own: nothing interactive is laid in it. */
 internal val StageControlClearance = StageButtonSize
+
+/**
+ * Where a sheet panel's title starts so the "Show less" control in the sheet's start corner never sits over
+ * it (the photo and design panels' headers; their end side is free because those sheets have no "Show more"
+ * above their carousel).
+ */
+internal val StageHeaderStart = StageButtonSize + 4.dp

@@ -373,7 +373,7 @@ private fun PhotoHeader(
         modifier = modifier
             .fillMaxWidth()
             .height(PhotoSheetStyle.HeaderHeight)
-            .padding(start = 20.dp, end = 12.dp),
+            .padding(start = StageHeaderStart, end = 12.dp),
     ) {
         Text(
             title,

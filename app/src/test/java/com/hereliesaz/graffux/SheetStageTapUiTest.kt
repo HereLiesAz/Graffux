@@ -352,4 +352,13 @@ class SheetStageTapUiTest {
         assertTrue(has("carousel.stage.down"))
         assertFalse(has("carousel.stage.up"))
     }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h800dp-xxhdpi", application = Application::class)
+    fun `on a 360dp phone only Close sheet fits beside the wheel and it is there, 48dp and clear of the names`() {
+        composeWithWheel()
+        assertTrue("Close sheet exists", has("carousel.stage.down"))
+        assertFalse("Show more needs 384dp or more at this stage", has("carousel.stage.up"))
+        assertNoControlOverWheel()
+    }
 }

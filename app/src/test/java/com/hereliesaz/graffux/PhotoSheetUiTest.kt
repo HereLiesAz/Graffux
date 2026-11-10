@@ -26,6 +26,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
@@ -109,6 +110,12 @@ class PhotoSheetUiTest {
     private val sheet = PhotoSheetState()
     private var tab by mutableStateOf<PhotoTab?>(null)
     private var showing by mutableStateOf(false)
+    private var withStages = false
+    private fun photoStages() =
+        if (withStages) sheetStagesFor({ stageUi }, { stageUi = it }, designMode = false) else null
+    private var stageUi by mutableStateOf(
+        CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true, photo = true, tab = "light"),
+    )
 
     /** The mockup's layers: the photo, the pink tag, and (once a slider moved) the Light layer. */
     private fun layers(): List<Layer> = listOfNotNull(
@@ -132,6 +139,7 @@ class PhotoSheetUiTest {
                             onOpenChange = {},
                             bottomInset = CarouselBottomInset,
                             chromeHidden = { drag.active },
+                            stages = photoStages(),
                         ) {
                             PhotoSheetBody(
                                 tab = tab,
@@ -394,5 +402,22 @@ class PhotoSheetUiTest {
         assertEquals("end", calls.last())
         // 100px up at xhdpi is 50dp: +25 on top of 10.
         assertEquals(calls.toString(), 35f, adjustment!!.value(PhotoSliders.hsl(picked, 1)))
+    }
+
+    @Test
+    fun `the stage controls never sit over the photo panel's title or its Reset button`() {
+        withStages = true
+        tab = PhotoTab.LIGHT
+        showing = true
+        compose("stages")
+        val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val title = rule.onNodeWithTag("photo.title", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val reset = rule.onNodeWithTag("photo.reset", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("title $title under Show less $down", !title.overlaps(down))
+        assertTrue("Reset $reset under Show less $down", !reset.overlaps(down))
+        // No grid above the photo carousel, so Show more is drawn away and takes no taps (it is untappable and
+        // unannounced), even though its empty corner lies over the end of the header.
+        val up = rule.onAllNodesWithTag("carousel.stage.up", useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue(up.all { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.OnClick) == null })
     }
 }
