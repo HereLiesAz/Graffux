@@ -254,6 +254,7 @@ internal fun CarouselSheet(
                             SheetStageControls(
                                 stages,
                                 onClose = { onOpenChange(false) },
+                                hidden = hideChrome,
                                 modifier = Modifier
                                     .matchParentSize()
                                     .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },

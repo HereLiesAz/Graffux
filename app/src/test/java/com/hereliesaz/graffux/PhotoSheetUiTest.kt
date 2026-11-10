@@ -420,4 +420,37 @@ class PhotoSheetUiTest {
         val up = rule.onAllNodesWithTag("carousel.stage.up", useUnmergedTree = true).fetchSemanticsNodes()
         assertTrue(up.all { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.OnClick) == null })
     }
+
+    @Test
+    @org.robolectric.annotation.Config(sdk = [34], qualifiers = "w320dp-h800dp-xhdpi", application = android.app.Application::class)
+    fun `the longest header title is ellipsized, not clipped, beside Show less at 320dp and 200 percent font`() {
+        val d = androidx.compose.ui.unit.Density(2f, fontScale = 2f)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides d) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselSheet(
+                            open = true,
+                            onOpenChange = {},
+                            stages = sheetStagesFor(
+                                { CarouselUi(CarouselCategory.EFFECTS, true, showingCarousel = true, photo = true, tab = "local") },
+                                {}, designMode = false, wheelOnRight = true,
+                            ),
+                        ) { PhotoHeader(title = "Local \u00b7 mask on Light", tool = null, actions = actions) }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val title = rule.onNodeWithTag("photo.title", useUnmergedTree = true).fetchSemanticsNode()
+        assertTrue("title under Show less", !title.boundsInRoot.overlaps(down))
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        title.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+        val layout = layouts.single()
+        // Either it fits, or it is cut with an ellipsis (didExceedMaxLines is true for an ellipsized line too).
+        val fits = !layout.didOverflowWidth && !layout.didOverflowHeight
+        assertTrue("clipped rather than ellipsized", fits || layout.isLineEllipsized(layout.lineCount - 1))
+        assertTrue("it must be the ellipsis that shows, in one line", layout.lineCount == 1)
+    }
 }

@@ -358,7 +358,7 @@ internal fun PhotoPanel(
 }
 
 @Composable
-private fun PhotoHeader(
+internal fun PhotoHeader(
     title: String,
     tool: PhotoTool?,
     actions: PhotoActions,
@@ -382,6 +382,7 @@ private fun PhotoHeader(
             fontWeight = FontWeight.ExtraBold,
             fontFamily = RobotoCondensedFamily,
             maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).testTag("photo.title"),
         )
         Spacer(Modifier.width(4.dp))

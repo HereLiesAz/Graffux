@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
@@ -195,5 +196,44 @@ class DesignSheetUiTest {
         val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val title = rule.onNodeWithTag("design.title", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue("title $title under Show less $down", !title.overlaps(down))
+    }
+
+    @Test
+    @org.robolectric.annotation.Config(sdk = [34], qualifiers = "w320dp-h800dp-xhdpi", application = android.app.Application::class)
+    fun `a long design title is ellipsized, not clipped, beside Show less at 320dp and 200 percent font`() {
+        val recorder = Recorder().apply { target = pay.copy(name = "Local \u00b7 mask on Light") }
+        val d = androidx.compose.ui.unit.Density(2f, fontScale = 2f)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides d) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    Box(Modifier.fillMaxSize().background(Color(0xFF0E0E0F)), contentAlignment = Alignment.BottomCenter) {
+                        CarouselSheet(
+                            open = true,
+                            onOpenChange = {},
+                            stages = sheetStagesFor(
+                                { CarouselUi(CarouselCategory.EFFECTS, true, showingCarousel = true) },
+                                {}, designMode = true, wheelOnRight = true,
+                            ),
+                        ) {
+                            DesignSheetBody(
+                                tab = DesignTab.FRAME, showingControls = true, target = recorder.target,
+                                actions = recorder, onSelectTab = {},
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val title = rule.onNodeWithTag("design.title", useUnmergedTree = true).fetchSemanticsNode()
+        assertTrue("title under Show less", !title.boundsInRoot.overlaps(down))
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        title.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+        val layout = layouts.single()
+        // Either it fits, or it is cut with an ellipsis (didExceedMaxLines is true for an ellipsized line too).
+        val fits = !layout.didOverflowWidth && !layout.didOverflowHeight
+        assertTrue("clipped rather than ellipsized", fits || layout.isLineEllipsized(layout.lineCount - 1))
+        assertTrue("it must be the ellipsis that shows, in one line", layout.lineCount == 1)
     }
 }

@@ -184,6 +184,7 @@ internal fun DesignSheetBody(
                         fontWeight = FontWeight.ExtraBold,
                         fontFamily = RobotoCondensedFamily,
                         maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).testTag("design.title"),
                     )
                     if (target == null) DesignChip("Add frame", on = false, toggle = false, tag = "design.addFrame", onClick = actions::addFrame)

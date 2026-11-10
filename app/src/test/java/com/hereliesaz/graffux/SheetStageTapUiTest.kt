@@ -56,6 +56,7 @@ class SheetStageTapUiTest {
     private var designMode by mutableStateOf(false)
     private var withStages by mutableStateOf(true)
     private var fontScale by mutableStateOf(1f)
+    private var chromeHiddenFlag by mutableStateOf(false)
 
     private fun compose() {
         rule.setContent {
@@ -66,6 +67,7 @@ class SheetStageTapUiTest {
                         CarouselSheet(
                             open = ui.sheetOpen,
                             onOpenChange = { ui = ui.copy(sheetOpen = it, showingCarousel = false) },
+                            chromeHidden = { chromeHiddenFlag },
                             stages = if (withStages) {
                                 sheetStagesFor({ ui }, { ui = it }, designMode, wheelOnRight = true)
                             } else {
@@ -368,5 +370,19 @@ class SheetStageTapUiTest {
         assertTrue("Close sheet exists", has("carousel.stage.down"))
         assertFalse("Show more needs 384dp or more at this stage", has("carousel.stage.up"))
         assertNoControlOverWheel()
+    }
+
+    @Test
+    fun `while the chrome is hidden the controls take no taps and are not announced`() {
+        ui = CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true)
+        compose()
+        assertTrue("tappable when shown", click("carousel.stage.down") != null)
+        chromeHiddenFlag = true
+        rule.waitForIdle()
+        assertNull("no tap on an invisible Close sheet", click("carousel.stage.down"))
+        assertNull(click("carousel.stage.up"))
+        chromeHiddenFlag = false
+        rule.waitForIdle()
+        assertTrue("back when the chrome returns", click("carousel.stage.down") != null)
     }
 }

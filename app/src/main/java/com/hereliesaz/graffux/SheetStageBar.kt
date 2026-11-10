@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -53,11 +56,20 @@ internal fun sheetStagesFor(
  * so the open sheet is exactly as tall as before): 48dp "Show less" at the start (it reads "Close sheet" at
  * the lowest stage) and 48dp "Show more" at the end (drawn away, untappable and unannounced at the top
  * stage). They are the one accessibility path for the steps (they are focusable buttons); there are no
- * duplicate actions on the sheet.
+ * duplicate actions on the sheet. Below about 384dp at the tab-list stage only "Close sheet" fits beside the wheel,
+ * so Show more is absent there (a tap on a set still opens its carousel).
  */
 @Suppress("FunctionNaming")
 @Composable
-internal fun SheetStageControls(stages: SheetStages, onClose: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SheetStageControls(
+    stages: SheetStages,
+    onClose: () -> Unit,
+    hidden: () -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    // While the chrome is hidden (a photo slider is being dragged) the controls are drawn away; alpha alone
+    // would leave them tappable, so they are also disabled and unannounced for as long as it lasts.
+    val hiddenNow by remember { derivedStateOf { hidden() } }
     val canDown = stages.canStepDown()
     val canUp = stages.canStepUp()
     val downLabel = stringResource(if (canDown) R.string.sheet_show_less else R.string.sheet_close)
@@ -78,7 +90,7 @@ internal fun SheetStageControls(stages: SheetStages, onClose: () -> Unit, modifi
                 icon = GraffuxIcons.ChevronDown,
                 label = downLabel,
                 tag = "carousel.stage.down",
-                enabled = true,
+                enabled = !hiddenNow,
                 modifier = Modifier.align(downAlign),
             ) { if (!stages.onStepDown()) onClose() }
         }
@@ -87,7 +99,7 @@ internal fun SheetStageControls(stages: SheetStages, onClose: () -> Unit, modifi
                 icon = GraffuxIcons.ChevronUp,
                 label = upLabel,
                 tag = "carousel.stage.up",
-                enabled = canUp,
+                enabled = canUp && !hiddenNow,
                 modifier = Modifier
                     .align(upAlign)
                     // Beside the other control, toward the middle, when both share one corner.
