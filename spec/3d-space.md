@@ -27,6 +27,73 @@ depends on whether the **active layer** is a 2D or a 3D layer (below):
 A double-tap never changes the active layer; a buried layer is picked from the layers rail. (The
 old double-tap that cycled through the layers under the finger is gone.)
 
+## Planned: view control in a project with 3D groups (not built)
+
+Status: design agreed with the owner, not implemented. Where this section and the table above
+disagree, this section is the target. Nothing here changes a project with no 3D group.
+
+**The idea.** Once a project has a 3D group, the surface is the canvas. The rectangle that bounded
+the art while it was 2D-only is no longer something the user works inside; it matters again only at
+export. So the view is manipulated the way a 3D sketching app does it (Feather's one-finger turntable
+was the reference), and the one finger stays free for the tool in hand.
+
+### Gestures, in a project with at least one 3D group
+
+| Gesture | Now |
+|---|---|
+| One finger | Always the tool in hand. There is no on-canvas / off-canvas split: a touch that never hits the surface does nothing, by the rule in "Painting on a tilted plane". |
+| Two-finger drag | **Orbit** the view about the orbit point (below). It replaces pan, in these projects. |
+| Pinch | Zoom the view. To reach another part of a large surface, zoom out and pinch back in there. |
+| Twist | Rotate the canvas (what the Z axis did). The twist no longer orbits the camera. |
+| Double-tap | **Reset the view** (the identity camera). The first tap's dot is cancelled, so a double-tap leaves no mark and no history entry. |
+
+- **Unchanged.** With the Move / Transform tool in hand on a 3D layer, two fingers still slide the
+  layer, pinch moves it in depth and a twist turns it, one undo step per completed gesture, exactly as
+  the table above says. The rail's axis slot, the rotation slider, the rotation triangle and the
+  rotation-point ("#") button are unchanged. In a project with no 3D group, nothing changes at all:
+  two fingers pan, and a double-tap does nothing.
+- **Retired in these projects.** The double-tap that stepped the axis X -> Y -> Z, the twist that
+  orbited the camera about X or Y, and two-finger pan.
+- **The orbit point does not change.** Orbit turns about the one rotation point of "The orbit point"
+  (automatic, or placed by hand), held for the length of the gesture, with the pivot fixed on screen.
+- **A surface larger than the screen.** Orbiting never brings a far part of the surface into view
+  (it only tilts it). Zoom out, then pinch in at the part wanted. This needs the pinch to zoom about
+  the midpoint between the fingers; whether it does today is unchecked.
+
+### The default surface
+
+The first thing done with a new 3D group is to draw its surface. If the user chooses not to, the group
+gets a flat rectangular surface in the plane z = 0, sized from the screen:
+
+- portrait: 3/4 of the short side wide and 2/3 of the long side high;
+- landscape: the same fractions on the same sides, so 2/3 of the long side wide and 3/4 of the short
+  side high.
+
+In both orientations that is 3/4 of the short side by 2/3 of the long side.
+
+### How the surface looks
+
+- **Fill:** the canvas background colour the user has set. The canvas and the screen background were
+  already different colours in 2D, so the surface's edge stays visible without an outline.
+- **Mesh:** the grid colour the user has chosen, drawn only if a grid is on. It replaces the cyan wire
+  mesh.
+- **Document boundary:** not drawn in these projects. Export is the one place it matters (see
+  "Export").
+
+### Open points
+
+1. Does "3D project" include a project whose only 3D content is a 3D strokes layer or a model layer,
+   or only one with a 3D group (a group with a surface)? The owner's wording was "3D groups".
+2. How the user chooses not to draw a surface (a "Skip" action on the arming chip, which today has only
+   Cancel), and its wording.
+3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
+   designed.
+4. Whether the pinch already zooms about the fingers' midpoint.
+5. Which setting is "the canvas background colour" and which is the grid colour; and whether the
+   wire-mesh button stays, now that the mesh is the grid.
+6. How export frames the view once the document boundary is not drawn.
+7. Whether the default surface is centred in the viewport (assumed).
+
 ## 2D and 3D layers
 
 The two stay distinct, and 3D is a property of the layer's **group** (spec "Group surfaces"
