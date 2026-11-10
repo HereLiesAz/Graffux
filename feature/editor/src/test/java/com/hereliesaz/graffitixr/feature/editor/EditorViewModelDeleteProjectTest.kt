@@ -230,4 +230,51 @@ class EditorViewModelDeleteProjectTest {
         coVerify(exactly = 0) { projectRepository.loadProject(any<String>()) }
         coVerify(exactly = 0) { projectRepository.createProject(any<GraffitiProject>()) }
     }
+
+    @Test
+    fun `a project the user opens while the delete is in flight is kept, not replaced by a sibling`() =
+        runTest(testDispatcher) {
+            projects.clear()
+            projects += GraffitiProject(id = "b", lastModified = 5)
+            coEvery { projectRepository.loadProject(any<String>()) } returns ok
+            coEvery { projectRepository.deleteProject("open-one") } coAnswers {
+                gate.await()
+            }
+            val vm = viewModel()
+            advanceUntilIdle()
+            vm.deleteProjectById("open-one")
+            runCurrent() // the delete is parked
+            current.value = GraffitiProject(id = "other") // the user opened another project meanwhile
+            gate.complete(Unit)
+            advanceUntilIdle()
+            coVerify(exactly = 0) { projectRepository.loadProject(any<String>()) }
+            coVerify(exactly = 0) { projectRepository.createProject(any<GraffitiProject>()) }
+        }
+
+    @Test
+    fun `a new project is started at most once even when starting it throws`() = runTest(testDispatcher) {
+        projects.clear()
+        deletingClearsTheOpenProject()
+        coEvery { projectRepository.createProject(any<GraffitiProject>()) } throws java.io.IOException("full")
+        val vm = viewModel()
+        val notices = mutableListOf<EditorNotice>()
+        backgroundScope.launch { vm.notices.collect { notices += it } }
+        advanceUntilIdle()
+        vm.deleteProjectById("open-one")
+        advanceUntilIdle()
+        coVerify(exactly = 1) { projectRepository.createProject(any<GraffitiProject>()) }
+        assertTrue(notices.any { it.text.contains("Couldn't start a new project") })
+    }
+
+    @Test
+    fun `cancelling the work does not start a project`() = runTest(testDispatcher) {
+        deletingClearsTheOpenProject()
+        coEvery { projectRepository.getProjects() } throws kotlinx.coroutines.CancellationException("cancelled")
+        val vm = viewModel()
+        advanceUntilIdle()
+        vm.deleteProjectById("open-one")
+        advanceUntilIdle()
+        coVerify(exactly = 0) { projectRepository.createProject(any<GraffitiProject>()) }
+        assertEquals(null, vm.projectGate.value)
+    }
 }

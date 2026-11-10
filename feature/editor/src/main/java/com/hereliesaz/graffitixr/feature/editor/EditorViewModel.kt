@@ -12253,7 +12253,8 @@ class EditorViewModel @Inject constructor(
      *   project as part of deleting it, and the ui state follows asynchronously, so reading it afterwards
      *   could miss that the open project was the one deleted and leave the editor pointing at nothing.
      * - If the delete throws, the user is told ([warn]); the editor stays where it is if the repository did not
-     *   clear the open project, and is moved on like a successful delete if it did.
+     *   clear the open project, and is moved on like a successful delete if it did. The fallback also needs the
+     *   repository to have no open project *after* the delete, so a project the user opened meanwhile is kept.
      * - The Open list is refreshed once everything has finished, whichever way it ended, so it shows what is on
      *   disk (the caller used to refresh right after this returned, racing the delete).
      */
@@ -12262,22 +12263,21 @@ class EditorViewModel @Inject constructor(
         val wasOpen = _uiState.value.projectId == id || projectRepository.currentProject.value?.id == id
         viewModelScope.launch(dispatchers.io) {
             try {
-                val deleted = try {
+                try {
                     projectRepository.deleteProject(id)
-                    true
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     android.util.Log.w("EditorViewModel", "Deleting project $id failed", e)
                     warn("Couldn't delete the project: ${e.message ?: e.javaClass.simpleName}")
-                    false
                 }
                 dropPendingLayerSavesFor(id) // one more, for a save that was scheduled while the delete was starting
                 // Deleting the open project leaves the editor pointing at nothing: fall back to the most recent
                 // survivor, or a fresh project (or the new-project dialog), the same policy as the boot bootstrap.
-                // A delete that threw before the repository let go of it leaves the editor on it: nothing to do.
-                val orphaned = wasOpen && (deleted || projectRepository.currentProject.value?.id != id)
-                if (orphaned) openFallbackProject()
+                // Only if the repository has no open project now: if the delete threw before it let go of the
+                // project, the editor is still on it; and if the user opened another project while this was in
+                // flight, that choice stands and is not replaced by a sibling.
+                if (wasOpen && projectRepository.currentProject.value == null) openFallbackProject()
             } finally {
                 refreshOpenScreen()
             }
@@ -12288,15 +12288,24 @@ class EditorViewModel @Inject constructor(
     private suspend fun openFallbackProject() {
         try {
             val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
-            if (mostRecent != null && projectRepository.loadProject(mostRecent.id).isSuccess) return
-            if (mostRecent != null) warn("Couldn't open \"${mostRecent.name}\"")
-            startFreshProject()
+            if (mostRecent != null) {
+                if (projectRepository.loadProject(mostRecent.id).isSuccess) return
+                warn("Couldn't open \"${mostRecent.name}\"")
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             android.util.Log.w("EditorViewModel", "Opening a project after a delete failed", e)
             warn("Couldn't open another project: ${e.message ?: e.javaClass.simpleName}")
-            runCatching { startFreshProject() }
+        }
+        // Nothing was opened: start a project, once.
+        try {
+            startFreshProject()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("EditorViewModel", "Starting a project after a delete failed", e)
+            warn("Couldn't start a new project: ${e.message ?: e.javaClass.simpleName}")
         }
     }
 

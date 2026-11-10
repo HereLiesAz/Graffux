@@ -13,8 +13,10 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import com.hereliesaz.graffitixr.design.components.SurfaceContainer
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
+import com.hereliesaz.graffitixr.design.components.containerFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -69,12 +71,9 @@ abstract class ToolSurfaceSemanticsTest(private val phone: Boolean) {
         }
     }
 
-    /** The kinds whose container has a scrim behind it (a popover, a bottom sheet, a centred sheet). */
-    private fun hasScrim(kind: SurfaceKind): Boolean = when (kind) {
-        SurfaceKind.VALUE -> true
-        SurfaceKind.PICKER, SurfaceKind.FORM -> true
-        SurfaceKind.EDITOR, SurfaceKind.TIMELINE, SurfaceKind.BROWSER -> false
-    }
+    /** Derived from production: the containers that draw a scrim are the popover and the two sheets. */
+    private fun hasScrim(kind: SurfaceKind): Boolean = containerFor(kind, phone) in
+        setOf(SurfaceContainer.POPOVER, SurfaceContainer.BOTTOM_SHEET, SurfaceContainer.CENTERED_SHEET)
 
     @Test
     fun `exactly the kinds with a scrim have one, and a screen reader reaches the surface before it`() {
