@@ -66,7 +66,11 @@ class SheetStageTapUiTest {
                         CarouselSheet(
                             open = ui.sheetOpen,
                             onOpenChange = { ui = ui.copy(sheetOpen = it, showingCarousel = false) },
-                            stages = if (withStages) sheetStagesFor({ ui }, { ui = it }, designMode) else null,
+                            stages = if (withStages) {
+                                sheetStagesFor({ ui }, { ui = it }, designMode, wheelOnRight = true)
+                            } else {
+                                null
+                            },
                         ) { Box(Modifier.fillMaxWidth().height(120.dp).testTag("content")) }
                     }
                 }
@@ -202,7 +206,7 @@ class SheetStageTapUiTest {
                     CarouselSheet(
                         open = true,
                         onOpenChange = {},
-                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = false),
+                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = false, wheelOnRight = true),
                     ) {
                         BottomCarousel(
                             ui = ui,
@@ -248,16 +252,20 @@ class SheetStageTapUiTest {
                 setNames.map { CarouselTabGroup(it.lowercase(), it, CarouselCategory.EFFECTS, emptyList()) },
             ),
         )
+        // Wired as MainActivity wires it: the provider wraps only the sheet's content (the wheel), not the sheet
+        // that composes the controls, so the controls must be told the side explicitly.
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                CompositionLocalProvider(LocalSetWheelOnRight provides wheelOnRight) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                        CarouselSheet(
-                            open = true,
-                            onOpenChange = { ui = ui.copy(sheetOpen = it, showingCarousel = false) },
-                            bottomInset = 16.dp,
-                            stages = sheetStagesFor({ ui }, { ui = it }, designMode = false),
-                        ) { CarouselTabList(sections, "favorites", onSelect = { picked += it.label }) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                    CarouselSheet(
+                        open = true,
+                        onOpenChange = { ui = ui.copy(sheetOpen = it, showingCarousel = false) },
+                        bottomInset = 16.dp,
+                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = false, wheelOnRight = wheelOnRight),
+                    ) {
+                        CompositionLocalProvider(LocalSetWheelOnRight provides wheelOnRight) {
+                            CarouselTabList(sections, "favorites", onSelect = { picked += it.label })
+                        }
                     }
                 }
             }

@@ -1025,7 +1025,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                     },
                     // Tab list, carousel, then (card sheets only) the set's grid at half and full; down again
                     // the same way. Built in sheetStagesFor, which the tests share.
-                    stages = sheetStagesFor({ carouselUi }, { carouselUi = it }, designMode),
+                    stages = sheetStagesFor(
+                        { carouselUi }, { carouselUi = it }, designMode, wheelOnRight = uiState.isRightHanded,
+                    ),
                     // Gone at once on a canvas touch, back DRAWING_UI_RETURN_DELAY_MS after
                     // it lifts (read in the sheet, so this screen does not recompose).
                     hiddenForDrawing = { chrome.hidden && !chrome.forcedOnly },

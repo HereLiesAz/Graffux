@@ -181,7 +181,7 @@ class DesignSheetUiTest {
                     CarouselSheet(
                         open = true,
                         onOpenChange = {},
-                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = true),
+                        stages = sheetStagesFor({ ui }, { ui = it }, designMode = true, wheelOnRight = true),
                     ) {
                         DesignSheetBody(
                             tab = DesignTab.FRAME, showingControls = true, target = recorder.target,

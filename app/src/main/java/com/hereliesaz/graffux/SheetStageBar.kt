@@ -26,7 +26,12 @@ import com.hereliesaz.graffitixr.design.GraffuxIcons
  * writes it; the card sheets (not the design or photo sheets) have the grid stages, and the brush page has
  * no tab-list stage, so a step down from its carousel shuts the sheet.
  */
-internal fun sheetStagesFor(ui: () -> CarouselUi, set: (CarouselUi) -> Unit, designMode: Boolean): SheetStages {
+internal fun sheetStagesFor(
+    ui: () -> CarouselUi,
+    set: (CarouselUi) -> Unit,
+    designMode: Boolean,
+    wheelOnRight: Boolean,
+): SheetStages {
     fun gridAllowed() = !designMode && !ui().photo
     fun brushPage() = gridAllowed() && carouselContextOf(ui().category) == CarouselContext.BRUSHES
     // The photo sheet opens on its tab list with no tab chosen; its body is blank until one is, so there is
@@ -39,6 +44,7 @@ internal fun sheetStagesFor(ui: () -> CarouselUi, set: (CarouselUi) -> Unit, des
         canStepUp = { canUp() },
         canStepDown = { ui().steppedDown(tabListStage = !brushPage()) != null },
         showsSetWheel = { !ui().showingCarousel && !brushPage() },
+        wheelOnRight = wheelOnRight,
     )
 }
 
@@ -56,7 +62,7 @@ internal fun SheetStageControls(stages: SheetStages, onClose: () -> Unit, modifi
     val canUp = stages.canStepUp()
     val downLabel = stringResource(if (canDown) R.string.sheet_show_less else R.string.sheet_close)
     val upLabel = stringResource(R.string.sheet_show_more)
-    val wheelOnRight = LocalSetWheelOnRight.current
+    val wheelOnRight = stages.wheelOnRight
     BoxWithConstraints(modifier.testTag("carousel.stageBar")) {
         // With the set wheel showing (the tab-list stage) it fills the corner away from the rail; the controls
         // go to the free corner beside it, mirrored for a left-handed layout, and when that corner has room

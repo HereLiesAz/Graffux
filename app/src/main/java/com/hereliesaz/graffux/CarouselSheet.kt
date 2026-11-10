@@ -325,6 +325,12 @@ internal class SheetStages(
     val canStepDown: () -> Boolean,
     /** Whether the stage showing is the set-picker wheel, which fills one bottom corner of the content. */
     val showsSetWheel: () -> Boolean,
+    /**
+     * Which side the set wheel sits on (right-handed: the right). Passed explicitly because the controls are
+     * composed outside the provider that gives the wheel [LocalSetWheelOnRight], and an ambient read there
+     * would silently take its default.
+     */
+    val wheelOnRight: Boolean,
 )
 
 /** Whether a release can step the sheet up: it has stages, is showing open, and sits fully open. */

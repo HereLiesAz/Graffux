@@ -112,7 +112,7 @@ class PhotoSheetUiTest {
     private var showing by mutableStateOf(false)
     private var withStages = false
     private fun photoStages() =
-        if (withStages) sheetStagesFor({ stageUi }, { stageUi = it }, designMode = false) else null
+        if (withStages) sheetStagesFor({ stageUi }, { stageUi = it }, designMode = false, wheelOnRight = true) else null
     private var stageUi by mutableStateOf(
         CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true, photo = true, tab = "light"),
     )
