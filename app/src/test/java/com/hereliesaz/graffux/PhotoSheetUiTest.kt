@@ -26,6 +26,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
@@ -109,6 +110,12 @@ class PhotoSheetUiTest {
     private val sheet = PhotoSheetState()
     private var tab by mutableStateOf<PhotoTab?>(null)
     private var showing by mutableStateOf(false)
+    private var withStages = false
+    private fun photoStages() =
+        if (withStages) sheetStagesFor({ stageUi }, { stageUi = it }, designMode = false, wheelOnRight = true) else null
+    private var stageUi by mutableStateOf(
+        CarouselUi(CarouselCategory.EFFECTS, sheetOpen = true, showingCarousel = true, photo = true, tab = "light"),
+    )
 
     /** The mockup's layers: the photo, the pink tag, and (once a slider moved) the Light layer. */
     private fun layers(): List<Layer> = listOfNotNull(
@@ -132,6 +139,7 @@ class PhotoSheetUiTest {
                             onOpenChange = {},
                             bottomInset = CarouselBottomInset,
                             chromeHidden = { drag.active },
+                            stages = photoStages(),
                         ) {
                             PhotoSheetBody(
                                 tab = tab,
@@ -394,5 +402,55 @@ class PhotoSheetUiTest {
         assertEquals("end", calls.last())
         // 100px up at xhdpi is 50dp: +25 on top of 10.
         assertEquals(calls.toString(), 35f, adjustment!!.value(PhotoSliders.hsl(picked, 1)))
+    }
+
+    @Test
+    fun `the stage controls never sit over the photo panel's title or its Reset button`() {
+        withStages = true
+        tab = PhotoTab.LIGHT
+        showing = true
+        compose("stages")
+        val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val title = rule.onNodeWithTag("photo.title", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val reset = rule.onNodeWithTag("photo.reset", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("title $title under Show less $down", !title.overlaps(down))
+        assertTrue("Reset $reset under Show less $down", !reset.overlaps(down))
+        // No grid above the photo carousel, so Show more is drawn away and takes no taps (it is untappable and
+        // unannounced), even though its empty corner lies over the end of the header.
+        val up = rule.onAllNodesWithTag("carousel.stage.up", useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue(up.all { it.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.OnClick) == null })
+    }
+
+    @Test
+    @org.robolectric.annotation.Config(sdk = [34], qualifiers = "w320dp-h800dp-xhdpi", application = android.app.Application::class)
+    fun `the longest header title is ellipsized, not clipped, beside Show less at 320dp and 200 percent font`() {
+        val d = androidx.compose.ui.unit.Density(2f, fontScale = 2f)
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides d) {
+                MaterialTheme(colorScheme = darkColorScheme()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        CarouselSheet(
+                            open = true,
+                            onOpenChange = {},
+                            stages = sheetStagesFor(
+                                { CarouselUi(CarouselCategory.EFFECTS, true, showingCarousel = true, photo = true, tab = "local") },
+                                {}, designMode = false, wheelOnRight = true,
+                            ),
+                        ) { PhotoHeader(title = "Local \u00b7 mask on Light", tool = null, actions = actions) }
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+        val down = rule.onNodeWithTag("carousel.stage.down", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val title = rule.onNodeWithTag("photo.title", useUnmergedTree = true).fetchSemanticsNode()
+        assertTrue("title under Show less", !title.boundsInRoot.overlaps(down))
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        title.config.getOrNull(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult)?.action?.invoke(layouts)
+        val layout = layouts.single()
+        // Either it fits, or it is cut with an ellipsis (didExceedMaxLines is true for an ellipsized line too).
+        val fits = !layout.didOverflowWidth && !layout.didOverflowHeight
+        assertTrue("clipped rather than ellipsized", fits || layout.isLineEllipsized(layout.lineCount - 1))
+        assertTrue("it must be the ellipsis that shows, in one line", layout.lineCount == 1)
     }
 }

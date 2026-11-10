@@ -176,7 +176,7 @@ internal fun DesignSheetBody(
             Column(Modifier.widthIn(max = 390.dp).fillMaxWidth().testTag("design.panel.${tab.key}")) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = SheetHeaderHeight).padding(start = 20.dp, end = 12.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = SheetHeaderHeight).padding(start = StageHeaderStart, end = 12.dp),
                 ) {
                     Text(
                         target?.name ?: "Frames",
@@ -185,6 +185,7 @@ internal fun DesignSheetBody(
                         fontWeight = FontWeight.ExtraBold,
                         fontFamily = RobotoCondensedFamily,
                         maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f).testTag("design.title"),
                     )
                     if (target == null) DesignChip("Add frame", on = false, toggle = false, tag = "design.addFrame", onClick = actions::addFrame)

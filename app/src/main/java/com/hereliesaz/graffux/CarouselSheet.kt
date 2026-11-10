@@ -247,7 +247,20 @@ internal fun CarouselSheet(
                     nameLabel()?.let { name ->
                         Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
                     }
-                    Box(Modifier.onSizeChanged { contentHeight = it.height }) { content() }
+                    Box(Modifier.onSizeChanged { contentHeight = it.height }) {
+                        content()
+                        // Over the content's top corners, taking no height: see SheetStageControls.
+                        if (stages != null && shownOpen) {
+                            SheetStageControls(
+                                stages,
+                                onClose = { onOpenChange(false) },
+                                hidden = hideChrome,
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },
+                            )
+                        }
+                    }
                 }
             }
             // The app hides the system bars (immersive), so navigationBars reads 0 until a swipe
@@ -263,7 +276,7 @@ internal fun CarouselSheet(
  */
 @Suppress("FunctionNaming")
 @Composable
-private fun NamePill(name: String) {
+internal fun NamePill(name: String) {
     val colors = MaterialTheme.colorScheme
     Text(
         name,
@@ -280,7 +293,7 @@ private fun NamePill(name: String) {
     )
 }
 
-private val PillMaxWidth = 160.dp
+internal val PillMaxWidth = 160.dp
 private const val PILL_ALPHA = 0.72f
 private const val PILL_ROUND_PERCENT = 50
 
@@ -304,7 +317,22 @@ private const val SHEET_HALFWAY = 0.5f
  * The sheet's stages above shut. [onStepUp]: an upward swipe past fully open. [onStepDown]: a swipe
  * that would shut the sheet; returns true when it stepped down a stage instead.
  */
-internal class SheetStages(val onStepUp: () -> Unit, val onStepDown: () -> Boolean)
+internal class SheetStages(
+    val onStepUp: () -> Unit,
+    val onStepDown: () -> Boolean,
+    /** Whether [onStepUp] would show more: false at the top stage, where the up control is dimmed away. */
+    val canStepUp: () -> Boolean,
+    /** Whether [onStepDown] would show less (true) or shut the sheet (false), which the control then says. */
+    val canStepDown: () -> Boolean,
+    /** Whether the stage showing is the set-picker wheel, which fills one bottom corner of the content. */
+    val showsSetWheel: () -> Boolean,
+    /**
+     * Which side the set wheel sits on (right-handed: the right). Passed explicitly because the controls are
+     * composed outside the provider that gives the wheel [LocalSetWheelOnRight], and an ambient read there
+     * would silently take its default.
+     */
+    val wheelOnRight: Boolean,
+)
 
 /** Whether a release can step the sheet up: it has stages, is showing open, and sits fully open. */
 private fun sheetCanStepUp(stages: SheetStages?, shownOpen: Boolean, offset: Float): Boolean =

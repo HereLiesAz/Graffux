@@ -15,6 +15,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -240,7 +241,7 @@ internal fun CarouselTabList(
         modifier.fillMaxWidth().height(StripHeight).padding(horizontal = PickerGap).testTag("carousel.tabs"),
     ) {
         val wheelHeight = StripHeight + PickerOverhang
-        val wheelWidth = maxWidth.coerceAtMost(WheelMaxWidth)
+        val wheelWidth = setWheelWidth(maxWidth)
         Row(
             Modifier
                 .fillMaxWidth()
@@ -258,6 +259,14 @@ internal fun CarouselTabList(
         }
     }
 }
+
+/**
+ * The set wheel's width in a strip [available] wide: as wide as it goes ([WheelMaxWidth]), but leaving the
+ * 48dp corner the sheet's "Close sheet" control needs beside it (see SheetStageControls), so that control
+ * always has room, even on a 320dp screen.
+ */
+internal fun setWheelWidth(available: Dp): Dp =
+    (available - StageControlClearance - PickerGap).coerceAtMost(WheelMaxWidth)
 
 /** The picker strip's layout height: what it was before the wheel, so the cards never move. */
 internal val StripHeight = 56.dp

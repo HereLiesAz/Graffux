@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -94,19 +96,27 @@ internal fun CarouselSetGrid(
     onToggleFavorite: (CarouselEntry) -> Unit,
 ) {
     val screen = LocalConfiguration.current.screenHeightDp.dp
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(HeroRestSize.width),
-        modifier = Modifier
+    // The grid's own height is fixed by the detent, so the stage controls' corner strip is taken out of it (a
+    // spacer above the list, which does not scroll away) rather than added to the sheet: no card, and no
+    // card's star, ever sits under a control.
+    Column(
+        Modifier
             .fillMaxWidth()
             .height(carouselGridHeight(detent, screen))
             .testTag("carousel.grid.${detent.name}"),
-        contentPadding = PaddingValues(GridSpacing),
-        horizontalArrangement = Arrangement.spacedBy(GridSpacing, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(GridSpacing),
     ) {
-        items(content.entries, key = { it.key }) { entry ->
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                GridCard(entry, content, onEntryClick, onToggleFavorite)
+        Spacer(Modifier.height(StageControlClearance))
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(HeroRestSize.width),
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(GridSpacing),
+            horizontalArrangement = Arrangement.spacedBy(GridSpacing, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(GridSpacing),
+        ) {
+            items(content.entries, key = { it.key }) { entry ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    GridCard(entry, content, onEntryClick, onToggleFavorite)
+                }
             }
         }
     }

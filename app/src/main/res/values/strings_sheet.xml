@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sheet_show_more">Show more</string>
+    <string name="sheet_show_less">Show less</string>
+    <string name="sheet_close">Close sheet</string>
+</resources>
