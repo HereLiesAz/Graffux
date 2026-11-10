@@ -82,7 +82,6 @@ internal fun LogoMenu(
             MenuPanel(
                 rows = rows,
                 onDismiss = { onOpenChange(false) },
-                paneLabel = description,
                 modifier = Modifier.offset(y = -LogoTouchPad * 2).padding(top = RailEdgeGap, end = LogoTouchPad),
             )
         }

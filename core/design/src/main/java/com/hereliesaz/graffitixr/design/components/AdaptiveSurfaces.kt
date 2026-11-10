@@ -252,8 +252,8 @@ private val SheetShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
 
 /**
  * A full-size layer that darkens the canvas and closes the surface on a tap; it takes that tap. It is
- * the first thing composed, which would make a screen reader land on an unlabelled "Close" before the
- * surface's own title, so it is read last ([SCRIM_TRAVERSAL_INDEX]) (the surface has its own close).
+ * composed first, which would make a screen reader reach it before the surface's own title, so it is read
+ * last ([SCRIM_TRAVERSAL_INDEX]); the surface has its own close button.
  */
 @Composable
 private fun Scrim(onDismiss: () -> Unit) {

@@ -13,8 +13,10 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import com.hereliesaz.graffitixr.design.components.SurfaceContainer
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
+import com.hereliesaz.graffitixr.design.components.containerFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -69,17 +71,22 @@ abstract class ToolSurfaceSemanticsTest(private val phone: Boolean) {
         }
     }
 
+    /** Derived from production: the containers that draw a scrim are the popover and the two sheets. */
+    private fun hasScrim(kind: SurfaceKind): Boolean = containerFor(kind, phone) in
+        setOf(SurfaceContainer.POPOVER, SurfaceContainer.BOTTOM_SHEET, SurfaceContainer.CENTERED_SHEET)
+
     @Test
-    fun `a screen reader reaches the surface before the scrim behind it`() {
-        listOf(SurfaceKind.VALUE, SurfaceKind.PICKER, SurfaceKind.FORM).forEach { kind ->
+    fun `exactly the kinds with a scrim have one, and a screen reader reaches the surface before it`() {
+        SurfaceKind.entries.forEach { kind ->
             open(kind, "T")
-            val scrims = rule.onAllNodesWithTag("surface.scrim", useUnmergedTree = true)
-            if (scrims.fetchSemanticsNodes().isEmpty()) return@forEach
-            val scrim = rule.onNodeWithTag("surface.scrim", useUnmergedTree = true).fetchSemanticsNode()
-            val panel = rule.onNodeWithTag(tagFor(kind), useUnmergedTree = true).fetchSemanticsNode()
-            val scrimIndex = scrim.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
-            val panelIndex = panel.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
-            assertTrue("$kind: scrim $scrimIndex must follow the panel $panelIndex", scrimIndex > panelIndex)
+            val scrims = rule.onAllNodesWithTag("surface.scrim", useUnmergedTree = true).fetchSemanticsNodes()
+            assertEquals("$kind scrim count", if (hasScrim(kind)) 1 else 0, scrims.size)
+            if (hasScrim(kind)) {
+                val panel = rule.onNodeWithTag(tagFor(kind), useUnmergedTree = true).fetchSemanticsNode()
+                val scrimIndex = scrims.single().config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
+                val panelIndex = panel.config.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
+                assertTrue("$kind: scrim $scrimIndex must follow the panel $panelIndex", scrimIndex > panelIndex)
+            }
         }
     }
 

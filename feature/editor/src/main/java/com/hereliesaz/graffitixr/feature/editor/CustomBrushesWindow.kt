@@ -5,9 +5,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,11 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.data.brush.CustomBrush
+import com.hereliesaz.graffitixr.design.components.ConfirmDialog
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
-import com.hereliesaz.graffitixr.data.brush.CustomBrush
-import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
-import com.hereliesaz.graffitixr.design.components.ConfirmDialog
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
 
@@ -133,20 +135,21 @@ private fun BrushCard(
         Spacer(Modifier.height(4.dp))
         BrushPreview(custom.brush, brushColor, secondaryColor, height = 40.dp)
         Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Equal heights: a label that wraps makes its button taller, and the other stretches to match.
+        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             GraffuxButton(
                 text = "Edit",
                 onClick = onEdit,
                 shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f).heightIn(min = FullWidthButtonHeight),
+                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = FullWidthButtonHeight),
             )
             GraffuxButton(
                 text = "Delete",
                 onClick = onDeleteRequest,
                 shape = GraffuxButtonShape.RECTANGLE,
                 contentPadding = CardActionPadding,
-                modifier = Modifier.weight(1f).heightIn(min = FullWidthButtonHeight),
+                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = FullWidthButtonHeight),
             )
         }
     }

@@ -4,15 +4,18 @@ package com.hereliesaz.graffitixr.feature.editor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
-import com.hereliesaz.graffitixr.design.components.FullWidthButtonHeight
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
 
@@ -52,8 +55,9 @@ fun AddContentDialog(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             choices.chunked(3).forEach { row ->
+                // Equal heights: a label that wraps makes its button taller, and its neighbours stretch to match.
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     row.forEach { (label, onSelect) ->
@@ -61,7 +65,7 @@ fun AddContentDialog(
                             text = label,
                             onClick = { onSelect(); onDismiss() },
                             shape = GraffuxButtonShape.RECTANGLE,
-                            modifier = Modifier.weight(1f).heightIn(min = FullWidthButtonHeight),
+                            modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = FullWidthButtonHeight),
                         )
                     }
                     repeat(3 - row.size) { Box(modifier = Modifier.weight(1f)) }

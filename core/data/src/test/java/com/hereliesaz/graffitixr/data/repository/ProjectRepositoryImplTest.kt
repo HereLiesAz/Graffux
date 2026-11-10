@@ -115,6 +115,23 @@ class ProjectRepositoryImplTest {
     }
 
     @Test
+    fun `a save queued for a project that was then deleted writes nothing`() = runTest(testDispatcher) {
+        val mockManager = mockk<ProjectManager>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        val repo = ProjectRepositoryImpl(context, mockManager)
+        every { mockManager.isSafeProjectId(any()) } returns true
+        val doomed = GraffitiProject(id = "doomed", name = "Doomed")
+        repo.createProject(doomed)
+
+        repo.deleteProject("doomed")
+        repo.updateProject(doomed.copy(name = "late autosave"))
+        repo.updateProject { it.copy(name = "late transform") }
+
+        coVerify(exactly = 0) { mockManager.saveProject(any(), match { it.name.startsWith("late") }, any(), any()) }
+        assertEquals(null, repo.currentProject.value)
+    }
+
+    @Test
     fun `a refused save throws and leaves the in-memory project as it was`() = runTest(testDispatcher) {
         val mockManager = mockk<ProjectManager>(relaxed = true)
         val context = mockk<Context>(relaxed = true)

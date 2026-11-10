@@ -12085,17 +12085,25 @@ class EditorViewModel @Inject constructor(
     /** Shows the project dialog and starts calibration behind it (skipped when a tier is stored). */
     fun showProjectGate() {
         viewModelScope.launch(dispatchers.io) {
-            val n = projectRepository.getProjects().size + 1
-            if (_projectGate.value == null) {
-                val (w, h) = screenSize()
-                _projectGate.value = ProjectGateState(
-                    defaultName = "Untitled $n",
-                    defaultWidth = w,
-                    defaultHeight = h,
-                    cancellable = projectRepository.currentProject.value != null,
-                )
+            try {
+                val n = projectRepository.getProjects().size + 1
+                if (_projectGate.value == null) {
+                    val (w, h) = screenSize()
+                    _projectGate.value = ProjectGateState(
+                        defaultName = "Untitled $n",
+                        defaultWidth = w,
+                        defaultHeight = h,
+                        cancellable = projectRepository.currentProject.value != null,
+                    )
+                }
+                gpuTuning?.coordinator?.onProjectDialogShown()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // This runs in its own coroutine, so a throw here would otherwise escape every caller's guard.
+                android.util.Log.w("EditorViewModel", "Showing the project dialog failed", e)
+                warn("Couldn't open the new-project dialog: ${e.message ?: e.javaClass.simpleName}")
             }
-            gpuTuning?.coordinator?.onProjectDialogShown()
         }
     }
 
@@ -12247,33 +12255,74 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * Deletes project [id] for good, then refreshes the Open screen so its card is gone once (and only
-     * once) the delete has actually finished. The caller used to refresh right after this returned, which
-     * raced the delete on the IO pool and could list the project that was being deleted; the refresh also
-     * runs if the delete throws, so the list shows what is really on disk.
+     * Deletes project [id] for good, keeps the editor on a project, and refreshes the Open screen.
+     *
+     * - Whether [id] is the open project is read **before** the delete: the repository clears the open
+     *   project as part of deleting it, and the ui state follows asynchronously, so reading it afterwards
+     *   could miss that the open project was the one deleted and leave the editor pointing at nothing.
+     * - If the delete throws, the user is told ([warn]); the editor stays where it is if the repository did not
+     *   clear the open project, and is moved on like a successful delete if it did. The fallback also needs the
+     *   repository to have no open project *after* the delete, so a project the user opened meanwhile is kept.
+     * - The Open list is refreshed once everything has finished, whichever way it ended, so it shows what is on
+     *   disk (the caller used to refresh right after this returned, racing the delete).
      */
     fun deleteProjectById(id: String) {
         dropPendingLayerSavesFor(id)
+        val wasOpen = _uiState.value.projectId == id || projectRepository.currentProject.value?.id == id
         viewModelScope.launch(dispatchers.io) {
             try {
-                projectRepository.deleteProject(id)
-                dropPendingLayerSavesFor(id) // one more, for a save that was scheduled while the delete was starting
-                // Deleting the open project leaves the editor pointing at nothing: fall back to the
-                // most recent survivor, or a fresh project — the same policy as the boot bootstrap.
-                if (_uiState.value.projectId == id) {
-                    val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
-                    if (mostRecent != null) {
-                        projectRepository.loadProject(mostRecent.id)
-                    } else if (projectGateEnabled) {
-                        // Graffux: nothing to work in yet, so the mandatory project dialog asks for one.
-                        showProjectGate()
-                    } else {
-                        createProjectWithScreenSize("Untitled")
-                    }
+                try {
+                    projectRepository.deleteProject(id)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.w("EditorViewModel", "Deleting project $id failed", e)
+                    warn("Couldn't delete the project: ${e.message ?: e.javaClass.simpleName}")
                 }
+                dropPendingLayerSavesFor(id) // one more, for a save that was scheduled while the delete was starting
+                // Deleting the open project leaves the editor pointing at nothing: fall back to the most recent
+                // survivor, or a fresh project (or the new-project dialog), the same policy as the boot bootstrap.
+                // Only if the repository has no open project now: if the delete threw before it let go of the
+                // project, the editor is still on it; and if the user opened another project while this was in
+                // flight, that choice stands and is not replaced by a sibling.
+                if (wasOpen && projectRepository.currentProject.value == null) openFallbackProject()
             } finally {
                 refreshOpenScreen()
             }
+        }
+    }
+
+    /** After the open project was deleted: its most recent sibling, else the project dialog, else a new one. */
+    private suspend fun openFallbackProject() {
+        try {
+            val mostRecent = projectRepository.getProjects().maxByOrNull { it.lastModified }
+            if (mostRecent != null) {
+                if (projectRepository.loadProject(mostRecent.id).isSuccess) return
+                warn("Couldn't open \"${mostRecent.name}\"")
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("EditorViewModel", "Opening a project after a delete failed", e)
+            warn("Couldn't open another project: ${e.message ?: e.javaClass.simpleName}")
+        }
+        // Nothing was opened: start a project, once.
+        try {
+            startFreshProject()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("EditorViewModel", "Starting a project after a delete failed", e)
+            warn("Couldn't start a new project: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    private suspend fun startFreshProject() {
+        if (projectGateEnabled) {
+            // Graffux: nothing to work in yet, so the mandatory project dialog asks for one.
+            showProjectGate()
+        } else {
+            createProjectWithScreenSize("Untitled")
         }
     }
 
