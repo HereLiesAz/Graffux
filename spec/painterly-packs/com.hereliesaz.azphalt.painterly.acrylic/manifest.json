@@ -11,7 +11,7 @@
   "targetApps": [
     "com.hereliesaz.graffux"
   ],
-  "assets": [
+  "contributes": {\n    "paletteTools": [\n      {\n        "id": "wet-paint",\n        "name": "Wet paint mixer",\n        "kind": "wet-paint"\n      }\n    ]\n  },\n  "assets": [
     {
       "type": "brush",
       "path": "assets/tip-flat.png",
