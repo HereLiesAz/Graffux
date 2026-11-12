@@ -114,7 +114,7 @@ data class AzphaltManifest(
     val entry: String? = null,        // code kind: path to the executable payload
     val runtime: Runtime? = null,     // js | wasm
     val capabilities: List<Capability> = emptyList(),  // § 4
-    val contributes: Contributes? = null,   // filters / tools / commands / transitions
+    val contributes: Contributes? = null,   // filters / tools / commands / transitions / paletteTools
     val assets: List<AssetContribution> = emptyList(),
     val preview: Preview? = null,     // store-card image/clip
     val app: JsonObject? = null,      // present only when kind == "app" (spec/companion-app.md)
@@ -123,6 +123,27 @@ data class AzphaltManifest(
     val files: Map<String, String> = emptyMap(),  // payload path -> "sha256-<hex>"
 )
 ```
+
+### 2.1 Palette-tool contributions
+
+Asset add-ons may contribute a host-rendered colour-picker control without executing code.
+The manifest's existing `contributes` object accepts:
+
+```json
+"contributes": {
+  "paletteTools": [
+    { "id": "wet-paint", "name": "Wet paint mixer", "kind": "wet-paint" }
+  ]
+}
+```
+
+An installed add-on gains this entry only when it also contains an installable brush with
+`params.painterly = 1`. The picker uses the extension registry reactively: install adds the
+control, uninstall withdraws it, and switching to an ordinary brush does not remove it.
+Multiple packs contributing the same recognised kind result in one control. Unknown kinds
+are ignored; these declarations do not execute code, grant capabilities, or load arbitrary
+UI. The wet board and its saved recipes belong to the editor session/project; only the
+brush-load paint transaction uses them during supported painterly strokes.
 
 ### 2.1 `id` rules
 
