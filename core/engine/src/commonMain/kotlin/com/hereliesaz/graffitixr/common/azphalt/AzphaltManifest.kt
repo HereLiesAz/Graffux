@@ -276,6 +276,19 @@ data class PaletteToolContribution(
     }
 }
 
+/**
+ * Resolve only palette capabilities provided by installed packages that actually contain a
+ * compatible painterly brush. Identical kinds collapse to one control while respecting install
+ * order; unknown declarations fail closed. Uninstalled packages must not be passed in.
+ */
+fun availablePaletteTools(installed: List<Pair<AzphaltManifest, Boolean>>): List<PaletteToolContribution> =
+    installed.asSequence()
+        .filter { (_, containsPainterlyBrush) -> containsPainterlyBrush }
+        .flatMap { (manifest, _) -> manifest.contributes?.paletteTools.orEmpty().asSequence() }
+        .filter { it.kind == PaletteToolContribution.WET_PAINT && it.id.isNotBlank() && it.name.isNotBlank() }
+        .distinctBy { it.kind }
+        .toList()
+
 @Serializable
 data class Contribution(
     val id: String,
