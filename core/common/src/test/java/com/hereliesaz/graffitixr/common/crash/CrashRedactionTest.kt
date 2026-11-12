@@ -1,5 +1,6 @@
 package com.hereliesaz.graffitixr.common.crash
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
@@ -59,6 +60,20 @@ class CrashRedactionTest {
         assertFalse(redacted("GET https://bob:hunter2pw@example.com/x").contains("hunter2pw"))
     @Test fun macAddressIsRedacted() =
         assertFalse(redacted("bssid 3c:5a:b4:12:9f:ee seen").contains("3c:5a:b4"))
+    @Test fun macWithHyphensAndMixedSeparatorsIsRedacted() {
+        assertEquals(
+            "bssid [REDACTED_MAC] seen",
+            redacted("bssid 3C-5A-B4-12-9F-EE seen"),
+        )
+        assertEquals(
+            "bssid [REDACTED_MAC] seen",
+            redacted("bssid 3c:5a-b4:12-9f:ee seen"),
+        )
+    }
+    @Test fun macEmbeddedInAnotherIdentifierIsNotRedacted() {
+        val log = "prefix_3c:5a:b4:12:9f:ee 3c:5a:b4:12:9f:ee_suffix"
+        assertEquals(log, redacted(log))
+    }
     @Test fun lngCoordinateIsRedacted() =
         assertFalse(redacted("lng=-122.084123 and lat: 37.4219").contains("122.084123"))
     @Test fun sdCardAndUserHomePathsAreRedacted() {
