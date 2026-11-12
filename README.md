@@ -122,7 +122,11 @@ Graffux is growing toward a full, touch-first design tool.
   strings in resources (#810).
 - Accessibility and UX (audit package 7): pane titles, traversal order and logo menu semantics (#812); dialog and
   window buttons holding their label at large font scales (#814); project delete control, confirmation and list
-  refresh (#815); pivot prompt placement and the 48dp set-wheel touch band (#818).
+  refresh (#815); mixer feedback and rinse confirmation (#817); pivot prompt placement and the 48dp set-wheel touch band
+  (#818); tap and accessibility alternatives to the sheet's stage swipes (#819); dead code, stale comments and more chrome
+  text moved to resources (#820); review follow-ups for the pane, dialog-button and project-delete changes (#823).
+- Spec only, no code: planned view control for projects with 3D groups (#824, `spec/3d-space.md`, "Planned: view control in a
+  project with 3D groups (not built)").
 
 **Open**
 
@@ -135,14 +139,16 @@ Graffux is growing toward a full, touch-first design tool.
   timeout in `core/wgpu-engine/src/transaction.rs` are guesses; `spec/painterly-device-matrix.md` lists the measurements.
 - **`DabTooLarge` has no user-visible refusal yet.** The transaction planner returns it for a dab over `MAX_DAB_COST`, and no
   app code calls the standalone entries yet (`transaction.rs`); the first production caller must surface it.
-- **Co-op `LayerAdd` carries a peer-supplied `Layer` (`core/common/.../model/Op.kt:15`), including its `uri`.** Not traced.
+- **Co-op `LayerAdd` carries a peer-supplied `Layer` (`Op.LayerAdd` in `core/common/.../model/Op.kt`), including its `uri`.** Not traced.
   Co-op is a no-op in the app (`app/.../di/CoopModule.kt`), so it is unreachable until co-op is wired.
-- **UX PRs awaiting review, not landed:** #817 (mixer feedback, rinse confirmation), #819 (tap and accessibility
-  alternatives to the sheet's stage swipes), #820 (dead code, stale comments, more strings in resources).
-- **Hard-coded UI strings remain:** the labels in `ToolCatalog.kt` (the `ToolEntry("tool.brush", "Brush", ...)` entries), about 150 in other
-  `feature/editor` windows (count from the audit, not re-counted here), `desktop/`, and the gesture enum labels.
+- **Hard-coded UI strings remain.** The 17 labels in `ToolCatalog.kt` (the `ToolEntry("tool.brush", "Brush", ...)` entries) are
+  literals. A rough `grep -E` over `*.kt` outside tests (`Text("...")`, `contentDescription = "..."`, and
+  `label`/`title`/`placeholder`/`text` set to a literal) on `main` found 172 matches in `feature/editor`, 9 in
+  `app/src/main` and 11 in `desktop`, about 190 in all; the gesture enum labels are not in that count. It is a
+  pattern count, not an audit: some matches may not be user-visible and multi-line calls are missed.
 - **Set-wheel names are still ellipsized** (`CarouselSetWheel.kt`: the name is measured with `overflow = TextOverflow.Ellipsis, maxLines = 1`).
-- **Compare is hold-only** (`PhotoSheet.kt`: the button's description is "Hold to compare with original"); there is no toggle.
+- **Compare is hold-only** (`CompareButton` in `PhotoSheet.kt` sets the comparison on touch-down and clears it on release or cancel; the description is
+  `R.string.photo_compare`, "Hold to compare with original"); there is no toggle.
 - **Painterly build.** Resident-canvas transaction, bundled packs, lift tail, drawn brush, demo replay and device
   verification: see "Build status" in `spec/painterly.md`.
 - **Legal documents.** See "Privacy policy and Terms" below.
@@ -154,6 +160,12 @@ Graffux is growing toward a full, touch-first design tool.
 - **Material-aware engine.** Pending items are in `docs/Material-Aware Paint Engine Implementation Status.md`, "Remaining prioritized TODO".
 - **Upstream.** `app/.../carousel/Keylines.kt:254` keeps `TODO(b/420998605)`, an upstream Material 3 carousel issue the fork
   inherits; remove it when the fork is rebased onto a release that has it.
+- **Planned, not built: view control in a project with 3D groups** (`spec/3d-space.md`, "Planned: view control in a project
+  with 3D groups"). Three pieces are being built as separate pull requests (none is open on GitHub at the time of this
+  edit): view gestures (two-finger orbit, pinch zoom, twist rotates the canvas, double-tap resets the view); a default flat
+  surface for a group whose surface the user does not draw; and the surface look (canvas background fill, the user's grid as
+  the mesh, no document boundary). Later: the document boundary at export, and accessibility alternatives for orbit and
+  reset. The section's "Open points" list what is still undecided.
 - Bind layers to the artboard (letterbox) and export at exact document pixels.
 - Snapping, smart guides, and align / distribute.
 
