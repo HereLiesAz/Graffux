@@ -191,26 +191,27 @@ internal fun SurfacePromptChip(
                     .testTag("surface.prompt.buildRelief"),
             ) { Text(rememberAppStrings().relief.rail, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
         }
-        if (armed && onSkip != null) {
+        Row(Modifier.align(Alignment.End)) {
+            if (armed && onSkip != null) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .clickable(role = Role.Button, onClick = onSkip)
+                        .padding(horizontal = 14.dp)
+                        .testTag("surface.prompt.skip"),
+                ) { Text(strings.skip, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
+            }
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .sizeIn(minHeight = 48.dp)
-                    .clickable(role = Role.Button, onClick = onSkip)
-                    .padding(end = 14.dp)
-                    .testTag("surface.prompt.skip"),
-            ) { Text(strings.skip, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
-        }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .align(Alignment.End)
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .clickable(role = Role.Button, onClick = onCancel)
-                .padding(horizontal = 14.dp)
-                .testTag("surface.prompt.cancel"),
-        ) {
-            Text(if (armed) strings.cancel else strings.ok, style = MaterialTheme.typography.labelLarge, color = colors.primary)
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button, onClick = onCancel)
+                    .padding(horizontal = 14.dp)
+                    .testTag("surface.prompt.cancel"),
+            ) {
+                Text(if (armed) strings.cancel else strings.ok, style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            }
         }
     }
 }

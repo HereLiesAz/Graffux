@@ -13805,8 +13805,16 @@ class EditorViewModel @Inject constructor(
         val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
         val groupId = newGroup?.id ?: st.surfaceDrawGroupId ?: return
         if (newGroup == null && st.layers.firstOrNull { it.id == groupId }?.surface != null) return
-        val profile = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(
-            st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(), planeChain(layers, groupId),
+        val sw = st.canvasSize.width.toFloat()
+        val sh = st.canvasSize.height.toFloat()
+        // Sized and centred from what the user sees: the middle of the screen in world units, at the view's zoom.
+        // (The view's twist is not applied to the sheet's size: it stays axis-aligned in world units.)
+        val mid = CanvasHitTest.screenToWorld(
+            Offset(sw / 2f, sh / 2f), st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        )
+        val sheet = com.hereliesaz.graffitixr.common.scene.DefaultSurface
+        val profile = sheet.profile(
+            sheet.rect(sw, sh, st.viewportZoom, mid.x, mid.y), sw, sh, planeChain(layers, groupId),
         )
         if (profile == null) {
             showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
@@ -13823,7 +13831,11 @@ class EditorViewModel @Inject constructor(
     }
 
     /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */
-    private fun commitWrappedSurface(wrapId: String?, newGroup: Layer, profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile) {
+    private fun commitWrappedSurface(
+        wrapId: String?,
+        newGroup: Layer,
+        profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile,
+    ) {
         if (wrapId == null) return
         val before = _uiState.value.layers
         pushHistory()

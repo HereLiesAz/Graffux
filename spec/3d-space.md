@@ -71,26 +71,36 @@ gets a flat rectangular surface in the plane z = 0, sized from the screen:
 
 In both orientations that is 3/4 of the short side by 2/3 of the long side.
 
-Built, and these are the decisions:
+Built. What is the owner's rule and what is my default:
 
-- **The action.** The armed "Draw surface" chip has a second button, **Use a flat sheet**, beside Cancel
-  (`SurfacePromptChip`, `surface.prompt.skip`, 48dp, string `surface_prompt_flat_sheet`). It is offered only
-  for a group's first, front surface: not when redrawing a group that already has one, and not for the side
-  or top views. Cancel keeps its meaning (nothing changes). `EditorViewModel.onSkipSurfaceDraw` makes the
-  surface; wrapping a layer in a new group and setting the profile is one undo step, as for a captured line.
-- **A real surface.** The sheet is an ordinary group surface profile (`DefaultSurface.profile`,
-  `:core:common`; the sizing is the pure `DefaultSurface.rect(width, height)`), so painting, the rotation
-  triangle, export, persistence and undo are exactly those of a drawn surface. It is a flat profile: the
-  top edge of the rectangle across z = 0, swept down the screen. As with every surface the sweep has no
-  bound (see "No depth limit"), so the width is exact and the height is the grid extent and each layer's
-  own pixels; no ready-made flat plane existed in "Ready-made surfaces" (those are packs of outlines), so
-  none was reused.
-- **Screen = canvas units.** The "screen" is the canvas view's size (`EditorUiState.canvasSize`) in scene
-  units. A square counts as portrait. A size that is not positive and finite gives no sheet (the chip says
-  the surface is unavailable).
-- **Centred (decided).** The sheet is centred in the viewport.
-- **No recompute (decided).** The surface is data once created. If the device is rotated afterwards, the
-  sheet is not resized or moved.
+- **The action (built).** The armed "Draw surface" chip has a second button, **Use a flat sheet**, in a row
+  with Cancel (`SurfacePromptChip`, `surface.prompt.skip`, at least 48dp square, string
+  `surface_prompt_flat_sheet`). The wording is mine, not owner-confirmed. It is offered only for a group's
+  first, front surface: not when redrawing a group that already has one, and not for the side or top views.
+  Cancel keeps its meaning (nothing changes). `EditorViewModel.onSkipSurfaceDraw` makes the surface; wrapping
+  a layer in a new group and setting the profile is one undo step, as for a captured line.
+- **A real surface (built).** The sheet is an ordinary group surface profile (`DefaultSurface.profile`,
+  `:core:common`; the sizing is the pure `DefaultSurface.rect`), so painting, the rotation triangle, export,
+  persistence and undo are those of a drawn surface. It is a flat profile: the top edge of the rectangle
+  across z = 0, swept down the screen for exactly the sheet's height (`SurfaceProfile.reach`, a new optional
+  field: with it `SurfaceMath.gridExtent` and `localBounds` report the rectangle itself, so the orbit pivot and
+  rotation triangle turn about the sheet's centre; without it a profile is unbounded, as drawn ones are). An
+  older build ignores `reach` and shows the sheet unbounded. The field is not tied to a project format bump;
+  that is for the owner or coordinator to decide. A side or top view drawn later makes the surface a hull and
+  `reach` is then not used. The mesh and grid reach the usual 32-unit margin past the sheet. "Ready-made
+  surfaces" has no flat plane (those are outline packs), so nothing was reused.
+- **From what the user sees (my default).** "The screen" is the canvas view's size (`canvasSize`) and the
+  sheet is sized and centred from what is visible: its centre is the middle of the screen mapped back to the
+  canvas (`CanvasHitTest.screenToWorld`) and its size is the screen fraction divided by the view's zoom. A
+  square counts as portrait. The view's twist is not applied: the sheet stays axis-aligned in canvas units.
+  A size or zoom that is not positive and finite gives no sheet (the chip says the surface is unavailable).
+- **Centred: assumed, not owner-confirmed** (open point 7 stays open).
+- **No recompute on rotation: my default, not owner-confirmed.** The surface is data once created: if the
+  device is rotated afterwards, the sheet is not resized or moved.
+- **Known limit: artwork already on the layer.** A layer's paint is placed from the profile's first vertex
+  (the sheet's top-left corner): wrapping an existing full-canvas layer shows it offset by that corner, and
+  the part beyond the sheet's width is not paintable. Mapping the sheet to the layer's own rectangle needs a
+  window on the profile (as a relief has `left`/`top`); not built, to be decided.
 
 ### How the surface looks
 
@@ -105,14 +115,14 @@ Built, and these are the decisions:
 
 1. Does "3D project" include a project whose only 3D content is a 3D strokes layer or a model layer,
    or only one with a 3D group (a group with a surface)? The owner's wording was "3D groups".
-2. ~~How the user chooses not to draw a surface~~ Settled: "Use a flat sheet" on the arming chip (built).
+2. How the user chooses not to draw a surface: built as "Use a flat sheet" on the arming chip; the wording is not owner-confirmed.
 3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
    designed.
 4. Whether the pinch already zooms about the fingers' midpoint.
 5. Which setting is "the canvas background colour" and which is the grid colour; and whether the
    wire-mesh button stays, now that the mesh is the grid.
 6. How export frames the view once the document boundary is not drawn.
-7. ~~Whether the default surface is centred in the viewport~~ Settled: centred.
+7. Whether the default surface is centred in the viewport (assumed; built that way).
 
 ## 2D and 3D layers
 

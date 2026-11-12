@@ -15,34 +15,49 @@ object DefaultSurface {
     const val LONG_FRACTION = 2f / 3f
 
     /**
-     * The sheet for a screen of [width] x [height] (canvas units): 3/4 of the short side by 2/3 of the long
-     * side, in either orientation (portrait 3/4 of the width by 2/3 of the height, landscape 2/3 of the width
-     * by 3/4 of the height), centred. A square screen counts as portrait. Null for a size that is not
-     * positive and finite.
+     * The sheet for a screen of [width] x [height] pixels: 3/4 of the short side by 2/3 of the long side, in
+     * either orientation (portrait 3/4 of the width by 2/3 of the height, landscape 2/3 of the width by 3/4
+     * of the height). A square counts as portrait. The view is [zoom] times the canvas ([zoom] 1 is the
+     * identity view), so the sheet is that share of what is on screen: its size in canvas units is divided
+     * by [zoom]. It is centred on ([centerX], [centerY]), the canvas point at the middle of the screen
+     * (the screen's own middle at the identity view). Null for a size or zoom that is not positive and finite.
      */
-    fun rect(width: Float, height: Float): SceneRect? {
-        if (!usable(width) || !usable(height)) return null
+    fun rect(
+        width: Float,
+        height: Float,
+        zoom: Float = 1f,
+        centerX: Float = width / 2f,
+        centerY: Float = height / 2f,
+    ): SceneRect? {
+        val sized = usable(width) && usable(height) && usable(zoom)
+        if (!sized || !centerX.isFinite() || !centerY.isFinite()) return null
         val landscape = width > height
-        val w = width * (if (landscape) LONG_FRACTION else SHORT_FRACTION)
-        val h = height * (if (landscape) SHORT_FRACTION else LONG_FRACTION)
-        return SceneRect((width - w) / 2f, (height - h) / 2f, w, h)
+        val w = width * (if (landscape) LONG_FRACTION else SHORT_FRACTION) / zoom
+        val h = height * (if (landscape) SHORT_FRACTION else LONG_FRACTION) / zoom
+        return SceneRect(centerX - w / 2f, centerY - h / 2f, w, h)
     }
 
     /**
-     * The sheet as a group surface profile, in the group's box-local space ([groupChain] as for
-     * [SurfaceMath.capture]; empty for a group with no pose): its top edge across the plane z = 0, swept
-     * down the screen (+y). Like every surface the sweep has no bound, so the sheet's height is the grid
-     * extent (the longer of its sides plus the margin) and each layer's own pixels; the width is exact.
-     * Null when the screen size or the chain is unusable.
+     * [rect] as a group surface profile, in the group's box-local space ([groupChain] as for
+     * [SurfaceMath.capture], built for a [canvasWidth] x [canvasHeight] canvas; empty for a group with no pose):
+     * its top edge across the plane z = 0, swept down the screen (+y) for exactly the sheet's height
+     * ([SurfaceProfile.reach]), so the surface's box is the rectangle and the orbit pivot is its centre.
+     * Null when [rect] is null or the chain is unusable.
      */
-    fun profile(width: Float, height: Float, groupChain: List<PlanePose>): SurfaceProfile? {
-        val r = rect(width, height)
-        val toLocal = if (r == null) null else SceneMath.chainModel(groupChain, width, height).inverse()
-        if (r == null || toLocal == null) return null
-        val a = toLocal.apply(r.x, r.y, 0f)
-        val b = toLocal.apply(r.x + r.width, r.y, 0f)
-        val sweep = SceneMath.normalize(toLocal.applyVector(0f, 1f, 0f))
-        val profile = SurfaceProfile(a.toList() + b.toList(), sweep[0], sweep[1], sweep[2])
+    fun profile(
+        rect: SceneRect?,
+        canvasWidth: Float,
+        canvasHeight: Float,
+        groupChain: List<PlanePose>,
+    ): SurfaceProfile? {
+        val toLocal = if (rect == null) null else SceneMath.chainModel(groupChain, canvasWidth, canvasHeight).inverse()
+        if (rect == null || toLocal == null) return null
+        val a = toLocal.apply(rect.x, rect.y, 0f)
+        val b = toLocal.apply(rect.x + rect.width, rect.y, 0f)
+        val sweep = toLocal.applyVector(0f, 1f, 0f)
+        val scale = kotlin.math.sqrt(sweep[0] * sweep[0] + sweep[1] * sweep[1] + sweep[2] * sweep[2])
+        val unit = SceneMath.normalize(sweep)
+        val profile = SurfaceProfile(a.toList() + b.toList(), unit[0], unit[1], unit[2], reach = rect.height * scale)
         return profile.takeIf { it.isValid }
     }
 

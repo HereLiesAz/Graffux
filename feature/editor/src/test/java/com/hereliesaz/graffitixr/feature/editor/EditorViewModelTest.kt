@@ -2048,9 +2048,10 @@ class EditorViewModelTest {
         val group = st.layers.first { it.id == lone.parentId }
         val surface = group.surface!!
         assertTrue(surface.isFlat)
-        // Portrait 1000 x 1600: 3/4 of the width, centred, in the plane z = 0.
-        assertEquals(125f, surface.point(0)[0], 0.01f)
-        assertEquals(875f, surface.point(1)[0], 0.01f)
+        // Portrait 1000 x 1600 at the default view (offset 72, 72): 3/4 of the width, centred on the screen's
+        // middle, which is canvas x = 428, in the plane z = 0.
+        assertEquals(53f, surface.point(0)[0], 0.01f)
+        assertEquals(803f, surface.point(1)[0], 0.01f)
         assertEquals(0f, surface.point(0)[2], 0f)
         assertFalse(st.surfaceDrawArmed)
         assertEquals(undo + 1, st.undoCount)
@@ -2079,6 +2080,70 @@ class EditorViewModelTest {
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+    }
+
+    private fun skipSheet(
+        w: Int,
+        h: Int,
+        view: EditorIntent? = null,
+    ): com.hereliesaz.graffitixr.common.scene.SurfaceProfile? {
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(w, h))
+        view?.let { viewModel.dispatchForTest(it) }
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        return viewModel.uiState.value.layers.firstOrNull { it.type == groupType }?.surface
+    }
+
+    @Test
+    fun `Skip in landscape gives the landscape sheet`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val p = skipSheet(2000, 1000)!!
+        // The screen's middle is canvas x = 1000 - 72 at the default view; 2/3 of 2000 wide.
+        assertEquals(261.33f, p.point(0)[0], 0.1f)
+        assertEquals(1594.67f, p.point(1)[0], 0.1f)
+        assertEquals(750f, p.reach!!, 0.1f)
+    }
+
+    @Test
+    fun `Skip centres the sheet on what the user sees when the view is zoomed and panned`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val p = skipSheet(1000, 1600, EditorIntent.SetViewport(Offset(100f, 200f), 2f, 0f))!!
+        // The screen's middle (500, 800) is world (200, 300); 3/4 of the width on screen is 375 world units.
+        assertEquals(12.5f, p.point(0)[0], 0.1f)
+        assertEquals(387.5f, p.point(1)[0], 0.1f)
+        assertEquals(300f - 1600f / 3f / 2f, p.point(0)[1], 0.1f)
+        assertEquals(1600f * 2f / 3f / 2f, p.reach!!, 0.1f)
+    }
+
+    @Test
+    fun `Skip with no usable canvas changes nothing and says the surface is unavailable`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onAxisSlotTapped()
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(listOf("lone"), viewModel.uiState.value.layers.map { it.id })
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(SurfaceDrawNotice.UNAVAILABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `Redo after undoing Skip brings the flat sheet back`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNotNull(skipSheet(1000, 1600))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.layers.firstOrNull { it.type == groupType })
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.first { it.type == groupType }.surface!!.isFlat)
     }
 
     @Test

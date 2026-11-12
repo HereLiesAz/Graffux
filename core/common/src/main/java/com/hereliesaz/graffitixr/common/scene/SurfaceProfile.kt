@@ -41,6 +41,14 @@ data class SurfaceProfile(
      * [side] and [top]. See [ReliefSurface].
      */
     val relief: ReliefSurface? = null,
+    /**
+     * How far the sweep reaches, in box units, or null: unbounded, as every drawn surface is (the box then
+     * reaches as far as the profile is long). Set for a flat sheet whose height is known ([DefaultSurface]), so
+     * [SurfaceMath.gridExtent] and [SurfaceMath.localBounds] report the sheet's true box and the orbit pivot is
+     * its centre. Ignored once a side or top view makes the surface a hull. Optional, so an older reader
+     * ignores it and treats the sheet as unbounded.
+     */
+    val reach: Float? = null,
 ) {
     val count: Int get() = points.size / 3
 
@@ -89,7 +97,8 @@ data class SurfaceProfile(
 
     val isValid: Boolean
         get() = count >= 2 && points.size % 3 == 0 && points.all { it.isFinite() } && length > 0f &&
-            sweepX.isFinite() && sweepY.isFinite() && sweepZ.isFinite() && (relief == null || relief.isValid)
+            sweepX.isFinite() && sweepY.isFinite() && sweepZ.isFinite() && (relief == null || relief.isValid) &&
+            (reach == null || (reach.isFinite() && reach > 0f))
 
     /** The surface point at arc length [u] (clamped to the profile) and sweep distance [t]. */
     fun at(u: Float, t: Float): FloatArray {
@@ -596,6 +605,7 @@ object SurfaceMath {
      */
     fun gridExtent(profile: SurfaceProfile): Float {
         if (!profile.isValid) return 0f
+        profile.reach?.let { if (!profile.hasHull) return it + GRID_MARGIN }
         val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
         val lo = hull?.boundsMin ?: FloatArray(3) { k -> (0 until profile.count).minOf { profile.points[it * 3 + k] } }
         val hi = hull?.boundsMax ?: FloatArray(3) { k -> (0 until profile.count).maxOf { profile.points[it * 3 + k] } }
