@@ -134,11 +134,13 @@ internal class EditHistory(
      * its entry), with no redo left behind. False, and nothing changed, otherwise.
      */
     fun removeTopDrawHolding(command: StrokeCommand): Boolean {
-        val top = undoStack.lastOrNull() as? EditCommand.Draw ?: return false
-        if (top.strokes.size != 1 || top.strokes[0] !== command) return false
-        undoStack.removeLast()
-        top.gpuUndo?.let(onGpuUndoDiscarded)
-        return true
+        val top = undoStack.lastOrNull() as? EditCommand.Draw
+        val holds = top != null && top.strokes.size == 1 && top.strokes[0] === command
+        if (holds) {
+            undoStack.removeLast()
+            top?.gpuUndo?.let(onGpuUndoDiscarded)
+        }
+        return holds
     }
 
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */

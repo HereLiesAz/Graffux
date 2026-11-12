@@ -39,6 +39,12 @@ fun orbitAnglesForDrag(dx: Float, dy: Float, canvasWidth: Float): Pair<Float, Fl
     return Pair(dx * k, dy * k)
 }
 
+/** Android's documented double-tap timeout, for where no platform value is available. */
+const val FALLBACK_DOUBLE_TAP_MS: Long = 300L
+
+/** Android's documented double-tap slop, in pixels, for where no platform value is available. */
+const val FALLBACK_DOUBLE_TAP_SLOP_PX: Float = 100f
+
 /**
  * Recognises a double-tap from taps fed in order: a tap within [timeoutMs] and [slopPx] of the
  * previous one is the second of a double-tap (and clears the state, so a third tap starts afresh).

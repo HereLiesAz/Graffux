@@ -8,6 +8,8 @@ import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
 import com.hereliesaz.graffitixr.common.scene.planeChain
+import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_MS
+import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_SLOP_PX
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.ViewTapTracker
@@ -5429,7 +5431,7 @@ class EditorViewModel @Inject constructor(
                 android.view.ViewConfiguration.getDoubleTapTimeout().toLong(),
                 android.view.ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat(),
             )
-        }.getOrElse { ViewTapTracker(300L, 100f) }
+        }.getOrElse { ViewTapTracker(FALLBACK_DOUBLE_TAP_MS, FALLBACK_DOUBLE_TAP_SLOP_PX) }
     }
 
     /** The next brush push is a tap dot that a double-tap may take back ([onBrushTap]). */
