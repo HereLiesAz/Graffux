@@ -9,6 +9,27 @@ import org.junit.Test
 class AzphaltManifestTest {
 
     @Test
+    fun `palette tools follow installed brush capabilities and ignore unknown tools`() {
+        fun manifest(id: String, kind: String) = parseManifest(
+            """{"azphalt":"0.1","id":"$id","name":"Brush pack","version":"1.0.0",
+                "kind":"asset","license":"MIT","compat":">=0.1",
+                "contributes":{"paletteTools":[{"id":"mix","name":"Wet paint mixer","kind":"$kind"}]},
+                "files":{}}""",
+        )
+        val first = manifest("com.paint.first", PaletteToolContribution.WET_PAINT)
+        val second = manifest("com.paint.second", PaletteToolContribution.WET_PAINT)
+        val future = manifest("com.paint.future", "unsupported-mixer")
+        assertTrue(availablePaletteTools(emptyList()).isEmpty())
+        assertTrue(availablePaletteTools(listOf(first to false)).isEmpty())
+        assertTrue(availablePaletteTools(listOf(future to true)).isEmpty())
+        assertEquals(
+            listOf("Wet paint mixer"),
+            availablePaletteTools(listOf(first to true, second to true, future to true)).map { it.name },
+        )
+        assertTrue(availablePaletteTools(listOf(first to false, second to false)).isEmpty())
+    }
+
+    @Test
     fun `installed brush packs can declare a colour-picker tool without executable code`() {
         val manifest = parseManifest(
             """{"azphalt":"0.1","id":"com.paint.oil","name":"Oil","version":"1.0.0",
