@@ -40,11 +40,14 @@ and `ViewTapTracker`. Orbit holds the pivot for the gesture and saves the camera
 never history. Double-tap timing and slop are the platform's (`ViewConfiguration`).
 
 Cancelling the first tap's dot: in a 3D-group project a brush tap's dot is pushed as its own
-*tentative* history entry (`EditHistory.pushDraw(tentative = true)`: never chunk-joined, and the stack
-is not trimmed for it). A second tap in the window removes that entry by identity
-(`removeTopDrawHolding` via `onBrushTap`), so no earlier stroke is touched, a full stack loses nothing
-and no redo is left. A side effect: rapid dots in these projects are one undo step each instead of
-chunking. Known gaps: a fill tap and the Ink tool (its own surface) do not take part in the
+*tentative* history entry (`EditHistory.pushDraw(tentative = true)`): never chunk-joined; the stack may
+hold at most one entry over its cap for it (so the cap still bounds a run of spaced taps); and the redo
+stack is set aside rather than discarded. A second tap in the window, when that dot is still the newest
+entry, cancels it by identity (`EditHistory.cancelTentative` via `EditorViewModel.onBrushTap`): the dot is
+undone, the redo stack comes back, no earlier stroke is touched. If the dot is no longer the newest entry
+(a drag between the taps, or the first tap pushed nothing, e.g. a locked layer) the second tap is an
+ordinary tap. A side effect: rapid dots in these projects are one undo step each instead of chunking.
+Known gaps: touchdown-spray brushes (they start painting on touch-down), a fill tap and the Ink tool (its own surface) do not take part in the
 double-tap, so a double-tap there does not reset the view; and if the first dot's commit has not
 landed within the window (not seen: it is pushed synchronously on finger-up) it would stay.
 

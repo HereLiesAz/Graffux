@@ -5448,21 +5448,22 @@ class EditorViewModel @Inject constructor(
      * returned so the caller paints nothing. Otherwise false and the caller paints as usual.
      */
     fun onBrushTap(at: Offset, timeMs: Long): Boolean {
-        val secondTap = hasThreeDGroup(_uiState.value.layers) && viewTaps.onTap(at.x, at.y, timeMs)
-        if (!secondTap) {
-            tapDotCommand = null
-            tapDotPending = hasThreeDGroup(_uiState.value.layers)
-            return false
-        }
-        tapDotPending = false
+        val inScene = hasThreeDGroup(_uiState.value.layers)
+        val second = inScene && viewTaps.onTap(at.x, at.y, timeMs)
         val dot = tapDotCommand
-        tapDotCommand = null
-        if (dot != null && history.topDrawHolds(dot)) {
+        // Only a first dot that is still the newest entry can be taken back; anything else (another
+        // stroke since, a tap that pushed nothing) is an ordinary tap and starts a fresh pair.
+        val cancelled = second && dot != null && history.cancelTentative(dot) {
             repeat(undoTop()) { history.dropTopRedo() }
-            updateHistoryCounts()
         }
-        resetViewport()
-        return true
+        tapDotCommand = null
+        tapDotPending = inScene && !cancelled
+        if (second && !cancelled) viewTaps.onTap(at.x, at.y, timeMs)
+        if (cancelled) {
+            updateHistoryCounts()
+            resetViewport()
+        }
+        return cancelled
     }
 
     /**
@@ -8875,6 +8876,8 @@ class EditorViewModel @Inject constructor(
     fun onStrokeEnd() {
         endStroke()
         closeGesture()
+        // A tap dot is pushed synchronously by endStroke; a flag still set found nothing to mark.
+        tapDotPending = false
     }
 
     /**
@@ -10015,6 +10018,7 @@ class EditorViewModel @Inject constructor(
      * recorded on finger-up), so dropping the live preview is the whole cancel.
      */
     fun onStrokeCancel() {
+        tapDotPending = false
         cancelStroke()
         rollBackGesture()
         closeGesture()
@@ -13511,9 +13515,11 @@ class EditorViewModel @Inject constructor(
 
     /**
      * One step of a two-finger gesture: [pan] and [centroid] in screen pixels, [zoom] the pinch
-     * factor, [rotation] the twist in degrees. On the view, pan and pinch move the 2D view and a
-     * twist turns it about the current axis: Z is the canvas rotation, X and Y orbit the camera in
-     * depth. On the layer (Move tool), pan slides it, pinch moves it in depth and a twist rotates it
+     * factor, [rotation] the twist in degrees. On the view, in a project with no 3D group, pan and
+     * pinch move the 2D view and a twist turns it about the current axis: Z is the canvas rotation,
+     * X and Y orbit the camera in depth. In a project with a 3D group ([twoFingerViewMode]) the drag
+     * orbits about the held pivot, the pinch zooms about the fingers' midpoint and the twist only
+     * rotates the canvas. On the layer (Move tool), pan slides it, pinch moves it in depth and a twist rotates it
      * about the current axis.
      */
     fun onTwoFingerGesture(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {

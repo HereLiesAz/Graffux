@@ -494,4 +494,57 @@ class EditHistoryTest {
         h.pushDraw("top", stroke(), chainedToPrevious = true)
         assertTrue(!(h.popUndo { it } as EditCommand.Draw).chainedToPrevious)
     }
+
+    private fun drawStroke() = StrokeCommand(
+        path = emptyList(), canvasSize = IntSize(1, 1), tool = Tool.BRUSH, brushSize = 1f, brushColor = 0, intensity = 1f,
+    )
+
+    @Test
+    fun `a tentative push never joins a chunk and is not joined by the next push`() {
+        val h = EditHistory()
+        h.pushDraw("a", drawStroke(), chunkable = true, nowMs = 0)
+        assertFalse(h.pushDraw("a", drawStroke(), chunkable = true, nowMs = 10, tentative = true))
+        assertEquals(2, h.undoCount)
+        h.pushDraw("a", drawStroke(), chunkable = true, nowMs = 20)
+        assertEquals(3, h.undoCount)
+    }
+
+    @Test
+    fun `tentative pushes keep the stack within the cap plus one`() {
+        val h = EditHistory(maxStackSize = 3)
+        repeat(50) { h.pushDraw("a", drawStroke(), nowMs = it.toLong(), tentative = true) }
+        assertEquals(4, h.undoCount)
+        h.pushDraw("a", drawStroke(), nowMs = 100)
+        assertEquals(3, h.undoCount)
+    }
+
+    @Test
+    fun `cancelling a tentative push removes exactly it and restores redo`() {
+        val h = EditHistory(maxStackSize = 3)
+        val keep = listOf(drawStroke(), drawStroke(), drawStroke())
+        keep.forEach { h.pushDraw("a", it, nowMs = 0) }
+        h.popUndo { it }
+        h.popUndo { it }
+        assertEquals(1, h.undoCount)
+        assertEquals(2, h.redoCount)
+        val dot = drawStroke()
+        h.pushDraw("a", dot, nowMs = 5, tentative = true)
+        assertEquals(0, h.redoCount)
+        assertTrue(h.cancelTentative(dot) { h.popUndo { it }; h.dropTopRedo() })
+        assertEquals(1, h.undoCount)
+        assertEquals(2, h.redoCount)
+        assertTrue(h.topDrawHolds(keep[0]))
+    }
+
+    @Test
+    fun `a tentative push that is no longer the newest entry cannot be cancelled`() {
+        val h = EditHistory()
+        val dot = drawStroke()
+        h.pushDraw("a", dot, nowMs = 0, tentative = true)
+        h.pushDraw("a", drawStroke(), nowMs = 10)
+        var ran = false
+        assertFalse(h.cancelTentative(dot) { ran = true })
+        assertFalse(ran)
+        assertEquals(2, h.undoCount)
+    }
 }

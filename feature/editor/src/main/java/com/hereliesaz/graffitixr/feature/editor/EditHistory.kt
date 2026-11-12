@@ -45,7 +45,7 @@ internal class EditHistory(
         val same = last is EditCommand.PropertyChange && last.oldLayers == layersWithoutBitmaps && last.crop == crop
         if (same) return false
         undoStack.addLast(EditCommand.PropertyChange(layersWithoutBitmaps, crop))
-        trim()
+        trim(maxStackSize)
         return true
     }
 
@@ -83,9 +83,10 @@ internal class EditHistory(
         chainedToPrevious: Boolean = false,
         /**
          * A stroke that may be taken straight back (a brush-tap dot that turns out to be the first
-         * tap of a view-reset double-tap). It never joins a chunk and the stack is not trimmed for
-         * it, so removing it ([removeTopDrawHolding]) leaves every earlier entry exactly as it was.
-         * The next push trims the surplus.
+         * tap of a view-reset double-tap). It never joins a chunk; the stack may hold one entry
+         * more than [maxStackSize] for it (so removing it loses nothing), and the redo stack is set
+         * aside rather than discarded. [cancelTentative] removes it and brings the redo stack back;
+         * any other edit, undo or redo makes it final and discards the set-aside redo.
          */
         tentative: Boolean = false,
     ): Boolean {
@@ -95,7 +96,7 @@ internal class EditHistory(
             undoStack.addLast(
                 EditCommand.Draw(layerId, command, chunkable = false, lastPushMs = nowMs, chainedToPrevious = true),
             )
-            trim()
+            trim(maxStackSize)
             clearRedo()
             return false
         }
@@ -113,9 +114,9 @@ internal class EditHistory(
             undoStack.addLast(
                 EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane),
             )
-            if (!tentative) trim()
+            trim(if (tentative) maxStackSize + 1 else maxStackSize)
         }
-        clearRedo()
+        if (tentative && !joined) setAsideRedo() else clearRedo()
         return joined
     }
 
@@ -130,15 +131,20 @@ internal class EditHistory(
     fun redoTopIsDraw(): Boolean = redoStack.lastOrNull() is EditCommand.Draw
 
     /**
-     * Removes the newest entry when it is a stroke entry of exactly [command] (by identity, alone in
-     * its entry), with no redo left behind. False, and nothing changed, otherwise.
+     * Cancels a tentative push of [command]: when it is still the newest entry (by identity, alone
+     * in its entry), runs [undo] (which must take that entry back off the undo stack, as the editor's
+     * undo does, repainting the layer) and then restores the redo stack the push set aside, leaving
+     * no redo of the dot. False, with nothing run, when the entry is not the newest.
      */
-    fun removeTopDrawHolding(command: StrokeCommand): Boolean {
+    fun cancelTentative(command: StrokeCommand, undo: () -> Unit): Boolean {
         val top = undoStack.lastOrNull() as? EditCommand.Draw
         val holds = top != null && top.strokes.size == 1 && top.strokes[0] === command
         if (holds) {
-            undoStack.removeLast()
-            top?.gpuUndo?.let(onGpuUndoDiscarded)
+            val aside = setAsideRedo
+            setAsideRedo = null
+            undo()
+            redoStack.discardAll(onGpuUndoDiscarded)
+            aside?.let { redoStack.addAll(it) }
         }
         return holds
     }
@@ -301,6 +307,7 @@ internal class EditHistory(
      * Returns null (and records nothing) when there is nothing to undo.
      */
     fun popUndo(counterEntry: (EditCommand) -> EditCommand): EditCommand? {
+        dropSetAside()
         val command = undoStack.removeLastOrNull() ?: return null
         redoStack.addLast(counterEntry(command))
         return command
@@ -308,6 +315,7 @@ internal class EditHistory(
 
     /** Symmetric to [popUndo]: pops the most recent redoable command onto the undo stack. */
     fun popRedo(counterEntry: (EditCommand) -> EditCommand): EditCommand? {
+        dropSetAside()
         val command = redoStack.removeLastOrNull() ?: return null
         undoStack.addLast(counterEntry(command))
         return command
@@ -348,11 +356,28 @@ internal class EditHistory(
         return set
     }
 
-    private fun trim() {
-        while (undoStack.size > maxStackSize) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
+    private fun trim(limit: Int) {
+        while (undoStack.size > limit) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
     }
 
-    private fun clearRedo() = redoStack.discardAll(onGpuUndoDiscarded)
+    /** The redo stack a tentative push set aside, to be restored if it is cancelled. */
+    private var setAsideRedo: List<EditCommand>? = null
+
+    private fun setAsideRedo() {
+        dropSetAside()
+        setAsideRedo = redoStack.toList()
+        redoStack.clear()
+    }
+
+    private fun dropSetAside() {
+        setAsideRedo?.forEach { it.gpuUndo()?.let(onGpuUndoDiscarded) }
+        setAsideRedo = null
+    }
+
+    private fun clearRedo() {
+        redoStack.discardAll(onGpuUndoDiscarded)
+        dropSetAside()
+    }
 
     companion object {
         /** Default for [chunkMaxStrokes]. */

@@ -116,7 +116,9 @@ class DoubleTapDotTest {
         val group = Layer(
             id = "G", name = "G", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = wall,
         )
-        val layer = Layer(id = "L", name = "Layer", bitmap = original, parentId = "G")
+        // A free paint layer beside the surface group: the 3D group only switches the gestures on, and
+        // keeping the paint layer off the surface keeps the stroke harness on the plain 2D path.
+        val layer = Layer(id = "L", name = "Layer", bitmap = original)
         vm.dispatchForTest(EditorIntent.SetLayers(listOf(group, layer)))
         vm.putLayerBaseForTest("L", original)
         vm.onLayerActivated("L")
@@ -152,18 +154,25 @@ class DoubleTapDotTest {
         dispatcher.scheduler.advanceUntilIdle()
     }
 
+    private fun inked(x0: Int, x1: Int, y0: Int, y1: Int): Int {
+        val b = vm.uiState.value.layers.first { it.id == "L" }.bitmap!!
+        var n = 0
+        for (y in y0..y1) for (x in x0..x1) if (android.graphics.Color.alpha(b.getPixel(x, y)) != 0) n++
+        return n
+    }
+
     @Test
     fun `empty stack - the double-tap leaves no pixels, no history, no redo and a reset view`() = runTest(dispatcher) {
         setup()
         vm.onSceneOrbit(0.4f, 0.2f)
-        val before = pixels()
         val u = vm.uiState.value.undoCount
         firstTap(30f, 30f, 1000L)
         assertEquals("the dot is an entry of its own", u + 1, vm.uiState.value.undoCount)
+        assertTrue("the dot painted", inked(20, 40, 20, 40) > 0)
         secondTapRemovesDot(1000L)
         assertEquals(u, vm.uiState.value.undoCount)
         assertEquals(0, vm.uiState.value.redoCount)
-        assertTrue(before.contentEquals(pixels()))
+        assertEquals("no mark", 0, inked(0, 47, 0, 47))
         assertTrue(vm.uiState.value.sceneCamera.isDefault)
     }
 
@@ -177,6 +186,7 @@ class DoubleTapDotTest {
         val u = vm.uiState.value.undoCount
         assertEquals(20, u)
         firstTap(30f, 30f, 1000L)
+        assertEquals("the dot is kept above the cap while tentative", 21, vm.uiState.value.undoCount)
         secondTapRemovesDot(1000L)
         assertEquals("the oldest entry is not trimmed away", u, vm.uiState.value.undoCount)
         assertEquals(0, vm.uiState.value.redoCount)
@@ -187,13 +197,59 @@ class DoubleTapDotTest {
         runTest(dispatcher) {
             setup()
             stroke(5f, 15f, 10f)
-            val afterStroke = pixels()
+            val strokeInk = inked(0, 20, 5, 15)
+            assertTrue(strokeInk > 0)
             val u = vm.uiState.value.undoCount
             firstTap(30f, 30f, 1000L)
             assertEquals("not merged into the stroke's entry", u + 1, vm.uiState.value.undoCount)
             secondTapRemovesDot(1000L)
             assertEquals(u, vm.uiState.value.undoCount)
             assertEquals(0, vm.uiState.value.redoCount)
-            assertTrue("the earlier stroke is intact", afterStroke.contentEquals(pixels()))
+            assertEquals("the dot is gone", 0, inked(24, 47, 24, 47))
+            assertTrue("the earlier stroke is intact", inked(0, 20, 5, 15) > 0)
         }
+
+    @Test
+    fun `the redo stack is restored when the dot is cancelled`() = runTest(dispatcher) {
+        setup()
+        stroke(5f, 15f, 10f)
+        stroke(5f, 15f, 20f)
+        vm.onUndoClicked()
+        dispatcher.scheduler.advanceUntilIdle()
+        val redo = vm.uiState.value.redoCount
+        val undo = vm.uiState.value.undoCount
+        assertTrue(redo > 0)
+        firstTap(30f, 30f, 5000L)
+        secondTapRemovesDot(5000L)
+        assertEquals(redo, vm.uiState.value.redoCount)
+        assertEquals(undo, vm.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `a drag between the taps makes the second tap an ordinary one`() = runTest(dispatcher) {
+        setup()
+        firstTap(30f, 30f, 1000L)
+        stroke(5f, 15f, 10f)
+        val u = vm.uiState.value.undoCount
+        assertFalse(vm.onBrushTap(androidx.compose.ui.geometry.Offset(31f, 30f), 1100L))
+        assertEquals("nothing was removed", u, vm.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `fifty spaced taps never grow the stack past the cap plus one`() = runTest(dispatcher) {
+        setup()
+        repeat(50) { i -> firstTap(10f + (i % 30), 30f, 1000L + i * 1000L) }
+        assertTrue(vm.uiState.value.undoCount <= 21)
+    }
+
+    @Test
+    fun `a tap that pushed nothing does not make the next stroke tentative`() = runTest(dispatcher) {
+        setup()
+        assertFalse(vm.onBrushTap(androidx.compose.ui.geometry.Offset(30f, 30f), 1000L))
+        vm.onStrokeEnd() // the tap's stroke pushed nothing
+        stroke(5f, 15f, 10f)
+        val afterFirst = vm.uiState.value.undoCount
+        stroke(5f, 15f, 20f)
+        assertEquals("the second stroke chunk-joined the first", afterFirst, vm.uiState.value.undoCount)
+    }
 }
