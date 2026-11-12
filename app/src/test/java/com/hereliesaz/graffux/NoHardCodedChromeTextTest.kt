@@ -74,7 +74,7 @@ class NoHardCodedChromeTextTest {
     private companion object {
         /** File to how many literals it still holds. Move text to resources and lower the count. */
         val KNOWN_LITERALS = mapOf(
-            "LayersRail.kt" to 1, "BottomCarousel.kt" to 1, "RotationSlider.kt" to 2, "PhotoTabBodies.kt" to 1,
+            "LayersRail.kt" to 1, "BottomCarousel.kt" to 1, "PhotoTabBodies.kt" to 1,
             "DesignPanels.kt" to 2, "CarouselCardVisuals.kt" to 1, "ToolGroupCarouselPlan.kt" to 1,
             "PhotoRetouch.kt" to 3, "ToolRail.kt" to 6, "CarouselStripMotion.kt" to 1,
             "CarouselEffectPreviews.kt" to 1, "CarouselDetent.kt" to 1, "DesignSheet.kt" to 2,

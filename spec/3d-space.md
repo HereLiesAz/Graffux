@@ -49,7 +49,7 @@ was the reference), and the one finger stays free for the tool in hand.
 
 - **Unchanged.** With the Move / Transform tool in hand on a 3D layer, two fingers still slide the
   layer, pinch moves it in depth and a twist turns it, one undo step per completed gesture, exactly as
-  the table above says. The rail's axis slot, the rotation slider, the rotation triangle and the
+  the table above says. The rail's axis slot, the rotation triangle and the
   rotation-point ("#") button are unchanged. In a project with no 3D group, nothing changes at all:
   two fingers pan, and a double-tap does nothing.
 - **Retired in these projects.** The double-tap that stepped the axis X -> Y -> Z, the twist that
@@ -135,7 +135,7 @@ The rail's **axis slot** (the slot the old 3D button had) is always there:
   the layer menu). The rotation triangle (below) turns the group;
 - on any other 3D layer (a tilted plane, 3D strokes, a model) it shows the current axis as its letter in
   the axis colour (X cyan, Y pink, Z green); a tap steps X -> Y -> Z, the same state a double-tap steps. An
-  "Axis:" chip confirms a change briefly, then clears. The rotation slider stays for these layers.
+  "Axis:" chip confirms a change briefly, then clears.
 
 On a 2D layer the camera can still have been moved by 3D work elsewhere; the document renders
 through it as always, but a twist only ever rotates the canvas.
@@ -162,7 +162,7 @@ Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical 
 
 - Drag along an edge to turn the group about its **own** axis (body-fixed, through the orbit pivot:
   `turnedAboutPivot`, `SceneMath.rotatePoseAbout`). Sign: right along the bottom, up the side and up-right
-  along the hypotenuse are **positive**, the same sense the slider's positive values had.
+  along the hypotenuse are **positive**.
 - The angle is the finger's displacement projected on the edge's direction over the edge's length, times
   180 degrees (`RotationTriangle.angle`): the full length is 180. There is no handle and no end stop, so
   rotation accumulates across swipes (two swipes make 360); a backward drag reduces it.
@@ -175,23 +175,6 @@ Its right angle is bottom right: the **bottom leg is X** (cyan), the **vertical 
   transform), through `onRotationGizmoTurn` / `onRotationGizmoEnd`.
 - Accessibility: each edge is a node ("Rotate X" ...) with custom actions "+15°" and "-15°"
   (`onRotationGizmoStep`, one undo step each).
-- The rotation slider is not shown for a surface group (`rotationSliderValue` is null there); it stays for
-  every other layer.
-
-### Rotation slider
-
-Whenever the bottom sheet is closed, or hidden for drawing, a hairline slider (`RotationSlider`, in
-`RotationSliderDock`) is docked at the bottom of the screen: above the nav bar's inset and the
-bottom gesture strip, and in from both sides by a rail's width, so it is clear of the tool and layers
-rails on either hand. Opening the sheet takes it away. It rotates the **active layer**, not
-the view: about Z on a 2D layer, about the axis slot's current axis on a 3D layer that is not on a surface group
-(`EditorViewModel.rotationSliderAxis`). It reads the layer's angle on that axis wrapped to
--180..180°, with a centre tick at 0°, light haptic detents at 0 / ±45 / ±90 / ±180, a soft snap at
-0 only, and a degree readout only while dragging. A double-tap on the thumb resets to 0°. One drag
-(or reset) is one undo step, through the same gesture start/end as a transform gesture. It is the one
-control that stays live while drawing: it is never ghosted with the chrome, it is used between
-strokes, and its touches never reach the canvas (they cannot start a stroke).
-
 **Fit** on the rail is there whenever the 2D view or the 3D camera has moved, and puts both back to
 the identity. **Reset plane** in a placed layer's menu puts it back on the identity plane (depth 0,
 no X/Y tilt) as one undo step.
@@ -533,7 +516,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   group (groups the ray misses or enters beyond the point are skipped) plus one ray cast of each
   remaining group and a few small float arrays; per join one more. Cap regions are checked for
   visibility but not for finger distance.
-- **Moving.** The Move tool, the rotation slider and the X/Y/Z cycler act on the group when the
+- **Moving.** The Move tool and rotation triangle act on the group when the
   active layer is paint on its surface (`EditorViewModel.transformTargetId`); the surface lives in
   the group's space, so all its layers move with it.
 - **Guide grid.** Lines along the profile (at sweep distances 0, 64, 128... box units, and closing at
