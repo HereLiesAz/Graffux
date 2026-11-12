@@ -227,6 +227,7 @@ class PaletteBoard(
         markDisc(x, y, radius + 2f)
         val cols = if (stepX > 0) maxX downTo minX else minX..maxX
         val rows = if (stepY > 0) maxY downTo minY else minY..maxY
+        val mixedMass = FloatArray(CH)
         for (py in rows) for (px in cols) {
             val tx = px + stepX
             val ty = py + stepY
@@ -241,10 +242,10 @@ class PaletteBoard(
             val moved = old * fraction * coverage
             if (moved <= 0f) continue
             val held = surface.amount[dst]
-            val raw = FloatArray(CH) { c ->
-                surface.conc[dst * CH + c] * held + surface.conc[src * CH + c] * moved
+            for (c in 0 until CH) {
+                mixedMass[c] = surface.conc[dst * CH + c] * held + surface.conc[src * CH + c] * moved
             }
-            val mixed = PigmentConcentration.quantize(raw)
+            val mixed = PigmentConcentration.quantize(mixedMass)
             for (c in 0 until CH) surface.conc[dst * CH + c] =
                 mixed[c] / PigmentConcentration.SUM.toFloat()
             surface.amount[src] = old - moved
