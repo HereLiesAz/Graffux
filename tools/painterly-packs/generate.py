@@ -240,6 +240,10 @@ def write_pack(pid, name, desc, assets, extra_files=None, kind_assets=None):
     manifest = {"azphalt": "0.1", "id": PREFIX + pid, "name": name, "version": "1.0.0", "kind": "asset",
                 "license": "Apache-2.0", "compat": ">=0.1", "description": desc, "author": "HereLiesAz",
                 "targetApps": ["com.hereliesaz.graffux"], "assets": assets}
+    if any(asset.get("type") == "brush" and asset.get("params", {}).get("painterly") == 1 for asset in assets):
+        manifest["contributes"] = {"paletteTools": [
+            {"id": "wet-paint", "name": "Wet paint mixer", "kind": "wet-paint"}
+        ]}
     json.dump(manifest, open(os.path.join(d, "manifest.json"), "w"), indent=2)
     return d
 
