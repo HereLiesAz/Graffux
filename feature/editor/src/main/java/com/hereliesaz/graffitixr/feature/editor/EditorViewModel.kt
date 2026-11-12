@@ -12724,7 +12724,7 @@ class EditorViewModel @Inject constructor(
         }
 
     override fun onColorClicked() {
-        dispatch(EditorIntent.ShowColorPicker)
+        dispatch(if (_uiState.value.showColorPicker) EditorIntent.DismissColorPicker else EditorIntent.ShowColorPicker)
     }
 
     override fun setBrushSize(size: Float) {
