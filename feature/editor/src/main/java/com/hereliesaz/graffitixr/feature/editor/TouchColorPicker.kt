@@ -1,4 +1,4 @@
-@file:Suppress("FunctionNaming", "LongParameterList", "MagicNumber")
+@file:Suppress("FunctionNaming", "LongParameterList", "MagicNumber", "LongMethod", "CyclomaticComplexMethod")
 
 package com.hereliesaz.graffitixr.feature.editor
 
