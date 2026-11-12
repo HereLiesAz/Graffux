@@ -141,11 +141,19 @@ Graffux is growing toward a full, touch-first design tool.
   app code calls the standalone entries yet (`transaction.rs`); the first production caller must surface it.
 - **Co-op `LayerAdd` carries a peer-supplied `Layer` (`Op.LayerAdd` in `core/common/.../model/Op.kt`), including its `uri`.** Not traced.
   Co-op is a no-op in the app (`app/.../di/CoopModule.kt`), so it is unreachable until co-op is wired.
-- **Hard-coded UI strings remain.** The 17 labels in `ToolCatalog.kt` (the `ToolEntry("tool.brush", "Brush", ...)` entries) are
-  literals. A rough `grep -E` over `*.kt` outside tests (`Text("...")`, `contentDescription = "..."`, and
-  `label`/`title`/`placeholder`/`text` set to a literal) on `main` found 172 matches in `feature/editor`, 9 in
-  `app/src/main` and 11 in `desktop`, about 190 in all; the gesture enum labels are not in that count. It is a
-  pattern count, not an audit: some matches may not be user-visible and multi-line calls are missed.
+- **Hard-coded UI strings remain.** The 16 `ToolEntry(...)` labels in `ToolCatalog.kt` (for example
+  `ToolEntry("tool.brush", "Brush", ...)`) are literals. A pattern count over `main` found 181 matches in `feature/editor`,
+  12 in `app/src/main` and 13 in `desktop`, 206 in all. Run in the repository root for each directory:
+
+  ~~~
+  grep -rEn --include='*.kt' --exclude='*Test*' --exclude-dir=test --exclude-dir=androidTest \
+    -e 'Text\(\s*(text\s*=\s*)?"[^"]' -e 'contentDescription\s*=\s*"[^"]' \
+    -e '(label|title|placeholder|text)\s*=\s*\{?\s*(Text\()?"[^"]' feature/editor | wc -l
+  ~~~
+
+  It counts non-empty literals in `Text(...)`, `contentDescription =` and `label`/`title`/`placeholder`/`text =`. It is a
+  pattern count, not an audit: some matches may not be user-visible, and calls split across lines or built another way are
+  missed. The gesture enum labels are not in it, and the count moves as `main` does.
 - **Set-wheel names are still ellipsized** (`CarouselSetWheel.kt`: the name is measured with `overflow = TextOverflow.Ellipsis, maxLines = 1`).
 - **Compare is hold-only** (`CompareButton` in `PhotoSheet.kt` sets the comparison on touch-down and clears it on release or cancel; the description is
   `R.string.photo_compare`, "Hold to compare with original"); there is no toggle.
@@ -161,11 +169,11 @@ Graffux is growing toward a full, touch-first design tool.
 - **Upstream.** `app/.../carousel/Keylines.kt:254` keeps `TODO(b/420998605)`, an upstream Material 3 carousel issue the fork
   inherits; remove it when the fork is rebased onto a release that has it.
 - **Planned, not built: view control in a project with 3D groups** (`spec/3d-space.md`, "Planned: view control in a project
-  with 3D groups"). Three pieces are being built as separate pull requests (none is open on GitHub at the time of this
-  edit): view gestures (two-finger orbit, pinch zoom, twist rotates the canvas, double-tap resets the view); a default flat
-  surface for a group whose surface the user does not draw; and the surface look (canvas background fill, the user's grid as
-  the mesh, no document boundary). Later: the document boundary at export, and accessibility alternatives for orbit and
-  reset. The section's "Open points" list what is still undecided.
+  with 3D groups"). No pull request is open for it yet. The plan covers view gestures (two-finger orbit, pinch zoom, twist
+  rotates the canvas, double-tap resets the view), a default flat surface for a group whose surface the user does not draw,
+  and the surface look (canvas background fill, the user's grid as the mesh, no document boundary). Still undecided in the
+  spec's open points: orbit and reset equivalents for accessibility (point 3) and how export frames the view once the
+  document boundary is not drawn (point 6).
 - Bind layers to the artboard (letterbox) and export at exact document pixels.
 - Snapping, smart guides, and align / distribute.
 
