@@ -12812,13 +12812,9 @@ class EditorViewModel @Inject constructor(
                 }
                 .map { it.extensionId }
                 .toSet()
-            installed.filter { it.id in painterlyPackages }
-                .flatMap { it.manifest.contributes?.paletteTools.orEmpty() }
-                .filter {
-                    it.kind == com.hereliesaz.graffitixr.common.azphalt.PaletteToolContribution.WET_PAINT &&
-                        it.id.isNotBlank() && it.name.isNotBlank()
-                }
-                .distinctBy { it.kind }
+            com.hereliesaz.graffitixr.common.azphalt.availablePaletteTools(
+                installed.map { it.manifest to (it.id in painterlyPackages) },
+            )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val installedBrushes: StateFlow<List<Pair<String, String>>> =
