@@ -224,7 +224,9 @@ class PaletteBoard(
         val maxY = min(size - 1, ceil(y + radius).toInt())
         val fraction = (distance / radius).coerceIn(0f, 1f) * 0.35f
         if (fraction == 0f) return
-        markDisc(x, y, radius + 2f)
+        // Sources lie inside the disc's box; a parcel lands one texel further along the push, so the changed area
+        // is that box grown by one texel on the leading side only, never a wider margin.
+        markDirty(minX + min(0, stepX), minY + min(0, stepY), maxX + max(0, stepX), maxY + max(0, stepY))
         val cols = if (stepX > 0) maxX downTo minX else minX..maxX
         val rows = if (stepY > 0) maxY downTo minY else minY..maxY
         val mixedMass = FloatArray(CH)
