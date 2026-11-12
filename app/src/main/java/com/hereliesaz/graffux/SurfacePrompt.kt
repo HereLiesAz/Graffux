@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.ReliefBuildStage
 import com.hereliesaz.graffitixr.common.model.ReliefBuildState
 import com.hereliesaz.graffitixr.common.model.SurfaceDrawNotice
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.scene.ReliefSurface
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.design.theme.Amber
@@ -126,6 +127,8 @@ internal fun SurfacePromptChip(
     onDrawView: ((SurfaceView) -> Unit)? = null,
     /** While armed, on a photo layer: build the surface from the image's depth instead of drawing it. */
     onBuildFromImage: (() -> Unit)? = null,
+    /** While armed for a group's first (front) surface: skip drawing and use the default flat sheet. */
+    onSkip: (() -> Unit)? = null,
 ) {
     val strings = rememberAppStrings().surface
     val content = surfacePromptContent(armed, notice, strings, view, views) ?: return
@@ -188,6 +191,16 @@ internal fun SurfacePromptChip(
                     .testTag("surface.prompt.buildRelief"),
             ) { Text(rememberAppStrings().relief.rail, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
         }
+        if (armed && onSkip != null) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .sizeIn(minHeight = 48.dp)
+                    .clickable(role = Role.Button, onClick = onSkip)
+                    .padding(end = 14.dp)
+                    .testTag("surface.prompt.skip"),
+            ) { Text(strings.skip, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
+        }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -224,6 +237,7 @@ internal fun NoticeStack(
     relief: ReliefSurface? = null,
     reliefActions: ReliefChipActions? = null,
     onBuildFromImage: (() -> Unit)? = null,
+    onSkip: (() -> Unit)? = null,
     /** "Relocate rotation point" is armed: its prompt rides in the same stack, above the others. */
     pivotArmed: Boolean = false,
     onCancelPivot: () -> Unit = {},
@@ -240,7 +254,7 @@ internal fun NoticeStack(
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         ) {
             if (pivotArmed) PivotPromptChip(onCancelPivot)
-            SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
+            SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage, onSkip = onSkip)
             if (reliefActions != null) ReliefChip(reliefBuild, relief, reliefActions)
             MessageHost(alerts, okLabel = okLabel, countLabel = countLabel)
         }
@@ -379,4 +393,11 @@ internal fun canBuildRelief(state: com.hereliesaz.graffitixr.common.model.Editor
     val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return false
     return layer.type == com.hereliesaz.graffitixr.common.model.LayerType.RASTER && layer.bitmap != null &&
         layer.surfaceViewOf == null && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id) == null
+}
+
+/** Whether the armed chip may offer "Use a flat sheet": the front view of a group that has no surface yet. */
+internal fun canSkipSurface(state: com.hereliesaz.graffitixr.common.model.EditorUiState): Boolean {
+    if (!state.surfaceDrawArmed || state.surfaceDrawView != SurfaceView.FRONT) return false
+    val group = state.layers.firstOrNull { it.id == state.surfaceDrawGroupId }
+    return state.surfaceDrawWrapLayerId != null || (group != null && group.surface == null)
 }

@@ -1652,6 +1652,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 relief = activeRelief(uiState),
                 reliefActions = reliefChipActions(vm, uiState),
                 onBuildFromImage = if (canBuildRelief(uiState)) ({ vm.onBuildSurfaceFromImage() }) else null,
+                onSkip = if (canSkipSurface(uiState)) ({ vm.onSkipSurfaceDraw() }) else null,
                 pivotArmed = uiState.pivotPickArmed,
                 onCancelPivot = { vm.onCancelPivotPick() },
                 alerts = alerts,

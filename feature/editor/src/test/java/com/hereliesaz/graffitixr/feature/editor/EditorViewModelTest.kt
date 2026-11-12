@@ -2032,6 +2032,56 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `Skip wraps the layer and gives the group the flat default sheet as one undo step, Undo removes it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("under"), lyr("lone"), lyr("over")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onAxisSlotTapped()
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        val st = viewModel.uiState.value
+        val lone = st.layers.first { it.id == "lone" }
+        val group = st.layers.first { it.id == lone.parentId }
+        val surface = group.surface!!
+        assertTrue(surface.isFlat)
+        // Portrait 1000 x 1600: 3/4 of the width, centred, in the plane z = 0.
+        assertEquals(125f, surface.point(0)[0], 0.01f)
+        assertEquals(875f, surface.point(1)[0], 0.01f)
+        assertEquals(0f, surface.point(0)[2], 0f)
+        assertFalse(st.surfaceDrawArmed)
+        assertEquals(undo + 1, st.undoCount)
+        assertTrue(lone.is3DIn(st.layers))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("under", "lone", "over"), viewModel.uiState.value.layers.map { it.id })
+    }
+
+    @Test
+    fun `Skip on an armed group sets the flat sheet, and Cancel still changes nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onArmSurfaceDraw("g")
+        viewModel.onCancelSurfaceDraw()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        viewModel.onArmSurfaceDraw("g")
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(viewModel.uiState.value.layers.first { it.id == "g" }.surface!!.isFlat)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+    }
+
+    @Test
     fun `the wrap and the profile are one undo step, made when the line is captured`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(lyr("under"), lyr("lone"), lyr("over")))

@@ -158,6 +158,7 @@
     <string name="relief_cancel">Cancel</string>
     <string name="relief_rail">Build surface from image</string>
     <string name="surface_prompt_cancel">Cancel</string>
+    <string name="surface_prompt_flat_sheet">Use a flat sheet</string>
     <string name="surface_prompt_ok">OK</string>
     <string name="surface_done">3D surface set. Turn it with the X/Y/Z button. Undo removes it.</string>
     <string name="surface_no_layer">No layer is selected. Tap a layer on the rail, then tap 3D.</string>

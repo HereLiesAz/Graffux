@@ -13779,14 +13779,7 @@ class EditorViewModel @Inject constructor(
             updateUi { it.disarmedSurface() }
             setSurface(groupId, existing?.withView(view, profile) ?: profile)
         } else {
-            val before = st.layers
-            pushHistory()
-            updateUi { s ->
-                s.disarmedSurface().copy(layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)))
-            }
-            emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
-            emitGeometryChanges(before, _uiState.value.layers)
-            saveProject()
+            commitWrappedSurface(wrapId, newGroup, profile)
         }
         assisted?.let { clean ->
             val current = _uiState.value.layers.firstOrNull { it.id == groupId }?.surface
@@ -13795,6 +13788,51 @@ class EditorViewModel @Inject constructor(
         showSurfaceNotice(
             if (view == SurfaceView.FRONT) SurfaceDrawNotice.DONE else SurfaceDrawNotice.VIEW_DONE,
         )
+    }
+
+    /**
+     * "Use a flat sheet" on the armed "Draw surface" chip (spec/3d-space.md, "The default surface"): the user
+     * chose not to draw. The armed group (or the group made around the layer to be wrapped) gets
+     * [com.hereliesaz.graffitixr.common.scene.DefaultSurface] as its surface, in the same single undo step a
+     * captured line makes. Only offered for the front view of a group that has no surface yet.
+     */
+    @Suppress("ReturnCount")
+    fun onSkipSurfaceDraw() {
+        val st = _uiState.value
+        if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
+        val wrapId = st.surfaceDrawWrapLayerId
+        val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
+        val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
+        val groupId = newGroup?.id ?: st.surfaceDrawGroupId ?: return
+        if (newGroup == null && st.layers.firstOrNull { it.id == groupId }?.surface != null) return
+        val profile = com.hereliesaz.graffitixr.common.scene.DefaultSurface.profile(
+            st.canvasSize.width.toFloat(), st.canvasSize.height.toFloat(), planeChain(layers, groupId),
+        )
+        if (profile == null) {
+            showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+            return
+        }
+        surfaceNoticeJob?.cancel()
+        if (newGroup == null) {
+            updateUi { it.disarmedSurface() }
+            setSurface(groupId, profile)
+        } else {
+            commitWrappedSurface(wrapId, newGroup, profile)
+        }
+        showSurfaceNotice(SurfaceDrawNotice.DONE)
+    }
+
+    /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */
+    private fun commitWrappedSurface(wrapId: String?, newGroup: Layer, profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile) {
+        if (wrapId == null) return
+        val before = _uiState.value.layers
+        pushHistory()
+        updateUi { s ->
+            s.disarmedSurface().copy(layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)))
+        }
+        emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
+        emitGeometryChanges(before, _uiState.value.layers)
+        saveProject()
     }
 
     /** [layers] with top-level layer [layerId] inside [group], which takes its place in the stack. */

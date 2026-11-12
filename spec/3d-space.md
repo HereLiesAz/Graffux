@@ -29,7 +29,7 @@ old double-tap that cycled through the layers under the finger is gone.)
 
 ## Planned: view control in a project with 3D groups (not built)
 
-Status: design agreed with the owner, not implemented. Where this section and the table above
+Status: design agreed with the owner; only "The default surface" below is built, the rest is not. Where this section and the table above
 disagree, this section is the target. Nothing here changes a project with no 3D group.
 
 **The idea.** Once a project has a 3D group, the surface is the canvas. The rectangle that bounded
@@ -60,7 +60,7 @@ was the reference), and the one finger stays free for the tool in hand.
   (it only tilts it). Zoom out, then pinch in at the part wanted. This needs the pinch to zoom about
   the midpoint between the fingers; whether it does today is unchecked.
 
-### The default surface
+### The default surface (built)
 
 The first thing done with a new 3D group is to draw its surface. If the user chooses not to, the group
 gets a flat rectangular surface in the plane z = 0, sized from the screen:
@@ -70,6 +70,27 @@ gets a flat rectangular surface in the plane z = 0, sized from the screen:
   side high.
 
 In both orientations that is 3/4 of the short side by 2/3 of the long side.
+
+Built, and these are the decisions:
+
+- **The action.** The armed "Draw surface" chip has a second button, **Use a flat sheet**, beside Cancel
+  (`SurfacePromptChip`, `surface.prompt.skip`, 48dp, string `surface_prompt_flat_sheet`). It is offered only
+  for a group's first, front surface: not when redrawing a group that already has one, and not for the side
+  or top views. Cancel keeps its meaning (nothing changes). `EditorViewModel.onSkipSurfaceDraw` makes the
+  surface; wrapping a layer in a new group and setting the profile is one undo step, as for a captured line.
+- **A real surface.** The sheet is an ordinary group surface profile (`DefaultSurface.profile`,
+  `:core:common`; the sizing is the pure `DefaultSurface.rect(width, height)`), so painting, the rotation
+  triangle, export, persistence and undo are exactly those of a drawn surface. It is a flat profile: the
+  top edge of the rectangle across z = 0, swept down the screen. As with every surface the sweep has no
+  bound (see "No depth limit"), so the width is exact and the height is the grid extent and each layer's
+  own pixels; no ready-made flat plane existed in "Ready-made surfaces" (those are packs of outlines), so
+  none was reused.
+- **Screen = canvas units.** The "screen" is the canvas view's size (`EditorUiState.canvasSize`) in scene
+  units. A square counts as portrait. A size that is not positive and finite gives no sheet (the chip says
+  the surface is unavailable).
+- **Centred (decided).** The sheet is centred in the viewport.
+- **No recompute (decided).** The surface is data once created. If the device is rotated afterwards, the
+  sheet is not resized or moved.
 
 ### How the surface looks
 
@@ -84,15 +105,14 @@ In both orientations that is 3/4 of the short side by 2/3 of the long side.
 
 1. Does "3D project" include a project whose only 3D content is a 3D strokes layer or a model layer,
    or only one with a 3D group (a group with a surface)? The owner's wording was "3D groups".
-2. How the user chooses not to draw a surface (a "Skip" action on the arming chip, which today has only
-   Cancel), and its wording.
+2. ~~How the user chooses not to draw a surface~~ Settled: "Use a flat sheet" on the arming chip (built).
 3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
    designed.
 4. Whether the pinch already zooms about the fingers' midpoint.
 5. Which setting is "the canvas background colour" and which is the grid colour; and whether the
    wire-mesh button stays, now that the mesh is the grid.
 6. How export frames the view once the document boundary is not drawn.
-7. Whether the default surface is centred in the viewport (assumed).
+7. ~~Whether the default surface is centred in the viewport~~ Settled: centred.
 
 ## 2D and 3D layers
 
