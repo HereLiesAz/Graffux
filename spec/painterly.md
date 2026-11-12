@@ -1126,8 +1126,13 @@ The palette is a surface you work on, not a list of swatches.
   paint; the blob loses it. The amount loaded depends on pressure and dwell.
 - **Mix by working it.** Dragging a palette knife or the brush through blobs mixes them by the K-M
   rule, with the same lift/draw physics as the canvas (it *is* the same engine: the palette is a
-  surface the paint transaction (E3) acts on). Mixing is incremental and spatial, not a slider: more passes,
-  more homogeneous.
+  surface the paint transaction (E3) acts on). The palette also pushes a fraction of the
+  **existing wet material** forward under each moving dab, transferring actual paint amount
+  and pigment mass from texel to texel before the load/lift/draw transaction. This extra
+  board-only displacement is needed because E3 alone can transfer paint through the brush
+  but cannot move the bulk of a blob under a knife. Material cannot leave the board's
+  boundaries, and movement with zero lift/draw keeps the amount invariant. The mixing
+  is incremental and spatial, not a slider: more passes, more homogeneous.
 - **Finite paint (decision 6).** Paint in the mixer is finite: a blob is a region of the board
   surface's paint field, and every lift from it consumes that field (3.4, source quantities), so a blob
   runs out by the same rule as wet canvas paint and needs no separate ledger. A brush holds a limited
