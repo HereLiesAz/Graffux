@@ -209,7 +209,7 @@ class CrashReporter internal constructor(
             ) to
                 "[REDACTED_IP]",
             // MAC / BSSID addresses identify a device or the network it is on.
-            Regex("""(?i)(?<![\w:])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![\w:])""") to "[REDACTED_MAC]",
+            Regex("""(?i)(?<![\w:])(?:[0-9a-f]{2}(?::|-)){5}[0-9a-f]{2}(?![\w:])""") to "[REDACTED_MAC]",
             // Email addresses.
             Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[REDACTED_EMAIL]",
         )
