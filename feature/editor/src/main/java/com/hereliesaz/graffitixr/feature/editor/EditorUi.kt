@@ -50,14 +50,14 @@ fun EditorUi(
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     val savedMixes by actions.savedMixes.collectAsState()
+    val paletteTools by actions.installedPaletteTools.collectAsState()
     val mixActions = androidx.compose.runtime.remember(actions) { actions.mixActions() }
 
     Box(modifier = Modifier.fillMaxSize()) {
 
         // The colour picker is available for every tool; only painterly brushes can open the wet mixer.
         TouchColorPickerHost(
-            canMixPaint = uiState.activeTool == Tool.BRUSH &&
-                actions.activeBrushForPreview()?.painterly == 1,
+            paletteTools = paletteTools,
             show = uiState.showColorPicker,
             currentColor = uiState.activeColor,
             secondaryColor = uiState.secondaryColor,
