@@ -143,7 +143,10 @@ fun TouchColorPicker(
                             .border(if (editingBackground == (i == 1)) 3.dp else 1.dp,
                                 MaterialTheme.colorScheme.onSurface, CircleShape)
                             .pointerInput(i) { detectTapGestures { editingBackground = i == 1 } }
-                            .semantics { contentDescription = if (i == 0) "Edit foreground colour" else "Edit background colour" }
+                            .semantics {
+                                contentDescription =
+                                    if (i == 0) "Edit foreground colour" else "Edit background colour"
+                            }
                             .testTag("touchColor.hand.$i"),
                     )
                 }
@@ -171,7 +174,8 @@ fun TouchColorPicker(
                         )
                     }
                     .semantics {
-                        contentDescription = "Current colour at centre. Left less saturated, right more saturated, up brighter, down darker"
+                        contentDescription = "Current colour at centre. Left less saturated, right more saturated, " +
+                            "up brighter, down darker"
                     }
                     .testTag("touchColor.plane"),
             ) {
