@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.Spacer
 import com.hereliesaz.graffitixr.common.model.frame
@@ -269,6 +270,27 @@ fun EditorScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
+                        }
+                        // 0c. 3D surface fills (spec/3d-space.md, "How the surface looks"): the canvas colour,
+                        // under the layers. Same visibility rule as the mesh, but not gated by the grid flag.
+                        val fillSurfaces = dx == 0 && dy == 0 && boxWidth > 0f && boxHeight > 0f
+                        if (fillSurfaces) {
+                            val frames = if (!uiState.isAnimationMode) {
+                                emptyMap()
+                            } else {
+                                AnimationFrames.effectiveOpacities(
+                                    uiState.layers, uiState.activeFrameIndex, uiState.onionSkinEnabled,
+                                    uiState.onionSkinPastCount, uiState.onionSkinFutureCount,
+                                )
+                            }
+                            val fillGroups = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                .gridGroupIds(uiState.layers, true, frames)
+                            for (g in fillGroups) key(g) {
+                                SurfaceFill(
+                                    uiState, g, boxWidth, boxHeight,
+                                    Modifier.fillMaxSize().testTag("canvas.surfaceFill"),
+                                )
+                            }
                         }
                         // 1. Layer stack render.
                         // Hold-to-compare (the photo sheet) drops the adjustment layers: the photo as it was.
@@ -2144,11 +2166,42 @@ private fun SurfaceGuideGrid(
         }
     }
     val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
+    // The grid colour, and only while the grid is on (the button's flag gates which groups reach here).
+    val mesh = com.hereliesaz.graffitixr.common.scene.SurfaceLook.meshArgb(uiState.surfaceGridVisible)
     Canvas(modifier) {
-        // A dark under-line keeps the mesh readable over light artwork and a cyan line over dark;
-        // widths are screen pixels whatever the zoom. Overlay only: no hit-test, never painted or exported.
-        lines.forEach { l -> drawLine(Color.Black.copy(alpha = 0.55f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 3.5f / zoom) }
-        lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.9f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
+        // Overlay only: no hit-test, never painted or exported. Widths are screen pixels whatever the zoom.
+        if (mesh != null) {
+            val c = Color(mesh)
+            lines.forEach { l -> drawLine(c, Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
+        }
+    }
+}
+
+/**
+ * The fill of [groupId]'s surface: the canvas background colour, behind the layers
+ * (spec/3d-space.md, "How the surface looks"). On screen only; an export keeps the document's own background.
+ */
+@Suppress("FunctionNaming", "MaxLineLength", "MagicNumber")
+@Composable
+private fun SurfaceFill(uiState: EditorUiState, groupId: String, width: Float, height: Float, modifier: Modifier = Modifier) {
+    val fill = com.hereliesaz.graffitixr.common.scene.SurfaceLook.fillArgb(uiState.canvasBackground.toArgb()) ?: return
+    val tris = remember(uiState.layers, uiState.sceneCamera, groupId, width, height) {
+        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, groupId)
+        if (owner == null) {
+            emptyList()
+        } else {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.fillTriangles(
+                owner.profile, SceneMath.chainModel(owner.ownerChain, width, height), SceneMath.frame(uiState.sceneCamera, width, height),
+            )
+        }
+    }
+    Canvas(modifier) {
+        val c = Color(fill)
+        val path = Path()
+        tris.forEach { t ->
+            path.moveTo(t[0], t[1]); path.lineTo(t[2], t[3]); path.lineTo(t[4], t[5]); path.close()
+        }
+        drawPath(path, c)
     }
 }
 

@@ -580,6 +580,43 @@ object SurfaceMath {
         return out
     }
 
+    /**
+     * The surface's fill (spec/3d-space.md, "How the surface looks"): canvas-space triangles
+     * `x0, y0, x1, y1, x2, y2` covering the same extent as [gridLines], projected through [cam]. A triangle
+     * with any corner behind the near plane is dropped (a fill cannot be clipped to a half-plane cheaply
+     * and the mesh lines already are). A multi-view hull is a solid, not a sheet, and has no fill: empty.
+     */
+    fun fillTriangles(
+        profile: SurfaceProfile,
+        model: Affine3,
+        cam: CameraFrame,
+        sweepExtent: Float = gridExtent(profile),
+    ): List<FloatArray> {
+        if (!profile.isValid || profile.hasHull) return emptyList()
+        val far = SceneMath.farPlane(cam.focal) * 0.5f
+        val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)
+        val reach = minOf(sweepExtent.coerceAtLeast(0f), far / scale)
+        val verts = mesh(profile, 0f, profile.length, 0f, reach)
+        val near = SceneMath.nearPlane(cam.focal) * 2f
+        val out = ArrayList<FloatArray>()
+        val stride = 5
+        var i = 0
+        while (i + 3 * stride <= verts.size) {
+            val c = Array(3) { k ->
+                val o = i + k * stride
+                cam.toCamera(model.apply(verts[o], verts[o + 1], verts[o + 2]))
+            }
+            if (c.all { it[2] >= near }) {
+                out += FloatArray(6) { j ->
+                    val v = c[j / 2]
+                    if (j % 2 == 0) cam.width / 2f + cam.focal * v[0] / v[2] else cam.height / 2f + cam.focal * v[1] / v[2]
+                }
+            }
+            i += 3 * stride
+        }
+        return out
+    }
+
     private fun otherGridLines(profile: SurfaceProfile, model: Affine3, cam: CameraFrame, spacing: Float): List<FloatArray>? {
         profile.relief?.let { return ReliefMath.gridLines(it, model, cam, spacing) }
         val hull = (if (profile.hasHull) SurfaceHull.of(profile) else null) ?: return null
