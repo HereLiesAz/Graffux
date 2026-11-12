@@ -52,6 +52,49 @@ class PaletteBoardTest {
     }
 
     @Test
+    fun draggingAnEmptyBrushPushesPaintMassInsteadOfOnlyChangingColour() {
+        val b = PaletteBoard(64, tubes)
+        b.squeeze(1, 28f, 32f, 6f, 1f)
+        val beforeAmount = b.surface.amount.sum()
+        val beforeMoment = b.surface.amount.indices.sumOf {
+            ((it % b.size) * b.surface.amount[it]).toDouble()
+        } / beforeAmount
+        b.drag(floatArrayOf(25f, 32f, 38f, 32f), lift = 0f, draw = 0f, mix = 0f)
+        val afterAmount = b.surface.amount.sum()
+        val afterMoment = b.surface.amount.indices.sumOf {
+            ((it % b.size) * b.surface.amount[it]).toDouble()
+        } / afterAmount
+        assertEquals(beforeAmount, afterAmount, 0.01f, "movement conserves total wet paint")
+        assertTrue(afterMoment > beforeMoment + 0.05, "paint actually moved: $beforeMoment -> $afterMoment")
+        assertEquals(0f, b.brush.amount[0], 0f, "moving paint does not invent brush load")
+    }
+
+    @Test
+    fun pushingOneWetBlobThroughAnotherCombinesTheirPigments() {
+        val b = PaletteBoard(64, tubes)
+        b.squeeze(1, 24f, 32f, 6f, 1f) // yellow
+        b.squeeze(2, 38f, 32f, 6f, 1f) // blue, separated from yellow
+        val before = b.surface.amount.sum()
+        b.drag(floatArrayOf(24f, 32f, 44f, 32f), lift = 0f, draw = 0f, mix = 0f)
+        val combined = (26..44).any { x ->
+            val ids = b.recipeAt(x, 32).tubes.map { it.first.id }.toSet()
+            "cadmium-yellow" in ids && "phthalo-blue" in ids
+        }
+        assertTrue(combined, "the transported pigment mixes where the paint masses meet")
+        assertEquals(before, b.surface.amount.sum(), 0.01f)
+    }
+
+    @Test
+    fun draggingAgainstTheEdgeDoesNotDiscardPaint() {
+        val b = PaletteBoard(64, tubes)
+        b.squeeze(1, 60f, 30f, 5f, 1f)
+        val before = b.surface.amount.sum()
+        b.drag(floatArrayOf(59f, 30f, 76f, 30f), lift = 0f, draw = 0f, mix = 0f)
+        assertEquals(before, b.surface.amount.sum(), 0.01f)
+        assertTrue(b.surface.amount.all { it >= 0f })
+    }
+
+    @Test
     fun cleaningTheBrushWipesPartlyOrRinsesFully() {
         val b = board()
         repeat(4) { b.dip(14f, 20f) }
