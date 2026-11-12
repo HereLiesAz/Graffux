@@ -9,6 +9,32 @@ import org.junit.Test
 class AzphaltManifestTest {
 
     @Test
+    fun `installed brush packs can declare a colour-picker tool without executable code`() {
+        val manifest = parseManifest(
+            """{"azphalt":"0.1","id":"com.paint.oil","name":"Oil","version":"1.0.0",
+                "kind":"asset","license":"MIT","compat":">=0.1",
+                "contributes":{"paletteTools":[
+                    {"id":"wet-paint","name":"Wet paint mixer","kind":"wet-paint"}]},
+                "assets":[{"type":"brush","path":"tip.png","params":{"painterly":1}}],
+                "files":{}}""",
+        )
+        assertEquals(ExtensionKind.ASSET, manifest.kind)
+        assertNull(manifest.entry)
+        assertTrue(manifest.capabilities.isEmpty())
+        assertEquals(PaletteToolContribution.WET_PAINT, manifest.contributes!!.paletteTools.single().kind)
+        assertEquals("Wet paint mixer", manifest.contributes!!.paletteTools.single().name)
+    }
+
+    @Test
+    fun `legacy add-ons declare no palette controls`() {
+        val manifest = parseManifest(
+            """{"azphalt":"0.1","id":"com.paint.plain","name":"Plain","version":"1.0.0",
+                "kind":"asset","license":"MIT","compat":">=0.1","files":{}}""",
+        )
+        assertTrue(manifest.contributes?.paletteTools.orEmpty().isEmpty())
+    }
+
+    @Test
     fun `parses the invert example manifest`() {
         val m = parseManifest(
             """
