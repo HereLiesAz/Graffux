@@ -115,7 +115,6 @@ fun TouchColorPicker(
     val updatedEditingBackground by rememberUpdatedState(editingBackground)
     val updatedForeground by rememberUpdatedState(onSelectColor)
     val updatedBackground by rememberUpdatedState(onSelectSecondaryColor)
-    val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(selected.toArgb(), it) }
     var hex by remember(selected) { mutableStateOf("#%06X".format(selected.toArgb() and 0xFFFFFF)) }
 
     fun apply(color: Color) {
