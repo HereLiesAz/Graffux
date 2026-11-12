@@ -5430,8 +5430,8 @@ class EditorViewModel @Inject constructor(
      * any other case it returns false and the caller paints as usual.
      */
     fun onBrushTap(at: Offset, timeMs: Long): Boolean {
-        if (!hasThreeDGroup(_uiState.value.layers)) return false
-        if (!viewTaps.onTap(at.x, at.y, timeMs)) {
+        val secondTap = hasThreeDGroup(_uiState.value.layers) && viewTaps.onTap(at.x, at.y, timeMs)
+        if (!secondTap) {
             undoCountBeforeTapDot = history.undoCount
             return false
         }
