@@ -178,7 +178,12 @@ class PaletteBoard(
         val liftPerTexel = lift * perTexel
         val drawPerTexel = draw * perTexel
         val dabs = ArrayList<PaintTransaction.Dab>()
+        var previousX = Float.NaN
+        var previousY = Float.NaN
         fun at(x: Float, y: Float) {
+            if (!previousX.isNaN()) pushWetPaint(x, y, x - previousX, y - previousY, radius)
+            previousX = x
+            previousY = y
             markDisc(x, y, radius)
             dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, lift = liftPerTexel)
             dabs += PaintTransaction.Dab(x, y, radius, 0.5f, 0, draw = drawPerTexel, mixWet = mix)
@@ -199,6 +204,52 @@ class PaletteBoard(
             i += 2
         }
         PaintTransaction.run(surface, brush, dabs)
+    }
+
+    /**
+     * Pushes actual paint under the moving brush toward its leading edge. This is volume transport,
+     * not a colour overlay: source texels lose material, destination texels gain it, and their
+     * pigment recipes blend by transferred mass. Traverse leading-edge first so one pass cannot
+     * transport the same parcel twice. No material crosses the board boundary.
+     */
+    private fun pushWetPaint(x: Float, y: Float, dx: Float, dy: Float, radius: Float) {
+        val distance = sqrt(dx * dx + dy * dy)
+        if (distance < 0.001f) return
+        val horizontal = abs(dx) >= abs(dy)
+        val stepX = if (horizontal) (if (dx > 0f) 1 else -1) else 0
+        val stepY = if (horizontal) 0 else (if (dy > 0f) 1 else -1)
+        val minX = max(0, floor(x - radius).toInt())
+        val maxX = min(size - 1, ceil(x + radius).toInt())
+        val minY = max(0, floor(y - radius).toInt())
+        val maxY = min(size - 1, ceil(y + radius).toInt())
+        val fraction = (distance / radius).coerceIn(0f, 1f) * 0.35f
+        if (fraction == 0f) return
+        markDisc(x, y, radius + 2f)
+        val cols = if (stepX > 0) maxX downTo minX else minX..maxX
+        val rows = if (stepY > 0) maxY downTo minY else minY..maxY
+        for (py in rows) for (px in cols) {
+            val tx = px + stepX
+            val ty = py + stepY
+            if (tx !in 0 until size || ty !in 0 until size) continue
+            val ox = px + 0.5f - x
+            val oy = py + 0.5f - y
+            val coverage = (1f - sqrt(ox * ox + oy * oy) / radius).coerceIn(0f, 1f)
+            if (coverage <= 0f) continue
+            val src = py * size + px
+            val dst = ty * size + tx
+            val old = surface.amount[src]
+            val moved = old * fraction * coverage
+            if (moved <= 0f) continue
+            val held = surface.amount[dst]
+            val raw = FloatArray(CH) { c ->
+                surface.conc[dst * CH + c] * held + surface.conc[src * CH + c] * moved
+            }
+            val mixed = PigmentConcentration.quantize(raw)
+            for (c in 0 until CH) surface.conc[dst * CH + c] =
+                mixed[c] / PigmentConcentration.SUM.toFloat()
+            surface.amount[src] = old - moved
+            surface.amount[dst] = held + moved
+        }
     }
 
     /** Empties the board and both brushes (a new project, or a failed restore). */
