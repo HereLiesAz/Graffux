@@ -73,7 +73,7 @@ fun DrawingCanvas(
     /** Every raw MotionEvent, before gesture handling (stroke-model training capture). */
     onRawMotionEvent: (MotionEvent) -> Unit = {},
 ) {
-    var liquifyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    val liquifyPoints = remember { mutableStateListOf<Offset>() }
     var liquifyPending by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var brushCursorPosition by remember { mutableStateOf<Offset?>(null) }
@@ -164,7 +164,7 @@ fun DrawingCanvas(
     }
 
     LaunchedEffect(activeTool) {
-        liquifyPoints = emptyList()
+        liquifyPoints.clear()
         liquifyPending = emptyList()
         if (!brushLike) brushCursorPosition = null
     }
@@ -302,7 +302,7 @@ fun DrawingCanvas(
                             if (began) {
                                 gate.markCancelled()
                                 if (activeTool == Tool.LIQUIFY) {
-                                    liquifyPoints = emptyList()
+                                    liquifyPoints.clear()
                                 }
                                 onStrokeCancel()
                             }
@@ -338,8 +338,8 @@ fun DrawingCanvas(
                                         )
                                     )
                                     if (activeTool == Tool.LIQUIFY && liquifyPoints.isNotEmpty()) {
-                                        liquifyPending = liquifyPoints
-                                        liquifyPoints = emptyList()
+                                        liquifyPending = liquifyPoints.toList()
+                                        liquifyPoints.clear()
                                     }
                                     gate.strokeActive = false
                                     onStrokeEnd()
@@ -375,7 +375,8 @@ fun DrawingCanvas(
                             began = true
                             gate.strokeActive = true
                             if (activeTool == Tool.LIQUIFY) {
-                                liquifyPoints = listOf(down.position)
+                                liquifyPoints.clear()
+                                liquifyPoints.add(down.position)
                                 liquifyPending = emptyList()
                             }
                             onStrokeStart(
@@ -389,24 +390,24 @@ fun DrawingCanvas(
                             )
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
-                                    liquifyPoints = liquifyPoints + hist.position
+                                    liquifyPoints.add(hist.position)
                                 }
                                 onStrokePoint(recordRealPoint(hist.position, hist.uptimeMillis, change.pressure))
                             }
                             if (activeTool == Tool.LIQUIFY) {
-                                liquifyPoints = liquifyPoints + change.position
+                                liquifyPoints.add(change.position)
                             }
                             onStrokePoint(recordRealPoint(change.position, change.uptimeMillis, change.pressure))
                             change.consume()
                         } else if (began) {
                             change.historical.forEach { hist ->
                                 if (activeTool == Tool.LIQUIFY) {
-                                    liquifyPoints = liquifyPoints + hist.position
+                                    liquifyPoints.add(hist.position)
                                 }
                                 onStrokePoint(recordRealPoint(hist.position, hist.uptimeMillis, change.pressure))
                             }
                             if (activeTool == Tool.LIQUIFY) {
-                                liquifyPoints = liquifyPoints + change.position
+                                liquifyPoints.add(change.position)
                             }
                             onStrokePoint(recordRealPoint(change.position, change.uptimeMillis, change.pressure))
                             change.consume()
