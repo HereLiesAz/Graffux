@@ -77,16 +77,24 @@ Built (the appearance only; the document boundary is a later slice).
 
 - **Fill:** the canvas background colour the user has set. That is `SettingsRepository.backgroundColor`,
   mirrored into `EditorUiState.canvasBackground` (the page fill `ArtboardPage` paints); the screen
-  background is the separate fixed `Workspace` colour. The canvas and the screen background were already
-  different colours in 2D, so the surface's edge stays visible without an outline. Drawn by
-  `SurfaceFill` from `SurfaceMath.fillTriangles` (the sheet's triangles, over the same extent as the
-  mesh, a triangle with a corner behind the near plane dropped), under the layers, with the colour
-  resolved by `SurfaceLook.fillArgb`. A fully transparent canvas has no surface fill. A multi-view
-  group (a solid, not a sheet) has no fill yet.
+  background is the separate fixed `Workspace` colour (`SurfaceLook.fill(canvas, workspace)`; if the two
+  are equal the edge is outlined in the grid colour). The canvas and the screen background were already
+  different colours in 2D, so the surface's edge stays visible without an outline.
+  - *Where it sits:* `SurfaceFill`, emitted by `LayerStackNode` immediately before the group's own box,
+    so it is under that group's content and above everything stacked below the group (and above the page,
+    so the page never overpaints it). It draws through the same path in the split inactive-layer render.
+  - *Opacity:* the group's own opacity (times its animation frame alpha); the enclosing groups' opacity
+    applies because the fill is inside their box. A hidden group draws nothing.
+  - *Geometry:* `SurfaceMath.fillTriangles`, the sheet's triangles over the mesh's extent (a relief
+    surface by its displaced mesh), clipped to the near plane exactly as the mesh lines are, and oriented
+    alike so folds in perspective fill as a union.
+  - *Not filled:* a multi-view group (a solid); a group nested inside another group (its canvas-space
+    triangles would need the parent's placement; it keeps its mesh); a canvas colour that is not fully
+    opaque (a translucent colour would blend twice over the page).
 - **Mesh:** the grid colour, drawn only if a grid is on. It replaces the cyan wire mesh (no dark
   under-line either). There is no user-chosen grid colour and no grid on/off setting today: the 2D
-  reference grid (`InfiniteGrid`) is always on in one fixed colour, `SurfaceLook.GRID_ARGB`. So the mesh
-  uses that colour, and "a grid is on" is the wire-mesh flag (`surfaceGridVisible`). Adding a grid colour
+  reference grid (`InfiniteGrid`) is always on in one fixed colour, `SurfaceLook.GRID_ARGB`, the one source for both. So the mesh
+  uses that colour, and "a grid is on" is the wire-mesh flag (`surfaceGridVisible`). The mesh is a 1.5 px line at that colour's low alpha with no under-line; its legibility over artwork is unverified. Adding a grid colour
   and grid toggle to settings is a gap, listed in the open points.
 - **The wire-mesh button** ("#" on the rail, and the "Surface grid" menu check) is unchanged in
   place and wording, and now toggles the surface's grid overlay (the mesh) on and off; the fill is not

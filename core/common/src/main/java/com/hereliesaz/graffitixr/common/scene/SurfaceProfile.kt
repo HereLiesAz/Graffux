@@ -582,9 +582,11 @@ object SurfaceMath {
 
     /**
      * The surface's fill (spec/3d-space.md, "How the surface looks"): canvas-space triangles
-     * `x0, y0, x1, y1, x2, y2` covering the same extent as [gridLines], projected through [cam]. A triangle
-     * with any corner behind the near plane is dropped (a fill cannot be clipped to a half-plane cheaply
-     * and the mesh lines already are). A multi-view hull is a solid, not a sheet, and has no fill: empty.
+     * `x0, y0, x1, y1, x2, y2` covering the same extent as [gridLines], projected through [cam] and
+     * clipped to the near plane (as [segment] clips the mesh lines), so the fill and the mesh agree as
+     * the camera orbits or zooms in. Every triangle is oriented the same way, so a profile that folds in
+     * perspective fills as a union under a non-zero fill. A multi-view hull is a solid, not a sheet, and has
+     * no fill: empty. A relief surface is filled with its displaced mesh.
      */
     fun fillTriangles(
         profile: SurfaceProfile,
@@ -602,19 +604,36 @@ object SurfaceMath {
         val stride = 5
         var i = 0
         while (i + 3 * stride <= verts.size) {
-            val c = Array(3) { k ->
+            val tri = List(3) { k ->
                 val o = i + k * stride
                 cam.toCamera(model.apply(verts[o], verts[o + 1], verts[o + 2]))
             }
-            if (c.all { it[2] >= near }) {
-                out += FloatArray(6) { j ->
-                    val v = c[j / 2]
-                    if (j % 2 == 0) cam.width / 2f + cam.focal * v[0] / v[2] else cam.height / 2f + cam.focal * v[1] / v[2]
-                }
+            clipNear(tri, near).takeIf { it.size >= 3 }?.let { poly ->
+                val px = poly.map { floatArrayOf(cam.width / 2f + cam.focal * it[0] / it[2], cam.height / 2f + cam.focal * it[1] / it[2]) }
+                for (k in 1 until px.size - 1) out += orientedTriangle(px[0], px[k], px[k + 1])
             }
             i += 3 * stride
         }
         return out
+    }
+
+    /** [poly] (camera-space points) clipped to z >= [near] (Sutherland-Hodgman against one plane). */
+    internal fun clipNear(poly: List<FloatArray>, near: Float): List<FloatArray> {
+        val out = ArrayList<FloatArray>()
+        for (i in poly.indices) {
+            val a = poly[i]
+            val b = poly[(i + 1) % poly.size]
+            val aIn = a[2] >= near
+            val bIn = b[2] >= near
+            if (aIn) out += a
+            if (aIn != bIn) out += if (aIn) lerpTo(a, b, near) else lerpTo(b, a, near)
+        }
+        return out
+    }
+
+    private fun orientedTriangle(a: FloatArray, b: FloatArray, c: FloatArray): FloatArray {
+        val signed = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+        return if (signed >= 0f) floatArrayOf(a[0], a[1], b[0], b[1], c[0], c[1]) else floatArrayOf(a[0], a[1], c[0], c[1], b[0], b[1])
     }
 
     private fun otherGridLines(profile: SurfaceProfile, model: Affine3, cam: CameraFrame, spacing: Float): List<FloatArray>? {

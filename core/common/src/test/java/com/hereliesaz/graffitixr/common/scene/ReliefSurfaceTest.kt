@@ -515,6 +515,16 @@ class ReliefSurfaceTest {
         assertTrue(b.all { l -> l.all { it.isFinite() } })
     }
 
+    @Test fun aReliefSurfaceIsFilledWithItsDisplacedMesh() {
+        val tilted = SceneMath.frame(SceneCamera(yaw = 0.5f, pitch = -0.3f), w, h)
+        val model = SceneMath.chainModel(identity, w, h)
+        val flat = SurfaceMath.fillTriangles(flatRelief().toProfile(), model, tilted)
+        val bumpy = SurfaceMath.fillTriangles(build(bump()).toProfile(), model, tilted)
+        assertTrue(flat.isNotEmpty() && bumpy.isNotEmpty())
+        assertTrue(bumpy.all { t -> t.all { it.isFinite() } })
+        assertTrue(flat.flatMap { it.toList() } != bumpy.flatMap { it.toList() })
+    }
+
     @Test fun theWireMeshStopsAtThePhotosEdge() {
         val lines = SurfaceMath.gridLines(build(bump()).toProfile(), SceneMath.chainModel(identity, w, h), cam, spacing = 64f)
         val xs = lines.flatMap { listOf(it[0], it[2]) }

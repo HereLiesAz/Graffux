@@ -271,27 +271,6 @@ fun EditorScreen(
                             )
                         }
                         }
-                        // 0c. 3D surface fills (spec/3d-space.md, "How the surface looks"): the canvas colour,
-                        // under the layers. Same visibility rule as the mesh, but not gated by the grid flag.
-                        val fillSurfaces = dx == 0 && dy == 0 && boxWidth > 0f && boxHeight > 0f
-                        if (fillSurfaces) {
-                            val frames = if (!uiState.isAnimationMode) {
-                                emptyMap()
-                            } else {
-                                AnimationFrames.effectiveOpacities(
-                                    uiState.layers, uiState.activeFrameIndex, uiState.onionSkinEnabled,
-                                    uiState.onionSkinPastCount, uiState.onionSkinFutureCount,
-                                )
-                            }
-                            val fillGroups = com.hereliesaz.graffitixr.common.scene.SurfaceMath
-                                .gridGroupIds(uiState.layers, true, frames)
-                            for (g in fillGroups) key(g) {
-                                SurfaceFill(
-                                    uiState, g, boxWidth, boxHeight,
-                                    Modifier.fillMaxSize().testTag("canvas.surfaceFill"),
-                                )
-                            }
-                        }
                         // 1. Layer stack render.
                         // Hold-to-compare (the photo sheet) drops the adjustment layers: the photo as it was.
                         val layerTree = remember(uiState.layers, uiState.photoCompare) {
@@ -369,6 +348,7 @@ fun EditorScreen(
                             androidx.compose.runtime.CompositionLocalProvider(
                                 LocalHighResOverlays provides highResOverlays,
                                 LocalScene provides sceneContext,
+                                LocalSurfaceFill provides uiState.canvasBackground,
                             ) { nodes.forEach { node ->
                                 // The GPU depth pass sits where its first member's top-level
                                 // subtree does; the layers it draws are skipped below.
@@ -1214,6 +1194,9 @@ fun EditorScreen(
     }
 }
 
+/** The canvas background colour the surface fills use; null outside the editor canvas. */
+private val LocalSurfaceFill = androidx.compose.runtime.compositionLocalOf<Color?> { null }
+
 // The 3D scene path added one branch per node kind; splitting the node would split its keys.
 @Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming", "ReturnCount")
 @Composable
@@ -1243,6 +1226,13 @@ private fun LayerStackNode(
     val placement = scene?.placementFor(layer)
     key(layer.id) {
         if (layer.isContainer) {
+            // The surface fill sits at this group's place in the stack, under its own content. Only a
+            // top-level group: inside a placed parent the canvas-space triangles would need that parent's map.
+            val fillColour = LocalSurfaceFill.current
+            val fillable = layer.surface != null && layer.parentId == null
+            if (fillable && scene != null && fillColour != null) {
+                SurfaceFill(layer, scene, layer.opacity * frameAlpha, fillColour)
+            }
             ContainerLayerBox(layer, modifier, frameAlpha, placement) {
                 val inner = placement?.let { scene?.inside(it) } ?: scene
                 androidx.compose.runtime.CompositionLocalProvider(LocalScene provides inner) {
@@ -1725,7 +1715,7 @@ private fun InfiniteGrid(
     rotationDeg: Float,
     modifier: Modifier = Modifier,
     spacing: Float = 48f,
-    color: Color = Color(0x33808080),
+    color: Color = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB),
 ) {
     Canvas(modifier) {
         if (spacing <= 0f) return@Canvas   // guard the tick loops against a non-positive step
@@ -2178,30 +2168,35 @@ private fun SurfaceGuideGrid(
 }
 
 /**
- * The fill of [groupId]'s surface: the canvas background colour, behind the layers
- * (spec/3d-space.md, "How the surface looks"). On screen only; an export keeps the document's own background.
+ * The fill of a surface group: the canvas background colour (spec/3d-space.md, "How the surface looks"),
+ * drawn at the group's place in the stack, just under its own content, at its opacity. On screen only;
+ * an export keeps the document's own background.
  */
-@Suppress("FunctionNaming", "MaxLineLength", "MagicNumber")
+@Suppress("FunctionNaming", "MagicNumber")
 @Composable
-private fun SurfaceFill(uiState: EditorUiState, groupId: String, width: Float, height: Float, modifier: Modifier = Modifier) {
-    val fill = com.hereliesaz.graffitixr.common.scene.SurfaceLook.fillArgb(uiState.canvasBackground.toArgb()) ?: return
-    val tris = remember(uiState.layers, uiState.sceneCamera, groupId, width, height) {
-        val owner = com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, groupId)
-        if (owner == null) {
+private fun SurfaceFill(layer: Layer, scene: SceneContext, alpha: Float, canvasBackground: Color) {
+    val look = com.hereliesaz.graffitixr.common.scene.SurfaceLook
+        .fill(canvasBackground.toArgb(), Workspace.toArgb())
+    val profile = layer.surface
+    val model = scene.modelFor(layer)
+    val tris = remember(profile, model, scene.frame, look) {
+        if (profile == null || look == null) {
             emptyList()
         } else {
-            com.hereliesaz.graffitixr.common.scene.SurfaceMath.fillTriangles(
-                owner.profile, SceneMath.chainModel(owner.ownerChain, width, height), SceneMath.frame(uiState.sceneCamera, width, height),
-            )
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.fillTriangles(profile, model, scene.frame)
         }
     }
-    Canvas(modifier) {
-        val c = Color(fill)
+    if (look == null || tris.isEmpty()) return
+    val grid = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB)
+    Canvas(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.testTag("canvas.surfaceFill")) {
+        // All triangles are oriented alike, so one non-zero path is their union.
         val path = Path()
         tris.forEach { t ->
             path.moveTo(t[0], t[1]); path.lineTo(t[2], t[3]); path.lineTo(t[4], t[5]); path.close()
         }
-        drawPath(path, c)
+        drawPath(path, Color(look.argb))
+        // A fill the same colour as the workspace has no visible edge: outline it.
+        if (!look.edgeVisible) drawPath(path, grid, style = Stroke(1f))
     }
 }
 
