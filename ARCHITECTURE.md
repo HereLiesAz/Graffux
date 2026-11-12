@@ -555,8 +555,8 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
   3D" exactly when it has a depth or an X/Y tilt (`Layer.isPlacedIn3D`); there is no toggle, and
   the old `is3D` flag is ignored. The orbit point (`OrbitPivot`, spec/3d-space.md "The orbit point") is the centre of the content's
-  box (layer 1's own box, D/2 behind it, until other layers add extent); the rotation slider, Move-tool
-  twist, view orbit and view-plane adoption all revolve about it. `EditorUiState.sceneCamera` (`SceneCamera`, saved with the
+  box (layer 1's own box, D/2 behind it, until other layers add extent); Move-tool
+  twist, rotation-triangle turns, view orbit and view-plane adoption all revolve about it. `EditorUiState.sceneCamera` (`SceneCamera`, saved with the
   project) is the one camera; its default projects depth 0 onto the canvas pixel for pixel.
   `SceneMath` (`:core:common`, pure, unit-tested) holds the camera, plane, homography and ray-plane
   maths.
@@ -642,10 +642,9 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   with no end stop); the first starts one undo step and `onRotationGizmoEnd` closes it. Placement: the dock rides the
   sheet's top edge, reported by `CarouselSheet(onTopChanged)`, else the bottom safe area (`gizmoBottomY`).
 - **Body-fixed rotation axes.** A layer's or group's X/Y/Z are lines of the object. `SceneMath.rotatePoseAbout`
-  (used by the rotation slider, the rotation triangle, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
+  (used by the rotation triangle, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
   result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
-  projects (format unchanged) read what they always did. The slider thumb is `SceneMath.bodyAngle`, a stateless function
-  of the orientation. See spec/3d-space.md, "Body-fixed axes".
+  projects (format unchanged) read what they always did. See spec/3d-space.md, "Body-fixed axes".
 - **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
   layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
@@ -672,7 +671,7 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   swept without bound along the view direction. Its layers are paint on it: brushes map through
   `SurfaceMath.hit` (ray against one planar strip per segment) to unrolled, arc-length coordinates;
   misses are skipped. The depth pass draws them as strip meshes in stack order; the Move tool and
-  rotation slider act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
+  rotation triangle act on the group. No profile = flat 2D, unchanged. "Flatten surface" clears it.
   A toggle shows every visible group's wire mesh (`SurfaceMath.gridLines`, overlay only).
   Format 10: `SurfaceProfile.side`/`.top` hold outlines drawn from the other views; `SurfaceHull`
   intersects the swept outlines (silhouette carving) and offers a ray hit and a per-view mesh.

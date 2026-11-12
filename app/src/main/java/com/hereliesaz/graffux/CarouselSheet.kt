@@ -61,9 +61,6 @@ import kotlin.math.roundToInt
  */
 internal val CarouselBottomInset = 20.dp
 
-/** Clear space under the top accessory (the rotation slider), above the pill and the content. */
-internal val TopAccessoryGap = 8.dp
-
 /**
  * Whether the sheet is actually drawn open: the user's choice, overridden shut while the UI is
  * hidden for drawing (a stroke, plus [DRAWING_UI_RETURN_DELAY_MS] after it). [userOpen] is never
@@ -132,9 +129,6 @@ internal fun CarouselSheet(
     // The name for the small pill above the content, or null for none. The sheet has no drag
     // handle: the pill is a label, and the sheet drags from anywhere on it, pill included.
     nameLabel: () -> String? = { null },
-    // Rides just above the sheet's top edge, moving with it between detents (the rotation slider).
-    // Shown only while the sheet shows open.
-    topAccessory: (@Composable () -> Unit)? = null,
     // Told where the sheet's top edge is (root pixels) as it opens, closes and is dragged: the
     // rotation triangle rides it.
     onTopChanged: (Float) -> Unit = {},
@@ -236,14 +230,6 @@ internal fun CarouselSheet(
                         .nestedScroll(nested),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (topAccessory != null && shownOpen) {
-                        // A gap under it, so it never sits on the name pill or the content's top.
-                        Box(
-                            Modifier
-                                .padding(bottom = TopAccessoryGap)
-                                .graphicsLayer { alpha = if (hideChrome()) 0f else 1f },
-                        ) { topAccessory() }
-                    }
                     nameLabel()?.let { name ->
                         Box(Modifier.graphicsLayer { alpha = if (hideChrome()) 0f else 1f }) { NamePill(name) }
                     }

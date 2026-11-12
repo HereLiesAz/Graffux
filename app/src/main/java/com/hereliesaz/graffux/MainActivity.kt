@@ -965,27 +965,6 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             )
         }
 
-        // The rotation slider (spec/3d-space.md, "Rotation slider"): docked at the bottom of the
-        // screen whenever the sheet is closed or hidden for drawing, between the rails. It is the one
-        // control that stays live while drawing (never ghosted with the chrome), since it is used
-        // between strokes; it takes its own touches, so none of them reaches the canvas.
-        vm.rotationSliderValue(uiState)?.let { angle ->
-            RotationSliderDock(
-                sheetOpen = carouselOnScreen && carouselUi.sheetOpen,
-                sheetHidden = { chrome.hidden && !chrome.forcedOnly },
-                sideClearance = besideRail,
-            ) {
-                RotationSlider(
-                    value = angle,
-                    onStart = vm::onRotationSliderStart,
-                    onChange = vm::onRotationSliderChange,
-                    onEnd = vm::onRotationSliderEnd,
-                    onReset = vm::onRotationSliderReset,
-                    label = strings.nav.rotateLayer,
-                )
-            }
-        }
-
         // The bottom carousel, centred on the whole screen and over the canvas. Only while it is
         // open: it is reached from the rail (Brush, Retouch, Adjust, Tool Options), never left
         // lying along the bottom edge as a pill to swipe up.

@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.CompositionLocalProvider
@@ -18,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
@@ -28,7 +25,6 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.BuiltInBrushes
 import com.hereliesaz.graffitixr.common.model.SelectionShape
 import com.hereliesaz.graffitixr.common.model.Tool
@@ -47,7 +43,7 @@ import java.io.File
 /**
  * The brush sheet's defects seen on a phone after #687–#692: a second "Favorites" where the
  * previous-set button belongs, quick buttons far from the wheel, the wheel's edge names cut, the
- * selected brush card blank, and the rotation slider sitting on the name pill and the content.
+ * selected brush card blank.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -111,7 +107,7 @@ class SheetDeviceRegressionUiTest {
         selectionShape = SelectionShape.ELLIPSE,
     )
 
-    /** The brush sheet as the editor hosts it: the carousel in [CarouselSheet] with the slider above. */
+    /** The brush sheet as the editor hosts it: the carousel in [CarouselSheet]. */
     private fun composeSheet(showingCarousel: Boolean) {
         val tabs = carouselTabSections(CarouselContext.BRUSHES, CarouselCategory.BRUSHES, inputs)
         rule.setContent {
@@ -121,12 +117,6 @@ class SheetDeviceRegressionUiTest {
                         open = true,
                         onOpenChange = {},
                         nameLabel = { carouselNamePill(true, showingCarousel, brushName) },
-                        topAccessory = {
-                            RotationSlider(
-                                value = -90f, onStart = {}, onChange = {}, onEnd = {}, onReset = {},
-                                label = "Rotate",
-                            )
-                        },
                     ) {
                         BottomCarousel(
                             ui = CarouselUi(
@@ -187,33 +177,10 @@ class SheetDeviceRegressionUiTest {
     }
 
     @Test
-    fun `item 4 - the rotation slider keeps clear of the name pill at peek`() {
+    fun `item 4 - the sheet has no rotation slider`() {
         composeSheet(showingCarousel = false)
-        val slider = bounds("rotationSlider")
-        val pill = bounds("carousel.namePill")
-        val gap = pill.top - slider.bottom
-        assertTrue("gap under the slider: ${gap}px", gap >= TopAccessoryGap.value * rule.density.density - 0.5f)
+        assertTrue(rule.onAllNodesWithTag("rotationSlider").fetchSemanticsNodes().isEmpty())
         assertEquals(1, rule.onAllNodesWithTag("carousel.namePill", useUnmergedTree = true).fetchSemanticsNodes().size)
-    }
-
-    @Test
-    fun `item 4 - the rotation slider keeps clear of the content above the cards`() {
-        rule.setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                    CarouselSheet(
-                        open = true,
-                        onOpenChange = {},
-                        topAccessory = {
-                            RotationSlider(0f, {}, {}, {}, {}, "Rotate")
-                        },
-                    ) { Box(Modifier.fillMaxWidth().height(120.dp).testTag("content")) }
-                }
-            }
-        }
-        rule.waitForIdle()
-        val gap = bounds("content").top - bounds("rotationSlider").bottom
-        assertTrue("gap: ${gap}px", gap >= TopAccessoryGap.value * rule.density.density - 0.5f)
     }
 
     /** Renders the sheet at peek and half (1080x2400) to build/sheet-shots for a look by eye. */
@@ -244,7 +211,6 @@ class SheetDeviceRegressionUiTest {
                             onOpenChange = {},
                             bottomInset = CarouselBottomInset,
                             nameLabel = { carouselNamePill(true, shownCarousel, brushName) },
-                            topAccessory = { RotationSlider(-90f, {}, {}, {}, {}, "Rotate") },
                         ) {
                             BottomCarousel(
                                 ui = CarouselUi(

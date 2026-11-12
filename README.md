@@ -33,8 +33,7 @@ consumes the same modules for its 2D work and adds AR on top.
   3D by their group: the rail's axis slot reads "3D" while the active layer's group is flat; a tap arms
   "Draw surface" (the slot turns bright white and reads "Draw" and a chip says to drag one line; Cancel, Back or the slot
   again changes nothing, and a layer in no group is grouped only once the line is drawn); on a 3D layer it (or a
-  double-tap) steps X / Y / Z and always shows the current one. A hairline slider docked at the bottom of the screen while the bottom
-  sheet is closed (and live while drawing) rotates the active layer (about Z, or the current axis on a 3D layer). Every brush and tool
+  double-tap) steps X / Y / Z and always shows the current one. Every brush and tool
   paints on the tilted plane where the finger touches it. A document never moved in 3D draws exactly
   as before. A layer group can own a surface: "Draw surface" in its menu turns the next stroke
   into a profile curve swept into depth, and the group's layers are painted on that shape
