@@ -256,7 +256,38 @@ data class Contributes(
     val commands: List<Contribution> = emptyList(),
     /** Two-input blends over a normalized progress, for temporal hosts (spec § contributes). */
     val transitions: List<Contribution> = emptyList(),
+    /** Declarative, installed-only controls inserted in the host's colour picker. */
+    val paletteTools: List<PaletteToolContribution> = emptyList(),
 )
+
+/**
+ * A palette add-on capability. The host owns the control surface and invokes only recognised
+ * kinds; an asset package gains no code execution permission through this declaration.
+ * Unknown kinds are ignored, never interpreted as a default tool.
+ */
+@Serializable
+data class PaletteToolContribution(
+    val id: String,
+    val name: String,
+    val kind: String,
+) {
+    companion object {
+        const val WET_PAINT = "wet-paint"
+    }
+}
+
+/**
+ * Resolve only palette capabilities provided by installed packages that actually contain a
+ * compatible painterly brush. Identical kinds collapse to one control while respecting install
+ * order; unknown declarations fail closed. Uninstalled packages must not be passed in.
+ */
+fun availablePaletteTools(installed: List<Pair<AzphaltManifest, Boolean>>): List<PaletteToolContribution> =
+    installed.asSequence()
+        .filter { (_, containsPainterlyBrush) -> containsPainterlyBrush }
+        .flatMap { (manifest, _) -> manifest.contributes?.paletteTools.orEmpty().asSequence() }
+        .filter { it.kind == PaletteToolContribution.WET_PAINT && it.id.isNotBlank() && it.name.isNotBlank() }
+        .distinctBy { it.kind }
+        .toList()
 
 @Serializable
 data class Contribution(

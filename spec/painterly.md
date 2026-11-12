@@ -1112,8 +1112,9 @@ Both are bounded per dab.
 brush, and a second rail tap closes it. Its saturation/brightness field is relative to the
 currently selected foreground/background colour, which always sits at the centre; a drag
 starts from that colour rather than a white/black corner. The hue strip likewise centres
-the current hue, and the hex entry permits exact values. Only brushes declaring
-`painterly = 1` expose the separate **Wet paint mixer** action. Returning from that
+the current hue, and the hex entry permits exact values. Installing a brush pack that declares a supported `contributes.paletteTools` capability
+and contains a painterly brush adds the separate **Wet paint mixer** action. It remains
+available regardless of which brush is selected; uninstalling its last provider removes it. Returning from that
 mixer goes back to the picker without losing its board state. The physical board remains
 project-owned and its brush loads remain reserved for painterly strokes.
 

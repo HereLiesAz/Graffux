@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.azphalt.PaletteBoard
+import com.hereliesaz.graffitixr.common.azphalt.PaletteToolContribution
 import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
@@ -54,7 +55,7 @@ internal fun relativePickerColour(base: Color, x: Float, y: Float): Color {
 @Composable
 fun TouchColorPickerHost(
     show: Boolean,
-    canMixPaint: Boolean,
+    paletteTools: List<PaletteToolContribution>,
     currentColor: Color,
     secondaryColor: Color,
     onSelectColor: (Color) -> Unit,
@@ -67,12 +68,13 @@ fun TouchColorPickerHost(
     mixActions: MixActions = MixActions(),
 ) {
     val held = board ?: remember { newMixerBoard() }
+    val wetTool = paletteTools.firstOrNull { it.kind == PaletteToolContribution.WET_PAINT }
     var wetMixer by remember { mutableStateOf(false) }
     if (!show) {
         wetMixer = false
         return
     }
-    if (wetMixer && canMixPaint) {
+    if (wetMixer && wetTool != null) {
         PaletteMixerDialog(
             board = held,
             currentColor = currentColor,
@@ -93,7 +95,8 @@ fun TouchColorPickerHost(
             onSelectSecondaryColor = onSelectSecondaryColor,
             onSwapColors = onSwapColors,
             onDismiss = onDismiss,
-            onOpenMixer = if (canMixPaint) ({ wetMixer = true }) else null,
+            onOpenMixer = if (wetTool != null) ({ wetMixer = true }) else null,
+            mixerLabel = wetTool?.name,
         )
     }
 }
@@ -108,6 +111,7 @@ fun TouchColorPicker(
     onSwapColors: () -> Unit,
     onDismiss: () -> Unit,
     onOpenMixer: (() -> Unit)? = null,
+    mixerLabel: String? = null,
 ) {
     var editingBackground by remember { mutableStateOf(false) }
     val selected = if (editingBackground) secondaryColor else currentColor
@@ -238,7 +242,7 @@ fun TouchColorPicker(
                 }, shape = GraffuxButtonShape.RECTANGLE)
             }
             if (onOpenMixer != null) {
-                GraffuxButton(text = "Wet paint mixer", onClick = onOpenMixer,
+                GraffuxButton(text = mixerLabel ?: "Wet paint mixer", onClick = onOpenMixer,
                     shape = GraffuxButtonShape.RECTANGLE,
                     modifier = Modifier.testTag("touchColor.mixer"))
             }

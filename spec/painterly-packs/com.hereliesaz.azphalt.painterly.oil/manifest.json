@@ -11,6 +11,15 @@
   "targetApps": [
     "com.hereliesaz.graffux"
   ],
+  "contributes": {
+    "paletteTools": [
+      {
+        "id": "wet-paint",
+        "name": "Wet paint mixer",
+        "kind": "wet-paint"
+      }
+    ]
+  },
   "assets": [
     {
       "type": "brush",

@@ -12799,6 +12799,24 @@ class EditorViewModel @Inject constructor(
      * (the brush rail, the collapsed brush group) agrees on what's visible without each repeating
      * the filter itself.
      */
+    /**
+     * Palette extensions come from installed packages, not the selected brush. Only recognised
+     * declarative tools backed by at least one installed painterly brush are advertised; removal
+     * immediately withdraws the control. Unknown capabilities cannot gain a host action.
+     */
+    val installedPaletteTools: StateFlow<List<com.hereliesaz.graffitixr.common.azphalt.PaletteToolContribution>> =
+        extensionRepository.installed.map { installed ->
+            val painterlyPackages = extensionRepository.installedBrushAssets()
+                .filter { asset ->
+                    extensionRepository.loadBrush(asset.extensionId, asset.assetIndex)?.painterly == 1
+                }
+                .map { it.extensionId }
+                .toSet()
+            com.hereliesaz.graffitixr.common.azphalt.availablePaletteTools(
+                installed.map { it.manifest to (it.id in painterlyPackages) },
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val installedBrushes: StateFlow<List<Pair<String, String>>> =
         combine(extensionRepository.installed, settingsRepository.hiddenBrushTipIds) { _, hidden ->
             extensionRepository.installedBrushAssets()
