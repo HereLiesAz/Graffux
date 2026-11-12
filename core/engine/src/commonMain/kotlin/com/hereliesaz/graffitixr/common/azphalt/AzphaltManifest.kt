@@ -256,7 +256,25 @@ data class Contributes(
     val commands: List<Contribution> = emptyList(),
     /** Two-input blends over a normalized progress, for temporal hosts (spec § contributes). */
     val transitions: List<Contribution> = emptyList(),
+    /** Declarative, installed-only controls inserted in the host's colour picker. */
+    val paletteTools: List<PaletteToolContribution> = emptyList(),
 )
+
+/**
+ * A palette add-on capability. The host owns the control surface and invokes only recognised
+ * kinds; an asset package gains no code execution permission through this declaration.
+ * Unknown kinds are ignored, never interpreted as a default tool.
+ */
+@Serializable
+data class PaletteToolContribution(
+    val id: String,
+    val name: String,
+    val kind: String,
+) {
+    companion object {
+        const val WET_PAINT = "wet-paint"
+    }
+}
 
 @Serializable
 data class Contribution(
