@@ -125,7 +125,7 @@ Graffux is growing toward a full, touch-first design tool.
   refresh (#815); mixer feedback and rinse confirmation (#817); pivot prompt placement and the 48dp set-wheel touch band
   (#818); tap and accessibility alternatives to the sheet's stage swipes (#819); dead code, stale comments and more chrome
   text moved to resources (#820); review follow-ups for the pane, dialog-button and project-delete changes (#823).
-- Spec only, no code: planned view control for projects with 3D groups (#824, `spec/3d-space.md`, "Planned: view control in a
+- Spec (#824): planned view control for projects with 3D groups (`spec/3d-space.md`, "Planned: view control in a
   project with 3D groups (not built)").
 
 **Open**
@@ -169,7 +169,7 @@ Graffux is growing toward a full, touch-first design tool.
 - **Upstream.** `app/.../carousel/Keylines.kt:254` keeps `TODO(b/420998605)`, an upstream Material 3 carousel issue the fork
   inherits; remove it when the fork is rebased onto a release that has it.
 - **Planned, not built: view control in a project with 3D groups** (`spec/3d-space.md`, "Planned: view control in a project
-  with 3D groups"). No pull request is open for it yet. The plan covers view gestures (two-finger orbit, pinch zoom, twist
+  with 3D groups"). Progress is tracked in that section's status lines and in the open pull requests. The plan covers view gestures (two-finger orbit, pinch zoom, twist
   rotates the canvas, double-tap resets the view), a default flat surface for a group whose surface the user does not draw,
   and the surface look (canvas background fill, the user's grid as the mesh, no document boundary). Still undecided in the
   spec's open points: orbit and reset equivalents for accessibility (point 3) and how export frames the view once the
