@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,8 +18,8 @@ class TouchColorPickerTest {
         val more = relativePickerColour(colour, 1f, 0f)
         val a = FloatArray(3)
         val b = FloatArray(3)
-        android.graphics.Color.colorToHSV(less.value.ushr(32).toInt(), a)
-        android.graphics.Color.colorToHSV(more.value.ushr(32).toInt(), b)
+        android.graphics.Color.colorToHSV(less.toArgb(), a)
+        android.graphics.Color.colorToHSV(more.toArgb(), b)
         assertTrue(a[1] < b[1])
         assertEquals(colour, relativePickerColour(colour, 0f, 0f))
     }
@@ -29,8 +30,8 @@ class TouchColorPickerTest {
         val darker = relativePickerColour(colour, 0f, 1f)
         val light = FloatArray(3)
         val dark = FloatArray(3)
-        android.graphics.Color.colorToHSV(lighter.value.ushr(32).toInt(), light)
-        android.graphics.Color.colorToHSV(darker.value.ushr(32).toInt(), dark)
+        android.graphics.Color.colorToHSV(lighter.toArgb(), light)
+        android.graphics.Color.colorToHSV(darker.toArgb(), dark)
         assertTrue(light[2] > dark[2])
     }
 }
