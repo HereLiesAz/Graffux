@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -27,9 +25,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -42,6 +40,15 @@ import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.design.components.SurfaceKind
 import com.hereliesaz.graffitixr.design.components.ToolSurface
 import kotlin.math.roundToInt
+
+/** A relative colour field with the exact selected colour at (0, 0). */
+internal fun relativePickerColour(base: Color, x: Float, y: Float): Color {
+    if (x == 0f && y == 0f) return base
+    val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(base.toArgb(), it) }
+    hsv[1] = (hsv[1] + x.coerceIn(-1f, 1f) * 0.5f).coerceIn(0f, 1f)
+    hsv[2] = (hsv[2] - y.coerceIn(-1f, 1f) * 0.5f).coerceIn(0f, 1f)
+    return Color(android.graphics.Color.HSVToColor((base.alpha * 255f).roundToInt(), hsv))
+}
 
 /** A large direct-manipulation picker. Unlike a slider, every point on the field selects a colour. */
 @Composable
@@ -105,23 +112,22 @@ fun TouchColorPicker(
     var editingBackground by remember { mutableStateOf(false) }
     val selected = if (editingBackground) secondaryColor else currentColor
     val updatedSelected by rememberUpdatedState(selected)
+    val updatedEditingBackground by rememberUpdatedState(editingBackground)
     val updatedForeground by rememberUpdatedState(onSelectColor)
     val updatedBackground by rememberUpdatedState(onSelectSecondaryColor)
     val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(selected.toArgb(), it) }
     var hex by remember(selected) { mutableStateOf("#%06X".format(selected.toArgb() and 0xFFFFFF)) }
 
-    fun choose(h: Float, s: Float, v: Float) {
-        val color = Color(android.graphics.Color.HSVToColor(floatArrayOf(h.coerceIn(0f, 359.999f),
-            s.coerceIn(0f, 1f), v.coerceIn(0f, 1f))))
-        if (editingBackground) updatedBackground(color) else updatedForeground(color)
+    fun apply(color: Color) {
+        if (updatedEditingBackground) updatedBackground(color) else updatedForeground(color)
     }
-    fun choosePlane(p: Offset, w: Float, h: Float) {
-        val now = FloatArray(3).also { android.graphics.Color.colorToHSV(updatedSelected.toArgb(), it) }
-        choose(now[0], p.x.div(w).coerceIn(0f, 1f), 1f - p.y.div(h).coerceIn(0f, 1f))
+    fun choosePlane(p: Offset, w: Float, h: Float, base: Color) {
+        apply(relativePickerColour(base, 2f * p.x / w - 1f, 2f * p.y / h - 1f))
     }
-    fun chooseHue(p: Offset, w: Float) {
-        val now = FloatArray(3).also { android.graphics.Color.colorToHSV(updatedSelected.toArgb(), it) }
-        choose(p.x.div(w).coerceIn(0f, 1f) * 359.999f, now[1], now[2])
+    fun chooseHue(p: Offset, w: Float, base: Color) {
+        val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(base.toArgb(), it) }
+        hsv[0] = (hsv[0] + (2f * p.x / w - 1f).coerceIn(-1f, 1f) * 90f + 360f) % 360f
+        apply(Color(android.graphics.Color.HSVToColor((base.alpha * 255f).roundToInt(), hsv)))
     }
 
     ToolSurface(kind = SurfaceKind.PICKER, title = "Colour", onDismiss = onDismiss) {
@@ -140,59 +146,83 @@ fun TouchColorPicker(
                 }
                 GraffuxButton(text = "Swap", onClick = onSwapColors, shape = GraffuxButtonShape.RECTANGLE)
             }
-            Text("Drag to choose saturation and brightness", style = MaterialTheme.typography.labelMedium)
+            Text("Centre is your current colour. Drag outward to adjust.", style = MaterialTheme.typography.labelMedium)
             Box(
                 Modifier.size(280.dp)
-                    .background(Color.hsv(hsv[0], 1f, 1f))
                     .pointerInput(Unit) {
-                        detectTapGestures { choosePlane(it, size.width.toFloat(), size.height.toFloat()) }
+                        detectTapGestures {
+                            choosePlane(it, size.width.toFloat(), size.height.toFloat(), updatedSelected)
+                        }
                     }
                     .pointerInput(Unit) {
+                        var startColour = Color.White
                         detectDragGestures(
-                            onDragStart = { choosePlane(it, size.width.toFloat(), size.height.toFloat()) },
+                            onDragStart = {
+                                startColour = updatedSelected
+                                choosePlane(it, size.width.toFloat(), size.height.toFloat(), startColour)
+                            },
                             onDrag = { change, _ ->
-                                choosePlane(change.position, size.width.toFloat(), size.height.toFloat())
+                                choosePlane(change.position, size.width.toFloat(), size.height.toFloat(), startColour)
                                 change.consume()
                             },
                         )
                     }
-                    .semantics { contentDescription = "Saturation left to right, brightness bottom to top" }
+                    .semantics {
+                        contentDescription = "Current colour at centre. Left less saturated, right more saturated, up brighter, down darker"
+                    }
                     .testTag("touchColor.plane"),
             ) {
                 androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
-                    drawRect(brush = Brush.horizontalGradient(listOf(Color.White, Color.Transparent)))
-                    drawRect(brush = Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
-                    drawCircle(Color.Black, radius = 11.dp.toPx(),
-                        center = Offset(hsv[1] * size.width, (1f - hsv[2]) * size.height))
-                    drawCircle(Color.White, radius = 9.dp.toPx(),
-                        center = Offset(hsv[1] * size.width, (1f - hsv[2]) * size.height),
+                    val cells = 24
+                    val tile = Size(size.width / cells, size.height / cells)
+                    for (row in 0 until cells) for (col in 0 until cells) {
+                        drawRect(relativePickerColour(selected,
+                            (col + 0.5f) * 2f / cells - 1f,
+                            (row + 0.5f) * 2f / cells - 1f),
+                            topLeft = Offset(col * tile.width, row * tile.height), size = tile)
+                    }
+                    drawCircle(Color.Black, radius = 12.dp.toPx(), center = center)
+                    drawCircle(Color.White, radius = 10.dp.toPx(), center = center,
                         style = Stroke(width = 3.dp.toPx()))
+                    drawCircle(selected, radius = 7.dp.toPx(), center = center)
                 }
             }
-            Text("Drag to change hue", style = MaterialTheme.typography.labelMedium)
+            Text("Hue: your current colour stays in the middle", style = MaterialTheme.typography.labelMedium)
             Box(
                 Modifier.fillMaxWidth().height(52.dp)
-                    .pointerInput(Unit) { detectTapGestures { chooseHue(it, size.width.toFloat()) } }
                     .pointerInput(Unit) {
+                        detectTapGestures { chooseHue(it, size.width.toFloat(), updatedSelected) }
+                    }
+                    .pointerInput(Unit) {
+                        var startColour = Color.White
                         detectDragGestures(
-                            onDragStart = { chooseHue(it, size.width.toFloat()) },
+                            onDragStart = {
+                                startColour = updatedSelected
+                                chooseHue(it, size.width.toFloat(), startColour)
+                            },
                             onDrag = { change, _ ->
-                                chooseHue(change.position, size.width.toFloat())
+                                chooseHue(change.position, size.width.toFloat(), startColour)
                                 change.consume()
                             },
                         )
                     }
-                    .semantics { contentDescription = "Hue, drag horizontally" }
+                    .semantics { contentDescription = "Current hue at centre, drag left or right to shift hue" }
                     .testTag("touchColor.hue"),
             ) {
                 androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
-                    drawRect(brush = Brush.horizontalGradient(
-                        (0..6).map { Color.hsv(it * 60f, 1f, 1f) }))
-                    val cx = hsv[0] / 360f * size.width
-                    drawCircle(Color.Black, radius = 14.dp.toPx(),
-                        center = Offset(cx, size.height / 2))
-                    drawCircle(Color.White, radius = 11.dp.toPx(),
-                        center = Offset(cx, size.height / 2),
+                    val stops = 48
+                    val original = FloatArray(3).also {
+                        android.graphics.Color.colorToHSV(selected.toArgb(), it)
+                    }
+                    for (i in 0 until stops) {
+                        val shifted = original.copyOf()
+                        shifted[0] = (original[0] + (2f * (i + 0.5f) / stops - 1f) * 90f + 360f) % 360f
+                        drawRect(Color(android.graphics.Color.HSVToColor(shifted)),
+                            topLeft = Offset(size.width * i / stops, 0f),
+                            size = Size(size.width / stops, size.height))
+                    }
+                    drawCircle(Color.Black, radius = 14.dp.toPx(), center = center)
+                    drawCircle(Color.White, radius = 11.dp.toPx(), center = center,
                         style = Stroke(width = 3.dp.toPx()))
                 }
             }
