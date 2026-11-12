@@ -54,9 +54,10 @@ fun EditorUi(
 
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // The physical palette replaces the colour picker (spec/painterly.md 6.3). The board is the view model's
-        // (saved with the project, survives rotation); the host holds it outside the `show` condition either way.
-        PaletteMixerHost(
+        // The colour picker is available for every tool; only painterly brushes can open the wet mixer.
+        TouchColorPickerHost(
+            canMixPaint = uiState.activeTool == Tool.BRUSH &&
+                actions.activeBrushForPreview()?.painterly == 1,
             show = uiState.showColorPicker,
             currentColor = uiState.activeColor,
             secondaryColor = uiState.secondaryColor,
