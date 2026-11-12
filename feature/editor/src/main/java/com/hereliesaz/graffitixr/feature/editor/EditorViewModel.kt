@@ -5418,29 +5418,47 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    private val viewTaps = ViewTapTracker()
+    /**
+     * Double-tap timing and slop are the platform's own, as detectTapGestures uses. The fallback
+     * (Android's documented 300 ms / 100 px defaults) only applies where there is no real Context,
+     * as in plain-JVM tests.
+     */
+    private val viewTaps: ViewTapTracker by lazy {
+        runCatching {
+            ViewTapTracker(
+                android.view.ViewConfiguration.getDoubleTapTimeout().toLong(),
+                android.view.ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat(),
+            )
+        }.getOrElse { ViewTapTracker(300L, 100f) }
+    }
 
-    /** Undo-stack size when the latest brush-tap dot started, to find that dot again. */
-    private var undoCountBeforeTapDot = -1
+    /** The next brush push is a tap dot that a double-tap may take back ([onBrushTap]). */
+    private var tapDotPending = false
+
+    /** The stroke the latest tap dot pushed, by identity; null until it lands. */
+    private var tapDotCommand: StrokeCommand? = null
 
     /**
      * A brush-style tap (a dot) is about to be painted at [at], [timeMs]. In a project with a 3D
-     * group a second tap close behind the first is a view-reset double-tap: the first tap's dot is
-     * taken back (no history entry, no redo) and true is returned so the caller paints nothing. In
-     * any other case it returns false and the caller paints as usual.
+     * group, a second tap close behind the first is a view-reset double-tap: the first tap's dot is
+     * removed BY IDENTITY (it was pushed as its own tentative entry, so no earlier stroke is
+     * touched, a full stack loses nothing and no redo is left), the view is reset and true is
+     * returned so the caller paints nothing. Otherwise false and the caller paints as usual.
      */
     fun onBrushTap(at: Offset, timeMs: Long): Boolean {
         val secondTap = hasThreeDGroup(_uiState.value.layers) && viewTaps.onTap(at.x, at.y, timeMs)
         if (!secondTap) {
-            undoCountBeforeTapDot = history.undoCount
+            tapDotCommand = null
+            tapDotPending = hasThreeDGroup(_uiState.value.layers)
             return false
         }
-        if (undoCountBeforeTapDot >= 0 && history.undoCount > undoCountBeforeTapDot && history.undoTopIsDraw()) {
-            undoTop()
-            while (history.redoCount > 0) history.dropTopRedo()
+        tapDotPending = false
+        val dot = tapDotCommand
+        tapDotCommand = null
+        if (dot != null && history.topDrawHolds(dot)) {
+            repeat(undoTop()) { history.dropTopRedo() }
             updateHistoryCounts()
         }
-        undoCountBeforeTapDot = -1
         resetViewport()
         return true
     }
@@ -10408,9 +10426,14 @@ class EditorViewModel @Inject constructor(
             gestureCommitted = command
             gestureCommittedLayerId = layerId
         }
+        val tapDot = tapDotPending
+        if (tapDot) {
+            tapDotPending = false
+            tapDotCommand = command
+        }
         return history.pushDraw(
-            layerId, command, chunkable, plane = plane,
-            continuesGesture = continues && !chained, chainedToPrevious = chained,
+            layerId, command, chunkable && !tapDot, plane = plane,
+            continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot,
         )
     }
 

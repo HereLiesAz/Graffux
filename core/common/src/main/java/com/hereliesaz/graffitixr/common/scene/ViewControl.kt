@@ -43,7 +43,7 @@ fun orbitAnglesForDrag(dx: Float, dy: Float, canvasWidth: Float): Pair<Float, Fl
  * Recognises a double-tap from taps fed in order: a tap within [timeoutMs] and [slopPx] of the
  * previous one is the second of a double-tap (and clears the state, so a third tap starts afresh).
  */
-class ViewTapTracker(private val timeoutMs: Long = 300L, private val slopPx: Float = 100f) {
+class ViewTapTracker(private val timeoutMs: Long, private val slopPx: Float) {
     private var lastTimeMs = Long.MIN_VALUE
     private var lastX = 0f
     private var lastY = 0f

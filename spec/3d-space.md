@@ -19,7 +19,7 @@ depends on whether the **active layer** is a 2D or a 3D layer (below):
 | One finger | the tool in hand (unchanged) | the tool in hand, on the layer's plane | drag the active layer (as before) |
 | Two-finger drag | pan the view | pan the view (orbit, in a project with a 3D group: see below) | slide the layer so it follows the fingers |
 | Pinch | zoom the view | zoom the view | move the layer in depth (out = nearer) |
-| Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn) | rotate the layer about the current axis |
+| Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn); in a project with a 3D group the camera is never orbited by a twist (retired, see below) | rotate the layer about the current axis |
 | Double-tap | nothing | step the axis X -> Y -> Z (reset the view, in a project with a 3D group) | step the axis X -> Y -> Z (reset the view, in a project with a 3D group) |
 | Brush / Eraser on a 3D strokes layer | | draw a tube on its guide / erase the curve under the finger | |
 | Brush / Eraser on a 3D model layer | | paint / erase the model's surface under the finger | |
@@ -37,8 +37,16 @@ Built in `:core:common` `scene/ViewControl.kt`: `hasThreeDGroup` (the one predic
 surface profile), `twoFingerViewMode`, the drag-to-angle mapping (`ORBIT_FULL_WIDTH_RADIANS`: one
 canvas width of drag is a half turn, same rate on both axes, pitch clamped by `SceneCamera.MAX_PITCH`),
 and `ViewTapTracker`. Orbit holds the pivot for the gesture and saves the camera at its end; it is
-never history. A brush double-tap takes back the first tap's dot (`EditorViewModel.onBrushTap`).
-Fill taps are not yet covered by the double-tap cancel.
+never history. Double-tap timing and slop are the platform's (`ViewConfiguration`).
+
+Cancelling the first tap's dot: in a 3D-group project a brush tap's dot is pushed as its own
+*tentative* history entry (`EditHistory.pushDraw(tentative = true)`: never chunk-joined, and the stack
+is not trimmed for it). A second tap in the window removes that entry by identity
+(`removeTopDrawHolding` via `onBrushTap`), so no earlier stroke is touched, a full stack loses nothing
+and no redo is left. A side effect: rapid dots in these projects are one undo step each instead of
+chunking. Known gaps: a fill tap and the Ink tool (its own surface) do not take part in the
+double-tap, so a double-tap there does not reset the view; and if the first dot's commit has not
+landed within the window (not seen: it is pushed synchronously on finger-up) it would stay.
 
 **The idea.** Once a project has a 3D group, the surface is the canvas. The rectangle that bounded
 the art while it was 2D-only is no longer something the user works inside; it matters again only at

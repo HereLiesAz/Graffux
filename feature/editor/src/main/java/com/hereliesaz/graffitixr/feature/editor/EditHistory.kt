@@ -81,6 +81,13 @@ internal class EditHistory(
          * that undo and redo act on both as one step. Ignored when the newest entry is not a stroke.
          */
         chainedToPrevious: Boolean = false,
+        /**
+         * A stroke that may be taken straight back (a brush-tap dot that turns out to be the first
+         * tap of a view-reset double-tap). It never joins a chunk and the stack is not trimmed for
+         * it, so removing it ([removeTopDrawHolding]) leaves every earlier entry exactly as it was.
+         * The next push trims the surplus.
+         */
+        tentative: Boolean = false,
     ): Boolean {
         val top = undoStack.lastOrNull()
         if (chainedToPrevious && top is EditCommand.Draw && top.layerId != layerId) {
@@ -106,7 +113,7 @@ internal class EditHistory(
             undoStack.addLast(
                 EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane),
             )
-            trim()
+            if (!tentative) trim()
         }
         clearRedo()
         return joined
@@ -121,6 +128,18 @@ internal class EditHistory(
 
     /** Whether the next entry redo would apply is a stroke. */
     fun redoTopIsDraw(): Boolean = redoStack.lastOrNull() is EditCommand.Draw
+
+    /**
+     * Removes the newest entry when it is a stroke entry of exactly [command] (by identity, alone in
+     * its entry), with no redo left behind. False, and nothing changed, otherwise.
+     */
+    fun removeTopDrawHolding(command: StrokeCommand): Boolean {
+        val top = undoStack.lastOrNull() as? EditCommand.Draw ?: return false
+        if (top.strokes.size != 1 || top.strokes[0] !== command) return false
+        undoStack.removeLast()
+        top.gpuUndo?.let(onGpuUndoDiscarded)
+        return true
+    }
 
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */
     fun topDrawHolds(command: StrokeCommand): Boolean =
@@ -328,7 +347,7 @@ internal class EditHistory(
     }
 
     private fun trim() {
-        if (undoStack.size > maxStackSize) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
+        while (undoStack.size > maxStackSize) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
     }
 
     private fun clearRedo() = redoStack.discardAll(onGpuUndoDiscarded)
