@@ -1,8 +1,5 @@
 package com.hereliesaz.graffitixr.common.scene
 
-import kotlin.math.max
-import kotlin.math.min
-
 /** A rectangle in canvas (scene) units: top-left corner and size. */
 data class SceneRect(val x: Float, val y: Float, val width: Float, val height: Float)
 
@@ -24,7 +21,7 @@ object DefaultSurface {
      * positive and finite.
      */
     fun rect(width: Float, height: Float): SceneRect? {
-        if (!(width > 0f) || !(height > 0f) || !width.isFinite() || !height.isFinite()) return null
+        if (!usable(width) || !usable(height)) return null
         val landscape = width > height
         val w = width * (if (landscape) LONG_FRACTION else SHORT_FRACTION)
         val h = height * (if (landscape) SHORT_FRACTION else LONG_FRACTION)
@@ -39,12 +36,15 @@ object DefaultSurface {
      * Null when the screen size or the chain is unusable.
      */
     fun profile(width: Float, height: Float, groupChain: List<PlanePose>): SurfaceProfile? {
-        val r = rect(width, height) ?: return null
-        val toLocal = SceneMath.chainModel(groupChain, width, height).inverse() ?: return null
+        val r = rect(width, height)
+        val toLocal = if (r == null) null else SceneMath.chainModel(groupChain, width, height).inverse()
+        if (r == null || toLocal == null) return null
         val a = toLocal.apply(r.x, r.y, 0f)
         val b = toLocal.apply(r.x + r.width, r.y, 0f)
         val sweep = SceneMath.normalize(toLocal.applyVector(0f, 1f, 0f))
         val profile = SurfaceProfile(a.toList() + b.toList(), sweep[0], sweep[1], sweep[2])
-        return profile.takeIf { it.isValid && min(r.width, r.height) > 0f && max(r.width, r.height) > 0f }
+        return profile.takeIf { it.isValid }
     }
+
+    private fun usable(v: Float) = v > 0f && v.isFinite()
 }
