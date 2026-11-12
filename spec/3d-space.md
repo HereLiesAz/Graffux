@@ -17,20 +17,28 @@ depends on whether the **active layer** is a 2D or a 3D layer (below):
 | Gesture | 2D layer | 3D layer, no Move tool | 3D layer, Move / Transform tool (Transform panel open) |
 |---|---|---|---|
 | One finger | the tool in hand (unchanged) | the tool in hand, on the layer's plane | drag the active layer (as before) |
-| Two-finger drag | pan the view | pan the view | slide the layer so it follows the fingers |
+| Two-finger drag | pan the view | pan the view (orbit, in a project with a 3D group: see below) | slide the layer so it follows the fingers |
 | Pinch | zoom the view | zoom the view | move the layer in depth (out = nearer) |
 | Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn) | rotate the layer about the current axis |
-| Double-tap | nothing | step the axis X -> Y -> Z | step the axis X -> Y -> Z |
+| Double-tap | nothing | step the axis X -> Y -> Z (reset the view, in a project with a 3D group) | step the axis X -> Y -> Z (reset the view, in a project with a 3D group) |
 | Brush / Eraser on a 3D strokes layer | | draw a tube on its guide / erase the curve under the finger | |
 | Brush / Eraser on a 3D model layer | | paint / erase the model's surface under the finger | |
 
 A double-tap never changes the active layer; a buried layer is picked from the layers rail. (The
 old double-tap that cycled through the layers under the finger is gone.)
 
-## Planned: view control in a project with 3D groups (not built)
+## View control in a project with 3D groups (gestures built; the rest planned)
 
-Status: design agreed with the owner, not implemented. Where this section and the table above
-disagree, this section is the target. Nothing here changes a project with no 3D group.
+Status: the view gestures below are built (not yet device-verified); the default surface, surface
+appearance and the open points are still planned. Where this section and the table above disagree,
+this section governs in a project with a 3D group. Nothing here changes a project with no 3D group.
+
+Built in `:core:common` `scene/ViewControl.kt`: `hasThreeDGroup` (the one predicate: a group with a
+surface profile), `twoFingerViewMode`, the drag-to-angle mapping (`ORBIT_FULL_WIDTH_RADIANS`: one
+canvas width of drag is a half turn, same rate on both axes, pitch clamped by `SceneCamera.MAX_PITCH`),
+and `ViewTapTracker`. Orbit holds the pivot for the gesture and saves the camera at its end; it is
+never history. A brush double-tap takes back the first tap's dot (`EditorViewModel.onBrushTap`).
+Fill taps are not yet covered by the double-tap cancel.
 
 **The idea.** Once a project has a 3D group, the surface is the canvas. The rectangle that bounded
 the art while it was 2D-only is no longer something the user works inside; it matters again only at
@@ -58,7 +66,7 @@ was the reference), and the one finger stays free for the tool in hand.
   (automatic, or placed by hand), held for the length of the gesture, with the pivot fixed on screen.
 - **A surface larger than the screen.** Orbiting never brings a far part of the surface into view
   (it only tilts it). Zoom out, then pinch in at the part wanted. This needs the pinch to zoom about
-  the midpoint between the fingers; whether it does today is unchecked.
+  the midpoint between the fingers; it does (`onViewportPanZoom` keeps the point under the midpoint fixed).
 
 ### The default surface
 
@@ -88,7 +96,7 @@ In both orientations that is 3/4 of the short side by 2/3 of the long side.
    Cancel), and its wording.
 3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
    designed.
-4. Whether the pinch already zooms about the fingers' midpoint.
+4. (Settled: the pinch zooms about the fingers' midpoint.)
 5. Which setting is "the canvas background colour" and which is the grid colour; and whether the
    wire-mesh button stays, now that the mesh is the grid.
 6. How export frames the view once the document boundary is not drawn.

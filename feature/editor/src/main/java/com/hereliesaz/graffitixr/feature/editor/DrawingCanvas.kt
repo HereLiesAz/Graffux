@@ -50,6 +50,11 @@ fun DrawingCanvas(
     onStrokeEnd: () -> Unit,
     onStrokeCancel: () -> Unit,
     onFillTap: (Offset, IntSize) -> Unit,
+    /**
+     * A brush tap (no drag) is about to paint its dot at the position and uptime; true = it was a
+     * view-reset double-tap, paint nothing.
+     */
+    onBrushTap: (Offset, Long) -> Boolean = { _, _ -> false },
     pickingCloneSource: Boolean = false,
     onPickCloneSource: (Offset) -> Unit = {},
     onEyedropStart: (IntSize) -> Unit,
@@ -344,6 +349,7 @@ fun DrawingCanvas(
                                     gate.strokeActive = false
                                     onStrokeEnd()
                                 }
+                                onBrushTap(change.position, change.uptimeMillis) -> Unit
                                 else -> {
                                     gate.strokeActive = true
                                     onStrokeStart(

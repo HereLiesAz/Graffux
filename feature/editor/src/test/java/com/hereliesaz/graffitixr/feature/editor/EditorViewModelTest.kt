@@ -1893,6 +1893,54 @@ class EditorViewModelTest {
         assertNotEquals(before, viewModel.uiState.value.activeRotationAxis)
     }
 
+    private fun group3d() = lyr("g").copy(
+        type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+        surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
+            listOf(0f, 0f, 0f, 500f, 0f, 0f, 1000f, 0f, 400f),
+        ),
+    )
+
+    @Test
+    fun `double-tap resets the view and does not step the axis in a project with a 3D group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g", rotationX = 10f)))
+        viewModel.onLayerActivated("c")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onViewportPanZoom(Offset(30f, 20f), 2f, Offset(100f, 100f))
+        viewModel.onSceneOrbit(0.4f, 0.2f)
+        val axis = viewModel.uiState.value.activeRotationAxis
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onCanvasDoubleTap()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val st = viewModel.uiState.value
+        assertTrue(st.sceneCamera.isDefault)
+        assertEquals(1f, st.viewportZoom, 0f)
+        assertEquals(axis, st.activeRotationAxis)
+        assertEquals(undo, st.undoCount)
+    }
+
+    @Test
+    fun `a brush double-tap in a 3D project is consumed, resets the view and adds no history`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onSceneOrbit(0.4f, 0.2f)
+        val undo = viewModel.uiState.value.undoCount
+        assertFalse("first tap paints its dot", viewModel.onBrushTap(Offset(50f, 50f), 1000L))
+        assertTrue("second tap is the double-tap", viewModel.onBrushTap(Offset(52f, 50f), 1150L))
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+    }
+
+    @Test
+    fun `a brush double-tap with no 3D group paints both taps and does not reset`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(viewModel.onBrushTap(Offset(50f, 50f), 1000L))
+        assertFalse(viewModel.onBrushTap(Offset(52f, 50f), 1150L))
+    }
+
     @Test
     fun `double-tap is a no-op on a 2D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()

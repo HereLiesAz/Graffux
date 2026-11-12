@@ -9,6 +9,11 @@ import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
 import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
+import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
+import com.hereliesaz.graffitixr.common.scene.ViewTapTracker
+import com.hereliesaz.graffitixr.common.scene.hasThreeDGroup
+import com.hereliesaz.graffitixr.common.scene.orbitAnglesForDrag
+import com.hereliesaz.graffitixr.common.scene.twoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.planePose
 
 import com.hereliesaz.graffitixr.common.model.importance
@@ -5405,7 +5410,39 @@ class EditorViewModel @Inject constructor(
      * layers rail.
      */
     fun onCanvasDoubleTap() {
-        if (_uiState.value.active3D()) onCycleRotationAxis()
+        val st = _uiState.value
+        when {
+            // A project with a 3D group: reset the view, and the axis step is retired.
+            hasThreeDGroup(st.layers) -> resetViewport()
+            st.active3D() -> onCycleRotationAxis()
+        }
+    }
+
+    private val viewTaps = ViewTapTracker()
+
+    /** Undo-stack size when the latest brush-tap dot started, to find that dot again. */
+    private var undoCountBeforeTapDot = -1
+
+    /**
+     * A brush-style tap (a dot) is about to be painted at [at], [timeMs]. In a project with a 3D
+     * group a second tap close behind the first is a view-reset double-tap: the first tap's dot is
+     * taken back (no history entry, no redo) and true is returned so the caller paints nothing. In
+     * any other case it returns false and the caller paints as usual.
+     */
+    fun onBrushTap(at: Offset, timeMs: Long): Boolean {
+        if (!hasThreeDGroup(_uiState.value.layers)) return false
+        if (!viewTaps.onTap(at.x, at.y, timeMs)) {
+            undoCountBeforeTapDot = history.undoCount
+            return false
+        }
+        if (undoCountBeforeTapDot >= 0 && history.undoCount > undoCountBeforeTapDot && history.undoTopIsDraw()) {
+            undoTop()
+            while (history.redoCount > 0) history.dropTopRedo()
+            updateHistoryCounts()
+        }
+        undoCountBeforeTapDot = -1
+        resetViewport()
+        return true
     }
 
     /**
@@ -13484,6 +13521,16 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
+        if (twoFingerViewMode(_uiState.value.layers) == TwoFingerViewMode.ORBIT) {
+            // 3D group: drag orbits about the held pivot, pinch zooms about the fingers' midpoint,
+            // twist turns the canvas only (the old Z behaviour).
+            onViewportPanZoom(Offset.Zero, zoom, centroid, rotation)
+            if (pan != Offset.Zero) {
+                val (yaw, pitch) = orbitAnglesForDrag(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
+                onSceneOrbit(yaw, pitch)
+            }
+            return
+        }
         // A 2D layer has no axis: a twist only rotates the canvas, as in 2D.
         val axis = if (_uiState.value.active3D()) _uiState.value.activeRotationAxis else RotationAxis.Z
         when (axis) {
