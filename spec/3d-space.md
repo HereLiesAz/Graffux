@@ -233,13 +233,27 @@ Built (the appearance only; the document boundary is a later slice).
   - *Not through it:* a selected frame's export (crops to the frame's box); a PDF of all frames when there is
     at least one (a page per frame); Share (hands a Uri to the host); the animation export; glTF (whole layer
     quads and camera, uncropped, so no rectangle). A project with no 3D group exports at once.
+  - *Content inside the rectangle may differ from the canvas view for SVG and PDF.* PNG and the poster PDF composite
+    with the scene camera (`compositeToDocument(..., camera = sceneCamera)`), so they match the orbited view.
+    SVG and PDF go through `designExportPage` -> `VectorScene.documentPage` (and `DesignRasterizer` for
+    what vectors can't express), which take no camera: they draw the layers flat. The rectangle is right for
+    every format; what is inside it is the canvas view only for PNG and poster. Not fixed here.
   - *Lifecycle:* the held export is dropped on a project switch and when the project stops having a 3D
     group (undo, delete). A request while another export runs is ignored; a second request while the frame
     is up replaces the held one; a second Export tap runs nothing.
+  - *Same-frame taps:* the running-export guard reads `isLoading`, which the export sets a frame after Confirm,
+    so it does not stop two requests in one frame; the second replaces the first and the held export runs once. A
+    project with no 3D group is never held up by a running job (it exports at once, as before the preview).
+  - *Dialog insets:* the controls use `safeDrawing` insets inside a dialog window with `decorFitsSystemWindows =
+    false`; how that reports insets below API 30 and with a cutout is not checked.
   - *Not covered by tests:* the scrim's pixels; the exported bitmap matching the rectangle on a device; the
     dialog's inset handling on a device with a cutout; TalkBack's focus being contained by the dialog window
-    (platform behaviour, not exercised); the host's rails and view buttons are in the activity window, so the
-    dialog blocks them by touch, but this is not device-checked; Compose rendering of the hidden page and
+    (platform behaviour, not exercised); a touch on a node beneath the dialog (Compose's test injection reaches each root directly, so a window-level
+    block cannot be exercised on the JVM); the call sites passing `uiState.exportPreview` to the gate modifiers
+    (the gates themselves are tested); the real `EditorScreen` placement of the outline (the shared
+    `viewportCamera` modifier and `ExportFrameLayer` are tested in a container of the test's own);
+    the host's rails and view buttons are in the activity window, so the dialog blocks them by touch, but this is
+    not device-checked; Compose rendering of the hidden page and
     outline in 3D projects (only the predicate `showsDocumentBoundary` is tested). Not device-verified.
 
 ### Open points

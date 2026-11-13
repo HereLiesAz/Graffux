@@ -1,11 +1,5 @@
 package com.hereliesaz.graffitixr.feature.editor
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.hasContentDescription
@@ -14,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.photo.DocumentCrop
+import com.hereliesaz.graffitixr.design.R
 import com.hereliesaz.graffitixr.design.theme.rememberExportPreviewStrings
 import com.hereliesaz.graffitixr.feature.editor.export.artboardRect
 import com.hereliesaz.graffitixr.feature.editor.export.exportFrameRect
@@ -27,10 +22,10 @@ import org.robolectric.shadows.ShadowDialog
 
 /**
  * The export frame: its rectangle is the one the exporter keeps (artboard, or the Crop tab's crop of it, with
- * no viewport in it), the outline lives in the camera's transformed space, and the controls are 48dp, labelled,
- * and in a dialog window (which is what is modal). Not covered: the scrim's pixels, the dialog's insets on a
- * device with a cutout, TalkBack's focus actually being unable to leave the dialog (a platform behaviour of a
- * dialog window, not exercised here), and the exported bitmap matching the rectangle on a device.
+ * no viewport in it), and the controls are 48dp, labelled, and in a dialog window (which is what is modal).
+ * The outline's placement in the camera is in ExportPreviewWiringTest. Not covered: the scrim's pixels, the
+ * dialog's insets on a device with a cutout, TalkBack's focus actually being unable to leave the dialog (a platform
+ * behaviour of a dialog window, not exercised here), and the exported bitmap matching the rectangle on a device.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w400dp-h800dp")
@@ -80,33 +75,11 @@ class ExportFramePreviewTest {
     @Test
     fun `both buttons have TalkBack labels`() {
         show()
-        rule.onNode(hasContentDescription("Export the area inside the frame")).assertExists()
-        rule.onNode(hasContentDescription("Cancel the export")).assertExists()
-    }
-
-    @Test
-    fun `the outline sits in the camera's transformed space`() {
-        var inRoot = androidx.compose.ui.geometry.Rect.Zero
-        rule.setContent {
-            Box(
-                Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = 2f
-                    scaleY = 2f
-                    translationX = 30f
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                },
-            ) {
-                ExportFrameOutline(
-                    floatArrayOf(10f, 20f, 100f, 200f),
-                    Modifier.fillMaxSize().onGloballyPositioned { inRoot = it.boundsInRoot() },
-                )
-            }
-        }
-        rule.waitForIdle()
-        // A full-size child of a 2x container: its bounds are the container's, scaled and moved with it.
-        assertEquals(30f, inRoot.left, 0.5f)
-        val width = rule.onNodeWithTag("exportPreview.frame").fetchSemanticsNode().size.width
-        assertEquals(2f, inRoot.width / width, 0.01f)
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        rule.onNode(hasContentDescription(context.getString(R.string.export_preview_confirm_description)))
+            .assertExists()
+        rule.onNode(hasContentDescription(context.getString(R.string.export_preview_cancel_description)))
+            .assertExists()
     }
 
     // ── The rectangle: what the exporter keeps ───────────────────────────────────────────────────

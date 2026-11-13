@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.toArgb
@@ -170,8 +171,8 @@ fun EditorScreen(
     // performGestureAction against the live mapping rather than a fixed call. A pure observer —
     // consumes nothing, so painting and navigation are unaffected.
     val gestureObserver = if (hostStrokeGate == null) {
-        Modifier.multiFingerTaps(strokeGate) { slot, at ->
-            if (!uiState.exportPreview) performGestureAction(uiState.gestureMapping, slot, vm, at)
+        Modifier.historyGestures(strokeGate, uiState.exportPreview) { slot, at ->
+            performGestureAction(uiState.gestureMapping, slot, vm, at)
         }
     } else {
         Modifier
@@ -203,17 +204,14 @@ fun EditorScreen(
             // the tool surfaces, so it sees exactly the events they declined to consume. Dropped
             // entirely while the quick menu is open, so a gesture aimed at the menu does not also
             // swing the canvas behind it.
-            .then(
-                if (uiState.quickMenuAt == null && !uiState.exportPreview) {
-                    // The view, or the active layer with the Move tool in hand (spec/3d-space.md).
-                    Modifier.canvasNavigation(
-                        onStart = { vm.onTwoFingerStart() },
-                        onEnd = { vm.onTwoFingerEnd() },
-                    ) { pan, zoom, centroid, rotation ->
-                        vm.onTwoFingerGesture(pan, zoom, centroid, rotation)
-                    }
-                } else Modifier
-            )
+            .cameraNavigationUnless(
+                blocked = uiState.quickMenuAt != null || uiState.exportPreview,
+                onStart = { vm.onTwoFingerStart() },
+                onEnd = { vm.onTwoFingerEnd() },
+            ) { pan, zoom, centroid, rotation ->
+                // The view, or the active layer with the Move tool in hand (spec/3d-space.md).
+                vm.onTwoFingerGesture(pan, zoom, centroid, rotation)
+            }
     ) {
         // The inactive-layer cache's two renders (spec/3d-space.md, "Inactive-layer cache").
         val graphicsContext = androidx.compose.ui.platform.LocalGraphicsContext.current
@@ -224,14 +222,7 @@ fun EditorScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = uiState.viewportZoom
-                    scaleY = uiState.viewportZoom
-                    rotationZ = uiState.viewportRotation
-                    translationX = uiState.viewportOffset.x
-                    translationY = uiState.viewportOffset.y
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
+                .viewportCamera(uiState.viewportZoom, uiState.viewportOffset, uiState.viewportRotation)
         ) {
             // The canvas box in pixels: the frame of the one 3D space (spec/3d-space.md).
             val boxWidth = constraints.maxWidth.toFloat()
@@ -470,12 +461,13 @@ fun EditorScreen(
         // 1b'. The export frame's picture (a 3D project's export, before it runs): here, inside the camera
         // container, so it lands on the part of the artwork the exporter keeps whatever the view is. Its
         // Export / Cancel are in a dialog window at the end (ExportFrameControls).
-        if (uiState.exportPreview) {
-            val exportRect = remember(uiState.documentWidth, uiState.documentHeight, uiState.documentCrop) {
-                vm.currentExportFrameRect()
-            }
-            ExportFrameOutline(exportRect, Modifier.fillMaxSize())
-        }
+        val displayMetrics = LocalContext.current.resources.displayMetrics
+        // Keyed on the display size too: the exporter's world is the display's pixels.
+        val exportRect = remember(
+            uiState.exportPreview, uiState.documentWidth, uiState.documentHeight, uiState.documentCrop,
+            displayMetrics.widthPixels, displayMetrics.heightPixels,
+        ) { if (uiState.exportPreview) vm.currentExportFrameRect() else null }
+        ExportFrameLayer(exportRect, Modifier.fillMaxSize())
 
         // 1c. Snap guides — world-space alignment lines shown while dragging a layer. Drawn inside the
         // camera container so they pan/zoom/rotate with the workspace. Purely visual.

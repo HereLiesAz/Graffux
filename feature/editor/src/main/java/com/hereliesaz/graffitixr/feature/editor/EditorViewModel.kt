@@ -5133,15 +5133,19 @@ class EditorViewModel @Inject constructor(
     /**
      * Runs [export] now, or, in a project with a 3D group, after the user has seen the frame it crops to
      * and confirmed: the artboard is not drawn while editing there, so this is where it is shown. Ignored
-     * while another long operation (an export) is running. A request made while the preview is already up
+     * on the preview path while another long operation (an export) is running; a project without a 3D group
+     * is never held up by one. A request made while the preview is already up
      * replaces the held one (the newest wins); the preview itself is modal, so only the host menu can do it.
      */
     private fun exportAfterPreview(export: PendingExport) {
-        if (_uiState.value.isLoading) return
         if (!hasThreeDGroup(_uiState.value.layers)) {
-            runExport(export)
+            runExport(export) // exactly as before the preview existed: no guard, no wait
             return
         }
+        // The preview path only: not over a running job. `isLoading` is set inside the launched export, a
+        // frame after Confirm, so two taps in one frame can still both open a preview; the second replaces the
+        // first, and the held export runs once on Confirm.
+        if (_uiState.value.isLoading) return
         pendingExport = export
         if (!_uiState.value.exportPreview) dispatch(EditorIntent.SetExportPreview(true))
     }

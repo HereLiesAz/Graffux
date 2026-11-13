@@ -3325,6 +3325,16 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a project without a 3D group still exports while another job is loading`() = runTest {
+        withLayers(threeD = false)
+        viewModel.dispatchForTest(EditorIntent.SetLoading(true, "Busy"))
+        viewModel.requestExportImage()
+        assertFalse(preview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
     fun `a request while an export is running is ignored`() = runTest {
         withLayers(threeD = true)
         viewModel.dispatchForTest(EditorIntent.SetLoading(true, "Exporting…"))

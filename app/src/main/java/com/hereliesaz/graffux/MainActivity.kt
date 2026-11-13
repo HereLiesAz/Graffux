@@ -137,7 +137,7 @@ import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
 import com.hereliesaz.graffitixr.feature.editor.OpenProjectWindow
 import com.hereliesaz.graffitixr.feature.editor.SaveProjectDialog
 import com.hereliesaz.graffitixr.feature.editor.StrokeGate
-import com.hereliesaz.graffitixr.feature.editor.multiFingerTaps
+import com.hereliesaz.graffitixr.feature.editor.historyGestures
 import com.hereliesaz.graffitixr.feature.editor.performGestureAction
 import com.hereliesaz.graffitixr.data.azphalt.AzphaltStoreHandoff
 import com.hereliesaz.graffitixr.feature.editor.LayerOptionsDialog
@@ -901,9 +901,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             .trackSurfaceAnchor(surfaceAnchor)
             // A press anywhere off the pack wheel shuts it (and still does what it does).
             .closesPackWheelOutside(packWheel)
-            .multiFingerTaps(strokeGate) { slot, at ->
-                // Not while the export frame is up: a tap-undo would change what is about to be exported.
-                if (!uiState.exportPreview) performGestureAction(uiState.gestureMapping, slot, vm, at)
+            // Not while the export frame is up: a tap-undo would change what is about to be exported.
+            .historyGestures(strokeGate, uiState.exportPreview) { slot, at ->
+                performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
     ) {
         Surface(
