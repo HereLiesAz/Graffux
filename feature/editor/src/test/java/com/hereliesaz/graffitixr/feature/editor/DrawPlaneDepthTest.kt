@@ -31,6 +31,7 @@ import org.junit.Before
 import com.hereliesaz.graffitixr.common.model.Op
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -52,6 +53,7 @@ import org.junit.runner.RunWith
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
+@Suppress("LargeClass")
 class DrawPlaneDepthTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -475,7 +477,7 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `reverting a made layer emits LayerRemove and deletes its first PNG, only after its save`() = runTest(dispatcher) {
+    fun `reverting a made layer emits LayerRemove and deletes its PNG, only after its save`() = runTest(dispatcher) {
         loadProject("P")
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         io.mockk.coEvery { projectRepo.saveArtifact("P", any(), any()) } coAnswers { gate.await(); "path" }
@@ -636,26 +638,94 @@ class DrawPlaneDepthTest {
         assertNull(vm.drawPlaneReference())
     }
 
+    private fun moveSurface(dz: Float) {
+        val moved = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
+            listOf(0f, 0f, dz, 24f, 0f, dz, 48f, 0f, dz + 20f),
+        )
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.map { if (it.id == "G") it.copy(surface = moved) else it }))
+    }
+
     @Test
-    fun `the depth is an offset from the automatic one, which follows the layers, so it is not pinned`() =
+    fun `the depth is an offset from the automatic one, so it follows the pivot and is not pinned`() =
         runTest(dispatcher) {
             setup()
             vm.onDrawDepthDrag(-200f)
             val factor = ui().drawPlane!!.factor
             val auto = vm.automaticDrawDepth()!!.first
-            assertEquals(auto * factor, vm.effectiveDrawDepth()!!, 0.01f)
+            val eff = vm.effectiveDrawDepth()!!
+            assertEquals(auto * factor, eff, 0.01f)
             assertTrue("nearer than automatic", factor < 1f)
-            // The automatic depth moves when what the pivot is made of moves; the factor stays, the plane follows.
-            val moved = ui().layers.map { if (it.id == "L") it.copy(positionZ = 300f) else it }
-            vm.dispatchForTest(EditorIntent.SetLayers(moved))
+            // Move what defines the pivot (the surface): the automatic depth changes, the factor stays.
+            moveSurface(400f)
             val autoAfter = vm.automaticDrawDepth()!!.first
+            assertNotEquals(auto, autoAfter, 1f)
             assertEquals(factor, ui().drawPlane!!.factor, 0f)
             assertEquals(autoAfter * factor, vm.effectiveDrawDepth()!!, 0.01f)
+            assertNotEquals("an absolute depth would not have moved", eff, vm.effectiveDrawDepth()!!, 1f)
             // Reset is automatic again: nothing is set, and the next stroke takes no plane.
             vm.onResetDrawDepth()
             assertNull(vm.effectiveDrawDepth())
             assertFalse(vm.adoptViewPlaneForStroke())
         }
+
+    @Test
+    fun `the factor is kept while the reference plane itself moves`() = runTest(dispatcher) {
+        setup()
+        vm.onSceneOrbit(0.5f, 0.1f)
+        stroke()
+        vm.onDrawDepthDrag(150f)
+        val factor = ui().drawPlane!!.factor
+        val auto = vm.automaticDrawDepth()!!.first
+        val moved = ui().layers.map { if (it.id == "L") it.copy(positionZ = 300f) else it }
+        vm.dispatchForTest(EditorIntent.SetLayers(moved))
+        val autoAfter = vm.automaticDrawDepth()!!.first
+        assertNotEquals(auto, autoAfter, 1f)
+        assertEquals(factor, ui().drawPlane!!.factor, 0f)
+        assertEquals(autoAfter * factor, vm.effectiveDrawDepth()!!, 0.01f)
+    }
+
+    @Test
+    fun `a drag past the clamp does not remember the overshoot`() = runTest(dispatcher) {
+        setup()
+        vm.onDrawDepthDrag(1_000_000f)
+        val focal = vm.automaticDrawDepth()!!.second
+        val range = com.hereliesaz.graffitixr.common.scene.DrawPlane.depthRange(focal)
+        assertEquals(range.endInclusive, vm.effectiveDrawDepth()!!, 0.01f)
+        vm.onDrawDepthDrag(-400f)
+        assertEquals(range.endInclusive / 4f, vm.effectiveDrawDepth()!!, 0.01f)
+    }
+
+    @Test
+    fun `the slider reaches both ends of the range`() = runTest(dispatcher) {
+        setup()
+        val focal = vm.automaticDrawDepth()!!.second
+        val range = com.hereliesaz.graffitixr.common.scene.DrawPlane.depthRange(focal)
+        vm.onSetDrawDepthFraction(0f)
+        assertEquals(0f, vm.drawDepthFraction(), 0.001f)
+        assertEquals(range.start, vm.effectiveDrawDepth()!!, 0.01f)
+        vm.onSetDrawDepthFraction(1f)
+        assertEquals(1f, vm.drawDepthFraction(), 0.001f)
+        assertEquals(range.endInclusive, vm.effectiveDrawDepth()!!, 0.01f)
+    }
+
+    @Test
+    fun `a pivot behind the camera says so, stays automatic and leaves no dead control`() = runTest(dispatcher) {
+        setup()
+        val seen = mutableListOf<EditorNotice>()
+        val job = launch(dispatcher) { vm.notices.collect { seen += it } }
+        dispatcher.scheduler.runCurrent()
+        moveSurface(-50_000f)
+        assertNull("the automatic depth is not usable", vm.automaticDrawDepth())
+        vm.onDrawDepthDragStart()
+        vm.onDrawDepthDrag(-100f)
+        vm.onDrawDepthDrag(-100f)
+        dispatcher.scheduler.runCurrent()
+        assertEquals("said once", 1, seen.size)
+        assertNull(ui().drawPlane)
+        assertNull(vm.effectiveDrawDepth())
+        assertFalse(vm.adoptViewPlaneForStroke())
+        job.cancel()
+    }
 
     @Test
     fun `the slider fraction and the guide read the effective depth`() = runTest(dispatcher) {

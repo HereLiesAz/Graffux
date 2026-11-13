@@ -122,6 +122,7 @@
     <string name="rail_draw_depth_reset">Reset draw distance</string>
     <string name="notice_draw_depth_surface">Draw distance does not apply to a layer on a surface: it keeps to the surface.</string>
     <string name="notice_draw_depth_strokes_layer">Draw distance does not apply to the 3D strokes layer: it keeps its own guide depth.</string>
+    <string name="notice_draw_depth_behind">Draw distance is not available here: the point it is measured from is behind the view.</string>
     <string name="notice_draw_depth_paint_only">Draw distance applies to paint layers.</string>
     <string name="rail_set_brush_size">Set brush size</string>
     <string name="rail_brush_menu">Brush menu</string>

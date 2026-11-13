@@ -816,6 +816,35 @@ class EditorViewModel @Inject constructor(
         },
     )
 
+    // The model-layer and export state the project load collector reaches during construction (restoreModelLayers,
+    // cancelExportPreview): declared before the init blocks, with the rest above.
+    // The export the export-frame preview is holding until Export or Cancel (spec/3d-space.md, "Export").
+    private var pendingExport: PendingExport? = null
+
+    /** Parsed meshes by `<projectId>/<objFile>`: a duplicated layer shares its original's. */
+    private val modelMeshCache = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelMesh>()
+
+    /**
+     * Each model layer's texture as read from disk at load. An undo snapshot taken before the load
+     * finished holds the layer without it; [fillModel] puts it back.
+     */
+    private val modelTexturesOnDisk = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+
+    /**
+     * The texture revision last written (or loaded) for each model layer and its file, so a save
+     * writes only a changed one and an unchanged one keeps the name it is stored under (a migrated
+     * project's `model_texture.png`, say).
+     */
+    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, WrittenTexture>()
+
+    /** Model layers whose saved texture file could not be read: painting them is refused. */
+    private val modelTextureLoadFailed = HashSet<String>()
+
+    private val _projectGate = MutableStateFlow<ProjectGateState?>(null)
+
+    /** The mandatory project dialog, or null when it is not shown. */
+    val projectGate: StateFlow<ProjectGateState?> = _projectGate.asStateFlow()
+
     // Draw plane depth session state (spec/3d-space.md, "Draw plane depth"). Declared before the init blocks:
     // the project load and close collectors reset it ([resetDrawPlaneSession]) during construction.
     /** The newest stroke's layer and the view it was drawn in: the reference plane while that view holds. */
@@ -5189,8 +5218,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // The export the export-frame preview is holding until Export or Cancel (spec/3d-space.md, "Export").
-    private var pendingExport: PendingExport? = null
 
     /** The held export, for tests. */
     internal val pendingExportForTest: PendingExport? get() = pendingExport
@@ -12334,11 +12361,6 @@ class EditorViewModel @Inject constructor(
 
     // ── Project dialog (mandatory; see ProjectGateDialog) and GPU calibration around it ─────
 
-    private val _projectGate = MutableStateFlow<ProjectGateState?>(null)
-
-    /** The mandatory project dialog, or null when it is not shown. */
-    val projectGate: StateFlow<ProjectGateState?> = _projectGate.asStateFlow()
-
     /** GPU tuning; null where the controller cannot start (JVM unit tests with a mock context). */
     private val gpuTuning: com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController? by lazy {
         runCatching { com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.get(context) }.getOrNull()
@@ -13886,6 +13908,16 @@ class EditorViewModel @Inject constructor(
 
     // ── Draw plane depth (spec/3d-space.md, "Draw plane depth") ──
 
+    /** Runs [block] with the last-stroke reference kept across the layer change it makes; always lowers the flag. */
+    private inline fun keepingStrokeReference(block: () -> Unit) {
+        keepStrokeReference = true
+        try {
+            block()
+        } finally {
+            keepStrokeReference = false
+        }
+    }
+
     /** Undone or dropped [strokes] are no longer the reference: the strokes before them are again. */
     private fun retireLastStroke(strokes: Collection<StrokeCommand>) {
         lastStroke = lastStroke?.without(strokes)
@@ -13969,7 +14001,7 @@ class EditorViewModel @Inject constructor(
         return if (auto > 0f && auto.isFinite()) auto to cam.focal else null
     }
 
-    /** The effective depth now (set factor times the automatic depth, clamped) and the focal length; null with none. */
+    /** The effective depth now (set factor times the automatic, clamped) and the focal length; null with none. */
     private fun currentDrawDepth(state: EditorUiState): Pair<Float, Float>? {
         val (auto, focal) = automaticDrawDepth(state) ?: return null
         val factor = state.drawPlane?.takeIf { it.holdsIn(state) }?.factor ?: 1f
@@ -14030,6 +14062,17 @@ class EditorViewModel @Inject constructor(
     private fun setDrawDepth(next: (current: Float, focal: Float) -> Float) {
         val state = _uiState.value
         val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return
+        if (state.canvasSize.width <= 0 || state.canvasSize.height <= 0) return
+        val unusable = automaticDrawDepth(state) == null
+        // The point the depth is measured from is behind the eye: no plane to offset. Say so, and stay automatic.
+        if (unusable) {
+            if (!drawDepthNoticed) notify(context.getString(DesignR.string.notice_draw_depth_behind))
+            drawDepthNoticed = true
+            if (state.drawPlane != null) {
+                writeState(follow = false) { it.copy(drawPlane = null, drawPlaneGuideShown = false) }
+            }
+            return
+        }
         val (current, focal) = currentDrawDepth(state) ?: return
         val auto = automaticDrawDepth(state)?.first ?: return
         drawDepthRefusal(state, layer)?.let { notice ->
@@ -14124,16 +14167,16 @@ class EditorViewModel @Inject constructor(
         if (base != null) layerStore.putBase(layer.id, base) else putLayerBase(layer.id, blank)
         layerStore.initStrokes(layer.id)
         val index = state.layers.indexOfFirst { it.id == below.id }.let { if (it < 0) state.layers.size else it + 1 }
-        keepStrokeReference = true
-        updateUi { s ->
-            s.copy(
-                layers = s.layers.toMutableList().apply { add(index.coerceAtMost(size), layer) },
-                activeLayerId = layer.id,
-                drawPlane = null,
-                drawPlaneGuideShown = false,
-            )
+        keepingStrokeReference {
+            updateUi { s ->
+                s.copy(
+                    layers = s.layers.toMutableList().apply { add(index.coerceAtMost(size), layer) },
+                    activeLayerId = layer.id,
+                    drawPlane = null,
+                    drawPlaneGuideShown = false,
+                )
+            }
         }
-        keepStrokeReference = false
         emitMembership(Op.LayerAdd(layer))
         planeLayerFiles[layer.id] = if (projectId != null && uri != null) projectId to filename else null
         persistNewLayerBitmap(projectId, uri, filename, blank)?.let { planeLayerSaves[layer.id] = it }
@@ -14163,14 +14206,14 @@ class EditorViewModel @Inject constructor(
             applyPlane(id, swap.before)
             return
         }
-        keepStrokeReference = true
-        updateUi { s ->
-            s.copy(
-                layers = s.layers.filterNot { it.id == id },
-                activeLayerId = if (s.activeLayerId == id) made.previousActiveId else s.activeLayerId,
-            )
+        keepingStrokeReference {
+            updateUi { s ->
+                s.copy(
+                    layers = s.layers.filterNot { it.id == id },
+                    activeLayerId = if (s.activeLayerId == id) made.previousActiveId else s.activeLayerId,
+                )
+            }
         }
-        keepStrokeReference = false
         emitMembership(Op.LayerRemove(id))
         saveProject()
     }
@@ -14178,14 +14221,14 @@ class EditorViewModel @Inject constructor(
     /** Redo of a stroke that made its layer: the layer comes back, empty, before the stroke is replayed onto it. */
     private fun reinsertPlaneLayer(made: CreatedPlaneLayer) {
         if (_uiState.value.layers.any { it.id == made.layer.id }) return
-        keepStrokeReference = true
-        updateUi { s ->
-            s.copy(
-                layers = s.layers.toMutableList().apply { add(made.index.coerceIn(0, size), made.layer) },
-                activeLayerId = made.layer.id,
-            )
+        keepingStrokeReference {
+            updateUi { s ->
+                s.copy(
+                    layers = s.layers.toMutableList().apply { add(made.index.coerceIn(0, size), made.layer) },
+                    activeLayerId = made.layer.id,
+                )
+            }
         }
-        keepStrokeReference = false
         emitMembership(Op.LayerAdd(made.layer))
         saveProject()
     }
@@ -14951,24 +14994,10 @@ class EditorViewModel @Inject constructor(
 
     // ── 3D model layers (spec/3d-space.md, "3D model layers") ──────────────────────────────
 
-    /** Parsed meshes by `<projectId>/<objFile>`: a duplicated layer shares its original's. */
-    private val modelMeshCache = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelMesh>()
-
-    /**
-     * Each model layer's texture as read from disk at load. An undo snapshot taken before the load
-     * finished holds the layer without it; [fillModel] puts it back.
-     */
-    private val modelTexturesOnDisk = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
 
     /** A texture revision on disk, and the file in the project folder that holds it. */
     private class WrittenTexture(val texture: com.hereliesaz.graffitixr.common.scene.ModelTexture, val file: String)
 
-    /**
-     * The texture revision last written (or loaded) for each model layer and its file, so a save
-     * writes only a changed one and an unchanged one keeps the name it is stored under (a migrated
-     * project's `model_texture.png`, say).
-     */
-    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, WrittenTexture>()
 
     /** A paint stroke on a model layer in progress. */
     private class ModelStroke(
@@ -15253,8 +15282,6 @@ class EditorViewModel @Inject constructor(
      * missing or unreadable OBJ leaves the layer empty, never the project broken; a missing texture
      * is unpainted.
      */
-    /** Model layers whose saved texture file could not be read: painting them is refused. */
-    private val modelTextureLoadFailed = HashSet<String>()
 
     /**
      * A model layer's saved paint from [dir], or null when the layer names none (or the file is gone). Throws

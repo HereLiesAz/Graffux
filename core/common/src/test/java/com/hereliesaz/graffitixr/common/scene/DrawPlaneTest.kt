@@ -135,4 +135,26 @@ class DrawPlaneTest {
         assertEquals(DrawPlane.depthRange(focal).start, DrawPlane.effectiveDepth(auto, 0.0001f, focal), 0f)
         assertEquals(DrawPlane.depthRange(focal).endInclusive, DrawPlane.effectiveDepth(auto, 1e6f, focal), 0f)
     }
+
+    @Test
+    fun `an edge-on reference measures the automatic depth at the pivot, so a factor of one is no jump`() {
+        val edgeOn = SceneMath.model(PlanePose(rotationY = 89f), w, h)
+        val c = cam()
+        val pivot = floatArrayOf(500f, 800f, 800f)
+        val auto = DrawPlane.anchorDepth(edgeOn, c, pivot)
+        assertEquals(c.toCamera(pivot)[2], auto, 1e-3f)
+        val world = DrawPlane.world(c, edgeOn, pivot, auto)!!
+        for (i in 0..2) assertEquals(pivot[i], world.apply(w / 2f, h / 2f, 0f)[i], eps)
+    }
+
+    @Test
+    fun `a usable reference measures the automatic depth at its own centre and k of one leaves it in place`() {
+        val reference = SceneMath.model(PlanePose(rotationY = 40f, positionZ = 100f), w, h)
+        val c = cam()
+        val auto = DrawPlane.anchorDepth(reference, c, floatArrayOf(500f, 800f, 800f))
+        assertEquals(depthOf(reference, c), auto, 1e-3f)
+        val world = DrawPlane.world(c, reference, null, auto)!!
+        val at = reference.apply(w / 2f, h / 2f, 0f)
+        for (i in 0..2) assertEquals(at[i], world.apply(w / 2f, h / 2f, 0f)[i], eps)
+    }
 }

@@ -49,7 +49,18 @@ object DrawPlane {
 
     /** The scene point the depth is measured at: the reference's box centre, else the pivot, else the target. */
     fun anchor(reference: Affine3?, cam: CameraFrame, pivot: FloatArray?): FloatArray =
-        reference?.apply(cam.width / 2f, cam.height / 2f, 0f) ?: pivot ?: cam.target
+        reference?.takeIf { isUsable(cam, it) }?.apply(cam.width / 2f, cam.height / 2f, 0f) ?: pivot ?: cam.target
+
+    /**
+     * Whether [reference] can be offset along its normal: not seen nearly edge-on, and its centre in front of the eye.
+     * [world] falls back to the camera-facing plane through the pivot otherwise, and [anchor] measures there too, so a
+     * factor of 1 is the automatic plane whichever is used.
+     */
+    private fun isUsable(cam: CameraFrame, reference: Affine3): Boolean {
+        val facing = kotlin.math.abs(SceneMath.dot(SceneMath.normalize(reference.column(2)), cam.forward))
+        val z0 = cam.toCamera(reference.apply(cam.width / 2f, cam.height / 2f, 0f))[2]
+        return facing >= MIN_FACING && facing.isFinite() && z0 > 0f
+    }
 
     /** The depth of the automatic plane: the anchor's own distance, which a drag starts from. */
     fun anchorDepth(reference: Affine3?, cam: CameraFrame, pivot: FloatArray?): Float =
@@ -90,12 +101,12 @@ object DrawPlane {
 
     @Suppress("ReturnCount")
     private fun parallelWorld(cam: CameraFrame, reference: Affine3, depth: Float): Affine3? {
+        if (!isUsable(cam, reference)) return null
         val raw = SceneMath.normalize(reference.column(2))
         val toward = if (SceneMath.dot(raw, cam.forward) > 0f) FloatArray(3) { -raw[it] } else raw
         val facing = -SceneMath.dot(toward, cam.forward)
-        val at = anchor(reference, cam, null)
+        val at = reference.apply(cam.width / 2f, cam.height / 2f, 0f)
         val z0 = cam.toCamera(at)[2]
-        if (facing < MIN_FACING || !facing.isFinite() || z0 <= 0f) return null
         val shift = (z0 - depth) / facing
         val centre = FloatArray(3) { at[it] + toward[it] * shift }
         val k = depth / z0
