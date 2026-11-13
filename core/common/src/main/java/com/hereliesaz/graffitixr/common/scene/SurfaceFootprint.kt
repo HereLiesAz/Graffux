@@ -97,7 +97,8 @@ object SurfaceFootprint {
         cam: CameraFrame,
     ): SurfaceHit? {
         val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)
-        val reach = SceneMath.farPlane(cam.focal) * 0.5f / scale
+        val limit = profile.sweepLimit
+        val reach = minOf(SceneMath.farPlane(cam.focal) * 0.5f / scale, limit ?: Float.POSITIVE_INFINITY)
         fun camAt(u: Float, t: Float): FloatArray {
             val p = profile.at(u, t)
             return cam.toCamera(model.apply(p[0], p[1], p[2]))
@@ -126,6 +127,8 @@ object SurfaceFootprint {
             val u0 = profile.arcLengths[i]
             val u1 = profile.arcLengths[i + 1]
             consider(camAt(u0, 0f), camAt(u1, 0f)) { f -> (u0 + (u1 - u0) * f) to 0f }
+            // A bounded sheet has a far edge too, where its sweep ends.
+            if (limit != null) consider(camAt(u0, reach), camAt(u1, reach)) { f -> (u0 + (u1 - u0) * f) to reach }
         }
         for (i in 0 until profile.count) {
             val u = profile.arcLengths[i]

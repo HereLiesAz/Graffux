@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 /** The project.json format version this build writes; see [GraffitiProject.formatVersion]. */
-const val CURRENT_FORMAT_VERSION = 13
+const val CURRENT_FORMAT_VERSION = 14
 
 /**
  * True when [formatVersion] is newer than this build writes. Such a project is opened read-only:
@@ -76,6 +76,8 @@ data class GraffitiProject(
      *   the step only records the version.
      * - 13: [orbitPivot], a rotation point the user placed. A version 12 file has none (automatic); the
      *   step only records the version.
+     * - 14: `SurfaceProfile.reach`, how far a flat sheet's sweep reaches (the default surface). A version 13
+     *   file has none (unbounded, as drawn surfaces are); the step only records the version.
      */
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val id: String = UUID.randomUUID().toString(),

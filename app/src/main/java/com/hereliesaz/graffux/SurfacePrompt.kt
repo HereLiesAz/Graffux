@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.common.model.ReliefBuildStage
 import com.hereliesaz.graffitixr.common.model.ReliefBuildState
 import com.hereliesaz.graffitixr.common.model.SurfaceDrawNotice
+import com.hereliesaz.graffitixr.common.model.surfaceDrawArmed
 import com.hereliesaz.graffitixr.common.scene.ReliefSurface
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.design.theme.Amber
@@ -79,6 +80,7 @@ internal fun surfacePromptContent(
         SurfaceDrawNotice.LOCKED -> s.locked
         SurfaceDrawNotice.UNAVAILABLE -> s.unavailable
         SurfaceDrawNotice.TOO_SHORT -> s.tooShort
+        SurfaceDrawNotice.HAS_ART -> s.hasArt
         SurfaceDrawNotice.DONE -> s.done
         SurfaceDrawNotice.VIEW_DONE -> s.viewDone
         null -> null
@@ -126,6 +128,8 @@ internal fun SurfacePromptChip(
     onDrawView: ((SurfaceView) -> Unit)? = null,
     /** While armed, on a photo layer: build the surface from the image's depth instead of drawing it. */
     onBuildFromImage: (() -> Unit)? = null,
+    /** While armed for a group's first (front) surface: skip drawing and use the default flat sheet. */
+    onSkip: (() -> Unit)? = null,
 ) {
     val strings = rememberAppStrings().surface
     val content = surfacePromptContent(armed, notice, strings, view, views) ?: return
@@ -188,16 +192,27 @@ internal fun SurfacePromptChip(
                     .testTag("surface.prompt.buildRelief"),
             ) { Text(rememberAppStrings().relief.rail, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
         }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .align(Alignment.End)
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .clickable(role = Role.Button, onClick = onCancel)
-                .padding(horizontal = 14.dp)
-                .testTag("surface.prompt.cancel"),
-        ) {
-            Text(if (armed) strings.cancel else strings.ok, style = MaterialTheme.typography.labelLarge, color = colors.primary)
+        Row(Modifier.align(Alignment.End)) {
+            if (armed && onSkip != null) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                        .clickable(role = Role.Button, onClick = onSkip)
+                        .padding(horizontal = 14.dp)
+                        .testTag("surface.prompt.skip"),
+                ) { Text(strings.skip, style = MaterialTheme.typography.labelLarge, color = colors.primary) }
+            }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .clickable(role = Role.Button, onClick = onCancel)
+                    .padding(horizontal = 14.dp)
+                    .testTag("surface.prompt.cancel"),
+            ) {
+                Text(if (armed) strings.cancel else strings.ok, style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            }
         }
     }
 }
@@ -224,6 +239,7 @@ internal fun NoticeStack(
     relief: ReliefSurface? = null,
     reliefActions: ReliefChipActions? = null,
     onBuildFromImage: (() -> Unit)? = null,
+    onSkip: (() -> Unit)? = null,
     /** "Relocate rotation point" is armed: its prompt rides in the same stack, above the others. */
     pivotArmed: Boolean = false,
     onCancelPivot: () -> Unit = {},
@@ -240,7 +256,7 @@ internal fun NoticeStack(
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         ) {
             if (pivotArmed) PivotPromptChip(onCancelPivot)
-            SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage)
+            SurfacePromptChip(armed, notice, onCancel, view = view, views = views, onDrawView = onDrawView, onBuildFromImage = onBuildFromImage, onSkip = onSkip)
             if (reliefActions != null) ReliefChip(reliefBuild, relief, reliefActions)
             MessageHost(alerts, okLabel = okLabel, countLabel = countLabel)
         }

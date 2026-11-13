@@ -380,12 +380,12 @@ class ProjectManagerTest {
     }
 
     @Test
-    fun `versions 9 10 and 11 surfaces load unchanged and become version 13`() {
+    fun `versions 9 10 and 11 surfaces load unchanged and become version 14`() {
         for (v in listOf(9, 10, 11)) {
             val text = """{"formatVersion":$v,"id":"s","layers":[{"id":"g","name":"G","uri":"","layerType":"GROUP",""" +
                 """"surface":{"points":[0,0,0,100,0,0],"sweepZ":1.0}}]}"""
             val project = manager.decodeProject(text)
-            assertEquals(13, project.formatVersion)
+            assertEquals(14, project.formatVersion)
             val surface = project.layers.single().surface!!
             assertNull(surface.relief)
             assertTrue(surface.isValid)
@@ -439,10 +439,10 @@ class ProjectManagerTest {
         )
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(GraffitiProject.serializer(), project)
-        assertTrue(text.contains("\"formatVersion\":13"))
+        assertTrue(text.contains("\"formatVersion\":14"))
         val back = manager.decodeProject(text)
         assertEquals(adjustment, back.layers.single().adjustment)
-        assertEquals(13, back.formatVersion)
+        assertEquals(14, back.formatVersion)
     }
 
     @Test
@@ -473,7 +473,7 @@ class ProjectManagerTest {
         val project = GraffitiProject(id = "guide-scene", spatialGuide = storedGuide)
         val json = kotlinx.serialization.json.Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val restored = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
-        assertEquals(13, restored.formatVersion)
+        assertEquals(14, restored.formatVersion)
         assertEquals(storedGuide, restored.spatialGuide)
 
         // Independent historical format-5 fixture: no guide key was ever written in that format.
@@ -481,7 +481,7 @@ class ProjectManagerTest {
             {"id":"old-line","points":[{"x":1.0,"y":0.0,"z":0.0}],
              "colorArgb":-1,"width":0.2}]}"""
         val reopened = manager.decodeProject(legacy)
-        assertEquals(13, reopened.formatVersion)
+        assertEquals(14, reopened.formatVersion)
         // Format 7 moves the sketch into a 3D strokes layer, with the original view-plane guide.
         val content = reopened.layers.single().spatial!!
         assertEquals(com.hereliesaz.graffitixr.common.mesh.SpatialGuide(), content.guide)
@@ -496,7 +496,7 @@ class ProjectManagerTest {
             "spatialStrokes":[{"id":"ink","points":[{"x":0.5,"y":-1.0,"z":2.0,"pressure":0.4}],"colorArgb":-65536,"width":0.1}],
             "spatialGuide":{"kind":"SPHERE","radius":1.5}}"""
         val project = manager.decodeProject(v6)
-        assertEquals(13, project.formatVersion)
+        assertEquals(14, project.formatVersion)
         assertEquals(listOf("photo", project.layers[1].id), project.layers.map { it.id })
         val photo = project.layers[0]
         assertEquals(0f, photo.positionZ)
@@ -517,7 +517,7 @@ class ProjectManagerTest {
             "modelPath":"/data/user/0/app/files/projects/m/model.obj","modelName":"head.obj",
             "modelTexturePath":"/data/user/0/app/files/projects/m/model_texture.png"}"""
         val project = manager.decodeProject(v7)
-        assertEquals(13, project.formatVersion)
+        assertEquals(14, project.formatVersion)
         assertEquals(2, project.layers.size)
         val model = project.layers.last()
         assertEquals("head", model.name)
@@ -601,9 +601,17 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `a version 13 project becomes version 14 and nothing else changes`() {
+        val v13 = GraffitiProject(id = "p", name = "Wall", formatVersion = 13)
+        val migrated = manager.migrateFormat(v13, 13)
+        assertEquals(14, migrated.formatVersion)
+        assertEquals(v13.copy(formatVersion = 14), migrated)
+    }
+
+    @Test
     fun `a newer format is never lowered`() {
-        val newer = GraffitiProject(id = "p", formatVersion = 14)
-        assertEquals(14, manager.migrateFormat(newer, 14).formatVersion)
+        val newer = GraffitiProject(id = "p", formatVersion = 15)
+        assertEquals(15, manager.migrateFormat(newer, 15).formatVersion)
     }
 
     @Test
@@ -738,14 +746,14 @@ class ProjectManagerTest {
         val base = OverlayLayer(id = "a", name = "A", uri = mockk(relaxed = true))
         val project = GraffitiProject(id = "p", layers = listOf(base, image))
         val back = manager.decodeProject(json.encodeToString(GraffitiProject.serializer(), project))
-        assertEquals(13, back.formatVersion)
+        assertEquals(14, back.formatVersion)
         assertEquals("a", back.layers[1].surfaceViewOf)
         assertEquals(com.hereliesaz.graffitixr.common.scene.SurfaceView.SIDE, back.layers[1].surfaceView)
         assertNull(back.layers[0].surfaceViewOf)
         for (v in listOf(9, 10)) {
             val layers = """[{"id":"a","name":"A","uri":""}]"""
             val old = manager.decodeProject("""{"formatVersion":$v,"id":"old","name":"Old","layers":$layers}""")
-            assertEquals(13, old.formatVersion)
+            assertEquals(14, old.formatVersion)
             assertNull(old.layers.single().surfaceViewOf)
             assertNull(old.layers.single().surfaceView)
         }

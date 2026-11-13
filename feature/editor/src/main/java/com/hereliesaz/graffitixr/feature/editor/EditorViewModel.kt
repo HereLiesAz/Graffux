@@ -13709,7 +13709,7 @@ class EditorViewModel @Inject constructor(
      * record, and (checked last, once) no pixel set in its bitmap.
      */
     @Suppress("ReturnCount")
-    private fun Layer.isEmptyPaintLayer(): Boolean {
+    internal fun Layer.isEmptyPaintLayer(): Boolean {
         val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
@@ -13857,14 +13857,7 @@ class EditorViewModel @Inject constructor(
             updateUi { it.disarmedSurface() }
             setSurface(groupId, existing?.withView(view, profile) ?: profile)
         } else {
-            val before = st.layers
-            pushHistory()
-            updateUi { s ->
-                s.disarmedSurface().copy(layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)))
-            }
-            emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
-            emitGeometryChanges(before, _uiState.value.layers)
-            saveProject()
+            commitWrappedSurface(wrapId, newGroup, profile)
         }
         assisted?.let { clean ->
             val current = _uiState.value.layers.firstOrNull { it.id == groupId }?.surface
@@ -13873,6 +13866,119 @@ class EditorViewModel @Inject constructor(
         showSurfaceNotice(
             if (view == SurfaceView.FRONT) SurfaceDrawNotice.DONE else SurfaceDrawNotice.VIEW_DONE,
         )
+    }
+
+    /**
+     * "Use a flat sheet" on the armed "Draw surface" chip (spec/3d-space.md, "The default surface"): the user
+     * chose not to draw. The armed group (or the group made around the layer to be wrapped) gets
+     * [com.hereliesaz.graffitixr.common.scene.DefaultSurface] as its surface, in the same single undo step a
+     * captured line makes. Only offered for the front view of a group that has no surface yet.
+     */
+    fun onSkipSurfaceDraw() {
+        val st = _uiState.value
+        if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
+        // The art check scans pixels: off the main thread. It answers for the layers and the arming it saw, so the
+        // sheet is made only if all of that is still the same on main when it answers (a cancel and re-arm on another
+        // layer, or art arriving by undo or paste, drops the tap: the user taps again).
+        val layers = st.layers
+        val groupId = st.surfaceDrawGroupId
+        val wrapId = st.surfaceDrawWrapLayerId
+        viewModelScope.launch {
+            val allowed = canSkipSurfaceDrawOffMain()
+            val now = _uiState.value
+            val same = now.surfaceDrawArmed && now.surfaceDrawView == SurfaceView.FRONT &&
+                now.layers === layers && now.surfaceDrawGroupId == groupId && now.surfaceDrawWrapLayerId == wrapId
+            if (!same) return@launch
+            if (allowed) applySkipSurfaceDraw() else showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
+        }
+    }
+
+    @Suppress("ReturnCount")
+    private fun applySkipSurfaceDraw() {
+        val st = _uiState.value
+        val wrapId = st.surfaceDrawWrapLayerId
+        val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
+        val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
+        val groupId = newGroup?.id ?: st.surfaceDrawGroupId ?: return
+        if (newGroup == null && st.layers.firstOrNull { it.id == groupId }?.surface != null) return
+        val sw = st.canvasSize.width.toFloat()
+        val sh = st.canvasSize.height.toFloat()
+        // Sized and centred from what the user sees: the middle of the screen in world units, at the view's zoom.
+        // (The view's twist is not applied to the sheet's size: it stays axis-aligned in world units.)
+        val mid = CanvasHitTest.screenToWorld(
+            Offset(sw / 2f, sh / 2f), st.viewportOffset, st.viewportZoom, st.viewportRotation,
+        )
+        val sheet = com.hereliesaz.graffitixr.common.scene.DefaultSurface
+        val profile = sheet.profile(
+            sheet.rect(sw, sh, st.viewportZoom, mid.x, mid.y), sw, sh, planeChain(layers, groupId),
+        )
+        if (profile == null) {
+            showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
+            return
+        }
+        surfaceNoticeJob?.cancel()
+        if (newGroup == null) {
+            updateUi { it.disarmedSurface() }
+            setSurface(groupId, profile)
+        } else {
+            commitWrappedSurface(wrapId, newGroup, profile)
+        }
+        showSurfaceNotice(SurfaceDrawNotice.DONE)
+    }
+
+    /**
+     * Whether "Use a flat sheet" may be offered for the armed surface: the front view of a group with no surface
+     * yet, and only when it cannot displace or crop art (the sheet places paint from its top-left corner until a
+     * windowed profile exists, spec/3d-space.md "The default surface"): the layer to be wrapped is an empty paint
+     * layer ([isEmptyPaintLayer], the view-plane adoption's definition), or the armed group holds no layer with
+     * art. Scans pixels, so ask when arming changes, not every frame. A recycled or changed bitmap (it can be swapped
+     * under an off-main scan) means "cannot tell": false. Other failures are not swallowed.
+     */
+    fun canSkipSurfaceDraw(): Boolean = try {
+        canSkipSurfaceDrawUnchecked()
+    } catch (_: IllegalStateException) {
+        false // a recycled bitmap
+    } catch (_: IllegalArgumentException) {
+        false // a bitmap changed under the scan
+    }
+
+    /**
+     * The scan can run off the main thread while undo swaps or recycles a layer's bitmap; reading a recycled bitmap
+     * throws IllegalStateException (or IllegalArgumentException if it changed size), which [canSkipSurfaceDraw]
+     * turns into "cannot tell": Skip stays hidden, nothing crashes.
+     */
+    private fun canSkipSurfaceDrawUnchecked(): Boolean {
+        val st = _uiState.value
+        val wrapId = st.surfaceDrawWrapLayerId
+        val group = st.layers.firstOrNull { it.id == st.surfaceDrawGroupId }
+        val inside = if (group == null) emptySet() else descendantIds(st.layers, group.id)
+        return when {
+            !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT -> false
+            wrapId != null -> st.layers.firstOrNull { it.id == wrapId }?.isEmptyPaintLayer() == true
+            group == null || group.surface != null -> false
+            else -> st.layers.filter { it.id in inside && !it.isContainer }.all { it.isEmptyPaintLayer() }
+        }
+    }
+
+    /** [canSkipSurfaceDraw] off the main thread: it can scan every pixel of several large layers. */
+    suspend fun canSkipSurfaceDrawOffMain(): Boolean =
+        kotlinx.coroutines.withContext(dispatchers.default) { canSkipSurfaceDraw() }
+
+    /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */
+    private fun commitWrappedSurface(
+        wrapId: String?,
+        newGroup: Layer,
+        profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile,
+    ) {
+        if (wrapId == null) return
+        val before = _uiState.value.layers
+        pushHistory()
+        updateUi { s ->
+            s.disarmedSurface().copy(layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)))
+        }
+        emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
+        emitGeometryChanges(before, _uiState.value.layers)
+        saveProject()
     }
 
     /** [layers] with top-level layer [layerId] inside [group], which takes its place in the stack. */

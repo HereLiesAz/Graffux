@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import com.hereliesaz.graffitixr.common.model.SurfaceDrawNotice
@@ -45,13 +46,33 @@ class SurfacePromptUiTest {
     private var armed by mutableStateOf(true)
     private var notice by mutableStateOf<SurfaceDrawNotice?>(null)
     private var cancels = 0
+    private var skips = 0
+    private var offerSkip = true
 
     private fun showChip() {
         rule.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                SurfacePromptChip(armed, notice, onCancel = { cancels++; armed = false; notice = null })
+                SurfacePromptChip(armed, notice, onCancel = { cancels++; armed = false; notice = null }, onSkip = if (offerSkip) ({ skips++; armed = false }) else null)
             }
         }
+    }
+
+    @Test
+    fun `armed, the chip offers a Skip button beside Cancel, and Skip does not cancel`() {
+        showChip()
+        rule.onNodeWithText("Use a flat sheet", useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("surface.prompt.skip").assertHeightIsAtLeast(48.dp).performClick()
+        assertEquals(1, skips)
+        assertEquals(0, cancels)
+    }
+
+    @Test
+    fun `Skip is not offered when the chip is not given it, and Cancel still works`() {
+        offerSkip = false
+        showChip()
+        rule.onNodeWithTag("surface.prompt.skip").assertDoesNotExist()
+        rule.onNodeWithTag("surface.prompt.cancel").performClick()
+        assertEquals(1, cancels)
     }
 
     @Test

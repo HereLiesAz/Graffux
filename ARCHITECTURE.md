@@ -549,7 +549,7 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)
 
-Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 14 proposed): `spec/3d-puppetry.md`. In short:
+Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. In short:
 
 - **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
@@ -645,6 +645,11 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   (used by the rotation triangle, the two-finger twist and the layer handle) composes `R' = R * Ra(delta)` and stores the
   result as the same `rotationX/Y/Z` (`Rz * Ry * Rx`, `SceneMath.eulerOf`), so every renderer, the glTF export and saved
   projects (format unchanged) read what they always did. See spec/3d-space.md, "Body-fixed axes".
+- **The default surface (format 14).** "Use a flat sheet" on the Draw-surface chip gives an empty layer's group a flat
+  sheet sized from the visible screen (`DefaultSurface`, `:core:common`). It is an ordinary flat `SurfaceProfile` plus
+  `reach`, how far its sweep goes; `SurfaceProfile.sweepLimit` is read by the mesh, the ray hit, the footprint, the
+  rendered reach, the visibility box, the grid and the pivot box, so the sheet is exactly width x reach. New optional
+  field, hence format 14. See `spec/3d-space.md`, "The default surface".
 - **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
   layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press

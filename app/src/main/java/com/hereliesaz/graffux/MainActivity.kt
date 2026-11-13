@@ -1635,6 +1635,15 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
+            // "Use a flat sheet" only when it cannot displace art. The check scans pixels, so it runs off the main
+            // thread and again whenever the layers change while armed (art removed or added); hidden until it answers.
+            var canSkip by remember { mutableStateOf(false) }
+            LaunchedEffect(
+                uiState.layers, uiState.surfaceDrawGroupId, uiState.surfaceDrawWrapLayerId, uiState.surfaceDrawView,
+            ) {
+                canSkip = false
+                canSkip = vm.canSkipSurfaceDrawOffMain()
+            }
             // "Relocate rotation point" (say what to do; Cancel or Back leaves it), then the "Draw surface"
             // prompt, then failures and confirmations, over the artwork, never blocking it. One stack, so
             // they sit under the status bar and between the rails and never on top of one another.
@@ -1652,6 +1661,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 relief = activeRelief(uiState),
                 reliefActions = reliefChipActions(vm, uiState),
                 onBuildFromImage = if (canBuildRelief(uiState)) ({ vm.onBuildSurfaceFromImage() }) else null,
+                onSkip = if (canSkip) ({ vm.onSkipSurfaceDraw() }) else null,
                 pivotArmed = uiState.pivotPickArmed,
                 onCancelPivot = { vm.onCancelPivotPick() },
                 alerts = alerts,

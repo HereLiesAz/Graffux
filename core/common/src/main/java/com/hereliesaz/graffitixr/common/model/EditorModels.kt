@@ -241,7 +241,7 @@ enum class ReliefBuildStage { CHECKING, ESTIMATING, BUILDING }
 data class ReliefBuildState(val layerId: String, val stage: ReliefBuildStage)
 
 /** The Draw-surface chip's one-off messages (the UI words them; see the chrome strings). */
-enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, DONE, VIEW_DONE }
+enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, HAS_ART, DONE, VIEW_DONE }
 
 /**
  * Whether "Draw surface" is armed: on an existing group, or (see [EditorUiState.surfaceDrawWrapLayerId])
