@@ -80,6 +80,21 @@ class EditorViewModelTest {
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
+    /** The default dispatcher: runs on [testDispatcher], or holds its work until [release] so a scan can lag. */
+    private val scanDispatcher = object : CoroutineDispatcher() {
+        var held = false
+        val pending = ArrayDeque<Runnable>()
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            if (held) pending.addLast(block) else testDispatcher.dispatch(context, block)
+        }
+
+        fun release() {
+            held = false
+            val none = kotlin.coroutines.EmptyCoroutineContext
+            while (pending.isNotEmpty()) testDispatcher.dispatch(none, pending.removeFirst())
+        }
+    }
+
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
@@ -148,7 +163,7 @@ class EditorViewModelTest {
         val testDispatcherProvider = object : DispatcherProvider {
             override val main: CoroutineDispatcher = testDispatcher
             override val io: CoroutineDispatcher = testDispatcher
-            override val default: CoroutineDispatcher = testDispatcher
+            override val default: CoroutineDispatcher = scanDispatcher
             override val unconfined: CoroutineDispatcher = testDispatcher
         }
 
@@ -2148,6 +2163,37 @@ class EditorViewModelTest {
         assertTrue(viewModel.uiState.value.surfaceDrawArmed)
         assertFalse(viewModel.canSkipSurfaceDraw())
         assertFalse(viewModel.canSkipSurfaceDrawOffMain())
+    }
+
+    @Test
+    fun `a Skip whose scan answers after the user re-armed another layer, or art arrived, commits nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Re-armed on another layer while the scan is out.
+        armOn(listOf(lyr("a"), lyr("b")), "a")
+        scanDispatcher.held = true
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onCancelSurfaceDraw()
+        viewModel.onLayerActivated("b")
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onAxisSlotTapped()
+        scanDispatcher.release()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), viewModel.uiState.value.layers.map { it.id })
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        // Art arrived (the layers changed) while the scan is out.
+        viewModel.onCancelSurfaceDraw()
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onAxisSlotTapped()
+        scanDispatcher.held = true
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        viewModel.setLayers(listOf(paintedLayer("a"), lyr("b")))
+        scanDispatcher.release()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), viewModel.uiState.value.layers.map { it.id })
+        assertNull(viewModel.uiState.value.layers.firstOrNull { it.type == groupType })
     }
 
     @Test

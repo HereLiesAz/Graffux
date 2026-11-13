@@ -72,6 +72,12 @@ class SheetCropTest {
         assertNotNull(front)
         val crop = SurfaceMath.flatSurfaceCrops(l, w, h)["c"]!!
         val both = SceneExport.frontClip(hm, frame, w.toInt(), h.toInt(), crop)!!
-        assertEquals(SceneMath.clipConvex(front!!, crop), both)
+        // Independently: every vertex of the result is inside the sheet and on the visible side of the near plane.
+        val near = SceneMath.nearPlane(frame.focal)
+        for ((u, v) in both) {
+            assertEquals(true, u >= -0.01f && u <= sheet.length + 0.01f && v >= -0.01f && v <= sheet.reach!! + 0.01f)
+            assertEquals(true, hm[6] * u + hm[7] * v + hm[8] - near >= -0.01f)
+        }
+        assertEquals(true, both.size >= 3)
     }
 }

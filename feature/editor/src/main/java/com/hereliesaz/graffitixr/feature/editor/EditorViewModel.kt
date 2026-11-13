@@ -13799,12 +13799,18 @@ class EditorViewModel @Inject constructor(
     fun onSkipSurfaceDraw() {
         val st = _uiState.value
         if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
-        // The art check scans pixels: off the main thread, then the sheet is made on it again (re-checking that the
-        // armed state is still the one that was asked about).
+        // The art check scans pixels: off the main thread. It answers for the layers and the arming it saw, so the
+        // sheet is made only if all of that is still the same on main when it answers (a cancel and re-arm on another
+        // layer, or art arriving by undo or paste, drops the tap: the user taps again).
+        val layers = st.layers
+        val groupId = st.surfaceDrawGroupId
+        val wrapId = st.surfaceDrawWrapLayerId
         viewModelScope.launch {
             val allowed = canSkipSurfaceDrawOffMain()
             val now = _uiState.value
-            if (!now.surfaceDrawArmed || now.surfaceDrawView != SurfaceView.FRONT) return@launch
+            val same = now.surfaceDrawArmed && now.surfaceDrawView == SurfaceView.FRONT &&
+                now.layers === layers && now.surfaceDrawGroupId == groupId && now.surfaceDrawWrapLayerId == wrapId
+            if (!same) return@launch
             if (allowed) applySkipSurfaceDraw() else showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
         }
     }
@@ -13847,7 +13853,8 @@ class EditorViewModel @Inject constructor(
      * yet, and only when it cannot displace or crop art (the sheet places paint from its top-left corner until a
      * windowed profile exists, spec/3d-space.md "The default surface"): the layer to be wrapped is an empty paint
      * layer ([isEmptyPaintLayer], the view-plane adoption's definition), or the armed group holds no layer with
-     * art. Scans pixels, so ask when arming changes, not every frame.
+     * art. Scans pixels, so ask when arming changes, not every frame. A recycled or changed bitmap (it can be swapped
+     * under an off-main scan) means "cannot tell": false. Other failures are not swallowed.
      */
     fun canSkipSurfaceDraw(): Boolean = try {
         canSkipSurfaceDrawUnchecked()
@@ -13858,8 +13865,9 @@ class EditorViewModel @Inject constructor(
     }
 
     /**
-     * The scan can run off the main thread while undo swaps or recycles a layer's bitmap, so any failure reading it
-     * (a recycled bitmap throws) means "cannot tell": Skip stays hidden, nothing crashes.
+     * The scan can run off the main thread while undo swaps or recycles a layer's bitmap; reading a recycled bitmap
+     * throws IllegalStateException (or IllegalArgumentException if it changed size), which [canSkipSurfaceDraw]
+     * turns into "cannot tell": Skip stays hidden, nothing crashes.
      */
     private fun canSkipSurfaceDrawUnchecked(): Boolean {
         val st = _uiState.value
