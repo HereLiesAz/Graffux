@@ -1,6 +1,7 @@
 package com.hereliesaz.graffux
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS
@@ -10,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Sends finished stroke-data session files (StrokeDataStore) to the stroke relay, which stores
@@ -31,17 +33,27 @@ class StrokeDataUploader(
             var sent = 0
             val device = deviceLabel(Build.MODEL)
             for (file in StrokeDataStore.get(context).pending()) {
-                // Recorded before the 16+ declaration: never sent, even if the declaration came first.
-                if (!StrokeContributionConsent.mayUpload(prefs, file.name)) {
-                    file.delete()
-                    continue
-                }
-                val error = relay.upload(device, file.name, file.readBytes()).exceptionOrNull()
-                if (error != null && error !is StrokeRelayClient.RejectedException) break
-                file.delete()
-                if (error == null) sent++
+                val outcome = handle(prefs, device, file)
+                if (outcome == Outcome.UPLOADED) sent++
+                if (outcome == Outcome.RETRY_LATER) break
             }
             sent
+        }
+    }
+
+    private enum class Outcome { UPLOADED, DISCARDED, RETRY_LATER }
+
+    /** One file: sent and deleted, deleted unsent (pre-declaration or rejected for good), or kept for later. */
+    private suspend fun handle(prefs: SharedPreferences, device: String, file: File): Outcome {
+        // Recorded before the 16+ declaration: never sent, even if the declaration came first.
+        val send = StrokeContributionConsent.mayUpload(prefs, file.name)
+        val error = if (send) relay.upload(device, file.name, file.readBytes()).exceptionOrNull() else null
+        val keep = send && error != null && error !is StrokeRelayClient.RejectedException
+        if (!keep) file.delete()
+        return when {
+            keep -> Outcome.RETRY_LATER
+            send && error == null -> Outcome.UPLOADED
+            else -> Outcome.DISCARDED
         }
     }
 
