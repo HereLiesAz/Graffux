@@ -73,21 +73,28 @@ switching it off stops both.
   on, that path is part of what is recorded. Leave the setting off when you do.
 - **Where it goes:** finished session files are sent over the internet to a small relay run by
   the developer, which saves them in a **private** storage bucket. They are **not published**, and
-  the relay has no way to read them back out to the public. The developer uses them to train and
-  evaluate models, and may copy them to a private dataset on Kaggle for that purpose. The App keeps
-  no credential for this. The stored file's name contains your device model and the session's start
+  the relay has no route that reads them back. The developer uses them to train and evaluate models.
+  There is currently no automatic copy to Kaggle or anywhere else; if a private copy is made later it
+  will be covered by the removal paragraph below. The App keeps no credential for this. The stored file's name contains your device model and the session's start
   time (`stroke-data/<device-model>/session-<time>.jsonl.gz`). Files wait in the App's private storage
   until the relay has them, then are deleted from the device. A file the relay rejects for good (a bad
-  name, too large, or not stroke data) is also deleted, without being stored.
+  name, too large, or not stroke data) is also deleted, without being stored. Each upload carries a
+  marker that you declared you are 16 or older, and the relay refuses uploads without it. Session files
+  recorded on your device before the declaration existed are deleted from the device at the next launch
+  and are never uploaded. A hostile program could send the marker without the declaration; it is a
+  marker, not proof.
 - **Earlier versions:** before November 13, 2026, the App uploaded this data to a **public**
   `stroke-data` branch of <https://github.com/HereLiesAz/Graffux>. The developer intends to remove
   that branch; until it is removed that data may still be readable, and copies others made cannot be
-  recalled. If you contributed before then, you were asked to confirm you are 16 or older again, and
-  contribution stays off until you do.
-- **Removal:** we cannot tell which files are yours. Contact us (section 9) with your device model and
-  the approximate dates you contributed and we will delete the stored files that match, including from
-  the private dataset copy. Because we cannot check that a file is yours, we delete every file matching
-  what you give us. Models already trained from the data are not retrained.
+  recalled. If you had contribution on before then, the App switches it off at the next launch and
+  shows a notice; when you switch it on again it asks you to confirm you are 16 or older.
+- **Removal:** we cannot tell which files are yours. If you give us your device model and the
+  approximate dates you contributed, we will delete the stored files that match, and any private copy.
+  Because we cannot check that a file is yours, we delete every file matching what you give us. Models
+  already trained from the data are not retrained. **Do not post your device model or dates in a public
+  GitHub issue**, which would publish them. This policy does not yet list a private contact for such
+  requests (section 9 names only the project's public repository); until one is listed here, a private
+  removal request cannot be made through it.
 
 ## 5. Permissions
 

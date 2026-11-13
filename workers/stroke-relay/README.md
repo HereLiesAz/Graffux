@@ -37,11 +37,18 @@ once the relay has it, or when the relay rejects it for good (`StrokeDataUploade
 | not gzip, the first line is not a `{"type":"session","schema":<n>}` line, more than 1000 lines, or a value nested more than 12 deep | 415 |
 | more than 6 requests a minute from one address (per Cloudflare location) | 429 |
 | the rate limiter binding is missing or throws | 503. The relay closes instead of running unlimited. |
-| the object already exists | 200 `exists` (retries are safe; never overwritten) |
+| no `X-Graffux-Age-Declaration: 16+` header | 400 (app versions older than the declaration) |
+| the object already exists | 200 `exists` (a conditional put, `If-None-Match: *`, that does not replace it) |
 | the `STROKE_BUCKET` binding is missing or the put throws | 503 |
 | stored | 201 `stored` |
 
 Objects are stored at the key `stroke-data/<device>/<file>`.
+
+**The `<device>` path segment is chosen by the client, so a hostile client can pre-claim keys (the
+conditional put never replaces an existing key) or fill the bucket with well-formed sessions under any
+device name. That cannot be fixed without authenticating callers.** The `X-Graffux-Age-Declaration: 16+`
+header the app sends is likewise a marker that stops older app versions from being stored, not proof of
+anything: a hostile client can send it.
 
 **This is spam and abuse *limiting*, not authentication. The relay does not authenticate callers.** Nothing in an open-source app can prove a
 request came from the app. What keeps the store clean is content, not identity: the whole file is

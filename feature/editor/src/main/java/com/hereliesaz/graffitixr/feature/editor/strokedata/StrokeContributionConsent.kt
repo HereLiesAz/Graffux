@@ -1,6 +1,7 @@
 package com.hereliesaz.graffitixr.feature.editor.strokedata
 
 import android.content.SharedPreferences
+import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 
 /**
  * The gate in front of stroke-model training contribution. Contributing needs two stored answers in
@@ -43,6 +44,17 @@ object StrokeContributionConsent {
     fun switchOffUndeclared(prefs: SharedPreferences): Boolean {
         val stale = prefs.getBoolean(STROKE_DATA_KEY, false) && !ageDeclared(prefs)
         if (stale) disable(prefs)
+        return stale
+    }
+
+    /**
+     * Deletes every recorded session file while there is no 16+ declaration. Files only exist in that state
+     * if they were recorded by a version that predates the declaration, and they must not be sent after a
+     * later declaration. Returns true when it deleted anything.
+     */
+    fun purgeUndeclaredFiles(prefs: SharedPreferences, store: StrokeDataStore): Boolean {
+        val stale = !ageDeclared(prefs) && store.allFiles().isNotEmpty()
+        if (stale) store.purgeAll()
         return stale
     }
 }

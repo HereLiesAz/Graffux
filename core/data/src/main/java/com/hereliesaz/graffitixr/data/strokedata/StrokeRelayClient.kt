@@ -32,6 +32,9 @@ class StrokeRelayClient(
                     connection.instanceFollowRedirects = false
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/gzip")
+                    // Sent only for uploads the person declared 16+ for (the caller gates on that); the relay
+                    // refuses uploads without it, so app versions older than the declaration stop being stored.
+                    connection.setRequestProperty(DECLARATION_HEADER, DECLARATION_VALUE)
                     connection.setFixedLengthStreamingMode(bytes.size)
                     connection.outputStream.use { it.write(bytes) }
                     val code = connection.responseCode
@@ -54,6 +57,8 @@ class StrokeRelayClient(
     companion object {
         /** 400 bad name, 413 too large, 415 not stroke data: retrying the same bytes cannot succeed. */
         private val PERMANENT = setOf(400, 413, 415)
+        const val DECLARATION_HEADER = "X-Graffux-Age-Declaration"
+        const val DECLARATION_VALUE = "16+"
         const val DEFAULT_URL = "https://graffux.hereliesaz.workers.dev"
         private const val TIMEOUT_MS = 60_000
         private const val HTTP_OK = 200

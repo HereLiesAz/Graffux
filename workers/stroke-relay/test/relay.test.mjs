@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
-import { handle, MAX_BYTES } from "../src/index.js";
+import { handle, MAX_BYTES, DECLARATION_HEADER, DECLARATION_VALUE } from "../src/index.js";
 
 const session = gzipSync(
   Buffer.from('{"type":"session","schema":4,"model":"Pixel 5"}\n{"type":"stroke"}\n'),
@@ -16,7 +16,8 @@ function bucket({ fail = false } = {}) {
     async put(key, value, options) {
       if (fail) throw new Error("r2 down");
       puts.push({ key, options });
-      if (options?.onlyIf?.etagDoesNotMatch === "*" && objects.has(key)) return null;
+      // The documented form: a Headers object, If-None-Match: * means "only if the key is absent".
+      if (options?.onlyIf instanceof Headers && options.onlyIf.get("If-None-Match") === "*" && objects.has(key)) return null;
       objects.set(key, Buffer.from(value));
       return { key };
     },
@@ -31,7 +32,7 @@ function put(path, body = session, headers = {}) {
   return new Request(`https://relay.test${path}`, {
     method: "PUT",
     body,
-    headers: { "Content-Length": String(body.length), ...headers },
+    headers: { "Content-Length": String(body.length), [DECLARATION_HEADER]: DECLARATION_VALUE, ...headers },
   });
 }
 
@@ -105,7 +106,11 @@ test("names that could escape the folder are rejected before anything is stored"
 
 test("size is enforced from the declared length and from the body", async () => {
   const calls = github({ status: 201 });
-  const noLength = new Request(`https://relay.test${OK}`, { method: "PUT", body: session });
+  const noLength = new Request(`https://relay.test${OK}`, {
+    method: "PUT",
+    body: session,
+    headers: { [DECLARATION_HEADER]: DECLARATION_VALUE },
+  });
   noLength.headers.delete("Content-Length");
   assert.equal((await handle(noLength, env)).status, 411);
   assert.equal((await handle(put(OK, session, { "Content-Length": String(MAX_BYTES + 1) }), env)).status, 413);
@@ -237,7 +242,7 @@ test("the body is read with a cap: a lying Content-Length cannot make the Worker
     method: "PUT",
     body,
     duplex: "half",
-    headers: { "Content-Length": "1000" },
+    headers: { "Content-Length": "1000", [DECLARATION_HEADER]: DECLARATION_VALUE },
   });
   const res = await handle(req, env);
   assert.equal(res.status, 413);
@@ -250,4 +255,26 @@ test("without a working rate limiter the relay refuses rather than running unlim
   const throwing = { limit: async () => { throw new Error("limiter down"); } };
   assert.equal((await handle(put(OK), { STROKE_BUCKET: store, RATE_LIMITER: throwing }, noSleep)).status, 503);
   assert.equal(calls.length, 0);
+});
+
+test("an upload without the age-declaration marker is refused and nothing is stored (older app versions)", async () => {
+  const calls = github();
+  const bare = new Request(`https://relay.test${OK}`, {
+    method: "PUT",
+    body: session,
+    headers: { "Content-Length": String(session.length) },
+  });
+  assert.equal((await handle(bare, env)).status, 400);
+  const wrong = put(OK, session, { [DECLARATION_HEADER]: "13+" });
+  assert.equal((await handle(wrong, env)).status, 400);
+  assert.equal(store.objects.size, 0);
+  assert.equal(calls.length, 0);
+});
+
+test("the conditional put is the documented If-None-Match header form", async () => {
+  github();
+  await handle(put(OK), env);
+  const opts = store.puts[0].options;
+  assert.ok(opts.onlyIf instanceof Headers);
+  assert.equal(opts.onlyIf.get("If-None-Match"), "*");
 });

@@ -166,6 +166,10 @@ python -m unittest discover -s tests -v
 
 ## Kaggle mirror
 
+**Currently not running against the private store.** The workflow below reads the old public
+`stroke-data` branch, and no pipeline copies the private bucket to Kaggle yet; until one lands (in
+HereLiesAz/workflows) there is no automatic Kaggle copy and the privacy policy says so.
+
 `.github/workflows/stroke-data-kaggle.yml` copies the stroke data to a **private** Kaggle
 dataset every 6 hours (or on demand from the Actions tab), via `kaggle_upload.py`. It needs the
 `KAGGLE_TOKEN` repository secret (a Kaggle API token, or `kaggle.json` contents). If the token is a bare API token, the workflow defaults the Kaggle username to `hereliesaz`.

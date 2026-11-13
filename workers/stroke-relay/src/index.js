@@ -10,7 +10,9 @@
  *   PUT /v1/stroke-data/<device>/<file>      body: the .jsonl.gz bytes
  *     201 {"status":"stored"}    stored
  *     200 {"status":"exists"}    that object is already stored (retries are safe)
- *     400/405/411/413/415        rejected before anything is written; 415 unless every line is a
+ *     400/405/411/413/415        rejected before anything is written; 400 also when the
+ *                                X-Graffux-Age-Declaration: 16+ header is missing (older app
+ *                                versions); 415 unless every line is a
  *                                valid session/stroke/hover record (the whole file is checked and
  *                                the stored bytes are re-encoded from what was checked)
  *     429                        rate limited (per client address); retry later
@@ -56,6 +58,8 @@ const STROKE_KEYS = new Set([
   "pointers", "hover", "clock", "clockOffsetNs", "uptimeToElapsedNs", "context", "sensors",
   "sensorsRegistered", "sensorStatus", "flush", "heatmap", "heatmapStatus",
 ]);
+export const DECLARATION_HEADER = "X-Graffux-Age-Declaration";
+export const DECLARATION_VALUE = "16+";
 const DEVICE = /^[A-Za-z0-9-]{1,48}$/;
 const FILE = /^session-\d{10,16}\.jsonl\.gz$/;
 
@@ -202,6 +206,13 @@ export async function handle(request, env) {
   const [, device, file] = match;
   if (!DEVICE.test(device) || !FILE.test(file)) return json(400, { error: "bad name" });
 
+  // The app sends this only after the person declared they are 16 or older. It is a marker, not proof: a
+  // hostile client can send it too. Its job is to stop versions of the app that predate the declaration
+  // (which never send it) from having their uploads stored.
+  if (request.headers.get(DECLARATION_HEADER) !== DECLARATION_VALUE) {
+    return json(400, { error: "age declaration required" });
+  }
+
   const declared = Number(request.headers.get("Content-Length"));
   if (!request.headers.has("Content-Length") || !Number.isFinite(declared)) return json(411, { error: "length required" });
   if (declared > MAX_BYTES) return json(413, { error: "too large" });
@@ -226,9 +237,10 @@ export async function handle(request, env) {
 
   if (!env.STROKE_BUCKET) return json(503, { error: "store unavailable" });
   try {
-    // onlyIf etagDoesNotMatch "*" fails (null) when the key exists: a retry, not an overwrite.
+    // A conditional put with If-None-Match: * (R2 documents Headers as an onlyIf form) returns null when
+    // the key already exists: a retry of the same key does not replace what is stored.
     const written = await env.STROKE_BUCKET.put(`stroke-data/${device}/${file}`, stored, {
-      onlyIf: { etagDoesNotMatch: "*" },
+      onlyIf: new Headers({ "If-None-Match": "*" }),
       httpMetadata: { contentType: "application/gzip" },
     });
     return written === null ? json(200, { status: "exists" }) : json(201, { status: "stored" });
