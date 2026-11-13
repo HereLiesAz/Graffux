@@ -100,19 +100,23 @@ internal class EditHistory(
             clearRedo()
             return false
         }
+        // A tentative stroke is never chunk-able: it neither joins an earlier chunk nor is joined.
+        val chunk = chunkable && !tentative
         val joined = top is EditCommand.Draw && if (continuesGesture) {
             top.layerId == layerId
         } else {
-            plane == null && chunkable && joinsChunk(top, layerId, command, nowMs)
+            joinsChunk(top, layerId, command, nowMs, plane == null && chunk)
         }
-        if (joined && top is EditCommand.Draw) {
+        if (joined) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
                 earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
             )
         } else {
             undoStack.addLast(
-                EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane),
+                EditCommand.Draw(
+                    layerId, command, chunkable = chunk, lastPushMs = nowMs, plane = plane,
+                ),
             )
             trim(if (tentative) maxStackSize + 1 else maxStackSize)
         }
@@ -120,8 +124,13 @@ internal class EditHistory(
         return joined
     }
 
-    private fun joinsChunk(top: EditCommand.Draw, layerId: String, command: StrokeCommand, nowMs: Long) =
-        top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
+    private fun joinsChunk(
+        top: EditCommand.Draw,
+        layerId: String,
+        command: StrokeCommand,
+        nowMs: Long,
+        allowed: Boolean,
+    ) = allowed && top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
             top.strokes.size < chunkMaxStrokes && nowMs - top.lastPushMs <= chunkPauseMs
 
     /** Whether the newest undo entry is a stroke. */

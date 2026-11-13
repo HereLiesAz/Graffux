@@ -132,7 +132,9 @@ class DoubleTapDotTest {
         vm.onStrokeStart(BrushSample(x0, y, uptimeMillis = 0L), canvasSize)
         vm.onStrokePoint(BrushSample(x1, y, uptimeMillis = 16L))
         vm.onStrokeEnd()
-        dispatcher.scheduler.advanceUntilIdle()
+        // Deliberately NOT drained: a JVM test has no GPU, so a drained stamp commit fails and the
+        // stroke is dropped again (abandonFailedCommit). Left queued, the entry and the layer's
+        // recorded stroke list are exactly what a device holds right after the finger lifts.
     }
 
     /** The first tap: asks the hook, then paints its dot as DrawingCanvas does. */
@@ -141,20 +143,14 @@ class DoubleTapDotTest {
         vm.onStrokeStart(BrushSample(x, y, uptimeMillis = t), canvasSize)
         vm.onStrokePoint(BrushSample(x, y, uptimeMillis = t + 1))
         vm.onStrokeEnd()
-        dispatcher.scheduler.advanceUntilIdle()
     }
 
     private fun secondTapRemovesDot(t0: Long) {
         assertTrue(vm.onBrushTap(androidx.compose.ui.geometry.Offset(31f, 30f), t0 + 120))
-        dispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun inked(x0: Int, x1: Int, y0: Int, y1: Int): Int {
-        val b = vm.uiState.value.layers.first { it.id == "L" }.bitmap!!
-        var n = 0
-        for (y in y0..y1) for (x in x0..x1) if (android.graphics.Color.alpha(b.getPixel(x, y)) != 0) n++
-        return n
-    }
+    /** The layer's recorded (replayed-on-rebuild) strokes: what the layer shows, as no GPU paints here. */
+    private fun recorded() = vm.recordedStrokesForTest("L")
 
     @Test
     fun `empty stack - the double-tap leaves no pixels, no history, no redo and a reset view`() = runTest(dispatcher) {
@@ -163,11 +159,11 @@ class DoubleTapDotTest {
         val u = vm.uiState.value.undoCount
         firstTap(30f, 30f, 1000L)
         assertEquals("the dot is an entry of its own", u + 1, vm.uiState.value.undoCount)
-        assertTrue("the dot painted", inked(20, 40, 20, 40) > 0)
+        assertEquals("the dot was recorded to paint", 1, recorded().size)
         secondTapRemovesDot(1000L)
         assertEquals(u, vm.uiState.value.undoCount)
         assertEquals(0, vm.uiState.value.redoCount)
-        assertEquals("no mark", 0, inked(0, 47, 0, 47))
+        assertEquals("no mark", 0, recorded().size)
         assertTrue(vm.uiState.value.sceneCamera.isDefault)
     }
 
@@ -192,16 +188,17 @@ class DoubleTapDotTest {
         runTest(dispatcher) {
             setup()
             stroke(5f, 15f, 10f)
-            val strokeInk = inked(0, 20, 5, 15)
-            assertTrue(strokeInk > 0)
+            val earlier = recorded().toList()
+            assertEquals(1, earlier.size)
             val u = vm.uiState.value.undoCount
             firstTap(30f, 30f, 1000L)
             assertEquals("not merged into the stroke's entry", u + 1, vm.uiState.value.undoCount)
             secondTapRemovesDot(1000L)
             assertEquals(u, vm.uiState.value.undoCount)
             assertEquals(0, vm.uiState.value.redoCount)
-            assertEquals("the dot is gone", 0, inked(24, 47, 24, 47))
-            assertTrue("the earlier stroke is intact", inked(0, 20, 5, 15) > 0)
+            val after = recorded()
+            assertEquals("the dot is gone and the earlier stroke is intact", earlier.size, after.size)
+            assertTrue("the same stroke, untouched", earlier[0] === after[0])
         }
 
     @Test
@@ -210,7 +207,6 @@ class DoubleTapDotTest {
         stroke(5f, 15f, 10f)
         stroke(5f, 15f, 20f)
         vm.onUndoClicked()
-        dispatcher.scheduler.advanceUntilIdle()
         val redo = vm.uiState.value.redoCount
         val undo = vm.uiState.value.undoCount
         assertTrue(redo > 0)
