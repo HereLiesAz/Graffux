@@ -204,6 +204,26 @@ object SurfaceMath {
         }.map { it.id }
     }
 
+    /**
+     * The groups that get a surface fill (spec/3d-space.md, "How the surface looks"): the groups the mesh
+     * is drawn for ([gridGroupIds]: valid surface, visible, not at zero opacity) that are top-level.
+     */
+    fun fillGroupIds(layers: List<Layer>, frameAlphas: Map<String, Float> = emptyMap()): List<String> {
+        val top = layers.filter { it.parentId == null }.mapTo(HashSet()) { it.id }
+        return gridGroupIds(layers, true, frameAlphas).filter { it in top }
+    }
+
+    /**
+     * Of [fillGroups], those whose surface paint the GPU depth pass draws, in stack order. The pass draws
+     * once at its anchor slot, so their fills must be emitted just before it (under the paint it draws);
+     * every other fill is emitted at its group's own place in the stack.
+     */
+    fun passFillGroups(layers: List<Layer>, depth: DepthComposite, fillGroups: List<String>): List<String> {
+        if (depth.isEmpty || fillGroups.isEmpty()) return emptyList()
+        val owners = depth.surfaceIds.mapNotNull { ownerOf(layers, it)?.group?.id }.toSet()
+        return fillGroups.filter { it in owners }
+    }
+
     /** Every layer drawn on a group surface. */
     fun surfaceLayerIds(layers: List<Layer>): Set<String> {
         if (layers.none { it.isContainer && it.surface != null }) return emptySet()
@@ -616,6 +636,12 @@ object SurfaceMath {
         }
         return out
     }
+
+    /** A value key for the inputs of [fillTriangles]: equal inputs give an equal key (the maps have no equals). */
+    fun fillKey(profile: SurfaceProfile, model: Affine3, cam: CameraFrame): List<Any> = listOf(
+        profile, model.m.toList(), cam.width, cam.height, cam.focal,
+        cam.eye.toList(), cam.target.toList(), cam.right.toList(), cam.down.toList(), cam.forward.toList(),
+    )
 
     /** [poly] (camera-space points) clipped to z >= [near] (Sutherland-Hodgman against one plane). */
     internal fun clipNear(poly: List<FloatArray>, near: Float): List<FloatArray> {

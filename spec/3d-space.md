@@ -80,17 +80,28 @@ Built (the appearance only; the document boundary is a later slice).
   background is the separate fixed `Workspace` colour (`SurfaceLook.fill(canvas, workspace)`; if the two
   are equal the edge is outlined in the grid colour). The canvas and the screen background were already
   different colours in 2D, so the surface's edge stays visible without an outline.
-  - *Where it sits:* `SurfaceFill`, emitted by `LayerStackNode` immediately before the group's own box,
-    so it is under that group's content and above everything stacked below the group (and above the page,
-    so the page never overpaints it). It draws through the same path in the split inactive-layer render.
+  - *Where it sits:* a top-level surface group's fill (`SurfaceFill`) is emitted in one of two places.
+    If the GPU depth pass paints that group's surface layers (`SurfaceMath.passFillGroups`: paint on a
+    surface joins the pass even with the identity camera), the fill is emitted immediately before the pass
+    at its anchor slot, in stack order with the other such fills, so it is under the paint the pass draws and
+    above whatever is stacked below the anchor. A group with nothing in the pass (no paint, or paint kept in
+    the stack) is filled by `LayerStackNode` just before its own box, at its own place in the stack. Either
+    way the page never overpaints it. The split inactive-layer render only applies when there is no pass, so
+    only the second kind of fill occurs there. Known limit: a fill emitted at the anchor slot is under layers
+    stacked between the anchor and its group, the same way that group's paint is.
   - *Opacity:* the group's own opacity (times its animation frame alpha); the enclosing groups' opacity
-    applies because the fill is inside their box. A hidden group draws nothing.
+    applies because the fill is inside their box. A hidden or zero-opacity group draws nothing (the mesh's gate:
+    a valid surface, visible, not at zero opacity).
   - *Geometry:* `SurfaceMath.fillTriangles`, the sheet's triangles over the mesh's extent (a relief
     surface by its displaced mesh), clipped to the near plane exactly as the mesh lines are, and oriented
-    alike so folds in perspective fill as a union.
+    alike so folds in perspective fill as a union. The triangles are recomputed only when
+    `SurfaceMath.fillKey` (profile, model, camera frame) changes.
+  - *Centre tile only,* like the mesh, in wrap-around mode.
   - *Not filled:* a multi-view group (a solid); a group nested inside another group (its canvas-space
-    triangles would need the parent's placement; it keeps its mesh); a canvas colour that is not fully
-    opaque (a translucent colour would blend twice over the page).
+    triangles would need the parent's placement; it keeps its mesh).
+  - **Assumption for the owner to confirm:** a canvas colour that is not fully opaque gives no surface fill
+    (a translucent colour would blend twice over the page; a transparent canvas has nothing to fill with). The
+    owner said only "the canvas background colour".
 - **Mesh:** the grid colour, drawn only if a grid is on. It replaces the cyan wire mesh (no dark
   under-line either). There is no user-chosen grid colour and no grid on/off setting today: the 2D
   reference grid (`InfiniteGrid`) is always on in one fixed colour, `SurfaceLook.GRID_ARGB`, the one source for both. So the mesh

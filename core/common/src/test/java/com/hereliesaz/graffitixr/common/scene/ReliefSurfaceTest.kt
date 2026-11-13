@@ -518,11 +518,20 @@ class ReliefSurfaceTest {
     @Test fun aReliefSurfaceIsFilledWithItsDisplacedMesh() {
         val tilted = SceneMath.frame(SceneCamera(yaw = 0.5f, pitch = -0.3f), w, h)
         val model = SceneMath.chainModel(identity, w, h)
-        val flat = SurfaceMath.fillTriangles(flatRelief().toProfile(), model, tilted)
-        val bumpy = SurfaceMath.fillTriangles(build(bump()).toProfile(), model, tilted)
-        assertTrue(flat.isNotEmpty() && bumpy.isNotEmpty())
-        assertTrue(bumpy.all { t -> t.all { it.isFinite() } })
-        assertTrue(flat.flatMap { it.toList() } != bumpy.flatMap { it.toList() })
+        val profile = build(bump()).toProfile()
+        val tris = SurfaceMath.fillTriangles(profile, model, tilted)
+        val verts = SurfaceMath.mesh(profile, 0f, profile.length, 0f, SurfaceMath.gridExtent(profile))
+        assertTrue(verts.isNotEmpty())
+        assertEquals(verts.size / 5 / 3, tris.size)
+        fun project(o: Int): List<Int> {
+            val c = tilted.toCamera(model.apply(verts[o], verts[o + 1], verts[o + 2]))
+            return listOf((1000f * (tilted.width / 2f + tilted.focal * c[0] / c[2])).toInt(), (1000f * (tilted.height / 2f + tilted.focal * c[1] / c[2])).toInt())
+        }
+        for (k in tris.indices) {
+            val expected = (0 until 3).map { project((k * 3 + it) * 5) }.toSet()
+            val actual = (0 until 3).map { listOf((1000f * tris[k][it * 2]).toInt(), (1000f * tris[k][it * 2 + 1]).toInt()) }.toSet()
+            for (a in actual) assertTrue("$k $a", expected.any { e -> abs(e[0] - a[0]) <= 2 && abs(e[1] - a[1]) <= 2 })
+        }
     }
 
     @Test fun theWireMeshStopsAtThePhotosEdge() {

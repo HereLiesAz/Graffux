@@ -344,15 +344,40 @@ fun EditorScreen(
                                 StackLayerCache.applies(uiState, sceneContext)
                         }
                         if (split == null) SideEffect { stackCache.dumpAll() }
+                        // Surface fills (spec/3d-space.md, "How the surface looks"), centre tile only like the mesh.
+                        val fillGroups = remember(uiState.layers, frameAlphas, dx, dy) {
+                            if (dx == 0 && dy == 0) {
+                                com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                    .fillGroupIds(uiState.layers, frameAlphas)
+                            } else {
+                                emptyList()
+                            }
+                        }
+                        val passFills = remember(uiState.layers, sceneContext?.depth, fillGroups) {
+                            sceneContext?.let {
+                                com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                    .passFillGroups(uiState.layers, it.depth, fillGroups)
+                            } ?: emptyList()
+                        }
+                        val fillContext = remember(uiState.canvasBackground, fillGroups, passFills) {
+                            SurfaceFillContext(uiState.canvasBackground, fillGroups.toSet() - passFills.toSet())
+                        }
                         val drawNodes: @Composable (List<LayerNode>) -> Unit = { nodes ->
                             androidx.compose.runtime.CompositionLocalProvider(
                                 LocalHighResOverlays provides highResOverlays,
                                 LocalScene provides sceneContext,
-                                LocalSurfaceFill provides uiState.canvasBackground,
+                                LocalSurfaceFill provides fillContext,
                             ) { nodes.forEach { node ->
                                 // The GPU depth pass sits where its first member's top-level
                                 // subtree does; the layers it draws are skipped below.
                                 if (sceneContext != null && node.layer.id == sceneContext.depth.anchorTopLevelId) {
+                                    // Fills of the groups whose paint the pass draws go under it, in stack order.
+                                    for (g in passFills) key(g) {
+                                        uiState.layers.firstOrNull { it.id == g }?.let {
+                                            val alpha = it.opacity * (frameAlphas[g] ?: 1f)
+                                            SurfaceFill(it, sceneContext, alpha, uiState.canvasBackground)
+                                        }
+                                    }
                                     DepthPass(uiState, sceneContext, liveStrokeState, Modifier.fillMaxSize())
                                 }
                                 LayerStackNode(
@@ -1194,8 +1219,13 @@ fun EditorScreen(
     }
 }
 
-/** The canvas background colour the surface fills use; null outside the editor canvas. */
-private val LocalSurfaceFill = androidx.compose.runtime.compositionLocalOf<Color?> { null }
+/**
+ * What a surface fill needs: the canvas colour, and the groups whose fill is emitted at their own place in
+ * the stack (the rest are emitted just before the depth pass). Null outside the centre tile.
+ */
+private class SurfaceFillContext(val canvas: Color, val inStack: Set<String>)
+
+private val LocalSurfaceFill = androidx.compose.runtime.compositionLocalOf<SurfaceFillContext?> { null }
 
 // The 3D scene path added one branch per node kind; splitting the node would split its keys.
 @Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming", "ReturnCount")
@@ -1226,12 +1256,10 @@ private fun LayerStackNode(
     val placement = scene?.placementFor(layer)
     key(layer.id) {
         if (layer.isContainer) {
-            // The surface fill sits at this group's place in the stack, under its own content. Only a
-            // top-level group: inside a placed parent the canvas-space triangles would need that parent's map.
-            val fillColour = LocalSurfaceFill.current
-            val fillable = layer.surface != null && layer.parentId == null
-            if (fillable && scene != null && fillColour != null) {
-                SurfaceFill(layer, scene, layer.opacity * frameAlpha, fillColour)
+            // A surface fill not drawn by the depth pass sits at this group's place, under its own content.
+            val fill = LocalSurfaceFill.current
+            if (scene != null && fill != null && layer.id in fill.inStack) {
+                SurfaceFill(layer, scene, layer.opacity * frameAlpha, fill.canvas)
             }
             ContainerLayerBox(layer, modifier, frameAlpha, placement) {
                 val inner = placement?.let { scene?.inside(it) } ?: scene
@@ -2179,7 +2207,8 @@ private fun SurfaceFill(layer: Layer, scene: SceneContext, alpha: Float, canvasB
         .fill(canvasBackground.toArgb(), Workspace.toArgb())
     val profile = layer.surface
     val model = scene.modelFor(layer)
-    val tris = remember(profile, model, scene.frame, look) {
+    val key = profile?.let { com.hereliesaz.graffitixr.common.scene.SurfaceMath.fillKey(it, model, scene.frame) }
+    val tris = remember(key, look != null) {
         if (profile == null || look == null) {
             emptyList()
         } else {

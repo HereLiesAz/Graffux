@@ -2,9 +2,12 @@
 
 package com.hereliesaz.graffitixr.common.scene
 
+import com.hereliesaz.graffitixr.common.model.Layer
+import com.hereliesaz.graffitixr.common.model.LayerType
+import com.hereliesaz.graffitixr.common.model.ShapeKind
+import com.hereliesaz.graffitixr.common.model.VectorShape
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -70,14 +73,16 @@ class SurfaceLookTest {
     }
 
     @Test
-    fun `a surface crossing the near plane keeps its visible part instead of vanishing`() {
-        // Camera inside the sheet's reach: the far end of the sweep runs behind the eye's near plane.
+    fun `a surface crossing the near plane keeps every mesh line end inside its fill`() {
         val close = SceneMath.frame(SceneCamera(distanceScale = 0.15f, pitch = -1.0f), w, h)
         val lines = SurfaceMath.gridLines(sheet, model, close)
         val tris = SurfaceMath.fillTriangles(sheet, model, close)
-        assertTrue(lines.isNotEmpty())
-        assertTrue("mesh remains so the fill must", tris.isNotEmpty())
-        assertTrue(tris.all { t -> t.all { it.isFinite() } })
+        assertTrue(lines.isNotEmpty() && tris.isNotEmpty())
+        // The old drop-the-strip code lost the strip whose far end crossed the near plane, leaving mesh ends bare.
+        for (l in lines) {
+            assertTrue("start ${l.toList()}", tris.any { inside(it, l[0], l[1], 1f) })
+            assertTrue("end ${l.toList()}", tris.any { inside(it, l[2], l[3], 1f) })
+        }
     }
 
     @Test
@@ -90,6 +95,14 @@ class SurfaceLookTest {
         // The apex is cut: the kept part is a quad from z = 20 down to z = near, at the right x.
         assertTrue(crossing.any { abs(it[2] - near) < 1e-3f })
         assertEquals(4, crossing.size)
+        // Area (in the x-z plane) is the visible fraction: the apex at z = 0 is cut off below z = near,
+        // leaving 75 of the triangle's 100.
+        fun area(poly: List<FloatArray>) = abs(poly.indices.sumOf { i ->
+            val a = poly[i]; val b = poly[(i + 1) % poly.size]
+            (a[0] * b[2] - b[0] * a[2]).toDouble()
+        }) / 2.0
+        assertEquals(75.0, area(crossing), 1e-3)
+        assertEquals(100.0, area(listOf(pt(0f, 20f), pt(10f, 20f), pt(5f, 0f))), 1e-3)
         val behind = SurfaceMath.clipNear(listOf(pt(0f, 1f), pt(10f, 2f), pt(5f, 3f)), near)
         assertTrue(behind.isEmpty())
         val front = SurfaceMath.clipNear(listOf(pt(0f, 20f), pt(10f, 20f), pt(5f, 30f)), near)
@@ -108,7 +121,56 @@ class SurfaceLookTest {
             SurfaceProfile(box(100f).flatMap { place(it.first, it.second).toList() }, sweep[0], sweep[1], sweep[2])
         val front = view(floatArrayOf(0f, 0f, 1f)) { x, y -> floatArrayOf(x, y, 0f) }
         val hull = front.copy(side = view(floatArrayOf(1f, 0f, 0f)) { z, y -> floatArrayOf(0f, y, z) })
-        assertNotNull(hull)
         assertTrue(SurfaceMath.fillTriangles(hull, model, cam).isEmpty())
+    }
+
+    private val straight = SurfaceProfile(listOf(0f, 0f, 0f, 200f, 0f, 0f), sweepX = 0f, sweepY = 1f, sweepZ = 0f)
+    private val shapes = listOf(VectorShape(ShapeKind.RECTANGLE))
+    private fun group(id: String) = Layer(id, id, type = LayerType.GROUP, surface = straight)
+    private fun paint(id: String, parent: String) = Layer(id, id, parentId = parent, shapes = shapes)
+
+    @Test
+    fun `on the 2D path no fill is emitted before a depth pass, every fill sits in the stack`() {
+        // No paint on the surface and no 3D ink: no pass at all, the fill sits at its group's place.
+        val layers = listOf(group("g"))
+        val depth = DepthComposite.plan(layers, SceneCamera())
+        val fills = SurfaceMath.fillGroupIds(layers)
+        assertEquals(listOf("g"), fills)
+        assertTrue(SurfaceMath.passFillGroups(layers, depth, fills).isEmpty())
+        // Paint on a surface joins the pass even with the identity camera, so its fill goes before the pass.
+        val painted = listOf(group("g"), paint("a", "g"))
+        val plan = DepthComposite.plan(painted, SceneCamera())
+        assertEquals(listOf("g"), SurfaceMath.passFillGroups(painted, plan, SurfaceMath.fillGroupIds(painted)))
+    }
+
+    @Test
+    fun `on the scene path the fill of a group the depth pass paints is emitted before the pass, in stack order`() {
+        val layers = listOf(
+            paint("below", "none").copy(parentId = null), group("g1"), paint("a", "g1"),
+            group("empty"), group("g2"), paint("b", "g2"),
+        )
+        val depth = DepthComposite.plan(layers, SceneCamera(yaw = 0.4f))
+        val fills = SurfaceMath.fillGroupIds(layers)
+        assertEquals(listOf("g1", "empty", "g2"), fills)
+        // g2 comes after the anchor's group but its paint is drawn by the same pass, so it joins g1 ahead of it;
+        // a group with no paint in the pass keeps its place in the stack.
+        assertEquals(listOf("g1", "g2"), SurfaceMath.passFillGroups(layers, depth, fills))
+    }
+
+    @Test
+    fun `a nested, hidden or zero-opacity group gets no fill`() {
+        val layers = listOf(
+            group("top"), group("inner").copy(parentId = "top"),
+            group("hidden").copy(isVisible = false), group("zero").copy(opacity = 0f),
+        )
+        assertEquals(listOf("top"), SurfaceMath.fillGroupIds(layers))
+    }
+
+    @Test
+    fun `equal fill inputs give an equal key`() {
+        fun key() = SurfaceMath.fillKey(sheet.copy(), SceneMath.chainModel(listOf(PlanePose()), w, h), SceneMath.frame(SceneCamera(yaw = 0.4f), w, h))
+        assertEquals(key(), key())
+        val other = SurfaceMath.fillKey(sheet, SceneMath.chainModel(listOf(PlanePose()), w, h), SceneMath.frame(SceneCamera(yaw = 0.5f), w, h))
+        assertTrue(key() != other)
     }
 }
