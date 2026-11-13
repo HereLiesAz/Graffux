@@ -757,6 +757,19 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch { runCatching { coordinator.loadPrices(packageIds) }.rethrowCancellation() }
     }
 
+    // Draw plane depth session state (spec/3d-space.md, "Draw plane depth"). Declared before the init blocks:
+    // the project load and close collectors reset it ([resetDrawPlaneSession]) during construction.
+    /** The newest stroke's layer and the view it was drawn in: the reference plane while that view holds. */
+    private var lastStroke: LastStroke? = null
+    private var drawGuideJob: kotlinx.coroutines.Job? = null
+    private var drawDepthNoticed = false
+
+    /** Layers a draw-plane stroke made, with the project and file of their first PNG (if any) to delete when gone. */
+    private val planeLayerFiles = HashMap<String, Pair<String, String>?>()
+
+    /** The first-PNG save of each plane layer, so deleting that PNG waits for it. */
+    private val planeLayerSaves = HashMap<String, kotlinx.coroutines.Job>()
+
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
         // removes any the repository says were refunded. Best effort; a network failure, an
@@ -13861,13 +13874,7 @@ class EditorViewModel @Inject constructor(
 
     // ── Draw plane depth (spec/3d-space.md, "Draw plane depth") ──
 
-    /** The newest stroke's layer and the view it was drawn in: the reference plane while that view holds. */
-    private var lastStroke: LastStroke? = null
-    private var drawGuideJob: kotlinx.coroutines.Job? = null
-    private var drawDepthNoticed = false
 
-    /** Layers a draw-plane stroke made, with the project and file of their first PNG (if any) to delete when gone. */
-    private val planeLayerFiles = HashMap<String, Pair<String, String>?>()
 
     /** Undone or dropped [strokes] are no longer the reference: the strokes before them are again. */
     private fun retireLastStroke(strokes: Collection<StrokeCommand>) {
@@ -13882,8 +13889,6 @@ class EditorViewModel @Inject constructor(
         drawGuideJob?.cancel()
     }
 
-    /** The first-PNG save of each plane layer, so deleting that PNG waits for it. */
-    private val planeLayerSaves = HashMap<String, kotlinx.coroutines.Job>()
 
     /**
      * Releases what layers a draw-plane stroke made still hold once nothing can bring them back (not in the layer
