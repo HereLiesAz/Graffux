@@ -307,7 +307,7 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `a stroke on a surface layer is no reference: the depth refuses it`() = runTest(dispatcher) {
+    fun `a stroke on a surface layer is no reference, the depth refuses it`() = runTest(dispatcher) {
         setup(withSurfacePaint = true)
         vm.onSceneOrbit(0.5f, 0.1f)
         vm.onLayerActivated("W")
