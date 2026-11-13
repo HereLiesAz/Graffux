@@ -118,4 +118,46 @@ class DefaultSurfaceTest {
         // Scaled 2x about the canvas centre, the box is half the size, so the reach in box units halves too.
         assertEquals(1066.67f / 2f, p!!.reach!!, 0.5f)
     }
+
+    private fun sheetWithChild(w: Float, h: Float): Pair<List<Layer>, SurfaceProfile> {
+        val profile = DefaultSurface.profile(DefaultSurface.rect(w, h), w, h, emptyList())!!
+        val layers = listOf(group(profile), Layer(id = "c", name = "c", parentId = "g"))
+        return layers to profile
+    }
+
+    @Test
+    fun `with a full-canvas layer painted on it the mesh is exactly the sheet`() {
+        for ((w, h) in listOf(1000f to 1600f, 2000f to 1000f)) {
+            val (_, p) = sheetWithChild(w, h)
+            val mesh = SurfaceMath.mesh(p, 0f, w, 0f, h)
+            val ts = (0 until mesh.size / 5).map { mesh[it * 5 + 4] }
+            val us = (0 until mesh.size / 5).map { mesh[it * 5 + 3] }
+            assertEquals(p.reach!!, ts.max(), 0.01f)
+            assertEquals(p.length, us.max(), 0.01f)
+        }
+    }
+
+    @Test
+    fun `the rendered reach and the visibility box stop at the sheet, and the pivot stays its centre`() {
+        for ((w, h) in listOf(1000f to 1600f, 2000f to 1000f)) {
+            val (layers, p) = sheetWithChild(w, h)
+            val byId = layers.associateBy { it.id }
+            val reach = SurfaceVisibility.renderedReach(layers, byId, layers[0], w, h) { floatArrayOf(0f, 0f, w, h) }
+            assertEquals(p.reach!!, reach!!, 0.01f)
+            val c = OrbitPivot.ofSurfaces(layers, w, h)!!
+            val r = DefaultSurface.rect(w, h)!!
+            assertEquals(r.x + r.width / 2f, c[0], 0.01f)
+            assertEquals(r.y + r.height / 2f, c[1], 0.01f)
+        }
+    }
+
+    @Test
+    fun `a touch below the sheet misses it and one on it hits`() {
+        val (_, p) = sheetWithChild(1000f, 1600f)
+        val cam = SceneMath.frame(SceneCamera(), 1000f, 1600f)
+        val model = SceneMath.chainModel(emptyList(), 1000f, 1600f)
+        assertNotNull(SurfaceMath.hit(500f, 800f, p, model, cam))
+        assertNull(SurfaceMath.hit(500f, 1500f, p, model, cam))
+        assertNull(SurfaceMath.hit(100f, 800f, p, model, cam))
+    }
 }

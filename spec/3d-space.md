@@ -84,10 +84,15 @@ Built. What is the owner's rule and what is my default:
   persistence and undo are those of a drawn surface. It is a flat profile: the top edge of the rectangle
   across z = 0, swept down the screen for exactly the sheet's height (`SurfaceProfile.reach`, a new optional
   field: with it `SurfaceMath.gridExtent` and `localBounds` report the rectangle itself, so the orbit pivot and
-  rotation triangle turn about the sheet's centre; without it a profile is unbounded, as drawn ones are). An
-  older build ignores `reach` and shows the sheet unbounded. The field is not tied to a project format bump;
-  that is for the owner or coordinator to decide. A side or top view drawn later makes the surface a hull and
-  `reach` is then not used. The mesh and grid reach the usual 32-unit margin past the sheet. "Ready-made
+  rotation triangle turn about the sheet's centre; without it a profile is unbounded, as drawn ones are).
+  Every consumer of the sweep clamps to it (`SurfaceProfile.sweepLimit`): the mesh, the ray hit (so a touch
+  below the sheet misses and paint cannot land there), the rendered reach and the visibility box. So with a
+  full-canvas layer painted on it the surface is exactly width x height, and a layer's art past the sheet is
+  cropped, not drawn. It is project format 14 (a 13 file has none and loads unchanged; an older build treats a
+  14 file as newer and opens it read-only, like every earlier optional field). The puppetry plan names 14 for
+  its `rig`; whichever lands second takes 15. A side or top view drawn later makes the surface a hull and
+  `reach` is then not used. Only the guide grid reaches the usual 32-unit margin past the sheet; the mesh does
+  not. "Ready-made
   surfaces" has no flat plane (those are outline packs), so nothing was reused.
 - **From what the user sees (my default).** "The screen" is the canvas view's size (`canvasSize`) and the
   sheet is sized and centred from what is visible: its centre is the middle of the screen mapped back to the
@@ -103,7 +108,9 @@ Built. What is the owner's rule and what is my default:
   that: the layer to be wrapped is an empty paint layer (the definition "Adopting the view plane" uses: no
   source image, text, shapes, adjustment or 3D ink, no recorded stroke, no set pixel), or the armed group
   holds no layer with art. For a layer with art the chip keeps Cancel and the drawn-surface capture only, and
-  `onSkipSurfaceDraw` refuses a forced skip with a notice (`HAS_ART`) and changes nothing. Existing art keeps
+  `onSkipSurfaceDraw` refuses a forced skip with a notice (`HAS_ART`) and changes nothing. The chip's line "Your
+  artwork is not changed" is therefore true on the skip path: the sheet is only ever made for an empty layer or
+  group, so there is no art for it to touch. Existing art keeps
   the capture flow; a windowed profile (open point 8) would lift this.
 
 ### How the surface looks

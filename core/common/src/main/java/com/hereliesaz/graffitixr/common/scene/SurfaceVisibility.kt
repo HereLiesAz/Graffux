@@ -154,7 +154,7 @@ class SurfaceVisibility private constructor(
                 val owner = SurfaceMath.ownerOf(byId, child.id)?.takeIf { it.group.id == group.id } ?: continue
                 val r = imageRect(child) ?: continue
                 val t = SurfaceMath.unrolledRange(owner.innerChain, r, width, height)[3]
-                reach = maxOf(reach ?: 0f, t)
+                reach = maxOf(reach ?: 0f, minOf(t, group.surface?.sweepLimit ?: Float.POSITIVE_INFINITY))
             }
             return reach
         }

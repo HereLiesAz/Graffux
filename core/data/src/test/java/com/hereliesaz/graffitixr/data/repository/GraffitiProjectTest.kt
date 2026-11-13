@@ -201,4 +201,23 @@ class GraffitiProjectTest {
         assertEquals(listOf(1f, 2f, 3f), json.decodeFromString<GraffitiProject>(text).orbitPivot)
         assertEquals(null, json.decodeFromString<GraffitiProject>("""{"formatVersion":12,"id":"o"}""").orbitPivot)
     }
+
+    @Test
+    fun `a flat sheet's reach round-trips and a format 13 surface has none`() {
+        val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val sheet = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
+            listOf(0f, 0f, 0f, 10f, 0f, 0f), 0f, 1f, 0f, reach = 25f,
+        )
+        val text = json.encodeToString(GraffitiProject(id = "p", formatVersion = 14))
+        assertEquals(14, json.decodeFromString<GraffitiProject>(text).formatVersion)
+        val back = json.decodeFromString<com.hereliesaz.graffitixr.common.scene.SurfaceProfile>(
+            json.encodeToString(sheet),
+        )
+        assertEquals(25f, back.reach)
+        val old = json.decodeFromString<com.hereliesaz.graffitixr.common.scene.SurfaceProfile>(
+            """{"points":[0,0,0,10,0,0],"sweepY":1.0}""",
+        )
+        assertEquals(null, old.reach)
+        assertEquals(10f, old.length, 1e-3f)
+    }
 }

@@ -92,6 +92,13 @@ data class SurfaceProfile(
         }
     }
 
+    /**
+     * The farthest sweep distance the surface exists at, or null for unbounded: [reach], unless the surface is a
+     * hull or a relief (which bound themselves). Every consumer of the sweep (the mesh, the ray hit, the rendered
+     * reach, the visibility box) clamps to it, so a sheet with a known height is exactly that tall.
+     */
+    val sweepLimit: Float? get() = if (hasHull || relief != null) null else reach
+
     /** A straight profile: the surface is one plane. */
     val isFlat: Boolean get() = count <= 2 && relief == null
 
@@ -310,7 +317,8 @@ object SurfaceMath {
         val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
         val dir = inv.applyVector(dirW[0], dirW[1], dirW[2])
         val d = profile.sweep
-                profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
+        val limit = minOf(maxT, profile.sweepLimit ?: Float.POSITIVE_INFINITY)
+        profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
         var best: SurfaceHit? = null
         for (i in 0 until profile.count - 1) {
             val p = profile.point(i)
@@ -325,7 +333,7 @@ object SurfaceMath {
             val s = det3(rhs, ne, nd) / det
             val a = det3(dir, rhs, nd) / det
             val t = det3(dir, ne, rhs) / det
-            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE || t > maxT) continue
+            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE || t > limit) continue
             if (best == null || s < best.distance) {
                 val seg = profile.arcLengths[i + 1] - profile.arcLengths[i]
                 best = SurfaceHit(profile.arcLengths[i] + a.coerceIn(0f, 1f) * seg, t.coerceAtLeast(0f), s)
@@ -515,7 +523,7 @@ object SurfaceMath {
         val u0 = uMin.coerceAtLeast(0f)
         val u1 = uMax.coerceAtMost(profile.length)
         val t0 = tMin.coerceAtLeast(0f)
-        val t1 = tMax
+        val t1 = minOf(tMax, profile.sweepLimit ?: Float.POSITIVE_INFINITY)
         if (u1 <= u0 || t1 <= t0) return FloatArray(0)
         val cuts = ArrayList<Float>()
         cuts += u0
