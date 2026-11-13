@@ -13854,6 +13854,10 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    /** [canSkipSurfaceDraw] off the main thread: it can scan every pixel of several large layers. */
+    suspend fun canSkipSurfaceDrawOffMain(): Boolean =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { canSkipSurfaceDraw() }
+
     /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */
     private fun commitWrappedSurface(
         wrapId: String?,

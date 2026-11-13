@@ -1635,10 +1635,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
-            // "Use a flat sheet" only when it cannot displace art; asked when arming changes (scans pixels).
-            val canSkip = remember(
-                uiState.surfaceDrawGroupId, uiState.surfaceDrawWrapLayerId, uiState.surfaceDrawView,
-            ) { vm.canSkipSurfaceDraw() }
+            // "Use a flat sheet" only when it cannot displace art. The check scans pixels, so it runs off the main
+            // thread and again whenever the layers change while armed (art removed or added); hidden until it answers.
+            var canSkip by remember { mutableStateOf(false) }
+            LaunchedEffect(
+                uiState.layers, uiState.surfaceDrawGroupId, uiState.surfaceDrawWrapLayerId, uiState.surfaceDrawView,
+            ) { canSkip = vm.canSkipSurfaceDrawOffMain() }
             // "Relocate rotation point" (say what to do; Cancel or Back leaves it), then the "Draw surface"
             // prompt, then failures and confirmations, over the artwork, never blocking it. One stack, so
             // they sit under the status bar and between the rails and never on top of one another.

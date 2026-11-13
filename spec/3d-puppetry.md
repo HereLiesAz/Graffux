@@ -2,7 +2,7 @@
 
 Status: design only. Nothing here is implemented. **Revision 3** brings CAD (STEP/IGES/DXF) back in scope as modeling input (0D). **Revision 2** makes standard formats (glTF 2.0 skins,
 nodes and animations) the backbone; sections 0A to 0C are new and win over any earlier text they contradict. Written against `origin/main` at 1.74.1.1 (project
-format 13), the open draft PR #753 (rotation triangle gizmo) and the in-progress mesh work on
+format 13; main is now at format 14, taken by the flat sheet's `reach`, so every format number below shifts up by one: rig is 15), the open draft PR #753 (rotation triangle gizmo) and the in-progress mesh work on
 `claude/mesh-all-views` (no commits beyond main when this was written; every statement about it
 below is an assumption to re-check, flagged "MESH:").
 
@@ -37,7 +37,7 @@ recommendation is accepted. Section numbers point to the reasoning.
 | Q14 | Default mobile budget numbers (section 10) acceptable as hard limits (e.g. 32 joints per project, 4k vertices per soft body)? | Yes, enforced with a visible message, not silently. | 10 |
 | Q15 | Is glTF (nodes/skins/animations) the interchange and in-memory shape for rigs and clips, with our data only in `extras.GRAFFUX_joint`? | Yes (0B). | 0B |
 | Q16 | Support importing rigged glTF/GLB models as poseable model layers before authored joints? | Yes: PR 1.2 (import and pose) ships before PR 1.5 (authoring). | 12 |
-| Q17 | Extend the model layer to hold one `.glb` original plus a skeleton, and generalise `objFile` to `modelFile` (format 14)? | Yes, old name still read. | 0C |
+| Q17 | Extend the model layer to hold one `.glb` original plus a skeleton, and generalise `objFile` to `modelFile` (format 15)? | Yes, old name still read. | 0C |
 | Q18 | **Reopened (rev 3).** On-device formats: glTF/GLB, OBJ(+MTL), STL, plus CAD (STEP AP203/214/242, IGES, DXF); splats, point clouds, VDB/voxels, Alembic, USD, FBX etc. out of scope (convert externally) | Yes as stated; CAD import after glTF import, via OCCT only if the spike passes. | 0C, 0D |
 | Q19 | Parser library: jgltf (JVM) vs cgltf (native) vs hand-rolled? | jgltf, decided by the PR 1.0 spike (APK delta, 20 MB GLB parse time, licence check). | 0C |
 | Q20 | Export `.glb` in addition to `.gltf`, and validate our output with Khronos glTF-Validator in CI? | Yes to both. | 0C |
@@ -165,7 +165,7 @@ buys nothing for a private semantic); `extensionsUsed` stays unchanged and every
    skin them instead of using `partModel`). The glTF skinning formula is the only deformation maths
    added (section 3.8). Stage 2's "recommended" kernel becomes a *weight generator* feeding that
    same runtime, not a separate solver.
-5. **Pose persistence** stays in our project (`GraffitiProject.rig`, format 14), because a glTF file
+5. **Pose persistence** stays in our project (`GraffitiProject.rig`, format 15), because a glTF file
    embedded as a model is not edited in place: the stored `.glb` is the unmodified original (so
    re-export of the source is lossless and storage is the user's file), and the project holds only
    the *delta*: pose per node (by node index, with node name as a fallback key), kind/limits/rigidity
@@ -273,7 +273,7 @@ and the node forest in `Skeleton(nodes: List<SkelNode>)` with `SkelNode(name, pa
 extras)`. A model layer holds `mesh` plus an optional `skeleton`/`skinned`. A static OBJ has neither
 and takes today's code path byte for byte. Imported base-colour textures and multiple primitives
 become several `ModelMesh` parts of one model layer (also a prerequisite for glTF with more than one
-material), which is a change to `ModelLayerContent` (format 14: `modelFile` generalises `objFile`,
+material), which is a change to `ModelLayerContent` (format 15: `modelFile` generalises `objFile`,
 the old name read as before).
 
 ## 0D. CAD input: STEP, IGES, DXF
@@ -540,7 +540,7 @@ data class Rig(
 )
 ~~~
 
-- `GraffitiProject.rig: Rig? = null` (new, format 14). Null and "no joints" are equivalent and the
+- `GraffitiProject.rig: Rig? = null` (new, format 15). Null and "no joints" are equivalent and the
   writer emits null for an empty rig, so a project that never used puppetry is byte-identical to today
   other than `formatVersion` (and see 4.1 for keeping even that unchanged until a rig exists).
 - Pose is **persisted**: the owner wants the pose saved in the project. It is document state, not
@@ -798,24 +798,24 @@ influences, `skinMatrix = sum w_i * jointMatrix[j_i]`. Runtime split:
 - Float32 everywhere to match `Affine3`; the solver does its few-joint math in Double and rounds once on
   output if profiling shows the float path drifts in CCD (open question R6, not expected).
 
-## 4. Project format 14
+## 4. Project format 15
 
 ### 4.1 Fields and migration
 
 - `GraffitiProject.rig: Rig? = null` (JSON key `rig`). Nothing else in the project file changes for
-  Stage 1. Stage 2 adds `OverlayLayer.softBody` (section 8.5) in a later format bump (15) or into
+  Stage 1. Stage 2 adds `OverlayLayer.softBody` (section 8.5) in a later format bump (16) or into
   this one if it ships first; keep each stage's persistence in the stage that needs it.
 - `CURRENT_FORMAT_VERSION` becomes 14 when the first PR that **writes** a rig lands, not before. Until
-  then a project that has no rig keeps format 13. Even afterwards, **write the lowest format that can
-  hold the document**: a project with no rig stays at 13 (the writer decides from content). Rationale:
+  then a project that has no rig keeps format 14. Even afterwards, **write the lowest format that can
+  hold the document**: a project with no rig stays at 14 (the writer decides from content). Rationale:
   every format bump makes the file read-only for older builds (`isNewerFormat`), so bumping for
   documents that do not need it needlessly strands users on mixed-version devices and co-op peers.
   (The existing code bumps globally; this is a deliberate narrowing. If the project has no precedent
   for content-dependent versions, fall back to the global bump and accept the cost: open question
   R5.)
-- `ProjectManager.migrateFormat` 13 -> 14 only records the version (no data to transform), exactly like
-  10, 11, 12 and 13 before it. A format 13 file has no `rig`: automatic, = no rig.
-- Backward compatible reads in this build: all of a 13 file reads as before; `rig` absent = null.
+- `ProjectManager.migrateFormat` 14 -> 15 only records the version (no data to transform), exactly like
+  10, 11, 12, 13 and 14 before it. A format 14 file has no `rig`: automatic, = no rig.
+- Backward compatible reads in this build: all of a 14 file reads as before; `rig` absent = null.
 - `Json { ignoreUnknownKeys = true }` (ProjectManager) already tolerates an unknown `rig` key in builds
   that predate it, but those builds also see `formatVersion = 14`.
 
@@ -844,8 +844,8 @@ read-only open of a newer file protects data in the common case).
 ### 4.4 Rev 2: what the project stores for imported models
 
 - The original model file is stored unmodified in the project folder (today `model_<layerId>.obj`;
-  format 14 generalises `ModelLayerContent.objFile` to `modelFile`, the old name still read, so a
-  format 13 file loads as before). A `.glb` is one file, so it fits the existing `saveArtifact` path.
+  format 15 generalises `ModelLayerContent.objFile` to `modelFile`, the old name still read, so a
+  format 14 file loads as before). A `.glb` is one file, so it fits the existing `saveArtifact` path.
 - `GraffitiProject.rig` stores only **deltas against the source**: per layer, the pose as node index
   -> local rotation/translation (name fallback when indices disagree after a re-import), `GRAFFUX_joint`
   overrides, and authored clips. Opening the project never rewrites the user's source model.
@@ -954,7 +954,7 @@ What would cross JNI, and when:
 ### 5.7 Desktop and other builds
 
 Desktop does not link `:core:common` (3d-space.md header), so it has no 3D and no puppetry. The
-`GraffitiProject` model is shared by file format only; a desktop open of a format 14 project follows
+`GraffitiProject` model is shared by file format only; a desktop open of a format 15 project follows
 the desktop's own newer-format behaviour (unchanged by this work).
 
 ### 5.8 Co-op, history, flatten, composites
@@ -1334,7 +1334,7 @@ Kinematics properties (Stage 1):
   under rest, for random surface points.
 - **P8 cycle freedom**: no sequence of `addJoint`/`removeJoint`/`sanitize` ever yields a cycle or a
   two-parent part; `wouldCycle` agrees with a brute-force reachability check.
-- **P9 serialization**: encode/decode round trip; format 13 file decodes to `rig = null`; unknown
+- **P9 serialization**: encode/decode round trip; format 14 file decodes to `rig = null`; unknown
   `JointKind` decodes to UNKNOWN and is preserved; NaN joints dropped.
 - **P10 agreement with existing code**: a one-joint rig with a root and a child, pose via a root drag
   of angle `a` about the pivot, equals `SceneMath.rotatePoseAbout(pose, axis, a, pivot, ...)` (the new
@@ -1346,7 +1346,7 @@ Kinematics properties (Stage 1):
 
 Integration (JVM, `:feature:editor`, existing fake-depth-source pattern): add/remove/undo/redo of a
 joint and of a pose gesture (one drag = one step; redo restores; `chainedToPrevious` chain
-for delete-with-joints); `EditHistory` dedup; sanitise on layer delete/duplicate; load a format 13
+for delete-with-joints); `EditHistory` dedup; sanitise on layer delete/duplicate; load a format 14
 project (no rig) and a 14 project; export a posed scene to glTF and check node transforms; hit-test
 returns the posed part.
 
@@ -1378,7 +1378,7 @@ Stage 1 (rigs: imported and authored):
 |---|---|---|---|---|
 | 1.0 | **Spike** (no merge to main of the dependency until accepted): jgltf vs cgltf on APK delta, 20 MB GLB parse, R8, licences; Khronos glTF-Validator wired as a test/CI step on the *existing* exporter output; record findings in this spec | ~5 | ~150 | none |
 | 1.1 | Core model, pure Kotlin: `Skeleton`/`SkelNode`/`Skin`/`SkinnedMesh`, `Skinning.kt` (spec formula), quaternion type, FK over a node forest, pose delta, cycle/sanitise, limits and rigidity gain (3.2, 3.4); property tests P1-P12 + skinning fixtures | ~8 | ~1100 + 900 tests | none |
-| 1.2 | **Import glTF/GLB**: loader adapter (library from 1.0) to `SkinnedMesh` + `Skeleton`; model layer holds `modelFile` + optional skeleton (format 14 field, persistence); refuse list (external files, Draco, KTX2) with clear messages; one primitive and base colour first | ~12 | ~700 | 1.0, 1.1 |
+| 1.2 | **Import glTF/GLB**: loader adapter (library from 1.0) to `SkinnedMesh` + `Skeleton`; model layer holds `modelFile` + optional skeleton (format 15 field, persistence); refuse list (external files, Draco, KTX2) with clear messages; one primitive and base colour first | ~12 | ~700 | 1.0, 1.1 |
 | 1.3 | **Render and pick skinned models**: GLES 3 vertex-shader skinning in the depth pass, joint upload on pose change, CPU-skinned copy for `MeshPicker`/`ModelSpace` picking and painting, pivot bounds from posed bounds; static models unchanged byte for byte. On-device only | ~10 | ~600 | 1.2 |
 | 1.4 | **Pose an imported rig**: history (`RigChange`, one drag = one step), joint selection by tapping the mesh (nearest dominant joint of the hit triangle) and by a joint list, pose mode UI (chips, drag-follow, rigidity gain), rotation gizmo reuse (needs #753), TalkBack actions, reset pose, numeric entry. The "import a rigged model and pose it" milestone | ~14 | ~1300 | 1.3, #753 |
 | 1.5 | **Authored joints on surface groups**: add-joint two-tap and list flows, joint sheet, markers overlay, `partModel` seam in renderer/hit-test/grid/pivot (rigid parts as nodes with meshes on them), project persistence | ~18 | ~1700 | 1.1, 1.4 |

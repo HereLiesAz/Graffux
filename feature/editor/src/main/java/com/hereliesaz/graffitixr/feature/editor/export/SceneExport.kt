@@ -58,6 +58,8 @@ internal class SceneExport(private val manager: ExportManager) {
         /** Layers on a flat surface draw on it, as on the canvas (SceneContext.flatSurfaceModels). */
         val flatSurfaceModels = SurfaceMath.flatSurfaceModels(layers, w.toFloat(), h.toFloat())
 
+        val flatSurfaceCrops = SurfaceMath.flatSurfaceCrops(layers, w.toFloat(), h.toFloat())
+
         /** Box-local to scene, through the layer's whole chain of planes (or its flat surface). */
         fun model(layer: Layer) = flatSurfaceModels[layer.id]
             ?: SceneMath.chainModel(planeChain(layers, layer.id), w.toFloat(), h.toFloat())
@@ -75,7 +77,9 @@ internal class SceneExport(private val manager: ExportManager) {
 
     private fun clipInFront(canvas: Canvas, layer: Layer, ctx: Ctx) {
         val hm = SceneMath.homography(ctx.model(layer), ctx.frame)
-        val poly = SceneMath.visiblePolygon(hm, ctx.frame, CLIP_EXTENT * maxOf(ctx.w, ctx.h)) ?: return
+        val front = SceneMath.visiblePolygon(hm, ctx.frame, CLIP_EXTENT * maxOf(ctx.w, ctx.h))
+        val crop = ctx.flatSurfaceCrops[layer.id]
+        val poly = if (crop == null) front ?: return else if (front == null) crop else SceneMath.clipConvex(front, crop)
         val path = android.graphics.Path()
         poly.forEachIndexed { i, (u, v) -> if (i == 0) path.moveTo(u, v) else path.lineTo(u, v) }
         path.close()

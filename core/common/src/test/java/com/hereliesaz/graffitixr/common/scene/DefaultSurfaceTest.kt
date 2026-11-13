@@ -160,4 +160,37 @@ class DefaultSurfaceTest {
         assertNull(SurfaceMath.hit(500f, 1500f, p, model, cam))
         assertNull(SurfaceMath.hit(100f, 800f, p, model, cam))
     }
+
+    @Test
+    fun `a touch that grazes the sheet's side below it paints nowhere, and one beside the sheet still maps`() {
+        val (_, p) = sheetWithChild(1000f, 1600f)
+        val cam = SceneMath.frame(SceneCamera(), 1000f, 1600f)
+        val model = SceneMath.chainModel(emptyList(), 1000f, 1600f)
+        // The sheet is x 125..875, y 267..1333. Just left of its side but well below its bottom edge: out of reach.
+        assertNull(SurfaceFootprint.hit(130f, 1500f, 20f, p, model, cam))
+        // Just beside the side, level with the sheet: the footprint maps to the side edge, within the sheet's t.
+        val beside = SurfaceFootprint.hit(115f, 800f, 20f, p, model, cam)
+        assertNotNull(beside)
+        assertTrue(beside!!.t <= p.reach!! + 0.01f)
+        // Just under the bottom edge, within the footprint: clamped to the far edge, not past it.
+        val under = SurfaceFootprint.hit(500f, 1345f, 20f, p, model, cam)
+        assertNotNull(under)
+        assertEquals(p.reach!!, under!!.t, 0.5f)
+    }
+
+    @Test
+    fun `a layer drawn through the sheet's plane is cropped to the sheet`() {
+        val (layers, p) = sheetWithChild(1000f, 1600f)
+        val crop = SurfaceMath.flatSurfaceCrops(layers, 1000f, 1600f)["c"]!!
+        assertEquals(listOf(0f to 0f, p.length to 0f, p.length to p.reach!!, 0f to p.reach!!), crop)
+        // A near-plane polygon covering far more is cut down to the sheet, either winding.
+        val big = listOf(-5000f to -5000f, 5000f to -5000f, 5000f to 5000f, -5000f to 5000f)
+        for (c in listOf(crop, crop.reversed())) {
+            val cut = SceneMath.clipConvex(big, c)
+            assertEquals(0f, cut.minOf { it.first }, 0.01f)
+            assertEquals(p.length, cut.maxOf { it.first }, 0.01f)
+            assertEquals(p.reach!!, cut.maxOf { it.second }, 0.01f)
+        }
+        assertTrue(SceneMath.clipConvex(listOf(2000f to 2000f, 2100f to 2000f, 2100f to 2100f), crop).isEmpty())
+    }
 }

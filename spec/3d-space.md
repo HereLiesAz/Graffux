@@ -102,16 +102,24 @@ Built. What is the owner's rule and what is my default:
 - **Centred: assumed, not owner-confirmed** (open point 7 stays open).
 - **No recompute on rotation: my default, not owner-confirmed.** The surface is data once created: if the
   device is rotated afterwards, the sheet is not resized or moved.
-- **Only for new or empty groups (decided with the coordinator).** A layer's paint is placed from the
-  profile's first vertex (the sheet's top-left corner), so a sheet would offset or crop existing art. Until a
-  windowed profile exists (as a relief has `left`/`top`), "Use a flat sheet" is offered only when it cannot do
-  that: the layer to be wrapped is an empty paint layer (the definition "Adopting the view plane" uses: no
-  source image, text, shapes, adjustment or 3D ink, no recorded stroke, no set pixel), or the armed group
-  holds no layer with art. For a layer with art the chip keeps Cancel and the drawn-surface capture only, and
+- **Only for new or empty groups (decided with the coordinator).** Paint is placed from the surface's first
+  vertex in either flow: the unrolled `(u, t)` are the layer's box coordinates from that vertex, so a layer's art
+  keeps its box position but its origin sits at the sheet's top-left corner (the default sheet) or at where a
+  drawn line started, running in the line's direction (a line drawn right to left mirrors it), and anything past
+  the surface's width or sweep is cropped. Neither flow leaves existing art "where it was". The default sheet's
+  rectangle is fixed by the screen, not by the art, so it is the likelier to crop art that is wider or taller than
+  the sheet; until a windowed profile exists (as a relief has `left`/`top`), "Use a flat sheet" is therefore
+  offered only when there is no art to place: the layer to be wrapped is an empty paint layer (the definition
+  "Adopting the view plane" uses: no source image, text, shapes, adjustment or 3D ink, no recorded stroke, no set
+  pixel), or the armed group holds no such layer. This is conservative: a group holding an adjustment, 3D ink or
+  model layer is refused too. For a layer with art the chip keeps Cancel and the drawn-surface capture only, and
   `onSkipSurfaceDraw` refuses a forced skip with a notice (`HAS_ART`) and changes nothing. The chip's line "Your
-  artwork is not changed" is therefore true on the skip path: the sheet is only ever made for an empty layer or
-  group, so there is no art for it to touch. Existing art keeps
-  the capture flow; a windowed profile (open point 8) would lift this.
+  artwork is not changed" means the pixels are not edited; on the skip path it is trivially true, as there are
+  none. In the capture flow it is true of the pixels only: where they sit follows the line (the rule above). The
+  check scans pixels, so the app runs it off the main thread (`canSkipSurfaceDrawOffMain`) each time the layers or
+  the arming change while armed, and shows Skip once it answers. A layer drawn on the sheet through the stack (a
+  blend mode or a clip) is cropped to the sheet like the depth pass's mesh (`SurfaceMath.flatSurfaceCrops`). A
+  windowed profile (open point 8) would lift the restriction.
 
 ### How the surface looks
 

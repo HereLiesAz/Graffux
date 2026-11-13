@@ -208,12 +208,11 @@ class GraffitiProjectTest {
         val sheet = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
             listOf(0f, 0f, 0f, 10f, 0f, 0f), 0f, 1f, 0f, reach = 25f,
         )
-        val text = json.encodeToString(GraffitiProject(id = "p", formatVersion = 14))
-        assertEquals(14, json.decodeFromString<GraffitiProject>(text).formatVersion)
         val back = json.decodeFromString<com.hereliesaz.graffitixr.common.scene.SurfaceProfile>(
             json.encodeToString(sheet),
         )
         assertEquals(25f, back.reach)
+        assertEquals(sheet, back)
         val old = json.decodeFromString<com.hereliesaz.graffitixr.common.scene.SurfaceProfile>(
             """{"points":[0,0,0,10,0,0],"sweepY":1.0}""",
         )

@@ -45,8 +45,8 @@ data class SurfaceProfile(
      * How far the sweep reaches, in box units, or null: unbounded, as every drawn surface is (the box then
      * reaches as far as the profile is long). Set for a flat sheet whose height is known ([DefaultSurface]), so
      * [SurfaceMath.gridExtent] and [SurfaceMath.localBounds] report the sheet's true box and the orbit pivot is
-     * its centre. Ignored once a side or top view makes the surface a hull. Optional, so an older reader
-     * ignores it and treats the sheet as unbounded.
+     * its centre. Ignored once a side or top view makes the surface a hull. Project format 14: an older
+     * build sees a newer format and opens the project read-only, so it never loses the field by saving.
      */
     val reach: Float? = null,
 ) {
@@ -398,6 +398,29 @@ object SurfaceMath {
         val n = SceneMath.normalize(SceneMath.cross(e, d))
         val surface = Affine3(floatArrayOf(e[0], d[0], n[0], a[0], e[1], d[1], n[1], a[1], e[2], d[2], n[2], a[2]))
         return SceneMath.chainModel(owner.ownerChain, width, height) * surface * boxToUnrolled(owner.innerChain, width, height)
+    }
+
+    /**
+     * The sheet's outline in each leaf's own box coordinates, by id, for the layers drawn through
+     * [flatSurfaceModels] on a flat surface whose sweep is bounded ([SurfaceProfile.sweepLimit]): that path draws
+     * the whole layer image on the surface's plane, so it is cropped to this quad, as the depth pass's mesh is.
+     */
+    fun flatSurfaceCrops(layers: List<Layer>, width: Float, height: Float): Map<String, List<Pair<Float, Float>>> {
+        if (width <= 0f || height <= 0f || layers.none { it.isContainer && it.surface?.sweepLimit != null }) return emptyMap()
+        val byId = layers.associateBy { it.id }
+        val out = HashMap<String, List<Pair<Float, Float>>>()
+        for (layer in layers) {
+            if (layer.isContainer) continue
+            val owner = ownerOf(byId, layer.id) ?: continue
+            val reach = owner.profile.sweepLimit ?: continue
+            if (!owner.profile.isFlat || !owner.profile.isValid) continue
+            val inv = boxToUnrolled(owner.innerChain, width, height).inverse() ?: continue
+            val len = owner.profile.length
+            out[layer.id] = listOf(0f to 0f, len to 0f, len to reach, 0f to reach).map { (u, t) ->
+                inv.apply(u, t, 0f).let { it[0] to it[1] }
+            }
+        }
+        return out
     }
 
     /** [flatSurfaceModel] for every layer painted on a flat surface, by id; empty when there is none. */

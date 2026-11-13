@@ -42,6 +42,8 @@ internal class SceneContext(
      * the depth pass leaves in the stack (a blend mode or a clip) draws on the surface through it.
      */
     val flatSurfaceModels: Map<String, Affine3> = emptyMap(),
+    /** Each such layer's sheet outline in its box (SurfaceMath.flatSurfaceCrops): the draw is cropped to it. */
+    val flatSurfaceCrops: Map<String, List<Pair<Float, Float>>> = emptyMap(),
 ) {
     /** The node's own placement on the scene path, or null for the 2D fast path. */
     fun placementFor(layer: Layer): ScenePlacement? {
@@ -49,7 +51,9 @@ internal class SceneContext(
         val model = modelFor(layer)
         val homography = SceneMath.homography(model, frame)
         val relative = SceneMath.relativeHomography(parentHomography, homography)
-        val clip = SceneMath.visiblePolygon(homography, frame, CLIP_EXTENT * maxOf(frame.width, frame.height))
+        val front = SceneMath.visiblePolygon(homography, frame, CLIP_EXTENT * maxOf(frame.width, frame.height))
+        val crop = flatSurfaceCrops[layer.id]
+        val clip = if (crop == null) front else if (front == null) crop else SceneMath.clipConvex(front, crop)
         return ScenePlacement(model, homography, relative, clip)
     }
 
@@ -59,7 +63,7 @@ internal class SceneContext(
 
     fun inside(placement: ScenePlacement): SceneContext = SceneContext(
         camera, frame, sceneIds, placement.model, placement.homography, draft, draftLayerId, showGuideFor, depth,
-        flatSurfaceModels,
+        flatSurfaceModels, flatSurfaceCrops,
     )
 
     private companion object {
