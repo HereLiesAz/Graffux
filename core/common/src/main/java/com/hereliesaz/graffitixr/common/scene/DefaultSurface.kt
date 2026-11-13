@@ -41,7 +41,8 @@ object DefaultSurface {
      * [rect] as a group surface profile, in the group's box-local space ([groupChain] as for
      * [SurfaceMath.capture], built for a [canvasWidth] x [canvasHeight] canvas; empty for a group with no pose):
      * its top edge across the plane z = 0, swept down the screen (+y) for exactly the sheet's height
-     * ([SurfaceProfile.reach]), so the surface's box is the rectangle and the orbit pivot is its centre.
+     * ([SurfaceProfile.reach]), so the surface's box is the rectangle; the orbit pivot is `n` behind its centre
+     * ([OrbitPivot.ofSurfaces]).
      * Null when [rect] is null or the chain is unusable.
      */
     fun profile(

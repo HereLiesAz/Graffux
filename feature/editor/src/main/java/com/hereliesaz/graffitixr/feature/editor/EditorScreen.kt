@@ -20,7 +20,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
@@ -1047,28 +1046,6 @@ fun EditorScreen(
                 toWorld = activePlane::world,
                 onDrawn = { vm.onSurfaceProfileDrawn(it) },
                 modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
-            )
-        }
-
-        // 3b-pivot. "Relocate rotation point" armed (spec/3d-space.md, "The orbit point"): the next tap
-        // places the point the scene revolves about, over every tool; it paints nothing.
-        if (uiState.pivotPickArmed) {
-            val toWorld = androidx.compose.runtime.rememberUpdatedState(activePlane::world)
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .testTag("canvas.pivotPick")
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            down.consume()
-                            val up = waitForUpOrCancellation()
-                            if (up != null) {
-                                up.consume()
-                                vm.onPivotPicked(toWorld.value(down.position))
-                            }
-                        }
-                    },
             )
         }
 

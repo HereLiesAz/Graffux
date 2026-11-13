@@ -241,7 +241,7 @@ enum class ReliefBuildStage { CHECKING, ESTIMATING, BUILDING }
 data class ReliefBuildState(val layerId: String, val stage: ReliefBuildStage)
 
 /** The Draw-surface chip's one-off messages (the UI words them; see the chrome strings). */
-enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, HAS_ART, DONE, VIEW_DONE }
+enum class SurfaceDrawNotice { NO_LAYER, LOCKED, UNAVAILABLE, TOO_SHORT, HAS_ART, NOT_READABLE, DONE, VIEW_DONE }
 
 /**
  * Whether "Draw surface" is armed: on an existing group, or (see [EditorUiState.surfaceDrawWrapLayerId])
@@ -563,13 +563,6 @@ data class EditorUiState(
      * state, never saved; see EditorViewModel.onAxisSlotTapped.
      */
     val surfaceViewsMenuOpen: Boolean = false,
-    /**
-     * A rotation point the user placed (scene px x, y, z), or null = automatic: the centre of every
-     * surface ([com.hereliesaz.graffitixr.common.scene.OrbitPivot]). Saved with the project (format 13).
-     */
-    val manualPivot: List<Float>? = null,
-    /** "Relocate rotation point" is armed: the next tap in the scene places [manualPivot]. View state. */
-    val pivotPickArmed: Boolean = false,
     /** "Build surface from image" in progress, for the chip's progress line and Cancel; null = not building. */
     val reliefBuild: ReliefBuildState? = null,
     val undoCount: Int = 0,

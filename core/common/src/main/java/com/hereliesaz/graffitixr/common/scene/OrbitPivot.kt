@@ -32,16 +32,8 @@ object OrbitPivot {
     private fun contentLayers(layers: List<Layer>): List<Layer> =
         layers.filter { !it.isContainer && !it.isAdjustment }
 
-    /**
-     * The pivot to use: the user's [manual] point when they have placed one, else the automatic
-     * [of]. A manual point that is not three finite numbers is ignored.
-     */
-    fun resolve(layers: List<Layer>, width: Float, height: Float, manual: List<Float>?): FloatArray =
-        if (manual != null && manual.size == 3 && manual.all { it.isFinite() }) {
-            floatArrayOf(manual[0], manual[1], manual[2])
-        } else {
-            of(layers, width, height)
-        }
+    /** The pivot to use: derived only, from the layers ([of]); nothing is stored. */
+    fun resolve(layers: List<Layer>, width: Float, height: Float): FloatArray = of(layers, width, height)
 
     /**
      * The pivot for [layers] on a [width] by [height] canvas, in scene pixels (x, y, z): the centre
@@ -80,6 +72,25 @@ object OrbitPivot {
     }
 
     /**
+     * The extra depth a flat, bounded sheet ([SurfaceProfile.isFlat] with a [SurfaceProfile.sweepLimit]) is given
+     * behind its face, as a vector in the group's box space, or null for any other surface. It is
+     * `2n` along the sheet's own normal (the profile direction crossed with the sweep: +z, away from the viewer, for a
+     * sheet in the plane z = 0), where `n = ((w + h) / 2) / 2` and w, h are the sheet's width and height
+     * ([ArtSheet.pivotDepth]): the box that holds the sheet then reaches `2n` behind it, so the centre of the box is `n`
+     * behind the sheet's centre. This applies to every such sheet, the predefined one included; no field marks one.
+     */
+    private fun sheetDepth(profile: SurfaceProfile): FloatArray? {
+        val limit = profile.sweepLimit
+        if (!profile.isFlat || limit == null) return null
+        val a = profile.point(0)
+        val b = profile.point(profile.count - 1)
+        val e = SceneMath.normalize(floatArrayOf(b[0] - a[0], b[1] - a[1], b[2] - a[2]))
+        val normal = SceneMath.normalize(SceneMath.cross(e, profile.sweep))
+        val d = 2f * ArtSheet.pivotDepth(profile.length, limit)
+        return floatArrayOf(normal[0] * d, normal[1] * d, normal[2] * d)
+    }
+
+    /**
      * The pivot of the surfaces: the centre of the axis-aligned box that holds, in world space, the
      * geometry of EVERY surface defined at this moment (each profiled group's [SurfaceMath.localBounds]
      * through its group chain) together with the planes of any content layer that is not paint on a
@@ -90,7 +101,8 @@ object OrbitPivot {
      * rebuilt or one surface is tessellated more finely than another, and it moves only when a surface
      * is added, removed, changed or moved. Paint layers inside a surface group are skipped, because
      * their own plane is the flat paint space, not where the paint is drawn. An axis the box is flat
-     * on keeps that flat position.
+     * on keeps that flat position. A flat, bounded sheet (the predefined one and the art-sized one) counts as a slab
+     * reaching behind it ([sheetDepth]), so the point sits `n = ((w + h) / 2) / 2` behind its centre.
      */
     fun ofSurfaces(layers: List<Layer>, width: Float, height: Float): FloatArray? {
         val surfaces = layers.filter { it.isContainer && it.surface?.isValid == true }
@@ -104,8 +116,14 @@ object OrbitPivot {
         for (group in surfaces) {
             val (a, b) = SurfaceMath.localBounds(group.surface!!) ?: continue
             val m = SceneMath.chainModel(planeChain(layers, group.id), width, height)
+            val depth = sheetDepth(group.surface!!)
             for (mask in 0 until 8) {
-                grow(m.apply(if (mask and 1 == 0) a[0] else b[0], if (mask and 2 == 0) a[1] else b[1], if (mask and 4 == 0) a[2] else b[2]))
+                val x = if (mask and 1 == 0) a[0] else b[0]
+                val y = if (mask and 2 == 0) a[1] else b[1]
+                val z = if (mask and 4 == 0) a[2] else b[2]
+                grow(m.apply(x, y, z))
+                // A flat sheet is a slab of depth 2n behind its face, so the box's centre is n behind it.
+                depth?.let { d -> grow(m.apply(x + d[0], y + d[1], z + d[2])) }
             }
         }
         // Planes that are not paint on a surface (a layer beside the surfaces) are part of the content too.
@@ -116,30 +134,5 @@ object OrbitPivot {
         }
         if (lo[0] > hi[0]) return null
         return FloatArray(3) { (lo[it] + hi[it]) / 2f }
-    }
-
-    /**
-     * The scene point a tap at canvas ([x], [y]) names, for "Relocate rotation point": where the ray
-     * from the eye first meets a surface (a hull by its solid, a relief or sheet by its strips), else
-     * the point on that ray at the depth of the [current] pivot, so the point sits under the finger
-     * at the depth the scene already revolves about. Never null.
-     */
-    fun pick(
-        layers: List<Layer>,
-        camera: SceneCamera,
-        x: Float,
-        y: Float,
-        width: Float,
-        height: Float,
-        current: FloatArray,
-    ): FloatArray {
-        val cam = SceneMath.frame(camera, width, height)
-        val dir = cam.rayDirection(x, y)
-        val s0 = SurfaceVisibility.of(layers, camera, width, height, rendered = false).nearest(dir)
-        if (s0 != null) return FloatArray(3) { cam.eye[it] + dir[it] * s0 }
-        val depth = cam.toCamera(current)[2].coerceAtLeast(SceneMath.nearPlane(cam.focal) * 2f)
-        // The ray's depth along the view axis is s * (dir . forward); solve for that depth.
-        val s = depth / SceneMath.dot(dir, cam.forward).coerceAtLeast(1e-6f)
-        return FloatArray(3) { cam.eye[it] + dir[it] * s }
     }
 }

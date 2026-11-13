@@ -116,6 +116,21 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `a format 14 file with the retired orbitPivot loads without it and any save drops it`() = runTest {
+        val dir = File(tempFilesDir, "projects/legacy_pivot").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":14,"id":"legacy_pivot","name":"Pivoted","orbitPivot":[10.0,20.0,30.0]}""",
+        )
+        val loaded = manager.loadProjectMetadata(mockContext, "legacy_pivot")
+        assertEquals("Pivoted", loaded?.name)
+        assertEquals(null, loaded?.orbitPivot)
+        // Saved as loaded (a rename or import copy of it carries nothing): the key's value is gone from the file.
+        manager.saveProject(mockContext, loaded!!.copy(name = "Renamed"))
+        assertFalse(File(dir, "project.json").readText().contains("[10.0"))
+        assertEquals("Renamed", manager.loadProjectMetadata(mockContext, "legacy_pivot")?.name)
+    }
+
+    @Test
     fun `deleteProject removes directory`() = runTest {
         val project = GraffitiProject(id = "del_project", name = "To Be Deleted")
         manager.saveProject(mockContext, project)

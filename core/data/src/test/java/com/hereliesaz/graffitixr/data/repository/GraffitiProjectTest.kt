@@ -195,10 +195,16 @@ class GraffitiProjectTest {
     }
 
     @Test
-    fun `a placed rotation point round-trips and a file without one has none`() {
+    fun `a file that carries the retired orbitPivot still loads, and the editor writes none`() {
         val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
-        val text = json.encodeToString(GraffitiProject(id = "p", orbitPivot = listOf(1f, 2f, 3f)))
-        assertEquals(listOf(1f, 2f, 3f), json.decodeFromString<GraffitiProject>(text).orbitPivot)
+        // A format 13 or 14 file from a build that had the hand-placed rotation point.
+        val legacy = json.decodeFromString<GraffitiProject>(
+            """{"formatVersion":14,"id":"o","name":"n","orbitPivot":[1.0,2.0,3.0]}""",
+        )
+        assertEquals("o", legacy.id)
+        assertEquals(14, legacy.formatVersion)
+        // The field itself still decodes (the editor and ProjectManager.decodeProject clear it; see their tests).
+        assertEquals(listOf(1f, 2f, 3f), legacy.orbitPivot)
         assertEquals(null, json.decodeFromString<GraffitiProject>("""{"formatVersion":12,"id":"o"}""").orbitPivot)
     }
 

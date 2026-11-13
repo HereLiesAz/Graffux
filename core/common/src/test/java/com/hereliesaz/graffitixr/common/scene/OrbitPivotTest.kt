@@ -94,15 +94,11 @@ class OrbitPivotTest {
     }
 
     @Test
-    fun `a manual pivot wins and a malformed one is ignored`() {
+    fun `resolve is the derived pivot, with nothing stored to override it`() {
         val layers = listOf(floor, wall)
-        assertPoint(1f, 2f, 3f, OrbitPivot.resolve(layers, w, h, listOf(1f, 2f, 3f)))
-        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h, null))
-        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h, listOf(1f, Float.NaN, 3f)))
-        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h, listOf(1f, 2f)))
+        assertPoint(500f, 600f, 400f, OrbitPivot.resolve(layers, w, h))
+        assertPoint(500f, 600f, 400f, OrbitPivot.of(layers, w, h))
     }
-
-    // ── Orientation per axis ──
 
     private fun turned(vararg steps: Pair<Char, Float>): SceneCamera {
         var cam = SceneCamera()
@@ -139,81 +135,5 @@ class OrbitPivotTest {
         val r0 = SceneMath.frame(y, w, h).right
         val r1 = SceneMath.frame(yx, w, h).right
         for (i in 0..2) assertEquals(r0[i], r1[i], 1e-5f)
-    }
-
-    @Test
-    fun `a tap picks the surface under it, else the point at the current pivot's depth`() {
-        val cam = SceneCamera()
-        // The floor at y = 1000 is under (500, 1000) at z = 0 (its front edge).
-        val onFloor = OrbitPivot.pick(listOf(floor), cam, 500f, 1000f, w, h, floatArrayOf(500f, 600f, 400f))
-        assertEquals(500f, onFloor[0], 1f)
-        assertEquals(1000f, onFloor[1], 1f)
-        // Over empty space: on the ray, at the pivot's depth (z = 400 at the default view).
-        val empty = OrbitPivot.pick(emptyList(), cam, 700f, 300f, w, h, floatArrayOf(500f, 600f, 400f))
-        assertEquals(400f, empty[2], 1f)
-        val back = SceneMath.frame(cam, w, h).project(empty)!!
-        assertEquals(700f, back.first, 0.5f)
-        assertEquals(300f, back.second, 0.5f)
-    }
-
-    @Test
-    fun `a sheet in front wins over a hull behind it, off the image centre`() {
-        // Tap at (1000, 800) on a 1000 x 1600 canvas, default camera: the sheet at z = 0 is nearer along
-        // the ray than the hull whose front face is at z = 40, though that hull's camera depth is smaller.
-        val sheet = group("sheet", 0f, 0f, 0f, 1200f, 0f, 0f).let {
-            it.copy(surface = it.surface!!.copy(sweepX = 0f, sweepY = 1f, sweepZ = 0f))
-        }
-        val square = listOf(950f to 750f, 1050f to 750f, 1050f to 850f, 950f to 850f)
-        val front = SurfaceProfile(square.flatMap { listOf(it.first, it.second, 0f) }, 0f, 0f, 1f)
-        val sideView = SurfaceProfile(listOf(0f, 750f, 40f, 0f, 750f, 140f, 0f, 850f, 140f, 0f, 850f, 40f), 1f, 0f, 0f)
-        val topView = SurfaceProfile(listOf(950f, 0f, 40f, 1050f, 0f, 40f, 1050f, 0f, 140f, 950f, 0f, 140f), 0f, 1f, 0f)
-        val hull = Layer(
-            id = "hull", name = "hull", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
-            surface = front.copy(side = sideView, top = topView),
-        )
-        val p = OrbitPivot.pick(listOf(hull, sheet), SceneCamera(), 1000f, 800f, w, h, floatArrayOf(500f, 800f, 400f))
-        assertEquals(0f, p[2], 0.5f)
-    }
-
-    private fun sheetAt(id: String, z: Float, parent: String? = null, visible: Boolean = true, opacity: Float = 1f) =
-        group(id, 0f, 0f, z, 1200f, 0f, z, parent = parent).let {
-            it.copy(
-                surface = it.surface!!.copy(sweepX = 0f, sweepY = 1f, sweepZ = 0f),
-                isVisible = visible, opacity = opacity,
-            )
-        }
-
-    private fun pickZ(vararg layers: Layer) =
-        OrbitPivot.pick(layers.toList(), SceneCamera(), 500f, 400f, w, h, floatArrayOf(500f, 800f, 400f))[2]
-
-    @Test
-    fun `a hidden surface, or one under a hidden group, or one at zero opacity, is not picked`() {
-        val far = sheetAt("far", 100f)
-        assertEquals(0f, pickZ(sheetAt("near", 0f), far), 0.5f)
-        assertEquals(100f, pickZ(sheetAt("near", 0f, visible = false), far), 0.5f)
-        val hiddenParent = Layer(id = "p", name = "p", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, isVisible = false)
-        assertEquals(100f, pickZ(hiddenParent, sheetAt("near", 0f, parent = "p"), far), 0.5f)
-        assertEquals(100f, pickZ(sheetAt("near", 0f, opacity = 0f), far), 0.5f)
-    }
-
-    @Test
-    fun `a sheet is not picked past the extent the mesh and the pivot box stop at`() {
-        // Its width is 1200 so it reaches t = 1200 (+ the grid's margin); y = 1500 is beyond it.
-        val p = OrbitPivot.pick(listOf(sheetAt("s", 0f)), SceneCamera(), 500f, 1500f, w, h, floatArrayOf(500f, 800f, 400f))
-        assertEquals(400f, p[2], 1f)
-    }
-
-    @Test
-    fun `a relief reaching into negative coordinates is picked where the ray meets it`() {
-        val relief = ReliefSurface(
-            cols = 2, rows = 2, heightData = ReliefSurface.encode(FloatArray(4) { 0.5f }),
-            left = -500f, top = -350f, spanU = 2000f, spanT = 1500f,
-            photoWidth = 100, photoHeight = 100, displacement = 100f,
-        )
-        val group = Layer(
-            id = "r", name = "r", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP, surface = relief.toProfile(),
-        )
-        val p = OrbitPivot.pick(listOf(group), SceneCamera(), -100f, -100f, w, h, floatArrayOf(500f, 800f, 400f))
-        assertPoint(-100f, -100f, 0f, p)
     }
 }

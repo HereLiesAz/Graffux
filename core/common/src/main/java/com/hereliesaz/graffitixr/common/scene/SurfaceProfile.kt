@@ -44,8 +44,8 @@ data class SurfaceProfile(
     /**
      * How far the sweep reaches, in box units, or null: unbounded, as every drawn surface is (the box then
      * reaches as far as the profile is long). Set for a flat sheet whose height is known ([DefaultSurface]), so
-     * [SurfaceMath.gridExtent] and [SurfaceMath.localBounds] report the sheet's true box and the orbit pivot is
-     * its centre. Ignored once a side or top view makes the surface a hull. Project format 14: an older
+     * [SurfaceMath.gridExtent] and [SurfaceMath.localBounds] report the sheet's true box; the orbit pivot is
+     * derived from it ([OrbitPivot.ofSurfaces]). Ignored once a side or top view makes the surface a hull. Project format 14: an older
      * build sees a newer format and opens the project read-only, so it never loses the field by saving.
      */
     val reach: Float? = null,

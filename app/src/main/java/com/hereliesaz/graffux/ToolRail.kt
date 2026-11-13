@@ -113,7 +113,7 @@ internal class ToolRailCallbacks(
     val onPackWheelOpen: () -> Unit = {},
     /** Where the Brush or Eraser item sits, in root coordinates: the pack wheel's anchor. */
     val onPackAnchor: (Tool, Rect) -> Unit = { _, _ -> },
-    /** A long-press on the wire-mesh button ("#"): its menu (mesh on/off, the rotation point). */
+    /** A long-press on the wire-mesh button ("#"): its menu (mesh on/off). */
     val onMeshMenu: () -> Unit = {},
 )
 
@@ -276,12 +276,10 @@ internal fun ToolRail(
             surfaceViews = onSurfaceGroup,
         ) { vm.onAxisSlotTapped() }
         // The wire mesh of the active layer's group surface: a guide only, there while the layer is
-        // paint on a surface (spec/3d-space.md, "Guide grid"), or while a rotation point is placed, so that
-        // its "Reset to automatic" is never stranded when the last surface goes (the choice is kept, not
-        // silently discarded: it is still a valid point for the plane layers).
+        // paint on a surface (spec/3d-space.md, "Guide grid").
         val onSurface =
             com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
-        if (onSurface || uiState.manualPivot != null) {
+        if (onSurface) {
             SurfaceMeshButton(on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||
@@ -444,14 +442,10 @@ private fun SurfaceMeshButton(on: Boolean, onLongClick: () -> Unit, onClick: () 
 internal const val SURFACE_MESH_RAIL_ID = "view.surfaceMesh"
 
 /**
- * The wire-mesh button's long-press menu: the mesh on or off (the same flag the short press flips), and
- * the point the scene revolves about. Placing it arms a tap in the scene ([PivotPromptChip]); "Reset to
- * automatic" returns to the centre of every surface.
+ * The wire-mesh button's long-press menu: the mesh on or off (the same flag the short press flips).
  */
 internal fun MenuBuilder.meshMenu(vm: EditorViewModel, uiState: EditorUiState, onDone: () -> Unit) {
     check("Wire mesh", uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid(); onDone() }
-    listItem("Relocate rotation point") { vm.onArmPivotPick(); onDone() }
-    if (uiState.manualPivot != null) listItem("Reset rotation point to automatic") { vm.onResetPivot(); onDone() }
 }
 
 /**
