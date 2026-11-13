@@ -1908,6 +1908,110 @@ class EditorViewModelTest {
         assertNotEquals(before, viewModel.uiState.value.activeRotationAxis)
     }
 
+    private fun group3d() = lyr("g").copy(
+        type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+        surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(
+            listOf(0f, 0f, 0f, 500f, 0f, 0f, 1000f, 0f, 400f),
+        ),
+    )
+
+    @Test
+    fun `double-tap resets the view and does not step the axis in a project with a 3D group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g", rotationX = 10f)))
+        viewModel.onLayerActivated("c")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onViewportPanZoom(Offset(30f, 20f), 2f, Offset(100f, 100f))
+        viewModel.onSceneOrbit(0.4f, 0.2f)
+        val axis = viewModel.uiState.value.activeRotationAxis
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onCanvasDoubleTap()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val st = viewModel.uiState.value
+        assertTrue(st.sceneCamera.isDefault)
+        assertEquals(1f, st.viewportZoom, 0f)
+        assertEquals(axis, st.activeRotationAxis)
+        assertEquals(undo, st.undoCount)
+    }
+
+    @Test
+    fun `a brush double-tap with no 3D group paints both taps and changes no view`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onViewportPanZoom(Offset(30f, 20f), 2f, Offset(100f, 100f))
+        val before = viewModel.uiState.value
+        assertFalse(viewModel.onBrushTap(Offset(50f, 50f), 1000L))
+        assertFalse(viewModel.onBrushTap(Offset(52f, 50f), 1150L))
+        val after = viewModel.uiState.value
+        assertEquals(before.viewportOffset, after.viewportOffset)
+        assertEquals(before.viewportZoom, after.viewportZoom, 0f)
+        assertEquals(before.sceneCamera, after.sceneCamera)
+    }
+
+    private fun twoFinger(pan: Offset, zoom: Float = 1f, rotation: Float = 0f) {
+        viewModel.onTwoFingerStart()
+        viewModel.onTwoFingerGesture(pan, zoom, Offset(500f, 800f), rotation)
+        viewModel.onTwoFingerEnd()
+    }
+
+    @Test
+    fun `two-finger drag orbits and does not pan in a project with a 3D group, pivot fixed on screen`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val pivot = viewModel.orbitPivot()!!
+        val before = viewModel.uiState.value
+        val px = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(before.sceneCamera, 1000f, 1600f)
+            .project(pivot)!!
+        twoFinger(Offset(100f, 50f))
+        val after = viewModel.uiState.value
+        assertTrue("yaw turned", after.sceneCamera.yaw != 0f)
+        assertTrue("pitch turned", after.sceneCamera.pitch != 0f)
+        assertEquals("the 2D view is not panned", before.viewportOffset, after.viewportOffset)
+        val py = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(after.sceneCamera, 1000f, 1600f)
+            .project(pivot)!!
+        assertEquals(px.first, py.first, 0.5f)
+        assertEquals(px.second, py.second, 0.5f)
+    }
+
+    @Test
+    fun `a twist in a project with a 3D group rotates the canvas and does not orbit`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g", rotationX = 10f)))
+        viewModel.onLayerActivated("c")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoFinger(Offset.Zero, rotation = 20f)
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+        assertEquals(20f, viewModel.uiState.value.viewportRotation, 0.01f)
+    }
+
+    @Test
+    fun `two-finger drag still pans in a project with no 3D group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val before = viewModel.uiState.value.viewportOffset
+        twoFinger(Offset(40f, 10f))
+        assertEquals(before + Offset(40f, 10f), viewModel.uiState.value.viewportOffset)
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+    }
+
+    @Test
+    fun `the Move tool on a 3D layer does not orbit even in a project with a 3D group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), modelLyr("a")))
+        viewModel.onLayerActivated("a")
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onTransformClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        twoFinger(Offset(100f, 50f))
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+    }
+
     @Test
     fun `double-tap is a no-op on a 2D layer`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()

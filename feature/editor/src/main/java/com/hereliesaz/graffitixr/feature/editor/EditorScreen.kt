@@ -505,8 +505,8 @@ fun EditorScreen(
                     .fillMaxSize()
                     .pointerInput(uiState.activeLayerId, activeLayerLocked) {
                         detectTapGestures(
-                            // Steps the rotation axis X -> Y -> Z on a 3D layer; nothing on a 2D
-                            // one (spec/3d-space.md).
+                            // Resets the view in a project with a 3D group; else steps the rotation axis
+                            // X -> Y -> Z on a 3D layer and does nothing on a 2D one (spec/3d-space.md).
                             onDoubleTap = { vm.onCanvasDoubleTap() },
                             // Tap selects the layer under the finger (or dismisses panels on a miss).
                             onTap = { offset ->
@@ -775,6 +775,7 @@ fun EditorScreen(
                 activeColor = uiState.activeColor,
                 layerBitmapKey = activeLayer.bitmap,
                 gate = strokeGate,
+                onBrushTap = { at, t -> vm.onBrushTap(at, t) },
                 activeBrushPreview = vm.activeBrushForPreview(),
                 modifier = Modifier.fillMaxSize(),
                 onStrokeStart = { sample, size ->

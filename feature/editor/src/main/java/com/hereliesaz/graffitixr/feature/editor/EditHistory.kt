@@ -45,7 +45,7 @@ internal class EditHistory(
         val same = last is EditCommand.PropertyChange && last.oldLayers == layersWithoutBitmaps && last.crop == crop
         if (same) return false
         undoStack.addLast(EditCommand.PropertyChange(layersWithoutBitmaps, crop))
-        trim()
+        trim(maxStackSize)
         return true
     }
 
@@ -81,6 +81,14 @@ internal class EditHistory(
          * that undo and redo act on both as one step. Ignored when the newest entry is not a stroke.
          */
         chainedToPrevious: Boolean = false,
+        /**
+         * A stroke that may be taken straight back (a brush-tap dot that turns out to be the first
+         * tap of a view-reset double-tap). It never joins a chunk; the stack may hold one entry
+         * more than [maxStackSize] for it (so removing it loses nothing), and the redo stack is set
+         * aside rather than discarded. [cancelTentative] removes it and brings the redo stack back;
+         * any other edit, undo or redo makes it final and discards the set-aside redo.
+         */
+        tentative: Boolean = false,
     ): Boolean {
         val top = undoStack.lastOrNull()
         if (chainedToPrevious && top is EditCommand.Draw && top.layerId != layerId) {
@@ -88,32 +96,41 @@ internal class EditHistory(
             undoStack.addLast(
                 EditCommand.Draw(layerId, command, chunkable = false, lastPushMs = nowMs, chainedToPrevious = true),
             )
-            trim()
+            trim(maxStackSize)
             clearRedo()
             return false
         }
+        // A tentative stroke is never chunk-able: it neither joins an earlier chunk nor is joined.
+        val chunk = chunkable && !tentative
         val joined = top is EditCommand.Draw && if (continuesGesture) {
             top.layerId == layerId
         } else {
-            plane == null && chunkable && joinsChunk(top, layerId, command, nowMs)
+            joinsChunk(top, layerId, command, nowMs, plane == null && chunk)
         }
-        if (joined && top is EditCommand.Draw) {
+        if (joined) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
                 earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
             )
         } else {
             undoStack.addLast(
-                EditCommand.Draw(layerId, command, chunkable = chunkable, lastPushMs = nowMs, plane = plane),
+                EditCommand.Draw(
+                    layerId, command, chunkable = chunk, lastPushMs = nowMs, plane = plane,
+                ),
             )
-            trim()
+            trim(if (tentative) maxStackSize + 1 else maxStackSize)
         }
-        clearRedo()
+        if (tentative && !joined) setAsideRedo() else clearRedo()
         return joined
     }
 
-    private fun joinsChunk(top: EditCommand.Draw, layerId: String, command: StrokeCommand, nowMs: Long) =
-        top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
+    private fun joinsChunk(
+        top: EditCommand.Draw,
+        layerId: String,
+        command: StrokeCommand,
+        nowMs: Long,
+        allowed: Boolean,
+    ) = allowed && top.chunkable && top.layerId == layerId && top.command.tool == command.tool &&
             top.strokes.size < chunkMaxStrokes && nowMs - top.lastPushMs <= chunkPauseMs
 
     /** Whether the newest undo entry is a stroke. */
@@ -121,6 +138,25 @@ internal class EditHistory(
 
     /** Whether the next entry redo would apply is a stroke. */
     fun redoTopIsDraw(): Boolean = redoStack.lastOrNull() is EditCommand.Draw
+
+    /**
+     * Cancels a tentative push of [command]: when it is still the newest entry (by identity, alone
+     * in its entry), runs [undo] (which must take that entry back off the undo stack, as the editor's
+     * undo does, repainting the layer) and then restores the redo stack the push set aside, leaving
+     * no redo of the dot. False, with nothing run, when the entry is not the newest.
+     */
+    fun cancelTentative(command: StrokeCommand, undo: () -> Unit): Boolean {
+        val top = undoStack.lastOrNull() as? EditCommand.Draw
+        val holds = top != null && top.strokes.size == 1 && top.strokes[0] === command
+        if (holds) {
+            val aside = setAsideRedo
+            setAsideRedo = null
+            undo()
+            redoStack.discardAll(onGpuUndoDiscarded)
+            aside?.let { redoStack.addAll(it) }
+        }
+        return holds
+    }
 
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */
     fun topDrawHolds(command: StrokeCommand): Boolean =
@@ -202,6 +238,8 @@ internal class EditHistory(
             val entry = stack[idx] as EditCommand.Draw
             if (entry.earlier.isEmpty()) {
                 stack.removeAt(idx).gpuUndo()?.let(onGpuUndoDiscarded)
+                // A tentative entry that never landed can no longer be cancelled: release its set-aside redo.
+                if (stack === undoStack) dropSetAside()
             } else {
                 // One stroke of a chunk never landed: the chunk keeps the rest, but its merged tile
                 // deltas still hold that stroke's pixels, so undo falls back to a full rebuild.
@@ -280,6 +318,7 @@ internal class EditHistory(
      * Returns null (and records nothing) when there is nothing to undo.
      */
     fun popUndo(counterEntry: (EditCommand) -> EditCommand): EditCommand? {
+        dropSetAside()
         val command = undoStack.removeLastOrNull() ?: return null
         redoStack.addLast(counterEntry(command))
         return command
@@ -287,6 +326,7 @@ internal class EditHistory(
 
     /** Symmetric to [popUndo]: pops the most recent redoable command onto the undo stack. */
     fun popRedo(counterEntry: (EditCommand) -> EditCommand): EditCommand? {
+        dropSetAside()
         val command = redoStack.removeLastOrNull() ?: return null
         undoStack.addLast(counterEntry(command))
         return command
@@ -327,11 +367,28 @@ internal class EditHistory(
         return set
     }
 
-    private fun trim() {
-        if (undoStack.size > maxStackSize) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
+    private fun trim(limit: Int) {
+        while (undoStack.size > limit) undoStack.removeFirst().gpuUndo()?.let(onGpuUndoDiscarded)
     }
 
-    private fun clearRedo() = redoStack.discardAll(onGpuUndoDiscarded)
+    /** The redo stack a tentative push set aside, to be restored if it is cancelled. */
+    private var setAsideRedo: List<EditCommand>? = null
+
+    private fun setAsideRedo() {
+        dropSetAside()
+        setAsideRedo = redoStack.toList()
+        redoStack.clear()
+    }
+
+    private fun dropSetAside() {
+        setAsideRedo?.forEach { it.gpuUndo()?.let(onGpuUndoDiscarded) }
+        setAsideRedo = null
+    }
+
+    private fun clearRedo() {
+        redoStack.discardAll(onGpuUndoDiscarded)
+        dropSetAside()
+    }
 
     companion object {
         /** Default for [chunkMaxStrokes]. */

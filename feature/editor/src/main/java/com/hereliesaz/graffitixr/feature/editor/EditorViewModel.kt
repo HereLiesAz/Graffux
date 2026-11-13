@@ -8,7 +8,14 @@ import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
 import com.hereliesaz.graffitixr.common.scene.planeChain
+import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_MS
+import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_SLOP_PX
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
+import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
+import com.hereliesaz.graffitixr.common.scene.ViewTapTracker
+import com.hereliesaz.graffitixr.common.scene.hasThreeDGroup
+import com.hereliesaz.graffitixr.common.scene.orbitAnglesForDrag
+import com.hereliesaz.graffitixr.common.scene.twoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.planePose
 
 import com.hereliesaz.graffitixr.common.model.importance
@@ -5405,7 +5412,58 @@ class EditorViewModel @Inject constructor(
      * layers rail.
      */
     fun onCanvasDoubleTap() {
-        if (_uiState.value.active3D()) onCycleRotationAxis()
+        val st = _uiState.value
+        when {
+            // A project with a 3D group: reset the view, and the axis step is retired.
+            hasThreeDGroup(st.layers) -> resetViewport()
+            st.active3D() -> onCycleRotationAxis()
+        }
+    }
+
+    /**
+     * Double-tap timing and slop are the platform's own, as detectTapGestures uses. The fallback
+     * (Android's documented 300 ms / 100 px defaults) only applies where there is no real Context,
+     * as in plain-JVM tests.
+     */
+    private val viewTaps: ViewTapTracker by lazy {
+        runCatching {
+            ViewTapTracker(
+                android.view.ViewConfiguration.getDoubleTapTimeout().toLong(),
+                android.view.ViewConfiguration.get(context).scaledDoubleTapSlop.toFloat(),
+            )
+        }.getOrElse { ViewTapTracker(FALLBACK_DOUBLE_TAP_MS, FALLBACK_DOUBLE_TAP_SLOP_PX) }
+    }
+
+    /** The next brush push is a tap dot that a double-tap may take back ([onBrushTap]). */
+    private var tapDotPending = false
+
+    /** The stroke the latest tap dot pushed, by identity; null until it lands. */
+    private var tapDotCommand: StrokeCommand? = null
+
+    /**
+     * A brush-style tap (a dot) is about to be painted at [at], [timeMs]. In a project with a 3D
+     * group, a second tap close behind the first is a view-reset double-tap: the first tap's dot is
+     * removed BY IDENTITY (it was pushed as its own tentative entry, so no earlier stroke is
+     * touched, a full stack loses nothing and the redo stack the dot set aside is restored, so no redo of the dot is left), the view is reset and true is
+     * returned so the caller paints nothing. Otherwise false and the caller paints as usual.
+     */
+    fun onBrushTap(at: Offset, timeMs: Long): Boolean {
+        val inScene = hasThreeDGroup(_uiState.value.layers)
+        val second = inScene && viewTaps.onTap(at.x, at.y, timeMs)
+        val dot = tapDotCommand
+        // Only a first dot that is still the newest entry can be taken back; anything else (another
+        // stroke since, a tap that pushed nothing) is an ordinary tap and starts a fresh pair.
+        val cancelled = second && dot != null && history.cancelTentative(dot) {
+            repeat(undoTop()) { history.dropTopRedo() }
+        }
+        tapDotCommand = null
+        tapDotPending = inScene && !cancelled
+        if (second && !cancelled) viewTaps.onTap(at.x, at.y, timeMs)
+        if (cancelled) {
+            updateHistoryCounts()
+            resetViewport()
+        }
+        return cancelled
     }
 
     /**
@@ -8818,6 +8876,8 @@ class EditorViewModel @Inject constructor(
     fun onStrokeEnd() {
         endStroke()
         closeGesture()
+        // A tap dot is pushed synchronously by endStroke; a flag still set found nothing to mark.
+        tapDotPending = false
     }
 
     /**
@@ -9958,6 +10018,7 @@ class EditorViewModel @Inject constructor(
      * recorded on finger-up), so dropping the live preview is the whole cancel.
      */
     fun onStrokeCancel() {
+        tapDotPending = false
         cancelStroke()
         rollBackGesture()
         closeGesture()
@@ -10371,9 +10432,14 @@ class EditorViewModel @Inject constructor(
             gestureCommitted = command
             gestureCommittedLayerId = layerId
         }
+        val tapDot = tapDotPending
+        if (tapDot) {
+            tapDotPending = false
+            tapDotCommand = command
+        }
         return history.pushDraw(
-            layerId, command, chunkable, plane = plane,
-            continuesGesture = continues && !chained, chainedToPrevious = chained,
+            layerId, command, chunkable && !tapDot, plane = plane,
+            continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot,
         )
     }
 
@@ -13449,9 +13515,11 @@ class EditorViewModel @Inject constructor(
 
     /**
      * One step of a two-finger gesture: [pan] and [centroid] in screen pixels, [zoom] the pinch
-     * factor, [rotation] the twist in degrees. On the view, pan and pinch move the 2D view and a
-     * twist turns it about the current axis: Z is the canvas rotation, X and Y orbit the camera in
-     * depth. On the layer (Move tool), pan slides it, pinch moves it in depth and a twist rotates it
+     * factor, [rotation] the twist in degrees. On the view, in a project with no 3D group, pan and
+     * pinch move the 2D view and a twist turns it about the current axis: Z is the canvas rotation,
+     * X and Y orbit the camera in depth. In a project with a 3D group ([twoFingerViewMode]) the drag
+     * orbits about the held pivot, the pinch zooms about the fingers' midpoint and the twist only
+     * rotates the canvas. On the layer (Move tool), pan slides it, pinch moves it in depth and a twist rotates it
      * about the current axis.
      */
     fun onTwoFingerGesture(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
@@ -13484,6 +13552,16 @@ class EditorViewModel @Inject constructor(
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
+        if (twoFingerViewMode(_uiState.value.layers) == TwoFingerViewMode.ORBIT) {
+            // 3D group: drag orbits about the held pivot, pinch zooms about the fingers' midpoint,
+            // twist turns the canvas only (the old Z behaviour).
+            onViewportPanZoom(Offset.Zero, zoom, centroid, rotation)
+            if (pan != Offset.Zero) {
+                val (yaw, pitch) = orbitAnglesForDrag(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
+                onSceneOrbit(yaw, pitch)
+            }
+            return
+        }
         // A 2D layer has no axis: a twist only rotates the canvas, as in 2D.
         val axis = if (_uiState.value.active3D()) _uiState.value.activeRotationAxis else RotationAxis.Z
         when (axis) {
