@@ -11,14 +11,19 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class StrokeDataPurgeTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private fun prefs() = context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE)
     private val store get() = StrokeDataStore.get(context)
 
     @Before fun clean() {
+        // The store is a per-process singleton bound to the first test's filesDir; Robolectric gives each test a
+        // new one, so drop the cached instance.
+        StrokeDataStore::class.java.getDeclaredField("instance").apply { isAccessible = true }.set(null, null)
         prefs().edit().clear().commit()
         store.purgeAll()
     }

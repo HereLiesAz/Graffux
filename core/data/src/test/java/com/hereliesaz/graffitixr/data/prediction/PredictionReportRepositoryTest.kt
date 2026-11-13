@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 import java.io.File
 
 /**
@@ -19,6 +20,7 @@ import java.io.File
  * and with no token of the user's own they do nothing. There is no other credential to fall back on.
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PredictionReportRepositoryTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private val dispatchers = object : DispatcherProvider {
