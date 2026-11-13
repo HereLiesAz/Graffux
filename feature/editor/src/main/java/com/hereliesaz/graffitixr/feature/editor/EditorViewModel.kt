@@ -854,14 +854,19 @@ class EditorViewModel @Inject constructor(
     private var drawDepthNoticed = false
 
     // Snap to stroked planes (spec/3d-space.md, "Snap to stroked planes"): view state, never history or saved.
-    /** The stroked planes, kept while the layers, canvas and stroke counts are as they were (see [strokedPlanes]). */
+    /** The stroked planes, kept while the layers, canvas and every layer's stroke state are as they were. */
     private var planesCache: StrokedPlanes? = null
 
-    /** The last pixel scan of a layer's bitmap per layer: (bitmap, its generation, whether it holds paint). */
-    private val paintScans = HashMap<String, Triple<Bitmap, Int, Boolean>>()
+    /** Whether each layer's own bitmap holds paint, scanned off the main thread ([PaintScans]). */
+    internal val paintScans = PaintScans(
+        scope = viewModelScope,
+        dispatchers = dispatchers,
+        isCurrent = { id, bitmap -> _uiState.value.layers.any { it.id == id && it.bitmap === bitmap } },
+        onLanded = ::onPaintScanLanded,
+    )
 
-    /** Layers whose bitmap is being scanned off the main thread now, so a gesture frame never scans or scans twice. */
-    private val scanning = HashSet<String>()
+    /** A two-finger orbit is under way: a scan that lands meanwhile re-evaluates the snap without another move. */
+    private var orbitDragging = false
 
     /** The depth drag's own (unsnapped) depth and the depth last written for it: the snap never feeds back into it. */
     private var rawDrawDepth: Pair<Float, Float>? = null
@@ -5824,6 +5829,7 @@ class EditorViewModel @Inject constructor(
         // on undo. retainOnly (called from the next pushHistory()) evicts it automatically once it
         // ages out of undo/redo history — the same mechanism the flatten path already relies on.
         evictJobsFor(id)
+        paintScans.forget(id)
         emitMembership(Op.LayerRemove(id))
         saveProject()
     }
@@ -6707,6 +6713,9 @@ class EditorViewModel @Inject constructor(
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
 
     /** Marks [layerId]'s oldest stroke as baked, as the periodic bake does (the pixels are not touched). */
+    @androidx.annotation.VisibleForTesting
+    internal fun hasBakedStrokesForTest(layerId: String): Boolean = layerStore.hasBakedStrokes(layerId)
+
     @androidx.annotation.VisibleForTesting
     internal fun bakeOldestStrokeForTest(layerId: String) {
         layerStore.takeOldestStrokes(layerId, 1)
@@ -13722,6 +13731,7 @@ class EditorViewModel @Inject constructor(
             twoFingerCameraBefore = st.sceneCamera
         }
         gesturePivot = orbitPivot(st)
+        orbitDragging = false
         resetOrbitSnap()
     }
 
@@ -13762,6 +13772,7 @@ class EditorViewModel @Inject constructor(
         twoFingerLayerEdited = false
         gesturePivot = null
         if (orbitSnapLayer != null) scheduleSnapHighlightHide()
+        orbitDragging = false
         resetOrbitSnap()
     }
 
@@ -13770,6 +13781,7 @@ class EditorViewModel @Inject constructor(
             // 3D group: drag orbits about the held pivot, pinch zooms about the fingers' midpoint,
             // twist turns the canvas only (the old Z behaviour).
             onViewportPanZoom(Offset.Zero, zoom, centroid, rotation)
+            orbitDragging = true
             if (pan != Offset.Zero) {
                 val (yaw, pitch) = orbitAnglesForDrag(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
                 onSceneOrbitDrag(yaw, pitch)
@@ -13958,7 +13970,8 @@ class EditorViewModel @Inject constructor(
     }
 
     /** A project opened or closed: nothing of the last project's draw-plane session carries over. */
-    private fun resetDrawPlaneSession() {
+    @androidx.annotation.VisibleForTesting
+    internal fun resetDrawPlaneSession() {
         lastStroke = null
         planeLayerFiles.clear()
         planeLayerSaves.clear()
@@ -13966,7 +13979,7 @@ class EditorViewModel @Inject constructor(
         snapHighlightJob?.cancel()
         planesCache = null
         paintScans.clear()
-        scanning.clear()
+        orbitDragging = false
         rawDrawDepth = null
         orbitRaw = null
         orbitShown = null
@@ -14173,18 +14186,16 @@ class EditorViewModel @Inject constructor(
 
     /**
      * The visible paint layers that carry brush strokes, with each one's plane: its box centre and normal in the scene.
-     * Kept while the layer list, the canvas and every layer's stroke count are as they were, so a drag frame or an
-     * orbit step is a lookup, not a pass over the layers; recomputed (pixel scans of untouched bitmaps are kept)
-     * on the first call after any of them changes. Called from view gestures only, never from the stroke input path.
+     * Kept while the layer list is the same instance, the canvas the same size and every layer's stroke state (count and
+     * baked flag) unchanged ([StrokedPlanes.isCurrent]), so a drag frame or an orbit step is a lookup, not a pass over
+     * the layers; rebuilt on the first call after any of them changes or a pixel scan lands. Called from view gestures
+     * only, never from the stroke input path.
      */
     @Suppress("ReturnCount")
     internal fun strokedPlanes(state: EditorUiState = _uiState.value): StrokedPlanes? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
-        val stamp = StrokedPlanes.stampOf(state.layers) {
-            layerStore.strokeCount(it) * 2 + if (layerStore.hasBakedStrokes(it)) 1 else 0
-        }
-        planesCache?.takeIf { it.layers === state.layers && it.size == size && it.stamp == stamp }?.let { return it }
+        planesCache?.takeIf { it.isCurrent(state.layers, size, ::strokeStateOf) }?.let { return it }
         val w = size.width.toFloat()
         val h = size.height.toFloat()
         val byId = state.layers.associateBy { it.id }
@@ -14200,8 +14211,9 @@ class EditorViewModel @Inject constructor(
             centres += model.apply(w / 2f, h / 2f, 0f)
             normals += normal
         }
-        paintScans.keys.retainAll(state.layers.mapTo(HashSet()) { it.id })
-        return StrokedPlanes(state.layers, size, stamp, ids, centres, normals).also { planesCache = it }
+        paintScans.retainOnly(state.layers.mapTo(HashSet()) { it.id })
+        val strokeState = StrokedPlanes.stateOf(state.layers, ::strokeStateOf)
+        return StrokedPlanes(state.layers, size, strokeState, ids, centres, normals).also { planesCache = it }
     }
 
     /** A visible paint layer with brush strokes: recorded this session, or paint in its own pixels (no art). */
@@ -14221,29 +14233,23 @@ class EditorViewModel @Inject constructor(
         return true
     }
 
-    /**
-     * Whether [layer]'s own bitmap holds paint, as last scanned. The scan is a full pass over the bitmap, so it never
-     * runs here (a gesture frame, on the main thread): a bitmap not scanned yet counts as unpainted and is scanned on
-     * the default dispatcher ([scanForPaint]), after which the planes are rebuilt and the snap becomes available.
-     */
-    private fun hasPaintedPixels(layer: Layer): Boolean {
-        val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
-        val known = paintScans[layer.id]?.takeIf { it.first === bitmap && it.second == bitmap?.generationId }
-        if (bitmap != null && known == null) scanForPaint(layer.id, bitmap)
-        return known?.third ?: false
-    }
+    /** A layer's stroke state for the plane cache: its stroke count times two, plus one if strokes were baked. */
+    private fun strokeStateOf(layerId: String): Int =
+        layerStore.strokeCount(layerId) * 2 + if (layerStore.hasBakedStrokes(layerId)) 1 else 0
 
-    private fun scanForPaint(layerId: String, bitmap: Bitmap) {
-        if (!scanning.add(layerId)) return
-        val generation = bitmap.generationId
-        viewModelScope.launch(dispatchers.default) {
-            val painted = runCatching { !ArtScan.isEmpty(bitmap) }.getOrDefault(false)
-            withContext(dispatchers.main) {
-                scanning.remove(layerId)
-                paintScans[layerId] = Triple(bitmap, generation, painted)
-                planesCache = null
-            }
-        }
+    private fun hasPaintedPixels(layer: Layer): Boolean =
+        paintScans.painted(layer.id, layer.bitmap?.takeUnless { it.isRecycled })
+
+    /**
+     * A pixel scan landed: the planes built without it are stale. A depth drag or an orbit still under way, with the
+     * finger held still, is re-evaluated at once with its last raw value (a step of nothing), so the snap appears
+     * without another move event.
+     */
+    private fun onPaintScanLanded(@Suppress("UNUSED_PARAMETER") layerId: String, painted: Boolean) {
+        planesCache = null
+        if (!painted || !_uiState.value.snapToPlanes) return
+        if (rawDrawDepth != null) onDrawDepthDrag(0f)
+        if (orbitDragging) onSceneOrbitDrag(0f, 0f)
     }
 
     /**

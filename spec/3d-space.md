@@ -1353,7 +1353,9 @@ long-press menu turns both off and on (`EditorUiState.snapToPlanes`, on by defau
   visible, and it carries strokes: strokes recorded for it this session (`LayerStore`), or, for a layer with no source
   image, paint in its own pixels (an alpha scan, kept per bitmap generation), so a reopened project's painted planes count.
   Strokes baked into the base (`LayerStore.takeOldestStrokes`, when they pass the undo depth) are remembered per layer for
-  the session (`LayerStore.hasBakedStrokes`), so a layer with a source image stays a candidate after they are baked.
+  the session (`LayerStore.hasBakedStrokes`), so a layer with a source image stays a candidate after they are baked. A
+  stroke reset by a filter, LUT, curves, merge or paste (`initStrokes`) keeps the flag, since the baked paint stays in the
+  pixels; only removing the layer's caches, closing the project or evicting it drops it.
   A flat layer on the default sheet that carries strokes is a candidate too, deliberately: an orbit within 5 degrees of
   the home view snaps to it (the owner can veto this).
   This includes layers made by the draw-depth mode and the plane of the last stroke (it is a stroked layer). The default sheet
@@ -1365,9 +1367,12 @@ long-press menu turns both off and on (`EditorUiState.snapToPlanes`, on by defau
   instance (any layer edit, visibility and lock included, replaces it), the canvas is the same size and every layer's stroke
   state is unchanged (`StrokedPlanes.stamp`), so a drag frame or an orbit step is a lookup. They are computed on a view
   gesture's first frame after a change, never on the stroke path. The pixel scan of a layer with no source image (a full pass
-  over its bitmap) never runs on the main thread: a bitmap not yet scanned counts as unpainted, is scanned on the default
-  dispatcher, and when the result arrives the planes are rebuilt, so the snap simply becomes available on a later frame and
-  a gesture is never blocked.
+  over its bitmap) never runs on the main thread (`PaintScans`): a bitmap not yet scanned counts as unpainted and is scanned
+  on the default dispatcher, once per bitmap and generation. A result is keyed by layer, bitmap identity and generation, and
+  is dropped (touching nothing) if its project was closed, its layer removed or its bitmap swapped meanwhile; those jobs
+  are cancelled. A bitmap that cannot be read counts as unpainted for that generation only. When a kept result lands the
+  planes are rebuilt, and a depth drag or an orbit still under way is re-evaluated at once with its last raw value, so a
+  held finger sees the snap without another move; a gesture is never blocked.
 - **Depth snap** (while the "#" button is dragged; `PlaneSnap.snapDepth`, `PlaneSnap.planeDepth`). The depth of a candidate is
   measured along the axis the draw plane slides along: the reference plane's normal (the last stroke's plane) or, with no
   usable reference, the view direction. Exactly: the candidate's **box centre** is projected on that axis (the line through
@@ -1396,7 +1401,8 @@ Tests: `PlaneSnapTest` (core:common: depth and orbit inside/outside range, the e
 no hysteresis, no candidates, yaw wrap, pitch limit, the depth's agreement with `DrawPlane.world`), `SnapToPlanesTest`
 (feature:editor: a drag to a stroked plane lands on it with strokes, layers, history and camera untouched; out of range;
 no memory; toggle off; no candidates; hidden layers; the edited layer; highlight fade; lapse; orbit snap, leave, steps,
-no 3D group, undo; the off-thread scan with a split dispatcher; cache invalidation; the pivot's screen position; a tilted view and a
+no 3D group, undo; the off-thread scan with its own scheduler, a scan counter, stale results dropped on a swapped bitmap, a deleted
+layer and a project switch, an unreadable bitmap, a scan landing during a held drag or orbit; cache invalidation; the pivot's screen position; a tilted view and a
 negative-normal plane; the pitch limit), `Scene3DRailUiTest` (the menu's check).
 
 Not tested, or not verified on a device:
@@ -1406,6 +1412,10 @@ Not tested, or not verified on a device:
 - A real stroke's pixels on a snapped plane; the off-thread pixel scan on large layers (untimed; the snap is unavailable on a
   layer until its first scan lands). A layer that holds pasted pixels with no source image counts as painted.
 - A candidate seen nearly edge-on to the depth axis, where its position along the axis is sensitive to where its centre is.
+- The periodic bake itself (`maybeBakeOldStrokes`) is not driven end to end: in the unit harness the strokes' async commits
+  and a virtual-time advance reset the layer, so the bake's one effect on candidacy (`takeOldestStrokes` setting the flag) is
+  tested directly, with `onCurvesApplied` after it, not through 100+ real strokes. A depth held for a second after release
+  is likewise not tested over time (an advance of virtual time resets the harness's layers); exactness is tested at release.
 - Layers whose strokes were baked into pixels and then the project reopened with a source image on them are not seen as stroked
   (the baked flag is per session); a layer whose strokes were baked in an earlier session and is reopened with a source image
   is likewise not a candidate until it is stroked again.

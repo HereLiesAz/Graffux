@@ -478,40 +478,171 @@ class SnapToPlanesTest {
         dispatcher.scheduler.advanceUntilIdle()
     }
 
+    /** The scan's own scheduler: nothing on it runs until a test advances it, whatever the main scheduler does. */
+    private class Scans {
+        val scheduler = kotlinx.coroutines.test.TestCoroutineScheduler()
+        val dispatcher = kotlinx.coroutines.test.StandardTestDispatcher(scheduler)
+        var count = 0
+        var failWith: RuntimeException? = null
+    }
+
+    private fun splitScans(): Scans {
+        val scans = Scans()
+        splitDefault = scans.dispatcher
+        vm.paintScans.scan = { bitmap ->
+            scans.count++
+            scans.failWith?.let { throw it }
+            !ArtScan.isEmpty(bitmap)
+        }
+        return scans
+    }
+
+    /** Runs the pending scans on their own scheduler, then lets their results land on the main one. */
+    private fun landScans(scans: Scans) {
+        scans.scheduler.advanceUntilIdle()
+        dispatcher.scheduler.advanceUntilIdle()
+    }
+
     @Test
-    fun `the pixel scan of a painted layer runs off the main thread, and the snap arrives when it lands`() =
+    fun `the pixel scan runs on its own dispatcher, not the main one, and the snap arrives when it lands`() =
         runTest(dispatcher) {
             setupWithPaintedLayer()
-            val scans = kotlinx.coroutines.test.StandardTestDispatcher()
-            splitDefault = scans
+            val scans = splitScans()
             val dP = depthOf("P")
             vm.onDrawDepthDragStart()
             dragRawTo(dP * 1.03f)
             assertNull("the first frame never waits for the scan", ui().snapPlaneLayerId)
-            assertEquals(dP * 1.03f, vm.effectiveDrawDepth()!!, dP * 1e-3f)
             dragRawTo(dP * 1.02f)
-            assertNull("still no result: still no snap, and still not blocked", ui().snapPlaneLayerId)
-            scans.scheduler.advanceUntilIdle()
             dispatcher.scheduler.advanceUntilIdle()
-            dragRawTo(dP * 1.03f)
-            assertEquals("P", ui().snapPlaneLayerId)
+            assertEquals("advancing only the main scheduler runs no scan", 0, scans.count)
+            assertNull(ui().snapPlaneLayerId)
+            scans.scheduler.advanceUntilIdle()
+            assertEquals("the scan ran on its own scheduler", 1, scans.count)
+            assertNull("and has not landed on the main one yet", ui().snapPlaneLayerId)
+            dispatcher.scheduler.advanceUntilIdle()
+            assertEquals("a held finger sees the snap without another move", "P", ui().snapPlaneLayerId)
             assertEquals(dP, vm.effectiveDrawDepth()!!, dP * exactly)
             vm.onDrawDepthDragEnd()
         }
 
     @Test
-    fun `an empty layer with no art is scanned once and never becomes a candidate`() = runTest(dispatcher) {
-        setup()
-        val empty = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
-        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "E", name = "Empty", bitmap = empty)))
-        val scans = kotlinx.coroutines.test.StandardTestDispatcher()
-        splitDefault = scans
-        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
-        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
-        scans.scheduler.advanceUntilIdle()
-        dispatcher.scheduler.advanceUntilIdle()
-        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
+    fun `a scan that lands during a held orbit snaps it without another move`() = runTest(dispatcher) {
+        setupWithPaintedLayer()
+        val scans = splitScans()
+        vm.onSceneOrbit(0.2f, 0f)
+        vm.onTwoFingerStart()
+        drag(pixelsFor(-0.13f))
+        assertEquals(0.07f, ui().sceneCamera.yaw, 2e-3f)
+        assertNull(ui().snapPlaneLayerId)
+        landScans(scans)
+        assertEquals("P", ui().snapPlaneLayerId)
+        assertEquals(0f, ui().sceneCamera.yaw, 1e-4f)
+        vm.onTwoFingerEnd()
+        assertEquals(0f, ui().sceneCamera.yaw, 1e-4f)
     }
+
+    @Test
+    fun `a scan that lands with no gesture under way only refreshes the planes`() = runTest(dispatcher) {
+        setupWithPaintedLayer()
+        val scans = splitScans()
+        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
+        landScans(scans)
+        assertEquals(listOf("P"), vm.strokedPlanes()!!.ids)
+        assertNull(ui().snapPlaneLayerId)
+        assertTrue(ui().sceneCamera.isDefault)
+    }
+
+    @Test
+    fun `an empty layer is scanned exactly once per bitmap generation and never becomes a candidate`() =
+        runTest(dispatcher) {
+            setup()
+            val empty = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+            vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "E", name = "Empty", bitmap = empty)))
+            val scans = splitScans()
+            repeat(3) { assertTrue(vm.strokedPlanes()!!.ids.isEmpty()) }
+            landScans(scans)
+            repeat(3) { assertTrue(vm.strokedPlanes()!!.ids.isEmpty()) }
+            landScans(scans)
+            assertEquals("one scan for the one generation", 1, scans.count)
+            val next = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+            edit("E") { it.copy(bitmap = next) }
+            repeat(3) { vm.strokedPlanes() }
+            landScans(scans)
+            repeat(3) { vm.strokedPlanes() }
+            landScans(scans)
+            assertEquals("and one more for the new bitmap", 2, scans.count)
+            assertEquals(0, vm.paintScans.inFlight)
+        }
+
+    @Test
+    fun `a bitmap swapped mid-scan drops the old result, and the new scan is not run twice`() = runTest(dispatcher) {
+        setupWithPaintedLayer()
+        val scans = splitScans()
+        vm.strokedPlanes()
+        scans.scheduler.advanceUntilIdle()
+        assertEquals(1, scans.count)
+        val swapped = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.BLUE)
+        edit("P") { it.copy(bitmap = swapped) }
+        val planes = vm.strokedPlanes()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertSame("the stale result touched neither the planes nor the guard", planes, vm.strokedPlanes())
+        assertTrue(planes!!.ids.isEmpty())
+        assertEquals(1, vm.paintScans.inFlight)
+        landScans(scans)
+        assertEquals("one scan for each bitmap, none duplicated", 2, scans.count)
+        assertEquals(listOf("P"), vm.strokedPlanes()!!.ids)
+    }
+
+    @Test
+    fun `a layer deleted mid-scan drops the result`() = runTest(dispatcher) {
+        setupWithPaintedLayer()
+        val scans = splitScans()
+        vm.strokedPlanes()
+        scans.scheduler.advanceUntilIdle()
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.filterNot { it.id == "P" }))
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0, vm.paintScans.inFlight)
+        val planes = vm.strokedPlanes()!!
+        assertTrue(planes.ids.isEmpty())
+        assertSame("the dropped result did not invalidate the planes", planes, vm.strokedPlanes())
+        assertEquals(1, scans.count)
+    }
+
+    @Test
+    fun `a project switch mid-scan drops the result and keeps nothing of the old project`() = runTest(dispatcher) {
+        setupWithPaintedLayer()
+        val scans = splitScans()
+        vm.strokedPlanes()
+        scans.scheduler.advanceUntilIdle()
+        val bitmap = ui().layers.first { it.id == "P" }.bitmap
+        vm.resetDrawPlaneSession()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0, vm.paintScans.inFlight)
+        assertFalse("the late result was not kept", vm.paintScans.painted("P", bitmap))
+        // A scan that has not run yet is cancelled before it starts.
+        vm.resetDrawPlaneSession()
+        scans.scheduler.advanceUntilIdle()
+        assertEquals("the scan started after the reset was cancelled before it ran", 1, scans.count)
+    }
+
+    @Test
+    fun `an unreadable bitmap counts as unpainted for its generation, and is tried again with the next`() =
+        runTest(dispatcher) {
+            setupWithPaintedLayer()
+            val scans = splitScans()
+            scans.failWith = IllegalStateException("recycled")
+            repeat(2) { vm.strokedPlanes() }
+            landScans(scans)
+            repeat(2) { assertTrue(vm.strokedPlanes()!!.ids.isEmpty()) }
+            landScans(scans)
+            assertEquals("no retry on every frame", 1, scans.count)
+            scans.failWith = null
+            edit("P") { it.copy(bitmap = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.RED)) }
+            vm.strokedPlanes()
+            landScans(scans)
+            assertEquals("the next generation is scanned afresh", 2, scans.count)
+            assertEquals(listOf("P"), vm.strokedPlanes()!!.ids)
+        }
 
     // ---- the plane cache ----
 
@@ -544,13 +675,34 @@ class SnapToPlanesTest {
     }
 
     @Test
-    fun `a layer with art stays a candidate after its strokes are baked into the base`() = runTest(dispatcher) {
+    fun `a layer with art stays a candidate once its strokes are baked, and through a curves adjustment`() =
+        runTest(dispatcher) {
+            setup()
+            stroke()
+            assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
+            // The periodic bake's one effect on the stroke list is LayerStore.takeOldestStrokes (maybeBakeOldStrokes).
+            vm.bakeOldestStrokeForTest("L")
+            assertEquals(0, vm.recordedStrokesForTest("L").size)
+            assertTrue(vm.hasBakedStrokesForTest("L"))
+            assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
+            // A curves adjustment resets the layer's strokes (initStrokes) but the baked paint stays in its pixels.
+            vm.onCurvesApplied(listOf(Offset(0f, 0f), Offset(1f, 1f)))
+            dispatcher.scheduler.runCurrent()
+            assertTrue(vm.hasBakedStrokesForTest("L"))
+            assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
+        }
+
+    @Test
+    fun `removing a layer and undoing the removal keeps its candidacy`() = runTest(dispatcher) {
         setup()
         stroke()
         assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
-        vm.bakeOldestStrokeForTest("L")
-        assertEquals(0, vm.recordedStrokesForTest("L").size)
-        assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
+        vm.onLayerRemoved("L")
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
+        vm.onUndoClicked()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("its strokes are cached for the undo: a candidate again", listOf("L"), vm.strokedPlanes()!!.ids)
     }
 
     // ---- orbit: tilted planes ----

@@ -278,7 +278,7 @@ class LayerStoreTest {
     }
 
     @Test
-    fun `strokes baked into the base are remembered until the layer is reset or dropped`() {
+    fun `strokes baked into the base are remembered through a stroke reset and dropped with the layer`() {
         store.addStroke("L", stroke())
         store.addStroke("L", stroke())
         assertFalse(store.hasBakedStrokes("L"))
@@ -288,7 +288,7 @@ class LayerStoreTest {
         assertTrue(store.hasBakedStrokes("L"))
         assertEquals(1, store.strokeCount("L"))
         store.initStrokes("L")
-        assertFalse(store.hasBakedStrokes("L"))
+        assertTrue("a filter, LUT, merge or paste resets strokes; baked paint stays", store.hasBakedStrokes("L"))
         store.addStroke("L", stroke())
         store.takeOldestStrokes("L", 1)
         store.remove("L")

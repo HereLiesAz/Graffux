@@ -22,7 +22,11 @@ internal class LayerStore {
     private val baseBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val layerStrokes = ConcurrentHashMap<String, MutableList<StrokeCommand>>()
 
-    /** Layers whose oldest strokes were folded into the base this session: they did carry strokes. */
+    /**
+     * Layers whose oldest strokes were folded into the base this session: they did carry strokes. Kept through
+     * [initStrokes] (filters, LUTs, curves, merge and paste call it, and the baked paint stays in the pixels); dropped
+     * only when the layer's caches go ([remove], [clear], [retainOnly]).
+     */
     private val bakedStrokes: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
@@ -280,7 +284,6 @@ internal class LayerStore {
     /** Resets [layerId]'s stroke list to empty and makes live material state re-derive from bases. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
-        bakedStrokes.remove(layerId)
         liveWetness.remove(layerId)
         liveImpastoMaterial.remove(layerId)
         contentChanged?.invoke(layerId)
