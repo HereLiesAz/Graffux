@@ -204,6 +204,30 @@ object SurfaceMath {
         }.map { it.id }
     }
 
+    /**
+     * The groups that get a surface fill (spec/3d-space.md, "How the surface looks"): the groups the mesh
+     * is drawn for ([gridGroupIds]: valid surface, visible, not at zero opacity) that are top-level.
+     */
+    fun fillGroupIds(layers: List<Layer>, frameAlphas: Map<String, Float> = emptyMap()): List<String> {
+        val top = layers.filter { it.parentId == null }.mapTo(HashSet()) { it.id }
+        return gridGroupIds(layers, true, frameAlphas).filter { it in top }
+    }
+
+    /**
+     * Of [fillGroups], those whose surface paint the GPU depth pass draws, in stack order. The pass draws
+     * once at its anchor slot, so their fills must be emitted just before it (under the paint it draws);
+     * every other fill is emitted at its group's own place in the stack.
+     */
+    fun passFillGroups(layers: List<Layer>, depth: DepthComposite, fillGroups: List<String>): List<String> {
+        if (depth.isEmpty || fillGroups.isEmpty()) return emptyList()
+        // Pass MEMBERS on a surface: surfaceIds also holds hidden or empty paint, which the pass does not draw.
+        val byId = layers.associateBy { it.id }
+        val owners = depth.memberIds.filter { id ->
+            id in depth.surfaceIds && byId[id]?.let { it.spatial == null && it.model == null } == true
+        }.mapNotNull { ownerOf(byId, it)?.group?.id }.toSet()
+        return fillGroups.filter { it in owners }
+    }
+
     /** Every layer drawn on a group surface. */
     fun surfaceLayerIds(layers: List<Layer>): Set<String> {
         if (layers.none { it.isContainer && it.surface != null }) return emptySet()
@@ -578,6 +602,68 @@ object SurfaceMath {
         us += profile.length
         for (a in us) segment(scene(a, 0f), scene(a, reach), cam)?.let(out::add)
         return out
+    }
+
+    /**
+     * The surface's fill (spec/3d-space.md, "How the surface looks"): canvas-space triangles
+     * `x0, y0, x1, y1, x2, y2` covering the same extent as [gridLines], projected through [cam] and
+     * clipped to the near plane (as [segment] clips the mesh lines), so the fill and the mesh agree as
+     * the camera orbits or zooms in. Every triangle is oriented the same way, so a profile that folds in
+     * perspective fills as a union under a non-zero fill. A multi-view hull is a solid, not a sheet, and has
+     * no fill: empty. A relief surface is filled with its displaced mesh.
+     */
+    fun fillTriangles(
+        profile: SurfaceProfile,
+        model: Affine3,
+        cam: CameraFrame,
+        sweepExtent: Float = gridExtent(profile),
+    ): List<FloatArray> {
+        if (!profile.isValid || profile.hasHull) return emptyList()
+        val far = SceneMath.farPlane(cam.focal) * 0.5f
+        val scale = sqrt(SceneMath.dot(model.column(0), model.column(0))).coerceAtLeast(1e-6f)
+        val reach = minOf(sweepExtent.coerceAtLeast(0f), far / scale)
+        val verts = mesh(profile, 0f, profile.length, 0f, reach)
+        val near = SceneMath.nearPlane(cam.focal) * 2f
+        val out = ArrayList<FloatArray>()
+        val stride = 5
+        var i = 0
+        while (i + 3 * stride <= verts.size) {
+            val tri = List(3) { k ->
+                val o = i + k * stride
+                cam.toCamera(model.apply(verts[o], verts[o + 1], verts[o + 2]))
+            }
+            clipNear(tri, near).takeIf { it.size >= 3 }?.let { poly ->
+                val px = poly.map { floatArrayOf(cam.width / 2f + cam.focal * it[0] / it[2], cam.height / 2f + cam.focal * it[1] / it[2]) }
+                for (k in 1 until px.size - 1) out += orientedTriangle(px[0], px[k], px[k + 1])
+            }
+            i += 3 * stride
+        }
+        return out
+    }
+
+    /** A value key for the inputs of [fillTriangles]: equal inputs give an equal key (the maps have no equals). */
+    fun fillKey(profile: SurfaceProfile, model: Affine3, cam: CameraFrame): List<Any> = listOf(
+        profile, model.m.toList(), cam.width, cam.height, cam.focal,
+        cam.eye.toList(), cam.target.toList(), cam.right.toList(), cam.down.toList(), cam.forward.toList(),
+    )
+
+    /** [poly] (camera-space points) clipped to z >= [near] (Sutherland-Hodgman against one plane). */
+    internal fun clipNear(poly: List<FloatArray>, near: Float): List<FloatArray> {
+        val out = ArrayList<FloatArray>()
+        for (i in poly.indices) {
+            val a = poly[i]
+            val b = poly[(i + 1) % poly.size]
+            val aIn = a[2] >= near
+            val bIn = b[2] >= near
+            if (aIn) out += a
+            if (aIn != bIn) out += if (aIn) lerpTo(a, b, near) else lerpTo(b, a, near)
+        }
+        return out
+    }
+
+    private fun orientedTriangle(a: FloatArray, b: FloatArray, c: FloatArray): FloatArray {
+        val signed = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+        return if (signed >= 0f) floatArrayOf(a[0], a[1], b[0], b[1], c[0], c[1]) else floatArrayOf(a[0], a[1], c[0], c[1], b[0], b[1])
     }
 
     private fun otherGridLines(profile: SurfaceProfile, model: Affine3, cam: CameraFrame, spacing: Float): List<FloatArray>? {

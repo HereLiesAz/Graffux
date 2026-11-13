@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.layout.Spacer
 import com.hereliesaz.graffitixr.common.model.frame
@@ -343,14 +344,40 @@ fun EditorScreen(
                                 StackLayerCache.applies(uiState, sceneContext)
                         }
                         if (split == null) SideEffect { stackCache.dumpAll() }
+                        // Surface fills (spec/3d-space.md, "How the surface looks"), centre tile only like the mesh.
+                        val fillGroups = remember(uiState.layers, frameAlphas, dx, dy) {
+                            if (dx == 0 && dy == 0) {
+                                com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                    .fillGroupIds(uiState.layers, frameAlphas)
+                            } else {
+                                emptyList()
+                            }
+                        }
+                        val passFills = remember(uiState.layers, sceneContext?.depth, fillGroups) {
+                            sceneContext?.let {
+                                com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                    .passFillGroups(uiState.layers, it.depth, fillGroups)
+                            } ?: emptyList()
+                        }
+                        val fillContext = remember(uiState.canvasBackground, fillGroups, passFills) {
+                            SurfaceFillContext(uiState.canvasBackground, fillGroups.toSet() - passFills.toSet())
+                        }
                         val drawNodes: @Composable (List<LayerNode>) -> Unit = { nodes ->
                             androidx.compose.runtime.CompositionLocalProvider(
                                 LocalHighResOverlays provides highResOverlays,
                                 LocalScene provides sceneContext,
+                                LocalSurfaceFill provides fillContext,
                             ) { nodes.forEach { node ->
                                 // The GPU depth pass sits where its first member's top-level
                                 // subtree does; the layers it draws are skipped below.
                                 if (sceneContext != null && node.layer.id == sceneContext.depth.anchorTopLevelId) {
+                                    // Fills of the groups whose paint the pass draws go under it, in stack order.
+                                    for (g in passFills) key(g) {
+                                        uiState.layers.firstOrNull { it.id == g }?.let {
+                                            val alpha = it.opacity * (frameAlphas[g] ?: 1f)
+                                            SurfaceFill(it, sceneContext, alpha, uiState.canvasBackground)
+                                        }
+                                    }
                                     DepthPass(uiState, sceneContext, liveStrokeState, Modifier.fillMaxSize())
                                 }
                                 LayerStackNode(
@@ -1193,6 +1220,14 @@ fun EditorScreen(
     }
 }
 
+/**
+ * What a surface fill needs: the canvas colour, and the groups whose fill is emitted at their own place in
+ * the stack (the rest are emitted just before the depth pass). Null outside the centre tile.
+ */
+private class SurfaceFillContext(val canvas: Color, val inStack: Set<String>)
+
+private val LocalSurfaceFill = androidx.compose.runtime.compositionLocalOf<SurfaceFillContext?> { null }
+
 // The 3D scene path added one branch per node kind; splitting the node would split its keys.
 @Suppress("CyclomaticComplexMethod", "LongMethod", "FunctionNaming", "ReturnCount")
 @Composable
@@ -1222,6 +1257,11 @@ private fun LayerStackNode(
     val placement = scene?.placementFor(layer)
     key(layer.id) {
         if (layer.isContainer) {
+            // A surface fill not drawn by the depth pass sits at this group's place, under its own content.
+            val fill = LocalSurfaceFill.current
+            if (scene != null && fill != null && layer.id in fill.inStack) {
+                SurfaceFill(layer, scene, layer.opacity * frameAlpha, fill.canvas)
+            }
             ContainerLayerBox(layer, modifier, frameAlpha, placement) {
                 val inner = placement?.let { scene?.inside(it) } ?: scene
                 androidx.compose.runtime.CompositionLocalProvider(LocalScene provides inner) {
@@ -1704,7 +1744,7 @@ private fun InfiniteGrid(
     rotationDeg: Float,
     modifier: Modifier = Modifier,
     spacing: Float = 48f,
-    color: Color = Color(0x33808080),
+    color: Color = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB),
 ) {
     Canvas(modifier) {
         if (spacing <= 0f) return@Canvas   // guard the tick loops against a non-positive step
@@ -2145,11 +2185,48 @@ private fun SurfaceGuideGrid(
         }
     }
     val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
+    // The grid colour, and only while the grid is on (the button's flag gates which groups reach here).
+    val mesh = com.hereliesaz.graffitixr.common.scene.SurfaceLook.meshArgb(uiState.surfaceGridVisible)
     Canvas(modifier) {
-        // A dark under-line keeps the mesh readable over light artwork and a cyan line over dark;
-        // widths are screen pixels whatever the zoom. Overlay only: no hit-test, never painted or exported.
-        lines.forEach { l -> drawLine(Color.Black.copy(alpha = 0.55f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 3.5f / zoom) }
-        lines.forEach { l -> drawLine(Color.Cyan.copy(alpha = 0.9f), Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
+        // Overlay only: no hit-test, never painted or exported. Widths are screen pixels whatever the zoom.
+        if (mesh != null) {
+            val c = Color(mesh)
+            lines.forEach { l -> drawLine(c, Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
+        }
+    }
+}
+
+/**
+ * The fill of a surface group: the canvas background colour (spec/3d-space.md, "How the surface looks"),
+ * drawn at the group's place in the stack, just under its own content, at its opacity. On screen only;
+ * an export keeps the document's own background.
+ */
+@Suppress("FunctionNaming", "MagicNumber")
+@Composable
+private fun SurfaceFill(layer: Layer, scene: SceneContext, alpha: Float, canvasBackground: Color) {
+    val look = com.hereliesaz.graffitixr.common.scene.SurfaceLook
+        .fill(canvasBackground.toArgb(), Workspace.toArgb())
+    val profile = layer.surface
+    val model = scene.modelFor(layer)
+    val key = profile?.let { com.hereliesaz.graffitixr.common.scene.SurfaceMath.fillKey(it, model, scene.frame) }
+    val tris = remember(key, look != null) {
+        if (profile == null || look == null) {
+            emptyList()
+        } else {
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.fillTriangles(profile, model, scene.frame)
+        }
+    }
+    if (look == null || tris.isEmpty()) return
+    val grid = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB)
+    Canvas(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha }.testTag("canvas.surfaceFill")) {
+        // All triangles are oriented alike, so one non-zero path is their union.
+        val path = Path()
+        tris.forEach { t ->
+            path.moveTo(t[0], t[1]); path.lineTo(t[2], t[3]); path.lineTo(t[4], t[5]); path.close()
+        }
+        drawPath(path, Color(look.argb))
+        // A fill the same colour as the workspace has no visible edge: outline it.
+        if (!look.edgeVisible) drawPath(path, grid, style = Stroke(1f))
     }
 }
 

@@ -27,7 +27,7 @@ depends on whether the **active layer** is a 2D or a 3D layer (below):
 A double-tap never changes the active layer; a buried layer is picked from the layers rail. (The
 old double-tap that cycled through the layers under the finger is gone.)
 
-## View control in a project with 3D groups (gestures built; the rest planned)
+## View control in a project with 3D groups (gestures and surface appearance built)
 
 Status: the view gestures below are built (not yet device-verified); the default surface, surface
 appearance and the open points are still planned. Where this section and the table above disagree,
@@ -92,12 +92,50 @@ In both orientations that is 3/4 of the short side by 2/3 of the long side.
 
 ### How the surface looks
 
-- **Fill:** the canvas background colour the user has set. The canvas and the screen background were
-  already different colours in 2D, so the surface's edge stays visible without an outline.
-- **Mesh:** the grid colour the user has chosen, drawn only if a grid is on. It replaces the cyan wire
-  mesh.
+Built (the appearance only; the document boundary is a later slice).
+
+- **Fill:** the canvas background colour the user has set. That is `SettingsRepository.backgroundColor`,
+  mirrored into `EditorUiState.canvasBackground` (the page fill `ArtboardPage` paints); the screen
+  background is the separate fixed `Workspace` colour (`SurfaceLook.fill(canvas, workspace)`; if the two
+  are equal the edge is outlined in the grid colour). The canvas and the screen background were already
+  different colours in 2D, so the surface's edge stays visible without an outline.
+  - *Where it sits:* a top-level surface group's fill (`SurfaceFill`) is emitted in one of two places.
+    If the GPU depth pass paints that group's surface layers (`SurfaceMath.passFillGroups`: paint on a
+    surface joins the pass even with the identity camera), the fill is emitted immediately before the pass
+    at its anchor slot, in stack order with the other such fills, so it is under the paint the pass draws and
+    above whatever is stacked below the anchor. A group with no visible painted layer in the pass (no paint, or only hidden or empty paint) is filled by `LayerStackNode` just before its own box, at its own place in the stack. Either
+    way the page never overpaints it. The split inactive-layer render only applies when there is no pass, so
+    only the second kind of fill occurs there. Known limits: a fill emitted at the anchor slot is under layers
+    stacked between the anchor and its group, the same way that group's paint is; and with two surface groups
+    both painted, the later group's opaque fill is emitted before the pass, so it is under the earlier group's
+    paint where they overlap. `fillKey` copies a few small arrays per recomposition (cheap, unmeasured).
+  - *Opacity:* the group's own opacity (times its animation frame alpha); the enclosing groups' opacity
+    applies because the fill is inside their box. A hidden or zero-opacity group draws nothing (the mesh's gate:
+    a valid surface, visible, not at zero opacity).
+  - *Geometry:* `SurfaceMath.fillTriangles`, the sheet's triangles over the mesh's extent (a relief
+    surface by its displaced mesh), clipped to the near plane exactly as the mesh lines are, and oriented
+    alike so folds in perspective fill as a union. The triangles are recomputed only when
+    `SurfaceMath.fillKey` (profile, model, camera frame) changes.
+  - *Centre tile only,* like the mesh, in wrap-around mode.
+  - *Not filled:* a multi-view group (a solid); a group nested inside another group (its canvas-space
+    triangles would need the parent's placement; it keeps its mesh).
+  - **Assumption for the owner to confirm:** a canvas colour that is not fully opaque gives no surface fill
+    (a translucent colour would blend twice over the page; a transparent canvas has nothing to fill with). The
+    owner said only "the canvas background colour".
+- **Mesh:** the grid colour, drawn only if a grid is on. It replaces the cyan wire mesh (no dark
+  under-line either). There is no user-chosen grid colour and no grid on/off setting today: the 2D
+  reference grid (`InfiniteGrid`) is always on in one fixed colour, `SurfaceLook.GRID_ARGB`, the one source for both. So the mesh
+  uses that colour, and "a grid is on" is the wire-mesh flag (`surfaceGridVisible`). The mesh is a 1.5 px line at that colour's low alpha with no under-line; its legibility over artwork is unverified. Adding a grid colour
+  and grid toggle to settings is a gap, listed in the open points.
+- **The wire-mesh button** ("#" on the rail, and the "Surface grid" menu check) is unchanged in
+  place and wording, and now toggles the surface's grid overlay (the mesh) on and off; the fill is not
+  affected by it.
+- **Export:** neither the fill nor the mesh is exported. They are canvas overlay; PNG, PDF, share, the
+  thumbnail and glTF still composite over the document's own background (`exportBackgroundArgb`) inside
+  the document rectangle, and nothing in `SceneGltfExporter`, `DepthCompositor` or the wgpu path drew the
+  cyan mesh, so none changed.
 - **Document boundary:** not drawn in these projects. Export is the one place it matters (see
-  "Export").
+  "Export"). Not built.
 
 ### Open points
 
@@ -108,8 +146,8 @@ In both orientations that is 3/4 of the short side by 2/3 of the long side.
 3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
    designed.
 4. (Settled: the pinch zooms about the fingers' midpoint.)
-5. Which setting is "the canvas background colour" and which is the grid colour; and whether the
-   wire-mesh button stays, now that the mesh is the grid.
+5. Resolved above: canvas colour is `canvasBackground`; the button stays and toggles the mesh. Still
+   open: a user-chosen grid colour and a grid on/off setting do not exist.
 6. How export frames the view once the document boundary is not drawn.
 7. Whether the default surface is centred in the viewport (assumed).
 
@@ -550,7 +588,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   one, and the "#" toggle on the tool rail (label "Surface wire mesh", selected state, there only
   while the active layer is on a surface), flip `EditorUiState.surfaceGridVisible` (view state, not
   history or project data; on by default, and since it was never stored there is no saved choice to migrate). A long press on the "#"
-  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in a dark under-line and a cyan line over the artwork. Every visible
+  opens its menu: Wire mesh on/off, Relocate rotation point, Reset rotation point to automatic. It is drawn in the grid colour (see "How the surface looks"). Every visible
   group's surface shows its mesh (`SurfaceMath.gridGroupIds`): a group is skipped when it or a group above it is hidden
   or its opacity (times its enclosing groups') is zero, the orbit pivot's rule, and the mesh does not follow the active
   layer. A group has exactly one surface, so one mesh. It is
