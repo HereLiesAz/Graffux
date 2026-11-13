@@ -56,6 +56,9 @@ class DrawPlaneDepthTest {
     @Suppress("EXPERIMENTAL_API_USAGE")
     private val dispatcher = StandardTestDispatcher()
     private lateinit var vm: EditorViewModel
+    private val projectFlow = MutableStateFlow<com.hereliesaz.graffitixr.common.model.GraffitiProject?>(null)
+    private val projectRepo = mockk<ProjectRepository>(relaxed = true)
+    private val emitter = mockk<com.hereliesaz.graffitixr.common.coop.OpEmitter>(relaxed = true)
     private val canvasSize = IntSize(48, 48)
     private val brush = AzphaltBrush(name = "Solid", hardness = 1f, opacity = 1f)
     private val exportManager = mockk<com.hereliesaz.graffitixr.feature.editor.export.ExportManager>(relaxed = true)
@@ -74,9 +77,9 @@ class DrawPlaneDepthTest {
             every { gestureMapping } returns MutableStateFlow(emptyMap())
             every { savedPalette } returns MutableStateFlow(emptyList())
         }
-        val projects = mockk<ProjectRepository>(relaxed = true) {
-            every { currentProject } returns MutableStateFlow(null)
-            every { this@mockk.projects } returns MutableStateFlow(emptyList())
+        val projects = projectRepo.also {
+            every { it.currentProject } returns projectFlow
+            every { it.projects } returns MutableStateFlow(emptyList())
         }
         val extensions = mockk<ExtensionRepository>(relaxed = true) {
             every { installed } returns MutableStateFlow(emptyList())
@@ -103,7 +106,7 @@ class DrawPlaneDepthTest {
             context = org.robolectric.RuntimeEnvironment.getApplication(),
             liquifyEngine = mockk(relaxed = true),
             dispatchers = dispatchers,
-            opEmitter = mockk(relaxed = true),
+            opEmitter = emitter,
             extensionRepository = extensions,
             repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes,
@@ -439,4 +442,94 @@ class DrawPlaneDepthTest {
         vm.onResetDrawDepth()
         assertNull(ui().drawPlane)
     }
+
+    @Test
+    fun `a later stroke of a chunk that fails keeps the layer and the first stroke, and undo reverts the plane once`() =
+        runTest(dispatcher) {
+            setup()
+            val made = setDepthAndAdopt()
+            stroke()
+            val first = vm.recordedStrokesForTest(made.id).single()
+            stroke()
+            val second = vm.recordedStrokesForTest(made.id).last()
+            assertTrue(first !== second)
+            vm.failCommitForTest(made.id, second)
+            assertTrue("the layer stays", ui().layers.any { it.id == made.id })
+            assertEquals(listOf(first), vm.recordedStrokesForTest(made.id))
+            vm.onUndoClicked()
+            assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+            assertEquals(0, vm.recordedStrokesForTest(made.id).size)
+        }
+
+    @Test
+    fun `a failure that arrives after the entry was undone does not revert again`() = runTest(dispatcher) {
+        setup()
+        val made = setDepthAndAdopt()
+        stroke()
+        val only = vm.recordedStrokesForTest(made.id).single()
+        vm.onUndoClicked()
+        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+        // The active layer is L again; a second revert would have re-activated or removed something else.
+        vm.onLayerActivated("G")
+        vm.failCommitForTest(made.id, only)
+        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+        assertEquals("G", ui().activeLayerId)
+    }
+
+    @Test
+    fun `reverting a made layer emits LayerRemove and deletes its first PNG, after its save`() = runTest(dispatcher) {
+        vm.dispatchForTest(EditorIntent.LoadedProject("P", emptyList()))
+        setup()
+        vm.dispatchForTest(EditorIntent.LoadedProject("P", ui().layers))
+        val made = setDepthAndAdopt()
+        val file = made.uri!!.lastPathSegment!!
+        stroke()
+        vm.failCommitForTest(made.id, vm.recordedStrokesForTest(made.id).single())
+        dispatcher.scheduler.advanceUntilIdle()
+        io.mockk.verify { emitter.emit(com.hereliesaz.graffitixr.common.model.Op.LayerRemove(made.id)) }
+        io.mockk.coVerifyOrder {
+            projectRepo.saveArtifact("P", file, any())
+            projectRepo.deleteArtifact("P", file)
+        }
+    }
+
+    @Test
+    fun `a project switch with a plane layer pending deletes nothing across projects and drops the reference`() =
+        runTest(dispatcher) {
+            vm.dispatchForTest(EditorIntent.LoadedProject("A", emptyList()))
+            setup()
+            vm.dispatchForTest(EditorIntent.LoadedProject("A", ui().layers))
+            vm.onSceneOrbit(0.5f, 0.1f)
+            stroke()
+            val made = setDepthAndAdopt()
+            val file = made.uri!!.lastPathSegment!!
+            stroke()
+            vm.onUndoClicked() // the layer is now held only by a redo entry
+            projectFlow.value = com.hereliesaz.graffitixr.common.model.GraffitiProject(id = "B")
+            dispatcher.scheduler.advanceUntilIdle()
+            assertNull(vm.drawPlaneReference())
+            vm.onLayerActivated(ui().layers.firstOrNull()?.id ?: "none")
+            stroke()
+            dispatcher.scheduler.advanceUntilIdle()
+            io.mockk.coVerify(exactly = 0) { projectRepo.deleteArtifact("A", file) }
+        }
+
+    @Test
+    fun `redoing a stroke makes it the reference again, and a lapsed newer stroke does not hand over to an older`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.5f, 0.1f)
+            stroke()
+            val first = vm.drawPlaneReference()!!.column(3).toList()
+            setDepthAndAdopt()
+            stroke()
+            val second = vm.drawPlaneReference()!!.column(3).toList()
+            vm.onUndoClicked()
+            assertEquals(first, vm.drawPlaneReference()!!.column(3).toList())
+            vm.onRedoClicked()
+            assertEquals(second, vm.drawPlaneReference()!!.column(3).toList())
+            vm.onSceneOrbit(0.1f, 0f)
+            // Any camera change since the newest stroke lapses it, and no older stroke stands in.
+            assertNull(vm.drawPlaneReference())
+        }
 }

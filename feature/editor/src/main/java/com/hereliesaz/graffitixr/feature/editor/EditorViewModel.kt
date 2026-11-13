@@ -1723,14 +1723,20 @@ class EditorViewModel @Inject constructor(
      * the undo history and the Ink ledger too, keeping all of them in step with what is shown. Its
      * live preview ([preview]) is dropped if it is still the one on screen. Main thread.
      */
-    private fun abandonFailedCommit(layerId: String, command: StrokeCommand, error: Throwable, preview: Bitmap? = null) {
+    private fun abandonFailedCommit(
+        layerId: String,
+        command: StrokeCommand,
+        error: Throwable,
+        preview: Bitmap? = null,
+    ) {
         android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke; dropping it", error)
         layerStore.removeStroke(layerId, command)
-        // A stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back too.
-        val plane = history.planeSwapOf(command) ?: pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
+        // A lone stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back
+        // too. A stroke that joined a chunk, or arrives after its entry was undone, only drops itself.
+        val plane = history.planeSwapToRevert(command)
         if (history.dropDraw(command)) updateHistoryCounts()
         if (plane != null) revertPlaneAdoption(layerId, plane)
-        retireLastStroke(layerId)
+        retireLastStroke(listOf(command))
         sweepPlaneLayers()
         if (command.inkStroke != null) inkLedger.onUndo(layerId, command)
         _liveStroke.update { s ->
@@ -2595,6 +2601,7 @@ class EditorViewModel @Inject constructor(
                         rebuildJobs.values.forEach { it.cancel() }
                         rebuildJobs.clear()
                         history.clear()
+                        resetDrawPlaneSession()
                         retainLayerCaches(layers.filter { it.bitmap != null }.map { it.id }.toSet())
                         updateHistoryCounts()
 
@@ -2725,6 +2732,7 @@ class EditorViewModel @Inject constructor(
                     inheritedBases.clear()
                     pendingForks.clear()
                     history.clear()
+                    resetDrawPlaneSession()
                     inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
                     // without it, undoCount/redoCount keep whatever they were before the project
@@ -2866,7 +2874,7 @@ class EditorViewModel @Inject constructor(
                     restoreUndoneStrokePixels(command)
                 }
                 command.plane?.let { revertPlaneAdoption(command.layerId, it) }
-                retireLastStroke(command.layerId)
+                retireLastStroke(command.strokes)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -2939,6 +2947,7 @@ class EditorViewModel @Inject constructor(
                 }
                 command.plane?.created?.let(::reinsertPlaneLayer)
                 reapplyRedoneStroke(command)
+                lastStroke = LastStroke.of(command.layerId, command.command, _uiState.value, lastStroke)
                 command.plane?.let { applyPlane(command.layerId, it.after) }
             }
             is EditCommand.PropertyChange -> {
@@ -6575,6 +6584,11 @@ class EditorViewModel @Inject constructor(
     /** Puts the scene camera where a test needs it (no intent moves it). */
     @androidx.annotation.VisibleForTesting
     internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
+
+    /** A commit of [command] on [layerId] that failed, as the GPU-less JVM cannot make one arrive when asked. */
+    @androidx.annotation.VisibleForTesting
+    internal fun failCommitForTest(layerId: String, command: StrokeCommand) =
+        abandonFailedCommit(layerId, command, IllegalStateException("test"))
 
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
@@ -10542,7 +10556,7 @@ class EditorViewModel @Inject constructor(
         // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
-        lastStroke = LastStroke.of(layerId, _uiState.value, lastStroke)
+        lastStroke = LastStroke.of(layerId, command, _uiState.value, lastStroke)
         val continues = gestureOpen && gestureCommitted != null
         // A segment on another layer than the last one (a stroke crossing between view images) is its
         // own entry, chained to the previous so that undo and redo take both.
@@ -13855,11 +13869,21 @@ class EditorViewModel @Inject constructor(
     /** Layers a draw-plane stroke made, with the project and file of their first PNG (if any) to delete when gone. */
     private val planeLayerFiles = HashMap<String, Pair<String, String>?>()
 
-    /** The undone or dropped stroke on [layerId] is no longer the reference: the one before it is again. */
-    private fun retireLastStroke(layerId: String) {
-        val last = lastStroke ?: return
-        if (last.layerId == layerId) lastStroke = last.prior
+    /** Undone or dropped [strokes] are no longer the reference: the strokes before them are again. */
+    private fun retireLastStroke(strokes: Collection<StrokeCommand>) {
+        lastStroke = lastStroke?.without(strokes)
     }
+
+    /** A project opened or closed: nothing of the last project's draw-plane session carries over. */
+    private fun resetDrawPlaneSession() {
+        lastStroke = null
+        planeLayerFiles.clear()
+        planeLayerSaves.clear()
+        drawGuideJob?.cancel()
+    }
+
+    /** The first-PNG save of each plane layer, so deleting that PNG waits for it. */
+    private val planeLayerSaves = HashMap<String, kotlinx.coroutines.Job>()
 
     /**
      * Releases what layers a draw-plane stroke made still hold once nothing can bring them back (not in the layer
@@ -13874,8 +13898,12 @@ class EditorViewModel @Inject constructor(
         retainLayerCaches(kept)
         for (id in gone) {
             evictJobsFor(id)
+            val save = planeLayerSaves.remove(id)
             val (projectId, filename) = planeLayerFiles.remove(id) ?: continue
+            // Never across projects: another project's layer file is its own.
+            if (projectId != _uiState.value.projectId) continue
             viewModelScope.launch(dispatchers.io) {
+                save?.join()
                 runCatching { projectRepository.deleteArtifact(projectId, filename) }
             }
         }
@@ -13895,8 +13923,10 @@ class EditorViewModel @Inject constructor(
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
         // The newest stroke's plane, else the one before it when that layer is gone or refused (a surface layer).
+        // Only while the view is as the newest stroke left it: a lapsed newer stroke does not hand over to an older one
+        // (it is the older stroke again only once the newer is undone). A layer gone or refused is skipped.
         val layer = generateSequence(lastStroke) { it.prior }
-            .filter { it.holds(state) }
+            .takeWhile { it.holds(state) }
             .mapNotNull { last -> state.layers.firstOrNull { it.id == last.layerId } }
             .firstOrNull { drawDepthRefusal(state, it) == null } ?: return null
         return SceneMath.chainModel(planeChain(state.layers, layer.id), size.width.toFloat(), size.height.toFloat())
@@ -14075,13 +14105,18 @@ class EditorViewModel @Inject constructor(
         }
         emitMembership(Op.LayerAdd(layer))
         planeLayerFiles[layer.id] = if (projectId != null && uri != null) projectId to filename else null
-        persistNewLayerBitmap(projectId, uri, filename, blank)
+        persistNewLayerBitmap(projectId, uri, filename, blank)?.let { planeLayerSaves[layer.id] = it }
         return CreatedPlaneLayer(layer.copy(bitmap = null), index, below.id)
     }
 
-    private fun persistNewLayerBitmap(projectId: String?, uri: Uri?, filename: String, blank: Bitmap) {
-        if (projectId == null || uri == null) return
-        SafeBitmap.copy(blank, mutable = false)?.let { copy ->
+    private fun persistNewLayerBitmap(
+        projectId: String?,
+        uri: Uri?,
+        filename: String,
+        blank: Bitmap,
+    ): kotlinx.coroutines.Job? {
+        if (projectId == null || uri == null) return null
+        return SafeBitmap.copy(blank, mutable = false)?.let { copy ->
             viewModelScope.launch(dispatchers.io) {
                 val bytes = ImageUtils.bitmapToByteArray(copy)
                 runCatching { projectRepository.saveArtifact(projectId, filename, bytes) }

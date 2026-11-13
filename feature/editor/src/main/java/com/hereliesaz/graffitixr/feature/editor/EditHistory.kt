@@ -158,10 +158,16 @@ internal class EditHistory(
         return holds
     }
 
-    /** The plane adoption riding on the entry that holds [command] (by identity), on either stack; null if none. */
-    fun planeSwapOf(command: StrokeCommand): PlaneSwap? =
-        (undoStack + redoStack).firstOrNull { it is EditCommand.Draw && it.strokes.any { s -> s === command } }
-            .let { (it as? EditCommand.Draw)?.plane }
+    /**
+     * The plane adoption to take back when [command] (by identity) never landed: the one riding on its entry, and
+     * only when that entry is live (on the undo stack, not already undone, which put the plane back) and [command]
+     * is all it holds. A stroke that joined a chunk, or an entry with other strokes in it, keeps its layer: only the
+     * stroke is dropped ([dropDraw]).
+     */
+    fun planeSwapToRevert(command: StrokeCommand): PlaneSwap? {
+        val entry = undoStack.lastOrNull { it is EditCommand.Draw && it.strokes.any { s -> s === command } }
+        return (entry as? EditCommand.Draw)?.takeIf { it.strokes.size == 1 }?.plane
+    }
 
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */
     fun topDrawHolds(command: StrokeCommand): Boolean =
