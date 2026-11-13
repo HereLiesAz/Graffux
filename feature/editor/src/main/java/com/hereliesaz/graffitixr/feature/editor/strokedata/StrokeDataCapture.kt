@@ -14,7 +14,10 @@ import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import org.json.JSONObject
 
-/** SharedPreferences file/key for Settings → model-training contribution (explicit opt-in; see [StrokeContributionConsent]). */
+/**
+ * SharedPreferences file/key for Settings → model-training contribution (explicit opt-in; see
+ * [StrokeContributionConsent]).
+ */
 const val STROKE_DATA_PREFS = "stroke_prediction"
 const val STROKE_DATA_KEY = "record_strokes"
 /** Settings → Raw touch heatmap (root): off unless turned on (and root was granted then). */
