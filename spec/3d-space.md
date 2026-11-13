@@ -70,7 +70,7 @@ was the reference), and the one finger stays free for the tool in hand.
 - **Unchanged.** With the Move / Transform tool in hand on a 3D layer, two fingers still slide the
   layer, pinch moves it in depth and a twist turns it, one undo step per completed gesture, exactly as
   the table above says. The rail's axis slot, the rotation triangle and the
-  rotation-point ("#") button are unchanged. In a project with no 3D group, nothing changes at all:
+  wire-mesh ("#") button (the grid toggle and, see "Draw plane depth", the draw distance) are unchanged. In a project with no 3D group, nothing changes at all:
   two fingers pan, and a double-tap does nothing.
 - **Retired in these projects.** The double-tap that stepped the axis X -> Y -> Z, the twist that
   orbited the camera about X or Y, and two-finger pan.
@@ -1261,6 +1261,85 @@ orbited camera puts the paint where it is drawn rather than on the far-off pictu
 Example (a unit test): draw a square at the default view; orbit 90 degrees, so it is edge-on;
 draw a second square on a new layer starting at the edge-on line; tilt the view up 90 degrees.
 The two squares share that edge, at right angles: an L.
+
+## Draw plane depth
+
+In a project with a 3D group the user can choose how far from the eye the next stroke lands, without moving any
+art. The control is the wire-mesh button ("#", `SurfaceMeshButton`, rail id `view.surfaceMesh`), which now shows in
+any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its tap (grid on/off) and long-press (menu) are unchanged.
+
+- **Relative, not absolute.** The depth the user sets is an offset from the *automatic* depth, stored as a multiplicative factor k
+  (`DrawPlaneDepth.factor`; null or 1 = automatic). The automatic plane is the one through the orbit pivot, or parallel to the last
+  stroke's plane, and it follows the camera, the pivot and that stroke, so it tracks dolly and orbit distance. The effective
+  eye-to-plane distance is `clamp(k * d0, 2 * near, far / 10)` with `d0` the automatic distance worked out from the current
+  reference when a stroke starts, when the guide is drawn and when the slider is read (`EditorViewModel.automaticDrawDepth`,
+  `effectiveDrawDepth`, `DrawPlane.effectiveDepth`). "Reset draw distance" returns to automatic, which follows the camera again.
+  A later "snap to stroked planes" feature will work on the effective depth (`effectiveDrawDepth`).
+- **Drag.** A vertical drag on the button changes k: up moves the plane toward the camera, down away from it. It
+  is multiplicative, as the Move-tool pinch is: 400dp of drag changes the effective distance (k) by a factor of 4
+  (`DrawPlane.DRAG_FACTOR`, `DRAG_DP_PER_CHANGE`), clamped to twice the near plane up to a tenth of the far plane
+  (`DrawPlane.depthRange`). Like the brush-size chip, the button owns the gesture only after the touch slop (it uses
+  `detectVerticalDragGestures`, so only vertical movement claims it); the drag cancels the tap and the long-press, and
+  the rail still scrolls from the gaps and the other buttons.
+- **Non-drag alternatives.** The long-press menu gains "Draw distance nearer", "Draw distance farther" (one step of
+  x1.25, `DrawPlane.STEP_FACTOR`) and, once a depth is set, "Reset draw distance"; they are ordinary 48dp menu rows
+  from string resources. TalkBack gets the button as a slider (`progressBarRangeInfo`, `setProgress`) over the effective depth's
+  log range, 0 = nearest, 1 = farthest (`EditorViewModel.drawDepthFraction`, `onSetDrawDepthFraction`).
+- **The plane.** It is parallel to the plane of the last stroke drawn (the layer that took it, in its pose at the time),
+  offset along that plane's normal until its box centre is the effective depth from the eye (`DrawPlane.world`). With no previous
+  stroke, or when the reference plane is seen nearly edge-on (|normal . view| < 0.1), it is the camera-facing plane through
+  the orbit pivot, as in "Adopting the view plane". The box keeps its on-screen pixel size at the new depth (its scale
+  grows with the distance), so a brush stroke is as wide as it was. Nothing is moved: no existing layer changes.
+- **Lapse.** The depth belongs to the view it was set in. Any change to the scene camera or the canvas viewport (orbit,
+  pan, zoom, rotation, Reset view), to the active layer, or to the project makes it automatic again
+  (`DrawPlaneDepth.holdsIn`, applied in `EditorViewModel.writeState`, so no path can miss it); the last-stroke reference
+  lapses with the camera too (`LastStroke.holds`). A resized canvas lapses the depth as well (`canvasSize`). Undoing the last stroke (a whole chunk of strokes
+  counts each) or dropping one whose commit failed (matched by the stroke, not its layer) moves the reference back along a chain of
+  the last 8 strokes. Redoing a stroke brings back the view that stroke was drawn in (kept on its undo entry), not the current one, so a
+  camera change between the undo and the redo leaves the reference lapsed. Switching the active layer by hand ends the reference too
+  (as it ends the depth); the draw plane's own layer changes (create, undo, redo) do not. A newest stroke whose layer the depth refuses (paint on a surface) is skipped to the one before it;
+  but a newest stroke whose view has lapsed is not: the older stroke is the reference again only once the newer one is undone. It is session state (`EditorUiState.drawPlane`): not saved, no format
+  change (the format stays 14).
+- **The next stroke** (`adoptDrawDepthPlane`, called from `adoptViewPlaneForStroke` as a stroke starts): on a paint layer,
+  with or without art, the stroke goes onto a new empty layer on the plane, directly above the active layer, in the same
+  group, active from then on; it is named like any new sketch layer. An empty paint layer is not duplicated: it is moved
+  onto the plane (the adoption mechanism). The layer's creation rides on the stroke's undo entry
+  (`PlaneSwap.created`): one undo removes the stroke and the layer, one redo puts both back (while a redo entry exists the layer's pixel cache is kept; it is released, with its first PNG, once no
+  layer, undo or redo entry holds it). A cancelled stroke, a failed commit of the entry's only stroke and a double-tap dot taken back remove the layer at once, provided the
+  layer still exists and holds nothing else (no other stroke entry on it in either stack, none in its store); otherwise only the failed
+  stroke is dropped (a later stroke of a chunk, a stroke arriving after its entry was undone, a layer deleted since)
+  (an empty layer moved onto the plane gets its old plane back). The depth is spent by the stroke; setting it again offsets from that stroke's plane.
+- **Where it does not apply.** A layer on a surface keeps to the surface, and the 3D strokes layer keeps its own guide
+  depth (`SpatialGuide.depth`, unchanged): the drag then does nothing and says so in a notice, once per drag. So does a
+  group, text, vector or adjustment layer (paint layers only). With no depth set, everything behaves as before.
+- **The guide.** While the depth is dragged, and about a second after it is released (`DrawPlane.GUIDE_LINGER_MS`), a flat
+  grid on the plane shows in the surface mesh's colour (`SurfaceLook.GRID_ARGB`), overlay only, never exported. Its cells are
+  a fixed 64 scene pixels (`SurfaceMath.GRID_SPACING`) over 16 cells each way from the box centre, so they shrink as the
+  plane moves away, and it follows the plane's actual orientation (camera-facing in the common case). It fades over 300ms
+  (`DrawPlaneGuide`). It does not stay up while a depth merely stays set.
+- The gesture help (menu, Gestures) lists the drag among "Other touches".
+
+Tests: `DrawPlaneTest` (the maths: mapping, clamp, parallel plane, edge-on fallback, groups, guide perspective),
+`DrawPlaneDepthTest` (lapse on camera, pan, zoom, layer and project change; new layer above the active one on the offset
+plane, art untouched; one undo and redo; cancel; surface and 3D strokes layer notices; automatic unchanged; menu steps,
+fade timer), `Scene3DRailUiTest` (button in a 3D project without a surface layer, drag, tap, long-press, TalkBack
+`SetProgress`, menu items), `NoHardCodedChromeTextTest` (no new literals).
+
+Not tested, or not verified on a device:
+
+- A real stroke's pixels landing on the offset plane, and the new layer's bitmap after undo and redo (a JVM test has no GPU,
+  and the stroke path in the tests does not map points through the plane); the Ink path's `commitInkThroughPlane` with a depth.
+- The guide's appearance and fade on screen (`DrawPlaneGuide` is untested as a composable); its faintness (the mesh colour
+  is alpha 0.2).
+- The drag against the real `RailPill` scroll on a device (the Robolectric drag is a plain touch input); a drag that starts on
+  the button and is slow to leave the slop may still scroll the rail first. TalkBack and keyboard behaviour on a device.
+- Pixels of the redo of a created layer (it comes back with no bitmap and is rebuilt from its base and strokes): the pose and
+  stroke record are tested, the pixels are not.
+- Ink multi-segment strokes (`continuesGesture`) failing partway, and a layer-list edit (not a delete) between a stroke and its failure.
+- A draw-plane session does not carry across projects (the last-stroke reference and the layer file bookkeeping reset on project open
+  and close; a file is never deleted across projects).
+- Co-op: the created layer is emitted as `LayerAdd`/`LayerRemove` but not exercised against a guest.
+- Animation mode, and instances/components, with a draw depth set.
 
 ## Tilted layers: selection and tap-select
 

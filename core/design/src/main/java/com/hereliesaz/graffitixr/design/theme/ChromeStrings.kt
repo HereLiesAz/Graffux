@@ -251,6 +251,16 @@ fun rememberRailStrings(): RailStrings = RailStrings(
     brushMenu = stringResource(R.string.rail_brush_menu),
 )
 
+/** The wire-mesh button's menu items that set the draw distance without a drag: see strings_chrome.xml. */
+data class DrawDepthStrings(val nearer: String, val farther: String, val reset: String)
+
+@Composable
+fun rememberDrawDepthStrings(): DrawDepthStrings = DrawDepthStrings(
+    nearer = stringResource(R.string.rail_draw_depth_nearer),
+    farther = stringResource(R.string.rail_draw_depth_farther),
+    reset = stringResource(R.string.rail_draw_depth_reset),
+)
+
 /** MessageStrings: see strings_chrome.xml. Fields with %s/%d are format patterns. */
 data class MessageStrings(
     val ok: String,
@@ -287,6 +297,7 @@ data class GestureHelpStrings(
     val sliderReset: String,
     val edgeSwipe: String,
     val hiddenUi: String,
+    val drawDistance: String,
     val settings: String,
 )
 
@@ -300,6 +311,7 @@ fun rememberGestureHelpStrings(): GestureHelpStrings = GestureHelpStrings(
     sliderReset = stringResource(R.string.gesture_help_slider_reset),
     edgeSwipe = stringResource(R.string.gesture_help_edge_swipe),
     hiddenUi = stringResource(R.string.gesture_help_hidden_ui),
+    drawDistance = stringResource(R.string.gesture_help_draw_distance),
     settings = stringResource(R.string.gesture_help_settings),
 )
 

@@ -10,6 +10,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -76,6 +78,13 @@ internal interface ToolRailActions {
     fun onAxisSlotTapped() = Unit
     /** The wire-mesh toggle: shows or hides the active group's surface mesh (view state). */
     fun onToggleSurfaceGrid() = Unit
+    /** The wire-mesh button's draw-distance drag (spec/3d-space.md, "Draw plane depth"): start, move (down = farther), end. */
+    fun onDrawDepthDragStart() = Unit
+    fun onDrawDepthDrag(dragDownDp: Float) = Unit
+    fun onDrawDepthDragEnd() = Unit
+    /** The draw distance as 0..1 of its log range (the TalkBack slider), and its setter. */
+    fun drawDepthFraction(): Float = 0f
+    fun onSetDrawDepthFraction(fraction: Float) = Unit
     /** One fixed orbit step of the view, the non-gesture stand-in for the two-finger drag (3D-group projects). */
     fun onOrbitStep(step: com.hereliesaz.graffitixr.common.scene.OrbitStep) = Unit
 }
@@ -91,6 +100,11 @@ internal fun EditorViewModel.toolRailActions(): ToolRailActions = object : ToolR
     override fun setBrushFeathering(feathering: Float) = this@toolRailActions.setBrushFeathering(feathering)
     override fun onAxisSlotTapped() = this@toolRailActions.onAxisSlotTapped()
     override fun onToggleSurfaceGrid() = this@toolRailActions.onToggleSurfaceGrid()
+    override fun onDrawDepthDragStart() = this@toolRailActions.onDrawDepthDragStart()
+    override fun onDrawDepthDrag(dragDownDp: Float) = this@toolRailActions.onDrawDepthDrag(dragDownDp)
+    override fun onDrawDepthDragEnd() = this@toolRailActions.onDrawDepthDragEnd()
+    override fun drawDepthFraction() = this@toolRailActions.drawDepthFraction()
+    override fun onSetDrawDepthFraction(fraction: Float) = this@toolRailActions.onSetDrawDepthFraction(fraction)
     override fun onOrbitStep(step: com.hereliesaz.graffitixr.common.scene.OrbitStep) =
         this@toolRailActions.onOrbitStep(step)
 }
@@ -275,12 +289,10 @@ internal fun ToolRail(
             armed = uiState.surfaceDrawArmed,
             surfaceViews = onSurfaceGroup,
         ) { vm.onAxisSlotTapped() }
-        // The wire mesh of the active layer's group surface: a guide only, there while the layer is
-        // paint on a surface (spec/3d-space.md, "Guide grid").
-        val onSurface =
-            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
-        if (onSurface) {
-            SurfaceMeshButton(on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
+        // The wire mesh of the active layer's group surface: a guide only. Also the draw distance's drag
+        // (spec/3d-space.md, "Draw plane depth"), so it is there in any project with a 3D group.
+        if (com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)) {
+            SurfaceMeshButton(vm, on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||
             uiState.viewportOffset != CanvasViewport.DEFAULT_OFFSET ||
@@ -416,12 +428,35 @@ private fun AxisButton(axis: RotationAxis?, armed: Boolean = false, surfaceViews
  * shows, so it reads on and off at a glance and to TalkBack.
  */
 @Composable
-private fun SurfaceMeshButton(on: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
+private fun SurfaceMeshButton(vm: ToolRailActions, on: Boolean, onLongClick: () -> Unit, onClick: () -> Unit) {
+    // A vertical drag sets the draw plane's depth (up = nearer). Like the brush chip it owns the gesture only
+    // once the touch slop is passed, so a tap and a long-press still work and the rail still scrolls from
+    // anywhere else; the drag cancels the tap. TalkBack gets the same range as a slider.
+    val density = LocalDensity.current.density
+    val fraction = vm.drawDepthFraction()
+    // The drag reads the latest actions, and is not restarted when they change mid-gesture.
+    val latest by rememberUpdatedState(vm)
+    val drag = Modifier
+        .pointerInput(Unit) {
+            detectVerticalDragGestures(
+                onDragStart = { latest.onDrawDepthDragStart() },
+                onDragEnd = { latest.onDrawDepthDragEnd() },
+                onDragCancel = { latest.onDrawDepthDragEnd() },
+            ) { change, dragY ->
+                change.consume()
+                if (dragY != 0f) latest.onDrawDepthDrag(dragY / density)
+            }
+        }
+        .semantics {
+            progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+            setProgress { target -> vm.onSetDrawDepthFraction(target.coerceIn(0f, 1f)); true }
+        }
     RailButton(
         label = stringResource(R.string.rail_surface_mesh),
         onLongClick = onLongClick,
         testTag = "rail.$SURFACE_MESH_RAIL_ID",
         onClick = onClick,
+        extra = drag,
     ) {
         Box(
             Modifier
@@ -444,8 +479,17 @@ internal const val SURFACE_MESH_RAIL_ID = "view.surfaceMesh"
 /**
  * The wire-mesh button's long-press menu: the mesh on or off (the same flag the short press flips).
  */
-internal fun MenuBuilder.meshMenu(vm: EditorViewModel, uiState: EditorUiState, onDone: () -> Unit) {
+internal fun MenuBuilder.meshMenu(
+    vm: EditorViewModel,
+    uiState: EditorUiState,
+    draw: com.hereliesaz.graffitixr.design.theme.DrawDepthStrings,
+    onDone: () -> Unit,
+) {
     check("Wire mesh", uiState.surfaceGridVisible) { vm.onToggleSurfaceGrid(); onDone() }
+    // The drag's twins: the draw plane nearer or farther, and back to automatic (spec/3d-space.md, "Draw plane depth").
+    listItem(draw.nearer) { vm.onDrawDepthStep(nearer = true); onDone() }
+    listItem(draw.farther) { vm.onDrawDepthStep(nearer = false); onDone() }
+    if (uiState.drawPlane != null) listItem(draw.reset) { vm.onResetDrawDepth(); onDone() }
 }
 
 /**

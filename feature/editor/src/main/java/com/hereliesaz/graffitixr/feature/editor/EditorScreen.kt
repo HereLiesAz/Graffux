@@ -496,6 +496,8 @@ fun EditorScreen(
                     )
                 }
             }
+            // The draw plane's wireframe: while its distance is dragged, and about a second after.
+            DrawPlaneGuide(uiState, vm, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.drawPlaneGuide"))
         }
         } // end infinite-canvas camera container
 
@@ -2186,6 +2188,39 @@ private fun SurfaceGuideGrid(
             val c = Color(mesh)
             lines.forEach { l -> drawLine(c, Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
         }
+    }
+}
+
+/**
+ * The draw plane's guide (spec/3d-space.md, "Draw plane depth"): a flat grid on the plane the next stroke will land
+ * on, in perspective (so its cells shrink as the plane moves away), in the surface mesh's colour. Overlay only; it
+ * fades in and out with [EditorUiState.drawPlaneGuideShown].
+ */
+@Suppress("FunctionNaming", "MagicNumber")
+@Composable
+private fun DrawPlaneGuide(
+    uiState: EditorUiState,
+    vm: EditorViewModel,
+    width: Float,
+    height: Float,
+    modifier: Modifier = Modifier,
+) {
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (uiState.drawPlaneGuideShown) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        label = "drawPlaneGuide",
+    )
+    if (alpha <= 0f) return
+    val lines = remember(uiState.drawPlane, uiState.sceneCamera, uiState.layers, width, height) {
+        vm.drawPlaneGuideWorld(uiState)?.let {
+            val frame = SceneMath.frame(uiState.sceneCamera, width, height)
+            com.hereliesaz.graffitixr.common.scene.DrawPlane.guideSegments(it, frame)
+        }.orEmpty()
+    }
+    val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
+    val c = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB)
+    Canvas(modifier.graphicsLayer { this.alpha = alpha }) {
+        lines.forEach { l -> drawLine(c, Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
     }
 }
 

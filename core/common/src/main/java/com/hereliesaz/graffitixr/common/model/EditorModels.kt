@@ -563,6 +563,14 @@ data class EditorUiState(
      * state, never saved; see EditorViewModel.onAxisSlotTapped.
      */
     val surfaceViewsMenuOpen: Boolean = false,
+    /**
+     * The draw plane's depth, relative to the automatic one (spec/3d-space.md, "Draw plane depth"): null =
+     * automatic. Session only, never saved;
+     * it lapses by itself (see [DrawPlaneDepth.holdsIn]) when the camera, the active layer or the project changes.
+     */
+    val drawPlane: DrawPlaneDepth? = null,
+    /** The draw-plane guide wireframe shows: while the depth is dragged and about a second after. View state. */
+    val drawPlaneGuideShown: Boolean = false,
     /** "Build surface from image" in progress, for the chip's progress line and Cancel; null = not building. */
     val reliefBuild: ReliefBuildState? = null,
     val undoCount: Int = 0,
@@ -783,4 +791,37 @@ object CanvasViewport {
     const val GRID_SPACING = 48f
     const val MARGIN_SQUARES = 1.5f
     val DEFAULT_OFFSET: Offset = Offset(GRID_SPACING * MARGIN_SQUARES, GRID_SPACING * MARGIN_SQUARES)
+}
+
+/**
+ * A draw-plane depth, relative to the automatic one: the [factor] the automatic eye-to-plane distance is multiplied by
+ * (1 = automatic), and the view it was set in. The automatic distance follows the camera, the pivot and the last
+ * stroke's
+ * plane (spec/3d-space.md, "Draw plane depth"), so the effective distance is worked out from them each time it is used.
+ * It holds only while that view does ([holdsIn]): any orbit, pan, zoom or Reset view, another active layer, a resized
+ * canvas or another project makes the plane automatic again.
+ */
+data class DrawPlaneDepth(
+    val factor: Float,
+    val camera: com.hereliesaz.graffitixr.common.scene.SceneCamera,
+    val viewportZoom: Float,
+    val viewportOffset: Offset,
+    val viewportRotation: Float,
+    val activeLayerId: String?,
+    val projectId: String?,
+    val canvasSize: IntSize,
+) {
+    /** Whether [state] is still the view this depth was set in (a resized canvas is another view). */
+    fun holdsIn(state: EditorUiState): Boolean =
+        canvasSize == state.canvasSize && camera == state.sceneCamera && viewportZoom == state.viewportZoom &&
+            viewportOffset == state.viewportOffset && viewportRotation == state.viewportRotation &&
+            activeLayerId == state.activeLayerId && projectId == state.projectId
+
+    companion object {
+        /** [factor] set in [state]'s view. */
+        fun of(factor: Float, state: EditorUiState) = DrawPlaneDepth(
+            factor, state.sceneCamera, state.viewportZoom, state.viewportOffset, state.viewportRotation,
+            state.activeLayerId, state.projectId, state.canvasSize,
+        )
+    }
 }

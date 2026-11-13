@@ -67,7 +67,8 @@ internal fun GestureHelpDialog(
                     modifier = Modifier.padding(top = 12.dp).semantics { heading() },
                 )
                 val others = listOf(
-                    strings.sizeChip, strings.layerTap, strings.sliderReset, strings.edgeSwipe, strings.hiddenUi,
+                    strings.sizeChip, strings.drawDistance, strings.layerTap, strings.sliderReset, strings.edgeSwipe,
+                    strings.hiddenUi,
                 )
                 others.forEach {
                     Text("• $it", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))

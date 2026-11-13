@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.test.performScrollTo
@@ -133,7 +135,7 @@ class Scene3DRailUiTest {
     }
 
     @Test
-    fun `the wire mesh toggle is on the rail for a layer on a surface, selected while the mesh shows`() {
+    fun `the wire mesh toggle is on the rail in a 3D project, selected while the mesh shows`() {
         val vm = realViewModel()
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
         val floor = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
@@ -154,10 +156,96 @@ class Scene3DRailUiTest {
         rule.waitForIdle()
         assertEquals(false, vm.uiState.value.surfaceGridVisible)
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
-        // A flat layer has no mesh to show, so no toggle.
+        // In a project with a 3D group the button is there on any layer: its drag sets the draw distance.
         rule.runOnIdle { vm.onLayerActivated("x") }
         rule.waitForIdle()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
+        // With no 3D group at all there is nothing for it to do.
+        rule.runOnIdle { vm.setLayers(listOf(Layer("x", "X"))); vm.onLayerActivated("x") }
+        rule.waitForIdle()
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+    }
+
+    // ── The draw distance on the wire-mesh button (spec/3d-space.md, "Draw plane depth") ──
+
+    private fun threeDProject(): com.hereliesaz.graffitixr.feature.editor.EditorViewModel {
+        val vm = realViewModel()
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        val floor = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
+        vm.setLayers(listOf(Layer("g", "G", surface = floor, type = LayerType.GROUP), Layer("x", "X")))
+        vm.onLayerActivated("x")
+        vm.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        return vm
+    }
+
+    private fun showRail(vm: com.hereliesaz.graffitixr.feature.editor.EditorViewModel, onMenu: () -> Unit = {}) {
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                val ui by vm.uiState.collectAsState()
+                ToolRail(vm.toolRailActions(), ui, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}, onMeshMenu = onMenu))
+            }
+        }
+    }
+
+    @Test
+    fun `dragging the wire mesh button up sets a nearer draw plane and down a farther one, and a drag is not a tap`() {
+        val vm = threeDProject()
+        showRail(vm)
+        val grid = vm.uiState.value.surfaceGridVisible
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performTouchInput {
+            down(center); moveBy(Offset(0f, -160f)); moveBy(Offset(0f, -160f)); up()
+        }
+        rule.waitForIdle()
+        val nearer = vm.uiState.value.drawPlane!!.factor
+        assertEquals("a drag does not toggle the grid", grid, vm.uiState.value.surfaceGridVisible)
+        assertTrue(vm.uiState.value.drawPlaneGuideShown)
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performTouchInput {
+            down(center); moveBy(Offset(0f, 200f)); moveBy(Offset(0f, 200f)); moveBy(Offset(0f, 200f)); up()
+        }
+        rule.waitForIdle()
+        assertTrue("down is farther", vm.uiState.value.drawPlane!!.factor > nearer)
+    }
+
+    @Test
+    fun `a tap still toggles the grid and a long press still opens the menu`() {
+        val vm = threeDProject()
+        var menus = 0
+        showRail(vm) { menus++ }
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performClick()
+        rule.waitForIdle()
+        assertEquals(false, vm.uiState.value.surfaceGridVisible)
+        assertEquals(null, vm.uiState.value.drawPlane)
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performTouchInput { longClick() }
+        rule.waitForIdle()
+        assertEquals(1, menus)
+        assertEquals(null, vm.uiState.value.drawPlane)
+    }
+
+    @Test
+    fun `TalkBack gets the draw distance as a slider`() {
+        val vm = threeDProject()
+        showRail(vm)
+        val node = rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID")
+        node.assert(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
+        node.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0.9f) }
+        rule.waitForIdle()
+        assertEquals(0.9f, vm.drawDepthFraction(), 0.02f)
+        assertTrue(vm.uiState.value.drawPlane != null)
+    }
+
+    @Test
+    fun `the menu holds nearer, farther and, once set, reset, each acting on the draw distance`() {
+        val vm = threeDProject()
+        val strings = com.hereliesaz.graffitixr.design.theme.DrawDepthStrings("Nearer", "Farther", "Reset")
+        fun rows() = buildMenu { meshMenu(vm, vm.uiState.value, strings) {} }.filterIsInstance<MenuRow.Action>()
+            .filter { it.text in setOf("Nearer", "Farther", "Reset") }
+        assertEquals(listOf("Nearer", "Farther"), rows().map { it.text })
+        rows().first { it.text == "Farther" }.onClick()
+        assertTrue(vm.uiState.value.drawPlane != null)
+        assertEquals(listOf("Nearer", "Farther", "Reset"), rows().map { it.text })
+        rows().first { it.text == "Reset" }.onClick()
+        assertEquals(null, vm.uiState.value.drawPlane)
     }
 
     @Test

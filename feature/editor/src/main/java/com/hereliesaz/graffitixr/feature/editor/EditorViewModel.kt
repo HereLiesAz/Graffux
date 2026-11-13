@@ -2,6 +2,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.DrawPlane
+import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
@@ -157,6 +159,7 @@ import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 data class StrokeCommand(
@@ -709,6 +712,8 @@ sealed class EditCommand {
         val chainedToPrevious: Boolean = false,
         /** The entry above this one is chained to it (see [chainedToPrevious]). */
         val chainedNext: Boolean = false,
+        /** The view the newest stroke was drawn in, restored as the draw plane's reference when it is redone. */
+        val view: LastStroke? = null,
     ) : EditCommand() {
         /** Every stroke this entry undoes, oldest first. */
         val strokes: List<StrokeCommand> get() = earlier + command
@@ -753,6 +758,108 @@ class EditorViewModel @Inject constructor(
         val coordinator = azphaltPurchases?.coordinator ?: return
         viewModelScope.launch { runCatching { coordinator.loadPrices(packageIds) }.rethrowCancellation() }
     }
+
+    // Declared before the init blocks: the project load/close collectors touch them during construction.
+    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<EditorNotice>(extraBufferCapacity = 16)
+
+    /**
+     * Everything the editor has to tell the user — confirmations and failures alike. The host shows
+     * these through the rail's AzPopup (NOTICE / WARNING), so there is one feedback style instead of
+     * a system Toast that ignores the theme. Transient confirmations of an action the user can see
+     * (Undo, Redo, Copied) stay on the HUD pill instead.
+     */
+    val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
+
+    private val _readOnlyNotice = MutableStateFlow<EditorNotice?>(null)
+
+    /**
+     * The "opened read-only" warning for a newer-format project, held until the host shows it and
+     * calls [consumeReadOnlyNotice] — unlike [notices], it survives having no collector yet.
+     */
+    val readOnlyNotice: StateFlow<EditorNotice?> = _readOnlyNotice.asStateFlow()
+
+    /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
+    val recipeLibrary = RecipeLibrary(
+        object : RecipeLibrary.Store {
+            override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
+
+            override fun isReadOnly(projectId: String) = isProjectReadOnly(projectId)
+
+            override suspend fun writeProject(projectId: String, text: String) {
+                projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
+            }
+
+            override suspend fun readApp(): String? = settingsRepository.savedRecipes.firstOrNull()
+
+            override suspend fun updateApp(transform: (String?) -> String?) =
+                settingsRepository.updateSavedRecipes(transform)
+
+            override suspend fun keepProjectBackup(projectId: String, original: String) =
+                runCatching { projectRepository.saveArtifact(projectId, "$RECIPE_FILE.bak", original.toByteArray()) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .isSuccess
+
+            override suspend fun keepAppBackup(original: String) = settingsRepository.backupSavedRecipes(original)
+
+            override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
+                val kept = if (backedUp) {
+                    "The original was kept as a backup."
+                } else {
+                    "The original could not be backed up."
+                }
+                notify("$dropped saved mix(es) couldn't be read and were dropped. $kept", NoticeKind.WARNING)
+            }
+
+            override fun onUnreadable(scope: RecipeLibrary.Scope) {
+                notify("The saved mixes couldn't be read, so they were left as they are.", NoticeKind.WARNING)
+            }
+        },
+    )
+
+    // The model-layer and export state the project load collector reaches during construction (restoreModelLayers,
+    // cancelExportPreview): declared before the init blocks, with the rest above.
+    // The export the export-frame preview is holding until Export or Cancel (spec/3d-space.md, "Export").
+    private var pendingExport: PendingExport? = null
+
+    /** Parsed meshes by `<projectId>/<objFile>`: a duplicated layer shares its original's. */
+    private val modelMeshCache = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelMesh>()
+
+    /**
+     * Each model layer's texture as read from disk at load. An undo snapshot taken before the load
+     * finished holds the layer without it; [fillModel] puts it back.
+     */
+    private val modelTexturesOnDisk = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
+
+    /**
+     * The texture revision last written (or loaded) for each model layer and its file, so a save
+     * writes only a changed one and an unchanged one keeps the name it is stored under (a migrated
+     * project's `model_texture.png`, say).
+     */
+    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, WrittenTexture>()
+
+    /** Model layers whose saved texture file could not be read: painting them is refused. */
+    private val modelTextureLoadFailed = HashSet<String>()
+
+    private val _projectGate = MutableStateFlow<ProjectGateState?>(null)
+
+    /** The mandatory project dialog, or null when it is not shown. */
+    val projectGate: StateFlow<ProjectGateState?> = _projectGate.asStateFlow()
+
+    // Draw plane depth session state (spec/3d-space.md, "Draw plane depth"). Declared before the init blocks:
+    // the project load and close collectors reset it ([resetDrawPlaneSession]) during construction.
+    /** The newest stroke's layer and the view it was drawn in: the reference plane while that view holds. */
+    private var lastStroke: LastStroke? = null
+    private var drawGuideJob: kotlinx.coroutines.Job? = null
+    private var drawDepthNoticed = false
+
+    /** Set while the draw plane itself switches the active layer (create, undo, redo): the reference stays. */
+    private var keepStrokeReference = false
+
+    /** Layers a draw-plane stroke made, with the project and file of their first PNG (if any) to delete when gone. */
+    private val planeLayerFiles = HashMap<String, Pair<String, String>?>()
+
+    /** The first-PNG save of each plane layer, so deleting that PNG waits for it. */
+    private val planeLayerSaves = HashMap<String, kotlinx.coroutines.Job>()
 
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
@@ -1720,10 +1827,23 @@ class EditorViewModel @Inject constructor(
      * the undo history and the Ink ledger too, keeping all of them in step with what is shown. Its
      * live preview ([preview]) is dropped if it is still the one on screen. Main thread.
      */
-    private fun abandonFailedCommit(layerId: String, command: StrokeCommand, error: Throwable, preview: Bitmap? = null) {
+    private fun abandonFailedCommit(
+        layerId: String,
+        command: StrokeCommand,
+        error: Throwable,
+        preview: Bitmap? = null,
+    ) {
         android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke; dropping it", error)
         layerStore.removeStroke(layerId, command)
+        // A lone stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back
+        // too. A stroke that joined a chunk, or arrives after its entry was undone, only drops itself.
+        val plane = history.planeSwapToRevert(command, layerId)
         if (history.dropDraw(command)) updateHistoryCounts()
+        // Only while the layer is still there and holds nothing else (no other stroke, none left in the store).
+        val alone = layerStore.strokes(layerId).isEmpty() && _uiState.value.layers.any { it.id == layerId }
+        if (plane != null && alone) revertPlaneAdoption(layerId, plane)
+        retireLastStroke(listOf(command))
+        sweepPlaneLayers()
         if (command.inkStroke != null) inkLedger.onUndo(layerId, command)
         _liveStroke.update { s ->
             if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s
@@ -2587,6 +2707,7 @@ class EditorViewModel @Inject constructor(
                         rebuildJobs.values.forEach { it.cancel() }
                         rebuildJobs.clear()
                         history.clear()
+                        resetDrawPlaneSession()
                         retainLayerCaches(layers.filter { it.bitmap != null }.map { it.id }.toSet())
                         updateHistoryCounts()
 
@@ -2717,6 +2838,7 @@ class EditorViewModel @Inject constructor(
                     inheritedBases.clear()
                     pendingForks.clear()
                     history.clear()
+                    resetDrawPlaneSession()
                     inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
                     // without it, undoCount/redoCount keep whatever they were before the project
@@ -2857,7 +2979,8 @@ class EditorViewModel @Inject constructor(
                 } else {
                     restoreUndoneStrokePixels(command)
                 }
-                command.plane?.let { applyPlane(command.layerId, it.before) }
+                command.plane?.let { revertPlaneAdoption(command.layerId, it) }
+                retireLastStroke(command.strokes)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -2928,7 +3051,10 @@ class EditorViewModel @Inject constructor(
                     showHud("Couldn't redo that")
                     return false
                 }
+                command.plane?.created?.let(::reinsertPlaneLayer)
                 reapplyRedoneStroke(command)
+                // The stroke's own view: a camera change since it was drawn keeps the reference lapsed.
+                command.view?.let { lastStroke = it.copy(prior = lastStroke?.truncated(LastStroke.CHAIN_DEPTH - 1)) }
                 command.plane?.let { applyPlane(command.layerId, it.after) }
             }
             is EditCommand.PropertyChange -> {
@@ -4520,24 +4646,6 @@ class EditorViewModel @Inject constructor(
         uri.lastPathSegment
     }
 
-    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<EditorNotice>(extraBufferCapacity = 16)
-
-    /**
-     * Everything the editor has to tell the user — confirmations and failures alike. The host shows
-     * these through the rail's AzPopup (NOTICE / WARNING), so there is one feedback style instead of
-     * a system Toast that ignores the theme. Transient confirmations of an action the user can see
-     * (Undo, Redo, Copied) stay on the HUD pill instead.
-     */
-    val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
-
-    private val _readOnlyNotice = MutableStateFlow<EditorNotice?>(null)
-
-    /**
-     * The "opened read-only" warning for a newer-format project, held until the host shows it and
-     * calls [consumeReadOnlyNotice] — unlike [notices], it survives having no collector yet.
-     */
-    val readOnlyNotice: StateFlow<EditorNotice?> = _readOnlyNotice.asStateFlow()
-
     /** The host has shown [readOnlyNotice]; clears it (only if it is still [shown]). */
     fun consumeReadOnlyNotice(shown: EditorNotice) {
         _readOnlyNotice.compareAndSet(shown, null)
@@ -5110,8 +5218,6 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    // The export the export-frame preview is holding until Export or Cancel (spec/3d-space.md, "Export").
-    private var pendingExport: PendingExport? = null
 
     /** The held export, for tests. */
     internal val pendingExportForTest: PendingExport? get() = pendingExport
@@ -6566,6 +6672,11 @@ class EditorViewModel @Inject constructor(
     @androidx.annotation.VisibleForTesting
     internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
 
+    /** A commit of [command] on [layerId] that failed, as the GPU-less JVM cannot make one arrive when asked. */
+    @androidx.annotation.VisibleForTesting
+    internal fun failCommitForTest(layerId: String, command: StrokeCommand) =
+        abandonFailedCommit(layerId, command, IllegalStateException("test"))
+
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
@@ -6700,9 +6811,13 @@ class EditorViewModel @Inject constructor(
         var out: List<Layer>? = null
         _uiState.update { before ->
             val next = transform(before)
-            val followed = withoutOrphanSurfaceCapture(
-                if (follow) EditorReducer.withInstancesFollowing(before, next) else next,
+            val followed = withoutStaleDrawPlane(
+                withoutOrphanSurfaceCapture(
+                    if (follow) EditorReducer.withInstancesFollowing(before, next) else next,
+                ),
             )
+            // Another active layer ends the last-stroke reference (the draw plane's own layer changes keep it).
+            if (!keepStrokeReference && before.activeLayerId != followed.activeLayerId) lastStroke = null
             raw = next.layers
             out = followed.layers
             followed
@@ -10132,7 +10247,7 @@ class EditorViewModel @Inject constructor(
 
     private fun cancelStroke() {
         // A cancelled first stroke leaves no paint, so the layer keeps the plane it had.
-        pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+        pendingPlaneAdoption?.let { (id, swap) -> revertPlaneAdoption(id, swap) }
         pendingPlaneAdoption = null
         stampFrameRequestedFor = -1L
         endOverlayStroke(afterFrames = 0)
@@ -10487,7 +10602,7 @@ class EditorViewModel @Inject constructor(
         }
         val segments = plane.inkSegments(path, footprint ?: (_uiState.value.effectivePaintBrushSize() / 2f))
         if (segments.isEmpty()) {
-            pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+            pendingPlaneAdoption?.let { (id, swap) -> revertPlaneAdoption(id, swap) }
             pendingPlaneAdoption = null
             onCommitted()
             return
@@ -10530,6 +10645,8 @@ class EditorViewModel @Inject constructor(
         // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
+        val view = LastStroke.of(layerId, command, _uiState.value, lastStroke)
+        lastStroke = view
         val continues = gestureOpen && gestureCommitted != null
         // A segment on another layer than the last one (a stroke crossing between view images) is its
         // own entry, chained to the previous so that undo and redo take both.
@@ -10545,8 +10662,8 @@ class EditorViewModel @Inject constructor(
         }
         return history.pushDraw(
             layerId, command, chunkable && !tapDot, plane = plane,
-            continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot,
-        )
+            continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot, view = view,
+        ).also { sweepPlaneLayers() }
     }
 
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
@@ -12244,11 +12361,6 @@ class EditorViewModel @Inject constructor(
 
     // ── Project dialog (mandatory; see ProjectGateDialog) and GPU calibration around it ─────
 
-    private val _projectGate = MutableStateFlow<ProjectGateState?>(null)
-
-    /** The mandatory project dialog, or null when it is not shown. */
-    val projectGate: StateFlow<ProjectGateState?> = _projectGate.asStateFlow()
-
     /** GPU tuning; null where the controller cannot start (JVM unit tests with a mock context). */
     private val gpuTuning: com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController? by lazy {
         runCatching { com.hereliesaz.graffitixr.feature.editor.gpu.GpuTuningController.get(context) }.getOrNull()
@@ -13135,44 +13247,6 @@ class EditorViewModel @Inject constructor(
             .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
-    val recipeLibrary = RecipeLibrary(
-        object : RecipeLibrary.Store {
-            override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
-
-            override fun isReadOnly(projectId: String) = isProjectReadOnly(projectId)
-
-            override suspend fun writeProject(projectId: String, text: String) {
-                projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
-            }
-
-            override suspend fun readApp(): String? = settingsRepository.savedRecipes.firstOrNull()
-
-            override suspend fun updateApp(transform: (String?) -> String?) =
-                settingsRepository.updateSavedRecipes(transform)
-
-            override suspend fun keepProjectBackup(projectId: String, original: String) =
-                runCatching { projectRepository.saveArtifact(projectId, "$RECIPE_FILE.bak", original.toByteArray()) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                    .isSuccess
-
-            override suspend fun keepAppBackup(original: String) = settingsRepository.backupSavedRecipes(original)
-
-            override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
-                val kept = if (backedUp) {
-                    "The original was kept as a backup."
-                } else {
-                    "The original could not be backed up."
-                }
-                notify("$dropped saved mix(es) couldn't be read and were dropped. $kept", NoticeKind.WARNING)
-            }
-
-            override fun onUnreadable(scope: RecipeLibrary.Scope) {
-                notify("The saved mixes couldn't be read, so they were left as they are.", NoticeKind.WARNING)
-            }
-        },
-    )
-
     val savedMixes: StateFlow<List<SavedMix>> =
         kotlinx.coroutines.flow.combine(recipeLibrary.project, recipeLibrary.app) { project, app ->
             project.recipes.map { SavedMix(it, RecipeLibrary.Scope.PROJECT, project.id) } +
@@ -13814,6 +13888,9 @@ class EditorViewModel @Inject constructor(
     fun adoptViewPlaneForStroke(): Boolean {
         val state = _uiState.value
         val id = state.activeLayerId ?: return false
+        // A plane already taken for this stroke (at its start) stays; the commit asks again.
+        if (pendingPlaneAdoption?.first == id) return false
+        if (adoptDrawDepthPlane(state, id)) return true
         val size = state.canvasSize
         val layer = state.layers.firstOrNull { it.id == id }
         val eligible = layer != null && !state.sceneCamera.isDefault && size.width > 0 && size.height > 0 &&
@@ -13827,6 +13904,333 @@ class EditorViewModel @Inject constructor(
         pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
         applyPlane(id, pose)
         return true
+    }
+
+    // ── Draw plane depth (spec/3d-space.md, "Draw plane depth") ──
+
+    /** Runs [block] with the last-stroke reference kept across the layer change it makes; always lowers the flag. */
+    private inline fun keepingStrokeReference(block: () -> Unit) {
+        keepStrokeReference = true
+        try {
+            block()
+        } finally {
+            keepStrokeReference = false
+        }
+    }
+
+    /** Undone or dropped [strokes] are no longer the reference: the strokes before them are again. */
+    private fun retireLastStroke(strokes: Collection<StrokeCommand>) {
+        lastStroke = lastStroke?.without(strokes)
+    }
+
+    /** A project opened or closed: nothing of the last project's draw-plane session carries over. */
+    private fun resetDrawPlaneSession() {
+        lastStroke = null
+        planeLayerFiles.clear()
+        planeLayerSaves.clear()
+        drawGuideJob?.cancel()
+    }
+
+    /**
+     * Releases what layers a draw-plane stroke made still hold once nothing can bring them back (not in the layer
+     * list, no undo or redo entry): their [layerStore] base and strokes, their jobs and their first PNG. While a redo
+     * entry holds one, the cache stays, as redo replays onto it.
+     */
+    private fun sweepPlaneLayers() {
+        if (planeLayerFiles.isEmpty()) return
+        val kept = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
+        val gone = planeLayerFiles.keys.filter { it !in kept }
+        if (gone.isEmpty()) return
+        retainLayerCaches(kept)
+        for (id in gone) {
+            evictJobsFor(id)
+            val save = planeLayerSaves.remove(id)
+            val (projectId, filename) = planeLayerFiles.remove(id) ?: continue
+            // Never across projects: another project's layer file is its own.
+            if (projectId != _uiState.value.projectId) continue
+            viewModelScope.launch(dispatchers.io) {
+                save?.join()
+                runCatching { projectRepository.deleteArtifact(projectId, filename) }
+            }
+        }
+    }
+
+    /** [state] with a lapsed draw-plane depth made automatic again: the camera, layer or project moved on. */
+    private fun withoutStaleDrawPlane(state: EditorUiState): EditorUiState {
+        val depth = state.drawPlane ?: return state
+        return if (depth.holdsIn(state)) state else state.copy(drawPlane = null, drawPlaneGuideShown = false)
+    }
+
+    /** The world model of the plane the last stroke was drawn on, while the view is as it was then; else null. */
+    @Suppress("ReturnCount")
+    internal fun drawPlaneReference(
+        state: EditorUiState = _uiState.value,
+    ): com.hereliesaz.graffitixr.common.scene.Affine3? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        // The newest stroke's plane, else the one before it when that layer is gone or refused (a surface layer).
+        // Only while the view is as the newest stroke left it: a lapsed newer stroke does not hand over to an older one
+        // (it is the older stroke again only once the newer is undone). A layer gone or refused is skipped.
+        val layer = generateSequence(lastStroke) { it.prior }
+            .takeWhile { it.holds(state) }
+            .mapNotNull { last -> state.layers.firstOrNull { it.id == last.layerId } }
+            .firstOrNull { drawDepthRefusal(state, it) == null } ?: return null
+        return SceneMath.chainModel(planeChain(state.layers, layer.id), size.width.toFloat(), size.height.toFloat())
+    }
+
+    /** Why the draw-plane depth cannot act on [layer] (a string resource), or null when it can. */
+    private fun drawDepthRefusal(state: EditorUiState, layer: Layer): Int? = when {
+        layer.isSpatial || layer.model != null -> DesignR.string.notice_draw_depth_strokes_layer
+        layer.surface != null || layer.surfaceViewOf != null ||
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, layer.id) ->
+            DesignR.string.notice_draw_depth_surface
+        layer.isAdjustment || layer.isContainer || layer.textParams != null || layer.shapes.isNotEmpty() ->
+            DesignR.string.notice_draw_depth_paint_only
+        else -> null
+    }
+
+    /**
+     * The automatic plane's eye-to-plane distance and the focal length: where the plane through the pivot (or parallel to
+     * the last stroke's) is now, so it follows the camera. Null with no canvas or when that point is behind the eye.
+     */
+    internal fun automaticDrawDepth(state: EditorUiState = _uiState.value): Pair<Float, Float>? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        val auto = DrawPlane.anchorDepth(drawPlaneReference(state), cam, orbitPivot(state))
+        return if (auto > 0f && auto.isFinite()) auto to cam.focal else null
+    }
+
+    /** The effective depth now (set factor times the automatic, clamped) and the focal length; null with none. */
+    private fun currentDrawDepth(state: EditorUiState): Pair<Float, Float>? {
+        val (auto, focal) = automaticDrawDepth(state) ?: return null
+        val factor = state.drawPlane?.takeIf { it.holdsIn(state) }?.factor ?: 1f
+        return DrawPlane.effectiveDepth(auto, factor, focal) to focal
+    }
+
+    /** The effective draw-plane depth while one is set (what later features, such as snapping, work on); else null. */
+    fun effectiveDrawDepth(state: EditorUiState = _uiState.value): Float? =
+        if (state.drawPlane?.holdsIn(state) == true) currentDrawDepth(state)?.first else null
+
+    /** The depth as 0..1 across its range, on a log scale (the TalkBack slider's value); 0 with no canvas. */
+    fun drawDepthFraction(): Float {
+        val (depth, focal) = currentDrawDepth(_uiState.value) ?: return 0f
+        val range = DrawPlane.depthRange(focal)
+        val span = kotlin.math.ln(range.endInclusive / range.start)
+        return (kotlin.math.ln(depth.coerceIn(range) / range.start) / span).coerceIn(0f, 1f)
+    }
+
+    /** A drag on the wire-mesh button begins: its guide shows, and a refusal is said once. */
+    fun onDrawDepthDragStart() {
+        drawDepthNoticed = false
+        drawGuideJob?.cancel()
+    }
+
+    /** The drag moved [dragDownDp] (down = farther): the plane's depth changes multiplicatively. */
+    fun onDrawDepthDrag(dragDownDp: Float) {
+        setDrawDepth { current, focal -> DrawPlane.depthAfterDrag(current, dragDownDp, focal) }
+    }
+
+    /** The drag ended: the guide stays about a second more, then fades. */
+    fun onDrawDepthDragEnd() = scheduleDrawGuideHide()
+
+    /** A menu step: one [DrawPlane.STEP_FACTOR] nearer or farther. */
+    fun onDrawDepthStep(nearer: Boolean) {
+        val f = if (nearer) 1f / DrawPlane.STEP_FACTOR else DrawPlane.STEP_FACTOR
+        drawDepthNoticed = false
+        setDrawDepth { current, focal -> (current * f).coerceIn(DrawPlane.depthRange(focal)) }
+        scheduleDrawGuideHide()
+    }
+
+    /** TalkBack's slider: the depth at [fraction] of its log range. */
+    fun onSetDrawDepthFraction(fraction: Float) {
+        drawDepthNoticed = false
+        setDrawDepth { _, focal ->
+            val range = DrawPlane.depthRange(focal)
+            range.start * (range.endInclusive / range.start).pow(fraction.coerceIn(0f, 1f))
+        }
+        scheduleDrawGuideHide()
+    }
+
+    /** "Reset draw distance": the plane is automatic again. */
+    fun onResetDrawDepth() {
+        drawGuideJob?.cancel()
+        updateUi { it.copy(drawPlane = null, drawPlaneGuideShown = false) }
+    }
+
+    @Suppress("ReturnCount")
+    private fun setDrawDepth(next: (current: Float, focal: Float) -> Float) {
+        val state = _uiState.value
+        val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return
+        if (state.canvasSize.width <= 0 || state.canvasSize.height <= 0) return
+        val unusable = automaticDrawDepth(state) == null
+        // The point the depth is measured from is behind the eye: no plane to offset. Say so, and stay automatic.
+        if (unusable) {
+            if (!drawDepthNoticed) notify(context.getString(DesignR.string.notice_draw_depth_behind))
+            drawDepthNoticed = true
+            if (state.drawPlane != null) {
+                writeState(follow = false) { it.copy(drawPlane = null, drawPlaneGuideShown = false) }
+            }
+            return
+        }
+        val (current, focal) = currentDrawDepth(state) ?: return
+        val auto = automaticDrawDepth(state)?.first ?: return
+        drawDepthRefusal(state, layer)?.let { notice ->
+            if (!drawDepthNoticed) notify(context.getString(notice))
+            drawDepthNoticed = true
+            return
+        }
+        drawGuideJob?.cancel()
+        val factor = next(current, focal) / auto
+        if (state.drawPlane?.factor == factor && state.drawPlaneGuideShown) return
+        // Once per drag frame, so no instance-following pass over every layer (writeState follow = false): the
+        // depth is not layer content. The one recomposition is the rail's slider and the guide.
+        writeState(follow = false) { it.copy(drawPlane = DrawPlaneDepth.of(factor, it), drawPlaneGuideShown = true) }
+    }
+
+    private fun scheduleDrawGuideHide() {
+        drawGuideJob?.cancel()
+        if (!_uiState.value.drawPlaneGuideShown) return
+        drawGuideJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(DrawPlane.GUIDE_LINGER_MS)
+            updateUi { it.copy(drawPlaneGuideShown = false) }
+        }
+    }
+
+    /** The draw-plane guide: the plane's world model at the depth now set, for the overlay; null when none is. */
+    @Suppress("ReturnCount")
+    fun drawPlaneGuideWorld(state: EditorUiState): com.hereliesaz.graffitixr.common.scene.Affine3? {
+        val depth = effectiveDrawDepth(state) ?: return null
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        return DrawPlane.world(cam, drawPlaneReference(state), orbitPivot(state), depth)
+    }
+
+    /**
+     * The next stroke under a set draw-plane depth, called as a stroke starts (before [adoptViewPlaneForStroke]'s
+     * own rules): an empty paint layer is moved onto the plane; any other paint layer keeps its art where it is and
+     * the stroke goes onto a new empty layer placed on the plane, directly above it. The change rides on the stroke's
+     * undo entry ([PlaneSwap]); the depth is spent. Returns whether a plane was taken.
+     */
+    @Suppress("ReturnCount")
+    private fun adoptDrawDepthPlane(state: EditorUiState, id: String): Boolean {
+        val depth = effectiveDrawDepth(state) ?: return false
+        val layer = state.layers.firstOrNull { it.id == id } ?: return false
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0 || drawDepthRefusal(state, layer) != null) return false
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        val parents = planeChain(state.layers, id).dropLast(1)
+        val pose = DrawPlane.pose(cam, parents, drawPlaneReference(state), orbitPivot(state), depth) ?: return false
+        drawGuideJob?.cancel()
+        if (layer.isEmptyPaintLayer()) {
+            pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
+            applyPlane(id, pose)
+            updateUi { it.copy(drawPlane = null, drawPlaneGuideShown = false) }
+            return true
+        }
+        val made = createPlaneLayer(layer, pose) ?: return false
+        pendingPlaneAdoption = made.layer.id to PlaneSwap(
+            com.hereliesaz.graffitixr.common.scene.PlanePose(), pose, made,
+        )
+        return true
+    }
+
+    /** A new empty paint layer on [pose], directly above [below] in its group, made active. */
+    private fun createPlaneLayer(
+        below: Layer,
+        pose: com.hereliesaz.graffitixr.common.scene.PlanePose,
+    ): CreatedPlaneLayer? {
+        val (blank, frame, base) = createBlankPaintBitmap()
+        val state = _uiState.value
+        val projectId = state.projectId
+        val filename = "layer_${UUID.randomUUID()}.png"
+        val uri = projectId?.let { "file://${java.io.File(context.filesDir, "projects/$it/$filename").path}".toUri() }
+        val layer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = "Sketch ${state.layers.count { it.isSketch } + 1}",
+            isSketch = true,
+            parentId = below.parentId,
+            bitmap = blank,
+            uri = uri,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            originX = frame.originX,
+            originY = frame.originY,
+            offset = Offset(pose.offsetX, pose.offsetY),
+            positionZ = pose.positionZ,
+            rotationX = pose.rotationX,
+            rotationY = pose.rotationY,
+            rotationZ = pose.rotationZ,
+            scale = pose.scale,
+        )
+        if (base != null) layerStore.putBase(layer.id, base) else putLayerBase(layer.id, blank)
+        layerStore.initStrokes(layer.id)
+        val index = state.layers.indexOfFirst { it.id == below.id }.let { if (it < 0) state.layers.size else it + 1 }
+        keepingStrokeReference {
+            updateUi { s ->
+                s.copy(
+                    layers = s.layers.toMutableList().apply { add(index.coerceAtMost(size), layer) },
+                    activeLayerId = layer.id,
+                    drawPlane = null,
+                    drawPlaneGuideShown = false,
+                )
+            }
+        }
+        emitMembership(Op.LayerAdd(layer))
+        planeLayerFiles[layer.id] = if (projectId != null && uri != null) projectId to filename else null
+        persistNewLayerBitmap(projectId, uri, filename, blank)?.let { planeLayerSaves[layer.id] = it }
+        return CreatedPlaneLayer(layer.copy(bitmap = null), index, below.id)
+    }
+
+    private fun persistNewLayerBitmap(
+        projectId: String?,
+        uri: Uri?,
+        filename: String,
+        blank: Bitmap,
+    ): kotlinx.coroutines.Job? {
+        if (projectId == null || uri == null) return null
+        return SafeBitmap.copy(blank, mutable = false)?.let { copy ->
+            viewModelScope.launch(dispatchers.io) {
+                val bytes = ImageUtils.bitmapToByteArray(copy)
+                runCatching { projectRepository.saveArtifact(projectId, filename, bytes) }
+                saveProject()
+            }
+        }
+    }
+
+    /** Puts back what a stroke's plane adoption changed: the plane, or the layer made. */
+    private fun revertPlaneAdoption(id: String, swap: PlaneSwap) {
+        val made = swap.created
+        if (made == null) {
+            applyPlane(id, swap.before)
+            return
+        }
+        keepingStrokeReference {
+            updateUi { s ->
+                s.copy(
+                    layers = s.layers.filterNot { it.id == id },
+                    activeLayerId = if (s.activeLayerId == id) made.previousActiveId else s.activeLayerId,
+                )
+            }
+        }
+        emitMembership(Op.LayerRemove(id))
+        saveProject()
+    }
+
+    /** Redo of a stroke that made its layer: the layer comes back, empty, before the stroke is replayed onto it. */
+    private fun reinsertPlaneLayer(made: CreatedPlaneLayer) {
+        if (_uiState.value.layers.any { it.id == made.layer.id }) return
+        keepingStrokeReference {
+            updateUi { s ->
+                s.copy(
+                    layers = s.layers.toMutableList().apply { add(made.index.coerceIn(0, size), made.layer) },
+                    activeLayerId = made.layer.id,
+                )
+            }
+        }
+        emitMembership(Op.LayerAdd(made.layer))
+        saveProject()
     }
 
     /**
@@ -14590,24 +14994,10 @@ class EditorViewModel @Inject constructor(
 
     // ── 3D model layers (spec/3d-space.md, "3D model layers") ──────────────────────────────
 
-    /** Parsed meshes by `<projectId>/<objFile>`: a duplicated layer shares its original's. */
-    private val modelMeshCache = java.util.concurrent.ConcurrentHashMap<String, com.hereliesaz.graffitixr.common.scene.ModelMesh>()
-
-    /**
-     * Each model layer's texture as read from disk at load. An undo snapshot taken before the load
-     * finished holds the layer without it; [fillModel] puts it back.
-     */
-    private val modelTexturesOnDisk = HashMap<String, com.hereliesaz.graffitixr.common.scene.ModelTexture>()
 
     /** A texture revision on disk, and the file in the project folder that holds it. */
     private class WrittenTexture(val texture: com.hereliesaz.graffitixr.common.scene.ModelTexture, val file: String)
 
-    /**
-     * The texture revision last written (or loaded) for each model layer and its file, so a save
-     * writes only a changed one and an unchanged one keeps the name it is stored under (a migrated
-     * project's `model_texture.png`, say).
-     */
-    private val writtenModelTextures = java.util.concurrent.ConcurrentHashMap<String, WrittenTexture>()
 
     /** A paint stroke on a model layer in progress. */
     private class ModelStroke(
@@ -14892,8 +15282,6 @@ class EditorViewModel @Inject constructor(
      * missing or unreadable OBJ leaves the layer empty, never the project broken; a missing texture
      * is unpainted.
      */
-    /** Model layers whose saved texture file could not be read: painting them is refused. */
-    private val modelTextureLoadFailed = HashSet<String>()
 
     /**
      * A model layer's saved paint from [dir], or null when the layer names none (or the file is gone). Throws
