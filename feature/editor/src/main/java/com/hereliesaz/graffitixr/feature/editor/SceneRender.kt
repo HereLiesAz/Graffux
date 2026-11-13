@@ -52,8 +52,7 @@ internal class SceneContext(
         val homography = SceneMath.homography(model, frame)
         val relative = SceneMath.relativeHomography(parentHomography, homography)
         val front = SceneMath.visiblePolygon(homography, frame, CLIP_EXTENT * maxOf(frame.width, frame.height))
-        val crop = flatSurfaceCrops[layer.id]
-        val clip = if (crop == null) front else if (front == null) crop else SceneMath.clipConvex(front, crop)
+        val clip = SceneMath.croppedClip(front, flatSurfaceCrops[layer.id])
         return ScenePlacement(model, homography, relative, clip)
     }
 

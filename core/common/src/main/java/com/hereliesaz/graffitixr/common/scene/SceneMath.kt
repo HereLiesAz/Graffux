@@ -244,16 +244,10 @@ object SceneMath {
         if (parent == null) self else invert3(parent)?.let { mul3(it, self) }
 
     /**
-     * The polygon (box-local, z = 0) of the plane in front of the near plane, intersected with a
-     * square of half-size [extent] about the canvas centre. Null when the whole square is visible
-     * (no clip needed); empty when none of it is.
-     */
-    /**
      * [subject] cut to the convex polygon [clip] (Sutherland-Hodgman); either winding. Empty when they do not
      * overlap. Used to crop a layer drawn through a flat surface's model to the sheet.
      */
     fun clipConvex(subject: List<Pair<Float, Float>>, clip: List<Pair<Float, Float>>): List<Pair<Float, Float>> {
-        if (clip.size < 3) return emptyList()
         var area = 0f
         for (i in clip.indices) {
             val a = clip[i]
@@ -261,29 +255,43 @@ object SceneMath {
             area += a.first * b.second - b.first * a.second
         }
         val sign = if (area >= 0f) 1f else -1f
-        var out = subject
+        var out = if (clip.size < 3) emptyList() else subject
         for (i in clip.indices) {
+            if (out.isEmpty()) break
             val a = clip[i]
             val b = clip[(i + 1) % clip.size]
-            fun side(p: Pair<Float, Float>) = sign * ((b.first - a.first) * (p.second - a.second) - (b.second - a.second) * (p.first - a.first))
             val input = out
             out = ArrayList()
             for (j in input.indices) {
                 val p = input[j]
                 val q = input[(j + 1) % input.size]
-                val sp = side(p)
-                val sq = side(q)
+                val sp = side(a, b, p, sign)
+                val sq = side(a, b, q, sign)
                 if (sp >= 0f) out += p
                 if ((sp >= 0f) != (sq >= 0f)) {
                     val f = sp / (sp - sq)
                     out += (p.first + (q.first - p.first) * f) to (p.second + (q.second - p.second) * f)
                 }
             }
-            if (out.isEmpty()) return out
         }
         return out
     }
 
+    private fun side(a: Pair<Float, Float>, b: Pair<Float, Float>, p: Pair<Float, Float>, sign: Float): Float =
+        sign * ((b.first - a.first) * (p.second - a.second) - (b.second - a.second) * (p.first - a.first))
+
+    /**
+     * A layer's draw clip: the part in front of the eye ([front], null = all of it) cut to its flat sheet's outline
+     * ([crop], null = no sheet). Null means no clip at all.
+     */
+    fun croppedClip(front: List<Pair<Float, Float>>?, crop: List<Pair<Float, Float>>?): List<Pair<Float, Float>>? =
+        if (crop == null) front else if (front == null) crop else clipConvex(front, crop)
+
+    /**
+     * The polygon (box-local, z = 0) of the plane in front of the near plane, intersected with a
+     * square of half-size [extent] about the canvas centre. Null when the whole square is visible
+     * (no clip needed); empty when none of it is.
+     */
     fun visiblePolygon(h: FloatArray, cam: CameraFrame, extent: Float): List<Pair<Float, Float>>? {
         val near = nearPlane(cam.focal)
         val cx = cam.width / 2f

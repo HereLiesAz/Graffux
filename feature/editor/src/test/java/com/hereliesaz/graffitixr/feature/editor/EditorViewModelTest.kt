@@ -2136,6 +2136,21 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a bitmap recycled mid-scan means cannot tell, so Skip is hidden and nothing throws`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val bmp = io.mockk.mockk<Bitmap>(relaxed = true)
+        io.mockk.every { bmp.isRecycled } returns false
+        io.mockk.every { bmp.width } returns 2
+        io.mockk.every { bmp.height } returns 3
+        io.mockk.every { bmp.getPixels(any<IntArray>(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("Can't call getPixels() on a recycled bitmap")
+        armOn(listOf(Layer(id = "r", name = "r", bitmap = bmp)), "r")
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        assertFalse(viewModel.canSkipSurfaceDrawOffMain())
+    }
+
+    @Test
     fun `Skip is not offered for a group that holds a layer with art`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val group = lyr("g").copy(type = groupType)

@@ -1640,7 +1640,10 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             var canSkip by remember { mutableStateOf(false) }
             LaunchedEffect(
                 uiState.layers, uiState.surfaceDrawGroupId, uiState.surfaceDrawWrapLayerId, uiState.surfaceDrawView,
-            ) { canSkip = vm.canSkipSurfaceDrawOffMain() }
+            ) {
+                canSkip = false
+                canSkip = vm.canSkipSurfaceDrawOffMain()
+            }
             // "Relocate rotation point" (say what to do; Cancel or Back leaves it), then the "Draw surface"
             // prompt, then failures and confirmations, over the artwork, never blocking it. One stack, so
             // they sit under the status bar and between the rails and never on top of one another.

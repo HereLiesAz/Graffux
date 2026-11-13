@@ -430,7 +430,8 @@ object SurfaceMath {
      * the whole layer image on the surface's plane, so it is cropped to this quad, as the depth pass's mesh is.
      */
     fun flatSurfaceCrops(layers: List<Layer>, width: Float, height: Float): Map<String, List<Pair<Float, Float>>> {
-        if (width <= 0f || height <= 0f || layers.none { it.isContainer && it.surface?.sweepLimit != null }) return emptyMap()
+        val bounded = layers.any { it.isContainer && it.surface?.sweepLimit != null }
+        if (width <= 0f || height <= 0f || !bounded) return emptyMap()
         val byId = layers.associateBy { it.id }
         val out = HashMap<String, List<Pair<Float, Float>>>()
         for (layer in layers) {

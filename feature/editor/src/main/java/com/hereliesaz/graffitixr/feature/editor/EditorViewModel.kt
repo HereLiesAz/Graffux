@@ -13841,7 +13841,13 @@ class EditorViewModel @Inject constructor(
      * layer ([isEmptyPaintLayer], the view-plane adoption's definition), or the armed group holds no layer with
      * art. Scans pixels, so ask when arming changes, not every frame.
      */
-    fun canSkipSurfaceDraw(): Boolean {
+    fun canSkipSurfaceDraw(): Boolean = runCatching { canSkipSurfaceDrawUnchecked() }.getOrDefault(false)
+
+    /**
+     * The scan can run off the main thread while undo swaps or recycles a layer's bitmap, so any failure reading it
+     * (a recycled bitmap throws) means "cannot tell": Skip stays hidden, nothing crashes.
+     */
+    private fun canSkipSurfaceDrawUnchecked(): Boolean {
         val st = _uiState.value
         val wrapId = st.surfaceDrawWrapLayerId
         val group = st.layers.firstOrNull { it.id == st.surfaceDrawGroupId }

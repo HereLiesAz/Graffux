@@ -77,9 +77,7 @@ internal class SceneExport(private val manager: ExportManager) {
 
     private fun clipInFront(canvas: Canvas, layer: Layer, ctx: Ctx) {
         val hm = SceneMath.homography(ctx.model(layer), ctx.frame)
-        val front = SceneMath.visiblePolygon(hm, ctx.frame, CLIP_EXTENT * maxOf(ctx.w, ctx.h))
-        val crop = ctx.flatSurfaceCrops[layer.id]
-        val poly = if (crop == null) front ?: return else if (front == null) crop else SceneMath.clipConvex(front, crop)
+        val poly = frontClip(hm, ctx.frame, ctx.w, ctx.h, ctx.flatSurfaceCrops[layer.id]) ?: return
         val path = android.graphics.Path()
         poly.forEachIndexed { i, (u, v) -> if (i == 0) path.moveTo(u, v) else path.lineTo(u, v) }
         path.close()
@@ -297,6 +295,16 @@ internal class SceneExport(private val manager: ExportManager) {
     }
 
     companion object {
+        /** The clip a layer draws under: the part in front of the eye, cut to its flat sheet ([crop]) when it has one. */
+        internal fun frontClip(
+            hm: FloatArray,
+            frame: com.hereliesaz.graffitixr.common.scene.CameraFrame,
+            w: Int,
+            h: Int,
+            crop: List<Pair<Float, Float>>?,
+        ): List<Pair<Float, Float>>? =
+            SceneMath.croppedClip(SceneMath.visiblePolygon(hm, frame, CLIP_EXTENT * maxOf(w, h)), crop)
+
         private const val TRIANGLE_FLOATS = 3 * 5
         private const val CLIP_EXTENT = 8f
         private const val VERTEX_FLOATS = 5

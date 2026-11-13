@@ -2,7 +2,7 @@
 
 Status: design only. Nothing here is implemented. **Revision 3** brings CAD (STEP/IGES/DXF) back in scope as modeling input (0D). **Revision 2** makes standard formats (glTF 2.0 skins,
 nodes and animations) the backbone; sections 0A to 0C are new and win over any earlier text they contradict. Written against `origin/main` at 1.74.1.1 (project
-format 13; main is now at format 14, taken by the flat sheet's `reach`, so every format number below shifts up by one: rig is 15), the open draft PR #753 (rotation triangle gizmo) and the in-progress mesh work on
+format 13; the flat sheet's `reach` takes format 14 once #836 lands, so every format number below shifts up by one: rig is 15), the open draft PR #753 (rotation triangle gizmo) and the in-progress mesh work on
 `claude/mesh-all-views` (no commits beyond main when this was written; every statement about it
 below is an assumption to re-check, flagged "MESH:").
 
