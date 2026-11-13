@@ -2,6 +2,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.showsDocumentBoundary
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SplitCache
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -66,6 +67,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.toArgb
@@ -169,7 +171,7 @@ fun EditorScreen(
     // performGestureAction against the live mapping rather than a fixed call. A pure observer —
     // consumes nothing, so painting and navigation are unaffected.
     val gestureObserver = if (hostStrokeGate == null) {
-        Modifier.multiFingerTaps(strokeGate) { slot, at ->
+        Modifier.historyGestures(strokeGate, uiState.exportPreview) { slot, at ->
             performGestureAction(uiState.gestureMapping, slot, vm, at)
         }
     } else {
@@ -202,17 +204,14 @@ fun EditorScreen(
             // the tool surfaces, so it sees exactly the events they declined to consume. Dropped
             // entirely while the quick menu is open, so a gesture aimed at the menu does not also
             // swing the canvas behind it.
-            .then(
-                if (uiState.quickMenuAt == null) {
-                    // The view, or the active layer with the Move tool in hand (spec/3d-space.md).
-                    Modifier.canvasNavigation(
-                        onStart = { vm.onTwoFingerStart() },
-                        onEnd = { vm.onTwoFingerEnd() },
-                    ) { pan, zoom, centroid, rotation ->
-                        vm.onTwoFingerGesture(pan, zoom, centroid, rotation)
-                    }
-                } else Modifier
-            )
+            .cameraNavigationUnless(
+                blocked = uiState.quickMenuAt != null || uiState.exportPreview,
+                onStart = { vm.onTwoFingerStart() },
+                onEnd = { vm.onTwoFingerEnd() },
+            ) { pan, zoom, centroid, rotation ->
+                // The view, or the active layer with the Move tool in hand (spec/3d-space.md).
+                vm.onTwoFingerGesture(pan, zoom, centroid, rotation)
+            }
     ) {
         // The inactive-layer cache's two renders (spec/3d-space.md, "Inactive-layer cache").
         val graphicsContext = androidx.compose.ui.platform.LocalGraphicsContext.current
@@ -223,14 +222,7 @@ fun EditorScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = uiState.viewportZoom
-                    scaleY = uiState.viewportZoom
-                    rotationZ = uiState.viewportRotation
-                    translationX = uiState.viewportOffset.x
-                    translationY = uiState.viewportOffset.y
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
+                .viewportCamera(uiState.viewportZoom, uiState.viewportOffset, uiState.viewportRotation)
         ) {
             // The canvas box in pixels: the frame of the one 3D space (spec/3d-space.md).
             val boxWidth = constraints.maxWidth.toFloat()
@@ -240,6 +232,7 @@ fun EditorScreen(
             val renderWidth = if (imageAspect > screenAspect) maxWidth.value else maxHeight.value * imageAspect
             val renderHeight = if (imageAspect > screenAspect) maxWidth.value / imageAspect else maxHeight.value
 
+            val boundaryShown = showsDocumentBoundary(uiState.layers)
             val tileIndices = if (uiState.wrapAroundMode) -1..1 else 0..0
 
             for (dx in tileIndices) {
@@ -252,7 +245,9 @@ fun EditorScreen(
                         // 0. Page — the document's own fill, and 0b. the grid: the bottom of the
                         // inactive-layer cache's behind render when there is one.
                         val pageAndGrid: @Composable () -> Unit = {
-                        ArtboardPage(
+                        // In a project with a 3D group the surface is the canvas: no page rectangle (and no
+                        // frame outline below) while editing; the boundary shows only at export.
+                        if (boundaryShown) ArtboardPage(
                             documentWidth = uiState.documentWidth,
                             documentHeight = uiState.documentHeight,
                             color = uiState.canvasBackground,
@@ -457,11 +452,22 @@ fun EditorScreen(
         // 1b. Artboard frame — the document bounds. A non-interactive overlay: dims the workspace
         // outside the centered, aspect-fit document rect and outlines it, so the fixed output size is
         // always visible. Purely visual (no pointer input) — gestures/drawing below are unaffected.
-        ArtboardFrame(
+        if (boundaryShown) ArtboardFrame(
             documentWidth = uiState.documentWidth,
             documentHeight = uiState.documentHeight,
             modifier = Modifier.fillMaxSize(),
         )
+
+        // 1b'. The export frame's picture (a 3D project's export, before it runs): here, inside the camera
+        // container, so it lands on the part of the artwork the exporter keeps whatever the view is. Its
+        // Export / Cancel are in a dialog window at the end (ExportFrameControls).
+        val displayMetrics = LocalContext.current.resources.displayMetrics
+        // Keyed on the display size too: the exporter's world is the display's pixels.
+        val exportRect = remember(
+            uiState.exportPreview, uiState.documentWidth, uiState.documentHeight, uiState.documentCrop,
+            displayMetrics.widthPixels, displayMetrics.heightPixels,
+        ) { if (uiState.exportPreview) vm.currentExportFrameRect() else null }
+        ExportFrameLayer(exportRect, Modifier.fillMaxSize())
 
         // 1c. Snap guides — world-space alignment lines shown while dragging a layer. Drawn inside the
         // camera container so they pan/zoom/rotate with the workspace. Purely visual.
@@ -1217,6 +1223,14 @@ fun EditorScreen(
                         .padding(top = NibDialTopInset),
                 )
             }
+        }
+        // 6. The export frame's controls: a dialog window, so modal to touch, gestures and TalkBack.
+        if (uiState.exportPreview) {
+            ExportFrameControls(
+                strings = com.hereliesaz.graffitixr.design.theme.rememberExportPreviewStrings(),
+                onConfirm = vm::confirmExportPreview,
+                onCancel = vm::cancelExportPreview,
+            )
         }
     }
     }

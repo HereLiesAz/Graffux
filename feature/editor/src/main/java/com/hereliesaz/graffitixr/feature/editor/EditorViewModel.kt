@@ -2550,6 +2550,7 @@ class EditorViewModel @Inject constructor(
                     val projectIdChanged = _uiState.value.projectId != project.id
 
                     if (projectIdChanged) {
+                        cancelExportPreview()
                         // ProjectManager refuses to write over a newer-format project; say so up front.
                         // Retained, not a notices emission: on a cold-start auto-reopen this runs
                         // before the host collects, and a SharedFlow without replay would drop it.
@@ -5103,6 +5104,109 @@ class EditorViewModel @Inject constructor(
                     runCatching { android.util.Log.e("EditorViewModel", "Failed to generate thumbnail", t) }
                     Breadcrumbs.record("thumbnail failed: ${t.javaClass.name}")
                 }
+            }
+        }
+    }
+
+    // The export the export-frame preview is holding until Export or Cancel (spec/3d-space.md, "Export").
+    private var pendingExport: PendingExport? = null
+
+    /** The held export, for tests. */
+    internal val pendingExportForTest: PendingExport? get() = pendingExport
+
+    /**
+     * The rectangle, in the exporter's world pixels, that a document export keeps: the artboard, or the Crop
+     * tab's crop of it. The exporter composites in a world the size of the display (`displayMetrics`, not the
+     * on-screen box) and layers' offsets are in that same coordinate space, so the preview draws this
+     * rectangle at the same numbers in the canvas's coordinates. It assumes the editor canvas and the display
+     * share an origin (the canvas fills the window); if a host inset ever moved it, preview and export
+     * would still agree with each other, since both use these numbers.
+     */
+    fun currentExportFrameRect(): FloatArray {
+        val st = _uiState.value
+        val m = context.resources.displayMetrics
+        return com.hereliesaz.graffitixr.feature.editor.export.exportFrameRect(
+            m.widthPixels, m.heightPixels, st.documentWidth, st.documentHeight, st.documentCrop,
+        )
+    }
+
+    /**
+     * Runs [export] now, or, in a project with a 3D group, after the user has seen the frame it crops to
+     * and confirmed: the artboard is not drawn while editing there, so this is where it is shown. Ignored
+     * on the preview path while another long operation (an export) is running; a project without a 3D group
+     * is never held up by one. A request made while the preview is already up
+     * replaces the held one (the newest wins); the preview itself is modal, so only the host menu can do it.
+     */
+    private fun exportAfterPreview(export: PendingExport) {
+        if (!hasThreeDGroup(_uiState.value.layers)) {
+            runExport(export) // exactly as before the preview existed: no guard, no wait
+            return
+        }
+        // The preview path only: not over a running job. `isLoading` is set inside the launched export, a
+        // frame after Confirm, so two taps in one frame can still both open a preview; the second replaces the
+        // first, and the held export runs once on Confirm.
+        if (_uiState.value.isLoading) return
+        pendingExport = export
+        if (!_uiState.value.exportPreview) dispatch(EditorIntent.SetExportPreview(true))
+    }
+
+    private fun runExport(export: PendingExport) = when (export) {
+        PendingExport.Image -> exportImage()
+        is PendingExport.Poster -> exportPosterPdf(export.spec)
+        is PendingExport.Design -> exportDesign(export.format, export.allFrames)
+    }
+
+    /** Export (the menu's PNG), through the preview. */
+    fun requestExportImage() = exportAfterPreview(PendingExport.Image)
+
+    /**
+     * Poster PDF, through the preview: it prints the document's crop (the artboard, or the Crop tab's crop of
+     * it), the same rectangle the preview shows.
+     */
+    fun requestExportPoster(spec: com.hereliesaz.graffitixr.feature.editor.export.PosterSpec) =
+        exportAfterPreview(PendingExport.Poster(spec))
+
+    /**
+     * The Export panel's PNG / SVG / PDF. Only an export of the document (artboard or its crop) goes through
+     * the preview. Not: a selected frame's export (it crops to the frame's own box) and a PDF of all frames
+     * when there is at least one top-level visible frame (a page per frame). A PDF of all frames with none
+     * falls back to the document's page ([exportPdf]), so it is previewed.
+     */
+    fun requestExportDesign(
+        format: com.hereliesaz.graffitixr.common.model.DesignExportFormat,
+        allFrames: Boolean = false,
+    ) {
+        val pagePerFrame = format == com.hereliesaz.graffitixr.common.model.DesignExportFormat.PDF && allFrames &&
+            com.hereliesaz.graffitixr.feature.editor.export.VectorScene.allFrameIds(_uiState.value.layers).isNotEmpty()
+        val documentExport = designExportFrameId() == null && !pagePerFrame
+        if (documentExport) {
+            exportAfterPreview(PendingExport.Design(format, allFrames))
+        } else {
+            exportDesign(format, allFrames)
+        }
+    }
+
+    /** The preview's Export: close it and run the held export, once (a second confirm finds nothing). */
+    fun confirmExportPreview() {
+        val export = pendingExport ?: return
+        pendingExport = null
+        dispatch(EditorIntent.SetExportPreview(false))
+        runExport(export)
+    }
+
+    /** The preview's Cancel (or Back, a project switch, or the 3D group going): close it, export nothing. */
+    fun cancelExportPreview() {
+        if (pendingExport == null && !_uiState.value.exportPreview) return
+        pendingExport = null
+        dispatch(EditorIntent.SetExportPreview(false))
+    }
+
+    init {
+        // The preview only exists in a project with a 3D group: if the group goes (an undo, a delete), so
+        // does it. A project switch cancels it in the project collector.
+        viewModelScope.launch(dispatchers.main) {
+            _uiState.map { hasThreeDGroup(it.layers) }.distinctUntilChanged().collect { threeD ->
+                if (!threeD) cancelExportPreview()
             }
         }
     }

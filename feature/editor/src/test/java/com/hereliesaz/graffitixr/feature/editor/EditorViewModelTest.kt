@@ -3227,4 +3227,173 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         verify(exactly = 1) { extensionRepository.pendingDepthModelInstalls() }
     }
+
+    // ── Export-frame preview in a 3D project (spec/3d-space.md, "Export") ───────────────────────────
+
+    private val frameLayer = Layer(
+        id = "F", name = "F", type = com.hereliesaz.graffitixr.common.model.LayerType.FRAME,
+        layoutWidth = 400f, layoutHeight = 200f,
+    )
+
+    private fun withLayers(threeD: Boolean, vararg extra: Layer) {
+        val group = Layer(
+            id = "G", name = "G", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            surface = if (threeD) {
+                com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 24f, 0f, 0f, 48f, 0f, 20f))
+            } else {
+                null
+            },
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(group) + extra))
+    }
+
+    private fun assertComposited(times: Int) = verify(exactly = times) {
+        exportManager.compositeToDocument(any(), any(), any(), any(), any(), any(), any(), any(), any())
+    }
+
+    /** The enum's entries, short. */
+    private object DesignFormats {
+        val SVG = com.hereliesaz.graffitixr.common.model.DesignExportFormat.SVG
+        val PDF = com.hereliesaz.graffitixr.common.model.DesignExportFormat.PDF
+    }
+
+    private val preview get() = viewModel.uiState.value.exportPreview
+
+    @Test
+    fun `a project without a 3D group exports at once, with no preview`() = runTest {
+        withLayers(threeD = false)
+        viewModel.requestExportImage()
+        assertFalse(preview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `a 3D project shows the export frame first and exports once, only when confirmed`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(preview)
+        assertEquals(PendingExport.Image, viewModel.pendingExportForTest)
+        assertComposited(0)
+
+        viewModel.confirmExportPreview()
+        viewModel.confirmExportPreview() // a second tap finds nothing held
+        assertFalse(preview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `cancel closes the frame, exports nothing, and a later request works again`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        viewModel.cancelExportPreview()
+        assertFalse(preview)
+        viewModel.confirmExportPreview()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(0)
+
+        viewModel.requestExportImage()
+        assertTrue(preview)
+        viewModel.confirmExportPreview()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `confirming the poster export replays the spec it was asked with`() = runTest {
+        withLayers(threeD = true)
+        val spec = com.hereliesaz.graffitixr.feature.editor.export.PosterSpec(landscape = true, cropMarks = false)
+        viewModel.requestExportPoster(spec)
+        assertTrue(preview)
+        assertEquals(PendingExport.Poster(spec), viewModel.pendingExportForTest)
+        assertComposited(0)
+        viewModel.confirmExportPreview()
+        assertNull(viewModel.pendingExportForTest)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `a second request while the frame is up replaces the held export`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        val spec = com.hereliesaz.graffitixr.feature.editor.export.PosterSpec()
+        viewModel.requestExportPoster(spec)
+        assertEquals(PendingExport.Poster(spec), viewModel.pendingExportForTest)
+    }
+
+    @Test
+    fun `a project without a 3D group still exports while another job is loading`() = runTest {
+        withLayers(threeD = false)
+        viewModel.dispatchForTest(EditorIntent.SetLoading(true, "Busy"))
+        viewModel.requestExportImage()
+        assertFalse(preview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `a request while an export is running is ignored`() = runTest {
+        withLayers(threeD = true)
+        viewModel.dispatchForTest(EditorIntent.SetLoading(true, "Exporting…"))
+        viewModel.requestExportImage()
+        assertFalse(preview)
+        assertNull(viewModel.pendingExportForTest)
+    }
+
+    @Test
+    fun `the document's SVG goes through the frame, and so does an all-frames PDF with no frames`() = runTest {
+        val format = DesignFormats
+        withLayers(threeD = true, Layer(id = "L", name = "L"))
+        viewModel.onLayerActivated("L")
+        viewModel.requestExportDesign(format.SVG)
+        assertEquals(PendingExport.Design(format.SVG, false), viewModel.pendingExportForTest)
+        viewModel.cancelExportPreview()
+        viewModel.requestExportDesign(format.PDF, allFrames = true)
+        assertEquals(PendingExport.Design(format.PDF, true), viewModel.pendingExportForTest)
+        viewModel.cancelExportPreview()
+    }
+
+    @Test
+    fun `an all-frames PDF with a top-level frame is a page per frame and skips the frame`() = runTest {
+        withLayers(threeD = true, frameLayer)
+        viewModel.requestExportDesign(com.hereliesaz.graffitixr.common.model.DesignExportFormat.PDF, allFrames = true)
+        assertFalse(preview)
+    }
+
+    @Test
+    fun `a selected frame's PNG export runs at once, with no frame preview`() = runTest {
+        withLayers(threeD = true, frameLayer)
+        viewModel.onLayerActivated("F")
+        viewModel.requestExportDesign(com.hereliesaz.graffitixr.common.model.DesignExportFormat.PNG)
+        assertFalse(preview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        // compositeFrame is an extension that draws through the exporter: one frame composite ran
+        verify(exactly = 1) { exportManager.drawNodes(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `switching project while the frame is up closes it`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        assertTrue(preview)
+        currentProjectFlow.value = GraffitiProject(id = "elsewhere")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(preview)
+        assertNull(viewModel.pendingExportForTest)
+    }
+
+    @Test
+    fun `losing the 3D group while the frame is up closes it`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(preview)
+        withLayers(threeD = false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(preview)
+        assertNull(viewModel.pendingExportForTest)
+    }
 }

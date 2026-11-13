@@ -762,6 +762,9 @@ data class EditorUiState(
     // True while the Crop tab is open: the canvas shows the whole transformed photo with the crop
     // frame over it instead of only what the crop keeps. Transient UI state.
     val cropEditing: Boolean = false,
+    // True while the export-frame preview is up (a 3D project, before a document export runs): the
+    // canvas shows the artboard rectangle the export will crop to, with Export / Cancel. Transient.
+    val exportPreview: Boolean = false,
     // The canvas's 3D camera (spec/3d-space.md). Saved with the project; the default projects the
     // scene onto the canvas exactly as the 2D canvas draws. View state, not history.
     val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =

@@ -609,6 +609,7 @@ internal object EditorReducer {
         is EditorIntent.SetPhotoCompare -> state.copy(photoCompare = intent.comparing)
         is EditorIntent.SetDocumentCrop -> state.copy(documentCrop = intent.crop)
         is EditorIntent.SetCropEditing -> state.copy(cropEditing = intent.editing)
+        is EditorIntent.SetExportPreview -> state.copy(exportPreview = intent.showing)
         else -> null
     }
 }
