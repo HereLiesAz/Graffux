@@ -364,9 +364,21 @@ class ViewControlButtonsUiTest {
         }
         rule.onNodeWithTag("rail.view").performScrollTo().performClick()
         rule.onNodeWithTag("rail.view.reset").assertExists()
-        // A point well away from the rail and the pad (the middle of the screen's far side).
-        val size = rule.onNodeWithTag("canvas.behind").fetchSemanticsNode().size
-        rule.onNodeWithTag("canvas.behind").performTouchInput { click(androidx.compose.ui.geometry.Offset(size.width - 20f, size.height / 2f)) }
+        // performTouchInput on a main-window node bypasses the popup window altogether, so it cannot show what
+        // the popup does with a tap. Deliver the tap the way the system does: as touch events to the popup's own
+        // window root, at a point well away from the rail and the pad (the far side, mid-height).
+        val root = rule.onNodeWithTag("rail.view.reset").fetchSemanticsNode().root
+        @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
+        val view = (root as androidx.compose.ui.platform.ViewRootForTest).view.rootView
+        val screen = rule.onNodeWithTag("canvas.behind").fetchSemanticsNode().size
+        assertTrue("the layer covers the whole window", view.width >= screen.width && view.height >= screen.height)
+        val x = screen.width - 20f
+        val y = screen.height / 2f
+        rule.runOnUiThread {
+            val t = android.os.SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, x, y, 0))
+            view.dispatchTouchEvent(android.view.MotionEvent.obtain(t, t + 40, android.view.MotionEvent.ACTION_UP, x, y, 0))
+        }
         rule.waitForIdle()
         rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
         assertEquals("the tap that dismissed the pad did not fall through", 0, behind)
