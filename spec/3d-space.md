@@ -1221,6 +1221,66 @@ Example (a unit test): draw a square at the default view; orbit 90 degrees, so i
 draw a second square on a new layer starting at the edge-on line; tilt the view up 90 degrees.
 The two squares share that edge, at right angles: an L.
 
+## Draw plane depth
+
+In a project with a 3D group the user can choose how far from the eye the next stroke lands, without moving any
+art. The control is the wire-mesh button ("#", `SurfaceMeshButton`, rail id `view.surfaceMesh`), which now shows in
+any project with a 3D group (`hasThreeDGroup`), not only on a surface layer, and still while a rotation point is
+placed. Its tap (grid on/off) and long-press (menu) are unchanged.
+
+- **Drag.** A vertical drag on the button sets the depth: up moves the plane toward the camera, down away from it. It
+  is multiplicative, as the Move-tool pinch is: 400dp of drag changes the eye-to-plane distance by a factor of 4
+  (`DrawPlane.DRAG_FACTOR`, `DRAG_DP_PER_CHANGE`), clamped to twice the near plane up to a tenth of the far plane
+  (`DrawPlane.depthRange`). Like the brush-size chip, the button owns the gesture only after the touch slop (it uses
+  `detectVerticalDragGestures`, so only vertical movement claims it); the drag cancels the tap and the long-press, and
+  the rail still scrolls from the gaps and the other buttons.
+- **Non-drag alternatives.** The long-press menu gains "Draw distance nearer", "Draw distance farther" (one step of
+  x1.25, `DrawPlane.STEP_FACTOR`) and, once a depth is set, "Reset draw distance"; they are ordinary 48dp menu rows
+  from string resources. TalkBack gets the button as a slider (`progressBarRangeInfo`, `setProgress`) over the depth's
+  log range, 0 = nearest, 1 = farthest (`EditorViewModel.drawDepthFraction`, `onSetDrawDepthFraction`).
+- **The plane.** It is parallel to the plane of the last stroke drawn (the layer that took it, in its pose at the time),
+  offset along that plane's normal until its box centre is `depth` from the eye (`DrawPlane.world`). With no previous
+  stroke, or when the reference plane is seen nearly edge-on (|normal . view| < 0.1), it is the camera-facing plane through
+  the orbit pivot, as in "Adopting the view plane". The box keeps its on-screen pixel size at the new depth (its scale
+  grows with the distance), so a brush stroke is as wide as it was. Nothing is moved: no existing layer changes.
+- **Lapse.** The depth belongs to the view it was set in. Any change to the scene camera or the canvas viewport (orbit,
+  pan, zoom, rotation, Reset view), to the active layer, or to the project makes it automatic again
+  (`DrawPlaneDepth.holdsIn`, applied in `EditorViewModel.writeState`, so no path can miss it); the last-stroke reference
+  lapses with the camera too (`LastStroke.holds`). It is session state (`EditorUiState.drawPlane`): not saved, no format
+  change (the format stays 14).
+- **The next stroke** (`adoptDrawDepthPlane`, called from `adoptViewPlaneForStroke` as a stroke starts): on a paint layer,
+  with or without art, the stroke goes onto a new empty layer on the plane, directly above the active layer, in the same
+  group, active from then on; it is named like any new sketch layer. An empty paint layer is not duplicated: it is moved
+  onto the plane (the adoption mechanism). The layer's creation rides on the stroke's undo entry
+  (`PlaneSwap.created`): one undo removes the stroke and the layer, one redo puts both back. A cancelled stroke removes
+  the layer at once. The depth is spent by the stroke; setting it again offsets from that stroke's plane.
+- **Where it does not apply.** A layer on a surface keeps to the surface, and the 3D strokes layer keeps its own guide
+  depth (`SpatialGuide.depth`, unchanged): the drag then does nothing and says so in a notice, once per drag. So does a
+  group, text, vector or adjustment layer (paint layers only). With no depth set, everything behaves as before.
+- **The guide.** While the depth is dragged, and about a second after it is released (`DrawPlane.GUIDE_LINGER_MS`), a flat
+  grid on the plane shows in the surface mesh's colour (`SurfaceLook.GRID_ARGB`), overlay only, never exported. Its cells are
+  a fixed 64 scene pixels (`SurfaceMath.GRID_SPACING`) over 16 cells each way from the box centre, so they shrink as the
+  plane moves away, and it follows the plane's actual orientation (camera-facing in the common case). It fades over 300ms
+  (`DrawPlaneGuide`). It does not stay up while a depth merely stays set.
+- The gesture help (menu, Gestures) lists the drag among "Other touches".
+
+Tests: `DrawPlaneTest` (the maths: mapping, clamp, parallel plane, edge-on fallback, groups, guide perspective),
+`DrawPlaneDepthTest` (lapse on camera, pan, zoom, layer and project change; new layer above the active one on the offset
+plane, art untouched; one undo and redo; cancel; surface and 3D strokes layer notices; automatic unchanged; menu steps,
+fade timer), `Scene3DRailUiTest` (button in a 3D project without a surface layer, drag, tap, long-press, TalkBack
+`SetProgress`, menu items), `NoHardCodedChromeTextTest` (no new literals).
+
+Not tested, or not verified on a device:
+
+- A real stroke's pixels landing on the offset plane, and the new layer's bitmap after undo and redo (a JVM test has no GPU,
+  and the stroke path in the tests does not map points through the plane); the Ink path's `commitInkThroughPlane` with a depth.
+- The guide's appearance and fade on screen (`DrawPlaneGuide` is untested as a composable); its faintness (the mesh colour
+  is alpha 0.2).
+- The drag against the real `RailPill` scroll on a device (the Robolectric drag is a plain touch input); a drag that starts on
+  the button and is slow to leave the slop may still scroll the rail first. TalkBack and keyboard behaviour on a device.
+- Co-op: the created layer is emitted as `LayerAdd`/`LayerRemove` but not exercised against a guest.
+- Animation mode, and instances/components, with a draw depth set.
+
 ## Tilted layers: selection and tap-select
 
 `ActivePlaneMapping` (EditorScreen) carries the same mapping for the lasso, the magic wand and

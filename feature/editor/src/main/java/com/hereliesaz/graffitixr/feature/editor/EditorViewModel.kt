@@ -2,6 +2,8 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.DrawPlane
+import com.hereliesaz.graffitixr.design.R as DesignR
 import com.hereliesaz.graffitixr.common.scene.SurfaceView
 import com.hereliesaz.graffitixr.common.scene.SceneCamera
 import com.hereliesaz.graffitixr.common.scene.SpatialLayerContent
@@ -154,6 +156,7 @@ import com.hereliesaz.graffitixr.common.util.StrokeStabilizer
 import com.hereliesaz.graffitixr.feature.editor.timelapse.TimeLapseRecorder
 import kotlinx.coroutines.flow.collect
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 data class StrokeCommand(
@@ -2855,7 +2858,7 @@ class EditorViewModel @Inject constructor(
                 } else {
                     restoreUndoneStrokePixels(command)
                 }
-                command.plane?.let { applyPlane(command.layerId, it.before) }
+                command.plane?.let { revertPlaneAdoption(command.layerId, it) }
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -2926,6 +2929,7 @@ class EditorViewModel @Inject constructor(
                     showHud("Couldn't redo that")
                     return false
                 }
+                command.plane?.created?.let(::reinsertPlaneLayer)
                 reapplyRedoneStroke(command)
                 command.plane?.let { applyPlane(command.layerId, it.after) }
             }
@@ -6700,8 +6704,10 @@ class EditorViewModel @Inject constructor(
         var out: List<Layer>? = null
         _uiState.update { before ->
             val next = transform(before)
-            val followed = withoutOrphanSurfaceCapture(
-                if (follow) EditorReducer.withInstancesFollowing(before, next) else next,
+            val followed = withoutStaleDrawPlane(
+                withoutOrphanSurfaceCapture(
+                    if (follow) EditorReducer.withInstancesFollowing(before, next) else next,
+                ),
             )
             raw = next.layers
             out = followed.layers
@@ -10132,7 +10138,7 @@ class EditorViewModel @Inject constructor(
 
     private fun cancelStroke() {
         // A cancelled first stroke leaves no paint, so the layer keeps the plane it had.
-        pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+        pendingPlaneAdoption?.let { (id, swap) -> revertPlaneAdoption(id, swap) }
         pendingPlaneAdoption = null
         stampFrameRequestedFor = -1L
         endOverlayStroke(afterFrames = 0)
@@ -10487,7 +10493,7 @@ class EditorViewModel @Inject constructor(
         }
         val segments = plane.inkSegments(path, footprint ?: (_uiState.value.effectivePaintBrushSize() / 2f))
         if (segments.isEmpty()) {
-            pendingPlaneAdoption?.let { (id, swap) -> applyPlane(id, swap.before) }
+            pendingPlaneAdoption?.let { (id, swap) -> revertPlaneAdoption(id, swap) }
             pendingPlaneAdoption = null
             onCommitted()
             return
@@ -10530,6 +10536,7 @@ class EditorViewModel @Inject constructor(
         // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
+        lastStroke = LastStroke.of(layerId, _uiState.value)
         val continues = gestureOpen && gestureCommitted != null
         // A segment on another layer than the last one (a stroke crossing between view images) is its
         // own entry, chained to the previous so that undo and redo take both.
@@ -13814,6 +13821,9 @@ class EditorViewModel @Inject constructor(
     fun adoptViewPlaneForStroke(): Boolean {
         val state = _uiState.value
         val id = state.activeLayerId ?: return false
+        // A plane already taken for this stroke (at its start) stays; the commit asks again.
+        if (pendingPlaneAdoption?.first == id) return false
+        if (adoptDrawDepthPlane(state, id)) return true
         val size = state.canvasSize
         val layer = state.layers.firstOrNull { it.id == id }
         val eligible = layer != null && !state.sceneCamera.isDefault && size.width > 0 && size.height > 0 &&
@@ -13827,6 +13837,243 @@ class EditorViewModel @Inject constructor(
         pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
         applyPlane(id, pose)
         return true
+    }
+
+    // ── Draw plane depth (spec/3d-space.md, "Draw plane depth") ──
+
+    /** The newest stroke's layer and the view it was drawn in: the reference plane while that view holds. */
+    private var lastStroke: LastStroke? = null
+    private var drawGuideJob: kotlinx.coroutines.Job? = null
+    private var drawDepthNoticed = false
+
+    /** [state] with a lapsed draw-plane depth made automatic again: the camera, layer or project moved on. */
+    private fun withoutStaleDrawPlane(state: EditorUiState): EditorUiState {
+        val depth = state.drawPlane ?: return state
+        return if (depth.holdsIn(state)) state else state.copy(drawPlane = null, drawPlaneGuideShown = false)
+    }
+
+    /** The world model of the plane the last stroke was drawn on, while the view is as it was then; else null. */
+    @Suppress("ReturnCount")
+    internal fun drawPlaneReference(
+        state: EditorUiState = _uiState.value,
+    ): com.hereliesaz.graffitixr.common.scene.Affine3? {
+        val last = lastStroke?.takeIf { it.holds(state) } ?: return null
+        val size = state.canvasSize
+        val layer = state.layers.firstOrNull { it.id == last.layerId } ?: return null
+        val usable = size.width > 0 && size.height > 0 && drawDepthRefusal(state, layer) == null
+        if (!usable) return null
+        return SceneMath.chainModel(planeChain(state.layers, layer.id), size.width.toFloat(), size.height.toFloat())
+    }
+
+    /** Why the draw-plane depth cannot act on [layer] (a string resource), or null when it can. */
+    private fun drawDepthRefusal(state: EditorUiState, layer: Layer): Int? = when {
+        layer.isSpatial || layer.model != null -> DesignR.string.notice_draw_depth_strokes_layer
+        layer.surface != null || layer.surfaceViewOf != null ||
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.isOnSurface(state.layers, layer.id) ->
+            DesignR.string.notice_draw_depth_surface
+        layer.isAdjustment || layer.isContainer || layer.textParams != null || layer.shapes.isNotEmpty() ->
+            DesignR.string.notice_draw_depth_paint_only
+        else -> null
+    }
+
+    /** The depth now: the one set, else where the automatic plane is (the anchor's distance). Null with no canvas. */
+    private fun currentDrawDepth(state: EditorUiState): Pair<Float, Float>? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        val set = state.drawPlane?.takeIf { it.holdsIn(state) }?.depth
+        return (set ?: DrawPlane.anchorDepth(drawPlaneReference(state), cam, orbitPivot(state))) to cam.focal
+    }
+
+    /** The depth as 0..1 across its range, on a log scale (the TalkBack slider's value); 0 with no canvas. */
+    fun drawDepthFraction(): Float {
+        val (depth, focal) = currentDrawDepth(_uiState.value) ?: return 0f
+        val range = DrawPlane.depthRange(focal)
+        val span = kotlin.math.ln(range.endInclusive / range.start)
+        return (kotlin.math.ln(depth.coerceIn(range) / range.start) / span).coerceIn(0f, 1f)
+    }
+
+    /** A drag on the wire-mesh button begins: its guide shows, and a refusal is said once. */
+    fun onDrawDepthDragStart() {
+        drawDepthNoticed = false
+        drawGuideJob?.cancel()
+    }
+
+    /** The drag moved [dragDownDp] (down = farther): the plane's depth changes multiplicatively. */
+    fun onDrawDepthDrag(dragDownDp: Float) {
+        setDrawDepth { current, focal -> DrawPlane.depthAfterDrag(current, dragDownDp, focal) }
+    }
+
+    /** The drag ended: the guide stays about a second more, then fades. */
+    fun onDrawDepthDragEnd() = scheduleDrawGuideHide()
+
+    /** A menu step: one [DrawPlane.STEP_FACTOR] nearer or farther. */
+    fun onDrawDepthStep(nearer: Boolean) {
+        val f = if (nearer) 1f / DrawPlane.STEP_FACTOR else DrawPlane.STEP_FACTOR
+        drawDepthNoticed = false
+        setDrawDepth { current, focal -> (current * f).coerceIn(DrawPlane.depthRange(focal)) }
+        scheduleDrawGuideHide()
+    }
+
+    /** TalkBack's slider: the depth at [fraction] of its log range. */
+    fun onSetDrawDepthFraction(fraction: Float) {
+        drawDepthNoticed = false
+        setDrawDepth { _, focal ->
+            val range = DrawPlane.depthRange(focal)
+            range.start * (range.endInclusive / range.start).pow(fraction.coerceIn(0f, 1f))
+        }
+        scheduleDrawGuideHide()
+    }
+
+    /** "Reset draw distance": the plane is automatic again. */
+    fun onResetDrawDepth() {
+        drawGuideJob?.cancel()
+        updateUi { it.copy(drawPlane = null, drawPlaneGuideShown = false) }
+    }
+
+    @Suppress("ReturnCount")
+    private fun setDrawDepth(next: (current: Float, focal: Float) -> Float) {
+        val state = _uiState.value
+        val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return
+        val (current, focal) = currentDrawDepth(state) ?: return
+        drawDepthRefusal(state, layer)?.let { notice ->
+            if (!drawDepthNoticed) notify(context.getString(notice))
+            drawDepthNoticed = true
+            return
+        }
+        drawGuideJob?.cancel()
+        val depth = next(current, focal)
+        updateUi { it.copy(drawPlane = DrawPlaneDepth.of(depth, it), drawPlaneGuideShown = true) }
+    }
+
+    private fun scheduleDrawGuideHide() {
+        drawGuideJob?.cancel()
+        if (!_uiState.value.drawPlaneGuideShown) return
+        drawGuideJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(DrawPlane.GUIDE_LINGER_MS)
+            updateUi { it.copy(drawPlaneGuideShown = false) }
+        }
+    }
+
+    /** The draw-plane guide: the plane's world model at the depth now set, for the overlay; null when none is. */
+    @Suppress("ReturnCount")
+    fun drawPlaneGuideWorld(state: EditorUiState): com.hereliesaz.graffitixr.common.scene.Affine3? {
+        val depth = state.drawPlane?.takeIf { it.holdsIn(state) }?.depth ?: return null
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        return DrawPlane.world(cam, drawPlaneReference(state), orbitPivot(state), depth)
+    }
+
+    /**
+     * The next stroke under a set draw-plane depth, called as a stroke starts (before [adoptViewPlaneForStroke]'s
+     * own rules): an empty paint layer is moved onto the plane; any other paint layer keeps its art where it is and
+     * the stroke goes onto a new empty layer placed on the plane, directly above it. The change rides on the stroke's
+     * undo entry ([PlaneSwap]); the depth is spent. Returns whether a plane was taken.
+     */
+    @Suppress("ReturnCount")
+    private fun adoptDrawDepthPlane(state: EditorUiState, id: String): Boolean {
+        val set = state.drawPlane?.takeIf { it.holdsIn(state) } ?: return false
+        val layer = state.layers.firstOrNull { it.id == id } ?: return false
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0 || drawDepthRefusal(state, layer) != null) return false
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        val parents = planeChain(state.layers, id).dropLast(1)
+        val pose = DrawPlane.pose(cam, parents, drawPlaneReference(state), orbitPivot(state), set.depth) ?: return false
+        drawGuideJob?.cancel()
+        if (layer.isEmptyPaintLayer()) {
+            pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
+            applyPlane(id, pose)
+            updateUi { it.copy(drawPlane = null, drawPlaneGuideShown = false) }
+            return true
+        }
+        val made = createPlaneLayer(layer, pose) ?: return false
+        pendingPlaneAdoption = made.layer.id to PlaneSwap(
+            com.hereliesaz.graffitixr.common.scene.PlanePose(), pose, made,
+        )
+        return true
+    }
+
+    /** A new empty paint layer on [pose], directly above [below] in its group, made active. */
+    private fun createPlaneLayer(below: Layer, pose: com.hereliesaz.graffitixr.common.scene.PlanePose): CreatedPlaneLayer? {
+        val (blank, frame, base) = createBlankPaintBitmap()
+        val state = _uiState.value
+        val projectId = state.projectId
+        val filename = "layer_${UUID.randomUUID()}.png"
+        val uri = projectId?.let { "file://${java.io.File(context.filesDir, "projects/$it/$filename").path}".toUri() }
+        val layer = Layer(
+            id = UUID.randomUUID().toString(),
+            name = "Sketch ${state.layers.count { it.isSketch } + 1}",
+            isSketch = true,
+            parentId = below.parentId,
+            bitmap = blank,
+            uri = uri,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            originX = frame.originX,
+            originY = frame.originY,
+            offset = Offset(pose.offsetX, pose.offsetY),
+            positionZ = pose.positionZ,
+            rotationX = pose.rotationX,
+            rotationY = pose.rotationY,
+            rotationZ = pose.rotationZ,
+            scale = pose.scale,
+        )
+        if (base != null) layerStore.putBase(layer.id, base) else putLayerBase(layer.id, blank)
+        layerStore.initStrokes(layer.id)
+        val index = state.layers.indexOfFirst { it.id == below.id }.let { if (it < 0) state.layers.size else it + 1 }
+        updateUi { s ->
+            s.copy(
+                layers = s.layers.toMutableList().apply { add(index.coerceAtMost(size), layer) },
+                activeLayerId = layer.id,
+                drawPlane = null,
+                drawPlaneGuideShown = false,
+            )
+        }
+        emitMembership(Op.LayerAdd(layer))
+        persistNewLayerBitmap(projectId, uri, filename, blank)
+        return CreatedPlaneLayer(layer.copy(bitmap = null), index, below.id)
+    }
+
+    private fun persistNewLayerBitmap(projectId: String?, uri: Uri?, filename: String, blank: Bitmap) {
+        if (projectId == null || uri == null) return
+        SafeBitmap.copy(blank, mutable = false)?.let { copy ->
+            viewModelScope.launch(dispatchers.io) {
+                val bytes = ImageUtils.bitmapToByteArray(copy)
+                runCatching { projectRepository.saveArtifact(projectId, filename, bytes) }
+                saveProject()
+            }
+        }
+    }
+
+    /** Puts back what a stroke's plane adoption changed: the plane, or the layer made. */
+    private fun revertPlaneAdoption(id: String, swap: PlaneSwap) {
+        val made = swap.created
+        if (made == null) {
+            applyPlane(id, swap.before)
+            return
+        }
+        updateUi { s ->
+            s.copy(
+                layers = s.layers.filterNot { it.id == id },
+                activeLayerId = if (s.activeLayerId == id) made.previousActiveId else s.activeLayerId,
+            )
+        }
+        emitMembership(Op.LayerRemove(id))
+        saveProject()
+    }
+
+    /** Redo of a stroke that made its layer: the layer comes back, empty, before the stroke is replayed onto it. */
+    private fun reinsertPlaneLayer(made: CreatedPlaneLayer) {
+        if (_uiState.value.layers.any { it.id == made.layer.id }) return
+        updateUi { s ->
+            s.copy(
+                layers = s.layers.toMutableList().apply { add(made.index.coerceIn(0, size), made.layer) },
+                activeLayerId = made.layer.id,
+            )
+        }
+        emitMembership(Op.LayerAdd(made.layer))
+        saveProject()
     }
 
     /**

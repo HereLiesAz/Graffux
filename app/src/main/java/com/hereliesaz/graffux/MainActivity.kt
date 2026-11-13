@@ -1375,8 +1375,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
 
                 if (meshMenuOpen) {
+                    val drawDepth = com.hereliesaz.graffitixr.design.theme.rememberDrawDepthStrings()
                     MenuPanel(
-                        rows = buildMenu { meshMenu(vm, uiState) { meshMenuOpen = false } },
+                        rows = buildMenu { meshMenu(vm, uiState, drawDepth) { meshMenuOpen = false } },
                         onDismiss = { meshMenuOpen = false },
                         title = stringResource(R.string.menu_wire_mesh),
                         modifier = Modifier.align(toolSide).padding(horizontal = besideRail),

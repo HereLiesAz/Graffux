@@ -117,6 +117,12 @@
     <string name="rail_move_down">Move down</string>
     <string name="rail_delete_layer">Delete layer</string>
     <string name="rail_brush_chip">Brush size %1$d, hardness %2$d percent</string>
+    <string name="rail_draw_depth_nearer">Draw distance nearer</string>
+    <string name="rail_draw_depth_farther">Draw distance farther</string>
+    <string name="rail_draw_depth_reset">Reset draw distance</string>
+    <string name="notice_draw_depth_surface">Draw distance does not apply to a layer on a surface: it keeps to the surface.</string>
+    <string name="notice_draw_depth_strokes_layer">Draw distance does not apply to the 3D strokes layer: it keeps its own guide depth.</string>
+    <string name="notice_draw_depth_paint_only">Draw distance applies to paint layers.</string>
     <string name="rail_set_brush_size">Set brush size</string>
     <string name="rail_brush_menu">Brush menu</string>
     <!-- MessageStrings -->
@@ -138,6 +144,7 @@
     <string name="gesture_help_slider_reset">Photo sliders: double-tap a slider to reset it.</string>
     <string name="gesture_help_edge_swipe">Swipe up from the bottom edge for your shortcuts.</string>
     <string name="gesture_help_hidden_ui">While the interface is hidden, tap the button at the corner to bring it back.</string>
+    <string name="gesture_help_draw_distance">Wire-mesh button (#), in a 3D project: drag up or down to set how far the next stroke lands (up is nearer); long-press for the menu.</string>
     <string name="gesture_help_settings">Open gesture settings</string>
     <string name="surface_prompt_title">Set up this 3D group: draw its shape</string>
     <string name="surface_prompt_body">Drag one line across the canvas. That line becomes the group\'s 3D surface. Your artwork is not changed.</string>

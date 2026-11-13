@@ -156,6 +156,8 @@ internal fun RailButton(
     onLongClick: (() -> Unit)? = null,
     testTag: String? = null,
     announceSelected: Boolean = true,
+    /** Gestures and semantics beyond the click (the wire-mesh button's depth drag), after the click so a drag cancels it. */
+    extra: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
@@ -173,6 +175,7 @@ internal fun RailButton(
                     onClick = onClick,
                 ),
             )
+            .then(extra)
             .semantics {
                 contentDescription = label
                 // A plain action (Reset view, Orbit) is never "selected": no "not selected" read out.

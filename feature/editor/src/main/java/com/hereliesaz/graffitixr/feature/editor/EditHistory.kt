@@ -411,8 +411,20 @@ private fun ArrayDeque<EditCommand>.discardAll(
     clear()
 }
 
-/** A layer's plane before and after view-plane adoption, undone and redone with its stroke. */
+/**
+ * A layer's plane before and after view-plane adoption, undone and redone with its stroke. [created] is set when
+ * the plane was a draw-plane depth's and the stroke went onto a new layer made for it: undo removes that layer
+ * with the stroke, redo puts it back, so creating the layer and drawing on it are one step.
+ */
 data class PlaneSwap(
     val before: com.hereliesaz.graffitixr.common.scene.PlanePose,
     val after: com.hereliesaz.graffitixr.common.scene.PlanePose,
+    val created: CreatedPlaneLayer? = null,
+)
+
+/** The layer a draw-plane depth made for a stroke: snapshot (no bitmap), place in the stack, what was active. */
+data class CreatedPlaneLayer(
+    val layer: Layer,
+    val index: Int,
+    val previousActiveId: String?,
 )
