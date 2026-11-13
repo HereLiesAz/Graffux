@@ -88,13 +88,11 @@ switching it off stops both.
   that branch; until it is removed that data may still be readable, and copies others made cannot be
   recalled. If you had contribution on before then, the App switches it off at the next launch and
   shows a notice; when you switch it on again it asks you to confirm you are 16 or older.
-- **Removal:** we cannot tell which files are yours. If you give us your device model and the
-  approximate dates you contributed, we will delete the stored files that match, and any private copy.
+- **Removal:** we cannot tell which files are yours. Email private requests to the developer contact email address shown on the App's Google Play listing (the Developer contact / Email entry)
+  with your device model and the approximate dates you contributed, and we will delete the stored files that match, and any private copy.
   Because we cannot check that a file is yours, we delete every file matching what you give us. Models
   already trained from the data are not retrained. **Do not post your device model or dates in a public
-  GitHub issue**, which would publish them. This policy does not yet list a private contact for such
-  requests (section 9 names only the project's public repository); until one is listed here, a private
-  removal request cannot be made through it.
+  GitHub issue**, which would publish them.
 
 ## 5. Permissions
 
@@ -157,4 +155,4 @@ We may update our Privacy Policy from time to time. We will post the new Privacy
 
 ## 9. Contact Us
 
-If you have any questions about this Privacy Policy, please contact the developer via the project's repository.
+If you have any questions about this Privacy Policy, please email the developer contact email address shown on the App's Google Play listing (the Developer contact / Email entry). The project's public repository, https://github.com/HereLiesAz/Graffux, is for non-private matters only: do not post personal details, device information or removal requests there.

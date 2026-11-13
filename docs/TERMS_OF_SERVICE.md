@@ -175,5 +175,5 @@ gives you.
 
 ## 15. Contact Us
 
-Questions about these Terms: please contact the developer via the project's repository,
-<https://github.com/HereLiesAz/Graffux>.
+Questions about these Terms, or anything private: please email the developer contact email address shown on the App's Google Play listing (the Developer contact / Email entry). The project's public repository,
+<https://github.com/HereLiesAz/Graffux>, is for non-private matters only: do not post personal details or device information there.
