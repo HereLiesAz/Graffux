@@ -80,6 +80,23 @@ was the reference), and the one finger stays free for the tool in hand.
   (it only tilts it). Zoom out, then pinch in at the part wanted. This needs the pinch to zoom about
   the midpoint between the fingers; it does (`onViewportPanZoom` keeps the point under the midpoint fixed).
 
+### Non-gesture alternatives (built)
+
+Both gesture-only actions have button twins on the tool rail, in a project with a 3D group only (a
+project with no 3D group is unchanged: it keeps the "Fit" button, shown only while the view is moved).
+They are 48dp rail buttons, so they are focusable by keyboard and TalkBack, and labelled from string
+resources (`rail_reset_view`, `rail_orbit_left/right/up/down`; `RailStrings`).
+
+- **Reset view** is always there in these projects and runs the double-tap's own path
+  (`EditorViewModel.resetViewport`): identity camera, zoom 1, no canvas rotation.
+- **Orbit view left / right / up / down** turn the view one fixed step of 15 degrees
+  (`ORBIT_STEP_RADIANS`, `orbitAnglesForStep`) with the signs of the matching drag (RIGHT is a drag to the right,
+  DOWN a drag down), through `EditorViewModel.onOrbitStep`: the same `onSceneOrbit`, so the same pivot
+  and pitch clamp as the gesture. Each step is saved at once and is never history.
+
+Not built: TalkBack custom actions on the canvas itself (the buttons cover the same ground).
+Not device-verified (TalkBack or keyboard); covered by `ViewControlTest` and `EditorViewModelTest` only.
+
 ### The default surface
 
 The first thing done with a new 3D group is to draw its surface. If the user chooses not to, the group

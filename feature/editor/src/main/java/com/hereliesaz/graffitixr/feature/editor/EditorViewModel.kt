@@ -15,6 +15,8 @@ import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.ViewTapTracker
 import com.hereliesaz.graffitixr.common.scene.hasThreeDGroup
 import com.hereliesaz.graffitixr.common.scene.orbitAnglesForDrag
+import com.hereliesaz.graffitixr.common.scene.OrbitStep
+import com.hereliesaz.graffitixr.common.scene.orbitAnglesForStep
 import com.hereliesaz.graffitixr.common.scene.twoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.planePose
 
@@ -13602,6 +13604,18 @@ class EditorViewModel @Inject constructor(
                 },
             )
         }
+    }
+
+    /**
+     * One fixed orbit step ([OrbitStep]) for the buttons that stand in for the two-finger drag. Only in a
+     * project with a 3D group; elsewhere it does nothing. Same pivot and pitch clamp as the gesture, and
+     * saved at once like the gesture's end (never history).
+     */
+    fun onOrbitStep(step: OrbitStep) {
+        if (!hasThreeDGroup(_uiState.value.layers)) return
+        val (yaw, pitch) = orbitAnglesForStep(step)
+        onSceneOrbit(yaw, pitch)
+        onSceneCameraSettled()
     }
 
     /** A camera gesture ended: the view is part of the project, so it is saved (never history). */

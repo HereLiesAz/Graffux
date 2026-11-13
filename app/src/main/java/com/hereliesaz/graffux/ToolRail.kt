@@ -76,6 +76,8 @@ internal interface ToolRailActions {
     fun onAxisSlotTapped() = Unit
     /** The wire-mesh toggle: shows or hides the active group's surface mesh (view state). */
     fun onToggleSurfaceGrid() = Unit
+    /** One fixed orbit step of the view, the non-gesture stand-in for the two-finger drag (3D-group projects). */
+    fun onOrbitStep(step: com.hereliesaz.graffitixr.common.scene.OrbitStep) = Unit
 }
 
 /** [ToolRailActions] on the real view-model. */
@@ -89,6 +91,8 @@ internal fun EditorViewModel.toolRailActions(): ToolRailActions = object : ToolR
     override fun setBrushFeathering(feathering: Float) = this@toolRailActions.setBrushFeathering(feathering)
     override fun onAxisSlotTapped() = this@toolRailActions.onAxisSlotTapped()
     override fun onToggleSurfaceGrid() = this@toolRailActions.onToggleSurfaceGrid()
+    override fun onOrbitStep(step: com.hereliesaz.graffitixr.common.scene.OrbitStep) =
+        this@toolRailActions.onOrbitStep(step)
 }
 
 /** What the tool rail asks of the screen around it. */
@@ -285,8 +289,12 @@ internal fun ToolRail(
             uiState.viewportRotation != 0f ||
             // A twist on X or Y orbits the 3D camera (spec/3d-space.md); Fit puts it back too.
             !uiState.sceneCamera.isDefault
-        // Only there while there is something to reset.
-        if (viewMoved) {
+        if (com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)) {
+            // A 3D-group project: the double-tap reset and the two-finger orbit have button twins, always
+            // there (spec/3d-space.md, "Non-gesture alternatives"), so neither needs a gesture.
+            ViewControlButtons(vm)
+        } else if (viewMoved) {
+            // Only there while there is something to reset.
             RailButton(label = "Fit the canvas to the screen", testTag = "rail.view.fit", onClick = { vm.resetViewport() }) {
                 RailGlyph(GraffuxIcons.ZoomFit)
             }

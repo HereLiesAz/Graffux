@@ -71,4 +71,23 @@ class ViewControlTest {
         assertFalse("too slow", t.onTap(20f, 20f, 900L))
         assertFalse("too far", t.onTap(500f, 500f, 1000L))
     }
+
+    @Test
+    fun `an orbit step has the signs of the matching drag and a fixed size`() {
+        val (dyaw, _) = orbitAnglesForDrag(1f, 0f, 1000f)
+        val (_, dpitch) = orbitAnglesForDrag(0f, 1f, 1000f)
+        assertEquals(Pair(ORBIT_STEP_RADIANS, 0f), orbitAnglesForStep(OrbitStep.RIGHT))
+        assertEquals(Pair(-ORBIT_STEP_RADIANS, 0f), orbitAnglesForStep(OrbitStep.LEFT))
+        assertEquals(Pair(0f, ORBIT_STEP_RADIANS), orbitAnglesForStep(OrbitStep.DOWN))
+        assertEquals(Pair(0f, -ORBIT_STEP_RADIANS), orbitAnglesForStep(OrbitStep.UP))
+        assertTrue(dyaw > 0f && dpitch > 0f)
+        assertEquals(15.0, Math.toDegrees(ORBIT_STEP_RADIANS.toDouble()), 1e-4)
+    }
+
+    @Test
+    fun `repeated pitch steps stop at the same clamp as a long drag`() {
+        var cam = SceneCamera()
+        repeat(100) { val (y, p) = orbitAnglesForStep(OrbitStep.DOWN); cam = cam.orbit(y, p) }
+        assertEquals(SceneCamera.MAX_PITCH, cam.pitch, 0f)
+    }
 }

@@ -271,7 +271,7 @@ internal fun RailGlyph(icon: ImageVector, active: Boolean = false) {
     )
 }
 
-private val RailGlyphSize = 22.dp
+internal val RailGlyphSize = 22.dp
 
 private const val ACTIVE_FILL_ALPHA = 0.22f
 private const val DISABLED_ALPHA = 0.3f
