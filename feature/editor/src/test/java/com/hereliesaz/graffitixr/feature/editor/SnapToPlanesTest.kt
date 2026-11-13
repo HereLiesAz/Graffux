@@ -33,6 +33,7 @@ import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import kotlinx.coroutines.launch
@@ -58,6 +59,12 @@ class SnapToPlanesTest {
 
     @Suppress("EXPERIMENTAL_API_USAGE")
     private val dispatcher = StandardTestDispatcher()
+
+    /** The default dispatcher the view-model sees: the main one, unless a test splits it off to hold work back. */
+    private var splitDefault: kotlinx.coroutines.test.TestDispatcher? = null
+
+    /** "Lands exactly": a relative error of a millionth, float rounding only. */
+    private val exactly = 1e-6f
     private lateinit var vm: EditorViewModel
     private val projectFlow = MutableStateFlow<com.hereliesaz.graffitixr.common.model.GraffitiProject?>(null)
     private val projectRepo = mockk<ProjectRepository>(relaxed = true)
@@ -97,7 +104,7 @@ class SnapToPlanesTest {
         val dispatchers = object : DispatcherProvider {
             override val main = dispatcher
             override val io = dispatcher
-            override val default = dispatcher
+            override val default get() = splitDefault ?: dispatcher
             override val unconfined = dispatcher
         }
 
@@ -153,6 +160,14 @@ class SnapToPlanesTest {
 
     private fun ui() = vm.uiState.value
 
+    private fun setVisible(id: String, visible: Boolean) = vm.dispatchForTest(
+        EditorIntent.SetLayers(ui().layers.map { if (it.id == id) it.copy(isVisible = visible) else it }),
+    )
+
+    private fun edit(id: String, change: (Layer) -> Layer) = vm.dispatchForTest(
+        EditorIntent.SetLayers(ui().layers.map { if (it.id == id) change(it) else it }),
+    )
+
     /** A stroke on L, then a second stroked plane M nearer than it (a draw-plane stroke), M active. */
     private fun twoStrokedPlanes(): String {
         setup()
@@ -167,11 +182,13 @@ class SnapToPlanesTest {
     }
 
     /** Where L's plane is along the draw plane's axis now, from the pure function the view-model uses. */
-    private fun depthOfL(): Float {
+    private fun depthOfL(): Float = depthOf("L")
+
+    private fun depthOf(id: String): Float {
         val s = ui()
         val cam = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(s.sceneCamera, 48f, 48f)
         val model = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(
-            com.hereliesaz.graffitixr.common.scene.planeChain(s.layers, "L"), 48f, 48f,
+            com.hereliesaz.graffitixr.common.scene.planeChain(s.layers, id), 48f, 48f,
         )
         return com.hereliesaz.graffitixr.common.scene.PlaneSnap.planeDepth(
             vm.drawPlaneReference(), cam, vm.orbitPivot(), model.apply(24f, 24f, 0f),
@@ -188,7 +205,8 @@ class SnapToPlanesTest {
     }
 
     @Test
-    fun `dragging to a stroked plane's depth lands exactly on it, and touches no stroke or layer`() = runTest(dispatcher) {
+    fun `dragging to a stroked plane's depth lands exactly on it, and touches no stroke or layer`() =
+        runTest(dispatcher) {
         val made = twoStrokedPlanes()
         val dL = depthOfL()
         val layersBefore = ui().layers
@@ -198,10 +216,10 @@ class SnapToPlanesTest {
         val camera = ui().sceneCamera
         vm.onDrawDepthDragStart()
         dragRawTo(dL * 1.04f)
-        assertEquals(dL, vm.effectiveDrawDepth()!!, dL * 1e-3f)
+        assertEquals(dL, vm.effectiveDrawDepth()!!, dL * exactly)
         assertEquals("L", ui().snapPlaneLayerId)
         vm.onDrawDepthDragEnd()
-        assertEquals("released on the snap: still exactly there", dL, vm.effectiveDrawDepth()!!, dL * 1e-3f)
+        assertEquals("released on the snap: still exactly there", dL, vm.effectiveDrawDepth()!!, dL * exactly)
         assertEquals(layersBefore, ui().layers)
         assertEquals(strokesL, vm.recordedStrokesForTest("L"))
         assertEquals(strokesM, vm.recordedStrokesForTest(made))
@@ -210,7 +228,8 @@ class SnapToPlanesTest {
     }
 
     @Test
-    fun `outside the capture range there is no snap, and leaving it is smooth and has no memory`() = runTest(dispatcher) {
+    fun `outside the capture range there is no snap, and leaving it is smooth and has no memory`() =
+        runTest(dispatcher) {
         twoStrokedPlanes()
         val dL = depthOfL()
         vm.onDrawDepthDragStart()
@@ -218,10 +237,10 @@ class SnapToPlanesTest {
         assertEquals(dL * 1.2f, vm.effectiveDrawDepth()!!, dL * 1e-3f)
         assertNull(ui().snapPlaneLayerId)
         dragRawTo(dL * 1.03f)
-        assertEquals(dL, vm.effectiveDrawDepth()!!, dL * 1e-3f)
+        assertEquals(dL, vm.effectiveDrawDepth()!!, dL * exactly)
         // Held while the raw drag is in range: 4 percent, then 5 percent, still on it.
         dragRawTo(dL * 1.05f)
-        assertEquals(dL, vm.effectiveDrawDepth()!!, dL * 1e-3f)
+        assertEquals(dL, vm.effectiveDrawDepth()!!, dL * exactly)
         // Past the range the depth is the raw one again, not where the snap was: no sticking.
         dragRawTo(dL * 1.09f)
         assertEquals("raw " + dL * 1.09f, dL * 1.09f, vm.effectiveDrawDepth()!!, dL * 3e-3f)
@@ -236,8 +255,9 @@ class SnapToPlanesTest {
             val dL = depthOfL()
             vm.onDrawDepthDragStart()
             dragRawTo(dL * 1.05f)
-            assertEquals(dL, vm.effectiveDrawDepth()!!, dL * 1e-3f)
-            // 3 percent farther in raw terms is outside the range (1.05 * 1.03 > 1.06) even though the plane sits at 1.00.
+            assertEquals(dL, vm.effectiveDrawDepth()!!, dL * exactly)
+            // 3 percent farther in raw terms is outside the range (1.05 * 1.03 > 1.06)
+            // even though the plane sits at 1.00.
             vm.onDrawDepthDrag(400f * kotlin.math.ln(1.03f) / kotlin.math.ln(4f))
             assertEquals(dL * 1.05f * 1.03f, vm.effectiveDrawDepth()!!, dL * 3e-3f)
             vm.onDrawDepthDragEnd()
@@ -277,7 +297,7 @@ class SnapToPlanesTest {
     fun `a hidden layer is not a candidate`() = runTest(dispatcher) {
         twoStrokedPlanes()
         val dL = depthOfL()
-        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.map { if (it.id == "L") it.copy(isVisible = false) else it }))
+        setVisible("L", false)
         vm.onDrawDepthDragStart()
         dragRawTo(dL * 1.03f)
         assertEquals(dL * 1.03f, vm.effectiveDrawDepth()!!, dL * 1e-3f)
@@ -310,7 +330,8 @@ class SnapToPlanesTest {
     }
 
     @Test
-    fun `a snapped depth lapses with the camera like any other, and a capture announces itself`() = runTest(dispatcher) {
+    fun `a snapped depth lapses with the camera like any other, and a capture announces itself`() =
+        runTest(dispatcher) {
         twoStrokedPlanes()
         val dL = depthOfL()
         val ticks = mutableListOf<Unit>()
@@ -405,7 +426,7 @@ class SnapToPlanesTest {
         assertEquals(0.07f, ui().sceneCamera.yaw, 2e-3f)
         vm.onTwoFingerEnd()
         vm.onSetSnapToPlanes(true)
-        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers.map { if (it.id == "L") it.copy(isVisible = false) else it }))
+        setVisible("L", false)
         vm.onTwoFingerStart()
         drag(pixelsFor(-0.03f))
         assertEquals(0.04f, ui().sceneCamera.yaw, 2e-3f)
@@ -447,4 +468,184 @@ class SnapToPlanesTest {
             vm.onUndoClicked()
             assertEquals("undo leaves the snapped view alone", camera, ui().sceneCamera)
         }
+
+    // ---- the off-thread pixel scan ----
+
+    private fun setupWithPaintedLayer() {
+        setup()
+        val painted = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.RED)
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "P", name = "Painted", bitmap = painted)))
+        dispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `the pixel scan of a painted layer runs off the main thread, and the snap arrives when it lands`() =
+        runTest(dispatcher) {
+            setupWithPaintedLayer()
+            val scans = kotlinx.coroutines.test.StandardTestDispatcher()
+            splitDefault = scans
+            val dP = depthOf("P")
+            vm.onDrawDepthDragStart()
+            dragRawTo(dP * 1.03f)
+            assertNull("the first frame never waits for the scan", ui().snapPlaneLayerId)
+            assertEquals(dP * 1.03f, vm.effectiveDrawDepth()!!, dP * 1e-3f)
+            dragRawTo(dP * 1.02f)
+            assertNull("still no result: still no snap, and still not blocked", ui().snapPlaneLayerId)
+            scans.scheduler.advanceUntilIdle()
+            dispatcher.scheduler.advanceUntilIdle()
+            dragRawTo(dP * 1.03f)
+            assertEquals("P", ui().snapPlaneLayerId)
+            assertEquals(dP, vm.effectiveDrawDepth()!!, dP * exactly)
+            vm.onDrawDepthDragEnd()
+        }
+
+    @Test
+    fun `an empty layer with no art is scanned once and never becomes a candidate`() = runTest(dispatcher) {
+        setup()
+        val empty = RenderTestBase.filled(canvasSize.width, canvasSize.height, Color.TRANSPARENT)
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "E", name = "Empty", bitmap = empty)))
+        val scans = kotlinx.coroutines.test.StandardTestDispatcher()
+        splitDefault = scans
+        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
+        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
+        scans.scheduler.advanceUntilIdle()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.strokedPlanes()!!.ids.isEmpty())
+    }
+
+    // ---- the plane cache ----
+
+    @Test
+    fun `the plane cache is reused until a stroke, an undo, a visibility or a lock change`() = runTest(dispatcher) {
+        setup()
+        val none = vm.strokedPlanes()!!
+        assertTrue(none.ids.isEmpty())
+        assertSame(none, vm.strokedPlanes())
+        stroke()
+        val one = vm.strokedPlanes()!!
+        assertNotSame("a stroke invalidates", none, one)
+        assertEquals(listOf("L"), one.ids)
+        assertSame(one, vm.strokedPlanes())
+        setVisible("L", false)
+        val hidden = vm.strokedPlanes()!!
+        assertNotSame("visibility invalidates", one, hidden)
+        assertTrue(hidden.ids.isEmpty())
+        setVisible("L", true)
+        val shown = vm.strokedPlanes()!!
+        assertEquals(listOf("L"), shown.ids)
+        edit("L") { it.copy(isImageLocked = true) }
+        val locked = vm.strokedPlanes()!!
+        assertNotSame("a lock change replaces the layer list, so the cache is rebuilt", shown, locked)
+        assertEquals(listOf("L"), locked.ids)
+        vm.onUndoClicked()
+        val undone = vm.strokedPlanes()!!
+        assertNotSame("undo invalidates", locked, undone)
+        assertTrue(undone.ids.isEmpty())
+    }
+
+    @Test
+    fun `a layer with art stays a candidate after its strokes are baked into the base`() = runTest(dispatcher) {
+        setup()
+        stroke()
+        assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
+        vm.bakeOldestStrokeForTest("L")
+        assertEquals(0, vm.recordedStrokesForTest("L").size)
+        assertEquals(listOf("L"), vm.strokedPlanes()!!.ids)
+    }
+
+    // ---- orbit: tilted planes ----
+
+    /** The unit normal of [id]'s plane and the face-on camera angles nearest the home view (+z side). */
+    private fun faceOn(id: String): Triple<FloatArray, Float, Float> {
+        val s = ui()
+        val model = com.hereliesaz.graffitixr.common.scene.SceneMath.chainModel(
+            com.hereliesaz.graffitixr.common.scene.planeChain(s.layers, id), 48f, 48f,
+        )
+        val n = com.hereliesaz.graffitixr.common.scene.SceneMath.normalize(
+            com.hereliesaz.graffitixr.common.scene.SceneMath.cross(model.column(0), model.column(1)),
+        )
+        val dir = if (n[2] >= 0f) n else FloatArray(3) { -n[it] }
+        return Triple(n, kotlin.math.asin(dir[1]), kotlin.math.atan2(dir[0], dir[2]))
+    }
+
+    private fun facing(n: FloatArray): Float {
+        val c = ui().sceneCamera
+        val f = com.hereliesaz.graffitixr.common.scene.PlaneSnap.forwardOf(c.yaw, c.pitch)
+        return kotlin.math.abs(com.hereliesaz.graffitixr.common.scene.SceneMath.dot(f, n))
+    }
+
+    private fun tiltAndApproach(rotationX: Float, rotationY: Float) {
+        setup()
+        stroke()
+        edit("L") { it.copy(rotationX = rotationX, rotationY = rotationY) }
+        val (_, pitch, yaw) = faceOn("L")
+        // Put the view about two degrees off that face-on view (not through a snap), then nudge it with a drag.
+        vm.setSceneCameraForTest(
+            com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = yaw + 0.03f, pitch = pitch - 0.02f),
+        )
+    }
+
+    @Test
+    fun `a tilted plane snaps to exactly face-on at a pitch that is not zero`() = runTest(dispatcher) {
+        tiltAndApproach(rotationX = 20f, rotationY = 0f)
+        val (n, pitch, yaw) = faceOn("L")
+        assertTrue("the plane really is tilted", kotlin.math.abs(pitch) > 0.3f)
+        vm.onTwoFingerStart()
+        drag(pixelsFor(0.01f))
+        assertEquals("L", ui().snapPlaneLayerId)
+        assertEquals(pitch, ui().sceneCamera.pitch, 1e-4f)
+        assertEquals(yaw, ui().sceneCamera.yaw, 1e-4f)
+        assertEquals(1f, facing(n), 1e-5f)
+        vm.onTwoFingerEnd()
+        assertEquals(1f, facing(n), 1e-5f)
+    }
+
+    @Test
+    fun `a plane turned away, with its normal pointing from the viewer, snaps to the nearer face-on view`() =
+        runTest(dispatcher) {
+            tiltAndApproach(rotationX = 0f, rotationY = 180f)
+            val (n, _, yaw) = faceOn("L")
+            assertTrue("the normal points away from +z", n[2] < 0f)
+            vm.onTwoFingerStart()
+            drag(pixelsFor(0.01f))
+            assertEquals("L", ui().snapPlaneLayerId)
+            assertEquals(yaw, ui().sceneCamera.yaw, 1e-4f)
+            assertEquals(1f, facing(n), 1e-5f)
+            vm.onTwoFingerEnd()
+        }
+
+    @Test
+    fun `a plane whose face-on view the pitch limit forbids is not offered by the orbit`() = runTest(dispatcher) {
+        setup()
+        stroke()
+        edit("L") { it.copy(rotationX = 89.5f) }
+        // 1.5 rad is inside the pitch limit (1.5533) and about 3.5 degrees from that plane's face-on view.
+        vm.setSceneCameraForTest(com.hereliesaz.graffitixr.common.scene.SceneCamera(yaw = 0f, pitch = 1.5f))
+        vm.onTwoFingerStart()
+        drag(pixelsFor(0.005f))
+        assertNull(ui().snapPlaneLayerId)
+        assertTrue(ui().sceneCamera.pitch <= com.hereliesaz.graffitixr.common.scene.SceneCamera.MAX_PITCH)
+        assertTrue("the raw view is untouched", ui().sceneCamera.pitch > 1.49f)
+        vm.onTwoFingerEnd()
+    }
+
+    @Test
+    fun `a snapped orbit keeps the orbit point where it is on the screen`() = runTest(dispatcher) {
+        orbitSetup()
+        fun pivotOnScreen(): Pair<Float, Float> {
+            val cam = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(ui().sceneCamera, 48f, 48f)
+            return cam.project(vm.orbitPivot()!!)!!
+        }
+        val before = pivotOnScreen()
+        vm.onTwoFingerStart()
+        drag(pixelsFor(-0.13f))
+        assertEquals("L", ui().snapPlaneLayerId)
+        val after = pivotOnScreen()
+        assertEquals(before.first, after.first, 1e-2f)
+        assertEquals(before.second, after.second, 1e-2f)
+        vm.onTwoFingerEnd()
+        val released = pivotOnScreen()
+        assertEquals(before.first, released.first, 1e-2f)
+        assertEquals(before.second, released.second, 1e-2f)
+    }
 }

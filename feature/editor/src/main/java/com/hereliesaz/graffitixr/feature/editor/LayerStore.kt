@@ -21,6 +21,9 @@ import java.util.concurrent.ConcurrentHashMap
 internal class LayerStore {
     private val baseBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val layerStrokes = ConcurrentHashMap<String, MutableList<StrokeCommand>>()
+
+    /** Layers whose oldest strokes were folded into the base this session: they did carry strokes. */
+    private val bakedStrokes: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val heightBases = ConcurrentHashMap<String, FloatArray>()
     private val wetnessBases = ConcurrentHashMap<String, WetnessReplayState>()
     private val liveWetness = ConcurrentHashMap<String, WetnessReplayState>()
@@ -277,6 +280,7 @@ internal class LayerStore {
     /** Resets [layerId]'s stroke list to empty and makes live material state re-derive from bases. */
     fun initStrokes(layerId: String) {
         layerStrokes[layerId] = mutableListOf()
+        bakedStrokes.remove(layerId)
         liveWetness.remove(layerId)
         liveImpastoMaterial.remove(layerId)
         contentChanged?.invoke(layerId)
@@ -358,14 +362,19 @@ internal class LayerStore {
             if (take <= 0) return@synchronized emptyList()
             val taken = ArrayList<StrokeCommand>(take)
             repeat(take) { taken.add(list.removeAt(0)) }
+            bakedStrokes.add(layerId)
             taken
         }
     }
+
+    /** Whether strokes of [layerId] were baked into its base this session (they can no longer be counted or undone). */
+    fun hasBakedStrokes(layerId: String): Boolean = layerId in bakedStrokes
 
     /** Drops all caches for [layerId]. */
     fun remove(layerId: String) {
         baseBitmaps.remove(layerId)
         layerStrokes.remove(layerId)
+        bakedStrokes.remove(layerId)
         heightBases.remove(layerId)
         wetnessBases.remove(layerId)
         liveWetness.remove(layerId)
@@ -378,6 +387,7 @@ internal class LayerStore {
     fun clear() {
         baseBitmaps.clear()
         layerStrokes.clear()
+        bakedStrokes.clear()
         heightBases.clear()
         wetnessBases.clear()
         liveWetness.clear()
@@ -390,6 +400,7 @@ internal class LayerStore {
     fun retainOnly(liveIds: Set<String>) {
         baseBitmaps.keys.retainAll(liveIds)
         layerStrokes.keys.retainAll(liveIds)
+        bakedStrokes.retainAll(liveIds)
         heightBases.keys.retainAll(liveIds)
         wetnessBases.keys.retainAll(liveIds)
         liveWetness.keys.retainAll(liveIds)

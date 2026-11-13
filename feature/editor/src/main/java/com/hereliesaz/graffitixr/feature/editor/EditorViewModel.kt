@@ -860,6 +860,9 @@ class EditorViewModel @Inject constructor(
     /** The last pixel scan of a layer's bitmap per layer: (bitmap, its generation, whether it holds paint). */
     private val paintScans = HashMap<String, Triple<Bitmap, Int, Boolean>>()
 
+    /** Layers whose bitmap is being scanned off the main thread now, so a gesture frame never scans or scans twice. */
+    private val scanning = HashSet<String>()
+
     /** The depth drag's own (unsnapped) depth and the depth last written for it: the snap never feeds back into it. */
     private var rawDrawDepth: Pair<Float, Float>? = null
 
@@ -6702,6 +6705,12 @@ class EditorViewModel @Inject constructor(
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
+
+    /** Marks [layerId]'s oldest stroke as baked, as the periodic bake does (the pixels are not touched). */
+    @androidx.annotation.VisibleForTesting
+    internal fun bakeOldestStrokeForTest(layerId: String) {
+        layerStore.takeOldestStrokes(layerId, 1)
+    }
 
     /** The job currently registered in [textRasterizeJobs] for [layerId], if any -- see its own doc. */
     @androidx.annotation.VisibleForTesting
@@ -13957,6 +13966,7 @@ class EditorViewModel @Inject constructor(
         snapHighlightJob?.cancel()
         planesCache = null
         paintScans.clear()
+        scanning.clear()
         rawDrawDepth = null
         orbitRaw = null
         orbitShown = null
@@ -14171,7 +14181,9 @@ class EditorViewModel @Inject constructor(
     internal fun strokedPlanes(state: EditorUiState = _uiState.value): StrokedPlanes? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
-        val stamp = StrokedPlanes.stampOf(state.layers) { layerStore.strokeCount(it) }
+        val stamp = StrokedPlanes.stampOf(state.layers) {
+            layerStore.strokeCount(it) * 2 + if (layerStore.hasBakedStrokes(it)) 1 else 0
+        }
         planesCache?.takeIf { it.layers === state.layers && it.size == size && it.stamp == stamp }?.let { return it }
         val w = size.width.toFloat()
         val h = size.height.toFloat()
@@ -14195,7 +14207,8 @@ class EditorViewModel @Inject constructor(
     /** A visible paint layer with brush strokes: recorded this session, or paint in its own pixels (no art). */
     private fun isStrokedPaint(state: EditorUiState, layer: Layer, byId: Map<String, Layer>): Boolean =
         drawDepthRefusal(state, layer) == null && isShown(layer, byId) &&
-            (layerStore.strokeCount(layer.id) > 0 || (layer.uri == null && hasPaintedPixels(layer)))
+            (layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id) ||
+                (layer.uri == null && hasPaintedPixels(layer)))
 
     /** [layer] and every group above it are visible. */
     private fun isShown(layer: Layer, byId: Map<String, Layer>): Boolean {
@@ -14208,15 +14221,28 @@ class EditorViewModel @Inject constructor(
         return true
     }
 
-    /** Whether [layer]'s own bitmap holds paint: one alpha scan per bitmap generation, kept in [paintScans]. */
+    /**
+     * Whether [layer]'s own bitmap holds paint, as last scanned. The scan is a full pass over the bitmap, so it never
+     * runs here (a gesture frame, on the main thread): a bitmap not scanned yet counts as unpainted and is scanned on
+     * the default dispatcher ([scanForPaint]), after which the planes are rebuilt and the snap becomes available.
+     */
     private fun hasPaintedPixels(layer: Layer): Boolean {
         val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
         val known = paintScans[layer.id]?.takeIf { it.first === bitmap && it.second == bitmap?.generationId }
-        return when {
-            bitmap == null -> false
-            known != null -> known.third
-            else -> runCatching { !ArtScan.isEmpty(bitmap) }.getOrDefault(false)
-                .also { paintScans[layer.id] = Triple(bitmap, bitmap.generationId, it) }
+        if (bitmap != null && known == null) scanForPaint(layer.id, bitmap)
+        return known?.third ?: false
+    }
+
+    private fun scanForPaint(layerId: String, bitmap: Bitmap) {
+        if (!scanning.add(layerId)) return
+        val generation = bitmap.generationId
+        viewModelScope.launch(dispatchers.default) {
+            val painted = runCatching { !ArtScan.isEmpty(bitmap) }.getOrDefault(false)
+            withContext(dispatchers.main) {
+                scanning.remove(layerId)
+                paintScans[layerId] = Triple(bitmap, generation, painted)
+                planesCache = null
+            }
         }
     }
 
