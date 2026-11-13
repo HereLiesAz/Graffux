@@ -169,7 +169,7 @@
     <string name="surface_no_layer">No layer is selected. Tap a layer on the rail, then tap 3D.</string>
     <string name="surface_locked">This layer is locked. Unlock it, then tap 3D.</string>
     <string name="surface_unavailable">This layer can\'t have a 3D surface. Pick another layer, then tap 3D.</string>
-    <string name="surface_has_art">A flat sheet is only for an empty layer. To use this layer, draw its shape instead.</string>
+    <string name="surface_has_art">A flat sheet cannot be sized to this layer: it has text, shapes or a warp, is tilted in 3D, or sits in a group that holds art. Draw its shape instead.</string>
     <string name="surface_too_short">That line was too short. Drag a longer line across the canvas.</string>
     <string name="surface_slot_armed">Draw</string>
     <string name="surface_slot_armed_state">Setting up the 3D group</string>

@@ -10,6 +10,9 @@ import com.hereliesaz.graffitixr.common.scene.SceneGltfExporter
 import com.hereliesaz.graffitixr.common.scene.planeChain
 import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_MS
 import com.hereliesaz.graffitixr.common.scene.FALLBACK_DOUBLE_TAP_SLOP_PX
+import com.hereliesaz.graffitixr.common.scene.ArtBounds
+import com.hereliesaz.graffitixr.common.scene.ArtSheet
+import com.hereliesaz.graffitixr.common.scene.ArtSheetPlan
 import com.hereliesaz.graffitixr.common.scene.OrbitPivot
 import com.hereliesaz.graffitixr.common.scene.TwoFingerViewMode
 import com.hereliesaz.graffitixr.common.scene.ViewTapTracker
@@ -2803,6 +2806,7 @@ class EditorViewModel @Inject constructor(
     override fun onUndoClicked() {
         if (_uiState.value.undoCount > 0) showHud("Undo")
         undoTop()
+        syncArtSheetPivot()
     }
 
     /**
@@ -2899,6 +2903,7 @@ class EditorViewModel @Inject constructor(
         do {
             val again = redoOne()
         } while (again && history.redoTopIsDraw())
+        syncArtSheetPivot()
     }
 
     @Suppress("ReturnCount")
@@ -13993,35 +13998,54 @@ class EditorViewModel @Inject constructor(
         )
     }
 
+    /** What "Use a flat sheet" would make for the armed surface (spec/3d-space.md, "The art-sized sheet"). */
+    private sealed interface FlatSheet {
+        /** An empty layer or group: the predefined 3/4 x 2/3 sheet. */
+        data object Default : FlatSheet
+
+        /** A layer with art: a sheet the size of the art, and the orbit point behind it. */
+        data class Art(val plan: ArtSheetPlan) : FlatSheet
+
+        /** The sheet would displace or crop the content (text, shapes, a warp, a tilt in 3D, a group with art). */
+        data object Refused : FlatSheet
+    }
+
     /**
-     * "Use a flat sheet" on the armed "Draw surface" chip (spec/3d-space.md, "The default surface"): the user
-     * chose not to draw. The armed group (or the group made around the layer to be wrapped) gets
-     * [com.hereliesaz.graffitixr.common.scene.DefaultSurface] as its surface, in the same single undo step a
-     * captured line makes. Only offered for the front view of a group that has no surface yet.
+     * "Use a flat sheet" on the armed "Draw surface" chip (spec/3d-space.md, "The default surface" and "The art-sized
+     * sheet"): the user chose not to draw. The armed group (or the group made around the layer to be wrapped) gets a
+     * flat sheet as its surface, in the same single undo step a captured line makes: the predefined sheet for an empty
+     * layer or group, the size of the art for a layer with art. Only offered for the front view of a group that has
+     * no surface yet.
      */
     fun onSkipSurfaceDraw() {
         val st = _uiState.value
         if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
-        // The art check scans pixels: off the main thread. It answers for the layers and the arming it saw, so the
+        // The scan reads pixels: off the main thread. It answers for the layers, canvas and arming it saw, so the
         // sheet is made only if all of that is still the same on main when it answers (a cancel and re-arm on another
         // layer, or art arriving by undo or paste, drops the tap: the user taps again).
         val layers = st.layers
+        val size = st.canvasSize
         val groupId = st.surfaceDrawGroupId
         val wrapId = st.surfaceDrawWrapLayerId
         viewModelScope.launch {
-            val allowed = canSkipSurfaceDrawOffMain()
+            val sheet = planFlatSheetOffMain()
             val now = _uiState.value
-            val same = now.surfaceDrawArmed && now.surfaceDrawView == SurfaceView.FRONT &&
+            val same = now.surfaceDrawArmed && now.surfaceDrawView == SurfaceView.FRONT && now.canvasSize == size &&
                 now.layers === layers && now.surfaceDrawGroupId == groupId && now.surfaceDrawWrapLayerId == wrapId
             if (!same) return@launch
-            if (allowed) applySkipSurfaceDraw() else showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
+            if (sheet == FlatSheet.Refused) {
+                showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
+            } else {
+                applySkipSurfaceDraw(sheet)
+            }
         }
     }
 
     @Suppress("ReturnCount")
-    private fun applySkipSurfaceDraw() {
+    private fun applySkipSurfaceDraw(sheet: FlatSheet) {
         val st = _uiState.value
         val wrapId = st.surfaceDrawWrapLayerId
+        val art = (sheet as? FlatSheet.Art)?.plan
         val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
         val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
         val groupId = newGroup?.id ?: st.surfaceDrawGroupId ?: return
@@ -14029,14 +14053,14 @@ class EditorViewModel @Inject constructor(
         val sw = st.canvasSize.width.toFloat()
         val sh = st.canvasSize.height.toFloat()
         // Sized and centred from what the user sees: the middle of the screen in world units, at the view's zoom.
-        // (The view's twist is not applied to the sheet's size: it stays axis-aligned in world units.)
+        // (The view's twist is not applied to the sheet's size: it stays axis-aligned in world units.) A layer's
+        // art sets its own rectangle instead: where the art is seen now.
         val mid = CanvasHitTest.screenToWorld(
             Offset(sw / 2f, sh / 2f), st.viewportOffset, st.viewportZoom, st.viewportRotation,
         )
-        val sheet = com.hereliesaz.graffitixr.common.scene.DefaultSurface
-        val profile = sheet.profile(
-            sheet.rect(sw, sh, st.viewportZoom, mid.x, mid.y), sw, sh, planeChain(layers, groupId),
-        )
+        val sheetMath = com.hereliesaz.graffitixr.common.scene.DefaultSurface
+        val rect = art?.rect ?: sheetMath.rect(sw, sh, st.viewportZoom, mid.x, mid.y)
+        val profile = sheetMath.profile(rect, sw, sh, planeChain(layers, groupId))
         if (profile == null) {
             showSurfaceNotice(SurfaceDrawNotice.UNAVAILABLE)
             return
@@ -14046,70 +14070,161 @@ class EditorViewModel @Inject constructor(
             updateUi { it.disarmedSurface() }
             setSurface(groupId, profile)
         } else {
-            commitWrappedSurface(wrapId, newGroup, profile)
+            commitWrappedSurface(wrapId, newGroup, profile, art)
         }
         showSurfaceNotice(SurfaceDrawNotice.DONE)
     }
 
     /**
      * Whether "Use a flat sheet" may be offered for the armed surface: the front view of a group with no surface
-     * yet, and only when it cannot displace or crop art (the sheet places paint from its top-left corner until a
-     * windowed profile exists, spec/3d-space.md "The default surface"): the layer to be wrapped is an empty paint
-     * layer ([isEmptyPaintLayer], the view-plane adoption's definition), or the armed group holds no layer with
-     * art. Scans pixels, so ask when arming changes, not every frame. A recycled or changed bitmap (it can be swapped
-     * under an off-main scan) means "cannot tell": false. Other failures are not swallowed.
+     * yet, and only when the sheet cannot displace or crop what is there (see [planFlatSheetUnchecked]). Scans
+     * pixels, so ask when arming changes, not every frame. A recycled or changed bitmap (it can be swapped under an
+     * off-main scan) means "cannot tell": false. Other failures are not swallowed.
      */
-    fun canSkipSurfaceDraw(): Boolean = try {
-        canSkipSurfaceDrawUnchecked()
+    fun canSkipSurfaceDraw(): Boolean = planFlatSheet() != FlatSheet.Refused
+
+    private fun planFlatSheet(): FlatSheet = try {
+        planFlatSheetUnchecked()
     } catch (_: IllegalStateException) {
-        false // a recycled bitmap
+        FlatSheet.Refused // a recycled bitmap
     } catch (_: IllegalArgumentException) {
-        false // a bitmap changed under the scan
+        FlatSheet.Refused // a bitmap changed under the scan
     }
 
     /**
      * The scan can run off the main thread while undo swaps or recycles a layer's bitmap; reading a recycled bitmap
-     * throws IllegalStateException (or IllegalArgumentException if it changed size), which [canSkipSurfaceDraw]
+     * throws IllegalStateException (or IllegalArgumentException if it changed size), which [planFlatSheet]
      * turns into "cannot tell": Skip stays hidden, nothing crashes.
+     *
+     * A layer to be wrapped: an empty paint layer ([isEmptyPaintLayer]) or one whose paint is all transparent gets the
+     * predefined sheet; a layer whose art is its bitmap ([isArtSizable]) gets the art-sized sheet; anything else
+     * (text, shapes, a warp, a layer tilted in 3D, a surface-view image) is refused, because its extent is not the
+     * bitmap's or the sheet would flatten it. An armed group: the predefined sheet while it holds no layer with art,
+     * else refused (a group's art is not sized by this path).
      */
-    private fun canSkipSurfaceDrawUnchecked(): Boolean {
+    private fun planFlatSheetUnchecked(): FlatSheet {
         val st = _uiState.value
         val wrapId = st.surfaceDrawWrapLayerId
         val group = st.layers.firstOrNull { it.id == st.surfaceDrawGroupId }
         val inside = if (group == null) emptySet() else descendantIds(st.layers, group.id)
         return when {
-            !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT -> false
-            wrapId != null -> st.layers.firstOrNull { it.id == wrapId }?.isEmptyPaintLayer() == true
-            group == null || group.surface != null -> false
-            else -> st.layers.filter { it.id in inside && !it.isContainer }.all { it.isEmptyPaintLayer() }
+            !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT -> FlatSheet.Refused
+            wrapId != null -> planWrapped(st, st.layers.firstOrNull { it.id == wrapId })
+            group == null || group.surface != null -> FlatSheet.Refused
+            st.layers.filter { it.id in inside && !it.isContainer }.all { it.isEmptyPaintLayer() } -> FlatSheet.Default
+            else -> FlatSheet.Refused
         }
     }
+
+    @Suppress("ReturnCount")
+    private fun planWrapped(st: EditorUiState, layer: Layer?): FlatSheet {
+        if (layer == null) return FlatSheet.Refused
+        val bitmap = layer.bitmap?.takeUnless { it.isRecycled }
+        val sizable = bitmap != null && layer.isArtSizable()
+        val bounds = if (sizable && bitmap != null) ArtScan.bounds(bitmap) else null
+        return when {
+            bounds != null && bitmap != null -> artSheetOf(st, layer, bitmap, bounds)
+            sizable || layer.isEmptyPaintLayer() -> FlatSheet.Default
+            else -> FlatSheet.Refused
+        }
+    }
+
+    /**
+     * The art-sized sheet for [layer], whose painted pixels are [bounds] in [bitmap]: the box goes through the
+     * frame's fit into canvas units ([ArtSheet.boxOf]), then through the layer's own transform ([ArtSheet.plan]).
+     */
+    private fun artSheetOf(st: EditorUiState, layer: Layer, bitmap: Bitmap, bounds: ArtBounds): FlatSheet {
+        val w = st.canvasSize.width.toFloat()
+        val h = st.canvasSize.height.toFloat()
+        val box = ArtSheet.boxOf(bounds, layer.frame(bitmap.width, bitmap.height), w, h)
+        val plan = box?.let { ArtSheet.plan(it, layer.planePoseOf(), w, h) }
+        return if (plan == null) FlatSheet.Refused else FlatSheet.Art(plan)
+    }
+
+    /** A raster layer whose art is its bitmap alone and which the flat sheet would not flatten or warp. */
+    private fun Layer.isArtSizable(): Boolean = isPlainRaster() && !isPlacedIn3D && warpMesh.isEmpty()
+
+    private fun Layer.isPlainRaster(): Boolean = type == LayerType.RASTER && textParams == null && shapes.isEmpty() &&
+        !isAdjustment && !isSpatial && model == null && !isContainer && surfaceViewOf == null
+
+    /** [planFlatSheet] off the main thread: it can scan every pixel of a large layer. */
+    private suspend fun planFlatSheetOffMain(): FlatSheet =
+        kotlinx.coroutines.withContext(dispatchers.default) { planFlatSheet() }
 
     /** [canSkipSurfaceDraw] off the main thread: it can scan every pixel of several large layers. */
     suspend fun canSkipSurfaceDrawOffMain(): Boolean =
         kotlinx.coroutines.withContext(dispatchers.default) { canSkipSurfaceDraw() }
 
-    /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */
+    /** The orbit point an art-sized sheet set, kept so an undo (which does not touch view state) can take it back. */
+    private class ArtPivotMark(val groupId: String, val pivot: List<Float>, var cleared: Boolean = false)
+
+    private var artPivotMark: ArtPivotMark? = null
+
+    /**
+     * After an undo or redo: the orbit point set with an art-sized sheet goes with its group. If the group is gone
+     * and the point is still the one that sheet set, the point is cleared; if the group came back (redo) and the point
+     * was cleared that way, it is set again. A point the user placed or reset since is left alone.
+     */
+    private fun syncArtSheetPivot() {
+        val mark = artPivotMark ?: return
+        val s = _uiState.value
+        val present = s.layers.any { it.id == mark.groupId && it.surface != null }
+        when {
+            !present && s.manualPivot == mark.pivot -> {
+                mark.cleared = true
+                updateUi { it.copy(manualPivot = null) }
+                saveProject()
+            }
+            present && mark.cleared && s.manualPivot == null -> {
+                mark.cleared = false
+                updateUi { it.copy(manualPivot = mark.pivot) }
+                saveProject()
+            }
+        }
+    }
+
+    /**
+     * Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). For an
+     * art-sized sheet ([art]) the layer moves by the sheet's corner so its art starts at the sheet's first vertex
+     * and, with the group's surface placed at that corner, stays exactly where it was seen; the orbit point is set
+     * in the same step.
+     */
     private fun commitWrappedSurface(
         wrapId: String?,
         newGroup: Layer,
         profile: com.hereliesaz.graffitixr.common.scene.SurfaceProfile,
+        art: ArtSheetPlan? = null,
     ) {
         if (wrapId == null) return
         val before = _uiState.value.layers
         pushHistory()
+        val move: (Layer) -> Layer =
+            if (art == null) { l -> l } else { l -> l.copy(offset = l.offset - Offset(art.rect.x, art.rect.y)) }
         updateUi { s ->
-            s.disarmedSurface().copy(layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile)))
+            s.disarmedSurface().copy(
+                layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile), move),
+                manualPivot = art?.pivot ?: s.manualPivot,
+            )
         }
+        if (art != null) artPivotMark = ArtPivotMark(newGroup.id, art.pivot)
         emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
         emitGeometryChanges(before, _uiState.value.layers)
         saveProject()
     }
 
-    /** [layers] with top-level layer [layerId] inside [group], which takes its place in the stack. */
-    private fun wrappedInGroup(layers: List<Layer>, layerId: String, group: Layer): List<Layer> =
+    /** [layers] with top-level layer [layerId] inside [group], taking its place in the stack ([move] applied). */
+    private fun wrappedInGroup(
+        layers: List<Layer>,
+        layerId: String,
+        group: Layer,
+        move: (Layer) -> Layer = { it },
+    ): List<Layer> =
         layers.flatMap {
-            if (it.id == layerId && it.parentId == null) listOf(group, it.copy(parentId = group.id)) else listOf(it)
+            if (it.id == layerId && it.parentId == null) {
+                listOf(group, move(it.copy(parentId = group.id)))
+            } else {
+                listOf(it)
+            }
         }
 
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */

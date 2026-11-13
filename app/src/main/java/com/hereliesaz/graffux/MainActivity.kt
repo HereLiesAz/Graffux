@@ -1636,8 +1636,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 }
             }
 
-            // "Use a flat sheet" only when it cannot displace art. The check scans pixels, so it runs off the main
-            // thread and again whenever the layers change while armed (art removed or added); hidden until it answers.
+            // "Use a flat sheet" for an empty layer, or for one with art that can be sized (the sheet takes the art's
+            // size). The check scans pixels, so it runs off the main thread and again whenever the layers change
+            // while armed (art removed or added); hidden until it answers.
             var canSkip by remember { mutableStateOf(false) }
             LaunchedEffect(
                 uiState.layers, uiState.surfaceDrawGroupId, uiState.surfaceDrawWrapLayerId, uiState.surfaceDrawView,

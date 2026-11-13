@@ -146,24 +146,60 @@ Built. What is the owner's rule and what is my default:
 - **Centred: assumed, not owner-confirmed** (open point 7 stays open).
 - **No recompute on rotation: my default, not owner-confirmed.** The surface is data once created: if the
   device is rotated afterwards, the sheet is not resized or moved.
-- **Only for new or empty groups (decided with the coordinator).** Paint is placed from the surface's first
-  vertex in either flow: the unrolled `(u, t)` are the layer's box coordinates from that vertex, so a layer's art
-  keeps its box position but its origin sits at the sheet's top-left corner (the default sheet) or at where a
-  drawn line started, running in the line's direction (a line drawn right to left mirrors it), and anything past
-  the surface's width or sweep is cropped. Neither flow leaves existing art "where it was". The default sheet's
-  rectangle is fixed by the screen, not by the art, so it is the likelier to crop art that is wider or taller than
-  the sheet; until a windowed profile exists (as a relief has `left`/`top`), "Use a flat sheet" is therefore
-  offered only when there is no art to place: the layer to be wrapped is an empty paint layer (the definition
-  "Adopting the view plane" uses: no source image, text, shapes, adjustment or 3D ink, no recorded stroke, no set
-  pixel), or the armed group holds no such layer. This is conservative: a group holding an adjustment, 3D ink or
-  model layer is refused too. For a layer with art the chip keeps Cancel and the drawn-surface capture only, and
-  `onSkipSurfaceDraw` refuses a forced skip with a notice (`HAS_ART`) and changes nothing. The chip's line "Your
-  artwork is not changed" means the pixels are not edited; on the skip path it is trivially true, as there are
-  none. In the capture flow it is true of the pixels only: where they sit follows the line (the rule above). The
-  check scans pixels, so the app runs it off the main thread (`canSkipSurfaceDrawOffMain`) each time the layers or
-  the arming change while armed, and shows Skip once it answers. A layer drawn on the sheet through the stack (a
-  blend mode or a clip) is cropped to the sheet like the depth pass's mesh (`SurfaceMath.flatSurfaceCrops`). A
-  windowed profile (open point 8) would lift the restriction.
+- **Empty layers and groups keep the predefined sheet (decided with the coordinator).** For an empty paint layer (the
+  definition "Adopting the view plane" uses: no source image, text, shapes, adjustment or 3D ink, no recorded stroke,
+  no set pixel), one whose bitmap has no non-transparent pixel, or an armed group that holds no layer with art, "Use a
+  flat sheet" builds the sheet above, exactly as before.
+- **A layer WITH art gets an art-sized sheet (built; see "The art-sized sheet" below).** This replaces the earlier
+  rule that offered Skip only when there was no art to place.
+
+#### The art-sized sheet
+
+Built, not device-verified. "Use a flat sheet" on a top-level layer that has art (a raster layer whose art is its
+bitmap) makes the same kind of flat surface, wrapped in a new group in one undo step (`commitWrappedSurface`), but sized
+to the art instead of the screen:
+
+- **The art box.** The bounding box of the layer's non-transparent pixels (alpha byte not 0), found by `ArtScan.bounds`
+  one bitmap row at a time off the main thread (no copy of the bitmap), with the same stale-answer guard as the
+  empty-layer scan (it commits only if the layers, canvas size and arming are the same when it answers) and the same
+  `IllegalStateException`/`IllegalArgumentException` "cannot tell" handling for a bitmap recycled or resized under it.
+  A bitmap with no such pixel is an empty layer: the predefined sheet.
+- **How the box maps to layer space.** Bitmap pixels become the layer's box coordinates (canvas units) through the frame
+  (`ArtSheet.boxOf`: pixel `p` is frame pixel `p + origin`, and the frame fits the canvas uniformly, centred), then
+  through the layer's OWN transform (offset, scale, Z turn: `SceneMath.model`), which is where the art is seen. The sheet
+  is the axis-aligned box of those four corners (`ArtSheet.plan`). A layer that is only offset and scaled gets exactly
+  its art box. A layer turned about Z by anything but a quarter turn gets the smallest axis-aligned sheet that holds the
+  art, so it is larger than the art's own box in that case (the surface's unrolled axes are the group's, not the
+  layer's). A side under `ArtSheet.MIN_SIZE` (16 units) grows about the art's centre, so a dot of paint still has a
+  sheet. The sheet is in the plane z = 0, as the predefined one.
+- **Nothing displaced, nothing cropped.** The group's pose is the identity and the sheet's first vertex is its top-left
+  corner, so the layer is moved by minus that corner (its `offset`, in the same undo step) and the art then starts at the
+  sheet's first vertex. The layer's art lands where it was seen (`SurfaceMath.flatSurfaceModel` maps each art corner
+  back to the corner it had), and spans exactly `[0, length] x [0, reach]`, so `reach`/`sweepLimit` (= the sheet's
+  height) never cuts it. Undo puts the layer, its offset and its place in the stack back as they were.
+- **The orbit point.** `n = ((w + h) / 2) / 2`, with w and h the sheet's width and height (the median of two values is
+  their average; half of it). The point is the sheet's centre in the sheet's plane, moved `n` along +z (away from the
+  viewer, BEHIND the sheet): the art swings about it like a card on a turntable. It is the "Placed by hand" point
+  (`EditorUiState.manualPivot`, saved as `GraffitiProject.orbitPivot`, project format 13), set in the same history step,
+  so the two-finger orbit, the step buttons, Reset view and the "#" button all use it through `OrbitPivot.resolve`.
+  It is not derived from the surface: the surface (`reach`, length, vertices) cannot tell an art sheet from the
+  predefined one, so deriving it there would also move the predefined sheet's pivot (which stays at the sheet's centre)
+  or need a new persisted field, and none is added (the format stays 14; 15 is the puppetry rig's). Consequences,
+  stated plainly: it is a placed point, so it does not follow the layer if the layer is moved or the sheet changed later,
+  and "Reset rotation point to automatic" puts the pivot back at the sheet's centre (z = 0). Undo clears it with the
+  group and redo sets it again (`syncArtSheetPivot`), unless the user placed or reset a point in between.
+- **Where Skip is still refused (the notice `HAS_ART`, "A flat sheet cannot be sized to this layer...").** Only where a
+  displacing or cropping outcome would remain: a layer with text or shapes (the art is not its bitmap), a warp (the
+  bitmap is not where it is drawn), a layer already placed in 3D (the sheet is flat at z = 0, so it would be flattened;
+  the 3D slot does not arm such a layer for wrapping at all, so this is a guard), a surface-view image, an adjustment,
+  3D-ink or model layer; a bitmap that cannot be read; and an armed GROUP that holds any layer with art (a group's art is
+  not sized by this path). A layer inside a non-group parent keeps its existing refusal.
+- **Not done.** No windowed profile was built (open point 8): the sheet starts where the art starts and the layer moves
+  to meet it. The pivot is not recomputed when the layer or sheet changes.
+- **Untested.** On a device: that the depth pass, painting on the sheet, the export frame and a co-op peer show an
+  art-sized sheet exactly as the maths says (the maths and the view-model flow are unit tests; none ran against the
+  GPU path); the scan time on a very large bitmap; a layer whose frame has grown past its bitmap; a Z-turned layer's
+  larger sheet; and a layer whose bitmap is not what is drawn (instances that inherit a base).
 
 ### How the surface looks
 
@@ -268,7 +304,7 @@ Built (the appearance only; the document boundary is a later slice).
    open: a user-chosen grid colour and a grid on/off setting do not exist.
 6. Export framing: built (hidden while editing, shown as the export frame; see "Document boundary" above), unverified on a device and in the gaps listed there. Treat as open until it is.
 7. Whether the default surface is centred in the viewport (assumed; built that way).
-8. A windowed profile (the sheet's rectangle as a window onto the layer's own coordinates) so "Use a flat sheet" can be offered for a layer with art without displacing or cropping it.
+8. (Settled: built as an art-sized flat surface, not a windowed profile; see "The art-sized sheet" under "The default surface". Untested parts are listed there and in the PR.)
 
 ## 2D and 3D layers
 

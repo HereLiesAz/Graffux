@@ -67,6 +67,19 @@ class SurfacePromptUiTest {
     }
 
     @Test
+    fun `a layer the sheet cannot be sized to is refused with the reason, in the chip`() {
+        notice = SurfaceDrawNotice.HAS_ART
+        showChip()
+        rule.onNodeWithText(
+            "A flat sheet cannot be sized to this layer: it has text, shapes or a warp, is tilted in 3D, or sits in a group that holds art. Draw its shape instead.",
+            useUnmergedTree = true,
+        ).assertExists()
+        // The old wording said a flat sheet was only for an empty layer; it no longer is.
+        rule.onNodeWithText("A flat sheet is only for an empty layer", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("surface.prompt.skip").assertExists()
+    }
+
+    @Test
     fun `Skip is not offered when the chip is not given it, and Cancel still works`() {
         offerSkip = false
         showChip()

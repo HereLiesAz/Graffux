@@ -649,7 +649,9 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   sheet sized from the visible screen (`DefaultSurface`, `:core:common`). It is an ordinary flat `SurfaceProfile` plus
   `reach`, how far its sweep goes; `SurfaceProfile.sweepLimit` is read by the mesh, the ray hit, the footprint, the
   rendered reach, the visibility box, the grid and the pivot box, so the sheet is exactly width x reach. New optional
-  field, hence format 14. See `spec/3d-space.md`, "The default surface".
+  field, hence format 14. A layer WITH art gets the same kind of sheet sized to its art (`ArtSheet`, `ArtScan`; the layer
+  moves by the sheet's corner and the orbit point is set through `manualPivot`, no new field). See `spec/3d-space.md`,
+  "The default surface" and "The art-sized sheet".
 - **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
   holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
   layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
