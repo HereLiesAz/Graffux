@@ -193,4 +193,27 @@ class ArtSheetTest {
         // Both slabs reach 2n = 300 behind their faces: the box's centre is 150 behind.
         assertEquals(150f, c[2], 0.05f)
     }
+
+    @Test
+    fun `the art is never past the sheet's edges, with no tolerance, at any pose and canvas size`() {
+        val poses = listOf(
+            PlanePose(), PlanePose(offsetX = 123.456f, offsetY = -78.9f, scale = 1.37f),
+            PlanePose(rotationZ = 17f, scale = 0.61f), PlanePose(rotationZ = 90f, offsetX = 5.5f),
+            PlanePose(offsetX = -2048.25f, offsetY = 1999.75f, scale = 3.1f, rotationZ = 211f),
+        )
+        for ((cw, ch) in listOf(1000f to 1600f, 4096f to 3072f, 2160f to 3840f)) {
+            for (pose in poses) {
+                val box = floatArrayOf(cw * 0.113f, ch * 0.207f, cw * 0.871f, ch * 0.934f)
+                val p = ArtSheet.plan(box, pose, cw, ch)!!
+                val profile = DefaultSurface.profile(p.rect, cw, ch, emptyList())!!
+                val moved = pose.copy(offsetX = pose.offsetX - p.rect.x, offsetY = pose.offsetY - p.rect.y)
+                val m = SceneMath.model(moved, cw, ch)
+                for ((u, v) in listOf(box[0] to box[1], box[2] to box[1], box[0] to box[3], box[2] to box[3])) {
+                    val q = m.apply(u, v, 0f)
+                    assertTrue("x ${q[0]} in 0..${profile.length}", q[0] >= 0f && q[0] <= profile.length)
+                    assertTrue("y ${q[1]} in 0..${profile.sweepLimit}", q[1] >= 0f && q[1] <= profile.sweepLimit!!)
+                }
+            }
+        }
+    }
 }

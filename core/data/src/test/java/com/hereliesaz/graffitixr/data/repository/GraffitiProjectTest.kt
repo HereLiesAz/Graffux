@@ -203,9 +203,8 @@ class GraffitiProjectTest {
         )
         assertEquals("o", legacy.id)
         assertEquals(14, legacy.formatVersion)
-        // Read and ignored: the editor saves with it cleared, so it is gone from the file after the next save.
-        val saved = json.encodeToString(legacy.copy(orbitPivot = null))
-        assertEquals(null, json.decodeFromString<GraffitiProject>(saved).orbitPivot)
+        // The field itself still decodes (the editor and ProjectManager.decodeProject clear it; see their tests).
+        assertEquals(listOf(1f, 2f, 3f), legacy.orbitPivot)
         assertEquals(null, json.decodeFromString<GraffitiProject>("""{"formatVersion":12,"id":"o"}""").orbitPivot)
     }
 

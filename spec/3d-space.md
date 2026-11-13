@@ -715,7 +715,7 @@ and take their opacity as in 2D, all on the group's shape. The model is `Surface
   surface at that point (within `SurfaceVisibility.toleranceAt`: 0.2% of the eye distance plus 0.5 scene
   px), over every drawn group's hull, relief or sheet together. A point behind a fold, behind another
   group, or on the far side of a solid is not painted even when the stroke path crosses it. It is the
-  tap pick's ray machinery (`SurfaceVisibility.nearest`, once also used by the removed rotation-point placement), built once per
+  ray machinery (`SurfaceVisibility.nearest`), built once per
   `ActivePlaneMapping` from the camera it holds, so the camera is the one at stroke time; moving it and
   painting again judges visibility afresh. A group that is hidden, under a hidden group or at zero
   opacity is not drawn and does not occlude. Flat and 2D layers, and a tilted plane that is not a group

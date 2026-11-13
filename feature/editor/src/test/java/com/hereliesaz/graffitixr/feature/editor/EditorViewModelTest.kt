@@ -386,6 +386,24 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `saving writes no rotation point, whether it creates the project or updates one that carried a legacy point`() =
+        runTest {
+            val legacy = GraffitiProject(id = "p", orbitPivot = listOf(1f, 2f, 3f))
+            val written = mutableListOf<GraffitiProject>()
+            // Updating: the transform is applied to a project that still carries the retired point.
+            io.mockk.coEvery { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                written += (firstArg<Any>() as (GraffitiProject) -> GraffitiProject)(legacy)
+            }
+            viewModel.onAddLayer(Uri.parse("content://test/image.png"))
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.saveProject()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertTrue(written.isNotEmpty())
+            assertTrue(written.all { it.orbitPivot == null })
+        }
+
+    @Test
     fun `undo restores previous state`() = runTest {
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)
@@ -2549,6 +2567,21 @@ class EditorViewModelTest {
         io.mockk.every { bmp.getPixels(any<IntArray>(), any(), any(), any(), any(), any(), any()) } throws
             IllegalStateException("recycled")
         armOn(listOf(Layer(id = "r", name = "r", bitmap = bmp)), "r")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
+        assertEquals(SurfaceDrawNotice.NOT_READABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer with art and no canvas size yet says it could not be read, not that it cannot be sized`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // The canvas has not been laid out (it never reports a zero size): arm without giving it one.
+        viewModel.setLayers(listOf(bitmapLayer("art")))
+        viewModel.onLayerActivated("art")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
         assertFalse(viewModel.canSkipSurfaceDraw())
         skipNow()
         assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })

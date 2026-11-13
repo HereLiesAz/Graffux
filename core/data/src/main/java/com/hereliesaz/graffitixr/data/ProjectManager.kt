@@ -340,7 +340,9 @@ class ProjectManager @Inject constructor(
         if (version < FORMAT_MULTIVIEW_SURFACES) version = FORMAT_MULTIVIEW_SURFACES
         if (version < FORMAT_VIEW_IMAGES) version = FORMAT_VIEW_IMAGES
         if (version < FORMAT_RELIEF) version = FORMAT_RELIEF
-        return migrated.copy(formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
+        // The hand-placed rotation point (format 13) is retired: dropped on load, so no save, rename or import
+        // path that copies this project can carry it forward.
+        return migrated.copy(orbitPivot = null, formatVersion = maxOf(version, CURRENT_FORMAT_VERSION))
     }
 
     /**

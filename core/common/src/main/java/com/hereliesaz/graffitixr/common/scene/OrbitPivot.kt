@@ -102,7 +102,8 @@ object OrbitPivot {
      * is added, removed, changed or moved. Paint layers inside a surface group are skipped, because
      * their own plane is the flat paint space, not where the paint is drawn. An axis the box is flat
      * on keeps that flat position. A flat, bounded sheet (the predefined one and the art-sized one) counts as a slab
-     * reaching behind it ([sheetDepth]), so the point sits `n = ((w + h) / 2) / 2` behind its centre.     */
+     * reaching behind it ([sheetDepth]), so the point sits `n = ((w + h) / 2) / 2` behind its centre.
+     */
     fun ofSurfaces(layers: List<Layer>, width: Float, height: Float): FloatArray? {
         val surfaces = layers.filter { it.isContainer && it.surface?.isValid == true }
         if (surfaces.isEmpty()) return null

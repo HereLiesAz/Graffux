@@ -13,8 +13,8 @@ import kotlin.math.sqrt
  * What the camera sees of the surfaces (spec/3d-space.md, "Paint reaches only what the camera sees"): the
  * nearest surface along an eye ray over every drawn group's hull, relief or sheet, and from it whether a
  * given surface point is the first thing its eye ray meets. A group that is hidden, under a hidden group or
- * at zero opacity is not drawn, so it neither takes paint nor hides any. This is the machinery the tap pick
- * (once used by the removed pivot placement) uses, built once per camera: a stroke makes one per stroke and asks per sample.
+ * at zero opacity is not drawn, so it neither takes paint nor hides any. This is the machinery a tap's ray pick
+ * would use, built once per camera: a stroke makes one per stroke and asks per sample.
  *
  * Cost per query: one box-slab test per drawn group (a group whose box the ray misses, or enters beyond the
  * point asked about, is skipped), then the group's own ray cast for the groups that remain (hull intervals,

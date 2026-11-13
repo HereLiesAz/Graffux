@@ -110,7 +110,6 @@ class OrbitPivotTest {
         return cam
     }
 
-
     @Test
     fun `X then Y then X more equals X by the sum with Y applied, whatever the interleaving`() {
         val a = turned('X' to 0.2f, 'Y' to 0.5f, 'X' to 0.3f)

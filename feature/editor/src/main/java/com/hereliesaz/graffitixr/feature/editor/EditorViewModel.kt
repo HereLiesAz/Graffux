@@ -6564,7 +6564,6 @@ class EditorViewModel @Inject constructor(
 
     /** Puts the scene camera where a test needs it (no intent moves it). */
     @androidx.annotation.VisibleForTesting
-
     internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
 
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
@@ -14002,7 +14001,7 @@ class EditorViewModel @Inject constructor(
         /** The sheet would displace or crop the content (text, shapes, a warp, a tilt in 3D, a group with art). */
         data object Refused : FlatSheet
 
-        /** The layer could not be read just now: a bitmap recycled or changed under the scan. Trying again can work. */
+        /** Not readable just now: a bitmap recycled or changed under the scan, or no usable canvas yet. */
         data object Unreadable : FlatSheet
     }
 
@@ -14140,9 +14139,11 @@ class EditorViewModel @Inject constructor(
     private fun artSheetOf(st: EditorUiState, layer: Layer, bitmap: Bitmap, bounds: ArtBounds): FlatSheet {
         val w = st.canvasSize.width.toFloat()
         val h = st.canvasSize.height.toFloat()
+        // No canvas size yet is transient (the view is not laid out): "try again", not a refusal.
+        if (w <= 0f || h <= 0f) return FlatSheet.Unreadable
         val box = ArtSheet.boxOf(bounds, layer.frame(bitmap.width, bitmap.height), w, h)
         val plan = box?.let { ArtSheet.plan(it, layer.planePoseOf(), w, h) }
-        // A box or plan that cannot be made (not finite, no frame or canvas size) stays so: refuse, not "try again".
+        // A box or plan that cannot be made (not finite, no frame size) stays so: refuse, not "try again".
         return if (plan == null) FlatSheet.Refused else FlatSheet.Art(plan)
     }
 
