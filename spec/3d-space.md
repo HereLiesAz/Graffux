@@ -84,25 +84,34 @@ was the reference), and the one finger stays free for the tool in hand.
 
 Both gesture-only actions have button twins on the tool rail, in a project with a 3D group only (a
 project with no 3D group is unchanged: it keeps the "Fit" button, shown only while the view is moved).
-They are 48dp rail buttons, so they are focusable by keyboard and TalkBack, and labelled from string
-resources (`rail_reset_view`, `rail_orbit_left/right/up/down`).
+They take ONE rail slot: a single 48dp "View" rail button (`rail_view`, `rail.view`) that opens a small
+popup beside it. The popup is a 4-way orbit pad (up over left / right over down) with Reset view in the
+centre; every control in it is a 48dp focusable button labelled from string resources (`rail_reset_view`,
+`rail_orbit_left/right/up/down`). The popup is a full-window transparent layer with the pad placed
+beside the button and clamped inside the window (`viewPadPosition`), so an outside tap dismisses it and is
+consumed, never reaching the canvas; Back (a key event in the popup's own window) dismisses it too. An
+orbit step leaves it open so a step can be repeated; Reset view closes it. Focus moves to the first pad
+button when it opens and returns to the View button when it closes; the pad is a pane titled "View
+controls" (`rail_view_controls`) for TalkBack. The open state is keyed on the project id (a different
+project starts closed), and losing the 3D group removes the button and the pad.
 
-Placement follows the rail's most-used-first order: the five buttons are the LAST items of the scrolling
+Placement follows the rail's most-used-first order: the View button is the LAST item of the scrolling
 tool pill, after the drawing tools, the axis slot and the mesh toggle (gestures are the primary way to
-move the view, so these are the rarest items); Undo / Redo stay in their own pill, never scrolled away. No
+move the view, so it is the rarest item); Undo / Redo stay in their own pill, never scrolled away. No
 existing item moved. The pill is given the screen height less the top inset (16dp) and the bottom strip
 (72dp), about 86% on a 640dp-high screen, and scrolls with no clipped bottom padding, so the last item is
-always reachable (`ViewControlShortScreenUiTest`, 360x640dp, scrolls to and clicks the last orbit button).
+always reachable (`ViewControlShortScreenUiTest`, 360x640dp, scrolls to the View button, opens the pad and
+clicks its last orbit button).
 
-- **Reset view** is always there in these projects and runs the double-tap's own path
-  (`EditorViewModel.resetViewport`): identity camera, zoom 1, no canvas rotation.
+- **Reset view** runs the double-tap's own path (`EditorViewModel.resetViewport`): identity camera,
+  zoom 1, no canvas rotation.
 - **Orbit view left / right / up / down** turn the view one fixed step of 15 degrees
   (`ORBIT_STEP_RADIANS`, `orbitAnglesForStep`) with the signs of the matching drag (RIGHT is a drag to the right,
   DOWN a drag down), through `EditorViewModel.onOrbitStep`: the same `onSceneOrbit`, so the same pivot
   and pitch clamp as the gesture. Saves are coalesced (500 ms after the last tap) and never history. Each step moves the content's near side the way its name says (pinned in `ViewControlTest`). The buttons are plain actions: they do not announce a selected state.
 
 Not built: TalkBack custom actions on the canvas itself (the buttons cover the same ground).
-Not device-verified (TalkBack or keyboard); covered by `ViewControlTest` and `EditorViewModelTest` only.
+Not device-verified (TalkBack or keyboard); covered by `ViewControlTest`, `EditorViewModelTest`, `ViewPadPositionTest` and the Robolectric `ViewControlButtonsUiTest` only.
 
 ### The default surface (built)
 

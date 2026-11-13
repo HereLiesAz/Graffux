@@ -21,6 +21,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.test.performScrollTo
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -248,27 +254,154 @@ class ViewControlButtonsUiTest {
 
     private val tags = listOf("left", "right", "up", "down").map { "rail.view.orbit.$it" }
 
-    @Test
-    fun `a project with a 3D group shows Reset view and four orbit steps, never Fit, and taps reach the actions`() {
+    private fun threeD() {
         val surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
         state = state.copy(
             layers = listOf(Layer("g", "G", type = LayerType.GROUP, surface = surface), Layer("a", "A", parentId = "g")),
             viewportZoom = 2f,
         )
+    }
+
+    @Test
+    fun `a 3D group shows one View button, never Fit, and the pad is closed until it is tapped`() {
+        threeD()
         show()
         rule.onNodeWithTag("rail.view.fit").assertDoesNotExist()
-        rule.onNodeWithTag("rail.view.reset").assertExists().performScrollTo().performClick()
-        assertEquals(1, resets)
-        tags.forEach { rule.onNodeWithTag(it).assertExists().performScrollTo().performClick() }
-        assertEquals(com.hereliesaz.graffitixr.common.scene.OrbitStep.values().toList(), steps)
-        val res = rule.activity.resources
-        rule.onNodeWithContentDescription(res.getString(com.hereliesaz.graffitixr.design.R.string.rail_reset_view)).assertExists()
-        rule.onNodeWithContentDescription(res.getString(com.hereliesaz.graffitixr.design.R.string.rail_orbit_left)).assertExists()
-        rule.onNodeWithContentDescription(res.getString(com.hereliesaz.graffitixr.design.R.string.rail_orbit_down)).assertExists()
-        // Plain actions: not announced as "not selected".
-        rule.onNodeWithTag("rail.view.reset").assert(
+        rule.onNodeWithTag("rail.view").assertExists()
+        rule.onNodeWithContentDescription(rule.activity.resources.getString(com.hereliesaz.graffitixr.design.R.string.rail_view))
+            .assertExists()
+        rule.onNodeWithTag("rail.view").assert(
             androidx.compose.ui.test.SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Selected),
         )
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        tags.forEach { rule.onNodeWithTag(it).assertDoesNotExist() }
+    }
+
+    @Test
+    fun `the View pad holds four labelled orbit steps and Reset, orbit repeats without closing, Reset closes`() {
+        threeD()
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        val res = rule.activity.resources
+        listOf(
+            com.hereliesaz.graffitixr.design.R.string.rail_reset_view,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_left,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_right,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_up,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_down,
+        ).forEach { rule.onNodeWithContentDescription(res.getString(it)).assertExists() }
+        // Each control is a 48dp target.
+        val px = 48f * res.displayMetrics.density
+        (tags + "rail.view.reset").forEach {
+            val b = rule.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot
+            assertTrue("$it is at least 48dp", b.width >= px - 1f && b.height >= px - 1f)
+        }
+        // Repeatable: two taps on one step, the pad stays open.
+        rule.onNodeWithTag("rail.view.orbit.left").performClick()
+        rule.onNodeWithTag("rail.view.orbit.left").performClick()
+        tags.drop(1).forEach { rule.onNodeWithTag(it).performClick() }
+        assertEquals(
+            listOf(com.hereliesaz.graffitixr.common.scene.OrbitStep.LEFT, com.hereliesaz.graffitixr.common.scene.OrbitStep.LEFT) +
+                com.hereliesaz.graffitixr.common.scene.OrbitStep.values().drop(1),
+            steps,
+        )
+        rule.onNodeWithTag("rail.view.reset").assertExists().performClick()
+        assertEquals(1, resets)
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+    }
+
+    /** A real Back key (down then up) into the popup's own window root, as the system delivers it. */
+    @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
+    private fun pressBackInPopup() {
+        val root = rule.onNodeWithTag("rail.view.reset").fetchSemanticsNode().root
+        val view = (root as androidx.compose.ui.platform.ViewRootForTest).view.rootView
+        rule.runOnUiThread {
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        rule.waitForIdle()
+    }
+
+    @Test
+    fun `Back in the popup window dismisses the View pad without acting and focus returns to the View button`() {
+        threeD()
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        pressBackInPopup()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        assertEquals(0, resets)
+        assertTrue(steps.isEmpty())
+        rule.onNodeWithTag("rail.view").assertIsFocused()
+    }
+
+    @Test
+    fun `opening the pad moves focus into it and announces it as a View controls pane`() {
+        threeD()
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.orbit.up").assertIsFocused()
+        val title = rule.activity.resources.getString(com.hereliesaz.graffitixr.design.R.string.rail_view_controls)
+        rule.onNode(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.PaneTitle, title),
+        ).assertExists()
+    }
+
+    @Test
+    fun `an outside tap dismisses the pad and does not reach what is behind it`() {
+        threeD()
+        var behind = 0
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.fillMaxSize().testTag("canvas.behind").clickable { behind++ },
+                    )
+                    ToolRail(actions, state, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}))
+                }
+            }
+        }
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        // performTouchInput on a main-window node bypasses the popup window altogether, so it cannot show what
+        // the popup does with a tap. Deliver the tap the way the system does: as touch events to the popup's own
+        // window root, at a point well away from the rail and the pad (the far side, mid-height).
+        val root = rule.onNodeWithTag("rail.view.reset").fetchSemanticsNode().root
+        @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
+        val view = (root as androidx.compose.ui.platform.ViewRootForTest).view.rootView
+        val screen = rule.onNodeWithTag("canvas.behind").fetchSemanticsNode().size
+        assertTrue("the layer covers the whole window", view.width >= screen.width && view.height >= screen.height)
+        val x = screen.width - 20f
+        val y = screen.height / 2f
+        rule.runOnUiThread {
+            val t = android.os.SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(android.view.MotionEvent.obtain(t, t, android.view.MotionEvent.ACTION_DOWN, x, y, 0))
+            view.dispatchTouchEvent(android.view.MotionEvent.obtain(t, t + 40, android.view.MotionEvent.ACTION_UP, x, y, 0))
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        assertEquals("the tap that dismissed the pad did not fall through", 0, behind)
+        assertTrue(steps.isEmpty() && resets == 0)
+    }
+
+    @Test
+    fun `a different project closes an open pad, and losing the 3D group removes it`() {
+        threeD()
+        state = state.copy(projectId = "p1")
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        state = state.copy(projectId = "p2")
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        rule.onNodeWithTag("rail.view").assertExists()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        state = state.copy(layers = listOf(Layer("a", "A")))
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view").assertDoesNotExist()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
     }
 
     @Test
@@ -277,6 +410,7 @@ class ViewControlButtonsUiTest {
         show()
         rule.onNodeWithTag("rail.view.fit").assertExists()
         rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        rule.onNodeWithTag("rail.view").assertDoesNotExist()
         tags.forEach { rule.onNodeWithTag(it).assertDoesNotExist() }
     }
 }
@@ -325,11 +459,20 @@ class ViewControlShortScreenUiTest {
         val screenH = 640f * rule.activity.resources.displayMetrics.density
         assertTrue("the rail is held below the screen's bottom strip", rail.bottom <= screenH * RAIL_MAX_BOTTOM_FRACTION)
         assertTrue("the rail takes at most ${(RAIL_MAX_HEIGHT_FRACTION * 100).toInt()}% of the height", rail.height <= screenH * RAIL_MAX_HEIGHT_FRACTION)
-        val last = rule.onNodeWithTag("rail.view.orbit.down").performScrollTo()
+        val last = rule.onNodeWithTag("rail.view").performScrollTo()
         last.assertIsDisplayed()
         val b = last.fetchSemanticsNode().boundsInRoot
         assertTrue("the last item is fully inside the rail, not clipped", b.bottom <= rail.bottom && b.top >= rail.top)
         last.performClick()
+        // The pad opens in its own window, inside the screen, and its far corner is reachable.
+        val down = rule.onNodeWithTag("rail.view.orbit.down").assertIsDisplayed()
+        val pb = down.fetchSemanticsNode().boundsInWindow
+        val screenW = 360f * rule.activity.resources.displayMetrics.density
+        assertTrue(
+            "the pad is inside the screen",
+            pb.bottom <= screenH && pb.top >= 0f && pb.right <= screenW && pb.left >= 0f,
+        )
+        down.performClick()
         assertEquals(listOf(com.hereliesaz.graffitixr.common.scene.OrbitStep.DOWN), steps)
     }
 
