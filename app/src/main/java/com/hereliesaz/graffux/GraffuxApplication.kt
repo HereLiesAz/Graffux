@@ -98,31 +98,37 @@ class GraffuxApplication : Application() {
                     ).show()
                 }
             }
-            // Any failure here must never take the launch path down, and nothing is uploaded after one.
-            runCatching {
-                // Training data is strictly opt-in, and needs the 16+ declaration. A switch left on from before the
-                // declaration existed is turned off here, once, and the person is told.
-                val trainingPrefs = getSharedPreferences(
-                    com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
-                    MODE_PRIVATE,
-                )
-                // Files recorded before the declaration existed are deleted, never uploaded after a later declaration.
-                StrokeContributionConsent.purgeUndeclaredFiles(
-                    trainingPrefs,
-                    com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore.get(this@GraffuxApplication),
-                )
-                if (StrokeContributionConsent.switchOffUndeclared(trainingPrefs)) {
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast.makeText(
-                            this@GraffuxApplication,
-                            getString(R.string.settings_stroke_data_switched_off),
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                    }
+            migrateAndUploadStrokeData()
+        }
+    }
+
+    /**
+     * Training data is strictly opt-in, and needs the 16+ declaration. Files recorded and a switch left on
+     * from before the declaration existed are dealt with here: files are deleted (never uploaded after a
+     * later declaration), the switch is turned off once and the person is told. Any failure must never take
+     * the launch path down, and nothing is uploaded after one.
+     */
+    private suspend fun migrateAndUploadStrokeData() {
+        runCatching {
+            val trainingPrefs = getSharedPreferences(
+                com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
+                MODE_PRIVATE,
+            )
+            StrokeContributionConsent.purgeUndeclaredFiles(
+                trainingPrefs,
+                com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore.get(this),
+            )
+            if (StrokeContributionConsent.switchOffUndeclared(trainingPrefs)) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        this@GraffuxApplication,
+                        getString(R.string.settings_stroke_data_switched_off),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
                 }
-                if (StrokeContributionConsent.isContributing(trainingPrefs)) {
-                    runCatching { StrokeDataUploader(this@GraffuxApplication).uploadPending() }
-                }
+            }
+            if (StrokeContributionConsent.isContributing(trainingPrefs)) {
+                runCatching { StrokeDataUploader(this).uploadPending() }
             }
         }
     }
