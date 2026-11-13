@@ -1,6 +1,8 @@
 # Privacy Policy
 
-**Effective Date:** November 9, 2026
+**Effective Date:** November 13, 2026
+
+This is a plain description of what the App does, written by its developer. It is not legal advice and is not a promise that the App meets any particular law.
 
 Graffux (the "App") is committed to protecting your privacy. This Privacy Policy describes how we handle information in our mobile application.
 
@@ -10,7 +12,7 @@ Graffux is a "local-first" application. We do not require you to create an accou
 
 ## 2. Data Storage
 
-All your creative work—including sketches, photos, and project layers—is stored locally on your device. We do not have access to your creative content. Android cloud backup leaves out projects, downloaded models and installed extensions (its size cap would fail the whole backup). A device-to-device transfer to a new phone carries projects but not downloaded models or installed extensions; the models are fetched again. In both, your consent choices (privacy_consent and stroke-prediction preferences), the purchase licences and buyer session, the extension state and trust keys, and any stroke-training files not yet uploaded are left out. It is your responsibility to back up your projects yourself (for example by manual file transfer).
+All your creative work—including sketches, photos, and project layers—is stored locally on your device. We do not have access to your creative content. Android cloud backup leaves out projects, downloaded models and installed extensions (its size cap would fail the whole backup). A device-to-device transfer to a new phone carries projects but not downloaded models or installed extensions; the models are fetched again. In both, your consent choices (privacy_consent and stroke-prediction preferences, including your age declaration in section 4), the encrypted reports token (section 3), the purchase licences and buyer session, the extension state and trust keys, and any stroke-training files not yet uploaded are left out. It is your responsibility to back up your projects yourself (for example by manual file transfer).
 
 ## 3. Crash Reports (Opt-In)
 
@@ -20,11 +22,19 @@ If the App crashes or freezes, it writes a technical report to its own private c
   version, the App's version, Android's own exit record for the crash or freeze (including the
   freeze trace), a short list of recent App actions, and up to the last 1000 lines of the App's
   own log output.
-- **Where it goes:** nowhere unless you switch on Settings → Privacy → "Send crash reports" (off by
-  default) **and** connect the reports token under Settings → About → Developer. Then reports of crashes that
-  happen after you switched it on are posted as **public** issues on
-  <https://github.com/HereLiesAz/Graffux>, where anyone can read them. Reports from before you
-  switched it on are never sent.
+- **Where it goes:** nowhere unless you switch on Settings → Privacy → "Send crash reports" (off
+  by default) **and** enter your **own** GitHub token under Settings → About → Developer. The App
+  contains no token of the developer's and no relay or fallback for reports: with no token of your
+  own, nothing is sent, and nothing is held back to be sent with some other key. With both in place,
+  reports of crashes that happen after you switched it on are posted as **public** issues on
+  <https://github.com/HereLiesAz/Graffux>, **under your own GitHub account**, using your token.
+  Anyone can read them, GitHub keeps them under GitHub's terms, and you can delete an issue you
+  posted from your GitHub account. Reports from before you switched it on are never sent. The App
+  does not show you a report before it is posted.
+- **Your token:** use a fine-grained token limited to that repository with Issues: read and write
+  and nothing else. The App stores it encrypted with a key held in the Android Keystore, leaves it
+  out of backups and device transfers, does not write it to its logs, and sends it only to GitHub's
+  API. "Disconnect" under Settings → About → Developer forgets it.
 - **Redaction:** before a report is saved or sent, the App removes GPS coordinates, auth tokens,
   passwords, authorization headers, JWTs and API keys (including GitHub, Figma, Google, AWS,
   Stripe and Slack ones), cookies, IP and MAC addresses, email addresses, file and content
@@ -32,18 +42,26 @@ If the App crashes or freezes, it writes a technical report to its own private c
   free-form text cannot be perfect.
 - **Stroke-prediction rankings:** with the same token connected **and** "Send crash reports"
   switched on, the App also files a short ranking of its stroke-prediction models (your device
-  model, Android and App version, and timing numbers; no drawings) as a public issue. With the
+  model, Android and App version, and timing numbers; no drawings) as a public issue under your account. With the
   switch off nothing is counted, saved or sent, and strokes drawn before you switch it on are never
   included. They are redacted the same way, and one left over from a run that ended unexpectedly is
   sent on the next launch only if crash reports are still switched on.
-- **Stopping:** switch the setting off. To have a posted report removed, contact us (section 9).
+- **Stopping and removal:** switch the setting off and, if you want, disconnect the token. A posted
+  report is an issue under your GitHub account: you can delete it there. If you cannot, contact us
+  (section 9) and we will delete it from the repository, though a copy others have already made
+  cannot be recalled.
 
-## 4. Stroke-Model Training Data (Opt-In)
+## 4. Stroke-Model Training Data (Opt-In, 16 and Over)
 
 Graffux is building a model that predicts where a stroke is going. Contributing training data is
-**off by default** and only starts when you switch on Settings → "Contribute strokes to model
-training". Nothing is recorded or uploaded before then, and switching it off stops both.
+**off by default**, is **only for people who are 16 or older**, and only starts when you switch on
+Settings → "Contribute strokes to model training". Nothing is recorded or uploaded before then, and
+switching it off stops both.
 
+- **Age declaration:** the first time you switch it on, the App asks you to confirm that you are 16
+  or older. Without that confirmation it cannot be switched on. The confirmation is your own statement;
+  the App does not check it. It is kept on your device (and not in backups) so you are asked once.
+  If you are under 16, do not switch it on.
 - **What is recorded while it is on:** for each stroke, the touch path (positions, pressure,
   contact size, tilt, timing), the phone's motion-sensor readings around it (accelerometer,
   gyroscope, magnetometer, rotation), your device manufacturer and model, screen size and refresh
@@ -54,15 +72,27 @@ training". Nothing is recorded or uploaded before then, and switching it off sto
   project content. A stroke is a path of points, so if you write or sign something while this is
   on, that path is part of what is recorded. Leave the setting off when you do.
 - **Where it goes:** finished session files are sent over the internet to a small relay run by
-  the developer, which saves them to the **public** `stroke-data` branch of
-  <https://github.com/HereLiesAz/Graffux>. Anyone can read and download that data, and a copy is
-  kept in a private dataset used for training. The App keeps no credential for this; the relay
-  holds the key. The file's public path contains your device model and the session's start time
-  (`stroke-data/<device-model>/session-<time>.jsonl.gz`). Files wait in the App's private storage until
-  the relay has them, then are deleted from the device. A file the relay rejects for good (a bad name, too large, or not stroke data) is also deleted, without being stored.
-- **Removal:** files already uploaded are not tied to you, so we cannot tell which are yours.
-  Contact us (section 9) with the device model and approximate date and we will remove matching
-  files from the branch, though copies that others have already downloaded cannot be recalled.
+  the developer, which saves them in a **private** storage bucket. They are **not published**, and
+  the relay has no route that reads them back. The developer uses them to train and evaluate models.
+  There is currently no automatic copy to Kaggle or anywhere else; if a private copy is made later it
+  will be covered by the removal paragraph below. The App keeps no credential for this. The stored file's name contains your device model and the session's start
+  time (`stroke-data/<device-model>/session-<time>.jsonl.gz`). Files wait in the App's private storage
+  until the relay has them, then are deleted from the device. A file the relay rejects for good (a bad
+  name, too large, or not stroke data) is also deleted, without being stored. Each upload carries a
+  marker that you declared you are 16 or older, and the relay refuses uploads without it. Session files
+  recorded on your device before you made the declaration (including before the declaration existed) are
+  deleted from the device and are never uploaded, even if you declare before the App gets to delete them. A hostile program could send the marker without the declaration; it is a
+  marker, not proof.
+- **Earlier versions:** before November 13, 2026, the App uploaded this data to a **public**
+  `stroke-data` branch of <https://github.com/HereLiesAz/Graffux>. The developer intends to remove
+  that branch; until it is removed that data may still be readable, and copies others made cannot be
+  recalled. If you had contribution on before then, the App switches it off at the next launch and
+  shows a notice; when you switch it on again it asks you to confirm you are 16 or older.
+- **Removal:** we cannot tell which files are yours. Email private requests to the developer contact email address shown on the App's Google Play listing (the Developer contact / Email entry)
+  with your device model and the approximate dates you contributed, and we will delete the stored files that match, and any private copy.
+  Because we cannot check that a file is yours, we delete every file matching what you give us. Models
+  already trained from the data are not retrained. **Do not post your device model or dates in a public
+  GitHub issue**, which would publish them.
 
 ## 5. Permissions
 
@@ -117,12 +147,12 @@ The App contains no advertising. It connects to third-party services only as fol
 
 ## 7. Children's Privacy
 
-The App does not ask for personal information; purchases happen only when you start one, and analytics, crash reports and training data are all off by default. We do not knowingly collect any data from children under the age of 13.
+The App does not ask for personal information; purchases happen only when you start one, and analytics, crash reports and training data are all off by default. We do not knowingly collect any data from children under the age of 13. Stroke-model training data (section 4) is only for people 16 or older, and the App asks for a declaration to that effect before it can be switched on; if you are under 16, do not switch it on.
 
 ## 8. Changes to This Policy
 
-We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page.
+We may update our Privacy Policy from time to time. We will post the new Privacy Policy on this page with a new effective date. The App does not currently show a notice of policy changes to everyone; the one in-app notice it gives is to people whose stroke contribution was switched off pending the age declaration in section 4. Check this page for changes.
 
 ## 9. Contact Us
 
-If you have any questions about this Privacy Policy, please contact the developer via the project's repository.
+If you have any questions about this Privacy Policy, please email the developer contact email address shown on the App's Google Play listing (the Developer contact / Email entry). The project's public repository, https://github.com/HereLiesAz/Graffux, is for non-private matters only: do not post personal details, device information or removal requests there.

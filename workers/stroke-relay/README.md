@@ -1,21 +1,21 @@
 # Stroke relay
 
 The `/v1/*` routes of the `graffux` Cloudflare Worker. It takes stroke-model training sessions from the
-app and commits them to the `stroke-data` branch. It exists so the app carries **no GitHub
-credential**: the token is a secret of this Worker.
+app and stores them in a **private** Cloudflare R2 bucket (binding `STROKE_BUCKET`). Nothing is
+published and the Worker has no read route. The app carries no secret of any kind.
 
 The repository's root `wrangler.toml` sets `main` to `src/index.js` here and `run_worker_first =
 ["/v1/*"]`, so only those paths run this code; everything else is the static site in `./docs` and never
 invokes the Worker.
 
 ~~~
-app  --PUT /v1/stroke-data/<device>/<file>-->  graffux Worker  --Contents API-->  stroke-data branch
+app  --PUT /v1/stroke-data/<device>/<file>-->  graffux Worker  --R2 put-->  private bucket graffux-stroke-data
 ~~~
 
-The app only sends after the user switches on Settings → "Contribute strokes to model training"
-(off by default). What the files contain is in
+The app only sends after the user declares they are 16 or older and switches on Settings → "Contribute
+strokes to model training" (off by default). What the files contain is in
 [`tools/stroke-model/SCHEMA.md`](../../tools/stroke-model/SCHEMA.md); the privacy policy is
-[`docs/PRIVACY_POLICY.md`](../../docs/PRIVACY_POLICY.md) § 4. The branch is public.
+[`docs/PRIVACY_POLICY.md`](../../docs/PRIVACY_POLICY.md) § 4. Earlier versions wrote to a public `stroke-data` branch; this one never does (see "Retiring the public branch").
 
 What leaves the device, and what stays: the relay upload is the only automatic, background path for stroke training data.
 Stroke programs a project records for replay are a different thing: `strokes.json` is saved into the project folder
@@ -23,8 +23,7 @@ Stroke programs a project records for replay are a different thing: `strokes.jso
 whole folder) and a device-to-device transfer carry it, but only when you do those. Graffux's co-op emitter is a no-op (`app/.../di/CoopModule.kt`), so no strokes go to other devices. Before
 upload, session files sit in the app's private `stroke-data` directory, which Android backup and device
 transfer exclude (`app/src/main/res/xml/data_extraction_rules.xml`, `backup_rules.xml`); a file is deleted
-once the relay has it, or when the relay rejects it for good (`StrokeDataUploader.kt`). The file path on the
-public branch carries the device model and the session start time. The policy wording is in
+once the relay has it, or when the relay rejects it for good (`StrokeDataUploader.kt`). The object key carries the device model and the session start time. The policy wording is in
 `docs/PRIVACY_POLICY.md` § 4.
 
 ## What the Worker accepts
@@ -38,16 +37,21 @@ public branch carries the device model and the session start time. The policy wo
 | not gzip, the first line is not a `{"type":"session","schema":<n>}` line, more than 1000 lines, or a value nested more than 12 deep | 415 |
 | more than 6 requests a minute from one address (per Cloudflare location) | 429 |
 | the rate limiter binding is missing or throws | 503. The relay closes instead of running unlimited. |
-| GitHub conflict while two uploads move the branch | retried 3 times, then 502 |
-| the file is already on the branch | 200 `exists` (retries are safe) |
-| no GitHub token from the binding or the `GITHUB_TOKEN` fallback | 503 |
-| the branch is missing (GitHub 404 or 422) | 503. The Worker never creates it, so a deleted branch is visible. |
+| no `X-Graffux-Age-Declaration: 16+` header | 400 (app versions older than the declaration) |
+| the object already exists | 200 `exists`: found by `head()` before writing, and the put is also conditional (`If-None-Match: *`). A race between two uploads of one key can still replace it; that is logged. |
+| the `STROKE_BUCKET` binding is missing or the put throws | 503 |
 | stored | 201 `stored` |
 
-Files land at `stroke-data/<device>/<file>` with the commit message `stroke data: <device>/<file> [skip ci]`. The `[skip ci]` matters: the `stroke-data` branch was cut from `main` and still carries an old workflow that builds on every push, so without it each upload would start a full app build.
+Objects are stored at the key `stroke-data/<device>/<file>`.
+
+**The `<device>` path segment is chosen by the client, so a hostile client can pre-claim keys (the
+conditional put never replaces an existing key) or fill the bucket with well-formed sessions under any
+device name. That cannot be fixed without authenticating callers.** The `X-Graffux-Age-Declaration: 16+`
+header the app sends is likewise a marker that stops older app versions from being stored, not proof of
+anything: a hostile client can send it.
 
 **This is spam and abuse *limiting*, not authentication. The relay does not authenticate callers.** Nothing in an open-source app can prove a
-request came from the app. What keeps the branch clean is content, not identity: the whole file is
+request came from the app. What keeps the store clean is content, not identity: the whole file is
 inflated (capped at 24 MB, each line at 2 MB), every line must be a `session`, `stroke` or `hover`
 record whose top-level fields are the ones in SCHEMA.md, every key is a short identifier (at most 48
 characters), no string is over 256 characters except the base64 `heatmap.frames` (at most the
@@ -59,41 +63,52 @@ If abuse still shows up, the next step is Play Integrity attestation, which need
 ## Deploy
 
 It ships with the `graffux` Worker, so it deploys when that Worker does (Workers Builds on merge to
-`main`, or `npx wrangler deploy` from the repository root). One-time setup:
+`main`, or `npx wrangler deploy` from the repository root). One-time setup, **before** the deploy:
 
-1. Merge the central `workflows` change that adds `RepositoryTokens.graffuxStrokeDataToken()`
-   (HereLiesAz/workflows#153) and let it deploy. The root `wrangler.toml` binds it to this Worker as
-   `GITHUB_TOKENS`; on each upload the relay asks it for a short-lived token for Graffux, Contents
-   write only. **No GitHub secret is stored here, and there is nothing to rotate.** The central GitHub
-   App must be installed on `HereLiesAz/Graffux` with Contents write (it already writes trackers
-   there).
-2. Optional fallback: a `GITHUB_TOKEN` secret (fine-grained, Graffux only, Contents read and write) on
-   the `graffux` Worker is used only if the binding is missing or fails. Leave it unset once the
-   binding works, so there is no long-lived credential. If it exists, the Worker can do anything it can.
-3. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`), or the Worker
-   does not deploy at all.
-4. Make sure `/v1/stroke-data/*` is reachable without logging in. If Cloudflare Access protects the
-   Worker's `workers.dev` address, every request is redirected to the Access login page and no upload
-   can succeed (the app treats that as a failure and keeps the file). Either turn Access off for the
-   Worker (Settings → Domains & Routes) or add an Access application for the path with a Bypass policy.
+1. Create the bucket: `npx wrangler r2 bucket create graffux-stroke-data`. Leave it private: no custom
+   domain, and r2.dev public access off. Then uncomment the `[[r2_buckets]]` block in the root
+   `wrangler.toml` and merge. It is commented out on purpose: that file builds the whole `graffux` Worker
+   (website included), and a binding to a missing bucket fails every Workers Build. Until it is on, the
+   relay answers 503 and the app keeps its files.
+2. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`).
+3. Make sure `/v1/stroke-data/*` is reachable without logging in (Cloudflare Access on the Worker's
+   `workers.dev` address redirects every request to a login page and no upload can succeed).
    Check with `curl -i https://graffux.hereliesaz.workers.dev/v1/stroke-data/x/y`: a `404`/`400` JSON
-   body means the Worker answered; a `302` to `cloudflareaccess.com` means Access is in the way.
+   body means the Worker answered.
+4. Nothing GitHub-related is needed any more: the `GITHUB_TOKENS` service binding, the `GITHUB_TOKEN`
+   secret, `GH_REPO` and `DATA_BRANCH` are gone. Delete a `GITHUB_TOKEN` secret if one was set; the
+   central `RepositoryTokens.graffuxStrokeDataToken()` grant in HereLiesAz/workflows can be retired.
+5. The Kaggle mirror (`.github/workflows/stroke-data-kaggle.yml`, centrally maintained) reads the old
+   branch. Until the central workflow reads the bucket instead, the private dataset gets no new data.
 
-`GH_REPO` and `DATA_BRANCH` are plain variables in the root `wrangler.toml`; the Rate Limiting
-binding (`namespace_id` 2001) is there too. The app's `StrokeRelayClient.DEFAULT_URL` is
-`https://graffux.hereliesaz.workers.dev`.
+The Workers free plan allows 10 ms of CPU per request; the app keeps the file and retries on a failure.
 
-Check it with the Worker's Logs tab (or `npx wrangler tail`) while uploading from the app.
+### Verify the conditional put once against a real bucket
 
-The Workers free plan allows 10 ms of CPU per request. Base64-encoding a multi-megabyte session can
-exceed that, in which case Cloudflare answers 1102 and the app keeps the file and retries; the paid
-plan has no such limit.
+R2 documents a `Headers` object as an `onlyIf` form, but not the `If-None-Match: *` wildcard by itself, so the
+relay also checks with `head()` first. Verify the behaviour once after the bucket exists: (1) upload a valid
+session with the test client twice (same name): the first answer is 201 `stored`, the second 200 `exists`;
+(2) `npx wrangler r2 object get graffux-stroke-data/stroke-data/<device>/<file> --file out.gz` and check it
+is the first upload's bytes; (3) watch `npx wrangler tail` for "conditional put may not be honoured". Until
+done, treat "never overwritten" as best effort, not a guarantee.
 
-### Protect the branch
+### Removal requests
 
-In Graffux: Settings → Rules → Rulesets → new branch ruleset, target `stroke-data`, tick
-**Restrict deletions** and **Block force pushes**. Do not require pull requests; the Worker pushes
-directly.
+List the objects in the dashboard (R2, graffux-stroke-data, prefix `stroke-data/<device-model>/`; the
+number in `session-<ms>.jsonl.gz` is the start time in epoch milliseconds) or with any S3 client. Delete
+each matching key: `npx wrangler r2 object delete graffux-stroke-data/stroke-data/<device>/<file>`. Then
+remove the same sessions from the private Kaggle dataset (publish a new version without them and delete
+older versions that contain them).
+
+### Retiring the public branch (owner action, not done by code)
+
+Existing data on the public `stroke-data` branch stays readable, in its history and in any fork or
+clone, until you act. Steps: (1) if you want to keep it for training, copy it to the private bucket
+first (`git worktree add ../sd origin/stroke-data`, then upload `../sd/stroke-data/**` under the same
+keys); (2) delete the branch: `git push origin --delete stroke-data`; (3) delete any ruleset that
+protects it (Settings, Rules, Rulesets); (4) check Actions caches and releases for copies; (5) commits
+of a deleted branch can stay reachable by SHA for a while: if that matters, ask GitHub Support to purge
+cached views and run garbage collection. Copies already cloned or forked cannot be recalled.
 
 ## Test
 

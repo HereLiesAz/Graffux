@@ -17,9 +17,10 @@ Record format: [SCHEMA.md](SCHEMA.md).
 On the device, Settings → "Contribute strokes to model training" is **off by default**; nothing is
 recorded or uploaded until the user switches it on. Once on, every stroke is recorded to
 `filesDir/stroke-data/`; finished files upload at launch (or via "Upload stroke data now") through the
-stroke relay (`workers/stroke-relay`), which commits them to the `stroke-data` branch of this
-repository under `stroke-data/<device-model>/`. The branch is public, and the app holds no
-credential: the GitHub token is a secret of the relay Worker. See
+stroke relay (`workers/stroke-relay`), which stores them in a **private** R2 bucket under
+`stroke-data/<device-model>/`. Nothing is published, and the app holds no secret. Contribution also
+needs the user's one-time 16+ declaration (`StrokeContributionConsent`). Older data may still be on a
+public `stroke-data` branch until it is retired (see the relay README). See
 [`workers/stroke-relay/README.md`](../../workers/stroke-relay/README.md) to deploy it.
 
 Rooted devices can also record the raw capacitive touch image: Settings → Raw touch heatmap (root),
@@ -32,7 +33,7 @@ on the Pixel 5 is not verified yet; see SCHEMA.md "`heatmap` (v3)".
 
 ~~~
 pip install -r requirements.txt
-git fetch origin stroke-data && git worktree add ../stroke-data origin/stroke-data
+# download the objects from the private bucket into ../stroke-data/stroke-data/ (or use the Kaggle copy)
 python train.py ../stroke-data/stroke-data --epochs 30 --out stroke_predictor.onnx
 ~~~
 
@@ -165,7 +166,11 @@ python -m unittest discover -s tests -v
 
 ## Kaggle mirror
 
-`.github/workflows/stroke-data-kaggle.yml` copies the `stroke-data` branch to a **private** Kaggle
+**Currently not running against the private store.** The workflow below reads the old public
+`stroke-data` branch, and no pipeline copies the private bucket to Kaggle yet; until one lands (in
+HereLiesAz/workflows) there is no automatic Kaggle copy and the privacy policy says so.
+
+`.github/workflows/stroke-data-kaggle.yml` copies the stroke data to a **private** Kaggle
 dataset every 6 hours (or on demand from the Actions tab), via `kaggle_upload.py`. It needs the
 `KAGGLE_TOKEN` repository secret (a Kaggle API token, or `kaggle.json` contents). If the token is a bare API token, the workflow defaults the Kaggle username to `hereliesaz`.
 Set `KAGGLE_USERNAME` only to override that account, or set the full `KAGGLE_DATASET`

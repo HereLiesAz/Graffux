@@ -8,6 +8,7 @@ import com.hereliesaz.graffitixr.common.security.SecurityProviderManager
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.strokedata.StrokeContributionConsent
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.NativeCrashHandler
 import dagger.hilt.android.HiltAndroidApp
@@ -84,6 +85,8 @@ class GraffuxApplication : Application() {
         // Crash reports go out only with Settings → Privacy → Send crash reports on (and the reports
         // token below connected), and only for deaths after that opt-in.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            // Before any network work, so a declaration made in the meantime cannot keep old files.
+            migrateStrokeDataAtLaunch()
             runCatching { CrashIssueUploader(this@GraffuxApplication, predictionReports).uploadPending() }
             // Withdrawn extensions: removed, and said so, rather than left running.
             val removed = runCatching { revocationSweep.run() }.getOrDefault(emptyList())
@@ -97,18 +100,29 @@ class GraffuxApplication : Application() {
                     ).show()
                 }
             }
-            // Training data is strictly opt-in. Existing pending files stay local while consent is off.
-            val trainingPrefs = getSharedPreferences(
-                com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
-                MODE_PRIVATE,
-            )
-            if (trainingPrefs.getBoolean(
-                    com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY,
-                    false,
-                )
-            ) {
-                runCatching { StrokeDataUploader(this@GraffuxApplication).uploadPending() }
+            uploadStrokeDataAtLaunch()
+        }
+    }
+
+    private fun trainingPrefs() = getSharedPreferences(
+        com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
+        MODE_PRIVATE,
+    )
+
+    /** See [migrateStrokeData]. */
+    private suspend fun migrateStrokeDataAtLaunch() {
+        migrateStrokeData(trainingPrefs(), com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore.get(this)) {
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    this@GraffuxApplication,
+                    getString(R.string.settings_stroke_data_switched_off),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
             }
         }
+    }
+
+    private suspend fun uploadStrokeDataAtLaunch() {
+        uploadStrokeDataIfContributing(trainingPrefs()) { StrokeDataUploader(this).uploadPending() }
     }
 }

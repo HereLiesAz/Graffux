@@ -21,6 +21,7 @@ class StrokeRelayClientTest {
     private var method: String? = null
     private var path: String? = null
     private var contentType: String? = null
+    private var declaration: String? = null
     private var received: ByteArray? = null
 
     @Before
@@ -30,6 +31,7 @@ class StrokeRelayClientTest {
             method = exchange.requestMethod
             path = exchange.requestURI.path
             contentType = exchange.requestHeaders.getFirst("Content-Type")
+            declaration = exchange.requestHeaders.getFirst("X-Graffux-Age-Declaration")
             received = exchange.requestBody.readBytes()
             location?.let { exchange.responseHeaders.add("Location", it) }
             val bytes = responseBody.toByteArray()
@@ -54,6 +56,7 @@ class StrokeRelayClientTest {
         assertEquals("PUT", method)
         assertEquals("/v1/stroke-data/Pixel-5/session-1790680692015.jsonl.gz", path)
         assertEquals("application/gzip", contentType)
+        assertEquals("16+", declaration)
         assertArrayEquals(file, received)
     }
 

@@ -48,6 +48,14 @@ class StrokeDataStore private constructor(context: Context) {
     /** Everything still unsent, open file included (for a manual export). */
     fun allFiles(): List<File> = dir.listFiles()?.sortedBy { it.name }.orEmpty()
 
+    /** Deletes every recorded file, the open one included. Used for files recorded without a 16+ declaration. */
+    @Synchronized
+    fun purgeAll() {
+        dir.listFiles()?.forEach { it.delete() }
+        open = null
+        strokesInOpen = 0
+    }
+
     fun strokeCountEstimate(): Int = strokesInOpen
 
     private fun newFile(header: JSONObject): File {

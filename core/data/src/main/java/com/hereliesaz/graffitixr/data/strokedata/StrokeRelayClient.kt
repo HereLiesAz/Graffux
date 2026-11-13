@@ -8,8 +8,8 @@ import java.net.URL
 
 /**
  * Sends one finished stroke-data session file to the stroke relay (workers/stroke-relay), which
- * commits it to the `stroke-data` branch. The relay holds the GitHub token, so the app carries no
- * credential and the user needs none. Callers delete a local file only after [upload] succeeds.
+ * stores it in a private bucket. The app carries no secret and the user needs none.
+ * Callers delete a local file only after [upload] succeeds.
  *
  * Succeeds only when the relay itself says it stored the file or already had it: HTTP 200 or 201
  * with a JSON body whose `status` is `stored` or `exists`. A bare 200 is not enough, because a login
@@ -32,6 +32,9 @@ class StrokeRelayClient(
                     connection.instanceFollowRedirects = false
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/gzip")
+                    // Sent only for uploads the person declared 16+ for (the caller gates on that); the relay
+                    // refuses uploads without it, so app versions older than the declaration stop being stored.
+                    connection.setRequestProperty(DECLARATION_HEADER, DECLARATION_VALUE)
                     connection.setFixedLengthStreamingMode(bytes.size)
                     connection.outputStream.use { it.write(bytes) }
                     val code = connection.responseCode
@@ -54,6 +57,8 @@ class StrokeRelayClient(
     companion object {
         /** 400 bad name, 413 too large, 415 not stroke data: retrying the same bytes cannot succeed. */
         private val PERMANENT = setOf(400, 413, 415)
+        const val DECLARATION_HEADER = "X-Graffux-Age-Declaration"
+        const val DECLARATION_VALUE = "16+"
         const val DEFAULT_URL = "https://graffux.hereliesaz.workers.dev"
         private const val TIMEOUT_MS = 60_000
         private const val HTTP_OK = 200
