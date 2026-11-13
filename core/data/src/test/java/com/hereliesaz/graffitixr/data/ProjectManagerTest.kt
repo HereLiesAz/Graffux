@@ -116,6 +116,21 @@ class ProjectManagerTest {
     }
 
     @Test
+    fun `a format 14 project file that carries the retired orbitPivot still loads, and saving drops it`() = runTest {
+        val dir = File(tempFilesDir, "projects/legacy_pivot").also { it.mkdirs() }
+        File(dir, "project.json").writeText(
+            """{"formatVersion":14,"id":"legacy_pivot","name":"Pivoted","orbitPivot":[10.0,20.0,30.0]}""",
+        )
+        val loaded = manager.loadProjectMetadata(mockContext, "legacy_pivot")
+        assertEquals("Pivoted", loaded?.name)
+        // The editor saves with the field cleared (it no longer writes or reads a placed point).
+        manager.saveProject(mockContext, loaded!!.copy(orbitPivot = null))
+        val rewritten = File(dir, "project.json").readText()
+        assertFalse(rewritten.contains("[10.0"))
+        assertEquals("Pivoted", manager.loadProjectMetadata(mockContext, "legacy_pivot")?.name)
+    }
+
+    @Test
     fun `deleteProject removes directory`() = runTest {
         val project = GraffitiProject(id = "del_project", name = "To Be Deleted")
         manager.saveProject(mockContext, project)

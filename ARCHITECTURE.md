@@ -650,13 +650,14 @@ Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyfra
   `reach`, how far its sweep goes; `SurfaceProfile.sweepLimit` is read by the mesh, the ray hit, the footprint, the
   rendered reach, the visibility box, the grid and the pivot box, so the sheet is exactly width x reach. New optional
   field, hence format 14. A layer WITH art gets the same kind of sheet sized to its art (`ArtSheet`, `ArtScan`; the layer
-  moves by the sheet's corner and the orbit point is set through `manualPivot`, no new field). See `spec/3d-space.md`,
+  moves by the sheet's corner; the orbit point is derived, `n` behind a flat sheet's centre, no new field). See `spec/3d-space.md`,
   "The default surface" and "The art-sized sheet".
-- **The orbit point (format 13).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
-  holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`), else the plane-layer box; recomputed from the
-  layers at every use, so it follows add, edit, undo and removal. `EditorUiState.manualPivot` (set by the "#" button's long-press
-  menu, "Relocate rotation point") overrides it and is saved as `GraffitiProject.orbitPivot`; the field is new, hence format 13
-  (a 12 file has none: automatic). The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
+- **The orbit point (derived).** `OrbitPivot` (`:core:common`) is the point everything revolves about: the centre of the box
+  holding every defined surface (`ofSurfaces`, from `SurfaceMath.localBounds`; a flat bounded sheet counts as a slab `2n`
+  deep behind its face, `n = ((w + h) / 2) / 2`, so the point is `n` behind its centre), else the plane-layer box;
+  recomputed from the layers at every use, so it follows add, edit, undo and removal. Nothing is stored: the hand-placed
+  point (`manualPivot`, saved as `GraffitiProject.orbitPivot` in format 13) was removed; the key is still read, ignored
+  and no longer written. The wire mesh (`surfaceGridVisible`) is on by default; it was never persisted. See spec/3d-space.md.
 - **Ready-made surfaces (store packs).** A `type: "surface"` asset of an installed azphalt pack is profile-only JSON
   (front/side/top outlines in the unit box). `SurfacePayload` (`:core:common`, scene) is the strict parser and
   `toProfile` the mapping into a group's `SurfaceProfile`; `ExtensionRepository.installedSurfaceAssets()` and

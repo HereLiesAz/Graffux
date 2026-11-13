@@ -13,8 +13,6 @@ data class ArtBounds(val left: Int, val top: Int, val right: Int, val bottom: In
 data class ArtSheetPlan(
     /** The sheet in scene units: the axis-aligned box of the art as seen now (sides at least [ArtSheet.MIN_SIZE]). */
     val rect: SceneRect,
-    /** The orbit point: the sheet's centre, [ArtSheet.pivotDepth] behind it (scene x, y, z). */
-    val pivot: List<Float>,
 )
 
 /**
@@ -33,7 +31,8 @@ object ArtSheet {
     const val EDGE_PAD = 0.005f
 
     /**
-     * How far behind the sheet the orbit point is: half the median of the sheet's width and height. The median of
+     * How far behind a flat sheet's centre the orbit point is ([OrbitPivot.ofSurfaces]): half the median of the
+     * sheet's width and height. The median of
      * two values is their average, so `((w + h) / 2) / 2`.
      */
     fun pivotDepth(width: Float, height: Float): Float = (width + height) / 2f / 2f
@@ -67,9 +66,10 @@ object ArtSheet {
      *
      * The box's four corners go through the layer's own transform (`SceneMath.model`), which is where the art is
      * seen; the sheet is the axis-aligned box of those corners, so a layer that is only offset and scaled gets
-     * exactly its art box and a turned one gets the smallest axis-aligned sheet that holds it. A side shorter than
-     * [MIN_SIZE] grows about its centre. The orbit point is the art's centre in the plane z = 0, moved
-     * [pivotDepth] away from the viewer (+z). Null for a pose placed in 3D, a box or pose that is not finite, or an
+     * its art box (grown by [EDGE_PAD] on each side) and a turned one gets the smallest axis-aligned sheet that
+     * holds it. A side shorter than
+     * [MIN_SIZE] grows about its centre. The orbit point is not part of the plan: [OrbitPivot] derives it from the
+     * sheet. Null for a pose placed in 3D, a box or pose that is not finite, or an
      * unusable canvas.
      */
     fun plan(box: FloatArray, pose: PlanePose, canvasWidth: Float, canvasHeight: Float): ArtSheetPlan? {
@@ -93,7 +93,6 @@ object ArtSheet {
         val cx = (lx + hx) / 2f
         val cy = (ly + hy) / 2f
         val rect = SceneRect(cx - w / 2f - EDGE_PAD, cy - h / 2f - EDGE_PAD, w + 2 * EDGE_PAD, h + 2 * EDGE_PAD)
-        val pivot = listOf(cx, cy, pivotDepth(w, h))
-        return if (listOf(rect.x, rect.y, w, h).all { it.isFinite() }) ArtSheetPlan(rect, pivot) else null
+        return if (listOf(rect.x, rect.y, w, h).all { it.isFinite() }) ArtSheetPlan(rect) else null
     }
 }

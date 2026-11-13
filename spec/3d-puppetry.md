@@ -882,7 +882,7 @@ recomputed at every use"). Consequence: during a pose drag the pivot would move 
 camera orbit pivots about a moving point. Mitigation, consistent with the existing "held for the
 length of a gesture" rule: the pivot is **frozen for the length of a pose gesture** and recomputed
 between gestures. Pose mode also offers "Rotate view about this part" is not needed; the existing
-manual pivot ("Relocate rotation point") still overrides.
+there is no manual pivot (the hand-placed point was removed).
 
 For a drag that turns a **root** part (F2), `rotatePoseAbout` is used as today, about the pivot.
 

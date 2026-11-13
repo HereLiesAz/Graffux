@@ -2587,7 +2587,6 @@ class EditorViewModel @Inject constructor(
                         rebuildJobs.values.forEach { it.cancel() }
                         rebuildJobs.clear()
                         history.clear()
-                        dropArtPivotMarks()
                         retainLayerCaches(layers.filter { it.bitmap != null }.map { it.id }.toSet())
                         updateHistoryCounts()
 
@@ -2608,8 +2607,7 @@ class EditorViewModel @Inject constructor(
                         viewModelScope.launch(dispatchers.io) { recipeLibrary.openProject(project.id) }
                         updateUi {
                             it.copy(
-                                sceneCamera = project.sceneCamera, manualPivot = project.orbitPivot,
-                                pivotPickArmed = false,
+                                sceneCamera = project.sceneCamera,
                             )
                         }
 
@@ -2719,7 +2717,6 @@ class EditorViewModel @Inject constructor(
                     inheritedBases.clear()
                     pendingForks.clear()
                     history.clear()
-                    dropArtPivotMarks()
                     inkLedger.clear()
                     // Every other history.clear()/mutation in this file is paired with this call —
                     // without it, undoCount/redoCount keep whatever they were before the project
@@ -2821,7 +2818,6 @@ class EditorViewModel @Inject constructor(
             val again = undoOne()
             if (history.undoCount < before) n++
         } while (again && history.undoTopIsDraw())
-        syncArtSheetPivot()
         return n
     }
 
@@ -2905,7 +2901,6 @@ class EditorViewModel @Inject constructor(
         do {
             val again = redoOne()
         } while (again && history.redoTopIsDraw())
-        syncArtSheetPivot()
     }
 
     @Suppress("ReturnCount")
@@ -5014,7 +5009,6 @@ class EditorViewModel @Inject constructor(
                 savedSelections = _uiState.value.savedSelections,
                 documentCrop = _uiState.value.documentCrop,
                 sceneCamera = _uiState.value.sceneCamera,
-                orbitPivot = _uiState.value.manualPivot,
             )
             projectRepository.createProject(manifestToSave)
         } else {
@@ -5036,7 +5030,8 @@ class EditorViewModel @Inject constructor(
                     spatialStrokes = emptyList(),
                     spatialGuide = com.hereliesaz.graffitixr.common.mesh.SpatialGuide(),
                     sceneCamera = _uiState.value.sceneCamera,
-                    orbitPivot = _uiState.value.manualPivot,
+                    // The retired hand-placed rotation point is no longer written (a file that had one loses it).
+                    orbitPivot = null,
                     // Format 8: the model lives in a 3D model layer.
                     modelPath = null,
                     modelName = null,
@@ -6168,7 +6163,7 @@ class EditorViewModel @Inject constructor(
     fun orbitPivot(state: EditorUiState = _uiState.value): FloatArray? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
-        return OrbitPivot.resolve(state.layers, size.width.toFloat(), size.height.toFloat(), state.manualPivot)
+        return OrbitPivot.resolve(state.layers, size.width.toFloat(), size.height.toFloat())
     }
 
     /**
@@ -6569,7 +6564,6 @@ class EditorViewModel @Inject constructor(
 
     /** Puts the scene camera where a test needs it (no intent moves it). */
     @androidx.annotation.VisibleForTesting
-    fun setManualPivotForTest(pivot: List<Float>?) = updateUi { it.copy(manualPivot = pivot) }
 
     internal fun setSceneCameraForTest(camera: SceneCamera) = updateUi { it.copy(sceneCamera = camera) }
 
@@ -13838,20 +13832,17 @@ class EditorViewModel @Inject constructor(
 
     /**
      * Paint, not yet painted: no source image, text, shapes, adjustment or 3D ink, no stroke on
-     * record, and (checked last, once) no pixel set in its bitmap.
+     * record, and (checked last, once) no pixel set in its bitmap ([ArtScan]; a recycled bitmap counts as empty here).
      */
     @Suppress("ReturnCount")
-    internal fun Layer.isEmptyPaintLayer(): Boolean {
+    internal fun Layer.isEmptyPaintLayer(bitmapEmpty: Boolean? = null): Boolean {
         val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
+        // The one alpha test (ArtScan): any non-zero alpha is paint. [bitmapEmpty] is its answer when the caller has
+        // already scanned this bitmap, so a large bitmap is never scanned twice.
         val b = bitmap?.takeUnless { it.isRecycled } ?: return true
-        val row = IntArray(b.width)
-        for (y in 0 until b.height) {
-            b.getPixels(row, 0, b.width, 0, y, b.width, 1)
-            if (row.any { android.graphics.Color.alpha(it) != 0 }) return false
-        }
-        return true
+        return bitmapEmpty ?: ArtScan.isEmpty(b)
     }
 
     private fun Layer.planePoseOf() = com.hereliesaz.graffitixr.common.scene.PlanePose(
@@ -14011,7 +14002,7 @@ class EditorViewModel @Inject constructor(
         /** The sheet would displace or crop the content (text, shapes, a warp, a tilt in 3D, a group with art). */
         data object Refused : FlatSheet
 
-        /** The layer could not be read (a bitmap recycled or changed under the scan, or no usable canvas). */
+        /** The layer could not be read just now: a bitmap recycled or changed under the scan. Trying again can work. */
         data object Unreadable : FlatSheet
     }
 
@@ -14116,9 +14107,15 @@ class EditorViewModel @Inject constructor(
             !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT -> FlatSheet.Refused
             wrapId != null -> planWrapped(st, st.layers.firstOrNull { it.id == wrapId })
             group == null || group.surface != null -> FlatSheet.Refused
-            st.layers.filter { it.id in inside && !it.isContainer }.all { it.isEmptyForSheet() } -> FlatSheet.Default
-            else -> FlatSheet.Refused
+            else -> planGroup(st.layers.filter { it.id in inside && !it.isContainer })
         }
+    }
+
+    /** An armed group: the predefined sheet while no layer in it has art; a recycled bitmap is "cannot tell". */
+    private fun planGroup(children: List<Layer>): FlatSheet = when {
+        children.any { it.bitmap?.isRecycled == true } -> FlatSheet.Unreadable
+        children.all { it.isEmptyPaintLayer() } -> FlatSheet.Default
+        else -> FlatSheet.Refused
     }
 
     @Suppress("ReturnCount")
@@ -14131,14 +14128,10 @@ class EditorViewModel @Inject constructor(
         return when {
             bounds != null && bitmap != null && sizable -> artSheetOf(st, layer, bitmap, bounds)
             bounds != null -> FlatSheet.Refused // painted, but not something the sheet can be sized to
-            sizable || layer.isEmptyPaintLayer() -> FlatSheet.Default
+            sizable || layer.isEmptyPaintLayer(bitmapEmpty = true) -> FlatSheet.Default
             else -> FlatSheet.Refused
         }
     }
-
-    /** [isEmptyPaintLayer], and no pixel with any alpha by the same scan the sheet uses. */
-    private fun Layer.isEmptyForSheet(): Boolean =
-        isEmptyPaintLayer() && bitmap?.takeUnless { it.isRecycled }?.let { ArtScan.bounds(it) == null } != false
 
     /**
      * The art-sized sheet for [layer], whose painted pixels are [bounds] in [bitmap]: the box goes through the
@@ -14149,7 +14142,8 @@ class EditorViewModel @Inject constructor(
         val h = st.canvasSize.height.toFloat()
         val box = ArtSheet.boxOf(bounds, layer.frame(bitmap.width, bitmap.height), w, h)
         val plan = box?.let { ArtSheet.plan(it, layer.planePoseOf(), w, h) }
-        return if (plan == null) FlatSheet.Unreadable else FlatSheet.Art(plan)
+        // A box or plan that cannot be made (not finite, no frame or canvas size) stays so: refuse, not "try again".
+        return if (plan == null) FlatSheet.Refused else FlatSheet.Art(plan)
     }
 
     /** A raster layer whose art is its bitmap alone and which the flat sheet would not flatten or warp. */
@@ -14167,50 +14161,10 @@ class EditorViewModel @Inject constructor(
         kotlinx.coroutines.withContext(dispatchers.default) { canSkipSurfaceDraw() }
 
     /**
-     * The orbit point an art-sized sheet set and the one it replaced, kept so an undo or redo (which do not touch view
-     * state) can move the point with the group: [before] is the point when the sheet was made (null: automatic),
-     * [after] the one it set; [applied] is whether the group is in the layers now.
-     */
-    private class ArtPivotMark(
-        val groupId: String,
-        val before: List<Float>?,
-        val after: List<Float>,
-        var applied: Boolean = true,
-    )
-
-    /** Oldest first: one per art-sized sheet since the project opened or the user last placed or reset the point. */
-    private val artPivotMarks = ArrayList<ArtPivotMark>()
-
-    /**
-     * After an undo or redo: any sheet whose group came or went changes the orbit point. It becomes the [ArtPivotMark.after]
-     * of the newest sheet still applied, or, with none applied, the [ArtPivotMark.before] of the oldest, so undoing two
-     * sheets one at a time walks the point back through each, and a hand-placed point from before the first comes back.
-     * The user's own placing or resetting a point drops the marks ([dropArtPivotMarks]): from then on it is theirs.
-     */
-    private fun syncArtSheetPivot() {
-        if (artPivotMarks.isEmpty()) return
-        val layers = _uiState.value.layers
-        var changed = false
-        for (m in artPivotMarks) {
-            val now = layers.any { it.id == m.groupId && it.surface != null }
-            if (now != m.applied) {
-                m.applied = now
-                changed = true
-            }
-        }
-        if (!changed) return
-        val target = artPivotMarks.lastOrNull { it.applied }?.after ?: artPivotMarks.first().before
-        updateUi { it.copy(manualPivot = target) }
-        saveProject()
-    }
-
-    private fun dropArtPivotMarks() = artPivotMarks.clear()
-
-    /**
      * Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). For an
-     * art-sized sheet ([art]) the layer moves by the sheet's corner so its art starts at the sheet's first vertex
-     * and, with the group's surface placed at that corner, stays exactly where it was seen; the orbit point is set
-     * in the same step.
+     * art-sized sheet ([art]) the layer moves by the sheet's corner so its art starts within [ArtSheet.EDGE_PAD] of
+     * the sheet's first vertex and, with the group's surface placed at that corner, stays where it was seen (to
+     * float precision). The orbit point is derived from the sheet ([OrbitPivot.ofSurfaces]), not stored.
      */
     private fun commitWrappedSurface(
         wrapId: String?,
@@ -14220,14 +14174,12 @@ class EditorViewModel @Inject constructor(
     ) {
         if (wrapId == null) return
         val before = _uiState.value.layers
-        if (art != null) artPivotMarks.add(ArtPivotMark(newGroup.id, _uiState.value.manualPivot, art.pivot))
         pushHistory()
         val move: (Layer) -> Layer =
             if (art == null) { l -> l } else { l -> l.copy(offset = l.offset - Offset(art.rect.x, art.rect.y)) }
         updateUi { s ->
             s.disarmedSurface().copy(
                 layers = wrappedInGroup(s.layers, wrapId, newGroup.copy(surface = profile), move),
-                manualPivot = art?.pivot ?: s.manualPivot,
             )
         }
         emitMembership(Op.LayerAdd(newGroup.copy(surface = profile)))
@@ -14252,43 +14204,6 @@ class EditorViewModel @Inject constructor(
 
     /** Shows or hides the surface guide grid (only ever the active layer's group's). View state. */
     fun onToggleSurfaceGrid() = updateUi { it.copy(surfaceGridVisible = !it.surfaceGridVisible) }
-
-    /** "Relocate rotation point": the next tap in the scene places the pivot (spec/3d-space.md, "The orbit point"). */
-    fun onArmPivotPick() = updateUi { it.copy(pivotPickArmed = true) }
-
-    /** Leaves "Relocate rotation point" without placing anything. */
-    fun onCancelPivotPick() {
-        if (_uiState.value.pivotPickArmed) updateUi { it.copy(pivotPickArmed = false) }
-    }
-
-    /**
-     * A tap at canvas point [world] while armed: the rotation point becomes the scene point under it
-     * ([OrbitPivot.pick]) and is saved with the project. Not history: like the camera, it is view state.
-     */
-    fun onPivotPicked(world: Offset) {
-        val st = _uiState.value
-        if (!st.pivotPickArmed) return
-        val size = st.canvasSize
-        val current = orbitPivot(st)
-        if (current == null || size.width <= 0 || size.height <= 0) {
-            updateUi { it.copy(pivotPickArmed = false) }
-            return
-        }
-        val w = size.width.toFloat()
-        val h = size.height.toFloat()
-        val p = OrbitPivot.pick(st.layers, st.sceneCamera, world.x, world.y, w, h, current)
-        dropArtPivotMarks()
-        updateUi { it.copy(manualPivot = p.toList(), pivotPickArmed = false) }
-        saveProject()
-    }
-
-    /** "Reset to automatic": the rotation point is again the centre of every surface. */
-    fun onResetPivot() {
-        if (_uiState.value.manualPivot == null && !_uiState.value.pivotPickArmed) return
-        dropArtPivotMarks()
-        updateUi { it.copy(manualPivot = null, pivotPickArmed = false) }
-        saveProject()
-    }
 
     // ── Relief surfaces: "Build surface from image" (spec/3d-space.md, "Relief surfaces") ──
 

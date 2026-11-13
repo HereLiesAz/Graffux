@@ -310,7 +310,7 @@ class ProjectManager @Inject constructor(
      * project-level spatial ink into a 3D strokes layer ([migrateSpatialSketchToLayer]). 7 -> 8
      * moves the floating-window model into a 3D model layer ([migrateFloatingModelToLayer]). 8 -> 9
      * (surface profiles), 9 -> 10 (side and top views), 10 -> 11 (per-view paint images), 11 -> 12 (relief
-     * surfaces), 12 -> 13 (the placed rotation point) and 13 -> 14 (a flat sheet's sweep reach) add only
+     * surfaces), 12 -> 13 (a placed rotation point, since retired) and 13 -> 14 (a flat sheet's sweep reach) add only
      * optional fields, so they record the version and change nothing else.
      * Never lowers a newer version.
      */

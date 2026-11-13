@@ -1050,28 +1050,6 @@ fun EditorScreen(
             )
         }
 
-        // 3b-pivot. "Relocate rotation point" armed (spec/3d-space.md, "The orbit point"): the next tap
-        // places the point the scene revolves about, over every tool; it paints nothing.
-        if (uiState.pivotPickArmed) {
-            val toWorld = androidx.compose.runtime.rememberUpdatedState(activePlane::world)
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .testTag("canvas.pivotPick")
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            down.consume()
-                            val up = waitForUpOrCancellation()
-                            if (up != null) {
-                                up.consume()
-                                vm.onPivotPicked(toWorld.value(down.position))
-                            }
-                        }
-                    },
-            )
-        }
-
         // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
         // with the colour currently under it; screen-space overlay, purely visual.
         if (uiState.isEyedropping) {

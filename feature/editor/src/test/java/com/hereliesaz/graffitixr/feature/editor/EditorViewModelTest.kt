@@ -1342,26 +1342,6 @@ class EditorViewModelTest {
         assertEquals(1000f, viewModel.orbitPivot()!![1], 0.5f)
     }
 
-    @Test
-    fun `a placed rotation point wins until reset to automatic`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
-        pivotSetup(floor, Layer(id = "pf", name = "pf", parentId = "f"))
-        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(10f, 10f))
-        assertEquals(null, viewModel.uiState.value.manualPivot)
-        viewModel.onArmPivotPick()
-        assertTrue(viewModel.uiState.value.pivotPickArmed)
-        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(500f, 1000f))
-        val placed = viewModel.uiState.value.manualPivot!!
-        assertEquals(0f, placed[2], 1f)
-        assertEquals(false, viewModel.uiState.value.pivotPickArmed)
-        assertEquals(1000f, placed[1], 1f)
-        assertEquals(placed[0], viewModel.orbitPivot()!![0], 0.01f)
-        viewModel.onResetPivot()
-        assertEquals(null, viewModel.uiState.value.manualPivot)
-        assertEquals(300f, viewModel.orbitPivot()!![2], 0.5f)
-    }
-
     private fun boxPoint(id: String, u: Float, v: Float, z: Float): FloatArray {
         val layers = viewModel.uiState.value.layers
         return SceneMath.chainModel(com.hereliesaz.graffitixr.common.scene.planeChain(layers, id), pivotW, pivotH)
@@ -2416,8 +2396,8 @@ class EditorViewModelTest {
         assertEquals(100f, surface.point(0)[0], 0.01f)
         assertEquals(200f, surface.point(0)[1], 0.01f)
         assertEquals(0f, surface.point(0)[2], 0f)
-        assertEquals(200f, surface.length, 0.05f)
-        assertEquals(400f, surface.reach!!, 0.05f)
+        assertEquals(200f, surface.length, 0.011f)
+        assertEquals(400f, surface.reach!!, 0.011f)
         assertFalse(st.surfaceDrawArmed)
         assertEquals(undo + 1, st.undoCount)
         assertTrue(leaf.is3DIn(st.layers))
@@ -2438,8 +2418,8 @@ class EditorViewModelTest {
         val hi = un.apply(300f, 600f, 0f)
         assertEquals(0f, lo[0], 0.05f)
         assertEquals(0f, lo[1], 0.05f)
-        assertEquals(surface.length, hi[0], 0.05f)
-        assertEquals(surface.sweepLimit!!, hi[1], 0.05f)
+        assertEquals(surface.length, hi[0], 0.011f)
+        assertEquals(surface.sweepLimit!!, hi[1], 0.011f)
         viewModel.onUndoClicked()
         testDispatcher.scheduler.advanceUntilIdle()
         val back = viewModel.uiState.value.layers
@@ -2447,11 +2427,12 @@ class EditorViewModelTest {
         assertNull(back.single().parentId)
         assertEquals(Offset.Zero, back.single().offset)
         assertEquals(1f, back.single().scale, 0f)
-        assertNull(viewModel.uiState.value.manualPivot)
+        // The orbit point is derived: with the group gone it is the plane rule again, nothing to take back.
+        assertEquals(800f, viewModel.orbitPivot()!![2], 0.5f)
     }
 
     @Test
-    fun `the orbit point is the art's centre, behind the sheet by half the average of its width and height`() = runTest {
+    fun `the orbit point is the art's centre, behind the sheet by half the average of its sides`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         // The painted box in canvas units at the 10x fit: 200 x 400, 100 x 100, 500 x 60.
         data class Case(val xs: IntRange, val ys: IntRange, val w: Float, val h: Float)
@@ -2461,26 +2442,11 @@ class EditorViewModelTest {
         for (c in cases) {
             armArt(bitmapLayer("art", xs = c.xs, ys = c.ys))
             skipNow()
-            val pivot = viewModel.uiState.value.manualPivot!!
+            val pivot = viewModel.orbitPivot()!!
             assertEquals(c.xs.first * 10f + c.w / 2f, pivot[0], 0.01f)
             assertEquals(c.ys.first * 10f + c.h / 2f, pivot[1], 0.01f)
             assertEquals(((c.w + c.h) / 2f) / 2f, pivot[2], 0.01f)
-            assertEquals(pivot, viewModel.orbitPivot()!!.toList())
         }
-    }
-
-    @Test
-    fun `undo takes the art sheet's orbit point back and redo sets it again`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        armArt(bitmapLayer("art"))
-        skipNow()
-        assertNotNull(viewModel.uiState.value.manualPivot)
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertNull(viewModel.uiState.value.manualPivot)
-        viewModel.onRedoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf(200f, 400f, 150f), viewModel.uiState.value.manualPivot)
     }
 
     @Test
@@ -2490,11 +2456,14 @@ class EditorViewModelTest {
         skipNow()
         val st = viewModel.uiState.value
         val surface = st.layers.first { it.type == groupType }.surface!!
-        assertEquals(-250f, surface.point(0)[0], 0.05f)
-        assertEquals(-430f, surface.point(0)[1], 0.05f)
-        assertEquals(400f, surface.length, 0.05f)
-        assertEquals(800f, surface.reach!!, 0.05f)
-        assertEquals(listOf(-50f, -30f, 300f), st.manualPivot!!.map { Math.round(it * 10f) / 10f })
+        assertEquals(-250f, surface.point(0)[0], 0.01f)
+        assertEquals(-430f, surface.point(0)[1], 0.01f)
+        assertEquals(400f, surface.length, 0.011f)
+        assertEquals(800f, surface.reach!!, 0.011f)
+        val pivot = viewModel.orbitPivot()!!
+        assertEquals(-50f, pivot[0], 0.01f)
+        assertEquals(-30f, pivot[1], 0.01f)
+        assertEquals(300f, pivot[2], 0.01f)
     }
 
     @Test
@@ -2506,7 +2475,8 @@ class EditorViewModelTest {
         val surface = st.layers.first { it.type == groupType }.surface!!
         assertEquals(1600f * 2f / 3f, surface.reach!!, 0.1f)
         assertEquals(750f, surface.length, 0.1f)
-        assertNull(st.manualPivot)
+        // The predefined sheet is a flat sheet too: the same rule puts the point (750 + 1066.7) / 4 behind it.
+        assertEquals((750f + 1600f * 2f / 3f) / 4f, viewModel.orbitPivot()!![2], 0.1f)
     }
 
     /** Arms the wrap on [layer], then swaps in [changed] (the layer as it turns out to be when the scan reads it). */
@@ -2521,12 +2491,11 @@ class EditorViewModelTest {
         skipNow()
         assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
         assertEquals(undo, viewModel.uiState.value.undoCount)
-        assertNull(viewModel.uiState.value.manualPivot)
         assertEquals(notice, viewModel.uiState.value.surfaceDrawNotice)
     }
 
     @Test
-    fun `a layer with a warp, a tilt in 3D, shapes, text or a surface-view image is refused with the notice`() = runTest {
+    fun `a warp, a tilt in 3D, shapes, text or a surface-view image is refused with the notice`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val base = bitmapLayer("a")
         val refused = listOf(
@@ -2597,68 +2566,14 @@ class EditorViewModelTest {
         skipNow()
         val st = viewModel.uiState.value
         val surface = st.layers.first { it.type == groupType }.surface!!
-        assertEquals(250f, surface.point(0)[0], 0.05f)
-        assertEquals(400f, surface.point(0)[1], 0.05f)
-        assertEquals(100f, surface.length, 0.05f)
-        assertEquals(200f, surface.reach!!, 0.05f)
-        assertEquals(listOf(300f, 500f, 75f), st.manualPivot!!.map { Math.round(it * 10f) / 10f })
-    }
-
-    @Test
-    fun `an art sheet over a hand-placed orbit point, so undo gives it back and redo sets the sheet's again`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        val hand = listOf(11f, 22f, 33f)
-        armArt(bitmapLayer("art"))
-        viewModel.setManualPivotForTest(hand)
-        skipNow()
-        assertEquals(listOf(200f, 400f, 150f), viewModel.uiState.value.manualPivot)
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(hand, viewModel.uiState.value.manualPivot)
-        viewModel.onRedoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf(200f, 400f, 150f), viewModel.uiState.value.manualPivot)
-    }
-
-    @Test
-    fun `two art sheets, and each undo walks the orbit point back, each redo forward`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        armOn(listOf(bitmapLayer("a"), bitmapLayer("b", xs = 40..49, ys = 70..79)), "a")
-        viewModel.setManualPivotForTest(listOf(1f, 2f, 3f))
-        skipNow()
-        val pa = viewModel.uiState.value.manualPivot
-        assertEquals(listOf(200f, 400f, 150f), pa)
-        viewModel.onLayerActivated("b")
-        testDispatcher.scheduler.advanceUntilIdle()
-        viewModel.onAxisSlotTapped()
-        skipNow()
-        val pb = viewModel.uiState.value.manualPivot
-        assertEquals(listOf(450f, 750f, 50f), pb)
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(pa, viewModel.uiState.value.manualPivot)
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf(1f, 2f, 3f), viewModel.uiState.value.manualPivot)
-        viewModel.onRedoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(pa, viewModel.uiState.value.manualPivot)
-        viewModel.onRedoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(pb, viewModel.uiState.value.manualPivot)
-    }
-
-    @Test
-    fun `a point the user places or resets after an art sheet is theirs, and undo leaves it`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        armArt(bitmapLayer("art"))
-        skipNow()
-        viewModel.onResetPivot()
-        assertNull(viewModel.uiState.value.manualPivot)
-        viewModel.setManualPivotForTest(listOf(5f, 6f, 7f))
-        viewModel.onUndoClicked()
-        testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(listOf(5f, 6f, 7f), viewModel.uiState.value.manualPivot)
+        assertEquals(250f, surface.point(0)[0], 0.01f)
+        assertEquals(400f, surface.point(0)[1], 0.01f)
+        assertEquals(100f, surface.length, 0.011f)
+        assertEquals(200f, surface.reach!!, 0.011f)
+        val pivot = viewModel.orbitPivot()!!
+        assertEquals(300f, pivot[0], 0.01f)
+        assertEquals(500f, pivot[1], 0.01f)
+        assertEquals(75f, pivot[2], 0.01f)
     }
 
     @Test
@@ -2672,7 +2587,6 @@ class EditorViewModelTest {
         scanDispatcher.release()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("art"), viewModel.uiState.value.layers.map { it.id })
-        assertNull(viewModel.uiState.value.manualPivot)
         assertTrue(viewModel.uiState.value.surfaceDrawArmed)
     }
 

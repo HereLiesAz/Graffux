@@ -74,8 +74,8 @@ data class GraffitiProject(
      * - 11: a paint image per view of a multi-view surface (`Layer.surfaceViewOf`, `.surfaceView`).
      * - 12: relief surfaces (`SurfaceProfile.relief`, a photo's depth grid). A version 11 file has none;
      *   the step only records the version.
-     * - 13: [orbitPivot], a rotation point the user placed. A version 12 file has none (automatic); the
-     *   step only records the version.
+     * - 13: [orbitPivot], a rotation point the user placed. Retired: the field is still read (a 13 or 14 file may
+     *   carry it) and ignored, and it is no longer written; the step only records the version.
      * - 14: `SurfaceProfile.reach`, how far a flat sheet's sweep reaches (the default surface). A version 13
      *   file has none (unbounded, as drawn surfaces are); the step only records the version.
      */
@@ -169,7 +169,8 @@ data class GraffitiProject(
     val sceneCamera: com.hereliesaz.graffitixr.common.scene.SceneCamera =
         com.hereliesaz.graffitixr.common.scene.SceneCamera(),
 
-    // The user-placed rotation point, scene px x, y, z (format 13). Null = automatic (all surfaces).
+    // Retired (format 13 wrote it): a hand-placed rotation point. Kept only so a file that carries it still loads;
+    // the editor ignores it and writes null. The orbit point is derived from the surfaces (OrbitPivot).
     val orbitPivot: List<Float>? = null,
 
     // The Crop tab's crop and geometry (format version 3). Non-destructive: the layers keep every

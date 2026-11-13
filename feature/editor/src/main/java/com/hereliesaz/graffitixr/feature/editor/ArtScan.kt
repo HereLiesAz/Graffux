@@ -36,4 +36,22 @@ internal object ArtScan {
         }
         return if (top < 0) null else ArtBounds(left, top, right + 1, bottom + 1)
     }
+
+    /**
+     * Whether every pixel of [bitmap] is transparent: the same alpha test as [bounds], stopping at the first painted
+     * pixel. This is the one emptiness check ("Adopting the view plane" and the flat sheet both use it).
+     */
+    fun isEmpty(bitmap: Bitmap): Boolean {
+        val w = bitmap.width
+        val h = bitmap.height
+        val row = IntArray(maxOf(w, 0))
+        var painted = false
+        var y = 0
+        while (!painted && y < h && w > 0) {
+            bitmap.getPixels(row, 0, w, 0, y, w, 1)
+            painted = row.any { it ushr ALPHA_SHIFT != 0 }
+            y++
+        }
+        return !painted
+    }
 }
