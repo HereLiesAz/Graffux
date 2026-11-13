@@ -712,6 +712,8 @@ sealed class EditCommand {
         val chainedToPrevious: Boolean = false,
         /** The entry above this one is chained to it (see [chainedToPrevious]). */
         val chainedNext: Boolean = false,
+        /** The view the newest stroke was drawn in, restored as the draw plane's reference when it is redone. */
+        val view: LastStroke? = null,
     ) : EditCommand() {
         /** Every stroke this entry undoes, oldest first. */
         val strokes: List<StrokeCommand> get() = earlier + command
@@ -757,12 +759,72 @@ class EditorViewModel @Inject constructor(
         viewModelScope.launch { runCatching { coordinator.loadPrices(packageIds) }.rethrowCancellation() }
     }
 
+    // Declared before the init blocks: the project load/close collectors touch them during construction.
+    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<EditorNotice>(extraBufferCapacity = 16)
+
+    /**
+     * Everything the editor has to tell the user — confirmations and failures alike. The host shows
+     * these through the rail's AzPopup (NOTICE / WARNING), so there is one feedback style instead of
+     * a system Toast that ignores the theme. Transient confirmations of an action the user can see
+     * (Undo, Redo, Copied) stay on the HUD pill instead.
+     */
+    val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
+
+    private val _readOnlyNotice = MutableStateFlow<EditorNotice?>(null)
+
+    /**
+     * The "opened read-only" warning for a newer-format project, held until the host shows it and
+     * calls [consumeReadOnlyNotice] — unlike [notices], it survives having no collector yet.
+     */
+    val readOnlyNotice: StateFlow<EditorNotice?> = _readOnlyNotice.asStateFlow()
+
+    /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
+    val recipeLibrary = RecipeLibrary(
+        object : RecipeLibrary.Store {
+            override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
+
+            override fun isReadOnly(projectId: String) = isProjectReadOnly(projectId)
+
+            override suspend fun writeProject(projectId: String, text: String) {
+                projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
+            }
+
+            override suspend fun readApp(): String? = settingsRepository.savedRecipes.firstOrNull()
+
+            override suspend fun updateApp(transform: (String?) -> String?) =
+                settingsRepository.updateSavedRecipes(transform)
+
+            override suspend fun keepProjectBackup(projectId: String, original: String) =
+                runCatching { projectRepository.saveArtifact(projectId, "$RECIPE_FILE.bak", original.toByteArray()) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .isSuccess
+
+            override suspend fun keepAppBackup(original: String) = settingsRepository.backupSavedRecipes(original)
+
+            override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
+                val kept = if (backedUp) {
+                    "The original was kept as a backup."
+                } else {
+                    "The original could not be backed up."
+                }
+                notify("$dropped saved mix(es) couldn't be read and were dropped. $kept", NoticeKind.WARNING)
+            }
+
+            override fun onUnreadable(scope: RecipeLibrary.Scope) {
+                notify("The saved mixes couldn't be read, so they were left as they are.", NoticeKind.WARNING)
+            }
+        },
+    )
+
     // Draw plane depth session state (spec/3d-space.md, "Draw plane depth"). Declared before the init blocks:
     // the project load and close collectors reset it ([resetDrawPlaneSession]) during construction.
     /** The newest stroke's layer and the view it was drawn in: the reference plane while that view holds. */
     private var lastStroke: LastStroke? = null
     private var drawGuideJob: kotlinx.coroutines.Job? = null
     private var drawDepthNoticed = false
+
+    /** Set while the draw plane itself switches the active layer (create, undo, redo): the reference stays. */
+    private var keepStrokeReference = false
 
     /** Layers a draw-plane stroke made, with the project and file of their first PNG (if any) to delete when gone. */
     private val planeLayerFiles = HashMap<String, Pair<String, String>?>()
@@ -1746,9 +1808,11 @@ class EditorViewModel @Inject constructor(
         layerStore.removeStroke(layerId, command)
         // A lone stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back
         // too. A stroke that joined a chunk, or arrives after its entry was undone, only drops itself.
-        val plane = history.planeSwapToRevert(command)
+        val plane = history.planeSwapToRevert(command, layerId)
         if (history.dropDraw(command)) updateHistoryCounts()
-        if (plane != null) revertPlaneAdoption(layerId, plane)
+        // Only while the layer is still there and holds nothing else (no other stroke, none left in the store).
+        val alone = layerStore.strokes(layerId).isEmpty() && _uiState.value.layers.any { it.id == layerId }
+        if (plane != null && alone) revertPlaneAdoption(layerId, plane)
         retireLastStroke(listOf(command))
         sweepPlaneLayers()
         if (command.inkStroke != null) inkLedger.onUndo(layerId, command)
@@ -2960,7 +3024,8 @@ class EditorViewModel @Inject constructor(
                 }
                 command.plane?.created?.let(::reinsertPlaneLayer)
                 reapplyRedoneStroke(command)
-                lastStroke = LastStroke.of(command.layerId, command.command, _uiState.value, lastStroke)
+                // The stroke's own view: a camera change since it was drawn keeps the reference lapsed.
+                command.view?.let { lastStroke = it.copy(prior = lastStroke?.truncated(LastStroke.CHAIN_DEPTH - 1)) }
                 command.plane?.let { applyPlane(command.layerId, it.after) }
             }
             is EditCommand.PropertyChange -> {
@@ -4551,24 +4616,6 @@ class EditorViewModel @Inject constructor(
     } catch (e: Exception) {
         uri.lastPathSegment
     }
-
-    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<EditorNotice>(extraBufferCapacity = 16)
-
-    /**
-     * Everything the editor has to tell the user — confirmations and failures alike. The host shows
-     * these through the rail's AzPopup (NOTICE / WARNING), so there is one feedback style instead of
-     * a system Toast that ignores the theme. Transient confirmations of an action the user can see
-     * (Undo, Redo, Copied) stay on the HUD pill instead.
-     */
-    val notices: kotlinx.coroutines.flow.SharedFlow<EditorNotice> = _notices
-
-    private val _readOnlyNotice = MutableStateFlow<EditorNotice?>(null)
-
-    /**
-     * The "opened read-only" warning for a newer-format project, held until the host shows it and
-     * calls [consumeReadOnlyNotice] — unlike [notices], it survives having no collector yet.
-     */
-    val readOnlyNotice: StateFlow<EditorNotice?> = _readOnlyNotice.asStateFlow()
 
     /** The host has shown [readOnlyNotice]; clears it (only if it is still [shown]). */
     fun consumeReadOnlyNotice(shown: EditorNotice) {
@@ -6742,6 +6789,8 @@ class EditorViewModel @Inject constructor(
                     if (follow) EditorReducer.withInstancesFollowing(before, next) else next,
                 ),
             )
+            // Another active layer ends the last-stroke reference (the draw plane's own layer changes keep it).
+            if (!keepStrokeReference && before.activeLayerId != followed.activeLayerId) lastStroke = null
             raw = next.layers
             out = followed.layers
             followed
@@ -10569,7 +10618,8 @@ class EditorViewModel @Inject constructor(
         // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
-        lastStroke = LastStroke.of(layerId, command, _uiState.value, lastStroke)
+        val view = LastStroke.of(layerId, command, _uiState.value, lastStroke)
+        lastStroke = view
         val continues = gestureOpen && gestureCommitted != null
         // A segment on another layer than the last one (a stroke crossing between view images) is its
         // own entry, chained to the previous so that undo and redo take both.
@@ -10585,7 +10635,7 @@ class EditorViewModel @Inject constructor(
         }
         return history.pushDraw(
             layerId, command, chunkable && !tapDot, plane = plane,
-            continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot,
+            continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot, view = view,
         ).also { sweepPlaneLayers() }
     }
 
@@ -13175,44 +13225,6 @@ class EditorViewModel @Inject constructor(
             .map { argbs -> argbs.map { androidx.compose.ui.graphics.Color(it) } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** The saved mixes (spec/painterly.md 6.4): this project's and the app's, one list, with where each is kept. */
-    val recipeLibrary = RecipeLibrary(
-        object : RecipeLibrary.Store {
-            override suspend fun readProject(projectId: String) = readProjectArtifactOutcome(projectId, RECIPE_FILE)
-
-            override fun isReadOnly(projectId: String) = isProjectReadOnly(projectId)
-
-            override suspend fun writeProject(projectId: String, text: String) {
-                projectRepository.saveArtifact(projectId, RECIPE_FILE, text.toByteArray())
-            }
-
-            override suspend fun readApp(): String? = settingsRepository.savedRecipes.firstOrNull()
-
-            override suspend fun updateApp(transform: (String?) -> String?) =
-                settingsRepository.updateSavedRecipes(transform)
-
-            override suspend fun keepProjectBackup(projectId: String, original: String) =
-                runCatching { projectRepository.saveArtifact(projectId, "$RECIPE_FILE.bak", original.toByteArray()) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                    .isSuccess
-
-            override suspend fun keepAppBackup(original: String) = settingsRepository.backupSavedRecipes(original)
-
-            override fun onRepaired(scope: RecipeLibrary.Scope, dropped: Int, backedUp: Boolean) {
-                val kept = if (backedUp) {
-                    "The original was kept as a backup."
-                } else {
-                    "The original could not be backed up."
-                }
-                notify("$dropped saved mix(es) couldn't be read and were dropped. $kept", NoticeKind.WARNING)
-            }
-
-            override fun onUnreadable(scope: RecipeLibrary.Scope) {
-                notify("The saved mixes couldn't be read, so they were left as they are.", NoticeKind.WARNING)
-            }
-        },
-    )
-
     val savedMixes: StateFlow<List<SavedMix>> =
         kotlinx.coroutines.flow.combine(recipeLibrary.project, recipeLibrary.app) { project, app ->
             project.recipes.map { SavedMix(it, RecipeLibrary.Scope.PROJECT, project.id) } +
@@ -13874,8 +13886,6 @@ class EditorViewModel @Inject constructor(
 
     // ── Draw plane depth (spec/3d-space.md, "Draw plane depth") ──
 
-
-
     /** Undone or dropped [strokes] are no longer the reference: the strokes before them are again. */
     private fun retireLastStroke(strokes: Collection<StrokeCommand>) {
         lastStroke = lastStroke?.without(strokes)
@@ -13888,7 +13898,6 @@ class EditorViewModel @Inject constructor(
         planeLayerSaves.clear()
         drawGuideJob?.cancel()
     }
-
 
     /**
      * Releases what layers a draw-plane stroke made still hold once nothing can bring them back (not in the layer
@@ -14100,6 +14109,7 @@ class EditorViewModel @Inject constructor(
         if (base != null) layerStore.putBase(layer.id, base) else putLayerBase(layer.id, blank)
         layerStore.initStrokes(layer.id)
         val index = state.layers.indexOfFirst { it.id == below.id }.let { if (it < 0) state.layers.size else it + 1 }
+        keepStrokeReference = true
         updateUi { s ->
             s.copy(
                 layers = s.layers.toMutableList().apply { add(index.coerceAtMost(size), layer) },
@@ -14108,6 +14118,7 @@ class EditorViewModel @Inject constructor(
                 drawPlaneGuideShown = false,
             )
         }
+        keepStrokeReference = false
         emitMembership(Op.LayerAdd(layer))
         planeLayerFiles[layer.id] = if (projectId != null && uri != null) projectId to filename else null
         persistNewLayerBitmap(projectId, uri, filename, blank)?.let { planeLayerSaves[layer.id] = it }
@@ -14137,12 +14148,14 @@ class EditorViewModel @Inject constructor(
             applyPlane(id, swap.before)
             return
         }
+        keepStrokeReference = true
         updateUi { s ->
             s.copy(
                 layers = s.layers.filterNot { it.id == id },
                 activeLayerId = if (s.activeLayerId == id) made.previousActiveId else s.activeLayerId,
             )
         }
+        keepStrokeReference = false
         emitMembership(Op.LayerRemove(id))
         saveProject()
     }
@@ -14150,12 +14163,14 @@ class EditorViewModel @Inject constructor(
     /** Redo of a stroke that made its layer: the layer comes back, empty, before the stroke is replayed onto it. */
     private fun reinsertPlaneLayer(made: CreatedPlaneLayer) {
         if (_uiState.value.layers.any { it.id == made.layer.id }) return
+        keepStrokeReference = true
         updateUi { s ->
             s.copy(
                 layers = s.layers.toMutableList().apply { add(made.index.coerceIn(0, size), made.layer) },
                 activeLayerId = made.layer.id,
             )
         }
+        keepStrokeReference = false
         emitMembership(Op.LayerAdd(made.layer))
         saveProject()
     }

@@ -89,12 +89,16 @@ internal class EditHistory(
          * any other edit, undo or redo makes it final and discards the set-aside redo.
          */
         tentative: Boolean = false,
+        /** The view the stroke was drawn in (the draw plane's reference), kept so a redo can restore it. */
+        view: LastStroke? = null,
     ): Boolean {
         val top = undoStack.lastOrNull()
         if (chainedToPrevious && top is EditCommand.Draw && top.layerId != layerId) {
             undoStack[undoStack.lastIndex] = top.copy(chainedNext = true)
             undoStack.addLast(
-                EditCommand.Draw(layerId, command, chunkable = false, lastPushMs = nowMs, chainedToPrevious = true),
+                EditCommand.Draw(
+                    layerId, command, chunkable = false, lastPushMs = nowMs, chainedToPrevious = true, view = view,
+                ),
             )
             trim(maxStackSize)
             clearRedo()
@@ -110,12 +114,12 @@ internal class EditHistory(
         if (joined) {
             top.gpuUndo?.let(onGpuUndoDiscarded)
             undoStack[undoStack.lastIndex] = top.copy(
-                earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs,
+                earlier = top.strokes, command = command, gpuUndo = null, lastPushMs = nowMs, view = view ?: top.view,
             )
         } else {
             undoStack.addLast(
                 EditCommand.Draw(
-                    layerId, command, chunkable = chunk, lastPushMs = nowMs, plane = plane,
+                    layerId, command, chunkable = chunk, lastPushMs = nowMs, plane = plane, view = view,
                 ),
             )
             trim(if (tentative) maxStackSize + 1 else maxStackSize)
@@ -164,9 +168,12 @@ internal class EditHistory(
      * is all it holds. A stroke that joined a chunk, or an entry with other strokes in it, keeps its layer: only the
      * stroke is dropped ([dropDraw]).
      */
-    fun planeSwapToRevert(command: StrokeCommand): PlaneSwap? {
+    fun planeSwapToRevert(command: StrokeCommand, layerId: String): PlaneSwap? {
         val entry = undoStack.lastOrNull { it is EditCommand.Draw && it.strokes.any { s -> s === command } }
-        return (entry as? EditCommand.Draw)?.takeIf { it.strokes.size == 1 }?.plane
+        val lone = (entry as? EditCommand.Draw)?.takeIf { it.strokes.size == 1 } ?: return null
+        // Another stroke entry on the layer, in either stack, means the layer holds more than this stroke.
+        val shared = (undoStack + redoStack).any { it !== lone && it is EditCommand.Draw && it.layerId == layerId }
+        return lone.plane.takeUnless { shared }
     }
 
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */

@@ -1287,8 +1287,10 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
   pan, zoom, rotation, Reset view), to the active layer, or to the project makes it automatic again
   (`DrawPlaneDepth.holdsIn`, applied in `EditorViewModel.writeState`, so no path can miss it); the last-stroke reference
   lapses with the camera too (`LastStroke.holds`). A resized canvas lapses the depth as well (`canvasSize`). Undoing the last stroke (a whole chunk of strokes
-  counts each), redoing one, or dropping one whose commit failed (matched by the stroke, not its layer) moves the reference with them,
-  a short chain of strokes deep. A newest stroke whose layer the depth refuses (paint on a surface) is skipped to the one before it;
+  counts each) or dropping one whose commit failed (matched by the stroke, not its layer) moves the reference back along a chain of
+  the last 8 strokes. Redoing a stroke brings back the view that stroke was drawn in (kept on its undo entry), not the current one, so a
+  camera change between the undo and the redo leaves the reference lapsed. Switching the active layer by hand ends the reference too
+  (as it ends the depth); the draw plane's own layer changes (create, undo, redo) do not. A newest stroke whose layer the depth refuses (paint on a surface) is skipped to the one before it;
   but a newest stroke whose view has lapsed is not: the older stroke is the reference again only once the newer one is undone. It is session state (`EditorUiState.drawPlane`): not saved, no format
   change (the format stays 14).
 - **The next stroke** (`adoptDrawDepthPlane`, called from `adoptViewPlaneForStroke` as a stroke starts): on a paint layer,
@@ -1296,8 +1298,9 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
   group, active from then on; it is named like any new sketch layer. An empty paint layer is not duplicated: it is moved
   onto the plane (the adoption mechanism). The layer's creation rides on the stroke's undo entry
   (`PlaneSwap.created`): one undo removes the stroke and the layer, one redo puts both back (while a redo entry exists the layer's pixel cache is kept; it is released, with its first PNG, once no
-  layer, undo or redo entry holds it). A cancelled stroke, a failed commit of the entry's only stroke and a double-tap dot taken back remove the layer at once (a failed
-  later stroke of a chunk, or one arriving after its entry was undone, drops only itself)
+  layer, undo or redo entry holds it). A cancelled stroke, a failed commit of the entry's only stroke and a double-tap dot taken back remove the layer at once, provided the
+  layer still exists and holds nothing else (no other stroke entry on it in either stack, none in its store); otherwise only the failed
+  stroke is dropped (a later stroke of a chunk, a stroke arriving after its entry was undone, a layer deleted since)
   (an empty layer moved onto the plane gets its old plane back). The depth is spent by the stroke; setting it again offsets from that stroke's plane.
 - **Where it does not apply.** A layer on a surface keeps to the surface, and the 3D strokes layer keeps its own guide
   depth (`SpatialGuide.depth`, unchanged): the drag then does nothing and says so in a notice, once per drag. So does a
@@ -1325,6 +1328,7 @@ Not tested, or not verified on a device:
   the button and is slow to leave the slop may still scroll the rail first. TalkBack and keyboard behaviour on a device.
 - Pixels of the redo of a created layer (it comes back with no bitmap and is rebuilt from its base and strokes): the pose and
   stroke record are tested, the pixels are not.
+- Ink multi-segment strokes (`continuesGesture`) failing partway, and a layer-list edit (not a delete) between a stroke and its failure.
 - A draw-plane session does not carry across projects (the last-stroke reference and the layer file bookkeeping reset on project open
   and close; a file is never deleted across projects).
 - Co-op: the created layer is emitted as `LayerAdd`/`LayerRemove` but not exercised against a guest.

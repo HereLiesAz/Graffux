@@ -10,7 +10,7 @@ import com.hereliesaz.graffitixr.common.scene.SceneCamera
  * zoom or Reset view since makes the reference lapse. [prior] is the stroke before it (a short chain), the reference
  * again once this one is undone or dropped.
  */
-internal data class LastStroke(
+data class LastStroke(
     val layerId: String,
     val command: StrokeCommand?,
     val camera: SceneCamera,

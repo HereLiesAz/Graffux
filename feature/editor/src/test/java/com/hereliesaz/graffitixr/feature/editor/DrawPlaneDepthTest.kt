@@ -28,6 +28,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import com.hereliesaz.graffitixr.common.model.Op
 import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import org.junit.Assert.assertNotNull
@@ -306,14 +307,12 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `a stroke on a surface layer leaves the reference at the previous valid plane`() = runTest(dispatcher) {
+    fun `a stroke on a surface layer is no reference: the depth refuses it`() = runTest(dispatcher) {
         setup(withSurfacePaint = true)
         vm.onSceneOrbit(0.5f, 0.1f)
-        stroke()
-        val first = vm.drawPlaneReference()!!.column(3).toList()
         vm.onLayerActivated("W")
         stroke()
-        assertEquals(first, vm.drawPlaneReference()!!.column(3).toList())
+        assertNull(vm.drawPlaneReference())
     }
 
     @Test
@@ -468,54 +467,61 @@ class DrawPlaneDepthTest {
         stroke()
         val only = vm.recordedStrokesForTest(made.id).single()
         vm.onUndoClicked()
-        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
-        // The active layer is L again; a second revert would have re-activated or removed something else.
-        vm.onLayerActivated("G")
+        val layers = ui().layers
+        io.mockk.verify(exactly = 1) { emitter.emit(Op.LayerRemove(made.id)) }
         vm.failCommitForTest(made.id, only)
-        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
-        assertEquals("G", ui().activeLayerId)
+        assertEquals("nothing else changed", layers, ui().layers)
+        io.mockk.verify(exactly = 1) { emitter.emit(Op.LayerRemove(made.id)) }
     }
 
     @Test
-    fun `reverting a made layer emits LayerRemove and deletes its first PNG, after its save`() = runTest(dispatcher) {
-        vm.dispatchForTest(EditorIntent.LoadedProject("P", emptyList()))
-        setup()
-        vm.dispatchForTest(EditorIntent.LoadedProject("P", ui().layers))
-        // Loading a project puts the tool down and the active layer away: take both up again.
-        vm.onLayerActivated("L")
-        vm.setActiveTool(Tool.BRUSH)
+    fun `reverting a made layer emits LayerRemove and deletes its first PNG, only after its save`() = runTest(dispatcher) {
+        loadProject("P")
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        io.mockk.coEvery { projectRepo.saveArtifact("P", any(), any()) } coAnswers { gate.await(); "path" }
         val made = setDepthAndAdopt()
         val file = made.uri!!.lastPathSegment!!
         stroke()
         vm.failCommitForTest(made.id, vm.recordedStrokesForTest(made.id).single())
         dispatcher.scheduler.advanceUntilIdle()
-        io.mockk.verify { emitter.emit(com.hereliesaz.graffitixr.common.model.Op.LayerRemove(made.id)) }
-        io.mockk.coVerifyOrder {
-            projectRepo.saveArtifact("P", file, any())
-            projectRepo.deleteArtifact("P", file)
-        }
+        io.mockk.verify(exactly = 1) { emitter.emit(Op.LayerRemove(made.id)) }
+        io.mockk.coVerify(exactly = 0) { projectRepo.deleteArtifact("P", file) }
+        gate.complete(Unit)
+        dispatcher.scheduler.advanceUntilIdle()
+        io.mockk.coVerify(exactly = 1) { projectRepo.deleteArtifact("P", file) }
+    }
+
+    private fun loadProject(id: String) {
+        vm.dispatchForTest(EditorIntent.LoadedProject(id, emptyList()))
+        setup()
+        vm.dispatchForTest(EditorIntent.LoadedProject(id, ui().layers))
+        // Loading a project puts the tool down and the active layer away: take both up again.
+        vm.onLayerActivated("L")
+        vm.setActiveTool(Tool.BRUSH)
     }
 
     @Test
-    fun `a project switch with a plane layer pending deletes nothing across projects and drops the reference`() =
-        runTest(dispatcher) {
-            vm.dispatchForTest(EditorIntent.LoadedProject("A", emptyList()))
-            setup()
-            vm.dispatchForTest(EditorIntent.LoadedProject("A", ui().layers))
-            vm.onSceneOrbit(0.5f, 0.1f)
-            stroke()
-            val made = setDepthAndAdopt()
-            val file = made.uri!!.lastPathSegment!!
-            stroke()
-            vm.onUndoClicked() // the layer is now held only by a redo entry
-            projectFlow.value = com.hereliesaz.graffitixr.common.model.GraffitiProject(id = "B")
-            dispatcher.scheduler.advanceUntilIdle()
-            assertNull(vm.drawPlaneReference())
-            vm.onLayerActivated(ui().layers.firstOrNull()?.id ?: "none")
-            stroke()
-            dispatcher.scheduler.advanceUntilIdle()
-            io.mockk.coVerify(exactly = 0) { projectRepo.deleteArtifact("A", file) }
-        }
+    fun `a project switch resets the reference and never deletes the old project's file`() = runTest(dispatcher) {
+        loadProject("A")
+        vm.onSceneOrbit(0.5f, 0.1f)
+        val made = setDepthAndAdopt()
+        val file = made.uri!!.lastPathSegment!!
+        stroke()
+        vm.onUndoClicked() // the layer is now held only by a redo entry
+        assertTrue(vm.layerBaseForTest(made.id) != null)
+        projectFlow.value = com.hereliesaz.graffitixr.common.model.GraffitiProject(id = "B")
+        dispatcher.scheduler.advanceUntilIdle()
+        // Project B has a layer, and the camera is as it was: only the reset can make the reference null.
+        val bLayer = Layer(id = "B1", name = "B1", bitmap = RenderTestBase.filled(48, 48, Color.TRANSPARENT))
+        vm.dispatchForTest(EditorIntent.SetLayers(listOf(bLayer)))
+        vm.putLayerBaseForTest("B1", bLayer.bitmap!!)
+        vm.onLayerActivated("B1")
+        vm.setActiveTool(Tool.BRUSH)
+        assertNull(vm.drawPlaneReference())
+        stroke() // a push: the sweep runs here
+        dispatcher.scheduler.advanceUntilIdle()
+        io.mockk.coVerify(exactly = 0) { projectRepo.deleteArtifact("A", file) }
+    }
 
     @Test
     fun `redoing a stroke makes it the reference again, and a lapsed newer stroke does not hand over to an older`() =
@@ -535,4 +541,98 @@ class DrawPlaneDepthTest {
             // Any camera change since the newest stroke lapses it, and no older stroke stands in.
             assertNull(vm.drawPlaneReference())
         }
+
+    @Test
+    fun `a stroke that lands on the made layer as its own entry keeps the layer when the first one fails late`() =
+        runTest(dispatcher) {
+            setup()
+            val made = setDepthAndAdopt()
+            stroke()
+            val first = vm.recordedStrokesForTest(made.id).single()
+            vm.setActiveTool(Tool.ERASER)
+            stroke()
+            vm.failCommitForTest(made.id, first)
+            assertTrue(ui().layers.any { it.id == made.id })
+            io.mockk.verify(exactly = 0) { emitter.emit(Op.LayerRemove(made.id)) }
+        }
+
+    @Test
+    fun `a failure after the made layer was deleted emits no second LayerRemove, and a double failure reverts once`() =
+        runTest(dispatcher) {
+            setup()
+            val made = setDepthAndAdopt()
+            stroke()
+            val only = vm.recordedStrokesForTest(made.id).single()
+            vm.onLayerRemoved(made.id)
+            vm.failCommitForTest(made.id, only)
+            io.mockk.verify(exactly = 1) { emitter.emit(Op.LayerRemove(made.id)) }
+            vm.failCommitForTest(made.id, only)
+            io.mockk.verify(exactly = 1) { emitter.emit(Op.LayerRemove(made.id)) }
+        }
+
+    @Test
+    fun `the first stroke of a chunk failing keeps the layer for the second, which undo then takes with it`() =
+        runTest(dispatcher) {
+            setup()
+            val made = setDepthAndAdopt()
+            stroke()
+            val first = vm.recordedStrokesForTest(made.id).single()
+            stroke()
+            vm.failCommitForTest(made.id, first)
+            assertTrue(ui().layers.any { it.id == made.id })
+            assertEquals(1, vm.recordedStrokesForTest(made.id).size)
+            vm.onUndoClicked()
+            assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+        }
+
+    @Test
+    fun `redo does not restamp the camera, so a stroke drawn before an orbit is not the reference after it`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.5f, 0.1f)
+            stroke()
+            assertNotNull(vm.drawPlaneReference())
+            vm.onUndoClicked()
+            vm.onSceneOrbit(0.2f, 0f)
+            vm.onRedoClicked()
+            assertNull(vm.drawPlaneReference())
+        }
+
+    @Test
+    fun `undoing to an older stroke whose camera has lapsed gives no reference`() = runTest(dispatcher) {
+        setup()
+        vm.onSceneOrbit(0.5f, 0.1f)
+        stroke()
+        vm.onSceneOrbit(0.2f, 0f)
+        vm.setActiveTool(Tool.ERASER)
+        stroke()
+        assertNotNull(vm.drawPlaneReference())
+        vm.onUndoClicked()
+        assertNull(vm.drawPlaneReference())
+    }
+
+    @Test
+    fun `an older stroke whose camera matches now does not stand in for a newer one that does not`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.5f, 0.1f)
+            val c1 = ui().sceneCamera
+            stroke()
+            vm.onSceneOrbit(0.2f, 0f)
+            vm.setActiveTool(Tool.ERASER)
+            stroke()
+            vm.setSceneCameraForTest(c1)
+            assertNull(vm.drawPlaneReference())
+        }
+
+    @Test
+    fun `switching the active layer ends the last-stroke reference`() = runTest(dispatcher) {
+        setup(withSurfacePaint = true)
+        vm.onSceneOrbit(0.5f, 0.1f)
+        stroke()
+        assertNotNull(vm.drawPlaneReference())
+        vm.onLayerActivated("W")
+        vm.onLayerActivated("L")
+        assertNull(vm.drawPlaneReference())
+    }
 }
