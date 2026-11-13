@@ -158,6 +158,19 @@ class SurfaceLookTest {
     }
 
     @Test
+    fun `a group holding only hidden or empty paint keeps its fill in the stack`() {
+        val layers = listOf(
+            group("g2"), paint("hidden", "g2").copy(isVisible = false),
+            group("g3"), Layer("blank", "blank", parentId = "g3"),
+            group("g1"), paint("a", "g1"),
+        )
+        val depth = DepthComposite.plan(layers, SceneCamera(yaw = 0.4f))
+        assertTrue("a" in depth.memberIds && "hidden" !in depth.memberIds && "blank" !in depth.memberIds)
+        val fills = SurfaceMath.fillGroupIds(layers)
+        assertEquals(listOf("g1"), SurfaceMath.passFillGroups(layers, depth, fills))
+    }
+
+    @Test
     fun `a nested, hidden or zero-opacity group gets no fill`() {
         val layers = listOf(
             group("top"), group("inner").copy(parentId = "top"),

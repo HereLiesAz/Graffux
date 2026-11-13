@@ -84,11 +84,12 @@ Built (the appearance only; the document boundary is a later slice).
     If the GPU depth pass paints that group's surface layers (`SurfaceMath.passFillGroups`: paint on a
     surface joins the pass even with the identity camera), the fill is emitted immediately before the pass
     at its anchor slot, in stack order with the other such fills, so it is under the paint the pass draws and
-    above whatever is stacked below the anchor. A group with nothing in the pass (no paint, or paint kept in
-    the stack) is filled by `LayerStackNode` just before its own box, at its own place in the stack. Either
+    above whatever is stacked below the anchor. A group with no visible painted layer in the pass (no paint, or only hidden or empty paint) is filled by `LayerStackNode` just before its own box, at its own place in the stack. Either
     way the page never overpaints it. The split inactive-layer render only applies when there is no pass, so
-    only the second kind of fill occurs there. Known limit: a fill emitted at the anchor slot is under layers
-    stacked between the anchor and its group, the same way that group's paint is.
+    only the second kind of fill occurs there. Known limits: a fill emitted at the anchor slot is under layers
+    stacked between the anchor and its group, the same way that group's paint is; and with two surface groups
+    both painted, the later group's opaque fill is emitted before the pass, so it is under the earlier group's
+    paint where they overlap. `fillKey` copies a few small arrays per recomposition (cheap, unmeasured).
   - *Opacity:* the group's own opacity (times its animation frame alpha); the enclosing groups' opacity
     applies because the fill is inside their box. A hidden or zero-opacity group draws nothing (the mesh's gate:
     a valid surface, visible, not at zero opacity).

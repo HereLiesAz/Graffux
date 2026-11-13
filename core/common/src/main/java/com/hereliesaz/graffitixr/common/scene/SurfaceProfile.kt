@@ -220,7 +220,11 @@ object SurfaceMath {
      */
     fun passFillGroups(layers: List<Layer>, depth: DepthComposite, fillGroups: List<String>): List<String> {
         if (depth.isEmpty || fillGroups.isEmpty()) return emptyList()
-        val owners = depth.surfaceIds.mapNotNull { ownerOf(layers, it)?.group?.id }.toSet()
+        // Pass MEMBERS on a surface: surfaceIds also holds hidden or empty paint, which the pass does not draw.
+        val byId = layers.associateBy { it.id }
+        val owners = depth.memberIds.filter { id ->
+            id in depth.surfaceIds && byId[id]?.let { it.spatial == null && it.model == null } == true
+        }.mapNotNull { ownerOf(byId, it)?.group?.id }.toSet()
         return fillGroups.filter { it in owners }
     }
 
