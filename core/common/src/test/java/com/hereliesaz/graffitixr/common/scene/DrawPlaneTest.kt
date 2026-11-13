@@ -125,4 +125,14 @@ class DrawPlaneTest {
         }
         assertEquals(4f, pitch(nearLines) / pitch(farLines), 0.05f)
     }
+
+    @Test
+    fun `the effective depth is the automatic one times the factor, within the range`() {
+        val focal = SceneMath.focalLength(h)
+        val auto = focal * 2f
+        assertEquals(auto, DrawPlane.effectiveDepth(auto, 1f, focal), 1e-3f)
+        assertEquals(auto * 0.5f, DrawPlane.effectiveDepth(auto, 0.5f, focal), 1e-3f)
+        assertEquals(DrawPlane.depthRange(focal).start, DrawPlane.effectiveDepth(auto, 0.0001f, focal), 0f)
+        assertEquals(DrawPlane.depthRange(focal).endInclusive, DrawPlane.effectiveDepth(auto, 1e6f, focal), 0f)
+    }
 }

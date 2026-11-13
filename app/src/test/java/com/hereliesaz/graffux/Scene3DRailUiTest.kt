@@ -197,14 +197,14 @@ class Scene3DRailUiTest {
             down(center); moveBy(Offset(0f, -160f)); moveBy(Offset(0f, -160f)); up()
         }
         rule.waitForIdle()
-        val nearer = vm.uiState.value.drawPlane!!.depth
+        val nearer = vm.uiState.value.drawPlane!!.factor
         assertEquals("a drag does not toggle the grid", grid, vm.uiState.value.surfaceGridVisible)
         assertTrue(vm.uiState.value.drawPlaneGuideShown)
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performTouchInput {
             down(center); moveBy(Offset(0f, 200f)); moveBy(Offset(0f, 200f)); moveBy(Offset(0f, 200f)); up()
         }
         rule.waitForIdle()
-        assertTrue("down is farther", vm.uiState.value.drawPlane!!.depth > nearer)
+        assertTrue("down is farther", vm.uiState.value.drawPlane!!.factor > nearer)
     }
 
     @Test

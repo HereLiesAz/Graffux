@@ -12,7 +12,7 @@ import kotlin.math.sqrt
  * reference it is the camera-facing plane through the orbit pivot. [depth] is a camera-space distance, the
  * same unit as [CameraFrame.toCamera]'s z, so the drag maps it multiplicatively (see [depthAfterDrag]).
  */
-@Suppress("MagicNumber")
+@Suppress("MagicNumber", "TooManyFunctions")
 object DrawPlane {
     /** The drag length, in dp, that changes the depth by [DRAG_FACTOR]. */
     const val DRAG_DP_PER_CHANGE = 400f
@@ -42,6 +42,10 @@ object DrawPlane {
     /** [current] after a drag of [dragDownDp]: down is farther, up is nearer, clamped to [depthRange]. */
     fun depthAfterDrag(current: Float, dragDownDp: Float, focal: Float): Float =
         (current * DRAG_FACTOR.pow(dragDownDp / DRAG_DP_PER_CHANGE)).coerceIn(depthRange(focal))
+
+    /** The effective eye-to-plane distance: the [automatic] one times the user's [factor], within [depthRange]. */
+    fun effectiveDepth(automatic: Float, factor: Float, focal: Float): Float =
+        (automatic * factor).coerceIn(depthRange(focal))
 
     /** The scene point the depth is measured at: the reference's box centre, else the pivot, else the target. */
     fun anchor(reference: Affine3?, cam: CameraFrame, pivot: FloatArray?): FloatArray =

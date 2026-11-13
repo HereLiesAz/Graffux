@@ -156,11 +156,11 @@ class DrawPlaneDepthTest {
         setup()
         vm.onDrawDepthDragStart()
         vm.onDrawDepthDrag(0f)
-        val auto = ui().drawPlane!!.depth
+        val auto = ui().drawPlane!!.factor
         vm.onDrawDepthDrag(-200f)
-        val nearer = ui().drawPlane!!.depth
+        val nearer = ui().drawPlane!!.factor
         vm.onDrawDepthDrag(400f)
-        val farther = ui().drawPlane!!.depth
+        val farther = ui().drawPlane!!.factor
         assertTrue("up is nearer", nearer < auto)
         assertTrue("down is farther", farther > nearer)
         assertTrue(ui().drawPlaneGuideShown)
@@ -206,7 +206,7 @@ class DrawPlaneDepthTest {
         val undoAfterFirst = ui().undoCount
         val before = ui().layers.first { it.id == "L" }
         vm.onDrawDepthDrag(-150f)
-        val depth = ui().drawPlane!!.depth
+        val depth = vm.effectiveDrawDepth()!!
         assertTrue(vm.adoptViewPlaneForStroke())
         val layers = ui().layers
         val made = layers.first { it.id == ui().activeLayerId }
@@ -427,10 +427,10 @@ class DrawPlaneDepthTest {
     fun `the menu steps and reset set and clear the depth, and the guide fades after a second`() = runTest(dispatcher) {
         setup()
         vm.onDrawDepthStep(nearer = false)
-        val far = ui().drawPlane!!.depth
+        val far = ui().drawPlane!!.factor
         vm.onDrawDepthStep(nearer = true)
         vm.onDrawDepthStep(nearer = true)
-        assertTrue(ui().drawPlane!!.depth < far)
+        assertTrue(ui().drawPlane!!.factor < far)
         assertTrue(ui().drawPlaneGuideShown)
         dispatcher.scheduler.advanceTimeBy(com.hereliesaz.graffitixr.common.scene.DrawPlane.GUIDE_LINGER_MS + 10)
         dispatcher.scheduler.runCurrent()
@@ -634,5 +634,40 @@ class DrawPlaneDepthTest {
         vm.onLayerActivated("W")
         vm.onLayerActivated("L")
         assertNull(vm.drawPlaneReference())
+    }
+
+    @Test
+    fun `the depth is an offset from the automatic one, which follows the layers, so it is not pinned`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onDrawDepthDrag(-200f)
+            val factor = ui().drawPlane!!.factor
+            val auto = vm.automaticDrawDepth()!!.first
+            assertEquals(auto * factor, vm.effectiveDrawDepth()!!, 0.01f)
+            assertTrue("nearer than automatic", factor < 1f)
+            // The automatic depth moves when what the pivot is made of moves; the factor stays, the plane follows.
+            val moved = ui().layers.map { if (it.id == "L") it.copy(positionZ = 300f) else it }
+            vm.dispatchForTest(EditorIntent.SetLayers(moved))
+            val autoAfter = vm.automaticDrawDepth()!!.first
+            assertEquals(factor, ui().drawPlane!!.factor, 0f)
+            assertEquals(autoAfter * factor, vm.effectiveDrawDepth()!!, 0.01f)
+            // Reset is automatic again: nothing is set, and the next stroke takes no plane.
+            vm.onResetDrawDepth()
+            assertNull(vm.effectiveDrawDepth())
+            assertFalse(vm.adoptViewPlaneForStroke())
+        }
+
+    @Test
+    fun `the slider fraction and the guide read the effective depth`() = runTest(dispatcher) {
+        setup()
+        vm.onSetDrawDepthFraction(0.25f)
+        assertEquals(0.25f, vm.drawDepthFraction(), 0.01f)
+        val world = vm.drawPlaneGuideWorld(ui())!!
+        val size = ui().canvasSize
+        val cam = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(
+            ui().sceneCamera, size.width.toFloat(), size.height.toFloat(),
+        )
+        val z = cam.toCamera(world.apply(size.width / 2f, size.height / 2f, 0f))[2]
+        assertEquals(vm.effectiveDrawDepth()!!, z, 0.5f)
     }
 }

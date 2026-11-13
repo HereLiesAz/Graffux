@@ -1268,18 +1268,25 @@ In a project with a 3D group the user can choose how far from the eye the next s
 art. The control is the wire-mesh button ("#", `SurfaceMeshButton`, rail id `view.surfaceMesh`), which now shows in
 any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its tap (grid on/off) and long-press (menu) are unchanged.
 
-- **Drag.** A vertical drag on the button sets the depth: up moves the plane toward the camera, down away from it. It
-  is multiplicative, as the Move-tool pinch is: 400dp of drag changes the eye-to-plane distance by a factor of 4
+- **Relative, not absolute.** The depth the user sets is an offset from the *automatic* depth, stored as a multiplicative factor k
+  (`DrawPlaneDepth.factor`; null or 1 = automatic). The automatic plane is the one through the orbit pivot, or parallel to the last
+  stroke's plane, and it follows the camera, the pivot and that stroke, so it tracks dolly and orbit distance. The effective
+  eye-to-plane distance is `clamp(k * d0, 2 * near, far / 10)` with `d0` the automatic distance worked out from the current
+  reference when a stroke starts, when the guide is drawn and when the slider is read (`EditorViewModel.automaticDrawDepth`,
+  `effectiveDrawDepth`, `DrawPlane.effectiveDepth`). "Reset draw distance" returns to automatic, which follows the camera again.
+  A later "snap to stroked planes" feature will work on the effective depth (`effectiveDrawDepth`).
+- **Drag.** A vertical drag on the button changes k: up moves the plane toward the camera, down away from it. It
+  is multiplicative, as the Move-tool pinch is: 400dp of drag changes the effective distance (k) by a factor of 4
   (`DrawPlane.DRAG_FACTOR`, `DRAG_DP_PER_CHANGE`), clamped to twice the near plane up to a tenth of the far plane
   (`DrawPlane.depthRange`). Like the brush-size chip, the button owns the gesture only after the touch slop (it uses
   `detectVerticalDragGestures`, so only vertical movement claims it); the drag cancels the tap and the long-press, and
   the rail still scrolls from the gaps and the other buttons.
 - **Non-drag alternatives.** The long-press menu gains "Draw distance nearer", "Draw distance farther" (one step of
   x1.25, `DrawPlane.STEP_FACTOR`) and, once a depth is set, "Reset draw distance"; they are ordinary 48dp menu rows
-  from string resources. TalkBack gets the button as a slider (`progressBarRangeInfo`, `setProgress`) over the depth's
+  from string resources. TalkBack gets the button as a slider (`progressBarRangeInfo`, `setProgress`) over the effective depth's
   log range, 0 = nearest, 1 = farthest (`EditorViewModel.drawDepthFraction`, `onSetDrawDepthFraction`).
 - **The plane.** It is parallel to the plane of the last stroke drawn (the layer that took it, in its pose at the time),
-  offset along that plane's normal until its box centre is `depth` from the eye (`DrawPlane.world`). With no previous
+  offset along that plane's normal until its box centre is the effective depth from the eye (`DrawPlane.world`). With no previous
   stroke, or when the reference plane is seen nearly edge-on (|normal . view| < 0.1), it is the camera-facing plane through
   the orbit pivot, as in "Adopting the view plane". The box keeps its on-screen pixel size at the new depth (its scale
   grows with the distance), so a brush stroke is as wide as it was. Nothing is moved: no existing layer changes.

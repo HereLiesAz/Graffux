@@ -564,7 +564,8 @@ data class EditorUiState(
      */
     val surfaceViewsMenuOpen: Boolean = false,
     /**
-     * The draw plane's depth (spec/3d-space.md, "Draw plane depth"): null = automatic. Session only, never saved;
+     * The draw plane's depth, relative to the automatic one (spec/3d-space.md, "Draw plane depth"): null =
+     * automatic. Session only, never saved;
      * it lapses by itself (see [DrawPlaneDepth.holdsIn]) when the camera, the active layer or the project changes.
      */
     val drawPlane: DrawPlaneDepth? = null,
@@ -793,12 +794,15 @@ object CanvasViewport {
 }
 
 /**
- * A draw-plane depth: the eye-to-plane distance ([depth], camera space) and the view it was set in. It holds
- * only while that view does ([holdsIn]): any orbit, pan, zoom or Reset view, another active layer or another
- * project makes the plane automatic again.
+ * A draw-plane depth, relative to the automatic one: the [factor] the automatic eye-to-plane distance is multiplied by
+ * (1 = automatic), and the view it was set in. The automatic distance follows the camera, the pivot and the last
+ * stroke's
+ * plane (spec/3d-space.md, "Draw plane depth"), so the effective distance is worked out from them each time it is used.
+ * It holds only while that view does ([holdsIn]): any orbit, pan, zoom or Reset view, another active layer, a resized
+ * canvas or another project makes the plane automatic again.
  */
 data class DrawPlaneDepth(
-    val depth: Float,
+    val factor: Float,
     val camera: com.hereliesaz.graffitixr.common.scene.SceneCamera,
     val viewportZoom: Float,
     val viewportOffset: Offset,
@@ -814,9 +818,9 @@ data class DrawPlaneDepth(
             activeLayerId == state.activeLayerId && projectId == state.projectId
 
     companion object {
-        /** [depth] set in [state]'s view. */
-        fun of(depth: Float, state: EditorUiState) = DrawPlaneDepth(
-            depth, state.sceneCamera, state.viewportZoom, state.viewportOffset, state.viewportRotation,
+        /** [factor] set in [state]'s view. */
+        fun of(factor: Float, state: EditorUiState) = DrawPlaneDepth(
+            factor, state.sceneCamera, state.viewportZoom, state.viewportOffset, state.viewportRotation,
             state.activeLayerId, state.projectId, state.canvasSize,
         )
     }

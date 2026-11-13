@@ -13957,14 +13957,28 @@ class EditorViewModel @Inject constructor(
         else -> null
     }
 
-    /** The depth now: the one set, else where the automatic plane is (the anchor's distance). Null with no canvas. */
-    private fun currentDrawDepth(state: EditorUiState): Pair<Float, Float>? {
+    /**
+     * The automatic plane's eye-to-plane distance and the focal length: where the plane through the pivot (or parallel to
+     * the last stroke's) is now, so it follows the camera. Null with no canvas or when that point is behind the eye.
+     */
+    internal fun automaticDrawDepth(state: EditorUiState = _uiState.value): Pair<Float, Float>? {
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
         val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
-        val set = state.drawPlane?.takeIf { it.holdsIn(state) }?.depth
-        return (set ?: DrawPlane.anchorDepth(drawPlaneReference(state), cam, orbitPivot(state))) to cam.focal
+        val auto = DrawPlane.anchorDepth(drawPlaneReference(state), cam, orbitPivot(state))
+        return if (auto > 0f && auto.isFinite()) auto to cam.focal else null
     }
+
+    /** The effective depth now (set factor times the automatic depth, clamped) and the focal length; null with none. */
+    private fun currentDrawDepth(state: EditorUiState): Pair<Float, Float>? {
+        val (auto, focal) = automaticDrawDepth(state) ?: return null
+        val factor = state.drawPlane?.takeIf { it.holdsIn(state) }?.factor ?: 1f
+        return DrawPlane.effectiveDepth(auto, factor, focal) to focal
+    }
+
+    /** The effective draw-plane depth while one is set (what later features, such as snapping, work on); else null. */
+    fun effectiveDrawDepth(state: EditorUiState = _uiState.value): Float? =
+        if (state.drawPlane?.holdsIn(state) == true) currentDrawDepth(state)?.first else null
 
     /** The depth as 0..1 across its range, on a log scale (the TalkBack slider's value); 0 with no canvas. */
     fun drawDepthFraction(): Float {
@@ -14017,17 +14031,18 @@ class EditorViewModel @Inject constructor(
         val state = _uiState.value
         val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return
         val (current, focal) = currentDrawDepth(state) ?: return
+        val auto = automaticDrawDepth(state)?.first ?: return
         drawDepthRefusal(state, layer)?.let { notice ->
             if (!drawDepthNoticed) notify(context.getString(notice))
             drawDepthNoticed = true
             return
         }
         drawGuideJob?.cancel()
-        val depth = next(current, focal)
-        if (state.drawPlane?.depth == depth && state.drawPlaneGuideShown) return
+        val factor = next(current, focal) / auto
+        if (state.drawPlane?.factor == factor && state.drawPlaneGuideShown) return
         // Once per drag frame, so no instance-following pass over every layer (writeState follow = false): the
         // depth is not layer content. The one recomposition is the rail's slider and the guide.
-        writeState(follow = false) { it.copy(drawPlane = DrawPlaneDepth.of(depth, it), drawPlaneGuideShown = true) }
+        writeState(follow = false) { it.copy(drawPlane = DrawPlaneDepth.of(factor, it), drawPlaneGuideShown = true) }
     }
 
     private fun scheduleDrawGuideHide() {
@@ -14042,7 +14057,7 @@ class EditorViewModel @Inject constructor(
     /** The draw-plane guide: the plane's world model at the depth now set, for the overlay; null when none is. */
     @Suppress("ReturnCount")
     fun drawPlaneGuideWorld(state: EditorUiState): com.hereliesaz.graffitixr.common.scene.Affine3? {
-        val depth = state.drawPlane?.takeIf { it.holdsIn(state) }?.depth ?: return null
+        val depth = effectiveDrawDepth(state) ?: return null
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0) return null
         val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
@@ -14057,13 +14072,13 @@ class EditorViewModel @Inject constructor(
      */
     @Suppress("ReturnCount")
     private fun adoptDrawDepthPlane(state: EditorUiState, id: String): Boolean {
-        val set = state.drawPlane?.takeIf { it.holdsIn(state) } ?: return false
+        val depth = effectiveDrawDepth(state) ?: return false
         val layer = state.layers.firstOrNull { it.id == id } ?: return false
         val size = state.canvasSize
         if (size.width <= 0 || size.height <= 0 || drawDepthRefusal(state, layer) != null) return false
         val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
         val parents = planeChain(state.layers, id).dropLast(1)
-        val pose = DrawPlane.pose(cam, parents, drawPlaneReference(state), orbitPivot(state), set.depth) ?: return false
+        val pose = DrawPlane.pose(cam, parents, drawPlaneReference(state), orbitPivot(state), depth) ?: return false
         drawGuideJob?.cancel()
         if (layer.isEmptyPaintLayer()) {
             pendingPlaneAdoption = id to PlaneSwap(layer.planePoseOf(), pose)
