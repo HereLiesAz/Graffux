@@ -5444,7 +5444,7 @@ class EditorViewModel @Inject constructor(
      * A brush-style tap (a dot) is about to be painted at [at], [timeMs]. In a project with a 3D
      * group, a second tap close behind the first is a view-reset double-tap: the first tap's dot is
      * removed BY IDENTITY (it was pushed as its own tentative entry, so no earlier stroke is
-     * touched, a full stack loses nothing and no redo is left), the view is reset and true is
+     * touched, a full stack loses nothing and the redo stack the dot set aside is restored, so no redo of the dot is left), the view is reset and true is
      * returned so the caller paints nothing. Otherwise false and the caller paints as usual.
      */
     fun onBrushTap(at: Offset, timeMs: Long): Boolean {

@@ -32,6 +32,7 @@ old double-tap that cycled through the layers under the finger is gone.)
 Status: the view gestures below are built (not yet device-verified); the default surface
 and the open points are still planned. Where this section and the table above disagree,
 this section governs in a project with a 3D group. Nothing here changes a project with no 3D group.
+Test coverage: the double-tap tests run without a GPU, so pixel-level "no mark" and cancelling an in-flight commit are not covered by them.
 
 Built in `:core:common` `scene/ViewControl.kt`: `hasThreeDGroup` (the one predicate: a group with a
 surface profile), `twoFingerViewMode`, the drag-to-angle mapping (`ORBIT_FULL_WIDTH_RADIANS`: one

@@ -33,9 +33,13 @@ import org.robolectric.annotation.GraphicsMode
 import org.junit.runner.RunWith
 
 /**
- * A brush double-tap in a project with a 3D group resets the view and leaves no mark: the first tap's
+ * A brush double-tap in a project with a 3D group resets the view and leaves no history entry: the first tap's
  * dot is removed by identity, whatever the undo stack looked like (empty, full, or a recent stroke the
  * dot would otherwise have joined as a chunk).
+ *
+ * Limits: a JVM test has no GPU, so stamp commits are left queued. These tests check undoCount,
+ * redoCount, the layer's recorded strokes and the scene camera; pixel-level "no mark" and cancellation
+ * of an in-flight commit are NOT covered here and need a device or GPU test.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -153,7 +157,7 @@ class DoubleTapDotTest {
     private fun recorded() = vm.recordedStrokesForTest("L")
 
     @Test
-    fun `empty stack - the double-tap leaves no pixels, no history, no redo and a reset view`() = runTest(dispatcher) {
+    fun `empty stack - the double-tap leaves no history, no stroke, no redo and a reset view`() = runTest(dispatcher) {
         setup()
         vm.onSceneOrbit(0.4f, 0.2f)
         val u = vm.uiState.value.undoCount
@@ -163,7 +167,7 @@ class DoubleTapDotTest {
         secondTapRemovesDot(1000L)
         assertEquals(u, vm.uiState.value.undoCount)
         assertEquals(0, vm.uiState.value.redoCount)
-        assertEquals("no mark", 0, recorded().size)
+        assertEquals("no recorded stroke", 0, recorded().size)
         assertTrue(vm.uiState.value.sceneCamera.isDefault)
     }
 

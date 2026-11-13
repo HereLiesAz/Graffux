@@ -238,6 +238,8 @@ internal class EditHistory(
             val entry = stack[idx] as EditCommand.Draw
             if (entry.earlier.isEmpty()) {
                 stack.removeAt(idx).gpuUndo()?.let(onGpuUndoDiscarded)
+                // A tentative entry that never landed can no longer be cancelled: release its set-aside redo.
+                if (stack === undoStack) dropSetAside()
             } else {
                 // One stroke of a chunk never landed: the chunk keeps the rest, but its merged tile
                 // deltas still hold that stroke's pixels, so undo falls back to a full rebuild.
