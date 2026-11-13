@@ -28,6 +28,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import androidx.compose.ui.geometry.Offset
 import com.hereliesaz.graffitixr.common.model.isPlacedIn3D
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -172,7 +173,7 @@ class DrawPlaneDepthTest {
         vm.dispatchForTest(EditorIntent.SetCanvasSize(canvasSize)) // not a view change: the depth stays
         assertNotNull(ui().drawPlane)
         vm.onTwoFingerStart()
-        vm.onTwoFingerGesture(androidx.compose.ui.geometry.Offset(5f, 0f), 1f, androidx.compose.ui.geometry.Offset(24f, 24f), 0f)
+        vm.onTwoFingerGesture(Offset(5f, 0f), 1f, Offset(24f, 24f), 0f)
         vm.onTwoFingerEnd()
         assertNull("a pan", ui().drawPlane)
         set()
@@ -193,7 +194,7 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `the next stroke goes onto a new layer above the active one, art untouched, in one undo step`() = runTest(dispatcher) {
+    fun `the next stroke makes a layer above the active one, art untouched, in one undo step`() = runTest(dispatcher) {
         setup()
         // A stroke first, so the reference is that stroke's plane (the layer's own, z = 0).
         vm.onSceneOrbit(0.5f, 0.1f)
@@ -214,7 +215,8 @@ class DrawPlaneDepthTest {
         val cam = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(ui().sceneCamera, 48f, 48f)
         val centre = com.hereliesaz.graffitixr.common.scene.SceneMath.model(
             com.hereliesaz.graffitixr.common.scene.PlanePose(
-                made.offset.x, made.offset.y, made.positionZ, made.rotationX, made.rotationY, made.rotationZ, made.scale,
+                made.offset.x, made.offset.y, made.positionZ,
+                made.rotationX, made.rotationY, made.rotationZ, made.scale,
             ),
             48f, 48f,
         ).apply(24f, 24f, 0f)
@@ -226,15 +228,137 @@ class DrawPlaneDepthTest {
         assertSame(before.bitmap, after.bitmap)
         stroke()
         assertEquals("the layer and its stroke are one step", undoAfterFirst + 1, ui().undoCount)
+        assertEquals(1, vm.recordedStrokesForTest(made.id).size)
+        val camera = ui().sceneCamera
         vm.onUndoClicked()
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("G", "L"), ui().layers.map { it.id })
         assertEquals("L", ui().activeLayerId)
+        assertEquals("undo leaves the camera alone", camera, ui().sceneCamera)
+        assertNull("and does not bring the depth back", ui().drawPlane)
+        assertEquals(before.offset, ui().layers.first { it.id == "L" }.offset)
+        assertEquals("the stroke is off the record", 0, vm.recordedStrokesForTest(made.id).size)
         vm.onRedoClicked()
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(made.id, ui().activeLayerId)
         assertEquals(listOf("G", "L", made.id), ui().layers.map { it.id })
+        val back = ui().layers.first { it.id == made.id }
+        assertEquals(made.offset, back.offset)
+        assertEquals(made.positionZ, back.positionZ, 1e-3f)
+        assertEquals(made.scale, back.scale, 1e-5f)
+        assertEquals("the stroke is back on the record", 1, vm.recordedStrokesForTest(made.id).size)
     }
+
+    private fun setDepthAndAdopt(): Layer {
+        vm.onDrawDepthDrag(-150f)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        return ui().layers.first { it.id == ui().activeLayerId }
+    }
+
+    @Test
+    fun `a stroke whose commit fails leaves no layer behind and no reference to it`() = runTest(dispatcher) {
+        setup()
+        val u = ui().undoCount
+        val made = setDepthAndAdopt()
+        stroke()
+        // No GPU here: draining the queued commit fails it, which drops the stroke again.
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+        assertEquals("L", ui().activeLayerId)
+        assertEquals(u, ui().undoCount)
+        assertNull("its pixel cache is released", vm.layerBaseForTest(made.id))
+        assertNull(vm.drawPlaneReference())
+    }
+
+    @Test
+    fun `a failed commit puts an empty layer's old plane back`() = runTest(dispatcher) {
+        setup()
+        vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + Layer(id = "E", name = "E")))
+        vm.onLayerActivated("E")
+        setDepthAndAdopt()
+        assertTrue(ui().layers.first { it.id == "E" }.isPlacedIn3D)
+        stroke()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(ui().layers.first { it.id == "E" }.isPlacedIn3D)
+    }
+
+    @Test
+    fun `undoing the last stroke hands the reference back to the stroke before it`() = runTest(dispatcher) {
+        setup()
+        vm.onSceneOrbit(0.5f, 0.1f)
+        stroke()
+        val first = vm.drawPlaneReference()!!.column(3).toList()
+        val made = setDepthAndAdopt()
+        stroke()
+        val second = vm.drawPlaneReference()!!.column(3).toList()
+        assertTrue("the new layer's plane is the reference now", first != second)
+        vm.onUndoClicked()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(first, vm.drawPlaneReference()!!.column(3).toList())
+        // The undone layer's cache stays for redo, and goes once another stroke discards the redo.
+        assertTrue(vm.layerBaseForTest(made.id) != null)
+        vm.onLayerActivated("L")
+        stroke()
+        assertNull(vm.layerBaseForTest(made.id))
+    }
+
+    @Test
+    fun `a stroke on a surface layer leaves the reference at the previous valid plane`() = runTest(dispatcher) {
+        setup(withSurfacePaint = true)
+        vm.onSceneOrbit(0.5f, 0.1f)
+        stroke()
+        val first = vm.drawPlaneReference()!!.column(3).toList()
+        vm.onLayerActivated("W")
+        stroke()
+        assertEquals(first, vm.drawPlaneReference()!!.column(3).toList())
+    }
+
+    @Test
+    fun `an Ink stroke commits onto the new layer, and a double-tap dot with a depth takes the layer back`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onDrawDepthDrag(-150f)
+            val u = ui().undoCount
+            vm.commitInkThroughPlane(
+                io.mockk.mockk(relaxed = true), listOf(Offset(10f, 10f), Offset(30f, 10f)),
+                listOf(1f, 1f), com.hereliesaz.graffitixr.common.model.InkUtensil.PEN, canvasSize, {},
+            ) { st, _ -> st }
+            val made = ui().layers.first { it.id == ui().activeLayerId }
+            assertTrue("a new layer took the Ink stroke", made.id != "L")
+            assertEquals(u + 1, ui().undoCount)
+            assertEquals(1, vm.inkLedgerStrokes(made.id).size)
+            vm.onUndoClicked()
+            dispatcher.scheduler.advanceUntilIdle()
+            assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+            // The dot: a brush tap, its stroke, then the second tap of a view-reset double-tap.
+            vm.onDrawDepthDrag(-150f)
+            val at = Offset(30f, 30f)
+            assertFalse(vm.onBrushTap(at, 1000L))
+            assertTrue(vm.adoptViewPlaneForStroke())
+            vm.onStrokeStart(BrushSample(30f, 30f, uptimeMillis = 1000L), canvasSize)
+            vm.onStrokePoint(BrushSample(30f, 30f, uptimeMillis = 1001L))
+            vm.onStrokeEnd()
+            assertEquals(3, ui().layers.size)
+            assertTrue(vm.onBrushTap(Offset(31f, 30f), 1120L))
+            assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+            assertEquals("L", ui().activeLayerId)
+        }
+
+    @Test
+    fun `a redo is gone once another edit follows, so a layer deleted since cannot be brought back`() =
+        runTest(dispatcher) {
+            setup()
+            val made = setDepthAndAdopt()
+            stroke()
+            vm.onUndoClicked()
+            dispatcher.scheduler.advanceUntilIdle()
+            vm.onLayerRemoved("L")
+            dispatcher.scheduler.advanceUntilIdle()
+            assertEquals(0, ui().redoCount)
+            vm.onRedoClicked()
+            dispatcher.scheduler.advanceUntilIdle()
+            assertTrue(ui().layers.none { it.id == made.id })
+        }
 
     @Test
     fun `a cancelled first stroke takes the layer back and an empty layer is only moved`() = runTest(dispatcher) {
@@ -271,7 +395,8 @@ class DrawPlaneDepthTest {
         assertNull(ui().drawPlane)
         assertEquals("said once per drag", 1, seen.size)
         assertFalse(vm.adoptViewPlaneForStroke())
-        val spatial = Layer(id = "S", name = "S", spatial = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent())
+        val content = com.hereliesaz.graffitixr.common.scene.SpatialLayerContent()
+        val spatial = Layer(id = "S", name = "S", spatial = content)
         vm.dispatchForTest(EditorIntent.SetLayers(ui().layers + spatial))
         vm.onLayerActivated("S")
         vm.onDrawDepthDragStart()
@@ -297,7 +422,7 @@ class DrawPlaneDepthTest {
     }
 
     @Test
-    fun `the menu steps and the reset set and clear the depth, and the guide fades after a second`() = runTest(dispatcher) {
+    fun `the menu steps and reset set and clear the depth, and the guide fades after a second`() = runTest(dispatcher) {
         setup()
         vm.onDrawDepthStep(nearer = false)
         val far = ui().drawPlane!!.depth

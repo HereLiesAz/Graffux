@@ -290,12 +290,10 @@ internal fun ToolRail(
             surfaceViews = onSurfaceGroup,
         ) { vm.onAxisSlotTapped() }
         // The wire mesh of the active layer's group surface: a guide only. Also the draw distance's drag
-        // (spec/3d-space.md, "Draw plane depth"), so it is there in any project with a 3D group, and while a
-        // rotation point is placed, so that its "Reset to automatic" is never stranded when the last surface
-        // goes (the choice is kept, not silently discarded: it is still a valid point for the plane layers).
+        // (spec/3d-space.md, "Draw plane depth"), so it is there in any project with a 3D group.
         val onSurface =
             com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(uiState.layers, uiState.activeLayerId) != null
-        if (onSurface || uiState.manualPivot != null || com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)) {
+        if (onSurface || com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)) {
             SurfaceMeshButton(vm, on = uiState.surfaceGridVisible, onLongClick = callbacks.onMeshMenu) { vm.onToggleSurfaceGrid() }
         }
         val viewMoved = uiState.viewportZoom != 1f ||

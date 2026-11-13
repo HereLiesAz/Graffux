@@ -812,10 +812,11 @@ data class DrawPlaneDepth(
     val viewportRotation: Float,
     val activeLayerId: String?,
     val projectId: String?,
+    val canvasSize: IntSize,
 ) {
-    /** Whether [state] is still the view this depth was set in. */
+    /** Whether [state] is still the view this depth was set in (a resized canvas is another view). */
     fun holdsIn(state: EditorUiState): Boolean =
-        camera == state.sceneCamera && viewportZoom == state.viewportZoom &&
+        canvasSize == state.canvasSize && camera == state.sceneCamera && viewportZoom == state.viewportZoom &&
             viewportOffset == state.viewportOffset && viewportRotation == state.viewportRotation &&
             activeLayerId == state.activeLayerId && projectId == state.projectId
 
@@ -823,7 +824,7 @@ data class DrawPlaneDepth(
         /** [depth] set in [state]'s view. */
         fun of(depth: Float, state: EditorUiState) = DrawPlaneDepth(
             depth, state.sceneCamera, state.viewportZoom, state.viewportOffset, state.viewportRotation,
-            state.activeLayerId, state.projectId,
+            state.activeLayerId, state.projectId, state.canvasSize,
         )
     }
 }

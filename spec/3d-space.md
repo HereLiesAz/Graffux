@@ -1225,8 +1225,7 @@ The two squares share that edge, at right angles: an L.
 
 In a project with a 3D group the user can choose how far from the eye the next stroke lands, without moving any
 art. The control is the wire-mesh button ("#", `SurfaceMeshButton`, rail id `view.surfaceMesh`), which now shows in
-any project with a 3D group (`hasThreeDGroup`), not only on a surface layer, and still while a rotation point is
-placed. Its tap (grid on/off) and long-press (menu) are unchanged.
+any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its tap (grid on/off) and long-press (menu) are unchanged.
 
 - **Drag.** A vertical drag on the button sets the depth: up moves the plane toward the camera, down away from it. It
   is multiplicative, as the Move-tool pinch is: 400dp of drag changes the eye-to-plane distance by a factor of 4
@@ -1246,14 +1245,17 @@ placed. Its tap (grid on/off) and long-press (menu) are unchanged.
 - **Lapse.** The depth belongs to the view it was set in. Any change to the scene camera or the canvas viewport (orbit,
   pan, zoom, rotation, Reset view), to the active layer, or to the project makes it automatic again
   (`DrawPlaneDepth.holdsIn`, applied in `EditorViewModel.writeState`, so no path can miss it); the last-stroke reference
-  lapses with the camera too (`LastStroke.holds`). It is session state (`EditorUiState.drawPlane`): not saved, no format
+  lapses with the camera too (`LastStroke.holds`). A resized canvas lapses the depth as well (`canvasSize`). Undoing the last stroke, or a stroke dropped
+  because its commit failed, falls the reference back to the stroke before it (one deep); a last stroke on a layer the depth
+  refuses (paint on a surface) is skipped the same way, to the previous valid one, else the camera-facing plane. It is session state (`EditorUiState.drawPlane`): not saved, no format
   change (the format stays 14).
 - **The next stroke** (`adoptDrawDepthPlane`, called from `adoptViewPlaneForStroke` as a stroke starts): on a paint layer,
   with or without art, the stroke goes onto a new empty layer on the plane, directly above the active layer, in the same
   group, active from then on; it is named like any new sketch layer. An empty paint layer is not duplicated: it is moved
   onto the plane (the adoption mechanism). The layer's creation rides on the stroke's undo entry
-  (`PlaneSwap.created`): one undo removes the stroke and the layer, one redo puts both back. A cancelled stroke removes
-  the layer at once. The depth is spent by the stroke; setting it again offsets from that stroke's plane.
+  (`PlaneSwap.created`): one undo removes the stroke and the layer, one redo puts both back (while a redo entry exists the layer's pixel cache is kept; it is released, with its first PNG, once no
+  layer, undo or redo entry holds it). A cancelled stroke, a failed commit and a double-tap dot taken back remove the layer at once
+  (an empty layer moved onto the plane gets its old plane back). The depth is spent by the stroke; setting it again offsets from that stroke's plane.
 - **Where it does not apply.** A layer on a surface keeps to the surface, and the 3D strokes layer keeps its own guide
   depth (`SpatialGuide.depth`, unchanged): the drag then does nothing and says so in a notice, once per drag. So does a
   group, text, vector or adjustment layer (paint layers only). With no depth set, everything behaves as before.
@@ -1278,6 +1280,8 @@ Not tested, or not verified on a device:
   is alpha 0.2).
 - The drag against the real `RailPill` scroll on a device (the Robolectric drag is a plain touch input); a drag that starts on
   the button and is slow to leave the slop may still scroll the rail first. TalkBack and keyboard behaviour on a device.
+- Pixels of the redo of a created layer (it comes back with no bitmap and is rebuilt from its base and strokes): the pose and
+  stroke record are tested, the pixels are not.
 - Co-op: the created layer is emitted as `LayerAdd`/`LayerRemove` but not exercised against a guest.
 - Animation mode, and instances/components, with a draw depth set.
 

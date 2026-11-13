@@ -15,14 +15,17 @@ internal data class LastStroke(
     val viewportZoom: Float,
     val viewportOffset: Offset,
     val viewportRotation: Float,
+    /** The stroke before this one, one deep: what the reference falls back to when this one is undone or refused. */
+    val prior: LastStroke? = null,
 ) {
     fun holds(state: EditorUiState): Boolean =
         camera == state.sceneCamera && viewportZoom == state.viewportZoom &&
             viewportOffset == state.viewportOffset && viewportRotation == state.viewportRotation
 
     companion object {
-        fun of(layerId: String, state: EditorUiState) = LastStroke(
+        fun of(layerId: String, state: EditorUiState, prior: LastStroke? = null) = LastStroke(
             layerId, state.sceneCamera, state.viewportZoom, state.viewportOffset, state.viewportRotation,
+            prior?.copy(prior = null),
         )
     }
 }

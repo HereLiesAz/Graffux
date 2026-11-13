@@ -158,6 +158,11 @@ internal class EditHistory(
         return holds
     }
 
+    /** The plane adoption riding on the entry that holds [command] (by identity), on either stack; null if none. */
+    fun planeSwapOf(command: StrokeCommand): PlaneSwap? =
+        (undoStack + redoStack).firstOrNull { it is EditCommand.Draw && it.strokes.any { s -> s === command } }
+            .let { (it as? EditCommand.Draw)?.plane }
+
     /** Whether the newest undo entry is a stroke entry holding [command] (by identity). */
     fun topDrawHolds(command: StrokeCommand): Boolean =
         (undoStack.lastOrNull() as? EditCommand.Draw)?.strokes?.any { it === command } == true

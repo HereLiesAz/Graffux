@@ -1723,7 +1723,12 @@ class EditorViewModel @Inject constructor(
     private fun abandonFailedCommit(layerId: String, command: StrokeCommand, error: Throwable, preview: Bitmap? = null) {
         android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke; dropping it", error)
         layerStore.removeStroke(layerId, command)
+        // A stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back too.
+        val plane = history.planeSwapOf(command) ?: pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         if (history.dropDraw(command)) updateHistoryCounts()
+        if (plane != null) revertPlaneAdoption(layerId, plane)
+        retireLastStroke(layerId)
+        sweepPlaneLayers()
         if (command.inkStroke != null) inkLedger.onUndo(layerId, command)
         _liveStroke.update { s ->
             if (preview == null || s.bitmap === preview) s.copy(layerId = null, bitmap = null) else s
@@ -2859,6 +2864,7 @@ class EditorViewModel @Inject constructor(
                     restoreUndoneStrokePixels(command)
                 }
                 command.plane?.let { revertPlaneAdoption(command.layerId, it) }
+                retireLastStroke(command.layerId)
                 // Undoing a selection move must walk the marquee back with its pixels, or it would
                 // sit over content it no longer bounds.
                 if (command.command.tool == Tool.SELECT) {
@@ -10536,7 +10542,7 @@ class EditorViewModel @Inject constructor(
         // The view plane this stroke's layer adopted at its start joins the stroke's undo entry.
         val plane = pendingPlaneAdoption?.takeIf { it.first == layerId }?.second
         pendingPlaneAdoption = null
-        lastStroke = LastStroke.of(layerId, _uiState.value)
+        lastStroke = LastStroke.of(layerId, _uiState.value, lastStroke)
         val continues = gestureOpen && gestureCommitted != null
         // A segment on another layer than the last one (a stroke crossing between view images) is its
         // own entry, chained to the previous so that undo and redo take both.
@@ -10553,7 +10559,7 @@ class EditorViewModel @Inject constructor(
         return history.pushDraw(
             layerId, command, chunkable && !tapDot, plane = plane,
             continuesGesture = continues && !chained, chainedToPrevious = chained, tentative = tapDot,
-        )
+        ).also { sweepPlaneLayers() }
     }
 
     private fun addToInkLedger(layerId: String, command: StrokeCommand) {
@@ -13846,6 +13852,33 @@ class EditorViewModel @Inject constructor(
     private var drawGuideJob: kotlinx.coroutines.Job? = null
     private var drawDepthNoticed = false
 
+    /** Layers a draw-plane stroke made: the project and file of their first PNG, to delete it when they are gone for good. */
+    private val planeLayerFiles = HashMap<String, Pair<String, String>>()
+
+    /** The undone or dropped stroke on [layerId] is no longer the reference: the one before it is again. */
+    private fun retireLastStroke(layerId: String) {
+        val last = lastStroke ?: return
+        if (last.layerId == layerId) lastStroke = last.prior
+    }
+
+    /**
+     * Releases what layers a draw-plane stroke made still hold once nothing can bring them back (not in the layer
+     * list, no undo or redo entry): their [layerStore] base and strokes, their jobs and their first PNG. While a redo
+     * entry holds one, the cache stays, as redo replays onto it.
+     */
+    private fun sweepPlaneLayers() {
+        if (planeLayerFiles.isEmpty()) return
+        val kept = _uiState.value.layers.map { it.id }.toSet() + history.referencedLayerIds()
+        val gone = planeLayerFiles.keys.filter { it !in kept }
+        if (gone.isEmpty()) return
+        retainLayerCaches(kept)
+        for (id in gone) {
+            evictJobsFor(id)
+            val (projectId, filename) = planeLayerFiles.remove(id) ?: continue
+            viewModelScope.launch(dispatchers.io) { runCatching { projectRepository.deleteArtifact(projectId, filename) } }
+        }
+    }
+
     /** [state] with a lapsed draw-plane depth made automatic again: the camera, layer or project moved on. */
     private fun withoutStaleDrawPlane(state: EditorUiState): EditorUiState {
         val depth = state.drawPlane ?: return state
@@ -13857,11 +13890,13 @@ class EditorViewModel @Inject constructor(
     internal fun drawPlaneReference(
         state: EditorUiState = _uiState.value,
     ): com.hereliesaz.graffitixr.common.scene.Affine3? {
-        val last = lastStroke?.takeIf { it.holds(state) } ?: return null
         val size = state.canvasSize
-        val layer = state.layers.firstOrNull { it.id == last.layerId } ?: return null
-        val usable = size.width > 0 && size.height > 0 && drawDepthRefusal(state, layer) == null
-        if (!usable) return null
+        if (size.width <= 0 || size.height <= 0) return null
+        // The newest stroke's plane, else the one before it when that layer is gone or refused (a surface layer).
+        val layer = generateSequence(lastStroke) { it.prior }
+            .filter { it.holds(state) }
+            .mapNotNull { last -> state.layers.firstOrNull { it.id == last.layerId } }
+            .firstOrNull { drawDepthRefusal(state, it) == null } ?: return null
         return SceneMath.chainModel(planeChain(state.layers, layer.id), size.width.toFloat(), size.height.toFloat())
     }
 
@@ -13943,7 +13978,10 @@ class EditorViewModel @Inject constructor(
         }
         drawGuideJob?.cancel()
         val depth = next(current, focal)
-        updateUi { it.copy(drawPlane = DrawPlaneDepth.of(depth, it), drawPlaneGuideShown = true) }
+        if (state.drawPlane?.depth == depth && state.drawPlaneGuideShown) return
+        // Once per drag frame, so no instance-following pass over every layer (writeState follow = false): the
+        // depth is not layer content. The one recomposition is the rail's slider and the guide.
+        writeState(follow = false) { it.copy(drawPlane = DrawPlaneDepth.of(depth, it), drawPlaneGuideShown = true) }
     }
 
     private fun scheduleDrawGuideHide() {
@@ -13995,7 +14033,10 @@ class EditorViewModel @Inject constructor(
     }
 
     /** A new empty paint layer on [pose], directly above [below] in its group, made active. */
-    private fun createPlaneLayer(below: Layer, pose: com.hereliesaz.graffitixr.common.scene.PlanePose): CreatedPlaneLayer? {
+    private fun createPlaneLayer(
+        below: Layer,
+        pose: com.hereliesaz.graffitixr.common.scene.PlanePose,
+    ): CreatedPlaneLayer? {
         val (blank, frame, base) = createBlankPaintBitmap()
         val state = _uiState.value
         val projectId = state.projectId
@@ -14031,6 +14072,7 @@ class EditorViewModel @Inject constructor(
             )
         }
         emitMembership(Op.LayerAdd(layer))
+        if (projectId != null && uri != null) planeLayerFiles[layer.id] = projectId to filename
         persistNewLayerBitmap(projectId, uri, filename, blank)
         return CreatedPlaneLayer(layer.copy(bitmap = null), index, below.id)
     }
