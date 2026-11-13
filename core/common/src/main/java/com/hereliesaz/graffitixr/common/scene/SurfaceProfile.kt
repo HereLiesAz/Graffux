@@ -723,7 +723,7 @@ object SurfaceMath {
      */
     fun gridExtent(profile: SurfaceProfile): Float {
         if (!profile.isValid) return 0f
-        profile.reach?.let { if (!profile.hasHull) return it + GRID_MARGIN }
+        profile.sweepLimit?.let { return it + GRID_MARGIN }
         val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
         val lo = hull?.boundsMin ?: FloatArray(3) { k -> (0 until profile.count).minOf { profile.points[it * 3 + k] } }
         val hi = hull?.boundsMax ?: FloatArray(3) { k -> (0 until profile.count).maxOf { profile.points[it * 3 + k] } }

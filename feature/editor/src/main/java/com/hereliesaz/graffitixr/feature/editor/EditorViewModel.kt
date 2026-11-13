@@ -13796,14 +13796,22 @@ class EditorViewModel @Inject constructor(
      * [com.hereliesaz.graffitixr.common.scene.DefaultSurface] as its surface, in the same single undo step a
      * captured line makes. Only offered for the front view of a group that has no surface yet.
      */
-    @Suppress("ReturnCount")
     fun onSkipSurfaceDraw() {
         val st = _uiState.value
         if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
-        if (!canSkipSurfaceDraw()) {
-            showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
-            return
+        // The art check scans pixels: off the main thread, then the sheet is made on it again (re-checking that the
+        // armed state is still the one that was asked about).
+        viewModelScope.launch {
+            val allowed = canSkipSurfaceDrawOffMain()
+            val now = _uiState.value
+            if (!now.surfaceDrawArmed || now.surfaceDrawView != SurfaceView.FRONT) return@launch
+            if (allowed) applySkipSurfaceDraw() else showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
         }
+    }
+
+    @Suppress("ReturnCount")
+    private fun applySkipSurfaceDraw() {
+        val st = _uiState.value
         val wrapId = st.surfaceDrawWrapLayerId
         val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
         val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
@@ -13841,7 +13849,13 @@ class EditorViewModel @Inject constructor(
      * layer ([isEmptyPaintLayer], the view-plane adoption's definition), or the armed group holds no layer with
      * art. Scans pixels, so ask when arming changes, not every frame.
      */
-    fun canSkipSurfaceDraw(): Boolean = runCatching { canSkipSurfaceDrawUnchecked() }.getOrDefault(false)
+    fun canSkipSurfaceDraw(): Boolean = try {
+        canSkipSurfaceDrawUnchecked()
+    } catch (_: IllegalStateException) {
+        false // a recycled bitmap
+    } catch (_: IllegalArgumentException) {
+        false // a bitmap changed under the scan
+    }
 
     /**
      * The scan can run off the main thread while undo swaps or recycles a layer's bitmap, so any failure reading it
@@ -13862,7 +13876,7 @@ class EditorViewModel @Inject constructor(
 
     /** [canSkipSurfaceDraw] off the main thread: it can scan every pixel of several large layers. */
     suspend fun canSkipSurfaceDrawOffMain(): Boolean =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { canSkipSurfaceDraw() }
+        kotlinx.coroutines.withContext(dispatchers.default) { canSkipSurfaceDraw() }
 
     /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */
     private fun commitWrappedSurface(

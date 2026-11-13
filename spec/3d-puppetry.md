@@ -805,7 +805,7 @@ influences, `skinMatrix = sum w_i * jointMatrix[j_i]`. Runtime split:
 - `GraffitiProject.rig: Rig? = null` (JSON key `rig`). Nothing else in the project file changes for
   Stage 1. Stage 2 adds `OverlayLayer.softBody` (section 8.5) in a later format bump (16) or into
   this one if it ships first; keep each stage's persistence in the stage that needs it.
-- `CURRENT_FORMAT_VERSION` becomes 14 when the first PR that **writes** a rig lands, not before. Until
+- `CURRENT_FORMAT_VERSION` becomes 15 when the first PR that **writes** a rig lands, not before. Until
   then a project that has no rig keeps format 14. Even afterwards, **write the lowest format that can
   hold the document**: a project with no rig stays at 14 (the writer decides from content). Rationale:
   every format bump makes the file read-only for older builds (`isNewerFormat`), so bumping for
@@ -817,7 +817,7 @@ influences, `skinMatrix = sum w_i * jointMatrix[j_i]`. Runtime split:
   10, 11, 12, 13 and 14 before it. A format 14 file has no `rig`: automatic, = no rig.
 - Backward compatible reads in this build: all of a 14 file reads as before; `rig` absent = null.
 - `Json { ignoreUnknownKeys = true }` (ProjectManager) already tolerates an unknown `rig` key in builds
-  that predate it, but those builds also see `formatVersion = 14`.
+  that predate it, but those builds also see `formatVersion = 15`.
 
 ### 4.2 Forward-compat hygiene inside `rig`
 
@@ -829,7 +829,7 @@ read-only open of a newer file protects data in the common case).
 
 ### 4.3 What an old reader does (Q13)
 
-- A build that predates 14: `isNewerFormat(14)` is true, so the project **opens read-only** (existing
+- A build that predates 15: `isNewerFormat(15)` is true, so the project **opens read-only** (existing
   behaviour for any newer format, see `ProjectManager` writable verdicts and `EditorViewModel` line
   2471): it renders the **rest pose** (it ignores `rig` and reads the layers' stored transforms), cannot
   save, and therefore cannot destroy the rig. This is the correct behaviour and needs no code in old
@@ -1347,7 +1347,7 @@ Kinematics properties (Stage 1):
 Integration (JVM, `:feature:editor`, existing fake-depth-source pattern): add/remove/undo/redo of a
 joint and of a pose gesture (one drag = one step; redo restores; `chainedToPrevious` chain
 for delete-with-joints); `EditHistory` dedup; sanitise on layer delete/duplicate; load a format 14
-project (no rig) and a 14 project; export a posed scene to glTF and check node transforms; hit-test
+project (no rig) and a 15 project; export a posed scene to glTF and check node transforms; hit-test
 returns the posed part.
 
 UI (Robolectric, like `RotationGizmoUiTest`): pose-mode chip appears, pass-through (a drag in pose

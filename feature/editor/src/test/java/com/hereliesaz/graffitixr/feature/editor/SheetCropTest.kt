@@ -59,4 +59,19 @@ class SheetCropTest {
         assertEquals(sheet.reach!!, clip!!.maxOf { it.second }, 0.01f)
         assertNull(SceneExport.frontClip(hm, frame, w.toInt(), h.toInt(), null))
     }
+
+    @Test
+    fun `a layer whose plane crosses the eye is cut to the part in front and to the sheet`() {
+        val l = layers(sheet)
+        // A plane turned edge-on through the eye: the in-front polygon is not null.
+        val model = SceneMath.model(
+            com.hereliesaz.graffitixr.common.scene.PlanePose(positionZ = -400f, rotationY = 80f), w, h,
+        )
+        val hm = SceneMath.homography(model, frame)
+        val front = SceneMath.visiblePolygon(hm, frame, 8f * 1600f)
+        assertNotNull(front)
+        val crop = SurfaceMath.flatSurfaceCrops(l, w, h)["c"]!!
+        val both = SceneExport.frontClip(hm, frame, w.toInt(), h.toInt(), crop)!!
+        assertEquals(SceneMath.clipConvex(front!!, crop), both)
+    }
 }
