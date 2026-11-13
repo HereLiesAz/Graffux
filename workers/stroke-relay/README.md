@@ -38,7 +38,7 @@ once the relay has it, or when the relay rejects it for good (`StrokeDataUploade
 | more than 6 requests a minute from one address (per Cloudflare location) | 429 |
 | the rate limiter binding is missing or throws | 503. The relay closes instead of running unlimited. |
 | no `X-Graffux-Age-Declaration: 16+` header | 400 (app versions older than the declaration) |
-| the object already exists | 200 `exists` (a conditional put, `If-None-Match: *`, that does not replace it) |
+| the object already exists | 200 `exists`: found by `head()` before writing, and the put is also conditional (`If-None-Match: *`). A race between two uploads of one key can still replace it; that is logged. |
 | the `STROKE_BUCKET` binding is missing or the put throws | 503 |
 | stored | 201 `stored` |
 
@@ -82,6 +82,15 @@ It ships with the `graffux` Worker, so it deploys when that Worker does (Workers
    branch. Until the central workflow reads the bucket instead, the private dataset gets no new data.
 
 The Workers free plan allows 10 ms of CPU per request; the app keeps the file and retries on a failure.
+
+### Verify the conditional put once against a real bucket
+
+R2 documents a `Headers` object as an `onlyIf` form, but not the `If-None-Match: *` wildcard by itself, so the
+relay also checks with `head()` first. Verify the behaviour once after the bucket exists: (1) upload a valid
+session with the test client twice (same name): the first answer is 201 `stored`, the second 200 `exists`;
+(2) `npx wrangler r2 object get graffux-stroke-data/stroke-data/<device>/<file> --file out.gz` and check it
+is the first upload's bytes; (3) watch `npx wrangler tail` for "conditional put may not be honoured". Until
+done, treat "never overwritten" as best effort, not a guarantee.
 
 ### Removal requests
 

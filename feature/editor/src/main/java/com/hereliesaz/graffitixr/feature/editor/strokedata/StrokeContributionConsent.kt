@@ -16,6 +16,10 @@ import com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore
 object StrokeContributionConsent {
     const val KEY_AGE_16_DECLARED = "age_16_declared"
 
+    /** Wall-clock time (ms) of the declaration. Only session files that started at or after it may upload. */
+    const val KEY_AGE_16_DECLARED_AT = "age_16_declared_at"
+    private val SESSION_START = Regex("""session-(\d+)\.jsonl\.gz""")
+
     fun ageDeclared(prefs: SharedPreferences): Boolean = prefs.getBoolean(KEY_AGE_16_DECLARED, false)
 
     /** True only when the switch is on and the 16+ declaration has been made. */
@@ -29,8 +33,29 @@ object StrokeContributionConsent {
     }
 
     /** Stores the 16+ declaration and switches contribution on, in one write. */
-    fun declareAge16AndEnable(prefs: SharedPreferences) {
-        prefs.edit().putBoolean(KEY_AGE_16_DECLARED, true).putBoolean(STROKE_DATA_KEY, true).apply()
+    fun declareAge16AndEnable(prefs: SharedPreferences, now: Long = System.currentTimeMillis()) {
+        prefs.edit()
+            .putBoolean(KEY_AGE_16_DECLARED, true)
+            .putLong(KEY_AGE_16_DECLARED_AT, now)
+            .putBoolean(STROKE_DATA_KEY, true)
+            .apply()
+    }
+
+    /** When the declaration was made, or Long.MAX_VALUE when there is none (so nothing is eligible). */
+    fun declaredAt(prefs: SharedPreferences): Long =
+        if (ageDeclared(prefs)) prefs.getLong(KEY_AGE_16_DECLARED_AT, Long.MAX_VALUE) else Long.MAX_VALUE
+
+    /** The session start encoded in a file name (`session-<ms>.jsonl.gz[.open]`), or null if it has none. */
+    fun sessionStartMs(fileName: String): Long? =
+        SESSION_START.find(fileName.removeSuffix(".open"))?.groupValues?.get(1)?.toLongOrNull()
+
+    /**
+     * True when the file was recorded after the declaration, so it may be uploaded. A file recorded before
+     * it (or with a name that carries no start time) never is, even if the declaration came first.
+     */
+    fun mayUpload(prefs: SharedPreferences, fileName: String): Boolean {
+        val start = sessionStartMs(fileName) ?: return false
+        return start >= declaredAt(prefs)
     }
 
     fun disable(prefs: SharedPreferences) {
@@ -48,13 +73,14 @@ object StrokeContributionConsent {
     }
 
     /**
-     * Deletes every recorded session file while there is no 16+ declaration. Files only exist in that state
-     * if they were recorded by a version that predates the declaration, and they must not be sent after a
-     * later declaration. Returns true when it deleted anything.
+     * Deletes every session file that started before the declaration (all of them while there is none):
+     * they were recorded by a version that predates it, and must not upload after a later declaration. Safe
+     * to run at any time, and the uploader checks each file again with [mayUpload]. Returns true when it
+     * deleted anything.
      */
-    fun purgeUndeclaredFiles(prefs: SharedPreferences, store: StrokeDataStore): Boolean {
-        val stale = !ageDeclared(prefs) && store.allFiles().isNotEmpty()
-        if (stale) store.purgeAll()
-        return stale
+    fun purgeBeforeDeclaration(prefs: SharedPreferences, store: StrokeDataStore): Boolean {
+        val stale = store.allFiles().filterNot { mayUpload(prefs, it.name) }
+        stale.forEach { it.delete() }
+        return stale.isNotEmpty()
     }
 }

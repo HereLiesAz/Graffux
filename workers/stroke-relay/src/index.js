@@ -237,16 +237,33 @@ export async function handle(request, env) {
 
   if (!env.STROKE_BUCKET) return json(503, { error: "store unavailable" });
   try {
-    // A conditional put with If-None-Match: * (R2 documents Headers as an onlyIf form) returns null when
-    // the key already exists: a retry of the same key does not replace what is stored.
-    const written = await env.STROKE_BUCKET.put(`stroke-data/${device}/${file}`, stored, {
+    const key = `stroke-data/${device}/${file}`;
+    // Belt and braces: R2 documents a Headers object as an onlyIf form, but not the wildcard
+    // `If-None-Match: *` on its own, so look first and also send the conditional put. A race between two
+    // uploads of one key is the only way left to replace an object, and it is logged below.
+    if (await env.STROKE_BUCKET.head(key)) return json(200, { status: "exists" });
+    const written = await env.STROKE_BUCKET.put(key, stored, {
       onlyIf: new Headers({ "If-None-Match": "*" }),
       httpMetadata: { contentType: "application/gzip" },
     });
-    return written === null ? json(200, { status: "exists" }) : json(201, { status: "stored" });
+    if (written === null) return json(200, { status: "exists" });
+    await selfCheck(env.STROKE_BUCKET, key, written);
+    return json(201, { status: "stored" });
   } catch (error) {
     console.error("stroke relay: store failed", error);
     return json(503, { error: "store unavailable" });
+  }
+}
+
+/** Logs if the object now stored is not the one this put wrote (a lost race, or an ignored condition). */
+async function selfCheck(bucket, key, written) {
+  try {
+    const now = await bucket.head(key);
+    if (now && written.etag && now.etag !== written.etag) {
+      console.error("stroke relay: object changed after put; conditional put may not be honoured", key);
+    }
+  } catch (error) {
+    console.error("stroke relay: self-check failed", error);
   }
 }
 

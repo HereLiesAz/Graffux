@@ -8,7 +8,7 @@ const session = gzipSync(
 );
 const allow = { limit: async () => ({ success: true }) };
 /** An in-memory stand-in for the R2 bucket binding: records puts, honours onlyIf etagDoesNotMatch "*". */
-function bucket({ fail = false } = {}) {
+function bucket({ fail = false, ignoreConditions = false } = {}) {
   const objects = new Map();
   const puts = [];
   return {
@@ -17,12 +17,17 @@ function bucket({ fail = false } = {}) {
       if (fail) throw new Error("r2 down");
       puts.push({ key, options });
       // The documented form: a Headers object, If-None-Match: * means "only if the key is absent".
-      if (options?.onlyIf instanceof Headers && options.onlyIf.get("If-None-Match") === "*" && objects.has(key)) return null;
+      if (!ignoreConditions && options?.onlyIf instanceof Headers && options.onlyIf.get("If-None-Match") === "*" &&
+          objects.has(key)) return null;
       objects.set(key, Buffer.from(value));
-      return { key };
+      return { key, etag: String(++etags) };
+    },
+    async head(key) {
+      return objects.has(key) ? { key, etag: "existing" } : null;
     },
   };
 }
+let etags = 0;
 let store = bucket();
 const base = { RATE_LIMITER: allow };
 const env = new Proxy({}, { get: (_, k) => (k === "STROKE_BUCKET" ? store : base[k]), has: (_, k) => k === "STROKE_BUCKET" || k in base, ownKeys: () => ["STROKE_BUCKET", ...Object.keys(base)], getOwnPropertyDescriptor: (_, k) => ({ enumerable: true, configurable: true, value: k === "STROKE_BUCKET" ? store : base[k] }) });
@@ -277,4 +282,15 @@ test("the conditional put is the documented If-None-Match header form", async ()
   const opts = store.puts[0].options;
   assert.ok(opts.onlyIf instanceof Headers);
   assert.equal(opts.onlyIf.get("If-None-Match"), "*");
+});
+
+test("an existing key is never replaced, even if the bucket ignored the conditional put", async () => {
+  github();
+  store = bucket({ ignoreConditions: true });
+  assert.equal((await handle(put(OK), env)).status, 201);
+  const first = store.objects.get("stroke-data/Pixel-5/session-1790680692015.jsonl.gz");
+  const other = gzipSync(Buffer.from('{"type":"session","schema":4,"model":"Other"}\n{"type":"stroke"}\n'));
+  assert.equal((await handle(put(OK, other), env)).status, 200);
+  assert.deepEqual(store.objects.get("stroke-data/Pixel-5/session-1790680692015.jsonl.gz"), first);
+  assert.equal(store.puts.length, 1);
 });

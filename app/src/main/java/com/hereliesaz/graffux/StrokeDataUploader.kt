@@ -31,6 +31,11 @@ class StrokeDataUploader(
             var sent = 0
             val device = deviceLabel(Build.MODEL)
             for (file in StrokeDataStore.get(context).pending()) {
+                // Recorded before the 16+ declaration: never sent, even if the declaration came first.
+                if (!StrokeContributionConsent.mayUpload(prefs, file.name)) {
+                    file.delete()
+                    continue
+                }
                 val error = relay.upload(device, file.name, file.readBytes()).exceptionOrNull()
                 if (error != null && error !is StrokeRelayClient.RejectedException) break
                 file.delete()

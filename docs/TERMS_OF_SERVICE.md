@@ -46,6 +46,10 @@ Two settings, both **off by default**, send data from your device:
   switch on "Contribute strokes to model training". The touch paths and sensor readings described in
   the Privacy Policy are then uploaded to a **private** store, not published.
 
+**Age and the licence.** Section 2's rule about a parent or guardian agreeing for you does not apply to
+stroke contribution or its licence: they require that you confirm you are 16 or older, whatever section 2
+says. This is a statement of what the App requires, not a claim that it is legally sufficient anywhere.
+
 **Licence to stroke data.** By switching on stroke contribution you grant us a worldwide, royalty-free,
 non-exclusive licence to store, copy, analyse and use the stroke and sensor data you upload while it is
 on, to train, test and improve models and the App, and to share or release the models that result. The

@@ -80,8 +80,8 @@ switching it off stops both.
   until the relay has them, then are deleted from the device. A file the relay rejects for good (a bad
   name, too large, or not stroke data) is also deleted, without being stored. Each upload carries a
   marker that you declared you are 16 or older, and the relay refuses uploads without it. Session files
-  recorded on your device before the declaration existed are deleted from the device at the next launch
-  and are never uploaded. A hostile program could send the marker without the declaration; it is a
+  recorded on your device before you made the declaration (including before the declaration existed) are
+  deleted from the device and are never uploaded, even if you declare before the App gets to delete them. A hostile program could send the marker without the declaration; it is a
   marker, not proof.
 - **Earlier versions:** before November 13, 2026, the App uploaded this data to a **public**
   `stroke-data` branch of <https://github.com/HereLiesAz/Graffux>. The developer intends to remove

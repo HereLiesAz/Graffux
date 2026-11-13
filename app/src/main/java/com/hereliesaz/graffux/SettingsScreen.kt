@@ -343,6 +343,10 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
         StrokeAgeDialog(
             onConfirm = {
                 StrokeContributionConsent.declareAge16AndEnable(prefs)
+                StrokeContributionConsent.purgeBeforeDeclaration(
+                    prefs,
+                    com.hereliesaz.graffitixr.data.strokedata.StrokeDataStore.get(context),
+                )
                 recording = true
                 askAge = false
             },

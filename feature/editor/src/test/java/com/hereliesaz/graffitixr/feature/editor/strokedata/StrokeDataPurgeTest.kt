@@ -36,17 +36,33 @@ class StrokeDataPurgeTest {
     @Test fun `files recorded without a declaration are deleted and never upload later`() {
         record()
         assertEquals(1, store.pending().size)
-        assertTrue(StrokeContributionConsent.purgeUndeclaredFiles(prefs(), store))
+        assertTrue(StrokeContributionConsent.purgeBeforeDeclaration(prefs(), store))
         assertTrue(store.allFiles().isEmpty())
-        // Declaring afterwards finds nothing left to upload.
         StrokeContributionConsent.declareAge16AndEnable(prefs())
         assertTrue(store.pending().isEmpty())
     }
 
-    @Test fun `files recorded with a declaration are kept`() {
-        StrokeContributionConsent.declareAge16AndEnable(prefs())
+    @Test fun `a declaration made before the purge ran still keeps the old file from uploading`() {
         record()
-        assertFalse(StrokeContributionConsent.purgeUndeclaredFiles(prefs(), store))
+        val file = store.pending().single()
+        // The person declares first (a minute from the file's start), then the purge runs.
+        StrokeContributionConsent.declareAge16AndEnable(prefs(), now = System.currentTimeMillis() + 60_000)
+        assertFalse(StrokeContributionConsent.mayUpload(prefs(), file.name))
+        assertTrue(StrokeContributionConsent.purgeBeforeDeclaration(prefs(), store))
+        assertTrue(store.pending().isEmpty())
+    }
+
+    @Test fun `files recorded after the declaration are kept`() {
+        StrokeContributionConsent.declareAge16AndEnable(prefs(), now = 0L)
+        record()
+        assertTrue(StrokeContributionConsent.mayUpload(prefs(), store.pending().single().name))
+        assertFalse(StrokeContributionConsent.purgeBeforeDeclaration(prefs(), store))
         assertEquals(1, store.pending().size)
+    }
+
+    @Test fun `a name without a start time and an undeclared user never upload`() {
+        assertFalse(StrokeContributionConsent.mayUpload(prefs(), "notes.txt"))
+        assertFalse(StrokeContributionConsent.mayUpload(prefs(), "session-1790680692015.jsonl.gz"))
+        assertEquals(1790680692015L, StrokeContributionConsent.sessionStartMs("session-1790680692015.jsonl.gz.open"))
     }
 }
