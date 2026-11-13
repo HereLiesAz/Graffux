@@ -163,7 +163,11 @@ to the art instead of the screen:
   one bitmap row at a time off the main thread (no copy of the bitmap), with the same stale-answer guard as the
   empty-layer scan (it commits only if the layers, canvas size and arming are the same when it answers) and the same
   `IllegalStateException`/`IllegalArgumentException` "cannot tell" handling for a bitmap recycled or resized under it.
-  A bitmap with no such pixel is an empty layer: the predefined sheet.
+  A bitmap with no such pixel is an empty layer: the predefined sheet. Any non-zero alpha counts, however faint: a
+  stray faint pixel stretches the sheet. That is deliberate (the owner sized the sheet to "the painted art" and a
+  threshold would be a second rule they did not give); for the owner to confirm or change. Each side of the sheet
+  also gets `ArtSheet.EDGE_PAD` (0.005 unit), so float rounding in the transform can never leave the art's first or last
+  pixel a ulp outside the sheet or `sweepLimit`.
 - **How the box maps to layer space.** Bitmap pixels become the layer's box coordinates (canvas units) through the frame
   (`ArtSheet.boxOf`: pixel `p` is frame pixel `p + origin`, and the frame fits the canvas uniformly, centred), then
   through the layer's OWN transform (offset, scale, Z turn: `SceneMath.model`), which is where the art is seen. The sheet
@@ -186,13 +190,16 @@ to the art instead of the screen:
   predefined one, so deriving it there would also move the predefined sheet's pivot (which stays at the sheet's centre)
   or need a new persisted field, and none is added (the format stays 14; 15 is the puppetry rig's). Consequences,
   stated plainly: it is a placed point, so it does not follow the layer if the layer is moved or the sheet changed later,
-  and "Reset rotation point to automatic" puts the pivot back at the sheet's centre (z = 0). Undo clears it with the
-  group and redo sets it again (`syncArtSheetPivot`), unless the user placed or reset a point in between.
+  and "Reset rotation point to automatic" puts the pivot back at the sheet's centre (z = 0). Making the sheet records the
+  point it replaced and the one it set (`ArtPivotMark`, one per sheet, oldest first): undo and redo move the point with the
+  group (the newest applied sheet's point, else the oldest sheet's previous one, a hand-placed point or automatic), so two
+  sheets walk back one at a time. The user placing or resetting a point, opening or closing a project, drops the marks.
+  The marks are view-model state, not history entries, and are not saved.
 - **Where Skip is still refused (the notice `HAS_ART`, "A flat sheet cannot be sized to this layer...").** Only where a
   displacing or cropping outcome would remain: a layer with text or shapes (the art is not its bitmap), a warp (the
   bitmap is not where it is drawn), a layer already placed in 3D (the sheet is flat at z = 0, so it would be flattened;
   the 3D slot does not arm such a layer for wrapping at all, so this is a guard), a surface-view image, an adjustment,
-  3D-ink or model layer; a bitmap that cannot be read; and an armed GROUP that holds any layer with art (a group's art is
+  3D-ink or model layer; a bitmap that cannot be read, or a canvas with no size (its own neutral notice, `NOT_READABLE`: "could not be read just now", not the refusal wording); and an armed GROUP that holds any layer with art (a group's art is
   not sized by this path). A layer inside a non-group parent keeps its existing refusal.
 - **Not done.** No windowed profile was built (open point 8): the sheet starts where the art starts and the layer moves
   to meet it. The pivot is not recomputed when the layer or sheet changes.

@@ -2416,8 +2416,8 @@ class EditorViewModelTest {
         assertEquals(100f, surface.point(0)[0], 0.01f)
         assertEquals(200f, surface.point(0)[1], 0.01f)
         assertEquals(0f, surface.point(0)[2], 0f)
-        assertEquals(200f, surface.length, 0.01f)
-        assertEquals(400f, surface.reach!!, 0.01f)
+        assertEquals(200f, surface.length, 0.05f)
+        assertEquals(400f, surface.reach!!, 0.05f)
         assertFalse(st.surfaceDrawArmed)
         assertEquals(undo + 1, st.undoCount)
         assertTrue(leaf.is3DIn(st.layers))
@@ -2509,23 +2509,156 @@ class EditorViewModelTest {
         assertNull(st.manualPivot)
     }
 
+    /** Arms the wrap on [layer], then swaps in [changed] (the layer as it turns out to be when the scan reads it). */
+    private fun armThenChange(layer: Layer, changed: Layer) {
+        armArt(layer)
+        viewModel.setLayers(listOf(changed))
+    }
+
+    private fun assertRefusedWith(notice: SurfaceDrawNotice) {
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        val undo = viewModel.uiState.value.undoCount
+        skipNow()
+        assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertNull(viewModel.uiState.value.manualPivot)
+        assertEquals(notice, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
     @Test
-    fun `a layer with text is still refused with the notice with the notice`() = runTest {
+    fun `a layer with a warp, a tilt in 3D, shapes, text or a surface-view image is refused with the notice`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         val base = bitmapLayer("a")
         val refused = listOf(
+            base.copy(warpMesh = listOf(0f, 0f, 1f, 1f)),
+            base.copy(rotationY = 20f),
+            base.copy(positionZ = 40f),
+            base.copy(shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 20f, height = 20f))),
             base.copy(textParams = TextLayerParams(text = "t")),
+            base.copy(surfaceViewOf = "other"),
         )
         for (layer in refused) {
-            armArt(layer)
-            assertFalse(viewModel.canSkipSurfaceDraw())
-            val undo = viewModel.uiState.value.undoCount
-            skipNow()
-            assertEquals(listOf("a"), viewModel.uiState.value.layers.map { it.id })
-            assertEquals(undo, viewModel.uiState.value.undoCount)
-            assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+            armThenChange(bitmapLayer("a"), layer)
+            assertRefusedWith(SurfaceDrawNotice.HAS_ART)
             viewModel.onCancelSurfaceDraw()
         }
+    }
+
+    @Test
+    fun `a group that holds a layer with painted pixels is refused with the notice`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = groupType)
+        viewModel.setLayers(listOf(group, bitmapLayer("art").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer inside a non-group parent cannot be armed for a flat sheet`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(bitmapLayer("p"), bitmapLayer("c").copy(parentId = "p")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("c")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        assertFalse(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        assertEquals(SurfaceDrawNotice.UNAVAILABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer that cannot be read says so, not that it has art`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val bmp = io.mockk.mockk<Bitmap>(relaxed = true)
+        io.mockk.every { bmp.isRecycled } returns false
+        io.mockk.every { bmp.width } returns 2
+        io.mockk.every { bmp.height } returns 3
+        io.mockk.every { bmp.getPixels(any<IntArray>(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("recycled")
+        armOn(listOf(Layer(id = "r", name = "r", bitmap = bmp)), "r")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
+        assertEquals(SurfaceDrawNotice.NOT_READABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer whose frame is larger than its bitmap and offset gets the sheet at its frame position`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Bitmap 50 x 80, painted 5..14 x 10..29, at origin (20, 30) in a 100 x 160 frame: fit 10x, so the box is
+        // ((5 + 20) * 10, (10 + 30) * 10) to ((15 + 20) * 10, (30 + 30) * 10) = (250, 400)-(350, 600).
+        val layer = bitmapLayer("art", w = 50, h = 80, xs = 5..14, ys = 10..29)
+            .copy(frameWidth = 100, frameHeight = 160, originX = 20, originY = 30)
+        armArt(layer)
+        skipNow()
+        val st = viewModel.uiState.value
+        val surface = st.layers.first { it.type == groupType }.surface!!
+        assertEquals(250f, surface.point(0)[0], 0.05f)
+        assertEquals(400f, surface.point(0)[1], 0.05f)
+        assertEquals(100f, surface.length, 0.05f)
+        assertEquals(200f, surface.reach!!, 0.05f)
+        assertEquals(listOf(300f, 500f, 75f), st.manualPivot!!.map { Math.round(it * 10f) / 10f })
+    }
+
+    @Test
+    fun `an art sheet over a hand-placed orbit point, so undo gives it back and redo sets the sheet's again`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val hand = listOf(11f, 22f, 33f)
+        armArt(bitmapLayer("art"))
+        viewModel.setManualPivotForTest(hand)
+        skipNow()
+        assertEquals(listOf(200f, 400f, 150f), viewModel.uiState.value.manualPivot)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(hand, viewModel.uiState.value.manualPivot)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(200f, 400f, 150f), viewModel.uiState.value.manualPivot)
+    }
+
+    @Test
+    fun `two art sheets, and each undo walks the orbit point back, each redo forward`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armOn(listOf(bitmapLayer("a"), bitmapLayer("b", xs = 40..49, ys = 70..79)), "a")
+        viewModel.setManualPivotForTest(listOf(1f, 2f, 3f))
+        skipNow()
+        val pa = viewModel.uiState.value.manualPivot
+        assertEquals(listOf(200f, 400f, 150f), pa)
+        viewModel.onLayerActivated("b")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        skipNow()
+        val pb = viewModel.uiState.value.manualPivot
+        assertEquals(listOf(450f, 750f, 50f), pb)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(pa, viewModel.uiState.value.manualPivot)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(1f, 2f, 3f), viewModel.uiState.value.manualPivot)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(pa, viewModel.uiState.value.manualPivot)
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(pb, viewModel.uiState.value.manualPivot)
+    }
+
+    @Test
+    fun `a point the user places or resets after an art sheet is theirs, and undo leaves it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("art"))
+        skipNow()
+        viewModel.onResetPivot()
+        assertNull(viewModel.uiState.value.manualPivot)
+        viewModel.setManualPivotForTest(listOf(5f, 6f, 7f))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(5f, 6f, 7f), viewModel.uiState.value.manualPivot)
     }
 
     @Test

@@ -70,13 +70,23 @@ class SurfacePromptUiTest {
     fun `a layer the sheet cannot be sized to is refused with the reason, in the chip`() {
         notice = SurfaceDrawNotice.HAS_ART
         showChip()
+        val reason = "A flat sheet cannot be sized to this layer: it has text, shapes or a warp, is tilted in 3D, " +
+            "or sits in a group that holds art. Draw its shape instead."
+        rule.onNodeWithText(reason, useUnmergedTree = true).assertExists()
+        // The old wording said a flat sheet was only for an empty layer; it no longer is.
+        rule.onNodeWithText("only for an empty layer", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithTag("surface.prompt.skip").assertExists()
+    }
+
+    @Test
+    fun `a layer that could not be read says so in neutral words, not that it has art`() {
+        notice = SurfaceDrawNotice.NOT_READABLE
+        showChip()
         rule.onNodeWithText(
-            "A flat sheet cannot be sized to this layer: it has text, shapes or a warp, is tilted in 3D, or sits in a group that holds art. Draw its shape instead.",
+            "This layer could not be read just now. Try again, or draw its shape instead.",
             useUnmergedTree = true,
         ).assertExists()
-        // The old wording said a flat sheet was only for an empty layer; it no longer is.
-        rule.onNodeWithText("A flat sheet is only for an empty layer", substring = true, useUnmergedTree = true).assertDoesNotExist()
-        rule.onNodeWithTag("surface.prompt.skip").assertExists()
+        rule.onNodeWithText("cannot be sized", substring = true, useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test

@@ -26,6 +26,13 @@ object ArtSheet {
     const val MIN_SIZE = 16f
 
     /**
+     * Added to each side of the sheet so float rounding in the art's transform can never
+     * leave the art's first or last pixel a ulp past the sheet's edge:
+     * far below a pixel, far above a ulp at canvas sizes.
+     */
+    const val EDGE_PAD = 0.005f
+
+    /**
      * How far behind the sheet the orbit point is: half the median of the sheet's width and height. The median of
      * two values is their average, so `((w + h) / 2) / 2`.
      */
@@ -61,7 +68,7 @@ object ArtSheet {
      * The box's four corners go through the layer's own transform (`SceneMath.model`), which is where the art is
      * seen; the sheet is the axis-aligned box of those corners, so a layer that is only offset and scaled gets
      * exactly its art box and a turned one gets the smallest axis-aligned sheet that holds it. A side shorter than
-     * [MIN_SIZE] grows about its centre. The orbit point is the sheet's centre in the plane z = 0, moved
+     * [MIN_SIZE] grows about its centre. The orbit point is the art's centre in the plane z = 0, moved
      * [pivotDepth] away from the viewer (+z). Null for a pose placed in 3D, a box or pose that is not finite, or an
      * unusable canvas.
      */
@@ -85,7 +92,7 @@ object ArtSheet {
         val h = max(hy - ly, MIN_SIZE)
         val cx = (lx + hx) / 2f
         val cy = (ly + hy) / 2f
-        val rect = SceneRect(cx - w / 2f, cy - h / 2f, w, h)
+        val rect = SceneRect(cx - w / 2f - EDGE_PAD, cy - h / 2f - EDGE_PAD, w + 2 * EDGE_PAD, h + 2 * EDGE_PAD)
         val pivot = listOf(cx, cy, pivotDepth(w, h))
         return if (listOf(rect.x, rect.y, w, h).all { it.isFinite() }) ArtSheetPlan(rect, pivot) else null
     }

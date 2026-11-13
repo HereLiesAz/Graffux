@@ -81,6 +81,7 @@ internal fun surfacePromptContent(
         SurfaceDrawNotice.UNAVAILABLE -> s.unavailable
         SurfaceDrawNotice.TOO_SHORT -> s.tooShort
         SurfaceDrawNotice.HAS_ART -> s.hasArt
+        SurfaceDrawNotice.NOT_READABLE -> s.notReadable
         SurfaceDrawNotice.DONE -> s.done
         SurfaceDrawNotice.VIEW_DONE -> s.viewDone
         null -> null

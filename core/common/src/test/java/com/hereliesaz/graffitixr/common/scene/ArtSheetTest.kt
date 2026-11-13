@@ -25,10 +25,10 @@ class ArtSheetTest {
     fun `a layer at rest gets exactly its art box, and the pivot is its centre moved behind by the depth`() {
         for ((w, h) in listOf(200f to 400f, 120f to 120f, 640f to 90f)) {
             val p = plan(floatArrayOf(100f, 200f, 100f + w, 200f + h))!!
-            assertEquals(100f, p.rect.x, 1e-3f)
-            assertEquals(200f, p.rect.y, 1e-3f)
-            assertEquals(w, p.rect.width, 1e-3f)
-            assertEquals(h, p.rect.height, 1e-3f)
+            assertEquals(100f, p.rect.x, 0.02f)
+            assertEquals(200f, p.rect.y, 0.02f)
+            assertEquals(w, p.rect.width, 0.02f)
+            assertEquals(h, p.rect.height, 0.02f)
             assertEquals(100f + w / 2f, p.pivot[0], 1e-3f)
             assertEquals(200f + h / 2f, p.pivot[1], 1e-3f)
             // Positive z is away from the viewer: behind the sheet.
@@ -40,10 +40,10 @@ class ArtSheetTest {
     @Test
     fun `an offset and a scale move and size the box as the layer is seen`() {
         val p = plan(floatArrayOf(100f, 200f, 300f, 600f), PlanePose(offsetX = 50f, offsetY = -30f, scale = 2f))!!
-        assertEquals(-250f, p.rect.x, 1e-2f)
-        assertEquals(-430f, p.rect.y, 1e-2f)
-        assertEquals(400f, p.rect.width, 1e-2f)
-        assertEquals(800f, p.rect.height, 1e-2f)
+        assertEquals(-250f, p.rect.x, 0.02f)
+        assertEquals(-430f, p.rect.y, 0.02f)
+        assertEquals(400f, p.rect.width, 0.02f)
+        assertEquals(800f, p.rect.height, 0.02f)
         assertEquals(-50f, p.pivot[0], 1e-2f)
         assertEquals(-30f, p.pivot[1], 1e-2f)
         assertEquals(300f, p.pivot[2], 1e-2f)
@@ -74,10 +74,10 @@ class ArtSheetTest {
     @Test
     fun `tiny art gets the minimum sheet, centred on it`() {
         val p = plan(floatArrayOf(100f, 200f, 110f, 210f))!!
-        assertEquals(ArtSheet.MIN_SIZE, p.rect.width, 1e-3f)
-        assertEquals(ArtSheet.MIN_SIZE, p.rect.height, 1e-3f)
-        assertEquals(105f, p.rect.x + p.rect.width / 2f, 1e-3f)
-        assertEquals(205f, p.rect.y + p.rect.height / 2f, 1e-3f)
+        assertEquals(ArtSheet.MIN_SIZE, p.rect.width, 0.02f)
+        assertEquals(ArtSheet.MIN_SIZE, p.rect.height, 0.02f)
+        assertEquals(105f, p.rect.x + p.rect.width / 2f, 0.02f)
+        assertEquals(205f, p.rect.y + p.rect.height / 2f, 0.02f)
         assertEquals(ArtSheet.pivotDepth(16f, 16f), p.pivot[2], 1e-3f)
     }
 
@@ -114,10 +114,10 @@ class ArtSheetTest {
     fun `the sheet as a group surface covers the art box exactly, and the sweep limit does not cut it`() {
         val p = plan(floatArrayOf(100f, 200f, 300f, 600f))!!
         val profile = DefaultSurface.profile(p.rect, 1000f, 1600f, emptyList())!!
-        assertEquals(200f, profile.length, 1e-3f)
-        assertEquals(400f, profile.sweepLimit!!, 1e-3f)
-        assertEquals(100f, profile.point(0)[0], 1e-3f)
-        assertEquals(200f, profile.point(0)[1], 1e-3f)
+        assertEquals(200f, profile.length, 0.02f)
+        assertEquals(400f, profile.sweepLimit!!, 0.02f)
+        assertEquals(100f, profile.point(0)[0], 0.02f)
+        assertEquals(200f, profile.point(0)[1], 0.02f)
         assertEquals(0f, profile.point(0)[2], 0f)
     }
 
@@ -163,5 +163,28 @@ class ArtSheetTest {
         val manual = OrbitPivot.resolve(layers, 1000f, 1600f, p.pivot)
         assertEquals(listOf(200f, 400f, 150f), manual.toList())
         assertNotNull(OrbitPivot.ofSurfaces(layers, 1000f, 1600f))
+    }
+
+    @Test
+    fun `the art is never past the sheet's edges, with no tolerance, at any pose and canvas size`() {
+        val poses = listOf(
+            PlanePose(), PlanePose(offsetX = 123.456f, offsetY = -78.9f, scale = 1.37f),
+            PlanePose(rotationZ = 17f, scale = 0.61f), PlanePose(rotationZ = 90f, offsetX = 5.5f),
+            PlanePose(offsetX = -2048.25f, offsetY = 1999.75f, scale = 3.1f, rotationZ = 211f),
+        )
+        for ((cw, ch) in listOf(1000f to 1600f, 4096f to 3072f, 2160f to 3840f)) {
+            for (pose in poses) {
+                val box = floatArrayOf(cw * 0.113f, ch * 0.207f, cw * 0.871f, ch * 0.934f)
+                val p = ArtSheet.plan(box, pose, cw, ch)!!
+                val profile = DefaultSurface.profile(p.rect, cw, ch, emptyList())!!
+                val moved = pose.copy(offsetX = pose.offsetX - p.rect.x, offsetY = pose.offsetY - p.rect.y)
+                val m = SceneMath.model(moved, cw, ch)
+                for ((u, v) in listOf(box[0] to box[1], box[2] to box[1], box[0] to box[3], box[2] to box[3])) {
+                    val q = m.apply(u, v, 0f)
+                    assertTrue("x ${q[0]} <= ${profile.length}", q[0] >= 0f && q[0] <= profile.length)
+                    assertTrue("y ${q[1]} <= ${profile.sweepLimit}", q[1] >= 0f && q[1] <= profile.sweepLimit!!)
+                }
+            }
+        }
     }
 }
