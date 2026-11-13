@@ -17,20 +17,40 @@ depends on whether the **active layer** is a 2D or a 3D layer (below):
 | Gesture | 2D layer | 3D layer, no Move tool | 3D layer, Move / Transform tool (Transform panel open) |
 |---|---|---|---|
 | One finger | the tool in hand (unchanged) | the tool in hand, on the layer's plane | drag the active layer (as before) |
-| Two-finger drag | pan the view | pan the view | slide the layer so it follows the fingers |
+| Two-finger drag | pan the view | pan the view (orbit, in a project with a 3D group: see below) | slide the layer so it follows the fingers |
 | Pinch | zoom the view | zoom the view | move the layer in depth (out = nearer) |
-| Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn) | rotate the layer about the current axis |
-| Double-tap | nothing | step the axis X -> Y -> Z | step the axis X -> Y -> Z |
+| Twist | rotate the canvas (the 2D view rotation) | axis Z: rotate the canvas; X / Y: orbit the camera (pitch / turn); in a project with a 3D group the camera is never orbited by a twist (retired, see below) | rotate the layer about the current axis |
+| Double-tap | nothing | step the axis X -> Y -> Z (reset the view, in a project with a 3D group) | step the axis X -> Y -> Z (reset the view, in a project with a 3D group) |
 | Brush / Eraser on a 3D strokes layer | | draw a tube on its guide / erase the curve under the finger | |
 | Brush / Eraser on a 3D model layer | | paint / erase the model's surface under the finger | |
 
 A double-tap never changes the active layer; a buried layer is picked from the layers rail. (The
 old double-tap that cycled through the layers under the finger is gone.)
 
-## Planned: view control in a project with 3D groups (surface appearance built)
+## View control in a project with 3D groups (gestures and surface appearance built)
 
-Status: design agreed with the owner, not implemented. Where this section and the table above
-disagree, this section is the target. Nothing here changes a project with no 3D group.
+Status: the view gestures below are built (not yet device-verified); the default surface
+and the open points are still planned. Where this section and the table above disagree,
+this section governs in a project with a 3D group. Nothing here changes a project with no 3D group.
+Test coverage: the double-tap tests run without a GPU, so pixel-level "no mark" and cancelling an in-flight commit are not covered by them.
+
+Built in `:core:common` `scene/ViewControl.kt`: `hasThreeDGroup` (the one predicate: a group with a
+surface profile), `twoFingerViewMode`, the drag-to-angle mapping (`ORBIT_FULL_WIDTH_RADIANS`: one
+canvas width of drag is a half turn, same rate on both axes, pitch clamped by `SceneCamera.MAX_PITCH`),
+and `ViewTapTracker`. Orbit holds the pivot for the gesture and saves the camera at its end; it is
+never history. Double-tap timing and slop are the platform's (`ViewConfiguration`).
+
+Cancelling the first tap's dot: in a 3D-group project a brush tap's dot is pushed as its own
+*tentative* history entry (`EditHistory.pushDraw(tentative = true)`): never chunk-joined; the stack may
+hold at most one entry over its cap for it (so the cap still bounds a run of spaced taps); and the redo
+stack is set aside rather than discarded. A second tap in the window, when that dot is still the newest
+entry, cancels it by identity (`EditHistory.cancelTentative` via `EditorViewModel.onBrushTap`): the dot is
+undone, the redo stack comes back, no earlier stroke is touched. If the dot is no longer the newest entry
+(a drag between the taps, or the first tap pushed nothing, e.g. a locked layer) the second tap is an
+ordinary tap. A side effect: rapid dots in these projects are one undo step each instead of chunking.
+Known gaps: touchdown-spray brushes (they start painting on touch-down), a fill tap and the Ink tool (its own surface) do not take part in the
+double-tap, so a double-tap there does not reset the view; and if the first dot's commit has not
+landed within the window (not seen: it is pushed synchronously on finger-up) it would stay.
 
 **The idea.** Once a project has a 3D group, the surface is the canvas. The rectangle that bounded
 the art while it was 2D-only is no longer something the user works inside; it matters again only at
@@ -58,7 +78,7 @@ was the reference), and the one finger stays free for the tool in hand.
   (automatic, or placed by hand), held for the length of the gesture, with the pivot fixed on screen.
 - **A surface larger than the screen.** Orbiting never brings a far part of the surface into view
   (it only tilts it). Zoom out, then pinch in at the part wanted. This needs the pinch to zoom about
-  the midpoint between the fingers; whether it does today is unchecked.
+  the midpoint between the fingers; it does (`onViewportPanZoom` keeps the point under the midpoint fixed).
 
 ### The default surface
 
@@ -126,7 +146,7 @@ Built (the appearance only; the document boundary is a later slice).
    Cancel), and its wording.
 3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
    designed.
-4. Whether the pinch already zooms about the fingers' midpoint.
+4. (Settled: the pinch zooms about the fingers' midpoint.)
 5. Resolved above: canvas colour is `canvasBackground`; the button stays and toggles the mesh. Still
    open: a user-chosen grid colour and a grid on/off setting do not exist.
 6. How export frames the view once the document boundary is not drawn.
