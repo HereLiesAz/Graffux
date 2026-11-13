@@ -102,6 +102,11 @@
     <string name="rail_adjust_photo">Adjust photo</string>
     <string name="rail_eraser">Eraser</string>
     <string name="rail_fit">Fit</string>
+    <string name="rail_reset_view">Reset view</string>
+    <string name="rail_orbit_left">Orbit view left</string>
+    <string name="rail_orbit_right">Orbit view right</string>
+    <string name="rail_orbit_up">Orbit view up</string>
+    <string name="rail_orbit_down">Orbit view down</string>
     <string name="rail_undo">Undo</string>
     <string name="rail_redo">Redo</string>
     <string name="rail_add_layer">Add layer</string>

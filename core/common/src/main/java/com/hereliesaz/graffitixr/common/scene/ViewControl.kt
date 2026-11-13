@@ -39,6 +39,30 @@ fun orbitAnglesForDrag(dx: Float, dy: Float, canvasWidth: Float): Pair<Float, Fl
     return Pair(dx * k, dy * k)
 }
 
+/** One fixed orbit step, a non-gesture alternative to the two-finger drag (15 degrees, in radians). */
+const val ORBIT_STEP_RADIANS: Float = (PI / 12.0).toFloat()
+
+/**
+ * The four orbit step buttons, each exactly one two-finger drag in that screen direction
+ * ([orbitAnglesForDrag]): the content's near side (the part between the pivot and the eye) moves
+ * that way on screen while the pivot stays put. LEFT = a leftward drag (yaw sign negative, the
+ * content turns anticlockwise seen from above); RIGHT = a rightward drag (yaw positive, clockwise
+ * seen from above); UP = an upward drag (pitch negative, the near side rises); DOWN = a downward
+ * drag (pitch positive, the near side drops). Pitch clamps at [SceneCamera.MAX_PITCH].
+ */
+enum class OrbitStep { LEFT, RIGHT, UP, DOWN }
+
+/**
+ * (yaw, pitch) radians for one [step]: the same signs as [orbitAnglesForDrag], so RIGHT is a drag to the
+ * right and DOWN a drag down. The caller's orbit applies the same pivot and pitch clamp as the gesture.
+ */
+fun orbitAnglesForStep(step: OrbitStep): Pair<Float, Float> = when (step) {
+    OrbitStep.LEFT -> Pair(-ORBIT_STEP_RADIANS, 0f)
+    OrbitStep.RIGHT -> Pair(ORBIT_STEP_RADIANS, 0f)
+    OrbitStep.UP -> Pair(0f, -ORBIT_STEP_RADIANS)
+    OrbitStep.DOWN -> Pair(0f, ORBIT_STEP_RADIANS)
+}
+
 /** Android's documented double-tap timeout, for where no platform value is available. */
 const val FALLBACK_DOUBLE_TAP_MS: Long = 300L
 
