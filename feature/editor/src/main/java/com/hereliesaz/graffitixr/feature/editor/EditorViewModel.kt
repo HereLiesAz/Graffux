@@ -13609,14 +13609,21 @@ class EditorViewModel @Inject constructor(
     /**
      * One fixed orbit step ([OrbitStep]) for the buttons that stand in for the two-finger drag. Only in a
      * project with a 3D group; elsewhere it does nothing. Same pivot and pitch clamp as the gesture, and
-     * saved at once like the gesture's end (never history).
+     * saved (debounced, never history).
      */
     fun onOrbitStep(step: OrbitStep) {
         if (!hasThreeDGroup(_uiState.value.layers)) return
         val (yaw, pitch) = orbitAnglesForStep(step)
         onSceneOrbit(yaw, pitch)
-        onSceneCameraSettled()
+        // Coalesced: a run of taps is one write, 500 ms after the last (the gesture saves once, at its end).
+        orbitSaveJob?.cancel()
+        orbitSaveJob = viewModelScope.launch {
+            delay(ORBIT_SAVE_DEBOUNCE_MS)
+            onSceneCameraSettled()
+        }
     }
+
+    private var orbitSaveJob: Job? = null
 
     /** A camera gesture ended: the view is part of the project, so it is saved (never history). */
     fun onSceneCameraSettled() = saveProject()
@@ -16746,6 +16753,9 @@ private const val MAX_MODEL_BRUSH_TEXELS = 512f
 
 /** The finest canvas-pixel spacing a move is sampled at along the surface, however small the brush. */
 private const val MIN_MODEL_PICK_STEP_PX = 4f
+
+/** Orbit step taps within this long of each other are saved once. */
+private const val ORBIT_SAVE_DEBOUNCE_MS = 500L
 
 private const val HALF_TURN_DEG = 180f
 private const val FULL_TURN_DEG = 360f

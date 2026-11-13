@@ -90,4 +90,32 @@ class ViewControlTest {
         repeat(100) { val (y, p) = orbitAnglesForStep(OrbitStep.DOWN); cam = cam.orbit(y, p) }
         assertEquals(SceneCamera.MAX_PITCH, cam.pitch, 0f)
     }
+
+    @Test
+    fun `each orbit step moves the content's near side the way its name says, pivot fixed`() {
+        val w = 1000f
+        val h = 1600f
+        val pivot = floatArrayOf(500f, 800f, 800f)
+        val near = floatArrayOf(500f, 800f, 300f)
+        fun screen(cam: SceneCamera, p: FloatArray): Pair<Float, Float> {
+            val f = SceneMath.frame(cam, w, h)
+            val c = f.toCamera(p)
+            return Pair(w / 2f + c[0] * f.focal / c[2], h / 2f + c[1] * f.focal / c[2])
+        }
+        val start = SceneCamera()
+        for (step in OrbitStep.values()) {
+            val (y, p) = orbitAnglesForStep(step)
+            val t = SceneMath.orbitAbout(start, pivot, y, p, w, h)
+            assertEquals("$step pivot", screen(start, pivot).first, screen(t, pivot).first, 0.5f)
+            assertEquals("$step pivot", screen(start, pivot).second, screen(t, pivot).second, 0.5f)
+            val dx = screen(t, near).first - screen(start, near).first
+            val dy = screen(t, near).second - screen(start, near).second
+            when (step) {
+                OrbitStep.LEFT -> assertTrue("LEFT near side moves left", dx < 0f)
+                OrbitStep.RIGHT -> assertTrue("RIGHT near side moves right", dx > 0f)
+                OrbitStep.UP -> assertTrue("UP near side moves up", dy < 0f)
+                OrbitStep.DOWN -> assertTrue("DOWN near side moves down", dy > 0f)
+            }
+        }
+    }
 }

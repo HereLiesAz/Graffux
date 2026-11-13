@@ -155,6 +155,7 @@ internal fun RailButton(
     badge: String? = null,
     onLongClick: (() -> Unit)? = null,
     testTag: String? = null,
+    announceSelected: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
@@ -174,7 +175,8 @@ internal fun RailButton(
             )
             .semantics {
                 contentDescription = label
-                selected = light.active
+                // A plain action (Reset view, Orbit) is never "selected": no "not selected" read out.
+                if (announceSelected) selected = light.active
             }
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .alpha(if (enabled) 1f else DISABLED_ALPHA),

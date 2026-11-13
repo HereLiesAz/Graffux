@@ -1985,6 +1985,22 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `a run of orbit step taps is saved once`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        io.mockk.clearMocks(projectRepository, answers = false, recordedCalls = true)
+        repeat(10) { viewModel.onOrbitStep(com.hereliesaz.graffitixr.common.scene.OrbitStep.RIGHT) }
+        testDispatcher.scheduler.advanceTimeBy(100)
+        assertTrue(viewModel.uiState.value.sceneCamera.yaw != 0f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        io.mockk.coVerify(atLeast = 0, atMost = 1) {
+            projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>())
+        }
+    }
+
+    @Test
     fun `orbit steps stop at the pitch clamp, and Reset view puts the camera back`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))

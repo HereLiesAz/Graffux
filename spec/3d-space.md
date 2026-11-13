@@ -92,7 +92,7 @@ resources (`rail_reset_view`, `rail_orbit_left/right/up/down`; `RailStrings`).
 - **Orbit view left / right / up / down** turn the view one fixed step of 15 degrees
   (`ORBIT_STEP_RADIANS`, `orbitAnglesForStep`) with the signs of the matching drag (RIGHT is a drag to the right,
   DOWN a drag down), through `EditorViewModel.onOrbitStep`: the same `onSceneOrbit`, so the same pivot
-  and pitch clamp as the gesture. Each step is saved at once and is never history.
+  and pitch clamp as the gesture. Saves are coalesced (500 ms after the last tap) and never history. Each step moves the content's near side the way its name says (pinned in `ViewControlTest`). The buttons are plain actions: they do not announce a selected state.
 
 Not built: TalkBack custom actions on the canvas itself (the buttons cover the same ground).
 Not device-verified (TalkBack or keyboard); covered by `ViewControlTest` and `EditorViewModelTest` only.

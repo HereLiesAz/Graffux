@@ -42,7 +42,14 @@ fun orbitAnglesForDrag(dx: Float, dy: Float, canvasWidth: Float): Pair<Float, Fl
 /** One fixed orbit step, a non-gesture alternative to the two-finger drag (15 degrees, in radians). */
 const val ORBIT_STEP_RADIANS: Float = (PI / 12.0).toFloat()
 
-/** The four directions an orbit step button turns the view, named by where the content's near side moves. */
+/**
+ * The four orbit step buttons, each exactly one two-finger drag in that screen direction
+ * ([orbitAnglesForDrag]): the content's near side (the part between the pivot and the eye) moves
+ * that way on screen while the pivot stays put. LEFT = a leftward drag (yaw sign negative, the
+ * content turns anticlockwise seen from above); RIGHT = a rightward drag (yaw positive, clockwise
+ * seen from above); UP = an upward drag (pitch negative, the near side rises); DOWN = a downward
+ * drag (pitch positive, the near side drops). Pitch clamps at [SceneCamera.MAX_PITCH].
+ */
 enum class OrbitStep { LEFT, RIGHT, UP, DOWN }
 
 /**

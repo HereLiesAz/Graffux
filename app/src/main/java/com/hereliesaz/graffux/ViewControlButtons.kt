@@ -23,6 +23,7 @@ internal fun ViewControlButtons(vm: ToolRailActions) {
     RailButton(
         label = stringResource(DesignR.string.rail_reset_view),
         testTag = "rail.view.reset",
+        announceSelected = false,
         onClick = { vm.resetViewport() },
     ) { RailGlyph(GraffuxIcons.ZoomFit) }
     OrbitButton(OrbitStep.LEFT, DesignR.string.rail_orbit_left, "rail.view.orbit.left", vm)
@@ -41,7 +42,10 @@ private fun OrbitButton(step: OrbitStep, label: Int, tag: String, vm: ToolRailAc
         OrbitStep.DOWN -> DOWN_DEGREES
         OrbitStep.LEFT -> LEFT_DEGREES
     }
-    RailButton(label = stringResource(label), testTag = tag, onClick = { vm.onOrbitStep(step) }) {
+    RailButton(
+        label = stringResource(label), testTag = tag, announceSelected = false,
+        onClick = { vm.onOrbitStep(step) },
+    ) {
         Icon(
             painterResource(GraffuxIcons.ChevronUp),
             contentDescription = null,
