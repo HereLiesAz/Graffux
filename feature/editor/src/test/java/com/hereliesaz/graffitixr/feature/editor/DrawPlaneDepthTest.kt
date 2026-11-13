@@ -481,6 +481,9 @@ class DrawPlaneDepthTest {
         vm.dispatchForTest(EditorIntent.LoadedProject("P", emptyList()))
         setup()
         vm.dispatchForTest(EditorIntent.LoadedProject("P", ui().layers))
+        // Loading a project puts the tool down and the active layer away: take both up again.
+        vm.onLayerActivated("L")
+        vm.setActiveTool(Tool.BRUSH)
         val made = setDepthAndAdopt()
         val file = made.uri!!.lastPathSegment!!
         stroke()
