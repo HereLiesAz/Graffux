@@ -13631,7 +13631,7 @@ class EditorViewModel @Inject constructor(
      * record, and (checked last, once) no pixel set in its bitmap.
      */
     @Suppress("ReturnCount")
-    private fun Layer.isEmptyPaintLayer(): Boolean {
+    internal fun Layer.isEmptyPaintLayer(): Boolean {
         val hasOtherContent = uri != null || textParams != null || shapes.isNotEmpty()
         val notPaint = isAdjustment || isSpatial || model != null || isContainer
         if (hasOtherContent || notPaint || layerStore.strokes(id).isNotEmpty()) return false
@@ -13800,6 +13800,10 @@ class EditorViewModel @Inject constructor(
     fun onSkipSurfaceDraw() {
         val st = _uiState.value
         if (!st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT) return
+        if (!canSkipSurfaceDraw()) {
+            showSurfaceNotice(SurfaceDrawNotice.HAS_ART)
+            return
+        }
         val wrapId = st.surfaceDrawWrapLayerId
         val newGroup = wrapId?.let { Layer(id = UUID.randomUUID().toString(), name = "Group", type = LayerType.GROUP) }
         val layers = if (wrapId != null && newGroup != null) wrappedInGroup(st.layers, wrapId, newGroup) else st.layers
@@ -13828,6 +13832,26 @@ class EditorViewModel @Inject constructor(
             commitWrappedSurface(wrapId, newGroup, profile)
         }
         showSurfaceNotice(SurfaceDrawNotice.DONE)
+    }
+
+    /**
+     * Whether "Use a flat sheet" may be offered for the armed surface: the front view of a group with no surface
+     * yet, and only when it cannot displace or crop art (the sheet places paint from its top-left corner until a
+     * windowed profile exists, spec/3d-space.md "The default surface"): the layer to be wrapped is an empty paint
+     * layer ([isEmptyPaintLayer], the view-plane adoption's definition), or the armed group holds no layer with
+     * art. Scans pixels, so ask when arming changes, not every frame.
+     */
+    fun canSkipSurfaceDraw(): Boolean {
+        val st = _uiState.value
+        val wrapId = st.surfaceDrawWrapLayerId
+        val group = st.layers.firstOrNull { it.id == st.surfaceDrawGroupId }
+        val inside = if (group == null) emptySet() else descendantIds(st.layers, group.id)
+        return when {
+            !st.surfaceDrawArmed || st.surfaceDrawView != SurfaceView.FRONT -> false
+            wrapId != null -> st.layers.firstOrNull { it.id == wrapId }?.isEmptyPaintLayer() == true
+            group == null || group.surface != null -> false
+            else -> st.layers.filter { it.id in inside && !it.isContainer }.all { it.isEmptyPaintLayer() }
+        }
     }
 
     /** Wraps [wrapId] in [newGroup] with [profile] as its surface: one undo step (shared by capture and skip). */

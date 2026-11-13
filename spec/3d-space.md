@@ -97,10 +97,14 @@ Built. What is the owner's rule and what is my default:
 - **Centred: assumed, not owner-confirmed** (open point 7 stays open).
 - **No recompute on rotation: my default, not owner-confirmed.** The surface is data once created: if the
   device is rotated afterwards, the sheet is not resized or moved.
-- **Known limit: artwork already on the layer.** A layer's paint is placed from the profile's first vertex
-  (the sheet's top-left corner): wrapping an existing full-canvas layer shows it offset by that corner, and
-  the part beyond the sheet's width is not paintable. Mapping the sheet to the layer's own rectangle needs a
-  window on the profile (as a relief has `left`/`top`); not built, to be decided.
+- **Only for new or empty groups (decided with the coordinator).** A layer's paint is placed from the
+  profile's first vertex (the sheet's top-left corner), so a sheet would offset or crop existing art. Until a
+  windowed profile exists (as a relief has `left`/`top`), "Use a flat sheet" is offered only when it cannot do
+  that: the layer to be wrapped is an empty paint layer (the definition "Adopting the view plane" uses: no
+  source image, text, shapes, adjustment or 3D ink, no recorded stroke, no set pixel), or the armed group
+  holds no layer with art. For a layer with art the chip keeps Cancel and the drawn-surface capture only, and
+  `onSkipSurfaceDraw` refuses a forced skip with a notice (`HAS_ART`) and changes nothing. Existing art keeps
+  the capture flow; a windowed profile (open point 8) would lift this.
 
 ### How the surface looks
 
@@ -123,6 +127,7 @@ Built. What is the owner's rule and what is my default:
    wire-mesh button stays, now that the mesh is the grid.
 6. How export frames the view once the document boundary is not drawn.
 7. Whether the default surface is centred in the viewport (assumed; built that way).
+8. A windowed profile (the sheet's rectangle as a window onto the layer's own coordinates) so "Use a flat sheet" can be offered for a layer with art without displacing or cropping it.
 
 ## 2D and 3D layers
 

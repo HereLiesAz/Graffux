@@ -80,6 +80,7 @@ internal fun surfacePromptContent(
         SurfaceDrawNotice.LOCKED -> s.locked
         SurfaceDrawNotice.UNAVAILABLE -> s.unavailable
         SurfaceDrawNotice.TOO_SHORT -> s.tooShort
+        SurfaceDrawNotice.HAS_ART -> s.hasArt
         SurfaceDrawNotice.DONE -> s.done
         SurfaceDrawNotice.VIEW_DONE -> s.viewDone
         null -> null
@@ -394,11 +395,4 @@ internal fun canBuildRelief(state: com.hereliesaz.graffitixr.common.model.Editor
     val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return false
     return layer.type == com.hereliesaz.graffitixr.common.model.LayerType.RASTER && layer.bitmap != null &&
         layer.surfaceViewOf == null && com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(state.layers, layer.id) == null
-}
-
-/** Whether the armed chip may offer "Use a flat sheet": the front view of a group that has no surface yet. */
-internal fun canSkipSurface(state: com.hereliesaz.graffitixr.common.model.EditorUiState): Boolean {
-    if (!state.surfaceDrawArmed || state.surfaceDrawView != SurfaceView.FRONT) return false
-    val group = state.layers.firstOrNull { it.id == state.surfaceDrawGroupId }
-    return state.surfaceDrawWrapLayerId != null || (group != null && group.surface == null)
 }

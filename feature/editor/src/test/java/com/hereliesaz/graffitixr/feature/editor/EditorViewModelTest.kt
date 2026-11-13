@@ -2098,6 +2098,57 @@ class EditorViewModelTest {
         return viewModel.uiState.value.layers.firstOrNull { it.type == groupType }?.surface
     }
 
+    /** A layer with art. Text stands in for pixels: Color.alpha is a stub in JVM tests, so a pixel scan sees none. */
+    private fun paintedLayer(id: String): Layer = Layer(id = id, name = id, textParams = TextLayerParams(text = "art"))
+
+    private fun armOn(layers: List<Layer>, active: String) {
+        viewModel.setLayers(layers)
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated(active)
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+    }
+
+    @Test
+    fun `Skip is offered for an empty layer and for an empty group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armOn(listOf(lyr("lone")), "lone")
+        assertTrue(viewModel.canSkipSurfaceDraw())
+        viewModel.onCancelSurfaceDraw()
+        val group = lyr("g").copy(type = groupType)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g")))
+        viewModel.onArmSurfaceDraw("g")
+        assertTrue(viewModel.canSkipSurfaceDraw())
+    }
+
+    @Test
+    fun `Skip is not offered for a layer with art, and a forced Skip is a no-op with a notice`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armOn(listOf(paintedLayer("art")), "art")
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(listOf("art"), viewModel.uiState.value.layers.map { it.id })
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `Skip is not offered for a group that holds a layer with art`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = groupType)
+        viewModel.setLayers(listOf(group, paintedLayer("art").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
     @Test
     fun `Skip in landscape gives the landscape sheet`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
