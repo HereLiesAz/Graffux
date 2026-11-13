@@ -86,18 +86,20 @@ class DefaultSurfaceTest {
     }
 
     @Test
-    fun `the orbit pivot is the sheet's centre, portrait`() {
+    fun `the orbit pivot is the sheet's centre moved n behind it, portrait`() {
         val c = pivot(1000f, 1600f)
         assertEquals(500f, c[0], 0.01f)
         assertEquals(800f, c[1], 0.01f)
-        assertEquals(0f, c[2], 0.01f)
+        // n = ((750 + 1066.67) / 2) / 2: the sheet is 3/4 of 1000 by 2/3 of 1600.
+        assertEquals((750f + 1600f * 2f / 3f) / 4f, c[2], 0.01f)
     }
 
     @Test
-    fun `the orbit pivot is the sheet's centre, landscape`() {
+    fun `the orbit pivot is the sheet's centre moved n behind it, landscape`() {
         val c = pivot(2000f, 1000f)
         assertEquals(1000f, c[0], 0.01f)
         assertEquals(500f, c[1], 0.01f)
+        assertEquals((2000f * 2f / 3f + 750f) / 4f, c[2], 0.01f)
     }
 
     @Test
@@ -138,7 +140,7 @@ class DefaultSurfaceTest {
     }
 
     @Test
-    fun `the rendered reach and the visibility box stop at the sheet, and the pivot stays its centre`() {
+    fun `the rendered reach and the visibility box stop at the sheet, and the pivot is its centre moved n behind it`() {
         for ((w, h) in listOf(1000f to 1600f, 2000f to 1000f)) {
             val (layers, p) = sheetWithChild(w, h)
             val byId = layers.associateBy { it.id }
@@ -148,6 +150,7 @@ class DefaultSurfaceTest {
             val r = DefaultSurface.rect(w, h)!!
             assertEquals(r.x + r.width / 2f, c[0], 0.01f)
             assertEquals(r.y + r.height / 2f, c[1], 0.01f)
+            assertEquals((r.width + r.height) / 4f, c[2], 0.01f)
         }
     }
 

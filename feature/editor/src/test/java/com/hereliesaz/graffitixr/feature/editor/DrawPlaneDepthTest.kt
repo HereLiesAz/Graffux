@@ -292,8 +292,8 @@ class DrawPlaneDepthTest {
         stroke()
         val second = vm.drawPlaneReference()!!.column(3).toList()
         assertTrue("the new layer's plane is the reference now", first != second)
+        // Not drained: with no GPU a drained commit fails and drops the first stroke too.
         vm.onUndoClicked()
-        dispatcher.scheduler.advanceUntilIdle()
         assertEquals(first, vm.drawPlaneReference()!!.column(3).toList())
         // The undone layer's cache stays for redo, and goes once another stroke discards the redo.
         assertTrue(vm.layerBaseForTest(made.id) != null)

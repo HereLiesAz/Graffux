@@ -386,6 +386,24 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `saving writes no rotation point, whether it creates the project or updates one that carried a legacy point`() =
+        runTest {
+            val legacy = GraffitiProject(id = "p", orbitPivot = listOf(1f, 2f, 3f))
+            val written = mutableListOf<GraffitiProject>()
+            // Updating: the transform is applied to a project that still carries the retired point.
+            io.mockk.coEvery { projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                written += (firstArg<Any>() as (GraffitiProject) -> GraffitiProject)(legacy)
+            }
+            viewModel.onAddLayer(Uri.parse("content://test/image.png"))
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.saveProject()
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertTrue(written.isNotEmpty())
+            assertTrue(written.all { it.orbitPivot == null })
+        }
+
+    @Test
     fun `undo restores previous state`() = runTest {
         val uri = Uri.parse("content://test/image.png")
         viewModel.onAddLayer(uri)
@@ -1340,26 +1358,6 @@ class EditorViewModelTest {
         assertEquals(400f, viewModel.orbitPivot()!![2], 0.5f)
         viewModel.setLayers(listOf(floor, paintF))
         assertEquals(1000f, viewModel.orbitPivot()!![1], 0.5f)
-    }
-
-    @Test
-    fun `a placed rotation point wins until reset to automatic`() = runTest {
-        testDispatcher.scheduler.advanceUntilIdle()
-        val floor = surfaceGroup("f", 200f, 1000f, 0f, 800f, 1000f, 0f)
-        pivotSetup(floor, Layer(id = "pf", name = "pf", parentId = "f"))
-        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(10f, 10f))
-        assertEquals(null, viewModel.uiState.value.manualPivot)
-        viewModel.onArmPivotPick()
-        assertTrue(viewModel.uiState.value.pivotPickArmed)
-        viewModel.onPivotPicked(androidx.compose.ui.geometry.Offset(500f, 1000f))
-        val placed = viewModel.uiState.value.manualPivot!!
-        assertEquals(0f, placed[2], 1f)
-        assertEquals(false, viewModel.uiState.value.pivotPickArmed)
-        assertEquals(1000f, placed[1], 1f)
-        assertEquals(placed[0], viewModel.orbitPivot()!![0], 0.01f)
-        viewModel.onResetPivot()
-        assertEquals(null, viewModel.uiState.value.manualPivot)
-        assertEquals(300f, viewModel.orbitPivot()!![2], 0.5f)
     }
 
     private fun boxPoint(id: String, u: Float, v: Float, z: Float): FloatArray {
@@ -2362,6 +2360,267 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("a", "b"), viewModel.uiState.value.layers.map { it.id })
         assertNull(viewModel.uiState.value.layers.firstOrNull { it.type == groupType })
+    }
+
+    /**
+     * A layer whose art is its bitmap: [w] x [h] pixels with [xs] x [ys] painted (alpha set). The pixel scan reads the
+     * alpha byte itself, so a mocked bitmap works on the JVM (Color.alpha is a stub there).
+     */
+    private fun bitmapLayer(
+        id: String,
+        w: Int = 100,
+        h: Int = 160,
+        xs: IntRange? = 10..29,
+        ys: IntRange? = 20..59,
+    ): Layer {
+        val bmp = io.mockk.mockk<Bitmap>(relaxed = true)
+        io.mockk.every { bmp.isRecycled } returns false
+        io.mockk.every { bmp.width } returns w
+        io.mockk.every { bmp.height } returns h
+        io.mockk.every { bmp.getPixels(any<IntArray>(), any(), any(), any(), any(), any(), any()) } answers {
+            val row = firstArg<IntArray>()
+            val y = arg<Int>(4)
+            val rowPainted = ys != null && y in ys
+            for (x in 0 until w) row[x] = if (rowPainted && xs != null && x in xs) 0xFF000000.toInt() else 0
+        }
+        return Layer(id = id, name = id, bitmap = bmp)
+    }
+
+    private fun armArt(layer: Layer) {
+        armOn(listOf(layer), layer.id)
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+    }
+
+    private fun skipNow() {
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+    }
+
+    @Test
+    fun `Skip is offered for a layer with art, and the sheet is the art box, in one undo step`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val art = bitmapLayer("art")
+        armArt(art)
+        assertTrue(viewModel.canSkipSurfaceDraw())
+        assertTrue(viewModel.canSkipSurfaceDrawOffMain())
+        val undo = viewModel.uiState.value.undoCount
+        skipNow()
+        val st = viewModel.uiState.value
+        val leaf = st.layers.first { it.id == "art" }
+        val group = st.layers.first { it.id == leaf.parentId }
+        val surface = group.surface!!
+        // Bitmap 100 x 160 fits the canvas at 10x: pixels 10..30 x 20..60 are the box (100, 200)-(300, 600).
+        assertTrue(surface.isFlat)
+        assertEquals(100f, surface.point(0)[0], 0.01f)
+        assertEquals(200f, surface.point(0)[1], 0.01f)
+        assertEquals(0f, surface.point(0)[2], 0f)
+        assertEquals(200f, surface.length, 0.011f)
+        assertEquals(400f, surface.reach!!, 0.011f)
+        assertFalse(st.surfaceDrawArmed)
+        assertEquals(undo + 1, st.undoCount)
+        assertTrue(leaf.is3DIn(st.layers))
+        // Nothing displaced: the art's corners are where they were, through the real flat-sheet mapping.
+        val byId = st.layers.associateBy { it.id }
+        val onSheet = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+            .flatSurfaceModel(com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(byId, "art")!!, 1000f, 1600f)!!
+        for ((u, v) in listOf(100f to 200f, 300f to 200f, 100f to 600f, 300f to 600f)) {
+            val p = onSheet.apply(u, v, 0f)
+            assertEquals(u, p[0], 0.05f)
+            assertEquals(v, p[1], 0.05f)
+        }
+        // Nothing cropped: the art spans the sheet's own unrolled rectangle exactly.
+        val un = com.hereliesaz.graffitixr.common.scene.SurfaceMath.boxToUnrolled(
+            com.hereliesaz.graffitixr.common.scene.SurfaceMath.ownerOf(byId, "art")!!.innerChain, 1000f, 1600f,
+        )
+        val lo = un.apply(100f, 200f, 0f)
+        val hi = un.apply(300f, 600f, 0f)
+        assertEquals(0f, lo[0], 0.05f)
+        assertEquals(0f, lo[1], 0.05f)
+        assertEquals(surface.length, hi[0], 0.011f)
+        assertEquals(surface.sweepLimit!!, hi[1], 0.011f)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val back = viewModel.uiState.value.layers
+        assertEquals(listOf("art"), back.map { it.id })
+        assertNull(back.single().parentId)
+        assertEquals(Offset.Zero, back.single().offset)
+        assertEquals(1f, back.single().scale, 0f)
+        // The orbit point is derived: with the group gone it is the plane rule again, nothing to take back.
+        assertEquals(800f, viewModel.orbitPivot()!![2], 0.5f)
+    }
+
+    @Test
+    fun `the orbit point is the art's centre, behind the sheet by half the average of its sides`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // The painted box in canvas units at the 10x fit: 200 x 400, 100 x 100, 500 x 60.
+        data class Case(val xs: IntRange, val ys: IntRange, val w: Float, val h: Float)
+        val cases = listOf(
+            Case(10..29, 20..59, 200f, 400f), Case(40..49, 70..79, 100f, 100f), Case(0..49, 100..105, 500f, 60f),
+        )
+        for (c in cases) {
+            armArt(bitmapLayer("art", xs = c.xs, ys = c.ys))
+            skipNow()
+            val pivot = viewModel.orbitPivot()!!
+            assertEquals(c.xs.first * 10f + c.w / 2f, pivot[0], 0.01f)
+            assertEquals(c.ys.first * 10f + c.h / 2f, pivot[1], 0.01f)
+            assertEquals(((c.w + c.h) / 2f) / 2f, pivot[2], 0.01f)
+        }
+    }
+
+    @Test
+    fun `a layer that has been offset and scaled gets the sheet where its art is seen`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("art").copy(offset = Offset(50f, -30f), scale = 2f))
+        skipNow()
+        val st = viewModel.uiState.value
+        val surface = st.layers.first { it.type == groupType }.surface!!
+        assertEquals(-250f, surface.point(0)[0], 0.01f)
+        assertEquals(-430f, surface.point(0)[1], 0.01f)
+        assertEquals(400f, surface.length, 0.011f)
+        assertEquals(800f, surface.reach!!, 0.011f)
+        val pivot = viewModel.orbitPivot()!!
+        assertEquals(-50f, pivot[0], 0.01f)
+        assertEquals(-30f, pivot[1], 0.01f)
+        assertEquals(300f, pivot[2], 0.01f)
+    }
+
+    @Test
+    fun `a layer with no painted pixel gets the predefined sheet, as an empty layer does`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("blank", xs = null, ys = null))
+        skipNow()
+        val st = viewModel.uiState.value
+        val surface = st.layers.first { it.type == groupType }.surface!!
+        assertEquals(1600f * 2f / 3f, surface.reach!!, 0.1f)
+        assertEquals(750f, surface.length, 0.1f)
+        // The predefined sheet is a flat sheet too: the same rule puts the point (750 + 1066.7) / 4 behind it.
+        assertEquals((750f + 1600f * 2f / 3f) / 4f, viewModel.orbitPivot()!![2], 0.1f)
+    }
+
+    /** Arms the wrap on [layer], then swaps in [changed] (the layer as it turns out to be when the scan reads it). */
+    private fun armThenChange(layer: Layer, changed: Layer) {
+        armArt(layer)
+        viewModel.setLayers(listOf(changed))
+    }
+
+    private fun assertRefusedWith(notice: SurfaceDrawNotice) {
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        val undo = viewModel.uiState.value.undoCount
+        skipNow()
+        assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(notice, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a warp, a tilt in 3D, shapes, text or a surface-view image is refused with the notice`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val base = bitmapLayer("a")
+        val refused = listOf(
+            base.copy(warpMesh = listOf(0f, 0f, 1f, 1f)),
+            base.copy(rotationY = 20f),
+            base.copy(positionZ = 40f),
+            base.copy(shapes = listOf(VectorShape(kind = ShapeKind.RECTANGLE, width = 20f, height = 20f))),
+            base.copy(textParams = TextLayerParams(text = "t")),
+            base.copy(surfaceViewOf = "other"),
+        )
+        for (layer in refused) {
+            armThenChange(bitmapLayer("a"), layer)
+            assertRefusedWith(SurfaceDrawNotice.HAS_ART)
+            viewModel.onCancelSurfaceDraw()
+        }
+    }
+
+    @Test
+    fun `a group that holds a layer with painted pixels is refused with the notice`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = groupType)
+        viewModel.setLayers(listOf(group, bitmapLayer("art").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer inside a non-group parent cannot be armed for a flat sheet`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(bitmapLayer("p"), bitmapLayer("c").copy(parentId = "p")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("c")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        assertFalse(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        assertEquals(SurfaceDrawNotice.UNAVAILABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer that cannot be read says so, not that it has art`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val bmp = io.mockk.mockk<Bitmap>(relaxed = true)
+        io.mockk.every { bmp.isRecycled } returns false
+        io.mockk.every { bmp.width } returns 2
+        io.mockk.every { bmp.height } returns 3
+        io.mockk.every { bmp.getPixels(any<IntArray>(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("recycled")
+        armOn(listOf(Layer(id = "r", name = "r", bitmap = bmp)), "r")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
+        assertEquals(SurfaceDrawNotice.NOT_READABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer with art and no canvas size yet says it could not be read, not that it cannot be sized`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // The canvas has not been laid out (it never reports a zero size): arm without giving it one.
+        viewModel.setLayers(listOf(bitmapLayer("art")))
+        viewModel.onLayerActivated("art")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        skipNow()
+        assertTrue(viewModel.uiState.value.layers.none { it.type == groupType })
+        assertEquals(SurfaceDrawNotice.NOT_READABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a layer whose frame is larger than its bitmap and offset gets the sheet at its frame position`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Bitmap 50 x 80, painted 5..14 x 10..29, at origin (20, 30) in a 100 x 160 frame: fit 10x, so the box is
+        // ((5 + 20) * 10, (10 + 30) * 10) to ((15 + 20) * 10, (30 + 30) * 10) = (250, 400)-(350, 600).
+        val layer = bitmapLayer("art", w = 50, h = 80, xs = 5..14, ys = 10..29)
+            .copy(frameWidth = 100, frameHeight = 160, originX = 20, originY = 30)
+        armArt(layer)
+        skipNow()
+        val st = viewModel.uiState.value
+        val surface = st.layers.first { it.type == groupType }.surface!!
+        assertEquals(250f, surface.point(0)[0], 0.01f)
+        assertEquals(400f, surface.point(0)[1], 0.01f)
+        assertEquals(100f, surface.length, 0.011f)
+        assertEquals(200f, surface.reach!!, 0.011f)
+        val pivot = viewModel.orbitPivot()!!
+        assertEquals(300f, pivot[0], 0.01f)
+        assertEquals(500f, pivot[1], 0.01f)
+        assertEquals(75f, pivot[2], 0.01f)
+    }
+
+    @Test
+    fun `an art scan that answers after the layers or the canvas changed commits nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armArt(bitmapLayer("art"))
+        scanDispatcher.held = true
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(900, 1500))
+        scanDispatcher.release()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("art"), viewModel.uiState.value.layers.map { it.id })
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
     }
 
     @Test
