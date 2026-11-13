@@ -29,8 +29,8 @@ old double-tap that cycled through the layers under the finger is gone.)
 
 ## View control in a project with 3D groups (gestures and surface appearance built)
 
-Status: the view gestures below are built (not yet device-verified); the default surface, surface
-appearance and the open points are still planned. Where this section and the table above disagree,
+Status: the view gestures below are built (not yet device-verified); the default surface
+and the open points are still planned. Where this section and the table above disagree,
 this section governs in a project with a 3D group. Nothing here changes a project with no 3D group.
 
 Built in `:core:common` `scene/ViewControl.kt`: `hasThreeDGroup` (the one predicate: a group with a
