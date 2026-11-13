@@ -18,7 +18,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = android.app.Application::class)
 class StrokeDataMigrationTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private fun prefs() = context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE)

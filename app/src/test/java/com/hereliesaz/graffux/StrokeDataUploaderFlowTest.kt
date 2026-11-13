@@ -22,7 +22,7 @@ import java.net.InetSocketAddress
 
 /** What [StrokeDataUploader] does with a file for each answer the relay can give. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = android.app.Application::class)
 class StrokeDataUploaderFlowTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private lateinit var server: HttpServer
