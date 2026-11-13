@@ -64,8 +64,8 @@ import com.hereliesaz.graffitixr.design.components.GraffuxButton
 import com.hereliesaz.graffitixr.design.components.GraffuxButtonShape
 import com.hereliesaz.graffitixr.common.model.GestureAction
 import com.hereliesaz.graffitixr.common.model.GestureSlot
-import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY
 import com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS
+import com.hereliesaz.graffitixr.feature.editor.strokedata.StrokeContributionConsent
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngineSelfTest
 import kotlinx.coroutines.Dispatchers
@@ -321,7 +321,8 @@ private fun PredictionReportsRow(vm: SettingsViewModel) {
 private fun StrokeDataRow(vm: SettingsViewModel) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences(STROKE_DATA_PREFS, Context.MODE_PRIVATE) }
-    var recording by remember { mutableStateOf(prefs.getBoolean(STROKE_DATA_KEY, false)) }
+    var recording by remember { mutableStateOf(StrokeContributionConsent.isContributing(prefs)) }
+    var askAge by remember { mutableStateOf(false) }
     val pending by vm.pendingStrokeData.count.collectAsStateWithLifecycle()
     // Refreshed on entry and on toggle here; the ViewModel refreshes again after every upload.
     LaunchedEffect(recording) { vm.pendingStrokeData.refresh(context) }
@@ -331,16 +332,45 @@ private fun StrokeDataRow(vm: SettingsViewModel) {
         options = listOf(true, false),
         selected = recording,
         label = { stringResource(if (it) R.string.settings_on else R.string.settings_off) },
-        onSelect = {
-            recording = it
-            prefs.edit().putBoolean(STROKE_DATA_KEY, it).apply()
+        onSelect = { on ->
+            if (!on) StrokeContributionConsent.disable(prefs)
+            // Switching on without the 16+ declaration asks for it first; it is never skipped.
+            else if (!StrokeContributionConsent.enable(prefs)) askAge = true
+            recording = StrokeContributionConsent.isContributing(prefs)
         },
     )
+    if (askAge) {
+        StrokeAgeDialog(
+            onConfirm = {
+                StrokeContributionConsent.declareAge16AndEnable(prefs)
+                recording = true
+                askAge = false
+            },
+            onDismiss = { askAge = false },
+        )
+    }
     TextButton(
         onClick = { vm.uploadStrokeData(context) },
         enabled = recording && pending > 0,
     ) { Text(stringResource(R.string.settings_stroke_upload)) }
     HeatmapSettingsRow()
+}
+
+/** The one-time "I am 16 or older" declaration that must come before stroke contribution can be switched on. */
+@Suppress("FunctionNaming") // Composable naming, as everywhere else in this file.
+@Composable
+private fun StrokeAgeDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    GraffuxAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.settings_stroke_age_title)) },
+        text = { Text(stringResource(R.string.settings_stroke_age_body)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.settings_stroke_age_confirm)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_stroke_age_cancel)) }
+        },
+    )
 }
 
 /**

@@ -8,6 +8,7 @@ import com.hereliesaz.graffitixr.common.security.SecurityProviderManager
 import com.hereliesaz.graffitixr.common.util.NativeLibLoader
 import com.hereliesaz.graffitixr.data.prediction.PredictionReportRepository
 import com.hereliesaz.graffitixr.feature.editor.EditorViewModel
+import com.hereliesaz.graffitixr.feature.editor.strokedata.StrokeContributionConsent
 import com.hereliesaz.graffitixr.nativebridge.GpuStampEngine
 import com.hereliesaz.graffitixr.nativebridge.NativeCrashHandler
 import dagger.hilt.android.HiltAndroidApp
@@ -97,16 +98,22 @@ class GraffuxApplication : Application() {
                     ).show()
                 }
             }
-            // Training data is strictly opt-in. Existing pending files stay local while consent is off.
+            // Training data is strictly opt-in, and needs the 16+ declaration. A switch left on from before the
+            // declaration existed is turned off here, once, and the person is told.
             val trainingPrefs = getSharedPreferences(
                 com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_PREFS,
                 MODE_PRIVATE,
             )
-            if (trainingPrefs.getBoolean(
-                    com.hereliesaz.graffitixr.feature.editor.strokedata.STROKE_DATA_KEY,
-                    false,
-                )
-            ) {
+            if (StrokeContributionConsent.switchOffUndeclared(trainingPrefs)) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        this@GraffuxApplication,
+                        getString(R.string.settings_stroke_data_switched_off),
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+            if (StrokeContributionConsent.isContributing(trainingPrefs)) {
                 runCatching { StrokeDataUploader(this@GraffuxApplication).uploadPending() }
             }
         }

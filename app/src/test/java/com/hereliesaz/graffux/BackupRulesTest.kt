@@ -57,7 +57,7 @@ class BackupRulesTest {
      * device's model and sensors, so they stay behind too.
      */
     @Test fun `consent and what it gates are excluded from every backup path`() {
-        val sharedPrefs = setOf("privacy_consent.xml", "stroke_prediction.xml")
+        val sharedPrefs = setOf("privacy_consent.xml", "stroke_prediction.xml", "secure_tokens.xml")
         val files = setOf("stroke-data")
         for (section in listOf("cloud-backup", "device-transfer")) {
             val prefs = excludes("src/main/res/xml/data_extraction_rules.xml", section, "sharedpref")

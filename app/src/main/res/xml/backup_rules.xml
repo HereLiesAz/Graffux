@@ -19,5 +19,7 @@
     <!-- Consent is per device: never restore it onto a device whose user was not asked. -->
     <exclude domain="sharedpref" path="privacy_consent.xml" />
     <exclude domain="sharedpref" path="stroke_prediction.xml" />
+    <!-- The reports token and Figma token, encrypted with a Keystore key that does not travel. -->
+    <exclude domain="sharedpref" path="secure_tokens.xml" />
     <exclude domain="file" path="stroke-data" />
 </full-backup-content>

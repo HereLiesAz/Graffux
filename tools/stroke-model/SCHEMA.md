@@ -1,7 +1,7 @@
 # Stroke data schema (version 4)
 
 Written on the device by `StrokeDataRecorder` (feature/editor) and `StrokeDataStore` (core/data).
-Uploaded to the `stroke-data` branch as `stroke-data/<device-model>/session-<ms>.jsonl.gz`.
+Uploaded to the private stroke-data store as `stroke-data/<device-model>/session-<ms>.jsonl.gz`.
 
 Each file is gzip JSON Lines: one JSON object per line. Every append is its own gzip member;
 Python's `gzip` module reads the concatenation transparently.

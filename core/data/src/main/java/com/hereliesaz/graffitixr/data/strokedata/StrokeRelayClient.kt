@@ -8,8 +8,8 @@ import java.net.URL
 
 /**
  * Sends one finished stroke-data session file to the stroke relay (workers/stroke-relay), which
- * commits it to the `stroke-data` branch. The relay holds the GitHub token, so the app carries no
- * credential and the user needs none. Callers delete a local file only after [upload] succeeds.
+ * stores it in a private bucket. The app carries no secret and the user needs none.
+ * Callers delete a local file only after [upload] succeeds.
  *
  * Succeeds only when the relay itself says it stored the file or already had it: HTTP 200 or 201
  * with a JSON body whose `status` is `stored` or `exists`. A bare 200 is not enough, because a login

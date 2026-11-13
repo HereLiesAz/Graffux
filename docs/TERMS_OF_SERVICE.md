@@ -1,6 +1,8 @@
 # Terms of Service
 
-**Effective Date:** November 5, 2026
+**Effective Date:** November 13, 2026
+
+These Terms are the developer's own plain-language terms. They are not legal advice, and nothing here promises that the App meets any particular law.
 
 These Terms of Service (the "Terms") govern your use of Graffux (the "App"), published by Az
 (HereLiesAz), "the developer", "we" or "us". By installing or using the App you agree to the Terms. If
@@ -19,7 +21,7 @@ described in the Privacy Policy.
 ## 2. Who May Use It
 
 You must be old enough to form a binding contract where you live, or have a parent or guardian agree for
-you. The App is not directed at children under 13 and does not ask for personal information.
+you. The App is not directed at children under 13 and does not ask for personal information. Contributing stroke-model training data (section 4) is only for people who are 16 or older.
 
 ## 3. Your Work
 
@@ -36,18 +38,27 @@ you. The App is not directed at children under 13 and does not ask for personal 
 
 Two settings, both **off by default**, send data from your device:
 
-- **Crash reports.** If you switch them on and connect a reports token, reports are posted as public
-  issues on the project's GitHub repository.
-- **Stroke-model training data.** If you switch on "Contribute strokes to model training", the touch
-  paths and sensor readings described in the Privacy Policy are uploaded and saved to a **public**
-  branch of the project's GitHub repository, and a copy is kept in a private dataset used for training.
+- **Crash reports.** If you switch them on and enter your **own** GitHub token, reports are posted as
+  **public** issues on the project's GitHub repository, **under your GitHub account**. Anyone can read
+  them, and you can delete an issue you posted from your GitHub account. Without your token nothing is
+  sent; the App has no token of ours.
+- **Stroke-model training data.** You must be 16 or older and confirm that in the App before you can
+  switch on "Contribute strokes to model training". The touch paths and sensor readings described in
+  the Privacy Policy are then uploaded to a **private** store, not published.
 
-By switching either on, you confirm that you understand the data will be public, and you grant us a
-worldwide, royalty-free, perpetual licence to use, copy, publish and train models on the data you
-contributed. You can switch them off at any time, which stops further collection and uploads. Data
-already published cannot be tied to you or recalled from copies others have made; the Privacy Policy
-explains how to ask for removal. Do not leave contribution on while writing or signing something you
-want to keep private.
+**Licence to stroke data.** By switching on stroke contribution you grant us a worldwide, royalty-free,
+non-exclusive licence to store, copy, analyse and use the stroke and sensor data you upload while it is
+on, to train, test and improve models and the App, and to share or release the models that result. The
+licence does not cover your drawings, photos, layers or projects, which we do not receive, and does not
+let us publish the raw data. Switching contribution off ends the licence for data collected after that;
+data already uploaded can be deleted on request as the Privacy Policy describes, but a model already
+trained from it is not undone.
+
+**Crash reports and licence.** A public issue you post is also visible under GitHub's terms; you keep
+whatever rights you have in its text and grant us the right to use it to fix the App.
+
+You can switch either setting off at any time, which stops further collection and uploads. Do not leave
+contribution on while writing or signing something you want to keep private.
 
 ## 5. Extensions and the Store
 
@@ -134,12 +145,13 @@ services. Sections 3, 4, 8, 10, 11, 13 and 14 survive termination.
 The App is used worldwide, and these Terms do not take away protections the law of your own country
 gives you.
 
-- **Your local law.** Mandatory consumer-protection and data-protection rights where you live apply to
-  you whatever these Terms say. Nothing here limits them or stops you from bringing a claim in the courts
-  of your own country where the law gives you that right.
-- **Otherwise.** These Terms do not choose a particular country's law or a particular court. Where
-  nothing in your local law decides it, a dispute is decided by the law and the courts that have
-  jurisdiction over it under the applicable rules.
+- **Your local law.** If you are a consumer, mandatory consumer-protection and data-protection rights
+  where you live apply to you whatever these Terms say, and you may bring a claim in the courts of your
+  own country where the law gives you that right. Nothing here limits those rights.
+- **Otherwise.** For any other dispute (for example, one with a business or someone using the App for
+  work), these Terms are governed by the laws of the State of Louisiana, USA, without regard to its
+  conflict-of-laws rules, and the state and federal courts located in New Orleans (Orleans Parish),
+  Louisiana have exclusive jurisdiction, unless the law requires otherwise.
 - **Talk to us first.** Before filing a claim, please contact us (section 15) and give us a chance to
   resolve it.
 
@@ -147,7 +159,9 @@ gives you.
 
 - **Changes.** We may change these Terms. We will post the new version on this page and update the
   effective date. If you keep using the App after a change takes effect, you accept the new Terms. If a
-  change is material, we will say so in the App or in the project's release notes.
+  change is material, we will say so in the project's release notes. The App has no general in-app
+  notice for this yet; it only tells people whose stroke contribution was switched off pending the
+  age declaration in section 4.
 - **Entire agreement.** These Terms and the Privacy Policy are the whole agreement between you and us
   about the App. Store or extension terms add to them for those products.
 - **Severability.** If part of these Terms is held unenforceable, the rest stays in force.
