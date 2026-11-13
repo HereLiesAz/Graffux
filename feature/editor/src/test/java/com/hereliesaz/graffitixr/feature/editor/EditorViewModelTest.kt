@@ -1977,6 +1977,70 @@ class EditorViewModelTest {
     }
 
     @Test
+    fun `an orbit step turns the camera about the pivot, fixed on screen, in a project with a 3D group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        val pivot = viewModel.orbitPivot()!!
+        val before = viewModel.uiState.value
+        val px = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(before.sceneCamera, 1000f, 1600f)
+            .project(pivot)!!
+        viewModel.onOrbitStep(com.hereliesaz.graffitixr.common.scene.OrbitStep.RIGHT)
+        viewModel.onOrbitStep(com.hereliesaz.graffitixr.common.scene.OrbitStep.DOWN)
+        val after = viewModel.uiState.value
+        assertTrue("yaw turned", after.sceneCamera.yaw != 0f)
+        assertTrue("pitch turned", after.sceneCamera.pitch != 0f)
+        assertEquals(before.viewportOffset, after.viewportOffset)
+        assertEquals(before.undoCount, after.undoCount)
+        val py = com.hereliesaz.graffitixr.common.scene.SceneMath.frame(after.sceneCamera, 1000f, 1600f)
+            .project(pivot)!!
+        assertEquals(px.first, py.first, 0.5f)
+        assertEquals(px.second, py.second, 0.5f)
+    }
+
+    @Test
+    fun `a run of orbit step taps is saved once`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        io.mockk.clearMocks(projectRepository, answers = false, recordedCalls = true)
+        repeat(10) { viewModel.onOrbitStep(com.hereliesaz.graffitixr.common.scene.OrbitStep.RIGHT) }
+        testDispatcher.scheduler.advanceTimeBy(100)
+        assertTrue(viewModel.uiState.value.sceneCamera.yaw != 0f)
+        testDispatcher.scheduler.advanceUntilIdle()
+        io.mockk.coVerify(atLeast = 0, atMost = 1) {
+            projectRepository.updateProject(any<(GraffitiProject) -> GraffitiProject>())
+        }
+    }
+
+    @Test
+    fun `orbit steps stop at the pitch clamp, and Reset view puts the camera back`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        repeat(50) { viewModel.onOrbitStep(com.hereliesaz.graffitixr.common.scene.OrbitStep.UP) }
+        assertEquals(
+            -com.hereliesaz.graffitixr.common.scene.SceneCamera.MAX_PITCH,
+            viewModel.uiState.value.sceneCamera.pitch, 1e-4f,
+        )
+        viewModel.resetViewport()
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+    }
+
+    @Test
+    fun `an orbit step does nothing in a project with no 3D group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("a")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        testDispatcher.scheduler.advanceUntilIdle()
+        for (step in com.hereliesaz.graffitixr.common.scene.OrbitStep.values()) viewModel.onOrbitStep(step)
+        assertTrue(viewModel.uiState.value.sceneCamera.isDefault)
+    }
+
+    @Test
     fun `a twist in a project with a 3D group rotates the canvas and does not orbit`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
         viewModel.setLayers(listOf(group3d(), lyr("c").copy(parentId = "g", rotationX = 10f)))
