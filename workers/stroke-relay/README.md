@@ -59,7 +59,10 @@ It ships with the `graffux` Worker, so it deploys when that Worker does (Workers
 `main`, or `npx wrangler deploy` from the repository root). One-time setup, **before** the deploy:
 
 1. Create the bucket: `npx wrangler r2 bucket create graffux-stroke-data`. Leave it private: no custom
-   domain, and r2.dev public access off. The Worker deploy fails if the bucket does not exist.
+   domain, and r2.dev public access off. Then uncomment the `[[r2_buckets]]` block in the root
+   `wrangler.toml` and merge. It is commented out on purpose: that file builds the whole `graffux` Worker
+   (website included), and a binding to a missing bucket fails every Workers Build. Until it is on, the
+   relay answers 503 and the app keeps its files.
 2. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`).
 3. Make sure `/v1/stroke-data/*` is reachable without logging in (Cloudflare Access on the Worker's
    `workers.dev` address redirects every request to a login page and no upload can succeed).
