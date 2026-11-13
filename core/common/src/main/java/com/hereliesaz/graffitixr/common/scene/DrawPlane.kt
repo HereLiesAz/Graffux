@@ -56,7 +56,7 @@ object DrawPlane {
      * [world] falls back to the camera-facing plane through the pivot otherwise, and [anchor] measures there too, so a
      * factor of 1 is the automatic plane whichever is used.
      */
-    private fun isUsable(cam: CameraFrame, reference: Affine3): Boolean {
+    internal fun isUsable(cam: CameraFrame, reference: Affine3): Boolean {
         val facing = kotlin.math.abs(SceneMath.dot(SceneMath.normalize(reference.column(2)), cam.forward))
         val z0 = cam.toCamera(reference.apply(cam.width / 2f, cam.height / 2f, 0f))[2]
         return facing >= MIN_FACING && facing.isFinite() && z0 > 0f

@@ -120,6 +120,9 @@
     <string name="rail_draw_depth_nearer">Draw distance nearer</string>
     <string name="rail_draw_depth_farther">Draw distance farther</string>
     <string name="rail_draw_depth_reset">Reset draw distance</string>
+    <string name="rail_snap_to_planes">Snap to planes</string>
+    <string name="announce_snap_depth">Draw distance snapped to a stroked plane</string>
+    <string name="announce_snap_orbit">View snapped face-on to a stroked plane</string>
     <string name="notice_draw_depth_surface">Draw distance does not apply to a layer on a surface: it keeps to the surface.</string>
     <string name="notice_draw_depth_strokes_layer">Draw distance does not apply to the 3D strokes layer: it keeps its own guide depth.</string>
     <string name="notice_draw_depth_behind">Draw distance is not available here: the point it is measured from is behind the view.</string>

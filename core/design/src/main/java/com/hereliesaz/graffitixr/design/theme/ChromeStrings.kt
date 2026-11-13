@@ -252,13 +252,14 @@ fun rememberRailStrings(): RailStrings = RailStrings(
 )
 
 /** The wire-mesh button's menu items that set the draw distance without a drag: see strings_chrome.xml. */
-data class DrawDepthStrings(val nearer: String, val farther: String, val reset: String)
+data class DrawDepthStrings(val nearer: String, val farther: String, val reset: String, val snap: String)
 
 @Composable
 fun rememberDrawDepthStrings(): DrawDepthStrings = DrawDepthStrings(
     nearer = stringResource(R.string.rail_draw_depth_nearer),
     farther = stringResource(R.string.rail_draw_depth_farther),
     reset = stringResource(R.string.rail_draw_depth_reset),
+    snap = stringResource(R.string.rail_snap_to_planes),
 )
 
 /** MessageStrings: see strings_chrome.xml. Fields with %s/%d are format patterns. */

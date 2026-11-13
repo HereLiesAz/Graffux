@@ -571,6 +571,13 @@ data class EditorUiState(
     val drawPlane: DrawPlaneDepth? = null,
     /** The draw-plane guide wireframe shows: while the depth is dragged and about a second after. View state. */
     val drawPlaneGuideShown: Boolean = false,
+    /**
+     * "Snap to planes" (spec/3d-space.md, "Snap to stroked planes"): the draw-plane depth drag and the two-finger orbit
+     * pull magnetically to planes that carry brush strokes. On by default; session only, never saved.
+     */
+    val snapToPlanes: Boolean = true,
+    /** The stroked layer whose plane a snap just captured, for the brief highlight; null = none. View state. */
+    val snapPlaneLayerId: String? = null,
     /** "Build surface from image" in progress, for the chip's progress line and Cancel; null = not building. */
     val reliefBuild: ReliefBuildState? = null,
     val undoCount: Int = 0,

@@ -37,6 +37,7 @@ import com.hereliesaz.graffitixr.common.azphalt.defaultParamValue
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import com.hereliesaz.graffitixr.common.scene.PlaneSnap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -852,6 +853,34 @@ class EditorViewModel @Inject constructor(
     private var drawGuideJob: kotlinx.coroutines.Job? = null
     private var drawDepthNoticed = false
 
+    // Snap to stroked planes (spec/3d-space.md, "Snap to stroked planes"): view state, never history or saved.
+    /** The stroked planes, kept while the layers, canvas and every layer's stroke state are as they were. */
+    private var planesCache: StrokedPlanes? = null
+
+    /** Whether each layer's own bitmap holds paint, scanned off the main thread ([PaintScans]). */
+    internal val paintScans = PaintScans(
+        scope = viewModelScope,
+        dispatchers = dispatchers,
+        isCurrent = { id, bitmap -> _uiState.value.layers.any { it.id == id && it.bitmap === bitmap } },
+        onLanded = ::onPaintScanLanded,
+    )
+
+    /** A two-finger orbit is under way: a scan that lands meanwhile re-evaluates the snap without another move. */
+    private var orbitDragging = false
+
+    /** The depth drag's own (unsnapped) depth and the depth last written for it: the snap never feeds back into it. */
+    private var rawDrawDepth: Pair<Float, Float>? = null
+
+    /** The orbit drag's own (unsnapped) camera and the camera last shown for it, and the plane snapped to. */
+    private var orbitRaw: SceneCamera? = null
+    private var orbitShown: SceneCamera? = null
+    private var orbitSnapLayer: String? = null
+    private var snapHighlightJob: kotlinx.coroutines.Job? = null
+    private val _snapTicks = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+
+    /** One emission per capture by a snap: the host answers with a light haptic tick (the HUD line is spoken). */
+    val snapTicks: kotlinx.coroutines.flow.SharedFlow<Unit> = _snapTicks
+
     /** Set while the draw plane itself switches the active layer (create, undo, redo): the reference stays. */
     private var keepStrokeReference = false
 
@@ -995,6 +1024,7 @@ class EditorViewModel @Inject constructor(
         private const val LUMA_G = 0.7152f
         private const val LUMA_B = 0.0722f
         private const val HUD_MS = 700L
+        private const val RAW_DEPTH_TOLERANCE = 1e-3f
         private const val SURFACE_NOTICE_MS = 6_000L
         private const val HUD_DESTRUCTIVE_MS = 3_500L
         /**
@@ -5799,6 +5829,7 @@ class EditorViewModel @Inject constructor(
         // on undo. retainOnly (called from the next pushHistory()) evicts it automatically once it
         // ages out of undo/redo history — the same mechanism the flatten path already relies on.
         evictJobsFor(id)
+        paintScans.forget(id)
         emitMembership(Op.LayerRemove(id))
         saveProject()
     }
@@ -6680,6 +6711,15 @@ class EditorViewModel @Inject constructor(
     /** The commands recorded for [layerId] — what an undo/redo would replay. */
     @androidx.annotation.VisibleForTesting
     internal fun recordedStrokesForTest(layerId: String): List<StrokeCommand> = layerStore.strokes(layerId)
+
+    /** Marks [layerId]'s oldest stroke as baked, as the periodic bake does (the pixels are not touched). */
+    @androidx.annotation.VisibleForTesting
+    internal fun hasBakedStrokesForTest(layerId: String): Boolean = layerStore.hasBakedStrokes(layerId)
+
+    @androidx.annotation.VisibleForTesting
+    internal fun bakeOldestStrokeForTest(layerId: String) {
+        layerStore.takeOldestStrokes(layerId, 1)
+    }
 
     /** The job currently registered in [textRasterizeJobs] for [layerId], if any -- see its own doc. */
     @androidx.annotation.VisibleForTesting
@@ -13691,6 +13731,8 @@ class EditorViewModel @Inject constructor(
             twoFingerCameraBefore = st.sceneCamera
         }
         gesturePivot = orbitPivot(st)
+        orbitDragging = false
+        resetOrbitSnap()
     }
 
     /**
@@ -13729,6 +13771,9 @@ class EditorViewModel @Inject constructor(
         twoFingerCameraBefore = null
         twoFingerLayerEdited = false
         gesturePivot = null
+        if (orbitSnapLayer != null) scheduleSnapHighlightHide()
+        orbitDragging = false
+        resetOrbitSnap()
     }
 
     private fun onViewTwoFinger(pan: Offset, zoom: Float, centroid: Offset, rotation: Float) {
@@ -13736,9 +13781,10 @@ class EditorViewModel @Inject constructor(
             // 3D group: drag orbits about the held pivot, pinch zooms about the fingers' midpoint,
             // twist turns the canvas only (the old Z behaviour).
             onViewportPanZoom(Offset.Zero, zoom, centroid, rotation)
+            orbitDragging = true
             if (pan != Offset.Zero) {
                 val (yaw, pitch) = orbitAnglesForDrag(pan.x, pan.y, _uiState.value.canvasSize.width.toFloat())
-                onSceneOrbit(yaw, pitch)
+                onSceneOrbitDrag(yaw, pitch)
             }
             return
         }
@@ -13924,11 +13970,20 @@ class EditorViewModel @Inject constructor(
     }
 
     /** A project opened or closed: nothing of the last project's draw-plane session carries over. */
-    private fun resetDrawPlaneSession() {
+    @androidx.annotation.VisibleForTesting
+    internal fun resetDrawPlaneSession() {
         lastStroke = null
         planeLayerFiles.clear()
         planeLayerSaves.clear()
         drawGuideJob?.cancel()
+        snapHighlightJob?.cancel()
+        planesCache = null
+        paintScans.clear()
+        orbitDragging = false
+        rawDrawDepth = null
+        orbitRaw = null
+        orbitShown = null
+        orbitSnapLayer = null
     }
 
     /**
@@ -14024,15 +14079,27 @@ class EditorViewModel @Inject constructor(
     fun onDrawDepthDragStart() {
         drawDepthNoticed = false
         drawGuideJob?.cancel()
+        snapHighlightJob?.cancel()
+        rawDrawDepth = null
     }
 
     /** The drag moved [dragDownDp] (down = farther): the plane's depth changes multiplicatively. */
     fun onDrawDepthDrag(dragDownDp: Float) {
-        setDrawDepth { current, focal -> DrawPlane.depthAfterDrag(current, dragDownDp, focal) }
+        // The drag integrates its own unsnapped depth, so a snap holds only while that value is in range and leaves
+        // smoothly past it: no stickiness, no memory beyond the clamp (the same rule as the range's ends).
+        setDrawDepth(snap = true) { current, focal ->
+            val held = rawDrawDepth?.takeIf { kotlin.math.abs(it.second - current) <= current * RAW_DEPTH_TOLERANCE }
+            val raw = DrawPlane.depthAfterDrag(held?.first ?: current, dragDownDp, focal)
+            rawDrawDepth = raw to raw
+            raw
+        }
     }
 
-    /** The drag ended: the guide stays about a second more, then fades. */
-    fun onDrawDepthDragEnd() = scheduleDrawGuideHide()
+    /** The drag ended: the guide stays about a second more, then fades. The depth is where the last step left it. */
+    fun onDrawDepthDragEnd() {
+        rawDrawDepth = null
+        scheduleDrawGuideHide()
+    }
 
     /** A menu step: one [DrawPlane.STEP_FACTOR] nearer or farther. */
     fun onDrawDepthStep(nearer: Boolean) {
@@ -14059,7 +14126,7 @@ class EditorViewModel @Inject constructor(
     }
 
     @Suppress("ReturnCount")
-    private fun setDrawDepth(next: (current: Float, focal: Float) -> Float) {
+    private fun setDrawDepth(snap: Boolean = false, next: (current: Float, focal: Float) -> Float) {
         val state = _uiState.value
         val layer = state.layers.firstOrNull { it.id == state.activeLayerId } ?: return
         if (state.canvasSize.width <= 0 || state.canvasSize.height <= 0) return
@@ -14081,11 +14148,23 @@ class EditorViewModel @Inject constructor(
             return
         }
         drawGuideJob?.cancel()
-        val factor = next(current, focal) / auto
-        if (state.drawPlane?.factor == factor && state.drawPlaneGuideShown) return
+        val wanted = next(current, focal)
+        val hit = if (snap) depthSnapFor(state, wanted, auto, focal) else null
+        applyDrawDepth(state, hit?.first ?: wanted, auto, hit?.second, snap)
+    }
+
+    /** Writes the draw depth [depth] (snapped to [snapLayer]'s plane or not) as the factor on [auto]. */
+    private fun applyDrawDepth(state: EditorUiState, depth: Float, auto: Float, snapLayer: String?, snap: Boolean) {
+        if (snap) rawDrawDepth = rawDrawDepth?.let { it.first to depth }
+        val factor = depth / auto
+        announceCapture(snapLayer, state.snapPlaneLayerId, DesignR.string.announce_snap_depth)
+        val unchanged = state.drawPlane?.factor == factor && state.drawPlaneGuideShown
+        if (unchanged && state.snapPlaneLayerId == snapLayer) return
         // Once per drag frame, so no instance-following pass over every layer (writeState follow = false): the
         // depth is not layer content. The one recomposition is the rail's slider and the guide.
-        writeState(follow = false) { it.copy(drawPlane = DrawPlaneDepth.of(factor, it), drawPlaneGuideShown = true) }
+        writeState(follow = false) {
+            it.copy(drawPlane = DrawPlaneDepth.of(factor, it), drawPlaneGuideShown = true, snapPlaneLayerId = snapLayer)
+        }
     }
 
     private fun scheduleDrawGuideHide() {
@@ -14093,8 +14172,182 @@ class EditorViewModel @Inject constructor(
         if (!_uiState.value.drawPlaneGuideShown) return
         drawGuideJob = viewModelScope.launch(dispatchers.main) {
             kotlinx.coroutines.delay(DrawPlane.GUIDE_LINGER_MS)
-            updateUi { it.copy(drawPlaneGuideShown = false) }
+            updateUi { it.copy(drawPlaneGuideShown = false, snapPlaneLayerId = null) }
         }
+    }
+
+    // ── Snap to stroked planes (spec/3d-space.md, "Snap to stroked planes") ──
+
+    /** "Snap to planes" on or off (the wire-mesh menu's check). View state: not history, not saved. */
+    fun onSetSnapToPlanes(on: Boolean) {
+        if (_uiState.value.snapToPlanes == on) return
+        updateUi { it.copy(snapToPlanes = on, snapPlaneLayerId = if (on) it.snapPlaneLayerId else null) }
+    }
+
+    /**
+     * The visible paint layers that carry brush strokes, with each one's plane: its box centre and normal in the scene.
+     * Kept while the layer list is the same instance, the canvas the same size and every layer's stroke state (count and
+     * baked flag) unchanged ([StrokedPlanes.isCurrent]), so a drag frame or an orbit step is a lookup, not a pass over
+     * the layers; rebuilt on the first call after any of them changes or a pixel scan lands. Called from view gestures
+     * only, never from the stroke input path.
+     */
+    @Suppress("ReturnCount")
+    internal fun strokedPlanes(state: EditorUiState = _uiState.value): StrokedPlanes? {
+        val size = state.canvasSize
+        if (size.width <= 0 || size.height <= 0) return null
+        planesCache?.takeIf { it.isCurrent(state.layers, size, ::strokeStateOf) }?.let { return it }
+        val w = size.width.toFloat()
+        val h = size.height.toFloat()
+        val byId = state.layers.associateBy { it.id }
+        val ids = ArrayList<String>()
+        val centres = ArrayList<FloatArray>()
+        val normals = ArrayList<FloatArray>()
+        for (layer in state.layers) {
+            if (!isStrokedPaint(state, layer, byId)) continue
+            val model = SceneMath.chainModel(planeChain(state.layers, layer.id), w, h)
+            val normal = SceneMath.normalize(SceneMath.cross(model.column(0), model.column(1)))
+            if (normal.any { !it.isFinite() }) continue
+            ids += layer.id
+            centres += model.apply(w / 2f, h / 2f, 0f)
+            normals += normal
+        }
+        paintScans.retainOnly(state.layers.mapTo(HashSet()) { it.id })
+        val strokeState = StrokedPlanes.stateOf(state.layers, ::strokeStateOf)
+        return StrokedPlanes(state.layers, size, strokeState, ids, centres, normals).also { planesCache = it }
+    }
+
+    /** A visible paint layer with brush strokes: recorded this session, or paint in its own pixels (no art). */
+    private fun isStrokedPaint(state: EditorUiState, layer: Layer, byId: Map<String, Layer>): Boolean =
+        drawDepthRefusal(state, layer) == null && isShown(layer, byId) &&
+            (layerStore.strokeCount(layer.id) > 0 || layerStore.hasBakedStrokes(layer.id) ||
+                (layer.uri == null && hasPaintedPixels(layer)))
+
+    /** [layer] and every group above it are visible. */
+    private fun isShown(layer: Layer, byId: Map<String, Layer>): Boolean {
+        var up: Layer? = layer
+        val seen = HashSet<String>()
+        while (up != null && seen.add(up.id)) {
+            if (!up.isVisible) return false
+            up = up.parentId?.let(byId::get)
+        }
+        return true
+    }
+
+    /** A layer's stroke state for the plane cache: its stroke count times two, plus one if strokes were baked. */
+    private fun strokeStateOf(layerId: String): Int =
+        layerStore.strokeCount(layerId) * 2 + if (layerStore.hasBakedStrokes(layerId)) 1 else 0
+
+    private fun hasPaintedPixels(layer: Layer): Boolean =
+        paintScans.painted(layer.id, layer.bitmap?.takeUnless { it.isRecycled })
+
+    /**
+     * A pixel scan landed: the planes built without it are stale. A depth drag or an orbit still under way, with the
+     * finger held still, is re-evaluated at once with its last raw value (a step of nothing), so the snap appears
+     * without another move event.
+     */
+    private fun onPaintScanLanded(@Suppress("UNUSED_PARAMETER") layerId: String, painted: Boolean) {
+        planesCache = null
+        if (!painted || !_uiState.value.snapToPlanes) return
+        if (rawDrawDepth != null) onDrawDepthDrag(0f)
+        if (orbitDragging) onSceneOrbitDrag(0f, 0f)
+    }
+
+    /**
+     * The depth the drag is pulled to and the layer it belongs to, or null. The candidates are each stroked plane's
+     * position along the draw plane's axis ([PlaneSnap.planeDepth]) within the reachable range, and the one nearest
+     * [wanted] within [PlaneSnap.DEPTH_CAPTURE] of it wins.
+     */
+    @Suppress("ReturnCount")
+    private fun depthSnapFor(state: EditorUiState, wanted: Float, auto: Float, focal: Float): Pair<Float, String>? {
+        if (!state.snapToPlanes || auto <= 0f) return null
+        val planes = strokedPlanes(state) ?: return null
+        if (planes.ids.isEmpty()) return null
+        val size = state.canvasSize
+        val cam = SceneMath.frame(state.sceneCamera, size.width.toFloat(), size.height.toFloat())
+        val reference = drawPlaneReference(state)
+        val pivot = orbitPivot(state)
+        val range = DrawPlane.depthRange(focal)
+        val depths = FloatArray(planes.ids.size) { i ->
+            PlaneSnap.planeDepth(reference, cam, pivot, planes.centres[i])?.takeIf { it in range } ?: Float.NaN
+        }
+        val hit = PlaneSnap.snapDepth(wanted, depths) ?: return null
+        return hit.depth to planes.ids[hit.index]
+    }
+
+    /** A snap just captured [now] where [before] held none or another: a tick and a HUD line TalkBack reads. */
+    private fun announceCapture(now: String?, before: String?, message: Int) {
+        if (now == null || now == before) return
+        _snapTicks.tryEmit(Unit)
+        showHud(context.getString(message))
+    }
+
+    private fun scheduleSnapHighlightHide() {
+        snapHighlightJob?.cancel()
+        snapHighlightJob = viewModelScope.launch(dispatchers.main) {
+            kotlinx.coroutines.delay(DrawPlane.GUIDE_LINGER_MS)
+            updateUi { it.copy(snapPlaneLayerId = null) }
+        }
+    }
+
+    private fun resetOrbitSnap() {
+        orbitRaw = null
+        orbitShown = null
+        orbitSnapLayer = null
+    }
+
+    /**
+     * An orbit step of the two-finger drag in a 3D project: like [onSceneOrbit], but the view is pulled face-on to a
+     * stroked plane within [PlaneSnap.ORBIT_CAPTURE_RADIANS] (spec/3d-space.md, "Snap to stroked planes"). The drag
+     * integrates its own raw camera and shows the snapped one, so the view leaves the snap once the raw one is out of
+     * range (no hysteresis). The step buttons ([onOrbitStep]) stay exactly 15 degrees and never snap. Nothing is moved:
+     * only the camera.
+     */
+    @Suppress("ReturnCount")
+    private fun onSceneOrbitDrag(yaw: Float, pitch: Float) {
+        val state = _uiState.value
+        val pivot = gesturePivot ?: orbitPivot(state)
+        val planes = if (state.snapToPlanes && pivot != null) strokedPlanes(state) else null
+        if (pivot == null || planes == null || planes.ids.isEmpty()) {
+            onSceneOrbit(yaw, pitch)
+            resetOrbitSnap()
+            return
+        }
+        val w = state.canvasSize.width.toFloat()
+        val h = state.canvasSize.height.toFloat()
+        // Another writer moved the camera since our last step: start from where it is now.
+        val base = orbitRaw?.takeIf { orbitShown == state.sceneCamera } ?: state.sceneCamera
+        val raw = SceneMath.orbitAbout(base, pivot, yaw, pitch, w, h)
+        val hit = PlaneSnap.snapOrbit(raw.yaw, raw.pitch, planes.normals)
+        val shown = if (hit == null) {
+            raw
+        } else {
+            SceneMath.orbitAbout(raw, pivot, hit.yaw - raw.yaw, hit.pitch - raw.pitch, w, h)
+        }
+        val layerId = hit?.let { planes.ids[it.index] }
+        orbitRaw = raw
+        orbitShown = shown
+        val before = orbitSnapLayer
+        orbitSnapLayer = layerId
+        updateUi { it.copy(sceneCamera = shown, snapPlaneLayerId = layerId) }
+        if (layerId != null) snapHighlightJob?.cancel()
+        if (layerId != null && layerId != before) {
+            _snapTicks.tryEmit(Unit)
+            showHud(context.getString(DesignR.string.announce_snap_orbit))
+        }
+    }
+
+    /** The corners (canvas pixels) of the snapped-to plane's box for the highlight; null if none or behind the eye. */
+    fun snapHighlightQuad(state: EditorUiState, width: Float, height: Float): List<Offset>? {
+        val id = state.snapPlaneLayerId?.takeIf { wanted -> state.layers.any { it.id == wanted } }
+        val w = state.canvasSize.width.toFloat()
+        val h = state.canvasSize.height.toFloat()
+        if (id == null || w <= 0f || h <= 0f) return null
+        val model = SceneMath.chainModel(planeChain(state.layers, id), w, h)
+        val cam = SceneMath.frame(state.sceneCamera, width, height)
+        val corners = listOf(0f to 0f, w to 0f, w to h, 0f to h).map { (x, y) ->
+            cam.project(model.apply(x, y, 0f))?.let { Offset(it.first, it.second) }
+        }
+        return if (corners.any { it == null }) null else corners.filterNotNull()
     }
 
     /** The draw-plane guide: the plane's world model at the depth now set, for the overlay; null when none is. */
