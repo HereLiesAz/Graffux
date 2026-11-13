@@ -496,7 +496,12 @@ class EditHistoryTest {
     }
 
     private fun drawStroke() = StrokeCommand(
-        path = emptyList(), canvasSize = IntSize(1, 1), tool = Tool.BRUSH, brushSize = 1f, brushColor = 0, intensity = 1f,
+        path = emptyList(),
+        canvasSize = IntSize(1, 1),
+        tool = Tool.BRUSH,
+        brushSize = 1f,
+        brushColor = 0,
+        intensity = 1f,
     )
 
     @Test

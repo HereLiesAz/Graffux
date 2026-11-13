@@ -144,11 +144,6 @@ class DoubleTapDotTest {
         dispatcher.scheduler.advanceUntilIdle()
     }
 
-    private fun pixels(): IntArray {
-        val b = vm.uiState.value.layers.first { it.id == "L" }.bitmap!!
-        return IntArray(b.width * b.height).also { b.getPixels(it, 0, b.width, 0, 0, b.width, b.height) }
-    }
-
     private fun secondTapRemovesDot(t0: Long) {
         assertTrue(vm.onBrushTap(androidx.compose.ui.geometry.Offset(31f, 30f), t0 + 120))
         dispatcher.scheduler.advanceUntilIdle()
