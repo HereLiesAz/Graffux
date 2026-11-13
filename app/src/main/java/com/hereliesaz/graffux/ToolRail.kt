@@ -490,6 +490,8 @@ internal fun MenuBuilder.meshMenu(
     listItem(draw.nearer) { vm.onDrawDepthStep(nearer = true); onDone() }
     listItem(draw.farther) { vm.onDrawDepthStep(nearer = false); onDone() }
     if (uiState.drawPlane != null) listItem(draw.reset) { vm.onResetDrawDepth(); onDone() }
+    // Magnetic snapping of the depth drag and the two-finger orbit to planes that carry brush strokes (on by default).
+    check(draw.snap, uiState.snapToPlanes) { vm.onSetSnapToPlanes(!uiState.snapToPlanes); onDone() }
 }
 
 /**

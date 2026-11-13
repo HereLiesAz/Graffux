@@ -1274,7 +1274,7 @@ any project with a 3D group (`hasThreeDGroup`), not only on a surface layer. Its
   eye-to-plane distance is `clamp(k * d0, 2 * near, far / 10)` with `d0` the automatic distance worked out from the current
   reference when a stroke starts, when the guide is drawn and when the slider is read (`EditorViewModel.automaticDrawDepth`,
   `effectiveDrawDepth`, `DrawPlane.effectiveDepth`). "Reset draw distance" returns to automatic, which follows the camera again.
-  A later "snap to stroked planes" feature will work on the effective depth (`effectiveDrawDepth`).
+  "Snap to stroked planes" (next section) works on the effective depth (`effectiveDrawDepth`).
 - **Drag.** A vertical drag on the button changes k: up moves the plane toward the camera, down away from it. It
   is multiplicative, as the Move-tool pinch is: 400dp of drag changes the effective distance (k) by a factor of 4
   (`DrawPlane.DRAG_FACTOR`, `DRAG_DP_PER_CHANGE`), clamped to twice the near plane up to a tenth of the far plane
@@ -1340,6 +1340,63 @@ Not tested, or not verified on a device:
   and close; a file is never deleted across projects).
 - Co-op: the created layer is emitted as `LayerAdd`/`LayerRemove` but not exercised against a guest.
 - Animation mode, and instances/components, with a draw depth set.
+
+## Snap to stroked planes
+
+Two magnetic snaps toward the planes that carry brush strokes. They only choose a draw depth or a camera angle: **no stroke
+and no layer is ever moved or modified by snapping**, and both are transient view/draw state (no history entry, nothing
+saved, the format stays 14; 15 stays reserved for the puppetry rig). A "Snap to planes" check in the wire-mesh button's
+long-press menu turns both off and on (`EditorUiState.snapToPlanes`, on by default, session only).
+
+- **Candidates** (`EditorViewModel.strokedPlanes`): a layer is a candidate when it is a paint layer the draw depth accepts
+  (`drawDepthRefusal` is null: not a surface, 3D strokes, model, group, text, vector or adjustment layer), it and its groups are
+  visible, and it carries strokes: strokes recorded for it this session (`LayerStore`), or, for a layer with no source
+  image, paint in its own pixels (an alpha scan, kept per bitmap generation), so a reopened project's painted planes count.
+  This includes layers made by the draw-depth mode and the plane of the last stroke (it is a stroked layer). The default sheet
+  or a surface is a candidate only if it carries strokes by that rule. The layer being edited is a candidate like any other
+  (a deliberate choice: no special case; snapping back to its plane is useful, and its face-on view is the natural one).
+  With no candidate nothing snaps. A project with no 3D group has no orbit snap (its two-finger drag is not an orbit) and
+  no wire-mesh button.
+- **Cost.** The candidate planes (box centre and normal per layer, `StrokedPlanes`) are cached while the layer list, the canvas
+  and every layer's stroke count are unchanged, so a drag frame or an orbit step is a lookup. They are computed on a view gesture's first
+  frame after a change, never on the stroke path.
+- **Depth snap** (while the "#" button is dragged; `PlaneSnap.snapDepth`, `PlaneSnap.planeDepth`). The depth of a candidate is
+  measured along the axis the draw plane slides along: the reference plane's normal (the last stroke's plane) or, with no
+  usable reference, the view direction. It is the camera depth of the point where that axis line, through the draw plane's anchor,
+  meets the candidate's plane: i.e. the depth at which the draw plane would coincide with the candidate's plane; only the
+  candidate's box centre (its plane position) is projected on the axis, so a candidate tilted against the axis is
+  matched at its centre. A candidate outside the reachable range (twice the near plane to a tenth of the far plane) is not offered. The
+  effective distance snaps to the nearest candidate within 6% of it (`PlaneSnap.DEPTH_CAPTURE`, relative to the effective
+  distance); a tie goes to the nearer plane, then to the lower index. The drag integrates its own *raw* depth (never the
+  snapped one), so the snap holds only while the raw depth is in range, leaves smoothly past it, and has no
+  memory beyond the clamp: no hysteresis. Released on a snap, k is set so that the effective depth is that plane's depth
+  (recomputed from the automatic depth d0, so it stays exact to float rounding). The menu steps and the TalkBack slider do
+  not snap. A capture shows a brief outline of the target layer's box (`SnapPlaneHighlight`, the guide's colour, 300ms fade,
+  cleared about a second after the drag ends), ticks the haptics once per capture (`EditorViewModel.snapTicks`) and puts
+  "Draw distance snapped to a stroked plane" on the HUD line, which is a polite live region TalkBack reads.
+- **Orbit snap** (the two-finger drag in a project with a 3D group; `PlaneSnap.snapOrbit`, `onSceneOrbitDrag`). The view
+  snaps to face-on, the camera looking straight along a candidate's normal (either side of the plane: the nearer one), when
+  within `PlaneSnap.ORBIT_CAPTURE_DEGREES` = **5 degrees** of it. **5 is an assumption** (the owner said "about 5"); it is one named
+  constant. The drag integrates a raw camera and shows the snapped one, so it holds while the raw view is within range, leaves past it
+  and has no hysteresis; released it stays exactly face-on (to float rounding). A face-on view the pitch limit forbids
+  (a plane facing straight up or down) is not offered. The orbit keeps its pivot as always. The four step buttons stay exactly
+  15 degrees and never snap. A capture ticks and announces as above ("View snapped face-on to a stroked plane").
+- 48dp targets are unchanged: the menu row is an ordinary menu row.
+
+Tests: `PlaneSnapTest` (core:common: depth and orbit inside/outside range, the edge, nearest of several, exact landing, ties,
+no hysteresis, no candidates, yaw wrap, pitch limit, the depth's agreement with `DrawPlane.world`), `SnapToPlanesTest`
+(feature:editor: a drag to a stroked plane lands on it with strokes, layers, history and camera untouched; out of range;
+no memory; toggle off; no candidates; hidden layers; the edited layer; highlight fade; lapse; orbit snap, leave, steps,
+no 3D group, undo), `Scene3DRailUiTest` (the menu's check).
+
+Not tested, or not verified on a device:
+
+- Haptics (the tick), the highlight's appearance and fade, and TalkBack's reading of the HUD line.
+- The feel of the capture ranges (6% and 5 degrees) on a real drag, and the orbit snap against a real two-finger gesture.
+- A real stroke's pixels on a snapped plane; the pixel scan on large layers (it runs on the first gesture frame after a change;
+  untimed). A layer that holds pasted pixels with no source image counts as painted.
+- A candidate seen nearly edge-on to the depth axis, where its position along the axis is sensitive to where its centre is.
+- Layers whose strokes were baked into pixels and then the project reopened with a source image on them are not seen as stroked.
 
 ## Tilted layers: selection and tap-select
 

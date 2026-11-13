@@ -237,7 +237,7 @@ class Scene3DRailUiTest {
     @Test
     fun `the menu holds nearer, farther and, once set, reset, each acting on the draw distance`() {
         val vm = threeDProject()
-        val strings = com.hereliesaz.graffitixr.design.theme.DrawDepthStrings("Nearer", "Farther", "Reset")
+        val strings = com.hereliesaz.graffitixr.design.theme.DrawDepthStrings("Nearer", "Farther", "Reset", "Snap to planes")
         fun rows() = buildMenu { meshMenu(vm, vm.uiState.value, strings) {} }.filterIsInstance<MenuRow.Action>()
             .filter { it.text in setOf("Nearer", "Farther", "Reset") }
         assertEquals(listOf("Nearer", "Farther"), rows().map { it.text })
@@ -246,6 +246,20 @@ class Scene3DRailUiTest {
         assertEquals(listOf("Nearer", "Farther", "Reset"), rows().map { it.text })
         rows().first { it.text == "Reset" }.onClick()
         assertEquals(null, vm.uiState.value.drawPlane)
+    }
+
+    @Test
+    fun `the menu holds a Snap to planes check, on by default, that flips the setting`() {
+        val vm = threeDProject()
+        val strings = com.hereliesaz.graffitixr.design.theme.DrawDepthStrings("Nearer", "Farther", "Reset", "Snap to planes")
+        fun row() = buildMenu { meshMenu(vm, vm.uiState.value, strings) {} }.filterIsInstance<MenuRow.Check>()
+            .single { it.label == "Snap to planes" }
+        assertTrue("on by default", row().checked)
+        row().onClick()
+        assertEquals(false, vm.uiState.value.snapToPlanes)
+        assertEquals(false, row().checked)
+        row().onClick()
+        assertEquals(true, vm.uiState.value.snapToPlanes)
     }
 
     @Test

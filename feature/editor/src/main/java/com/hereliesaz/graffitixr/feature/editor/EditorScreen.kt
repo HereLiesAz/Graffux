@@ -145,6 +145,13 @@ fun EditorScreen(
     // Separate from EditorUiState because these are transient cache bitmaps, not document state.
     val animationPreviewBuffer by vm.animationPreviewBuffer.collectAsState()
     val strings = rememberAppStrings()
+    // A snap capturing a stroked plane (depth drag or orbit): a light tick; the spoken line is the HUD's live region.
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    androidx.compose.runtime.LaunchedEffect(vm) {
+        vm.snapTicks.collect {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        }
+    }
 
     val activeLayer = uiState.layers.find { it.id == uiState.activeLayerId }
     val activeLayerLocked = activeLayer?.isImageLocked == true
@@ -498,6 +505,8 @@ fun EditorScreen(
             }
             // The draw plane's wireframe: while its distance is dragged, and about a second after.
             DrawPlaneGuide(uiState, vm, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.drawPlaneGuide"))
+            // The stroked plane a snap just captured, outlined briefly (the same overlay style, never exported).
+            SnapPlaneHighlight(uiState, vm, boxWidth, boxHeight, Modifier.fillMaxSize().testTag("canvas.snapHighlight"))
         }
         } // end infinite-canvas camera container
 
@@ -2221,6 +2230,40 @@ private fun DrawPlaneGuide(
     val c = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB)
     Canvas(modifier.graphicsLayer { this.alpha = alpha }) {
         lines.forEach { l -> drawLine(c, Offset(l[0], l[1]), Offset(l[2], l[3]), strokeWidth = 1.5f / zoom) }
+    }
+}
+
+/**
+ * The fade of the guide's overlay on the stroked plane a snap captured (spec/3d-space.md, "Snap to stroked
+ * planes"): the outline of that layer's box in perspective, in the surface mesh's colour, a little heavier than
+ * the grid. Overlay only.
+ */
+@Suppress("FunctionNaming", "MagicNumber")
+@Composable
+private fun SnapPlaneHighlight(
+    uiState: EditorUiState,
+    vm: EditorViewModel,
+    width: Float,
+    height: Float,
+    modifier: Modifier = Modifier,
+) {
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (uiState.snapPlaneLayerId != null) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+        label = "snapPlaneHighlight",
+    )
+    // Keep the last outline while it fades out.
+    var last by remember { mutableStateOf<List<Offset>?>(null) }
+    val quad = remember(uiState.snapPlaneLayerId, uiState.sceneCamera, uiState.layers, width, height) {
+        vm.snapHighlightQuad(uiState, width, height)
+    }
+    if (quad != null) last = quad
+    val corners = quad ?: last
+    if (alpha <= 0f || corners == null) return
+    val zoom = uiState.viewportZoom.coerceAtLeast(1e-3f)
+    val c = Color(com.hereliesaz.graffitixr.common.scene.SurfaceLook.GRID_ARGB).copy(alpha = 0.6f)
+    Canvas(modifier.graphicsLayer { this.alpha = alpha }) {
+        for (i in corners.indices) drawLine(c, corners[i], corners[(i + 1) % corners.size], strokeWidth = 3f / zoom)
     }
 }
 
