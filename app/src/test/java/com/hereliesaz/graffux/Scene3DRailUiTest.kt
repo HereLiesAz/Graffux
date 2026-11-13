@@ -248,27 +248,73 @@ class ViewControlButtonsUiTest {
 
     private val tags = listOf("left", "right", "up", "down").map { "rail.view.orbit.$it" }
 
-    @Test
-    fun `a project with a 3D group shows Reset view and four orbit steps, never Fit, and taps reach the actions`() {
+    private fun threeD() {
         val surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
         state = state.copy(
             layers = listOf(Layer("g", "G", type = LayerType.GROUP, surface = surface), Layer("a", "A", parentId = "g")),
             viewportZoom = 2f,
         )
+    }
+
+    @Test
+    fun `a 3D group shows one View button, never Fit, and the pad is closed until it is tapped`() {
+        threeD()
         show()
         rule.onNodeWithTag("rail.view.fit").assertDoesNotExist()
-        rule.onNodeWithTag("rail.view.reset").assertExists().performScrollTo().performClick()
-        assertEquals(1, resets)
-        tags.forEach { rule.onNodeWithTag(it).assertExists().performScrollTo().performClick() }
-        assertEquals(com.hereliesaz.graffitixr.common.scene.OrbitStep.values().toList(), steps)
-        val res = rule.activity.resources
-        rule.onNodeWithContentDescription(res.getString(com.hereliesaz.graffitixr.design.R.string.rail_reset_view)).assertExists()
-        rule.onNodeWithContentDescription(res.getString(com.hereliesaz.graffitixr.design.R.string.rail_orbit_left)).assertExists()
-        rule.onNodeWithContentDescription(res.getString(com.hereliesaz.graffitixr.design.R.string.rail_orbit_down)).assertExists()
-        // Plain actions: not announced as "not selected".
-        rule.onNodeWithTag("rail.view.reset").assert(
+        rule.onNodeWithTag("rail.view").assertExists()
+        rule.onNodeWithContentDescription(rule.activity.resources.getString(com.hereliesaz.graffitixr.design.R.string.rail_view))
+            .assertExists()
+        rule.onNodeWithTag("rail.view").assert(
             androidx.compose.ui.test.SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.Selected),
         )
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        tags.forEach { rule.onNodeWithTag(it).assertDoesNotExist() }
+    }
+
+    @Test
+    fun `the View pad holds four labelled orbit steps and Reset, orbit repeats without closing, Reset closes`() {
+        threeD()
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        val res = rule.activity.resources
+        listOf(
+            com.hereliesaz.graffitixr.design.R.string.rail_reset_view,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_left,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_right,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_up,
+            com.hereliesaz.graffitixr.design.R.string.rail_orbit_down,
+        ).forEach { rule.onNodeWithContentDescription(res.getString(it)).assertExists() }
+        // Each control is a 48dp target.
+        val px = 48f * res.displayMetrics.density
+        (tags + "rail.view.reset").forEach {
+            val b = rule.onNodeWithTag(it).fetchSemanticsNode().boundsInRoot
+            assertTrue("$it is at least 48dp", b.width >= px - 1f && b.height >= px - 1f)
+        }
+        // Repeatable: two taps on one step, the pad stays open.
+        rule.onNodeWithTag("rail.view.orbit.left").performClick()
+        rule.onNodeWithTag("rail.view.orbit.left").performClick()
+        tags.drop(1).forEach { rule.onNodeWithTag(it).performClick() }
+        assertEquals(
+            listOf(com.hereliesaz.graffitixr.common.scene.OrbitStep.LEFT, com.hereliesaz.graffitixr.common.scene.OrbitStep.LEFT) +
+                com.hereliesaz.graffitixr.common.scene.OrbitStep.values().drop(1),
+            steps,
+        )
+        rule.onNodeWithTag("rail.view.reset").assertExists().performClick()
+        assertEquals(1, resets)
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+    }
+
+    @Test
+    fun `Back dismisses the View pad without acting`() {
+        threeD()
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        assertEquals(0, resets)
+        assertTrue(steps.isEmpty())
     }
 
     @Test
@@ -277,6 +323,7 @@ class ViewControlButtonsUiTest {
         show()
         rule.onNodeWithTag("rail.view.fit").assertExists()
         rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        rule.onNodeWithTag("rail.view").assertDoesNotExist()
         tags.forEach { rule.onNodeWithTag(it).assertDoesNotExist() }
     }
 }
@@ -325,11 +372,16 @@ class ViewControlShortScreenUiTest {
         val screenH = 640f * rule.activity.resources.displayMetrics.density
         assertTrue("the rail is held below the screen's bottom strip", rail.bottom <= screenH * RAIL_MAX_BOTTOM_FRACTION)
         assertTrue("the rail takes at most ${(RAIL_MAX_HEIGHT_FRACTION * 100).toInt()}% of the height", rail.height <= screenH * RAIL_MAX_HEIGHT_FRACTION)
-        val last = rule.onNodeWithTag("rail.view.orbit.down").performScrollTo()
+        val last = rule.onNodeWithTag("rail.view").performScrollTo()
         last.assertIsDisplayed()
         val b = last.fetchSemanticsNode().boundsInRoot
         assertTrue("the last item is fully inside the rail, not clipped", b.bottom <= rail.bottom && b.top >= rail.top)
         last.performClick()
+        // The pad opens in its own window, inside the screen, and its far corner is reachable.
+        val down = rule.onNodeWithTag("rail.view.orbit.down").assertIsDisplayed()
+        val pb = down.fetchSemanticsNode().boundsInRoot
+        assertTrue("the pad is inside the screen", pb.bottom <= screenH && pb.top >= 0f)
+        down.performClick()
         assertEquals(listOf(com.hereliesaz.graffitixr.common.scene.OrbitStep.DOWN), steps)
     }
 
