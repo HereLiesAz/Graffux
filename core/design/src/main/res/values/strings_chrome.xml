@@ -179,5 +179,4 @@
     <string name="export_preview_cancel">Cancel</string>
     <string name="export_preview_confirm_description">Export the area inside the frame</string>
     <string name="export_preview_cancel_description">Cancel the export</string>
-    <string name="export_preview_frame_description">Export frame: the area that will be exported</string>
 </resources>

@@ -214,17 +214,33 @@ Built (the appearance only; the document boundary is a later slice).
   (`ArtboardFrame`); the workspace colour shows to the edges and the surface fill is the only canvas colour.
   The boundary appears at export, as the export frame below. Projects with no 3D group still draw both.
 
-  **Export frame** (`ExportFramePreview`, `EditorViewModel.requestExport*`): in a project with a 3D group, a
-  document export first shows the artboard rectangle (`artboardRect`, the one the exporter crops to) with
-  everything outside it dimmed, and Export / Cancel (48dp, TalkBack-labelled; Back also cancels). Nothing
-  underneath takes touches while it is up, and nothing is exported until Export. These go through it: the menu's
-  PNG, the Export panel's PNG / SVG / PDF with no frame selected, and the poster PDF (all crop to the artboard).
-  Not through it: a selected frame's export (crops to the frame's box, not the artboard; the rectangle would
-  misstate it), the all-frames PDF, Share (it hands a Uri to the host, so the preview would have to be hosted
-  there), the animation export, and glTF. glTF exports whole layer quads and camera, uncropped, so there is no
-  rectangle to show. A project with no 3D group exports at once as before.
-  Not covered by tests: the scrim's pixels, the buttons' placement (top centre, over the canvas; not checked
-  against the hosted chrome on a device), and the exported crop matching the preview on a device.
+  **Export frame** (`ExportFramePreview.kt`, `EditorViewModel.requestExport*`): in a project with a 3D group, a
+  document export first shows the rectangle it keeps, with everything outside it dimmed, and Export / Cancel.
+  Nothing is exported until Export.
+  - *The rectangle* is `exportFrameRect`: the artboard, or, with a non-identity Crop-tab crop, the crop's
+    rectangle of it (the one `DocumentCropRender.render` and `VectorScene.documentPage` cut). It is computed in
+    the exporter's world (the display's pixel size, which is what the exporters composite in), not from the
+    on-screen box, and has no viewport input: the exporter ignores pan, zoom and rotation. Assumption: the
+    editor canvas and the display share an origin (the canvas fills the window).
+  - *Where it is drawn:* the dimming and outline (`ExportFrameOutline`) are inside the camera container, in the
+    same transformed space as the layers, so after zoom, pan, rotate or Reset view it still lands on the
+    part of the artwork the exporter keeps. The Export / Cancel and message (`ExportFrameControls`) are a
+    dialog window: modal to touch, the two-finger camera, the tap gestures and TalkBack, and Back cancels. They
+    sit under the safe-drawing insets on a dark backing. The two-finger camera and the tap-undo/redo gestures
+    are also switched off in code while it is up.
+  - *Through it:* the menu's PNG; the Export panel's PNG / SVG / PDF with no frame selected; the poster PDF; a
+    PDF of all frames when the project has no top-level visible frame (it falls back to the document page).
+  - *Not through it:* a selected frame's export (crops to the frame's box); a PDF of all frames when there is
+    at least one (a page per frame); Share (hands a Uri to the host); the animation export; glTF (whole layer
+    quads and camera, uncropped, so no rectangle). A project with no 3D group exports at once.
+  - *Lifecycle:* the held export is dropped on a project switch and when the project stops having a 3D
+    group (undo, delete). A request while another export runs is ignored; a second request while the frame
+    is up replaces the held one; a second Export tap runs nothing.
+  - *Not covered by tests:* the scrim's pixels; the exported bitmap matching the rectangle on a device; the
+    dialog's inset handling on a device with a cutout; TalkBack's focus being contained by the dialog window
+    (platform behaviour, not exercised); the host's rails and view buttons are in the activity window, so the
+    dialog blocks them by touch, but this is not device-checked; Compose rendering of the hidden page and
+    outline in 3D projects (only the predicate `showsDocumentBoundary` is tested). Not device-verified.
 
 ### Open points
 
@@ -236,7 +252,7 @@ Built (the appearance only; the document boundary is a later slice).
 4. (Settled: the pinch zooms about the fingers' midpoint.)
 5. Resolved above: canvas colour is `canvasBackground`; the button stays and toggles the mesh. Still
    open: a user-chosen grid colour and a grid on/off setting do not exist.
-6. (Settled: the boundary is hidden while editing and shown as the export frame; see "Document boundary" above.)
+6. Export framing: built (hidden while editing, shown as the export frame; see "Document boundary" above), unverified on a device and in the gaps listed there. Treat as open until it is.
 7. Whether the default surface is centred in the viewport (assumed; built that way).
 8. A windowed profile (the sheet's rectangle as a window onto the layer's own coordinates) so "Use a flat sheet" can be offered for a layer with art without displacing or cropping it.
 

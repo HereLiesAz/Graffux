@@ -12,6 +12,12 @@ import kotlin.math.hypot
  */
 fun hasThreeDGroup(layers: List<Layer>): Boolean = layers.any { it.hasSurface }
 
+/**
+ * Whether the editor draws the document boundary (the artboard page and its outline) while editing: only in a
+ * project with no 3D group. With one, the surface is the canvas and the boundary shows only at export.
+ */
+fun showsDocumentBoundary(layers: List<Layer>): Boolean = !hasThreeDGroup(layers)
+
 /** What a two-finger drag does to the view. Pinch and twist are the same in both modes. */
 enum class TwoFingerViewMode { PAN, ORBIT }
 

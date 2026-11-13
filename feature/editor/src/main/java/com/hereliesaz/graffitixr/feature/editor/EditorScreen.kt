@@ -2,7 +2,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
-import com.hereliesaz.graffitixr.common.scene.hasThreeDGroup
+import com.hereliesaz.graffitixr.common.scene.showsDocumentBoundary
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SplitCache
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -171,7 +171,7 @@ fun EditorScreen(
     // consumes nothing, so painting and navigation are unaffected.
     val gestureObserver = if (hostStrokeGate == null) {
         Modifier.multiFingerTaps(strokeGate) { slot, at ->
-            performGestureAction(uiState.gestureMapping, slot, vm, at)
+            if (!uiState.exportPreview) performGestureAction(uiState.gestureMapping, slot, vm, at)
         }
     } else {
         Modifier
@@ -204,7 +204,7 @@ fun EditorScreen(
             // entirely while the quick menu is open, so a gesture aimed at the menu does not also
             // swing the canvas behind it.
             .then(
-                if (uiState.quickMenuAt == null) {
+                if (uiState.quickMenuAt == null && !uiState.exportPreview) {
                     // The view, or the active layer with the Move tool in hand (spec/3d-space.md).
                     Modifier.canvasNavigation(
                         onStart = { vm.onTwoFingerStart() },
@@ -241,7 +241,7 @@ fun EditorScreen(
             val renderWidth = if (imageAspect > screenAspect) maxWidth.value else maxHeight.value * imageAspect
             val renderHeight = if (imageAspect > screenAspect) maxWidth.value / imageAspect else maxHeight.value
 
-            val threeDProject = hasThreeDGroup(uiState.layers)
+            val boundaryShown = showsDocumentBoundary(uiState.layers)
             val tileIndices = if (uiState.wrapAroundMode) -1..1 else 0..0
 
             for (dx in tileIndices) {
@@ -256,7 +256,7 @@ fun EditorScreen(
                         val pageAndGrid: @Composable () -> Unit = {
                         // In a project with a 3D group the surface is the canvas: no page rectangle (and no
                         // frame outline below) while editing; the boundary shows only at export.
-                        if (!threeDProject) ArtboardPage(
+                        if (boundaryShown) ArtboardPage(
                             documentWidth = uiState.documentWidth,
                             documentHeight = uiState.documentHeight,
                             color = uiState.canvasBackground,
@@ -461,11 +461,21 @@ fun EditorScreen(
         // 1b. Artboard frame — the document bounds. A non-interactive overlay: dims the workspace
         // outside the centered, aspect-fit document rect and outlines it, so the fixed output size is
         // always visible. Purely visual (no pointer input) — gestures/drawing below are unaffected.
-        if (!threeDProject) ArtboardFrame(
+        if (boundaryShown) ArtboardFrame(
             documentWidth = uiState.documentWidth,
             documentHeight = uiState.documentHeight,
             modifier = Modifier.fillMaxSize(),
         )
+
+        // 1b'. The export frame's picture (a 3D project's export, before it runs): here, inside the camera
+        // container, so it lands on the part of the artwork the exporter keeps whatever the view is. Its
+        // Export / Cancel are in a dialog window at the end (ExportFrameControls).
+        if (uiState.exportPreview) {
+            val exportRect = remember(uiState.documentWidth, uiState.documentHeight, uiState.documentCrop) {
+                vm.currentExportFrameRect()
+            }
+            ExportFrameOutline(exportRect, Modifier.fillMaxSize())
+        }
 
         // 1c. Snap guides — world-space alignment lines shown while dragging a layer. Drawn inside the
         // camera container so they pan/zoom/rotate with the workspace. Purely visual.
@@ -1222,12 +1232,9 @@ fun EditorScreen(
                 )
             }
         }
-        // 6. The export frame (a 3D project's export, before it runs): last, so it is above every layer of
-        // gestures and takes the touches (spec/3d-space.md, "Export").
+        // 6. The export frame's controls: a dialog window, so modal to touch, gestures and TalkBack.
         if (uiState.exportPreview) {
-            ExportFramePreview(
-                documentWidth = uiState.documentWidth,
-                documentHeight = uiState.documentHeight,
+            ExportFrameControls(
                 strings = com.hereliesaz.graffitixr.design.theme.rememberExportPreviewStrings(),
                 onConfirm = vm::confirmExportPreview,
                 onCancel = vm::cancelExportPreview,

@@ -21,6 +21,13 @@ class ViewControlTest {
     }
 
     @Test
+    fun `the document boundary is drawn only in a project with no 3D group`() {
+        assertTrue(showsDocumentBoundary(emptyList()))
+        assertTrue(showsDocumentBoundary(listOf(flat, groupPlain)))
+        assertFalse(showsDocumentBoundary(listOf(flat, group3d)))
+    }
+
+    @Test
     fun `two-finger drag orbits with a 3D group and pans without`() {
         assertEquals(TwoFingerViewMode.PAN, twoFingerViewMode(listOf(flat)))
         assertEquals(TwoFingerViewMode.ORBIT, twoFingerViewMode(listOf(flat, group3d)))

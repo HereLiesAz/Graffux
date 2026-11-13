@@ -401,7 +401,6 @@ data class ExportPreviewStrings(
     val cancel: String,
     val confirmDescription: String,
     val cancelDescription: String,
-    val frameDescription: String,
 )
 
 @Composable
@@ -411,5 +410,4 @@ fun rememberExportPreviewStrings(): ExportPreviewStrings = ExportPreviewStrings(
     cancel = stringResource(R.string.export_preview_cancel),
     confirmDescription = stringResource(R.string.export_preview_confirm_description),
     cancelDescription = stringResource(R.string.export_preview_cancel_description),
-    frameDescription = stringResource(R.string.export_preview_frame_description),
 )

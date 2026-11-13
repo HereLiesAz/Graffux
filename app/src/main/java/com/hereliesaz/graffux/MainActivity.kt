@@ -902,7 +902,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
             // A press anywhere off the pack wheel shuts it (and still does what it does).
             .closesPackWheelOutside(packWheel)
             .multiFingerTaps(strokeGate) { slot, at ->
-                performGestureAction(uiState.gestureMapping, slot, vm, at)
+                // Not while the export frame is up: a tap-undo would change what is about to be exported.
+                if (!uiState.exportPreview) performGestureAction(uiState.gestureMapping, slot, vm, at)
             }
     ) {
         Surface(
