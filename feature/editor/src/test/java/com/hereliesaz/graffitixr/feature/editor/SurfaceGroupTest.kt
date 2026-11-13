@@ -64,7 +64,7 @@ class SurfaceGroupTest {
 
     @Test
     fun `the profile is saved and read back at the new format version`() {
-        assertEquals(13, CURRENT_FORMAT_VERSION)
+        assertEquals(14, CURRENT_FORMAT_VERSION)
         val saved = layers.first().copy(uri = android.net.Uri.parse("")).toOverlayLayer()
         val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
         val text = json.encodeToString(OverlayLayer.serializer(), saved)

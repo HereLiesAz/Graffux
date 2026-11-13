@@ -80,6 +80,21 @@ class EditorViewModelTest {
     private val projectFileScanner: com.hereliesaz.graffitixr.data.ProjectFileScanner = mockk(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
 
+    /** The default dispatcher: runs on [testDispatcher], or holds its work until [release] so a scan can lag. */
+    private val scanDispatcher = object : CoroutineDispatcher() {
+        var held = false
+        val pending = ArrayDeque<Runnable>()
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            if (held) pending.addLast(block) else testDispatcher.dispatch(context, block)
+        }
+
+        fun release() {
+            held = false
+            val none = kotlin.coroutines.EmptyCoroutineContext
+            while (pending.isNotEmpty()) testDispatcher.dispatch(none, pending.removeFirst())
+        }
+    }
+
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
@@ -148,7 +163,7 @@ class EditorViewModelTest {
         val testDispatcherProvider = object : DispatcherProvider {
             override val main: CoroutineDispatcher = testDispatcher
             override val io: CoroutineDispatcher = testDispatcher
-            override val default: CoroutineDispatcher = testDispatcher
+            override val default: CoroutineDispatcher = scanDispatcher
             override val unconfined: CoroutineDispatcher = testDispatcher
         }
 
@@ -2197,6 +2212,218 @@ class EditorViewModelTest {
         assertEquals(before.activeLayerId, after.activeLayerId)
         assertFalse(after.surfaceDrawArmed)
         assertNull(after.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `Skip wraps the layer and gives the group the flat default sheet as one undo step, Undo removes it`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("under"), lyr("lone"), lyr("over")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onAxisSlotTapped()
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        val st = viewModel.uiState.value
+        val lone = st.layers.first { it.id == "lone" }
+        val group = st.layers.first { it.id == lone.parentId }
+        val surface = group.surface!!
+        assertTrue(surface.isFlat)
+        // Portrait 1000 x 1600 at the default view (offset 72, 72): 3/4 of the width, centred on the screen's
+        // middle, which is canvas x = 428, in the plane z = 0.
+        assertEquals(53f, surface.point(0)[0], 0.01f)
+        assertEquals(803f, surface.point(1)[0], 0.01f)
+        assertEquals(0f, surface.point(0)[2], 0f)
+        assertFalse(st.surfaceDrawArmed)
+        assertEquals(undo + 1, st.undoCount)
+        assertTrue(lone.is3DIn(st.layers))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("under", "lone", "over"), viewModel.uiState.value.layers.map { it.id })
+    }
+
+    @Test
+    fun `Skip on an armed group sets the flat sheet, and Cancel still changes nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onArmSurfaceDraw("g")
+        viewModel.onCancelSurfaceDraw()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        viewModel.onArmSurfaceDraw("g")
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertTrue(viewModel.uiState.value.layers.first { it.id == "g" }.surface!!.isFlat)
+        assertEquals(undo + 1, viewModel.uiState.value.undoCount)
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+    }
+
+    private fun skipSheet(
+        w: Int,
+        h: Int,
+        view: EditorIntent? = null,
+    ): com.hereliesaz.graffitixr.common.scene.SurfaceProfile? {
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(w, h))
+        view?.let { viewModel.dispatchForTest(it) }
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        return viewModel.uiState.value.layers.firstOrNull { it.type == groupType }?.surface
+    }
+
+    /** A layer with art. Text stands in for pixels: Color.alpha is a stub in JVM tests, so a pixel scan sees none. */
+    private fun paintedLayer(id: String): Layer = Layer(id = id, name = id, textParams = TextLayerParams(text = "art"))
+
+    private fun armOn(layers: List<Layer>, active: String) {
+        viewModel.setLayers(layers)
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onLayerActivated(active)
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onAxisSlotTapped()
+    }
+
+    @Test
+    fun `Skip is offered for an empty layer and for an empty group`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armOn(listOf(lyr("lone")), "lone")
+        assertTrue(viewModel.canSkipSurfaceDraw())
+        viewModel.onCancelSurfaceDraw()
+        val group = lyr("g").copy(type = groupType)
+        viewModel.setLayers(listOf(group, lyr("c").copy(parentId = "g")))
+        viewModel.onArmSurfaceDraw("g")
+        assertTrue(viewModel.canSkipSurfaceDraw())
+    }
+
+    @Test
+    fun `Skip is not offered for a layer with art, and a forced Skip is a no-op with a notice`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        armOn(listOf(paintedLayer("art")), "art")
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(listOf("art"), viewModel.uiState.value.layers.map { it.id })
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `a bitmap recycled mid-scan means cannot tell, so Skip is hidden and nothing throws`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val bmp = io.mockk.mockk<Bitmap>(relaxed = true)
+        io.mockk.every { bmp.isRecycled } returns false
+        io.mockk.every { bmp.width } returns 2
+        io.mockk.every { bmp.height } returns 3
+        io.mockk.every { bmp.getPixels(any<IntArray>(), any(), any(), any(), any(), any(), any()) } throws
+            IllegalStateException("Can't call getPixels() on a recycled bitmap")
+        armOn(listOf(Layer(id = "r", name = "r", bitmap = bmp)), "r")
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        assertFalse(viewModel.canSkipSurfaceDrawOffMain())
+    }
+
+    @Test
+    fun `a Skip whose scan answers after the user re-armed another layer, or art arrived, commits nothing`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Re-armed on another layer while the scan is out.
+        armOn(listOf(lyr("a"), lyr("b")), "a")
+        scanDispatcher.held = true
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onCancelSurfaceDraw()
+        viewModel.onLayerActivated("b")
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onAxisSlotTapped()
+        scanDispatcher.release()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), viewModel.uiState.value.layers.map { it.id })
+        assertTrue(viewModel.uiState.value.surfaceDrawArmed)
+        // Art arrived (the layers changed) while the scan is out.
+        viewModel.onCancelSurfaceDraw()
+        viewModel.onLayerActivated("a")
+        testDispatcher.scheduler.runCurrent()
+        viewModel.onAxisSlotTapped()
+        scanDispatcher.held = true
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        viewModel.setLayers(listOf(paintedLayer("a"), lyr("b")))
+        scanDispatcher.release()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), viewModel.uiState.value.layers.map { it.id })
+        assertNull(viewModel.uiState.value.layers.firstOrNull { it.type == groupType })
+    }
+
+    @Test
+    fun `Skip is not offered for a group that holds a layer with art`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val group = lyr("g").copy(type = groupType)
+        viewModel.setLayers(listOf(group, paintedLayer("art").copy(parentId = "g")))
+        viewModel.onCanvasSizeChanged(androidx.compose.ui.unit.IntSize(1000, 1600))
+        viewModel.onArmSurfaceDraw("g")
+        assertFalse(viewModel.canSkipSurfaceDraw())
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertNull(viewModel.uiState.value.layers.first { it.id == "g" }.surface)
+        assertEquals(SurfaceDrawNotice.HAS_ART, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `Skip in landscape gives the landscape sheet`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val p = skipSheet(2000, 1000)!!
+        // The screen's middle is canvas x = 1000 - 72 at the default view; 2/3 of 2000 wide.
+        assertEquals(261.33f, p.point(0)[0], 0.1f)
+        assertEquals(1594.67f, p.point(1)[0], 0.1f)
+        assertEquals(750f, p.reach!!, 0.1f)
+    }
+
+    @Test
+    fun `Skip centres the sheet on what the user sees when the view is zoomed and panned`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        val p = skipSheet(1000, 1600, EditorIntent.SetViewport(Offset(100f, 200f), 2f, 0f))!!
+        // The screen's middle (500, 800) is world (200, 300); 3/4 of the width on screen is 375 world units.
+        assertEquals(12.5f, p.point(0)[0], 0.1f)
+        assertEquals(387.5f, p.point(1)[0], 0.1f)
+        assertEquals(300f - 1600f / 3f / 2f, p.point(0)[1], 0.1f)
+        assertEquals(1600f * 2f / 3f / 2f, p.reach!!, 0.1f)
+    }
+
+    @Test
+    fun `Skip with no usable canvas changes nothing and says the surface is unavailable`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.setLayers(listOf(lyr("lone")))
+        viewModel.onLayerActivated("lone")
+        testDispatcher.scheduler.advanceUntilIdle()
+        val undo = viewModel.uiState.value.undoCount
+        viewModel.onAxisSlotTapped()
+        viewModel.onSkipSurfaceDraw()
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(listOf("lone"), viewModel.uiState.value.layers.map { it.id })
+        assertEquals(undo, viewModel.uiState.value.undoCount)
+        assertEquals(SurfaceDrawNotice.UNAVAILABLE, viewModel.uiState.value.surfaceDrawNotice)
+    }
+
+    @Test
+    fun `Redo after undoing Skip brings the flat sheet back`() = runTest {
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNotNull(skipSheet(1000, 1600))
+        viewModel.onUndoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(viewModel.uiState.value.layers.firstOrNull { it.type == groupType })
+        viewModel.onRedoClicked()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.layers.first { it.type == groupType }.surface!!.isFlat)
     }
 
     @Test

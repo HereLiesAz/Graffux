@@ -29,8 +29,8 @@ old double-tap that cycled through the layers under the finger is gone.)
 
 ## View control in a project with 3D groups (gestures and surface appearance built)
 
-Status: the view gestures below are built (not yet device-verified); the default surface
-and the open points are still planned. Where this section and the table above disagree,
+Status: the view gestures below are built (not yet device-verified), and so is the default surface
+("The default surface", not yet device-verified); the open points are still open. Where this section and the table above disagree,
 this section governs in a project with a 3D group. Nothing here changes a project with no 3D group.
 Test coverage: the double-tap tests run without a GPU, so pixel-level "no mark" and cancelling an in-flight commit are not covered by them.
 
@@ -85,7 +85,7 @@ was the reference), and the one finger stays free for the tool in hand.
 Both gesture-only actions have button twins on the tool rail, in a project with a 3D group only (a
 project with no 3D group is unchanged: it keeps the "Fit" button, shown only while the view is moved).
 They are 48dp rail buttons, so they are focusable by keyboard and TalkBack, and labelled from string
-resources (`rail_reset_view`, `rail_orbit_left/right/up/down`; `RailStrings`).
+resources (`rail_reset_view`, `rail_orbit_left/right/up/down`).
 
 - **Reset view** is always there in these projects and runs the double-tap's own path
   (`EditorViewModel.resetViewport`): identity camera, zoom 1, no canvas rotation.
@@ -97,7 +97,7 @@ resources (`rail_reset_view`, `rail_orbit_left/right/up/down`; `RailStrings`).
 Not built: TalkBack custom actions on the canvas itself (the buttons cover the same ground).
 Not device-verified (TalkBack or keyboard); covered by `ViewControlTest` and `EditorViewModelTest` only.
 
-### The default surface
+### The default surface (built)
 
 The first thing done with a new 3D group is to draw its surface. If the user chooses not to, the group
 gets a flat rectangular surface in the plane z = 0, sized from the screen:
@@ -107,6 +107,56 @@ gets a flat rectangular surface in the plane z = 0, sized from the screen:
   side high.
 
 In both orientations that is 3/4 of the short side by 2/3 of the long side.
+
+Built. What is the owner's rule and what is my default:
+
+- **The action (built).** The armed "Draw surface" chip has a second button, **Use a flat sheet**, in a row
+  with Cancel (`SurfacePromptChip`, `surface.prompt.skip`, at least 48dp square, string
+  `surface_prompt_flat_sheet`). The wording is mine, not owner-confirmed. It is offered only for a group's
+  first, front surface: not when redrawing a group that already has one, and not for the side or top views.
+  Cancel keeps its meaning (nothing changes). `EditorViewModel.onSkipSurfaceDraw` makes the surface; wrapping
+  a layer in a new group and setting the profile is one undo step, as for a captured line.
+- **A real surface (built).** The sheet is an ordinary group surface profile (`DefaultSurface.profile`,
+  `:core:common`; the sizing is the pure `DefaultSurface.rect`), so painting, the rotation triangle, export,
+  persistence and undo are those of a drawn surface. It is a flat profile: the top edge of the rectangle
+  across z = 0, swept down the screen for exactly the sheet's height (`SurfaceProfile.reach`, a new optional
+  field: with it `SurfaceMath.gridExtent` and `localBounds` report the rectangle itself, so the orbit pivot and
+  rotation triangle turn about the sheet's centre; without it a profile is unbounded, as drawn ones are).
+  Every consumer of the sweep clamps to it (`SurfaceProfile.sweepLimit`): the mesh, the ray hit (so a touch
+  below the sheet misses and paint cannot land there), the rendered reach and the visibility box. So with a
+  full-canvas layer painted on it the surface is exactly width x height, and a layer's art past the sheet is
+  cropped, not drawn. It is project format 14 (a 13 file has none and loads unchanged; an older build treats a
+  14 file as newer and opens it read-only, like every earlier optional field). The puppetry plan names 14 for
+  its `rig`; whichever lands second takes 15. A side or top view drawn later makes the surface a hull and
+  `reach` is then not used. Only the guide grid reaches the usual 32-unit margin past the sheet; the mesh does
+  not. "Ready-made
+  surfaces" has no flat plane (those are outline packs), so nothing was reused.
+- **From what the user sees (my default).** "The screen" is the canvas view's size (`canvasSize`) and the
+  sheet is sized and centred from what is visible: its centre is the middle of the screen mapped back to the
+  canvas (`CanvasHitTest.screenToWorld`) and its size is the screen fraction divided by the view's zoom. A
+  square counts as portrait. The view's twist is not applied: the sheet stays axis-aligned in canvas units.
+  A size or zoom that is not positive and finite gives no sheet (the chip says the surface is unavailable).
+- **Centred: assumed, not owner-confirmed** (open point 7 stays open).
+- **No recompute on rotation: my default, not owner-confirmed.** The surface is data once created: if the
+  device is rotated afterwards, the sheet is not resized or moved.
+- **Only for new or empty groups (decided with the coordinator).** Paint is placed from the surface's first
+  vertex in either flow: the unrolled `(u, t)` are the layer's box coordinates from that vertex, so a layer's art
+  keeps its box position but its origin sits at the sheet's top-left corner (the default sheet) or at where a
+  drawn line started, running in the line's direction (a line drawn right to left mirrors it), and anything past
+  the surface's width or sweep is cropped. Neither flow leaves existing art "where it was". The default sheet's
+  rectangle is fixed by the screen, not by the art, so it is the likelier to crop art that is wider or taller than
+  the sheet; until a windowed profile exists (as a relief has `left`/`top`), "Use a flat sheet" is therefore
+  offered only when there is no art to place: the layer to be wrapped is an empty paint layer (the definition
+  "Adopting the view plane" uses: no source image, text, shapes, adjustment or 3D ink, no recorded stroke, no set
+  pixel), or the armed group holds no such layer. This is conservative: a group holding an adjustment, 3D ink or
+  model layer is refused too. For a layer with art the chip keeps Cancel and the drawn-surface capture only, and
+  `onSkipSurfaceDraw` refuses a forced skip with a notice (`HAS_ART`) and changes nothing. The chip's line "Your
+  artwork is not changed" means the pixels are not edited; on the skip path it is trivially true, as there are
+  none. In the capture flow it is true of the pixels only: where they sit follows the line (the rule above). The
+  check scans pixels, so the app runs it off the main thread (`canSkipSurfaceDrawOffMain`) each time the layers or
+  the arming change while armed, and shows Skip once it answers. A layer drawn on the sheet through the stack (a
+  blend mode or a clip) is cropped to the sheet like the depth pass's mesh (`SurfaceMath.flatSurfaceCrops`). A
+  windowed profile (open point 8) would lift the restriction.
 
 ### How the surface looks
 
@@ -159,15 +209,15 @@ Built (the appearance only; the document boundary is a later slice).
 
 1. Does "3D project" include a project whose only 3D content is a 3D strokes layer or a model layer,
    or only one with a 3D group (a group with a surface)? The owner's wording was "3D groups".
-2. How the user chooses not to draw a surface (a "Skip" action on the arming chip, which today has only
-   Cancel), and its wording.
+2. How the user chooses not to draw a surface: built as "Use a flat sheet" on the arming chip; the wording is not owner-confirmed.
 3. Orbit and reset-view need button or accessibility equivalents, as the sheet stages got; not yet
    designed.
 4. (Settled: the pinch zooms about the fingers' midpoint.)
 5. Resolved above: canvas colour is `canvasBackground`; the button stays and toggles the mesh. Still
    open: a user-chosen grid colour and a grid on/off setting do not exist.
 6. How export frames the view once the document boundary is not drawn.
-7. Whether the default surface is centred in the viewport (assumed).
+7. Whether the default surface is centred in the viewport (assumed; built that way).
+8. A windowed profile (the sheet's rectangle as a window onto the layer's own coordinates) so "Use a flat sheet" can be offered for a layer with art without displacing or cropping it.
 
 ## 2D and 3D layers
 

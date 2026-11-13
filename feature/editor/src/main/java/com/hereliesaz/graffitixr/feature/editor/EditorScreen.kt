@@ -322,6 +322,8 @@ fun EditorScreen(
                                     },
                                     flatSurfaceModels = com.hereliesaz.graffitixr.common.scene.SurfaceMath
                                         .flatSurfaceModels(uiState.layers, boxWidth, boxHeight),
+                                    flatSurfaceCrops = com.hereliesaz.graffitixr.common.scene.SurfaceMath
+                                        .flatSurfaceCrops(uiState.layers, boxWidth, boxHeight),
                                 )
                             }
                         }

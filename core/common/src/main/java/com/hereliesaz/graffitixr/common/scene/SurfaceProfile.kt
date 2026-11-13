@@ -41,6 +41,14 @@ data class SurfaceProfile(
      * [side] and [top]. See [ReliefSurface].
      */
     val relief: ReliefSurface? = null,
+    /**
+     * How far the sweep reaches, in box units, or null: unbounded, as every drawn surface is (the box then
+     * reaches as far as the profile is long). Set for a flat sheet whose height is known ([DefaultSurface]), so
+     * [SurfaceMath.gridExtent] and [SurfaceMath.localBounds] report the sheet's true box and the orbit pivot is
+     * its centre. Ignored once a side or top view makes the surface a hull. Project format 14: an older
+     * build sees a newer format and opens the project read-only, so it never loses the field by saving.
+     */
+    val reach: Float? = null,
 ) {
     val count: Int get() = points.size / 3
 
@@ -84,12 +92,20 @@ data class SurfaceProfile(
         }
     }
 
+    /**
+     * The farthest sweep distance the surface exists at, or null for unbounded: [reach], unless the surface is a
+     * hull or a relief (which bound themselves). Every consumer of the sweep (the mesh, the ray hit, the rendered
+     * reach, the visibility box) clamps to it, so a sheet with a known height is exactly that tall.
+     */
+    val sweepLimit: Float? get() = if (hasHull || relief != null) null else reach
+
     /** A straight profile: the surface is one plane. */
     val isFlat: Boolean get() = count <= 2 && relief == null
 
     val isValid: Boolean
         get() = count >= 2 && points.size % 3 == 0 && points.all { it.isFinite() } && length > 0f &&
-            sweepX.isFinite() && sweepY.isFinite() && sweepZ.isFinite() && (relief == null || relief.isValid)
+            sweepX.isFinite() && sweepY.isFinite() && sweepZ.isFinite() && (relief == null || relief.isValid) &&
+            (reach == null || (reach.isFinite() && reach > 0f))
 
     /** The surface point at arc length [u] (clamped to the profile) and sweep distance [t]. */
     fun at(u: Float, t: Float): FloatArray {
@@ -325,7 +341,8 @@ object SurfaceMath {
         val eye = inv.apply(cam.eye[0], cam.eye[1], cam.eye[2])
         val dir = inv.applyVector(dirW[0], dirW[1], dirW[2])
         val d = profile.sweep
-                profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
+        val limit = minOf(maxT, profile.sweepLimit ?: Float.POSITIVE_INFINITY)
+        profile.relief?.let { return ReliefMath.hit(it, eye, dir, near) }
         var best: SurfaceHit? = null
         for (i in 0 until profile.count - 1) {
             val p = profile.point(i)
@@ -340,7 +357,7 @@ object SurfaceMath {
             val s = det3(rhs, ne, nd) / det
             val a = det3(dir, rhs, nd) / det
             val t = det3(dir, ne, rhs) / det
-            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE || t > maxT) continue
+            if (!s.isFinite() || s <= near || a < -EDGE || a > 1f + EDGE || t < -T_EDGE || t > limit) continue
             if (best == null || s < best.distance) {
                 val seg = profile.arcLengths[i + 1] - profile.arcLengths[i]
                 best = SurfaceHit(profile.arcLengths[i] + a.coerceIn(0f, 1f) * seg, t.coerceAtLeast(0f), s)
@@ -405,6 +422,30 @@ object SurfaceMath {
         val n = SceneMath.normalize(SceneMath.cross(e, d))
         val surface = Affine3(floatArrayOf(e[0], d[0], n[0], a[0], e[1], d[1], n[1], a[1], e[2], d[2], n[2], a[2]))
         return SceneMath.chainModel(owner.ownerChain, width, height) * surface * boxToUnrolled(owner.innerChain, width, height)
+    }
+
+    /**
+     * The sheet's outline in each leaf's own box coordinates, by id, for the layers drawn through
+     * [flatSurfaceModels] on a flat surface whose sweep is bounded ([SurfaceProfile.sweepLimit]): that path draws
+     * the whole layer image on the surface's plane, so it is cropped to this quad, as the depth pass's mesh is.
+     */
+    fun flatSurfaceCrops(layers: List<Layer>, width: Float, height: Float): Map<String, List<Pair<Float, Float>>> {
+        val bounded = layers.any { it.isContainer && it.surface?.sweepLimit != null }
+        if (width <= 0f || height <= 0f || !bounded) return emptyMap()
+        val byId = layers.associateBy { it.id }
+        val out = HashMap<String, List<Pair<Float, Float>>>()
+        for (layer in layers) {
+            if (layer.isContainer) continue
+            val owner = ownerOf(byId, layer.id) ?: continue
+            val reach = owner.profile.sweepLimit ?: continue
+            if (!owner.profile.isFlat || !owner.profile.isValid) continue
+            val inv = boxToUnrolled(owner.innerChain, width, height).inverse() ?: continue
+            val len = owner.profile.length
+            out[layer.id] = listOf(0f to 0f, len to 0f, len to reach, 0f to reach).map { (u, t) ->
+                inv.apply(u, t, 0f).let { it[0] to it[1] }
+            }
+        }
+        return out
     }
 
     /** [flatSurfaceModel] for every layer painted on a flat surface, by id; empty when there is none. */
@@ -530,7 +571,7 @@ object SurfaceMath {
         val u0 = uMin.coerceAtLeast(0f)
         val u1 = uMax.coerceAtMost(profile.length)
         val t0 = tMin.coerceAtLeast(0f)
-        val t1 = tMax
+        val t1 = minOf(tMax, profile.sweepLimit ?: Float.POSITIVE_INFINITY)
         if (u1 <= u0 || t1 <= t0) return FloatArray(0)
         val cuts = ArrayList<Float>()
         cuts += u0
@@ -682,6 +723,7 @@ object SurfaceMath {
      */
     fun gridExtent(profile: SurfaceProfile): Float {
         if (!profile.isValid) return 0f
+        profile.sweepLimit?.let { return it + GRID_MARGIN }
         val hull = if (profile.hasHull) SurfaceHull.of(profile) else null
         val lo = hull?.boundsMin ?: FloatArray(3) { k -> (0 until profile.count).minOf { profile.points[it * 3 + k] } }
         val hi = hull?.boundsMax ?: FloatArray(3) { k -> (0 until profile.count).maxOf { profile.points[it * 3 + k] } }
