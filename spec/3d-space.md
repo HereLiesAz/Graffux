@@ -87,6 +87,13 @@ project with no 3D group is unchanged: it keeps the "Fit" button, shown only whi
 They are 48dp rail buttons, so they are focusable by keyboard and TalkBack, and labelled from string
 resources (`rail_reset_view`, `rail_orbit_left/right/up/down`).
 
+Placement follows the rail's most-used-first order: the five buttons are the LAST items of the scrolling
+tool pill, after the drawing tools, the axis slot and the mesh toggle (gestures are the primary way to
+move the view, so these are the rarest items); Undo / Redo stay in their own pill, never scrolled away. No
+existing item moved. The pill is given the screen height less the top inset (16dp) and the bottom strip
+(72dp), about 86% on a 640dp-high screen, and scrolls with no clipped bottom padding, so the last item is
+always reachable (`ViewControlShortScreenUiTest`, 360x640dp, scrolls to and clicks the last orbit button).
+
 - **Reset view** is always there in these projects and runs the double-tap's own path
   (`EditorViewModel.resetViewport`): identity camera, zoom 1, no canvas rotation.
 - **Orbit view left / right / up / down** turn the view one fixed step of 15 degrees

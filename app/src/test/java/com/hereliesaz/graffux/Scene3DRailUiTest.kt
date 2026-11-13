@@ -18,6 +18,10 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.test.performScrollTo
 import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
@@ -274,5 +278,66 @@ class ViewControlButtonsUiTest {
         rule.onNodeWithTag("rail.view.fit").assertExists()
         rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
         tags.forEach { rule.onNodeWithTag(it).assertDoesNotExist() }
+    }
+}
+
+/**
+ * The rail on a short screen with a 3D project's full item set: it is held to the space MainActivity gives
+ * it (below the top inset, above the bottom strip), and scrolls far enough that the last item is reachable.
+ */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w360dp-h640dp-xhdpi", application = Application::class)
+class ViewControlShortScreenUiTest {
+    @get:Rule
+    val rule = createAndroidComposeRule<ComponentActivity>()
+
+    private val steps = mutableListOf<com.hereliesaz.graffitixr.common.scene.OrbitStep>()
+
+    private val actions = object : ToolRailActions {
+        override fun setActiveTool(tool: Tool) = Unit
+        override fun onColorClicked() = Unit
+        override fun resetViewport() = Unit
+        override fun onUndoClicked() = Unit
+        override fun onRedoClicked() = Unit
+        override fun setBrushSize(size: Float) = Unit
+        override fun setBrushFeathering(feathering: Float) = Unit
+        override fun onOrbitStep(step: com.hereliesaz.graffitixr.common.scene.OrbitStep) { steps += step }
+    }
+
+    @Test
+    fun `on a 360x640 screen the rail stays inside its space and its last item can be scrolled to and clicked`() {
+        val surface = com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 800f, 0f, 600f, 800f, 0f))
+        val ui = EditorUiState(
+            activeTool = Tool.BRUSH,
+            layers = listOf(Layer("g", "G", type = LayerType.GROUP, surface = surface), Layer("a", "A", parentId = "g")),
+            activeLayerId = "a",
+        )
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                // The padding MainActivity gives the rail (toolRailPadding).
+                ToolRail(
+                    actions, ui, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}),
+                    Modifier.withRailPadding(),
+                )
+            }
+        }
+        val rail = rule.onNodeWithTag("rail.tools").fetchSemanticsNode().boundsInRoot
+        val screenH = 640f * rule.activity.resources.displayMetrics.density
+        assertTrue("the rail is held below the screen's bottom strip", rail.bottom <= screenH * RAIL_MAX_BOTTOM_FRACTION)
+        assertTrue("the rail takes at most ${(RAIL_MAX_HEIGHT_FRACTION * 100).toInt()}% of the height", rail.height <= screenH * RAIL_MAX_HEIGHT_FRACTION)
+        val last = rule.onNodeWithTag("rail.view.orbit.down").performScrollTo()
+        last.assertIsDisplayed()
+        val b = last.fetchSemanticsNode().boundsInRoot
+        assertTrue("the last item is fully inside the rail, not clipped", b.bottom <= rail.bottom && b.top >= rail.top)
+        last.performClick()
+        assertEquals(listOf(com.hereliesaz.graffitixr.common.scene.OrbitStep.DOWN), steps)
+    }
+
+    private fun Modifier.withRailPadding(): Modifier =
+        padding(horizontal = RailSideInset).padding(top = RailTopInset, bottom = RailWidth + RailEdgeGap * 2)
+
+    private companion object {
+        const val RAIL_MAX_HEIGHT_FRACTION = 0.9f
+        const val RAIL_MAX_BOTTOM_FRACTION = 0.95f
     }
 }
