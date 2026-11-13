@@ -3163,4 +3163,84 @@ class EditorViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         verify(exactly = 1) { extensionRepository.pendingDepthModelInstalls() }
     }
+
+    // ── Export-frame preview in a 3D project (spec/3d-space.md, "Export") ───────────────────────────
+
+    private fun withLayers(threeD: Boolean, vararg extra: Layer) {
+        val group = Layer(
+            id = "G", name = "G", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+            surface = if (threeD) {
+                com.hereliesaz.graffitixr.common.scene.SurfaceProfile(listOf(0f, 0f, 0f, 24f, 0f, 0f, 48f, 0f, 20f))
+            } else {
+                null
+            },
+        )
+        viewModel.dispatchForTest(EditorIntent.SetLayers(listOf(group) + extra))
+    }
+
+    private fun assertComposited(times: Int) = verify(exactly = times) {
+        exportManager.compositeToDocument(any(), any(), any(), any(), any(), any(), any(), any(), any())
+    }
+
+    @Test
+    fun `a project without a 3D group exports at once, with no preview`() = runTest {
+        withLayers(threeD = false)
+        viewModel.requestExportImage()
+        assertFalse(viewModel.uiState.value.exportPreview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `a 3D project shows the export frame first and exports nothing until confirmed`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.exportPreview)
+        assertComposited(0)
+
+        viewModel.confirmExportPreview()
+        assertFalse(viewModel.uiState.value.exportPreview)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(1)
+    }
+
+    @Test
+    fun `cancelling the export frame closes it and exports nothing, even on a later confirm`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportImage()
+        viewModel.cancelExportPreview()
+        assertFalse(viewModel.uiState.value.exportPreview)
+        viewModel.confirmExportPreview()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertComposited(0)
+    }
+
+    @Test
+    fun `the poster PDF goes through the export frame in a 3D project`() = runTest {
+        withLayers(threeD = true)
+        viewModel.requestExportPoster(com.hereliesaz.graffitixr.feature.editor.export.PosterSpec())
+        assertTrue(viewModel.uiState.value.exportPreview)
+        viewModel.cancelExportPreview()
+    }
+
+    @Test
+    fun `a selected frame's export skips the export frame, since it crops to the frame and not the artboard`() = runTest {
+        withLayers(threeD = true, Layer(
+            id = "F", name = "F", type = com.hereliesaz.graffitixr.common.model.LayerType.FRAME,
+            layoutWidth = 400f, layoutHeight = 200f,
+        ))
+        viewModel.onLayerActivated("F")
+        viewModel.requestExportDesign(com.hereliesaz.graffitixr.common.model.DesignExportFormat.SVG)
+        assertFalse(viewModel.uiState.value.exportPreview)
+    }
+
+    @Test
+    fun `an SVG of the document in a 3D project goes through the export frame`() = runTest {
+        withLayers(threeD = true, Layer(id = "L", name = "L"))
+        viewModel.onLayerActivated("L")
+        viewModel.requestExportDesign(com.hereliesaz.graffitixr.common.model.DesignExportFormat.SVG)
+        assertTrue(viewModel.uiState.value.exportPreview)
+        viewModel.cancelExportPreview()
+    }
 }

@@ -1540,7 +1540,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                                 artH = artH,
                                 onChange = { posterChoices = it },
                                 onBack = { showPosterMenu = false },
-                                onExport = { spec -> showPosterMenu = false; vm.exportPosterPdf(spec) },
+                                onExport = { spec -> showPosterMenu = false; vm.requestExportPoster(spec) },
                             )
                         } else if (showViewMenu) {
                             page(strings.mainMenu.back) { showViewMenu = false }
@@ -1569,7 +1569,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             // Opens AddContentDialog (shapes + text as a new layer).
                             listItem(strings.mainMenu.addShape) { showAddDialog = true }
                             listItem(strings.mainMenu.save) { showSaveDialog = true }
-                            listItem(strings.mainMenu.exportPng) { vm.exportImage() }
+                            listItem(strings.mainMenu.exportPng) { vm.requestExportImage() }
                             listItem(strings.mainMenu.exportScene) { sceneGltfExporter.launch("Graffux-3D-Scene.gltf") }
                             page(strings.mainMenu.posterPdf) { showPosterMenu = true }
                             // The always-visible way into the azphalt store.

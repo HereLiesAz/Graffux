@@ -72,6 +72,8 @@ internal sealed interface EditorIntent {
     data class SetDocumentCrop(val crop: com.hereliesaz.graffitixr.common.photo.DocumentCrop) : EditorIntent
     /** The Crop tab opened or closed: the canvas shows the whole photo under the crop frame while open. */
     data class SetCropEditing(val editing: Boolean) : EditorIntent
+    /** The export-frame preview opened or closed (a 3D project's export, before it runs). */
+    data class SetExportPreview(val showing: Boolean) : EditorIntent
     /** Hold-to-compare: hide every adjustment layer while true. */
     data class SetPhotoCompare(val comparing: Boolean) : EditorIntent
     /** Replaces the whole layer set (e.g. flatten) with [layers], activating [activeId]. */

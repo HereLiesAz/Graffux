@@ -169,4 +169,10 @@
     <string name="surface_slot_armed">Draw</string>
     <string name="surface_slot_armed_state">Setting up the 3D group</string>
     <string name="surface_slot_armed_description">Drawing the 3D surface. Tap to cancel.</string>
+    <string name="export_preview_message">Export area. Only what is inside the frame is exported; the rest is cropped.</string>
+    <string name="export_preview_confirm">Export</string>
+    <string name="export_preview_cancel">Cancel</string>
+    <string name="export_preview_confirm_description">Export the area inside the frame</string>
+    <string name="export_preview_cancel_description">Cancel the export</string>
+    <string name="export_preview_frame_description">Export frame: the area that will be exported</string>
 </resources>

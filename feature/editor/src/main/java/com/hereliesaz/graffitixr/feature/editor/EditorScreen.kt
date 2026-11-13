@@ -2,6 +2,7 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import com.hereliesaz.graffitixr.common.scene.SceneMath
+import com.hereliesaz.graffitixr.common.scene.hasThreeDGroup
 import com.hereliesaz.graffitixr.common.scene.SceneRenderPath
 import com.hereliesaz.graffitixr.common.scene.SplitCache
 import com.hereliesaz.graffitixr.common.model.LayerNode
@@ -240,6 +241,7 @@ fun EditorScreen(
             val renderWidth = if (imageAspect > screenAspect) maxWidth.value else maxHeight.value * imageAspect
             val renderHeight = if (imageAspect > screenAspect) maxWidth.value / imageAspect else maxHeight.value
 
+            val threeDProject = hasThreeDGroup(uiState.layers)
             val tileIndices = if (uiState.wrapAroundMode) -1..1 else 0..0
 
             for (dx in tileIndices) {
@@ -252,7 +254,9 @@ fun EditorScreen(
                         // 0. Page — the document's own fill, and 0b. the grid: the bottom of the
                         // inactive-layer cache's behind render when there is one.
                         val pageAndGrid: @Composable () -> Unit = {
-                        ArtboardPage(
+                        // In a project with a 3D group the surface is the canvas: no page rectangle (and no
+                        // frame outline below) while editing; the boundary shows only at export.
+                        if (!threeDProject) ArtboardPage(
                             documentWidth = uiState.documentWidth,
                             documentHeight = uiState.documentHeight,
                             color = uiState.canvasBackground,
@@ -457,7 +461,7 @@ fun EditorScreen(
         // 1b. Artboard frame — the document bounds. A non-interactive overlay: dims the workspace
         // outside the centered, aspect-fit document rect and outlines it, so the fixed output size is
         // always visible. Purely visual (no pointer input) — gestures/drawing below are unaffected.
-        ArtboardFrame(
+        if (!threeDProject) ArtboardFrame(
             documentWidth = uiState.documentWidth,
             documentHeight = uiState.documentHeight,
             modifier = Modifier.fillMaxSize(),
@@ -1217,6 +1221,17 @@ fun EditorScreen(
                         .padding(top = NibDialTopInset),
                 )
             }
+        }
+        // 6. The export frame (a 3D project's export, before it runs): last, so it is above every layer of
+        // gestures and takes the touches (spec/3d-space.md, "Export").
+        if (uiState.exportPreview) {
+            ExportFramePreview(
+                documentWidth = uiState.documentWidth,
+                documentHeight = uiState.documentHeight,
+                strings = com.hereliesaz.graffitixr.design.theme.rememberExportPreviewStrings(),
+                onConfirm = vm::confirmExportPreview,
+                onCancel = vm::cancelExportPreview,
+            )
         }
     }
     }

@@ -393,3 +393,23 @@ fun rememberReliefStrings(): ReliefStrings = ReliefStrings(
     cancel = stringResource(R.string.relief_cancel),
     rail = stringResource(R.string.relief_rail),
 )
+
+/** ExportPreviewStrings: the export-frame preview in a 3D project; see strings_chrome.xml. */
+data class ExportPreviewStrings(
+    val message: String,
+    val confirm: String,
+    val cancel: String,
+    val confirmDescription: String,
+    val cancelDescription: String,
+    val frameDescription: String,
+)
+
+@Composable
+fun rememberExportPreviewStrings(): ExportPreviewStrings = ExportPreviewStrings(
+    message = stringResource(R.string.export_preview_message),
+    confirm = stringResource(R.string.export_preview_confirm),
+    cancel = stringResource(R.string.export_preview_cancel),
+    confirmDescription = stringResource(R.string.export_preview_confirm_description),
+    cancelDescription = stringResource(R.string.export_preview_cancel_description),
+    frameDescription = stringResource(R.string.export_preview_frame_description),
+)

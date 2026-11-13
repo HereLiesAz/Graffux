@@ -410,7 +410,7 @@ internal interface DesignExportActions {
 
 internal fun EditorViewModel.designExportActions(): DesignExportActions = object : DesignExportActions {
     override fun export(format: com.hereliesaz.graffitixr.common.model.DesignExportFormat, allFrames: Boolean) =
-        exportDesign(format, allFrames)
+        requestExportDesign(format, allFrames)
 }
 
 /**

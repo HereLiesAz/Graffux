@@ -5105,6 +5105,61 @@ class EditorViewModel @Inject constructor(
         }
     }
 
+    // The export the export-frame preview is holding until Export or Cancel (spec/3d-space.md, "Export").
+    private var pendingExport: (() -> Unit)? = null
+
+    /**
+     * Runs [export] now, or, in a project with a 3D group, after the user has seen the frame it crops to
+     * and confirmed: the artboard is not drawn while editing there, so this is where it is shown.
+     */
+    private fun exportAfterPreview(export: () -> Unit) {
+        if (!hasThreeDGroup(_uiState.value.layers)) {
+            export()
+            return
+        }
+        pendingExport = export
+        dispatch(EditorIntent.SetExportPreview(true))
+    }
+
+    /** Export (the menu's PNG, or the Export panel's PNG with no frame selected), through the preview. */
+    fun requestExportImage() = exportAfterPreview { exportImage() }
+
+    /**
+     * Poster PDF, through the preview: it prints the document's crop, the same artboard rectangle.
+     */
+    fun requestExportPoster(spec: com.hereliesaz.graffitixr.feature.editor.export.PosterSpec) =
+        exportAfterPreview { exportPosterPdf(spec) }
+
+    /**
+     * The Export panel's PNG / SVG / PDF. Only an export of the document's artboard (no frame selected)
+     * goes through the preview; a frame's export crops to the frame's own box, which the preview's
+     * rectangle would misstate, and an all-frames PDF is one page per frame.
+     */
+    fun requestExportDesign(
+        format: com.hereliesaz.graffitixr.common.model.DesignExportFormat,
+        allFrames: Boolean = false,
+    ) {
+        if (designExportFrameId() == null && !allFrames) {
+            exportAfterPreview { exportDesign(format, allFrames) }
+        } else {
+            exportDesign(format, allFrames)
+        }
+    }
+
+    /** The preview's Export: close it and run the held export. */
+    fun confirmExportPreview() {
+        val export = pendingExport
+        pendingExport = null
+        dispatch(EditorIntent.SetExportPreview(false))
+        export?.invoke()
+    }
+
+    /** The preview's Cancel (or Back): close it, export nothing. */
+    fun cancelExportPreview() {
+        pendingExport = null
+        dispatch(EditorIntent.SetExportPreview(false))
+    }
+
     /**
      * Export the current design as a PNG saved to the gallery. The layers are composited over the
      * canvas background the user picked (the page they see behind their work); only a transparent
