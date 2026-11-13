@@ -87,8 +87,13 @@ project with no 3D group is unchanged: it keeps the "Fit" button, shown only whi
 They take ONE rail slot: a single 48dp "View" rail button (`rail_view`, `rail.view`) that opens a small
 popup beside it. The popup is a 4-way orbit pad (up over left / right over down) with Reset view in the
 centre; every control in it is a 48dp focusable button labelled from string resources (`rail_reset_view`,
-`rail_orbit_left/right/up/down`). The popup is focusable and closes on an outside tap or Back. An orbit
-step leaves it open so a step can be repeated; Reset view closes it.
+`rail_orbit_left/right/up/down`). The popup is a full-window transparent layer with the pad placed
+beside the button and clamped inside the window (`viewPadPosition`), so an outside tap dismisses it and is
+consumed, never reaching the canvas; Back (a key event in the popup's own window) dismisses it too. An
+orbit step leaves it open so a step can be repeated; Reset view closes it. Focus moves to the first pad
+button when it opens and returns to the View button when it closes; the pad is a pane titled "View
+controls" (`rail_view_controls`) for TalkBack. The open state is keyed on the project id (a different
+project starts closed), and losing the 3D group removes the button and the pad.
 
 Placement follows the rail's most-used-first order: the View button is the LAST item of the scrolling
 tool pill, after the drawing tools, the axis slot and the mesh toggle (gestures are the primary way to
@@ -106,7 +111,7 @@ clicks its last orbit button).
   and pitch clamp as the gesture. Saves are coalesced (500 ms after the last tap) and never history. Each step moves the content's near side the way its name says (pinned in `ViewControlTest`). The buttons are plain actions: they do not announce a selected state.
 
 Not built: TalkBack custom actions on the canvas itself (the buttons cover the same ground).
-Not device-verified (TalkBack or keyboard); covered by `ViewControlTest`, `EditorViewModelTest` and the Robolectric `ViewControlButtonsUiTest` only.
+Not device-verified (TalkBack or keyboard); covered by `ViewControlTest`, `EditorViewModelTest`, `ViewPadPositionTest` and the Robolectric `ViewControlButtonsUiTest` only.
 
 ### The default surface (built)
 

@@ -293,7 +293,7 @@ internal fun ToolRail(
             // A 3D-group project: the double-tap reset and the two-finger orbit have button twins, always
             // there (spec/3d-space.md, "Non-gesture alternatives"), so neither needs a gesture.
             // They are the rarest items on the rail, so they come last (most-used-first order).
-            ViewControlButtons(vm)
+            ViewControlButtons(vm, uiState.projectId)
         } else if (viewMoved) {
             // Only there while there is something to reset.
             RailButton(label = "Fit the canvas to the screen", testTag = "rail.view.fit", onClick = { vm.resetViewport() }) {

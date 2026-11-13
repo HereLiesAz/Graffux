@@ -103,6 +103,7 @@
     <string name="rail_eraser">Eraser</string>
     <string name="rail_fit">Fit</string>
     <string name="rail_view">View</string>
+    <string name="rail_view_controls">View controls</string>
     <string name="rail_reset_view">Reset view</string>
     <string name="rail_orbit_left">Orbit view left</string>
     <string name="rail_orbit_right">Orbit view right</string>

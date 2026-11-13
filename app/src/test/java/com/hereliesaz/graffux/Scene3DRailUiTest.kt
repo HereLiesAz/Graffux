@@ -21,6 +21,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.test.performScrollTo
 import com.hereliesaz.graffitixr.common.model.EditorUiState
@@ -304,17 +310,86 @@ class ViewControlButtonsUiTest {
         rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
     }
 
+    /** A real Back key (down then up) into the popup's own window root, as the system delivers it. */
+    @OptIn(androidx.compose.ui.InternalComposeUiApi::class)
+    private fun pressBackInPopup() {
+        val root = rule.onNodeWithTag("rail.view.reset").fetchSemanticsNode().root
+        val view = (root as androidx.compose.ui.platform.ViewRootForTest).view.rootView
+        rule.runOnUiThread {
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        rule.waitForIdle()
+    }
+
     @Test
-    fun `Back dismisses the View pad without acting`() {
+    fun `Back in the popup window dismisses the View pad without acting and focus returns to the View button`() {
         threeD()
         show()
         rule.onNodeWithTag("rail.view").performScrollTo().performClick()
         rule.onNodeWithTag("rail.view.reset").assertExists()
-        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }
-        rule.waitForIdle()
+        pressBackInPopup()
         rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
         assertEquals(0, resets)
         assertTrue(steps.isEmpty())
+        rule.onNodeWithTag("rail.view").assertIsFocused()
+    }
+
+    @Test
+    fun `opening the pad moves focus into it and announces it as a View controls pane`() {
+        threeD()
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.orbit.up").assertIsFocused()
+        val title = rule.activity.resources.getString(com.hereliesaz.graffitixr.design.R.string.rail_view_controls)
+        rule.onNode(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.PaneTitle, title),
+        ).assertExists()
+    }
+
+    @Test
+    fun `an outside tap dismisses the pad and does not reach what is behind it`() {
+        threeD()
+        var behind = 0
+        rule.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.fillMaxSize().testTag("canvas.behind").clickable { behind++ },
+                    )
+                    ToolRail(actions, state, emptySet(), emptySet(), ToolRailCallbacks({}, {}, {}))
+                }
+            }
+        }
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        // A point well away from the rail and the pad (the middle of the screen's far side).
+        val size = rule.onNodeWithTag("canvas.behind").fetchSemanticsNode().size
+        rule.onNodeWithTag("canvas.behind").performTouchInput { click(androidx.compose.ui.geometry.Offset(size.width - 20f, size.height / 2f)) }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        assertEquals("the tap that dismissed the pad did not fall through", 0, behind)
+        assertTrue(steps.isEmpty() && resets == 0)
+    }
+
+    @Test
+    fun `a different project closes an open pad, and losing the 3D group removes it`() {
+        threeD()
+        state = state.copy(projectId = "p1")
+        show()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        state = state.copy(projectId = "p2")
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
+        rule.onNodeWithTag("rail.view").assertExists()
+        rule.onNodeWithTag("rail.view").performScrollTo().performClick()
+        rule.onNodeWithTag("rail.view.reset").assertExists()
+        state = state.copy(layers = listOf(Layer("a", "A")))
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.view").assertDoesNotExist()
+        rule.onNodeWithTag("rail.view.reset").assertDoesNotExist()
     }
 
     @Test
@@ -379,8 +454,12 @@ class ViewControlShortScreenUiTest {
         last.performClick()
         // The pad opens in its own window, inside the screen, and its far corner is reachable.
         val down = rule.onNodeWithTag("rail.view.orbit.down").assertIsDisplayed()
-        val pb = down.fetchSemanticsNode().boundsInRoot
-        assertTrue("the pad is inside the screen", pb.bottom <= screenH && pb.top >= 0f)
+        val pb = down.fetchSemanticsNode().boundsInWindow
+        val screenW = 360f * rule.activity.resources.displayMetrics.density
+        assertTrue(
+            "the pad is inside the screen",
+            pb.bottom <= screenH && pb.top >= 0f && pb.right <= screenW && pb.left >= 0f,
+        )
         down.performClick()
         assertEquals(listOf(com.hereliesaz.graffitixr.common.scene.OrbitStep.DOWN), steps)
     }
