@@ -9,7 +9,7 @@ The repository's root `wrangler.toml` sets `main` to `src/index.js` here and `ru
 invokes the Worker.
 
 ~~~
-app  --PUT /v1/stroke-data/<device>/<file>-->  graffux Worker  --R2 put-->  private bucket graffux-stroke-data
+app  --PUT /v1/stroke-data/<device>/<file>-->  graffux Worker  --R2 put-->  private bucket graffux
 ~~~
 
 The app only sends after the user declares they are 16 or older and switches on Settings → "Contribute
@@ -65,11 +65,13 @@ If abuse still shows up, the next step is Play Integrity attestation, which need
 It ships with the `graffux` Worker, so it deploys when that Worker does (Workers Builds on merge to
 `main`, or `npx wrangler deploy` from the repository root). One-time setup, **before** the deploy:
 
-1. Create the bucket: `npx wrangler r2 bucket create graffux-stroke-data`. Leave it private: no custom
-   domain, and r2.dev public access off. Then uncomment the `[[r2_buckets]]` block in the root
-   `wrangler.toml` and merge. It is commented out on purpose: that file builds the whole `graffux` Worker
-   (website included), and a binding to a missing bucket fails every Workers Build. Until it is on, the
-   relay answers 503 and the app keeps its files.
+1. The private R2 bucket `graffux` already exists and is bound as `STROKE_BUCKET` in the root
+   `wrangler.toml` (that file builds the whole `graffux` Worker, website included, so a binding to a
+   missing bucket would fail every Workers Build). Keep the bucket **private**: public access must stay
+   OFF (r2.dev subdomain disabled, no custom domain), because the privacy policy says this data is
+   private. The r2.dev URL was once enabled by mistake. Verify in the Cloudflare dashboard: R2 >
+   `graffux` > Settings > Public access: "Public Development URL" must be Disabled and "Custom Domains"
+   empty. Re-check after any bucket change.
 2. Make sure Workers Builds has an empty Build command (see the root `wrangler.toml`).
 3. Make sure `/v1/stroke-data/*` is reachable without logging in (Cloudflare Access on the Worker's
    `workers.dev` address redirects every request to a login page and no upload can succeed).
@@ -90,15 +92,15 @@ The Workers free plan allows 10 ms of CPU per request; the app keeps the file an
 R2 documents a `Headers` object as an `onlyIf` form, but not the `If-None-Match: *` wildcard by itself, so the
 relay also checks with `head()` first. Verify the behaviour once after the bucket exists: (1) upload a valid
 session with the test client twice (same name): the first answer is 201 `stored`, the second 200 `exists`;
-(2) `npx wrangler r2 object get graffux-stroke-data/stroke-data/<device>/<file> --file out.gz` and check it
+(2) `npx wrangler r2 object get graffux/stroke-data/<device>/<file> --file out.gz` and check it
 is the first upload's bytes; (3) watch `npx wrangler tail` for "conditional put may not be honoured". Until
 done, treat "never overwritten" as best effort, not a guarantee.
 
 ### Removal requests
 
-List the objects in the dashboard (R2, graffux-stroke-data, prefix `stroke-data/<device-model>/`; the
+List the objects in the dashboard (R2, graffux, prefix `stroke-data/<device-model>/`; the
 number in `session-<ms>.jsonl.gz` is the start time in epoch milliseconds) or with any S3 client. Delete
-each matching key: `npx wrangler r2 object delete graffux-stroke-data/stroke-data/<device>/<file>`. Then
+each matching key: `npx wrangler r2 object delete graffux/stroke-data/<device>/<file>`. Then
 remove the same sessions from the private Kaggle dataset (publish a new version without them and delete
 older versions that contain them).
 

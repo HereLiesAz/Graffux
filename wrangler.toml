@@ -2,15 +2,15 @@ name = "graffux"
 main = "workers/stroke-relay/src/index.js"
 compatibility_date = "2026-08-26"
 
-# Stroke relay storage: a PRIVATE R2 bucket (no public access, no custom domain, no r2.dev URL).
-# DELIBERATELY COMMENTED OUT. Workers Builds deploys this file for the whole `graffux` Worker (the website
-# too) and uploads versions for pull requests; a binding to a bucket that does not exist fails every one of
-# those builds. Until the binding is on, the relay answers 503 "store unavailable" and the app keeps its
-# files and retries, so nothing is lost or published. To turn it on: create the bucket
-# (`npx wrangler r2 bucket create graffux-stroke-data`), then uncomment these three lines and merge.
-# [[r2_buckets]]
-# binding = "STROKE_BUCKET"
-# bucket_name = "graffux-stroke-data"
+# Stroke relay storage: the PRIVATE R2 bucket `graffux` (no public access, no custom domain, no r2.dev
+# URL). Objects are keyed `stroke-data/<device-model>/session-<ms>.jsonl.gz`. The bucket exists. Workers
+# Builds deploys this file for the whole `graffux` Worker (the website too) and uploads versions for pull
+# requests, so a binding to a bucket that does not exist fails every one of those builds: do not rename
+# or delete the bucket without changing this block in the same change. Without the binding the relay
+# answers 503 "store unavailable" and the app keeps its files and retries.
+[[r2_buckets]]
+binding = "STROKE_BUCKET"
+bucket_name = "graffux"
 
 # 6 uploads per client address per minute, per Cloudflare location. The app uploads every pending
 # session file back to back and stops at the first failure, so a normal backlog fits.
