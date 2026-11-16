@@ -2,7 +2,8 @@
 
   python kaggle_upload.py DATA_DIR SCHEMA_MD
 
-DATA_DIR is the `stroke-data/` folder of the stroke-data branch (<device-model>/session-*.jsonl.gz);
+DATA_DIR is the `stroke-data/` folder mirrored from the private R2 bucket graffux-stroke-data
+(<device-model>/session-*.jsonl.gz);
 files are published flat as <device-model>__session-*.jsonl.gz.
 Credentials come from KAGGLE_TOKEN: a Kaggle API token string, or kaggle.json contents. The dataset
 id is KAGGLE_DATASET, else "<username>/graffux-stroke-data". Creates the dataset (private) the first
