@@ -169,7 +169,7 @@ python -m unittest discover -s tests -v
 
 The central workflow "Graffux · Stroke data → Kaggle" (HereLiesAz/workflows; this repository only
 carries the hand-off tracker `.github/workflows/stroke-data-kaggle.yml`) runs every 6 hours. It reads
-the **private** Cloudflare R2 bucket `graffux` (prefix `stroke-data/`, `.jsonl.gz` files
+the **private** Cloudflare R2 bucket `graffux-stroke-data` (prefix `stroke-data/`, `.jsonl.gz` files
 only) through the S3-compatible API with a read-only token, mirrors the objects into a local
 `stroke-data/` folder (`<device-model>/session-*.jsonl.gz`) and hands that folder to
 `kaggle_upload.py`, which publishes it to a **private** Kaggle dataset. The read-only R2 token
