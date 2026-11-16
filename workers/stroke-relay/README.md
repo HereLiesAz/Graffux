@@ -78,8 +78,10 @@ It ships with the `graffux` Worker, so it deploys when that Worker does (Workers
 4. Nothing GitHub-related is needed any more: the `GITHUB_TOKENS` service binding, the `GITHUB_TOKEN`
    secret, `GH_REPO` and `DATA_BRANCH` are gone. Delete a `GITHUB_TOKEN` secret if one was set; the
    central `RepositoryTokens.graffuxStrokeDataToken()` grant in HereLiesAz/workflows can be retired.
-5. The Kaggle mirror (`.github/workflows/stroke-data-kaggle.yml`, centrally maintained) reads the old
-   branch. Until the central workflow reads the bucket instead, the private dataset gets no new data.
+5. The Kaggle mirror (central workflow "Graffux · Stroke data → Kaggle", tracker in
+   `.github/workflows/stroke-data-kaggle.yml`) reads this bucket (prefix `stroke-data/`, `.jsonl.gz`
+   only) with a read-only R2 token held in the Graffux environment of HereLiesAz/workflows, and no
+   longer reads the old branch. See `tools/stroke-model/README.md`.
 
 The Workers free plan allows 10 ms of CPU per request; the app keeps the file and retries on a failure.
 

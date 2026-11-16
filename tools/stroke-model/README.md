@@ -20,7 +20,8 @@ recorded or uploaded until the user switches it on. Once on, every stroke is rec
 stroke relay (`workers/stroke-relay`), which stores them in a **private** R2 bucket under
 `stroke-data/<device-model>/`. Nothing is published, and the app holds no secret. Contribution also
 needs the user's one-time 16+ declaration (`StrokeContributionConsent`). Older data may still be on a
-public `stroke-data` branch until it is retired (see the relay README). See
+public `stroke-data` branch until it is retired (see the relay README); nothing reads that branch
+any more. See
 [`workers/stroke-relay/README.md`](../../workers/stroke-relay/README.md) to deploy it.
 
 Rooted devices can also record the raw capacitive touch image: Settings → Raw touch heatmap (root),
@@ -166,16 +167,33 @@ python -m unittest discover -s tests -v
 
 ## Kaggle mirror
 
-**Currently not running against the private store.** The workflow below reads the old public
-`stroke-data` branch, and no pipeline copies the private bucket to Kaggle yet; until one lands (in
-HereLiesAz/workflows) there is no automatic Kaggle copy and the privacy policy says so.
+The central workflow "Graffux · Stroke data → Kaggle" (HereLiesAz/workflows; this repository only
+carries the hand-off tracker `.github/workflows/stroke-data-kaggle.yml`) runs every 6 hours. It reads
+the **private** Cloudflare R2 bucket `graffux-stroke-data` (prefix `stroke-data/`, `.jsonl.gz` files
+only) through the S3-compatible API with a read-only token, mirrors the objects into a local
+`stroke-data/` folder (`<device-model>/session-*.jsonl.gz`) and hands that folder to
+`kaggle_upload.py`, which publishes it to a **private** Kaggle dataset. The read-only R2 token
+(`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) and the Kaggle token are held as
+secrets in the Graffux environment of HereLiesAz/workflows, not in this repository. The old public
+`stroke-data` branch is no longer read; there is no fallback to it.
 
-`.github/workflows/stroke-data-kaggle.yml` copies the stroke data to a **private** Kaggle
-dataset every 6 hours (or on demand from the Actions tab), via `kaggle_upload.py`. It needs the
-`KAGGLE_TOKEN` repository secret (a Kaggle API token, or `kaggle.json` contents). If the token is a bare API token, the workflow defaults the Kaggle username to `hereliesaz`.
-Set `KAGGLE_USERNAME` only to override that account, or set the full `KAGGLE_DATASET`
-(`owner/slug`) to override the destination entirely. Default dataset:
+A new dataset version is published only when the mirrored content changed. The run still finishes
+successfully, with a notice and no upload, when the R2 secrets are absent, the bucket is empty, or the
+content is unchanged since the last upload. The Kaggle username defaults to `hereliesaz` for a bare API
+token; the destination can be overridden with `KAGGLE_DATASET` (`owner/slug`). Default dataset:
 `hereliesaz/graffux-stroke-data`.
+
+Two consequences to keep in mind:
+
+- **A Kaggle dataset version replaces the whole file set.** The bucket must therefore hold every
+  session that should stay in the dataset. Backfill: before relying on the mirror, make sure older
+  sessions (for example ones moved out of the retired public branch) have been uploaded to the bucket
+  under the same `stroke-data/<device-model>/` keys; anything missing from the bucket is missing from
+  the next version.
+- **Removal.** Delete the matching keys in the bucket first, then remove those sessions from the
+  Kaggle dataset (publish a version without them and delete older versions that contain them). The
+  steps are in "Removal requests" in
+  [`workers/stroke-relay/README.md`](../../workers/stroke-relay/README.md).
 
 ~~~
 kaggle datasets download <username>/graffux-stroke-data --unzip -p data/
