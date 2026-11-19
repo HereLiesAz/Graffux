@@ -25,7 +25,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** The recent-colours grid: tap uses, hold deletes (a buzz and "Deleted #RRGGBB"), TalkBack has Delete, 48dp targets. */
+/**
+ * The recent-colours grid: tap uses, hold deletes (a buzz and "Deleted #RRGGBB"), TalkBack has Delete, and
+ * every swatch is a 48dp target.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi", application = Application::class)
 class RecentColorGridUiTest {
