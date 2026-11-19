@@ -5,7 +5,6 @@ import com.hereliesaz.graffitixr.common.model.EditorUiState
 import com.hereliesaz.graffitixr.common.model.Layer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,7 +13,7 @@ import kotlin.math.sin
 
 /**
  * The pure logic behind the Procreate-parity features: brush dynamics determinism (live == replay),
- * QuickShape recognition, and the symmetry / alpha-lock / eyedropper reducer transitions.
+ * QuickShape recognition, and the symmetry / alpha-lock reducer transitions.
  */
 class ProcreateParityTest {
 
@@ -121,18 +120,5 @@ class ProcreateParityTest {
         val out = EditorReducer.reduce(s, EditorIntent.ToggleAlphaLock("b"))
         assertFalse(out.layers.first { it.id == "a" }.alphaLock)
         assertTrue(out.layers.first { it.id == "b" }.alphaLock)
-    }
-
-    @Test
-    fun `SetEyedrop end clears the sampled colour`() {
-        val sampling = EditorReducer.reduce(
-            EditorUiState(),
-            EditorIntent.SetEyedrop(active = true, color = androidx.compose.ui.graphics.Color.Red, position = Offset(5f, 6f)),
-        )
-        assertTrue(sampling.isEyedropping)
-        assertNotNull(sampling.eyedropColor)
-        val done = EditorReducer.reduce(sampling, EditorIntent.SetEyedrop(active = false))
-        assertFalse(done.isEyedropping)
-        assertNull(done.eyedropColor)
     }
 }

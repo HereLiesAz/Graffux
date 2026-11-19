@@ -93,7 +93,7 @@ private enum class MixerTool(val label: String, val hint: String) {
 /**
  * The board operations the mixer's gestures perform, and what each does to the editor's colour. **Board-only**
  * operations (squeezing a tube) just redraw: they never apply a colour, because the editor's colour may have been
- * set since (the eyedropper) and does not come from the brush. Operations that change what the brush holds
+ * set since (the picker) and does not come from the brush. Operations that change what the brush holds
  * (dip, mix) redraw and apply the brush's colour.
  */
 internal class MixerOps(
@@ -183,7 +183,7 @@ internal fun describeRecipe(r: PaletteBoard.Recipe): String {
  * and wetness and load are felt, never shown as sliders.
  *
  * Small "Digital" affordances stay, labelled as such: type a hex colour and the palette finds the
- * nearest tube mix and loads it (saying how far off it is); the canvas eyedropper is unchanged.
+ * nearest tube mix and loads it (saying how far off it is).
  */
 @Suppress("FunctionNaming", "LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 @Composable

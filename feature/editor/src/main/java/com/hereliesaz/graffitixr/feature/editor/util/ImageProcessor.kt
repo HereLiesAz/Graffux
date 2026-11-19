@@ -269,7 +269,7 @@ object ImageProcessor {
             // Visited set. Without it a fill whose own colour is within tolerance of the
             // seed never terminates: a pixel already written to fillColor still `matches`,
             // so each row re-tests and re-pushes its neighbours forever and the stack grows
-            // until the process dies. Reachable by eyedropping a colour and nudging it
+            // until the process dies. Reachable by picking a colour and nudging it
             // slightly — 0xFF000000 seed, 0xFF050505 fill, default tolerance 32.
             val seen = BooleanArray(w * h)
 

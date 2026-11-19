@@ -35,10 +35,20 @@ class PredictionRankingFeedTest {
     private val prefs = ApplicationProvider.getApplicationContext<Context>()
         .getSharedPreferences(PredictionTournament.SOLO_PREFS, Context.MODE_PRIVATE)
 
-    private fun stroke() = rule.onRoot().performTouchInput {
-        down(Offset(50f, 100f))
-        for (i in 1..20) moveTo(Offset(50f + i * 12f, 100f + i * 8f))
-        up()
+    // A finger takes frames to draw a stroke. Each move is followed by a frame, as a real stroke has; the gesture
+    // loop used to wait on a timer here (the long-press sampler's), which let frames pass by accident.
+    private fun stroke() {
+        // The canvas's frame meter asks for a frame for as long as the stroke is down, which would keep
+        // an auto-advancing clock from ever going idle: step the clock by hand until the finger is up.
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performTouchInput { down(Offset(50f, 100f)) }
+        for (i in 1..20) {
+            rule.onRoot().performTouchInput { moveTo(Offset(50f + i * 12f, 100f + i * 8f)) }
+            rule.mainClock.advanceTimeByFrame()
+        }
+        rule.onRoot().performTouchInput { up() }
+        rule.mainClock.advanceTimeByFrame()
+        rule.mainClock.autoAdvance = true
     }
 
     @Test
@@ -59,9 +69,6 @@ class PredictionRankingFeedTest {
                 onStrokeEnd = {},
                 onStrokeCancel = {},
                 onFillTap = { _, _ -> },
-                onEyedropStart = {},
-                onEyedropSample = {},
-                onEyedropEnd = {},
                 onPredictionRanked = { report, _ -> reports += report },
             )
         }

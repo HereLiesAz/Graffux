@@ -157,9 +157,9 @@ priced is not recorded anywhere I could read; the owner has said they are free (
 | Primary tool | An HSV disc plus brightness slider, an opacity slider and a hex field | `feature/editor/.../SketchToolsDialog.kt:70-130` (decomposes the working colour to HSV with `android.graphics.Color.RGBToHSV`), `:189-231` (`ColorWheel`), `:269` (`color.alpha`), `:277-313` (`HexField`) |
 | Modes | Disc, Harmony, Palettes, "mirroring Procreate's Disc / Harmony / Palettes tabs" | `SketchToolsDialog.kt:51-53`; harmony partners from hue (`:131`) |
 | What a colour is | One ARGB int. No pigment identity, no opacity-vs-tint distinction, no mixture | `core/common/.../model/EditorModels.kt:726-728` (`activeColor: Color`, `secondaryColor: Color`) |
-| Palette storage | Ordered list of ARGB ints, max 120, comma-joined hex in one preference string | `core/common/.../util/PaletteCodec.kt:16-48`; `RecentColors.kt` (12 recents) |
+| Palette storage | Ordered list of ARGB ints, max 120, comma-joined hex in one preference string | `core/common/.../util/PaletteCodec.kt:16-48`; `RecentColors.kt` (24 recent colours, kept across restarts; the Colour sheet's grid) |
 | Palette semantics | A swatch is a colour to select. Nothing is mixed, nothing depletes, nothing is named | `PalettesTab`, `SketchToolsDialog.kt:360` |
-| Eyedropper | Present in the editor | `EditorViewModel.kt`, `DrawingCanvas.kt` (an eyedropper intent exists; touch-and-hold opens it per `spec/stroke-program.md` "Time ticks") |
+| Eyedropper | None on the canvas: the long-press sampler was removed (it silently changed the current colour). The photo HSL tool has its own armed eyedropper (`spec/photo-adjustments.md`) | `DrawingCanvas.kt` has no long-press gesture |
 | Mixing | None in the picker. Material mixing exists only inside Color Smudge (`PIGMENT_RYB`) | `E/MaterialColor.kt` |
 | Accessibility present | Swatch content descriptions with hex (`SketchToolsDialog.kt:161,450`); 48 dp swatch targets (`:145,442`); opacity slider has a description (`:267`) | as cited |
 | Accessibility gaps | Hue is the only primary axis (no non-colour cue); no colour-name readout beyond hex; no colour-vision-safe affordance; wheel is 240 dp fixed and drag-only | `:195` |
@@ -1112,7 +1112,15 @@ Both are bounded per dab.
 brush, and a second rail tap closes it. Its saturation/brightness field is relative to the
 currently selected foreground/background colour, which always sits at the centre; a drag
 starts from that colour rather than a white/black corner. The hue strip likewise centres
-the current hue, and the hex entry permits exact values. Installing a brush pack that declares a supported `contributes.paletteTools` capability
+the current hue, and the hex entry permits exact values (3 or 6 digits, with or without `#`; a valid value
+applies at once and an invalid one leaves the colour alone and is marked invalid). There is no Apply or Swap button: every
+move applies live. There is one brush colour in the sheet; the sheet has no background-colour circle. Below the
+hex field a grid of **recent colours** (newest first, at most 24, no duplicates, kept across restarts) records a colour when
+its drag ends, a valid hex rests for a moment, or a stroke is first painted with it. Tap a swatch to use it; press and hold to delete
+it (a buzz and a brief "Deleted #RRGGBB" line, no dialog; TalkBack has a "Delete" action). Swatches are 48 dp targets with the hex as
+their description. The sheet sits between the tool rail and the layers rail (it never draws under either) and the rotation
+triangle is hidden while it is open. The rail's colour item grows from 44 dp to 50 dp (the most the pill holds) while the sheet is
+open, animated unless the system's animator scale is off. Installing a brush pack that declares a supported `contributes.paletteTools` capability
 and contains a painterly brush adds the separate **Wet paint mixer** action. It remains
 available regardless of which brush is selected; uninstalling its last provider removes it. Returning from that
 mixer goes back to the picker without losing its board state. The physical board remains

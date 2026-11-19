@@ -39,6 +39,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hereliesaz.graffitixr.design.theme.Amber
@@ -158,13 +159,15 @@ internal fun RailButton(
     announceSelected: Boolean = true,
     /** Gestures and semantics beyond the click (the wire-mesh button's depth drag), after the click so a drag cancels it. */
     extra: Modifier = Modifier,
+    /** The drawn button's size; the touch target grows with it ([railTouchSize]). The colour item enlarges while its sheet is open. */
+    faceSize: Dp = RailButtonSize,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(RailTouchSize)
+            .size(railTouchSize(faceSize))
             // Null when the caller handles the touch itself (a layer row, which also drags).
             // No onClickLabel: it repeated the label ("Undo, button, double tap to Undo").
             .then(
@@ -184,17 +187,23 @@ internal fun RailButton(
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .alpha(if (enabled) 1f else DISABLED_ALPHA),
     ) {
-        RailButtonFace(light, accent, badge, content)
+        RailButtonFace(light, accent, badge, faceSize, content)
     }
 }
 
 @Suppress("FunctionNaming")
 @Composable
-private fun RailButtonFace(light: RailLight, accent: Color, badge: String?, content: @Composable BoxScope.() -> Unit) {
+private fun RailButtonFace(
+    light: RailLight,
+    accent: Color,
+    badge: String?,
+    faceSize: Dp,
+    content: @Composable BoxScope.() -> Unit,
+) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(RailButtonSize)
+            .size(faceSize)
             .clip(ButtonShape)
             .background(if (light.active) accent.copy(alpha = ACTIVE_FILL_ALPHA) else Color.Transparent)
             .border(

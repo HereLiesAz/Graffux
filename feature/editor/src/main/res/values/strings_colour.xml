@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Colour sheet: the hex field, and the recent-colours grid. -->
+    <string name="colour_hex_label">Hex</string>
+    <string name="colour_hex_invalid">Not a colour: use 3 or 6 hex digits, like #F0A or #FF00AA</string>
+    <string name="colour_recent_heading">Recent colours</string>
+    <string name="colour_recent_empty">Colours you use appear here. Tap one to use it again; press and hold one to delete it.</string>
+    <string name="colour_recent_swatch">%1$s</string>
+    <string name="colour_recent_swatch_current">%1$s, current colour</string>
+    <string name="colour_recent_use">Use this colour</string>
+    <string name="colour_recent_delete">Delete</string>
+    <string name="colour_recent_deleted">Deleted %1$s</string>
+</resources>
