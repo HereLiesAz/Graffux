@@ -1356,6 +1356,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             heroExpansion.collapse()
                             carouselUi = carouselUi.copy(sheetOpen = true, photo = false).withSet(group)
                         },
+                        onGetMore = openAzphaltStore,
                         closeWhen = { strokeGate.strokeActive },
                     )
                 }

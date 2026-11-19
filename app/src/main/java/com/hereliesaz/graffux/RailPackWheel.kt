@@ -147,6 +147,12 @@ internal class PackWheelState {
     fun toggle() { if (open) close() else open = true }
     fun close() { if (!pinned) open = false }
 
+    /** Shuts the wheel even while the brush sheet holds it up; the sheet's next change re-pins it. */
+    fun dismiss() {
+        pinned = false
+        open = false
+    }
+
     /** The sheet came up or went away: the wheel opens with it, or shuts with it. */
     fun pinTo(sheetUp: Boolean) {
         pinned = sheetUp
@@ -334,6 +340,7 @@ internal fun RailPackWheel(
     opensRight: Boolean,
     onPick: (CarouselTabGroup) -> Unit,
     modifier: Modifier = Modifier,
+    onGetMore: () -> Unit = {},
     closeWhen: () -> Boolean = { false },
 ) {
     val currentClose by rememberUpdatedState(closeWhen)
@@ -359,7 +366,10 @@ internal fun RailPackWheel(
         state.hubInRoot = layout.hub + at
         state.radiusPx = layout.radius
         state.opensRight = opensRight
-        PackWheelDisc(layout, sets, labels, selectedKey, onPick, onClose = state::close)
+        PackWheelDisc(
+            layout, sets, labels, selectedKey, onPick, onGetMore,
+            onClose = state::close, onDismiss = state::dismiss,
+        )
     }
 }
 
@@ -371,12 +381,18 @@ private fun PackWheelDisc(
     labels: Map<String, String>,
     selectedKey: String?,
     onPick: (CarouselTabGroup) -> Unit,
+    onGetMore: () -> Unit,
     onClose: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val packWheelDescription = stringResource(R.string.pack_wheel_description)
     val selectLabel = stringResource(R.string.wheel_select_action)
+    val getMoreText = stringResource(R.string.wheel_get_more)
+    val getMoreDescription = stringResource(R.string.wheel_get_more_description)
+    val getMoreAction = stringResource(R.string.wheel_get_more_action)
     val opensRight = layout.opensRight
-    val count = sets.size
+    val slots = remember(sets.size) { packWheelSlots(sets.size) }
+    val count = slots.size
     val selectedIndex = sets.indexOfFirst { it.key == selectedKey }.coerceAtLeast(0)
     val position = remember { mutableFloatStateOf(selectedIndex.toFloat()) }
     val scope = rememberCoroutineScope()
@@ -384,12 +400,25 @@ private fun PackWheelDisc(
     val currentPick by rememberUpdatedState(onPick)
     val currentClose by rememberUpdatedState(onClose)
     val currentSets by rememberUpdatedState(sets)
+    val currentGetMore by rememberUpdatedState(onGetMore)
+    val currentDismiss by rememberUpdatedState(onDismiss)
     val currentSelected by rememberUpdatedState(selectedIndex)
     val motion = remember { PackMotion() }
 
-    fun commit(index: Int) {
-        currentSets.getOrNull(index)?.let(currentPick)
-        motion.committed = index
+    // [explicit] is a tap or an accessibility click; a dwell is not, and never opens the store.
+    fun commit(index: Int, explicit: Boolean) {
+        when (val action = routePackSlot(slots[index], explicit)) {
+            is PackWheelAction.Pick -> {
+                currentSets.getOrNull(action.index)?.let(currentPick)
+                motion.committed = index
+            }
+            // The brush in hand is left alone: the wheel shuts and the store view comes up.
+            PackWheelAction.OpenStore -> {
+                currentGetMore()
+                currentDismiss()
+            }
+            PackWheelAction.None -> Unit
+        }
     }
 
     // Turns to [target]. A tap commits at once (even the pack already pointed at: it brings the sheet
@@ -398,7 +427,7 @@ private fun PackWheelDisc(
     fun settleTo(landing: Int, commitNow: Boolean, close: Boolean = true) {
         motion.job?.cancel()
         val target = wrapIndex(landing, count)
-        if (commitNow) commit(target)
+        if (commitNow) commit(target, explicit = true)
         motion.job = scope.launch {
             val spec = spring<Float>(Spring.DampingRatioLowBouncy)
             animate(position.floatValue, landing.toFloat(), animationSpec = spec) { v, _ ->
@@ -407,9 +436,10 @@ private fun PackWheelDisc(
             position.floatValue = target.toFloat() // the same spot on the ring, kept small
             if (!commitNow) {
                 delay(WHEEL_DWELL_MS)
-                if (target != (motion.committed ?: currentSelected)) commit(target)
+                if (target != (motion.committed ?: currentSelected)) commit(target, explicit = false)
             }
-            if (close) {
+            // Resting on a blank place or on "Get More" shuts nothing: the turn goes on from there.
+            if (close && slots[target] is PackWheelSlot.Pack) {
                 delay(PACK_WHEEL_CLOSE_MS)
                 currentClose()
             }
@@ -441,9 +471,15 @@ private fun PackWheelDisc(
     val colors = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
     val baseStyle = MaterialTheme.typography.labelLarge
-    val layouts: List<Pair<TextLayoutResult, TextLayoutResult>> = remember(sets, labels, nameMax, baseStyle) {
-        sets.map { set ->
-            val text = labels[set.key] ?: set.label
+    val layouts: List<Pair<TextLayoutResult, TextLayoutResult>?> = remember(
+        sets, labels, nameMax, baseStyle, getMoreText,
+    ) {
+        slots.map { slot ->
+            val text = when (slot) {
+                is PackWheelSlot.Pack -> sets[slot.index].let { labels[it.key] ?: it.label }
+                PackWheelSlot.GetMore -> getMoreText
+                PackWheelSlot.Empty -> return@map null
+            }
             fun measure(bold: Boolean) = measurer.measure(
                 text, if (bold) baseStyle.copy(fontWeight = FontWeight.Bold) else baseStyle,
                 overflow = TextOverflow.Ellipsis, maxLines = 1,
@@ -457,7 +493,7 @@ private fun PackWheelDisc(
     fun onDisc(p: Offset) = onHalfDisc(p - hub, radius, opensRight)
     fun move(by: Int) {
         val from = motion.committed ?: currentSelected
-        val target = wrapIndex(from + by, count)
+        val target = steppedPack(from, by, currentSets.size)
         // Stepped through with TalkBack: commits each, and stays up for the next step.
         if (target != from) {
             settleTo(packLandingFor(target, position.floatValue, count), commitNow = true, close = false)
@@ -485,7 +521,7 @@ private fun PackWheelDisc(
                 selectableGroup()
                 contentDescription = packWheelDescription
                 packWheelRadiusPx = radius
-                collectionInfo = CollectionInfo(rowCount = count, columnCount = 1)
+                collectionInfo = CollectionInfo(rowCount = sets.size + 1, columnCount = 1)
                 customActions = listOf(
                     CustomAccessibilityAction("Next pack") { move(1); true },
                     CustomAccessibilityAction("Previous pack") { move(-1); true },
@@ -522,10 +558,10 @@ private fun PackWheelDisc(
             .pointerInput(count, opensRight, radius) {
                 detectTapGestures { tap ->
                     if (!onDisc(tap) || hypot(tap.x - hub.x, tap.y - hub.y) < capPx) return@detectTapGestures
-                    settleTo(
-                        packIndexAt(angleOf(tap), position.floatValue, opensRight).roundToInt(),
-                        commitNow = true,
-                    )
+                    val landing = packIndexAt(angleOf(tap), position.floatValue, opensRight).roundToInt()
+                    // A blank place does nothing, not even turn the wheel.
+                    if (slots[wrapIndex(landing, count)] is PackWheelSlot.Empty) return@detectTapGestures
+                    settleTo(landing, commitNow = true)
                 }
             },
     ) {
@@ -585,10 +621,11 @@ private fun PackWheelDisc(
                 strokeWidth = 3.dp.toPx(),
             )
             for (slot in packVisibleSlots(pos)) {
-                val (plain, bold) = layouts[wrapIndex(slot, count)]
+                val names = layouts[wrapIndex(slot, count)] // null: a blank place
                 val spoke = packSlotDegrees(slot, pos, opensRight)
                 val off = abs(angleDelta(pointer, spoke))
-                if (off > PACK_VISIBLE_DEGREES) continue
+                if (names == null || off > PACK_VISIBLE_DEGREES) continue
+                val (plain, bold) = names
                 val lit = (slot - pos) in -0.5f..0.5f
                 val text = if (lit) bold else plain
                 val fade = (1f - (off / PACK_VISIBLE_DEGREES).let { it * it } * 0.6f)
@@ -606,7 +643,7 @@ private fun PackWheelDisc(
         val itemR = textIn + nameMax / 2
         sets.forEachIndexed { i, set ->
             val label = labels[set.key] ?: set.label
-            val cut = layouts[i].second.isLineEllipsized(0)
+            val cut = layouts[i]?.second?.isLineEllipsized(0) == true
             Box(
                 Modifier
                     .offset {
@@ -632,6 +669,35 @@ private fun PackWheelDisc(
                         }
                     }
                     .testTag("rail.packwheel.item"),
+            )
+        }
+        // "Get More", reachable like the packs: its own node on its name, same size, one place after
+        // the last. The blank places either side have no node at all.
+        val getMoreAt = slots.indexOf(PackWheelSlot.GetMore)
+        if (getMoreAt >= 0) {
+            Box(
+                Modifier
+                    .offset {
+                        val deg = packPointerDegrees(opensRight) +
+                            packDirection(opensRight) * packNodeOffset(getMoreAt, position.floatValue, count) *
+                            PACK_WEDGE_DEGREES
+                        val spoke = deg * (PI / HALF_TURN).toFloat()
+                        IntOffset(
+                            (hub.x + itemR * cos(spoke) - itemPx / 2).roundToInt(),
+                            (hub.y + itemR * sin(spoke) - itemPx / 2).roundToInt(),
+                        )
+                    }
+                    .size(itemSize)
+                    .semantics {
+                        contentDescription = getMoreDescription
+                        role = Role.Button
+                        collectionItemInfo = CollectionItemInfo(sets.size, 1, 0, 1)
+                        onClick(label = getMoreAction) {
+                            settleTo(packLandingFor(getMoreAt, position.floatValue, count), commitNow = true)
+                            true
+                        }
+                    }
+                    .testTag("rail.packwheel.getmore"),
             )
         }
     }
