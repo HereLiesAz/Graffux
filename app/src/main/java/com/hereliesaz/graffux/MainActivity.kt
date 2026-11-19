@@ -859,7 +859,12 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         TOOLBOX_IDS.filter { railExpansion[it] == true }.forEach { vm.onRailHostExpansionChanged(it, false) }
     }
     // The rail is docked on the brush hand's side; floating windows keep clear of it.
-    val railInset = RailInset(dockedOnLeft = uiState.isRightHanded, width = RailWidth + RailEdgeGap * 2)
+    // Each rail's own width plus the gap beside it: a sheet between the rails clears each by exactly that.
+    val railInset = RailInset(
+        dockedOnLeft = uiState.isRightHanded,
+        toolWidth = ToolRailWidth + RailEdgeGap * 2,
+        layersWidth = LayersRailWidth + RailEdgeGap * 2,
+    )
     val toolRailActions = remember(vm) { vm.toolRailActions() }
     val toolSide = if (uiState.isRightHanded) Alignment.CenterStart else Alignment.CenterEnd
     val layerSide = if (uiState.isRightHanded) Alignment.CenterEnd else Alignment.CenterStart

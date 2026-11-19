@@ -23,15 +23,6 @@ fun removeRecentColor(recent: List<Color>, color: Color): List<Color> {
     return recent.filter { it.toArgb() != argb }
 }
 
-/**
- * The list [recent] (this run's, newest first) over [stored] (what an earlier run saved): the
- * stored colours follow, minus any already in [recent], capped at [max].
- */
-fun mergeRecentColors(recent: List<Color>, stored: List<Color>, max: Int = RECENT_COLORS_MAX): List<Color> {
-    val seen = recent.mapTo(HashSet()) { it.toArgb() }
-    return (recent + stored.filter { seen.add(it.toArgb()) }).take(max)
-}
-
 /** [colors] as the text the settings store keeps: eight hex digits each, comma-separated, in order. */
 fun encodeRecentColors(colors: List<Color>): String = colors.joinToString(",") { "%08X".format(it.toArgb()) }
 

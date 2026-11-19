@@ -39,7 +39,10 @@ class AuditFixesEditorTest {
         val blue = Color(0xFF0000FF)
         assertEquals(listOf(blue, red), pushRecentColor(listOf(red), blue))
         assertEquals(listOf(red, blue), pushRecentColor(listOf(blue, red), red))
-        val many = (0 until 20).fold(emptyList<Color>()) { acc, i -> pushRecentColor(acc, Color(0xFF000000 or i.toLong())) }
+        // Past the cap, whatever the cap is: the test follows RECENT_COLORS_MAX instead of restating it.
+        val many = (0 until RECENT_COLORS_MAX + 6).fold(emptyList<Color>()) { acc, i ->
+            pushRecentColor(acc, Color(0xFF000000 or i.toLong()))
+        }
         assertEquals(RECENT_COLORS_MAX, many.size)
     }
 

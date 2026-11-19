@@ -891,11 +891,11 @@ class EditorViewModel @Inject constructor(
     /** The first-PNG save of each plane layer, so deleting that PNG waits for it. */
     private val planeLayerSaves = HashMap<String, kotlinx.coroutines.Job>()
 
-    // Declared above the first init block: the settings collector in an init block writes it.
-    private val _recentColors = MutableStateFlow<List<Color>>(emptyList())
+    // Declared above the first init block: the settings collector and writer in an init block use it.
+    private val recentColorStore = RecentColorStore { encoded -> settingsRepository.setRecentColors(encoded) }
 
     /** The Colour sheet's recent colours, newest first (at most [RECENT_COLORS_MAX]), kept across restarts. */
-    val recentColors: StateFlow<List<Color>> = _recentColors.asStateFlow()
+    val recentColors: StateFlow<List<Color>> = recentColorStore.colors
 
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
@@ -1393,7 +1393,7 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** Screen to world, undoing the viewport camera (the viewport camera's inverse). */
+    /** Screen to world: a screen point mapped back through the viewport camera's pan, zoom and rotation. */
     private fun screenToWorld(position: Offset): Pair<Int, Int> {
         val st = _uiState.value
         val rad = Math.toRadians(-st.viewportRotation.toDouble())
@@ -2627,12 +2627,12 @@ class EditorViewModel @Inject constructor(
                 .distinctUntilChanged { a, b -> a.first == b.first && a.second === b.second }
                 .collect { schedulePrewarm() }
         }
-        // The recent colours saved by an earlier run sit under any committed since this one began.
+        // The recent colours saved by an earlier run: commits and deletes made before they arrive are replayed
+        // over them, and nothing is written until they are in (see RecentColorStore).
         viewModelScope.launch(dispatchers.main) {
-            settingsRepository.recentColors.take(1).collect { stored ->
-                _recentColors.update { mergeRecentColors(it, decodeRecentColors(stored)) }
-            }
+            settingsRepository.recentColors.take(1).collect { stored -> recentColorStore.onLoaded(stored) }
         }
+        viewModelScope.launch(dispatchers.io) { recentColorStore.runWriter() }
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
                 dispatch(EditorIntent.SetCanvasBackground(Color(argb.toLong() and 0xFFFFFFFFL)))
@@ -17171,21 +17171,12 @@ class EditorViewModel @Inject constructor(
      * with it): it goes to the front of the recent colours, without a duplicate, and is saved.
      */
     fun onColorCommitted(color: Color) {
-        val opaque = color.copy(alpha = 1f)
-        if (_recentColors.value.firstOrNull() == opaque) return
-        _recentColors.update { pushRecentColor(it, opaque) }
-        saveRecentColors()
+        recentColorStore.commit(color)
     }
 
     /** Removes [color] from the recent colours (a long-press on its swatch) and saves the rest. */
     fun onRecentColorDeleted(color: Color) {
-        _recentColors.update { removeRecentColor(it, color) }
-        saveRecentColors()
-    }
-
-    private fun saveRecentColors() {
-        val encoded = encodeRecentColors(_recentColors.value)
-        viewModelScope.launch(dispatchers.io) { settingsRepository.setRecentColors(encoded) }
+        recentColorStore.delete(color)
     }
 
     override fun onFlattenAllLayers() {

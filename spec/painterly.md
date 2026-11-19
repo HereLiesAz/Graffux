@@ -1111,18 +1111,24 @@ Both are bounded per dab.
 **Picker vs mixer (Android):** The rail colour opens a new touch-first colour picker for every
 brush, and a second rail tap closes it. Its saturation/brightness field is relative to the
 currently selected foreground/background colour, which always sits at the centre; a drag
-starts from that colour rather than a white/black corner. The hue strip likewise centres
-the current hue, and the hex entry permits exact values (3 or 6 digits, with or without `#`; a valid value
-applies at once and an invalid one leaves the colour alone and is marked invalid). There is no Apply or Swap button: every
-move applies live. There is one brush colour in the sheet; the sheet has no background-colour circle. Below the
+starts from that colour rather than a white/black corner. The field is always square: as wide as the sheet allows
+up to 280 dp (`PickerPlaneMax`), so on a 360 dp phone, with both rails clear, it is about 150 dp a side. The hue strip likewise centres
+the current hue, and the hex entry permits exact values (3, 6 or 8 digits, with or without `#`; the eight carry their own
+alpha, the other two keep the brush's opacity). A valid six- or eight-digit value applies at once; a three-digit value
+applies after a short rest (`HEX_SHORT_REST_MS`), because it is also the start of a six-digit one (`FF00AA` passes through
+`FF0`, which is yellow). An invalid value leaves the colour alone and is marked invalid, and the error names the three
+lengths. The **Colour sheet** has no Apply button, no Swap button and no colour circles: every move applies live, and there
+is one brush colour in it, with no background colour. Below the
 hex field a grid of **recent colours** (newest first, at most 24, no duplicates, kept across restarts) records a colour when
-its drag ends, a valid hex rests for a moment, or a stroke is first painted with it. Tap a swatch to use it; press and hold to delete
+its drag ends, a valid hex has rested (`HEX_COMMIT_DELAY_MS`) or the sheet closes on it, or a stroke is first painted with it. Tap a swatch to use it; press and hold to delete
 it (a buzz and a brief "Deleted #RRGGBB" line, no dialog; TalkBack has a "Delete" action). Swatches are 48 dp targets with the hex as
 their description. The sheet sits between the tool rail and the layers rail (it never draws under either) and the rotation
 triangle is hidden while it is open. The rail's colour item grows from 44 dp to 50 dp (the most the pill holds) while the sheet is
 open, animated unless the system's animator scale is off. Installing a brush pack that declares a supported `contributes.paletteTools` capability
 and contains a painterly brush adds the separate **Wet paint mixer** action. It remains
-available regardless of which brush is selected; uninstalling its last provider removes it. Returning from that
+available regardless of which brush is selected; uninstalling its last provider removes it. The mixer is its own
+surface and keeps what belongs to it: its **Swap** (which swaps the two brushes' paint and colours) and its background
+hand. Only the Colour sheet lacks them. Returning from that
 mixer goes back to the picker without losing its board state. The physical board remains
 project-owned and its brush loads remain reserved for painterly strokes.
 
@@ -1179,7 +1185,7 @@ should be physical.
 | **Undo / redo** | Physically impossible; the central digital gift. Material-aware undo already exists (status doc Phase 5). |
 | **Infinite, instant palette cleaning** (a "clean board" action) | Real boards need scraping; here it is a single tap. Using a tube still spends paint (6.3). |
 | **Unlimited tube refills** | A tube is a mark of a physical limit, but running out of paint mid-stroke is not the experience the app should enforce at scale. Refill is free. |
-| **Eyedropper from the canvas and from a reference photo** | A painter matches colour by eye and mixing; sampling is impossible and useful. The sampled colour (or typed hex) becomes a **target** shown beside the brush, plus the engine's best **recipe** of tubes (6.5), rather than a magic colour. It does not paint the picked colour directly. |
+| **Eyedropper from a reference photo, and hex entry** | A painter matches colour by eye and mixing; sampling is impossible and useful. A colour sampled from a reference photo (or a typed hex) becomes a **target** shown beside the brush, plus the engine's best **recipe** of tubes (6.5), rather than a magic colour. It does not paint the picked colour directly. There is no sampler on the canvas itself: the canvas long-press was removed and no gesture there changes the brush colour. |
 | **Layers, blend modes, masks, selections** | Not paint. Not the painterly scope. Retained as-is. |
 | **Reference overlays, tracing** | The app's core purpose in the wider product. Retained. |
 | **Symmetry, transforms** | Impossible with a brush; keep. |
@@ -1190,8 +1196,8 @@ should be physical.
 
 **The physical palette/mixer replaces the current colour picker entirely (decision 2).** The HSV
 disc, Harmony tab, free-floating opacity slider and the saved-ARGB swatch list are removed. The only
-survivors are small, clearly labelled **"Digital"** affordances: the eyedropper (from the reference
-or canvas, returning a recipe, 6.5) and **hex entry** (trivially cheap; it also returns a recipe, and
+survivors are small, clearly labelled **"Digital"** affordances: the eyedropper (from a reference
+photo, returning a recipe, 6.5) and **hex entry** (trivially cheap; it also returns a recipe, and
 says when the nearest tube mixture is off). Existing saved palettes (`PaletteCodec`) are migrated by
 treating each saved ARGB as an eyedropper target and storing its recipe, so no user's swatches are
 lost (the original ARGB is kept next to the recipe for exactness). A project whose strokes record

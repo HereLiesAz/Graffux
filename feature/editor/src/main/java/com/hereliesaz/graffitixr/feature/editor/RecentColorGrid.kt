@@ -92,8 +92,8 @@ fun RecentColorGrid(
                                     colour = colour,
                                     current = colour.toArgb() == selected.copy(alpha = 1f).toArgb(),
                                     onPick = { onPick(colour) },
-                                    onDelete = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDelete = { buzz ->
+                                        if (buzz) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         deleted = deletedFormat.format(hexOf(colour))
                                         onDelete(colour)
                                     },
@@ -119,7 +119,7 @@ fun RecentColorGrid(
 /** One swatch: a [RECENT_SWATCH_TOUCH] target round a smaller circle. Tap uses it; hold or TalkBack deletes. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecentSwatch(colour: Color, current: Boolean, onPick: () -> Unit, onDelete: () -> Unit) {
+private fun RecentSwatch(colour: Color, current: Boolean, onPick: () -> Unit, onDelete: (buzz: Boolean) -> Unit) {
     val useLabel = stringResource(R.string.colour_recent_use)
     val deleteLabel = stringResource(R.string.colour_recent_delete)
     val hex = hexOf(colour)
@@ -136,11 +136,12 @@ private fun RecentSwatch(colour: Color, current: Boolean, onPick: () -> Unit, on
                 onClickLabel = useLabel,
                 onClick = onPick,
                 onLongClickLabel = deleteLabel,
-                onLongClick = onDelete,
+                // combinedClickable already buzzes for a long click; only the TalkBack action needs its own.
+                onLongClick = { onDelete(false) },
             )
             .semantics {
                 contentDescription = description
-                customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete(); true })
+                customActions = listOf(CustomAccessibilityAction(deleteLabel) { onDelete(true); true })
             }
             .testTag("touchColor.recent.swatch"),
     ) {

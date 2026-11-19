@@ -218,7 +218,7 @@ internal fun ToolRail(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier.testTag("rail.tools"),
     ) {
-    RailPill(Modifier.weight(1f, fill = false)) {
+    RailPill(Modifier.weight(1f, fill = false).testTag("rail.tools.pill")) {
         // Tap for the item's card, drag up/down for size and across for hardness, long-press for
         // the brush menu.
         BrushSizeChip(uiState, vm, callbacks.onToolOptions, callbacks.onBrushMenu)
@@ -228,7 +228,6 @@ internal fun ToolRail(
         val colourFace by animateDpAsState(
             colourItemFace(uiState.showColorPicker),
             MotionScheme.expressive().fastEffectsSpec(),
-            label = "railColourFace",
         )
         val colourInView = remember { BringIntoViewRequester() }
         LaunchedEffect(uiState.showColorPicker) {

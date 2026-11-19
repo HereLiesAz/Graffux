@@ -65,6 +65,12 @@ internal val RailChip = Color(0xFF232326)
 /** The pill's width (border included); also what a floating window keeps clear of. */
 internal val RailWidth = 56.dp
 
+/** The tool rail's width: a [RailPill], so [RailWidth]. `LocalRailInset` uses it; a test measures the rail. */
+internal val ToolRailWidth = RailWidth
+
+/** The layers rail's width: also a [RailPill], so [RailWidth]. `LocalRailInset` uses it; a test measures the rail. */
+internal val LayersRailWidth = RailWidth
+
 /** One rail button, as drawn (the mockup's 44). */
 internal val RailButtonSize = 44.dp
 
