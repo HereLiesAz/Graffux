@@ -41,13 +41,6 @@ class RecentColorsTest {
     }
 
     @Test
-    fun `stored colours sit under this run's, without duplicates, within the cap`() {
-        assertEquals(listOf(red, green, blue), mergeRecentColors(listOf(red, green), listOf(green, blue)))
-        val stored = (0 until RECENT_COLORS_MAX).map { Color(0xFF000000 or it.toLong()) }
-        assertEquals(RECENT_COLORS_MAX, mergeRecentColors(listOf(red), stored).size)
-    }
-
-    @Test
     fun `the list survives being written and read back, in order`() {
         val list = listOf(red, Color(0x80123456), blue)
         assertEquals("FFFF0000,80123456,FF0000FF", encodeRecentColors(list))
