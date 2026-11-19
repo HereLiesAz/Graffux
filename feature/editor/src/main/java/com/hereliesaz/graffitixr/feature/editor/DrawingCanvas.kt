@@ -34,7 +34,6 @@ import com.hereliesaz.graffitixr.common.model.Tool
 import com.hereliesaz.graffitixr.feature.editor.prediction.GestureSample
 import com.hereliesaz.graffitixr.feature.editor.prediction.rememberPredictionSession
 
-private const val EYEDROP_HOLD_MS = 500L
 private const val NANOS_PER_SECOND = 1_000_000_000f
 
 @Composable
@@ -57,9 +56,6 @@ fun DrawingCanvas(
     onBrushTap: (Offset, Long) -> Boolean = { _, _ -> false },
     pickingCloneSource: Boolean = false,
     onPickCloneSource: (Offset) -> Unit = {},
-    onEyedropStart: (IntSize) -> Unit,
-    onEyedropSample: (Offset) -> Unit,
-    onEyedropEnd: (commit: Boolean) -> Unit,
     /**
      * Optional physical brush definition for the cursor. Existing callers remain compatible; null
      * falls back to the historical round/elliptical footprint. When supplied, hover uses the same
@@ -89,7 +85,7 @@ fun DrawingCanvas(
     // Pen-time tick of the active brush's stroke program (0 = none). A brush that sprays where it is
     // held starts its stroke on touchdown, not after the touch slop, and while the pen is held with
     // no events the canvas repeats the last position every tick, so the program keeps running on the
-    // clock. Spraying while held replaces the long-press eyedropper for that brush.
+    // clock. Holding still changes nothing else: there is no long-press gesture on the canvas.
     val heldTickMs = activeBrushPreview?.program?.tickMs?.toLong() ?: 0L
     val deviceAttitudeState = rememberDeviceAttitude(view, enabled = brushLike)
     val latestDeviceAttitudeState = rememberUpdatedState(deviceAttitudeState.value)
@@ -263,11 +259,9 @@ fun DrawingCanvas(
                     val down = awaitFirstDown()
                     brushSampleBuilder.reset()
                     var began = false
-                    var eyedrop = false
                     var cancelled = false
                     var last = down.position
                     var lastPressure = down.pressure
-                    val eyedropDeadlineMs = android.os.SystemClock.uptimeMillis() + EYEDROP_HOLD_MS
                     val sprays = heldTickMs > 0L && brushLike && !pickingCloneSource
                     if (sprays) {
                         began = true
@@ -283,9 +277,6 @@ fun DrawingCanvas(
                     while (true) {
                         val event = if (sprays) {
                             withTimeoutOrNull(heldTickMs) { awaitPointerEvent() }
-                        } else if (!began && !eyedrop && !pickingCloneSource && activeTool != Tool.FILL) {
-                            val remainingMs = eyedropDeadlineMs - android.os.SystemClock.uptimeMillis()
-                            if (remainingMs <= 0L) null else withTimeoutOrNull(remainingMs) { awaitPointerEvent() }
                         } else {
                             awaitPointerEvent()
                         }
@@ -295,12 +286,7 @@ fun DrawingCanvas(
                             onStrokePoint(recordRealPoint(last, android.os.SystemClock.uptimeMillis(), lastPressure))
                             continue
                         }
-                        if (event == null) {
-                            eyedrop = true
-                            onEyedropStart(canvasSize)
-                            onEyedropSample(last)
-                            continue
-                        }
+                        if (event == null) continue
 
                         if (event.changes.count { it.pressed } > 1) {
                             cancelled = true
@@ -311,23 +297,12 @@ fun DrawingCanvas(
                                 }
                                 onStrokeCancel()
                             }
-                            if (eyedrop) onEyedropEnd(false)
                             break
                         }
 
                         val change = event.changes.firstOrNull { it.id == down.id } ?: continue
                         last = change.position
                         lastPressure = change.pressure
-
-                        if (eyedrop) {
-                            if (!change.pressed) {
-                                onEyedropEnd(true)
-                                break
-                            }
-                            onEyedropSample(change.position)
-                            change.consume()
-                            continue
-                        }
 
                         if (!change.pressed) {
                             when {

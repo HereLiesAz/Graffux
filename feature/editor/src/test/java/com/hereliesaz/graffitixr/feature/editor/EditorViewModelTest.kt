@@ -3655,4 +3655,48 @@ class EditorViewModelTest {
         assertFalse(preview)
         assertNull(viewModel.pendingExportForTest)
     }
+
+    @Test
+    fun `a committed colour leads the recent colours once and is saved`() = runTest {
+        val red = androidx.compose.ui.graphics.Color(0xFFFF0000)
+        val blue = androidx.compose.ui.graphics.Color(0xFF0000FF)
+        viewModel.onColorCommitted(red)
+        viewModel.onColorCommitted(blue)
+        viewModel.onColorCommitted(red.copy(alpha = 0.4f))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(red, blue), viewModel.recentColors.value)
+        io.mockk.coVerify { settingsRepository.setRecentColors("FFFF0000,FF0000FF") }
+    }
+
+    @Test
+    fun `deleting a recent colour removes only that one and saves the rest`() = runTest {
+        val red = androidx.compose.ui.graphics.Color(0xFFFF0000)
+        val blue = androidx.compose.ui.graphics.Color(0xFF0000FF)
+        viewModel.onColorCommitted(red)
+        viewModel.onColorCommitted(blue)
+        viewModel.onRecentColorDeleted(blue)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(red), viewModel.recentColors.value)
+        io.mockk.coVerify { settingsRepository.setRecentColors("FFFF0000") }
+    }
+
+    @Test
+    fun `colours saved by an earlier run load under this run's`() = runTest {
+        val stored = androidx.compose.ui.graphics.Color(0xFF00FF00)
+        every { settingsRepository.recentColors } returns kotlinx.coroutines.flow.flowOf("FF00FF00")
+        val fresh = EditorViewModel(
+            projectRepository, settingsRepository, projectManager, exportManager, context,
+            liquifyEngine,
+            object : DispatcherProvider {
+                override val main: CoroutineDispatcher = testDispatcher
+                override val io: CoroutineDispatcher = testDispatcher
+                override val default: CoroutineDispatcher = scanDispatcher
+                override val unconfined: CoroutineDispatcher = testDispatcher
+            },
+            opEmitter, extensionRepository, mockk(relaxed = true), customBrushRepository,
+            figmaRepository, projectFileScanner,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf(stored), fresh.recentColors.value)
+    }
 }

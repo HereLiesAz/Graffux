@@ -719,12 +719,6 @@ data class EditorUiState(
     // the grid has not been laid over the layer yet.
     val transformMode: TransformMode = TransformMode.FREEFORM,
     val warpHandles: List<Offset> = emptyList(),
-    // Long-press eyedropper: true while the finger is held sampling the canvas; [eyedropColor] is
-    // the colour currently under the finger (committed to activeColor on lift) and
-    // [eyedropPosition] the screen point for the loupe overlay.
-    val isEyedropping: Boolean = false,
-    val eyedropColor: Color? = null,
-    val eyedropPosition: Offset = Offset.Zero,
     // Transient HUD confirmations, Procreate-style: a short-lived pill ("Undo", "Redo") at the top
     // of the canvas, and a brush-diameter preview circle while the size slider moves.
     // Procreate's QuickMenu: the screen point the radial menu is open at, or null when closed.

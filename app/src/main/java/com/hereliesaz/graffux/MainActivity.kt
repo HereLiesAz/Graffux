@@ -1264,7 +1264,9 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
         // brush hand's side (bottom-right right-handed, bottom-left left-handed), clear of the system gesture areas
         // and of the sheet's handle, and does not move with the sheet. Its three touch bands take input; the rest
         // of it lets canvas strokes through.
-        if (vm.rotationGizmoVisible(uiState)) {
+        // Hidden while the Colour sheet is open: the triangle sits in a bottom corner, right where the sheet's
+        // content is, and the sheet is a short task (it comes back the moment it closes).
+        if (vm.rotationGizmoVisible(uiState) && !uiState.showColorPicker) {
             androidx.compose.runtime.DisposableEffect(Unit) { onDispose { gizmoOccupiedPx.intValue = 0 } }
             RotationGizmoDock(
                 rightHanded = uiState.isRightHanded,

@@ -130,7 +130,7 @@ class FloodFillRenderTest {
     /**
      * The hang. With a fill colour within tolerance of the seed, a filled pixel still *matches*, so
      * without a visited set each row re-tests and re-pushes its neighbours forever and the stack
-     * grows until the process dies. Reachable by eyedropping a colour and nudging it slightly.
+     * grows until the process dies. Reachable by picking a colour and nudging it slightly.
      *
      * The timeout is the assertion: before the fix this does not fail, it never returns.
      */

@@ -143,8 +143,8 @@ paint). While the pen creeps, ticks interleave with distance steps; every step c
 program that integrates over `dt` gets the same answer however the time was cut up.
 
 The editor repeats the pen's position every `tickMs` while a held pen sends no events, and a brush with
-`tickMs` starts its stroke at touchdown rather than after the touch slop; holding still sprays instead of
-opening the eyedropper. The lift-off sample runs the program once more with `phase` 3 (and `dt` = time since
+`tickMs` starts its stroke at touchdown rather than after the touch slop; holding still sprays (the canvas has
+no long-press gesture: holding still paints or does nothing, and never changes the colour). The lift-off sample runs the program once more with `phase` 3 (and `dt` = time since
 the last step), the one place a program can finish what it started: a drip that is still running when you let
 go can be completed there.
 

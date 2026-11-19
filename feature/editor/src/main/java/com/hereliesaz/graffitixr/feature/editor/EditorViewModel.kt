@@ -124,6 +124,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.ensureActive
@@ -890,6 +891,12 @@ class EditorViewModel @Inject constructor(
     /** The first-PNG save of each plane layer, so deleting that PNG waits for it. */
     private val planeLayerSaves = HashMap<String, kotlinx.coroutines.Job>()
 
+    // Declared above the first init block: the settings collector in an init block writes it.
+    private val _recentColors = MutableStateFlow<List<Color>>(emptyList())
+
+    /** The Colour sheet's recent colours, newest first (at most [RECENT_COLORS_MAX]), kept across restarts. */
+    val recentColors: StateFlow<List<Color>> = _recentColors.asStateFlow()
+
     init {
         // Restore purchases on startup: finishes pending ones, re-checks every licence held, and
         // removes any the repository says were refunded. Best effort; a network failure, an
@@ -1386,7 +1393,7 @@ class EditorViewModel @Inject constructor(
         }
     }
 
-    /** Screen to world, undoing the viewport camera (the long-press eyedropper's math). */
+    /** Screen to world, undoing the viewport camera (the viewport camera's inverse). */
     private fun screenToWorld(position: Offset): Pair<Int, Int> {
         val st = _uiState.value
         val rad = Math.toRadians(-st.viewportRotation.toDouble())
@@ -1989,8 +1996,6 @@ class EditorViewModel @Inject constructor(
     // Incremental brush dynamics for the live stroke; same recursion the commit/replay paths run
     // from scratch, so live pixels match replayed pixels exactly.
     private var strokeDynamics: BrushDynamics.State? = null
-    // Eyedropper: the screen-sized composite the long-press samples from (built once per hold).
-    private var eyedropComposite: Bitmap? = null
     private val strokeCollectedPointsLock = Any()
     // Touched from the main thread (add/reset) and background Default coroutines (snapshot). All access
     // MUST go through the synchronized helpers below, or a concurrent add during toList() throws a
@@ -2621,6 +2626,12 @@ class EditorViewModel @Inject constructor(
                 .map { s -> s.activeLayerId to s.layers.find { it.id == s.activeLayerId }?.bitmap }
                 .distinctUntilChanged { a, b -> a.first == b.first && a.second === b.second }
                 .collect { schedulePrewarm() }
+        }
+        // The recent colours saved by an earlier run sit under any committed since this one began.
+        viewModelScope.launch(dispatchers.main) {
+            settingsRepository.recentColors.take(1).collect { stored ->
+                _recentColors.update { mergeRecentColors(it, decodeRecentColors(stored)) }
+            }
         }
         viewModelScope.launch(dispatchers.main) {
             settingsRepository.backgroundColor.collect { argb ->
@@ -7728,6 +7739,8 @@ class EditorViewModel @Inject constructor(
         if (state.activeTool == Tool.NONE) return
         if (state.activeTool == Tool.BRUSH) {
             strokeFeelMeter.onStrokeStart()
+            // The first stroke painted with a colour records it (a no-op while it already leads the list).
+            onColorCommitted(state.activeColor)
             gpuTuning?.coordinator?.onUserDrawing()
             feelFirstLatencyId = -1L
         }
@@ -10295,59 +10308,6 @@ class EditorViewModel @Inject constructor(
         resampleJob?.cancel()
         _liveStroke.update { it.copy(layerId = null, bitmap = null) }
         clearTransientStrokeState()
-    }
-
-    // ── Long-press eyedropper (Procreate: hold still to sample the canvas) ───────────────────
-
-    /** Begin sampling: composite what's on screen once, off the main thread, to read pixels from. */
-    fun onEyedropStart(canvasSize: IntSize) {
-        val layers = _uiState.value.layers
-        val bg = _uiState.value.canvasBackground
-        dispatch(EditorIntent.SetEyedrop(active = true))
-        viewModelScope.launch(dispatchers.default) {
-            val composite = exportManager.compositeLayers(
-                layers, canvasSize.width, canvasSize.height, backgroundColor = bg.toArgb(),
-            )
-            withContext(dispatchers.main) {
-                if (_uiState.value.isEyedropping) {
-                    eyedropComposite?.recycle()
-                    eyedropComposite = composite
-                } else {
-                    composite.recycle() // finger already lifted before the composite finished
-                }
-            }
-        }
-    }
-
-    /** Update the sampled colour as the finger moves; [position] is in screen coordinates. */
-    fun onEyedropSample(position: Offset) {
-        val st = _uiState.value
-        if (!st.isEyedropping) return
-        val comp = eyedropComposite ?: run {
-            dispatch(EditorIntent.SetEyedrop(true, st.eyedropColor, position))
-            return
-        }
-        // Screen → world: undo the viewport camera, same math as onCommitPenPath.
-        val rad = Math.toRadians(-st.viewportRotation.toDouble())
-        val cos = kotlin.math.cos(rad)
-        val sin = kotlin.math.sin(rad)
-        val ux = (position.x - st.viewportOffset.x) / st.viewportZoom
-        val uy = (position.y - st.viewportOffset.y) / st.viewportZoom
-        val x = (ux * cos - uy * sin).toInt()
-        val y = (ux * sin + uy * cos).toInt()
-        val color = if (x in 0 until comp.width && y in 0 until comp.height) Color(comp.getPixel(x, y)) else null
-        dispatch(EditorIntent.SetEyedrop(true, color ?: st.eyedropColor, position))
-    }
-
-    /** Lift: adopt the sampled colour (keeping the brush's working alpha) or abandon the sample. */
-    fun onEyedropEnd(commit: Boolean) {
-        val picked = _uiState.value.eyedropColor
-        if (commit && picked != null) {
-            setActiveColor(picked.copy(alpha = _uiState.value.activeColor.alpha))
-        }
-        dispatch(EditorIntent.SetEyedrop(active = false))
-        eyedropComposite?.recycle()
-        eyedropComposite = null
     }
 
     // ── Flood fill (Procreate's ColorDrop) ────────────────────────────────────────────────────
@@ -17203,23 +17163,30 @@ class EditorViewModel @Inject constructor(
     }
 
     override fun onColorPickerDismissed() {
-        // The colour the picker settled on joins its Recent row (this session's, newest first).
         dispatch(EditorIntent.DismissColorPicker)
     }
 
     /**
-     * The picker closed on [color], the one its Foreground/Background target was editing: that
-     * colour (not always the foreground) joins the Recent row, newest first.
+     * [color] was committed (a drag in the picker ended, a valid hex was typed, or a stroke was first painted
+     * with it): it goes to the front of the recent colours, without a duplicate, and is saved.
      */
-    fun onColorPickerDismissed(color: androidx.compose.ui.graphics.Color) {
-        _recentColors.update { pushRecentColor(it, color) }
-        onColorPickerDismissed()
+    fun onColorCommitted(color: Color) {
+        val opaque = color.copy(alpha = 1f)
+        if (_recentColors.value.firstOrNull() == opaque) return
+        _recentColors.update { pushRecentColor(it, opaque) }
+        saveRecentColors()
     }
 
-    private val _recentColors = MutableStateFlow<List<androidx.compose.ui.graphics.Color>>(emptyList())
+    /** Removes [color] from the recent colours (a long-press on its swatch) and saves the rest. */
+    fun onRecentColorDeleted(color: Color) {
+        _recentColors.update { removeRecentColor(it, color) }
+        saveRecentColors()
+    }
 
-    /** The colour picker's Recent row: the colours it was closed on, newest first. */
-    val recentColors: StateFlow<List<androidx.compose.ui.graphics.Color>> = _recentColors.asStateFlow()
+    private fun saveRecentColors() {
+        val encoded = encodeRecentColors(_recentColors.value)
+        viewModelScope.launch(dispatchers.io) { settingsRepository.setRecentColors(encoded) }
+    }
 
     override fun onFlattenAllLayers() {
         invalidateResident(null)

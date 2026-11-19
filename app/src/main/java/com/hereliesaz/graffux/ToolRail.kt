@@ -12,6 +12,11 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.material3.MotionScheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -217,11 +222,25 @@ internal fun ToolRail(
         // Tap for the item's card, drag up/down for size and across for hardness, long-press for
         // the brush menu.
         BrushSizeChip(uiState, vm, callbacks.onToolOptions, callbacks.onBrushMenu)
+        // Grows while the Colour sheet is open. animateDpAsState follows the system animator scale
+        // (off: it lands on the final size at once), and the effects spec does not overshoot, so the
+        // swatch never swells past the pill. The pill scrolls, so it is also brought into view.
+        val colourFace by animateDpAsState(
+            colourItemFace(uiState.showColorPicker),
+            MotionScheme.expressive().fastEffectsSpec(),
+            label = "railColourFace",
+        )
+        val colourInView = remember { BringIntoViewRequester() }
+        LaunchedEffect(uiState.showColorPicker) {
+            if (uiState.showColorPicker) colourInView.bringIntoView()
+        }
         RailButton(
             label = stringResource(DesignR.string.rail_colour),
             light = light("tool.color"),
             testTag = "rail.tool.color",
             onClick = { vm.onColorClicked() },
+            faceSize = colourFace,
+            modifier = Modifier.bringIntoViewRequester(colourInView),
         ) {
             Box(
                 Modifier

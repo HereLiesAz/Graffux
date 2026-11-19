@@ -1,4 +1,4 @@
-@file:Suppress("TooManyFunctions", "FunctionNaming")
+@file:Suppress("TooManyFunctions", "FunctionNaming", "LongParameterList")
 
 package com.hereliesaz.graffitixr.design.components
 
@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -139,7 +144,9 @@ fun containerFor(kind: SurfaceKind, compact: Boolean): SurfaceContainer = when (
 }
 
 /**
- * Opens [content] in the container [kind] calls for on this screen width. [onDismiss] runs on the
+ * Opens [content] in the container [kind] calls for on this screen width. [clearOfRails] keeps the
+ * surface out of the strips both rails occupy ([LocalRailInset] each side), for content a rail would
+ * hide. [onDismiss] runs on the
  * close button, a tap on the scrim and system Back alike, so a dialog that applies on close still
  * applies however it closes.
  */
@@ -149,13 +156,18 @@ fun ToolSurface(
     title: String,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    clearOfRails: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     when (containerFor(kind, isCompactWidth())) {
-        SurfaceContainer.POPOVER ->
-            AnchoredValuePopover(title, onDismiss, modifier, wide = kind == SurfaceKind.PICKER, content = content)
-        SurfaceContainer.BOTTOM_SHEET ->
-            AppBottomSheet(title, onDismiss, modifier, largeTargets = kind == SurfaceKind.FORM, content = content)
+        SurfaceContainer.POPOVER -> AnchoredValuePopover(
+            title, onDismiss, modifier, wide = kind == SurfaceKind.PICKER,
+            clearOfRails = clearOfRails, content = content,
+        )
+        SurfaceContainer.BOTTOM_SHEET -> AppBottomSheet(
+            title, onDismiss, modifier, largeTargets = kind == SurfaceKind.FORM, clearOfRails = clearOfRails,
+            content = content,
+        )
         SurfaceContainer.CENTERED_SHEET -> CenteredSheet(title, onDismiss, modifier, content)
         SurfaceContainer.FULL_SCREEN -> FullScreenPage(title, onDismiss, modifier, content)
         SurfaceContainer.DOCKED_SIDE -> DockedPanel(title, onDismiss, modifier, DockEdge.SIDE, content)
@@ -347,6 +359,7 @@ fun AnchoredValuePopover(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     wide: Boolean = false,
+    clearOfRails: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     RegisterBack(onDismiss)
@@ -377,8 +390,9 @@ fun AnchoredValuePopover(
             val margin = with(density) { EdgeMargin.roundToPx() }
             val gap = with(density) { PopoverGap.roundToPx() }
             val railPx = with(density) { rail.width.roundToPx() }
-            val left = margin + if (rail.dockedOnLeft) railPx else 0
-            val right = constraints.maxWidth - margin - if (rail.dockedOnLeft) 0 else railPx
+            // Both rails when asked: the tool rail on one side, the layers rail on the other.
+            val left = margin + if (rail.dockedOnLeft || clearOfRails) railPx else 0
+            val right = constraints.maxWidth - margin - if (!rail.dockedOnLeft || clearOfRails) railPx else 0
             val usableW = (right - left).coerceAtLeast(0)
             val usableH = (constraints.maxHeight - margin * 2).coerceAtLeast(0)
             val placeable = measurables.first().measure(Constraints(maxWidth = usableW, maxHeight = usableH))
@@ -432,10 +446,12 @@ fun AppBottomSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     largeTargets: Boolean = false,
+    clearOfRails: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     RegisterBack(onDismiss)
     val colors = MaterialTheme.colorScheme
+    val rail = LocalRailInset.current
     BoxWithConstraints(
         Modifier.fillMaxSize().semantics { isTraversalGroup = true },
         contentAlignment = Alignment.BottomCenter,
@@ -443,6 +459,17 @@ fun AppBottomSheet(
         Scrim(onDismiss)
         Column(
             modifier = modifier
+                // Between the two rails (and clear of a side cutout), so no rail draws over the title or
+                // the content: the scrim behind stays full width.
+                .then(
+                    if (clearOfRails) {
+                        Modifier
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                            .padding(horizontal = rail.width)
+                    } else {
+                        Modifier
+                    },
+                )
                 .fillMaxWidth()
                 .heightIn(max = maxHeight * 0.85f)
                 .background(colors.surface, SheetShape)
