@@ -374,6 +374,8 @@ canvas gesture handlers are keyed so a state write on every step never restarts 
 
 ### Rotation triangle
 
+The triangle is hidden while the Colour sheet is open (the sheet's content sits where the triangle does) and returns when it closes.
+
 With an **active 3D surface group** (`EditorViewModel.rotationGizmoVisible`: the active layer is paint on, or
 is, a group with a surface, and it is not locked) a small right triangle (`RotationGizmo`, drawn at half size,
 `GIZMO_DEFAULT_SCALE`) sits in the bottom corner on the brush hand's side (`RotationGizmoDock`, from

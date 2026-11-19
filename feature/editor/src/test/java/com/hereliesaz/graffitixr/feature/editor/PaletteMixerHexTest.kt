@@ -54,7 +54,7 @@ class PaletteMixerHexTest {
         val applied = ArrayList<androidx.compose.ui.graphics.Color>()
         var redraws = 0
         val ops = MixerOps(board, applyColour = { applied += it }, redraw = { redraws++ })
-        // the brush holds paint from earlier; the editor colour has since been set by the eyedropper
+        // the brush holds paint from earlier; the editor colour has since been set by the picker
         board.squeeze(2, 20f, 20f, 8f, 0.9f)
         ops.squeeze(2, 40f, 40f, 7f, 0.9f)
         ops.squeeze(4, 60f, 20f, 7f, 0.9f)

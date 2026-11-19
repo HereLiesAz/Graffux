@@ -109,6 +109,7 @@ class SettingsRepositoryImpl @Inject constructor(
     private val GESTURE_KEYS = GestureSlot.entries.associateWith { stringPreferencesKey("gesture_${it.name.lowercase()}") }
     private val carouselFavoritesKey = stringPreferencesKey("carousel_favorites")
     private val carouselItemSettingsKey = stringPreferencesKey("carousel_item_settings")
+    private val recentColorsKey = stringPreferencesKey("recent_colors")
     private val savedRecipesKey = stringPreferencesKey("saved_recipes")
     private val savedRecipesBackupKey = stringPreferencesKey("saved_recipes_backup")
     private val swatchesMigratedKey = booleanPreferencesKey("swatches_migrated_to_recipes")
@@ -270,6 +271,14 @@ class SettingsRepositoryImpl @Inject constructor(
             settings.forEach { (k, v) -> if (k !in renames) moved[k] = v }
             prefs[carouselItemSettingsKey] = CarouselItemSettings.encode(moved)
         }
+    }
+
+    override val recentColors: Flow<String?> = context.dataStore.data
+        .catch { if (it is IOException) emit(emptyPreferences()) else throw it }
+        .map { it[recentColorsKey] }
+
+    override suspend fun setRecentColors(encoded: String) {
+        update { prefs -> prefs[recentColorsKey] = encoded }
     }
 
     override val savedRecipes: Flow<String?> = context.dataStore.data

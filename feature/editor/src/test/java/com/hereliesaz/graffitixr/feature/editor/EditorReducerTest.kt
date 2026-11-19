@@ -310,7 +310,6 @@ class EditorReducerTest {
         val dirty = state(lyr("a")).copy(
             colorStyles = listOf(com.hereliesaz.graffitixr.common.model.ColorStyle(name = "c", argb = 0xFF000000)),
             cloneSource = androidx.compose.ui.geometry.Offset(5f, 6f),
-            isEyedropping = true,
             isAnimationMode = true,
             activeFrameIndex = 3,
             undoCount = 4,
@@ -319,7 +318,6 @@ class EditorReducerTest {
         val cleared = reduce(dirty, EditorIntent.ClearProject)
         assertTrue(cleared.colorStyles.isEmpty())
         assertNull(cleared.cloneSource)
-        assertFalse(cleared.isEyedropping)
         assertFalse(cleared.isAnimationMode)
         assertEquals(0, cleared.activeFrameIndex)
         assertEquals(0, cleared.undoCount)

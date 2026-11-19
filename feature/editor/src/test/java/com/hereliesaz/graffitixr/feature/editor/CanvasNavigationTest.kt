@@ -86,9 +86,6 @@ class CanvasNavigationTest {
                     onStrokeEnd = {},
                     onStrokeCancel = {},
                     onFillTap = { _, _ -> },
-                    onEyedropStart = {},
-                    onEyedropSample = {},
-                    onEyedropEnd = {},
                 )
             }
         }

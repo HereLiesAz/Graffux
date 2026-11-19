@@ -249,4 +249,14 @@ class SettingsRepositoryImplTest {
         repo.renameCarouselKeys(emptyMap())
         assertEquals(before, repo.carouselFavorites.first())
     }
+
+    @Test
+    fun `recent colours persist and are read back by a new repository (a restart)`() = runTest {
+        repo.setRecentColors("FFFF0000,FF0000FF")
+        assertEquals("FFFF0000,FF0000FF", repo.recentColors.first())
+        val relaunched = SettingsRepositoryImpl(RuntimeEnvironment.getApplication())
+        assertEquals("FFFF0000,FF0000FF", relaunched.recentColors.first())
+        relaunched.setRecentColors("")
+        assertEquals("", repo.recentColors.first())
+    }
 }

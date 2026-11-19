@@ -296,7 +296,7 @@ internal object EditorReducer {
         // layer set being cleared goes with it, or the next project opened inherits the previous
         // one's dangling marquee, path-edit target, or warp handles. The same goes for the other
         // per-project leftovers: the style registry, the clone source (a canvas coordinate of the old
-        // document), the eyedropper, animation mode/frame, and the undo/redo counters (their stacks
+        // document), animation mode/frame, and the undo/redo counters (their stacks
         // are cleared by the caller alongside this intent).
         EditorIntent.ClearProject -> state.copy(
             projectId = null,
@@ -313,7 +313,6 @@ internal object EditorReducer {
             textStyles = emptyList(),
             cloneSource = null,
             cloneSourceView = null,
-            isEyedropping = false,
             isAnimationMode = false,
             activeFrameIndex = 0,
             undoCount = 0,
@@ -517,11 +516,6 @@ internal object EditorReducer {
         // so it travels with a moved selection and is recorded into the strokes it clips.
         is EditorIntent.SetSelectionFeather -> state.copy(
             selection = state.selection?.copy(featherPx = intent.featherPx.coerceAtLeast(0f))
-        )
-        is EditorIntent.SetEyedrop -> state.copy(
-            isEyedropping = intent.active,
-            eyedropColor = if (intent.active) intent.color else null,
-            eyedropPosition = intent.position,
         )
         else -> null
     }

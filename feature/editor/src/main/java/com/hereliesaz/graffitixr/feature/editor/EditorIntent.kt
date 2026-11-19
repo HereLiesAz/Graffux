@@ -266,8 +266,6 @@ internal sealed interface EditorIntent {
     ) : EditorIntent
     /** Flips the active selection inside-out; a no-op when nothing is selected. */
     data object InvertSelection : EditorIntent
-    /** Live eyedropper state: sampling in progress, current colour + loupe position. */
-    data class SetEyedrop(val active: Boolean, val color: Color? = null, val position: Offset = Offset.Zero) : EditorIntent
     /** Selects an azphalt stamp brush by name, or clears back to the built-in round brush (null). */
     data class SetActiveBrush(val name: String?) : EditorIntent
     data object ShowColorPicker : EditorIntent

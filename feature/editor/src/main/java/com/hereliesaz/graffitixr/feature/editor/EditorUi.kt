@@ -50,6 +50,7 @@ fun EditorUi(
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     val savedMixes by actions.savedMixes.collectAsState()
+    val recentColors by actions.recentColors.collectAsState()
     val paletteTools by actions.installedPaletteTools.collectAsState()
     val mixActions = androidx.compose.runtime.remember(actions) { actions.mixActions() }
 
@@ -69,6 +70,9 @@ fun EditorUi(
             board = actions.paletteBoard,
             mixes = savedMixes,
             mixActions = mixActions,
+            recentColors = recentColors,
+            onCommitColor = actions::onColorCommitted,
+            onDeleteRecentColor = actions::onRecentColorDeleted,
         )
 
         GestureFeedback(

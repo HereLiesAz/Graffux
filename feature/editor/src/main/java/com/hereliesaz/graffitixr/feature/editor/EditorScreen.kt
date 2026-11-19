@@ -640,8 +640,8 @@ fun EditorScreen(
         // Every point crossing into the view-model is pushed through `screenToWorld` first. The
         // view-model's whole paint pipeline — `ImageProcessor.mapScreenToBitmap`, the `StrokeCommand`
         // a stroke is recorded as, `DrawingEngine`'s replay of it — inverts a layer's own scale,
-        // offset and rotation and nothing about the camera (`onCommitPenPath` and `onEyedropSample`
-        // already do this same conversion; this surface never picked it up). Left raw, a stroke
+        // offset and rotation and nothing about the camera (`onCommitPenPath`
+        // does this same conversion; this surface never picked it up). Left raw, a stroke
         // landed under the finger only at the camera's identity pose: pan, zoom or rotate the
         // viewport first and the paint appeared at the finger's *pre-camera* position instead —
         // the "comparative area of the screen" a still frame and a live finger no longer agree on.
@@ -837,13 +837,6 @@ fun EditorScreen(
                         vm.onSetCloneSource(toWorld(at))
                     }
                 },
-                onEyedropStart = { size -> vm.onEyedropStart(size) },
-                // Eyedrop already does its own screen→world conversion inside the view-model
-                // (`onEyedropSample`'s doc comment says as much) — the raw screen point is also kept
-                // for the loupe drawn below, which is a live, screen-space visual like the pen's own
-                // preview. Converting here too would undo the camera twice.
-                onEyedropSample = { offset -> vm.onEyedropSample(offset) },
-                onEyedropEnd = { commit -> vm.onEyedropEnd(commit) },
                 onPredictionRanked = { report, hz -> vm.onPredictionBrushStroke(report, hz) },
                 onPredictionSessionEnd = { report, hz -> vm.onPredictionSessionEnd(report, hz) },
                 predictionLeadMs = { vm.predictionLeadMs },
@@ -1057,16 +1050,6 @@ fun EditorScreen(
                 toWorld = activePlane::world,
                 onDrawn = { vm.onSurfaceProfileDrawn(it) },
                 modifier = Modifier.fillMaxSize().testTag("canvas.surfaceCapture"),
-            )
-        }
-
-        // 3c. Eyedropper loupe — Procreate's touch-and-hold sampler. A ring above the finger filled
-        // with the colour currently under it; screen-space overlay, purely visual.
-        if (uiState.isEyedropping) {
-            EyedropLoupe(
-                color = uiState.eyedropColor,
-                position = uiState.eyedropPosition,
-                modifier = Modifier.fillMaxSize(),
             )
         }
 
@@ -1698,23 +1681,6 @@ private fun PenCanvas(
                 drawPath(path, color, style = Stroke(width = strokeWidthPx))
             }
         }
-    }
-}
-
-/**
- * The eyedropper's loupe: a colour-filled ring floated above the sampling finger so the picked
- * colour is visible while the fingertip covers the pixel. Purely visual.
- */
-@Composable
-private fun EyedropLoupe(color: Color?, position: Offset, modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val center = position - Offset(0f, 56.dp.toPx())
-        val radius = 26.dp.toPx()
-        drawCircle(color = Color.Black.copy(alpha = 0.35f), radius = radius + 4.dp.toPx(), center = center)
-        drawCircle(color = color ?: Color.Transparent, radius = radius, center = center)
-        drawCircle(color = Color.White, radius = radius, center = center, style = Stroke(width = 2.dp.toPx()))
-        // Crosshair at the actual sample point.
-        drawCircle(color = Color.White, radius = 4.dp.toPx(), center = position, style = Stroke(width = 1.5f.dp.toPx()))
     }
 }
 

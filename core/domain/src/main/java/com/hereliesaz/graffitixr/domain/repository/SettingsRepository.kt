@@ -135,6 +135,15 @@ interface SettingsRepository {
     /** Stars [key], or un-stars it if already starred. Un-starring keeps the rest in place. */
     suspend fun toggleCarouselFavorite(key: String)
 
+    /**
+     * The Colour sheet's recent colours, newest first, as the text [setRecentColors] stored (comma-separated
+     * `AARRGGBB`), or null when none were stored. Empty by default (fakes).
+     */
+    val recentColors: Flow<String?> get() = kotlinx.coroutines.flow.flowOf(null)
+
+    /** Replaces the stored recent colours with [encoded] (an empty string clears them). No-op by default (fakes). */
+    suspend fun setRecentColors(encoded: String) {}
+
     /** The app-level saved mixes (spec/painterly.md 6.4) as the recipe-book JSON, or null when there are none. */
     val savedRecipes: Flow<String?> get() = kotlinx.coroutines.flow.flowOf(null)
 

@@ -65,9 +65,6 @@ class CloneToolGestureTest {
                     // to false, all before the user's next gesture begins.
                     pickingCloneSource = false
                 },
-                onEyedropStart = {},
-                onEyedropSample = {},
-                onEyedropEnd = {},
             )
         }
         rule.waitForIdle()
