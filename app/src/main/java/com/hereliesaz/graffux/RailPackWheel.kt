@@ -147,9 +147,12 @@ internal class PackWheelState {
     fun toggle() { if (open) close() else open = true }
     fun close() { if (!pinned) open = false }
 
-    /** Shuts the wheel even while the brush sheet holds it up; the sheet's next change re-pins it. */
-    fun dismiss() {
-        pinned = false
+    /**
+     * Hides the wheel for the store trip. [pinned] stays as it is: the brush sheet still holds the
+     * wheel, so the owner reopens it when the store closes ([open] = true), and a tap on the tool
+     * brings it back like any pinned wheel (the post-pick shut and the second-tap close stay off).
+     */
+    fun hideForStore() {
         open = false
     }
 
@@ -368,7 +371,7 @@ internal fun RailPackWheel(
         state.opensRight = opensRight
         PackWheelDisc(
             layout, sets, labels, selectedKey, onPick, onGetMore,
-            onClose = state::close, onDismiss = state::dismiss,
+            onClose = state::close, onHideForStore = state::hideForStore,
         )
     }
 }
@@ -383,7 +386,7 @@ private fun PackWheelDisc(
     onPick: (CarouselTabGroup) -> Unit,
     onGetMore: () -> Unit,
     onClose: () -> Unit,
-    onDismiss: () -> Unit,
+    onHideForStore: () -> Unit,
 ) {
     val packWheelDescription = stringResource(R.string.pack_wheel_description)
     val selectLabel = stringResource(R.string.wheel_select_action)
@@ -401,7 +404,7 @@ private fun PackWheelDisc(
     val currentClose by rememberUpdatedState(onClose)
     val currentSets by rememberUpdatedState(sets)
     val currentGetMore by rememberUpdatedState(onGetMore)
-    val currentDismiss by rememberUpdatedState(onDismiss)
+    val currentHideForStore by rememberUpdatedState(onHideForStore)
     val currentSelected by rememberUpdatedState(selectedIndex)
     val motion = remember { PackMotion() }
 
@@ -415,7 +418,7 @@ private fun PackWheelDisc(
             // The brush in hand is left alone: the wheel shuts and the store view comes up.
             PackWheelAction.OpenStore -> {
                 currentGetMore()
-                currentDismiss()
+                currentHideForStore()
             }
             PackWheelAction.None -> Unit
         }
@@ -675,6 +678,7 @@ private fun PackWheelDisc(
         // the last. The blank places either side have no node at all.
         val getMoreAt = slots.indexOf(PackWheelSlot.GetMore)
         if (getMoreAt >= 0) {
+            val getMoreCut = layouts[getMoreAt]?.second?.isLineEllipsized(0) == true
             Box(
                 Modifier
                     .offset {
@@ -691,6 +695,7 @@ private fun PackWheelDisc(
                     .semantics {
                         contentDescription = getMoreDescription
                         role = Role.Button
+                        packNameEllipsized = getMoreCut
                         collectionItemInfo = CollectionItemInfo(sets.size, 1, 0, 1)
                         onClick(label = getMoreAction) {
                             settleTo(packLandingFor(getMoreAt, position.floatValue, count), commitNow = true)

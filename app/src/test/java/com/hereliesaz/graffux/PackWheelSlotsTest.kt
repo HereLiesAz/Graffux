@@ -33,11 +33,18 @@ class PackWheelSlotsTest {
 
     @Test
     fun packsKeepTheirPlacesAndAnglesWithAndWithoutTheTail() {
-        // A pack's slot index is its pack index; its angle at a given position depends only on that.
-        val slots = packWheelSlots(4)
-        slots.take(4).forEachIndexed { i, s -> assertEquals(PackWheelSlot.Pack(i), s) }
-        for (i in 0 until 4) {
-            assertEquals(packSlotDegrees(i, 1f, true), packSpokeDegrees(i, 1f, true), 1e-4f)
+        val withTail = packWheelSlots(4)
+        val withoutTail = List(4) { PackWheelSlot.Pack(it) }
+        assertEquals(withoutTail, withTail.take(4))
+        // Wheel at position 1: packs 0..3 sit at -24, 0, 24, 48 degrees (right), mirrored (left).
+        val right = listOf(-24f, 0f, 24f, 48f)
+        val left = listOf(204f, 180f, 156f, 132f)
+        for (ring in listOf(withTail, withoutTail)) {
+            for (i in 0 until 4) {
+                assertEquals(PackWheelSlot.Pack(i), ring[i])
+                assertEquals(right[i], packSlotDegrees(ring.indexOf(PackWheelSlot.Pack(i)), 1f, true), 1e-4f)
+                assertEquals(left[i], packSlotDegrees(ring.indexOf(PackWheelSlot.Pack(i)), 1f, false), 1e-4f)
+            }
         }
     }
 
@@ -88,13 +95,20 @@ class PackWheelSlotsTest {
     }
 
     @Test
-    fun dismissShutsAPinnedWheel() {
+    fun hidingForTheStoreHidesAPinnedWheelButKeepsItPinned() {
         val state = PackWheelState()
         state.pinTo(true)
         state.close()
         assertTrue(state.open)
-        state.dismiss()
+        state.hideForStore()
         assertEquals(false, state.open)
-        assertEquals(false, state.pinned)
+        assertTrue("still pinned to the sheet", state.pinned)
+        // Back from the store: reopened (or the tool tapped), it is a pinned wheel again.
+        state.toggle()
+        assertTrue(state.open)
+        state.close()
+        assertTrue("a pinned wheel ignores close()", state.open)
+        state.pinTo(false)
+        assertEquals(false, state.open)
     }
 }

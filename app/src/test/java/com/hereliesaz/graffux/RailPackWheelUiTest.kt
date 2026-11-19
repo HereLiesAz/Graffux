@@ -344,6 +344,7 @@ class RailPackWheelUiTest {
             val node = items().single { it.label() == name }
             assertFalse("$name is not cut", node.config[PackNameEllipsized])
         }
+        assertFalse("Get More is not cut", getMoreNode().fetchSemanticsNode().config[PackNameEllipsized])
     }
 
     @Test
@@ -388,6 +389,55 @@ class RailPackWheelUiTest {
         assertEquals(1, storeOpens)
         assertEquals(picksBefore, picks.size)
         assertFalse("wheel shut", wheelShown())
+    }
+
+    @Test
+    fun `a fling resting on get more does not open the store`() {
+        ui = ui.copy(tab = sets.last().key)
+        compose()
+        openWheel()
+        rule.mainClock.autoAdvance = false
+        // Two places on from the last pack: past one blank place, onto Get More. Slow, so no fling carries it on.
+        rule.onNodeWithTag("rail.packwheel").performTouchInput {
+            swipe(onSpoke(PACK_WEDGE_DEGREES * 2.5f), onSpoke(PACK_WEDGE_DEGREES * 0.5f), 3_000)
+        }
+        rule.mainClock.advanceTimeBy(3_000 + WHEEL_DWELL_MS + PACK_WHEEL_CLOSE_MS + 500)
+        val box = bounds("rail.packwheel")
+        val at = getMoreNode().fetchSemanticsNode().boundsInRoot.center.y
+        assertEquals("Get More is on the pointer", box.center.y, at, px(2f))
+        assertEquals(0, storeOpens)
+        assertTrue("no pick either", picks.isEmpty())
+        assertTrue("the wheel stays up", wheelShown())
+    }
+
+    @Test
+    fun `a tap on a blank place does nothing and does not turn the wheel`() {
+        ui = ui.copy(tab = sets.last().key)
+        compose()
+        openWheel()
+        val before = items().map { it.boundsInRoot }
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("rail.packwheel").performTouchInput { click(onSpoke(PACK_WEDGE_DEGREES)) }
+        rule.mainClock.advanceTimeBy(2_000)
+        assertTrue(picks.isEmpty())
+        assertEquals(0, storeOpens)
+        assertTrue(wheelShown())
+        assertEquals(before, items().map { it.boundsInRoot })
+    }
+
+    @Test
+    fun `left-handed get more is two places on from the last pack and opens on a tap`() {
+        ui = ui.copy(tab = sets.last().key)
+        compose(rightHanded = false)
+        openWheel()
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithTag("rail.packwheel").performTouchInput { click(onSpoke(PACK_WEDGE_DEGREES, false)) }
+        rule.mainClock.advanceTimeBy(500)
+        assertEquals("the blank place between", 0, storeOpens)
+        rule.onNodeWithTag("rail.packwheel").performTouchInput { click(onSpoke(PACK_WEDGE_DEGREES * 2, false)) }
+        rule.mainClock.advanceTimeBy(500)
+        assertEquals(1, storeOpens)
+        assertTrue(picks.isEmpty())
     }
 
     /** Pure geometry: the radius gives way before the hub moves, and the hub never leaves the area. */
