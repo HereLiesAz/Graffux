@@ -290,8 +290,9 @@ codebase is deferred scope or a real gap in the install-report flow.
   angles. Empty places draw nothing, have no accessibility node and ignore taps; a drag still turns
   through them. Get More has its own node ("Get more brushes", button, same size as a pack's) and a
   tap or click on it (`routePackSlot`, explicit only: resting on it after a fling just points at it)
-  calls `onGetMore` (`openAzphaltStore`, the Browse tab of `StoreWindow`) and shuts the wheel with
-  `PackWheelState.dismiss()`; the current brush and pack are untouched. Next/Previous pack skip the
+  calls `onGetMore` (`openAzphaltStore`, the Browse tab of `StoreWindow`) and hides the wheel with
+  `PackWheelState.hideForStore()` (it stays pinned while the brush sheet is up and reopens when the
+  store closes, or on a tap of the tool); the current brush and pack are untouched. Next/Previous pack skip the
   tail. Rotation is a float state read only
   in draw and placement. The brush page therefore has no picker strip: its cards sit at the sheet's
   foot (`CarouselPickerPositionUiTest`), it always shows its cards when open, and a step down from
