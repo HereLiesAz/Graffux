@@ -145,4 +145,26 @@ class TouchColorHexTest {
         val text = rule.activity.getString(R.string.colour_hex_invalid)
         assertTrue(text, "3, 6 or 8" in text)
     }
+
+    @Test
+    fun `closing after a resting three digit value was typed over into an invalid one leaves the brush alone`() {
+        type("FF0")
+        type("FF00") // four digits: invalid, and FF0 never reached the brush
+        open = false
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        assertTrue("nothing applied: $applied", applied.isEmpty())
+        assertTrue("nothing recorded: $committed", committed.isEmpty())
+    }
+
+    @Test
+    fun `closing after a value was applied and then typed over still records what the brush has`() {
+        type("FF00AA")
+        type("FF00A")
+        open = false
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        assertEquals(listOf(pink), applied)
+        assertEquals(listOf(pink), committed)
+    }
 }

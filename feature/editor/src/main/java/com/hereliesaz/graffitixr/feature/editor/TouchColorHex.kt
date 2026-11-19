@@ -77,6 +77,8 @@ internal fun HexColourField(
         }
     }
     LaunchedEffect(colour) {
+        // A value that never reached the brush and no longer parses is not what the field says: forget it.
+        if (pending[0]?.applied != true) pending[0] = null
         val value = colour?.takeIf { typed } ?: return@LaunchedEffect
         val waiting = PendingHex(value, applied = false).also { pending[0] = it }
         delay(hexApplyDelayMs(hex))

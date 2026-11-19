@@ -1,12 +1,16 @@
 package com.hereliesaz.graffitixr.feature.editor
 
 import androidx.compose.ui.graphics.Color
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+
+private const val TAG = "RecentColorStore"
 
 /**
  * The Colour sheet's recent colours and how they reach the settings store.
@@ -56,10 +60,12 @@ class RecentColorStore(private val persist: suspend (encoded: String) -> Unit) {
     fun onLoaded(stored: String?) {
         synchronized(lock) {
             if (loaded) return
-            _colors.value = queued.fold(decodeRecentColors(stored)) { list, change -> change(list) }
+            val base = decodeRecentColors(stored)
+            val merged = queued.fold(base) { list, change -> change(list) }
+            _colors.value = merged
             queued.clear()
             loaded = true
-            requestSave()
+            if (merged != base) requestSave()
         }
     }
 
@@ -69,6 +75,15 @@ class RecentColorStore(private val persist: suspend (encoded: String) -> Unit) {
 
     /** Writes the latest list for each request, one at a time. Never returns; cancel it with its scope. */
     suspend fun runWriter() {
-        saveRequests.receiveAsFlow().collect { persist(encodeRecentColors(_colors.value)) }
+        saveRequests.receiveAsFlow().collect {
+            try {
+                persist(encodeRecentColors(_colors.value))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                // One failed write must not end the loop: the next change asks for a save again, of the latest list.
+                Log.w(TAG, "Saving recent colours failed", e)
+            }
+        }
     }
 }

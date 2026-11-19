@@ -92,4 +92,29 @@ class RecentColorStoreTest {
         scope.advanceUntilIdle()
         assertEquals(encodeRecentColors(listOf(d, c)), slow.last())
     }
+
+    @Test
+    fun `a write that throws does not stop later saves`() {
+        var calls = 0
+        val saved = ArrayList<String>()
+        val flaky = RecentColorStore { encoded ->
+            if (calls++ == 0) error("disk full")
+            saved += encoded
+        }
+        flaky.onLoaded(encodeRecentColors(listOf(a)))
+        flaky.commit(b)
+        scope.launch(dispatcher) { flaky.runWriter() }
+        scope.advanceUntilIdle()
+        flaky.commit(c)
+        scope.advanceUntilIdle()
+        assertEquals(encodeRecentColors(listOf(c, b, a)), saved.last())
+    }
+
+    @Test
+    fun `a load that changes nothing asks for no save`() {
+        startWriter()
+        store.onLoaded(encodeRecentColors(listOf(a, b)))
+        scope.advanceUntilIdle()
+        assertTrue(writes.isEmpty())
+    }
 }
