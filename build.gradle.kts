@@ -86,7 +86,7 @@ plugins {
     alias(libs.plugins.jetbrains.compose) apply false
     alias(libs.plugins.compose.hot.reload) apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
-    id("com.google.gms.google-services") version "4.5.0" apply false
+    id("com.google.gms.google-services") version "4.6.0" apply false
 }
 
 allprojects {
