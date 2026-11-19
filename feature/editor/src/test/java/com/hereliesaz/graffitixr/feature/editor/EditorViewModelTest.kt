@@ -111,6 +111,8 @@ class EditorViewModelTest {
         currentProjectFlow.value = testProject
         every { projectRepository.currentProject } returns currentProjectFlow
         every { settingsRepository.backgroundColor } returns kotlinx.coroutines.flow.flowOf(0xFF000000.toInt())
+        // Nothing stored yet: the real store always answers, and nothing is saved until it has.
+        every { settingsRepository.recentColors } returns kotlinx.coroutines.flow.flowOf(null)
         
         // Mock static methods for Bitmap and Uri
         mockkStatic(BitmapFactory::class)
