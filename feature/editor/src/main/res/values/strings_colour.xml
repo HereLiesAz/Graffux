@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- The Colour sheet: the hex field, and the recent-colours grid. -->
+    <string name="colour_sheet_title">Colour</string>
+    <string name="colour_plane_hint">Centre is your current colour. Drag outward to adjust.</string>
+    <string name="colour_plane_description">Current colour at centre. Left less saturated, right more saturated, up brighter, down darker</string>
+    <string name="colour_hue_hint">Hue: your current colour stays in the middle</string>
+    <string name="colour_hue_description">Current hue at centre, drag left or right to shift hue</string>
+    <string name="colour_mixer_default">Wet paint mixer</string>
     <string name="colour_hex_label">Hex</string>
-    <string name="colour_hex_invalid">Not a colour: use 3 or 6 hex digits, like #F0A or #FF00AA</string>
+    <string name="colour_hex_invalid">Not a colour: use 3, 6 or 8 hex digits, like #F0A, #FF00AA or #80FF00AA</string>
     <string name="colour_recent_heading">Recent colours</string>
     <string name="colour_recent_empty">Colours you use appear here. Tap one to use it again; press and hold one to delete it.</string>
     <string name="colour_recent_swatch">%1$s</string>

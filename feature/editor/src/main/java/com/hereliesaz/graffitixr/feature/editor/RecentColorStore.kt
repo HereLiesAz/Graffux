@@ -5,6 +5,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 
 /**
@@ -68,6 +69,6 @@ class RecentColorStore(private val persist: suspend (encoded: String) -> Unit) {
 
     /** Writes the latest list for each request, one at a time. Never returns; cancel it with its scope. */
     suspend fun runWriter() {
-        for (request in saveRequests) persist(encodeRecentColors(_colors.value))
+        saveRequests.receiveAsFlow().collect { persist(encodeRecentColors(_colors.value)) }
     }
 }
