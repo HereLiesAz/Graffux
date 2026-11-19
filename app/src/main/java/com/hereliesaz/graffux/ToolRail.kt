@@ -228,7 +228,6 @@ internal fun ToolRail(
         val colourFace by animateDpAsState(
             colourItemFace(uiState.showColorPicker),
             MotionScheme.expressive().fastEffectsSpec(),
-            label = "railColourFace",
         )
         val colourInView = remember { BringIntoViewRequester() }
         LaunchedEffect(uiState.showColorPicker) {
