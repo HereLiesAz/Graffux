@@ -284,7 +284,15 @@ codebase is deferred scope or a real gap in the install-report flow.
   rail and the safe area down to `PackWheelMinRadius` (128dp), past which the hub slides along the
   rail. Only the half disc takes touches (the box is clipped to the outline, which hit testing
   follows). A pick sets the sheet's tab (`CarouselUi.withSet`) and opens the brush sheet on it; the
-  Eraser erases with the brush in hand, so it shares those packs. Rotation is a float state read only
+  Eraser erases with the brush in hand, so it shares those packs. After the last pack the ring has a
+  tail (`packWheelSlots`, `PackWheelSlots.kt`): an empty place, **Get More**, an empty place
+  (`GET_MORE_EMPTY_NEIGHBOURS` per side), then Favorites again. The packs keep their places and
+  angles. Empty places draw nothing, have no accessibility node and ignore taps; a drag still turns
+  through them. Get More has its own node ("Get more brushes", button, same size as a pack's) and a
+  tap or click on it (`routePackSlot`, explicit only: resting on it after a fling just points at it)
+  calls `onGetMore` (`openAzphaltStore`, the Browse tab of `StoreWindow`) and shuts the wheel with
+  `PackWheelState.dismiss()`; the current brush and pack are untouched. Next/Previous pack skip the
+  tail. Rotation is a float state read only
   in draw and placement. The brush page therefore has no picker strip: its cards sit at the sheet's
   foot (`CarouselPickerPositionUiTest`), it always shows its cards when open, and a step down from
   the carousel shuts it (`steppedDown(tabListStage = false)`).
