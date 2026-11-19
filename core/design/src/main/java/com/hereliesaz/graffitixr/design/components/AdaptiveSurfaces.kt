@@ -1,4 +1,4 @@
-@file:Suppress("TooManyFunctions", "FunctionNaming", "LongParameterList")
+@file:Suppress("TooManyFunctions", "FunctionNaming")
 
 package com.hereliesaz.graffitixr.design.components
 
@@ -70,7 +70,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.hereliesaz.graffitixr.design.GraffuxIcons
 import com.hereliesaz.graffitixr.design.R
@@ -94,13 +96,23 @@ import kotlin.math.roundToInt
  */
 
 /**
- * The strip of the screen the tool rail currently occupies. Docked panels and popovers keep clear
- * of it. Provide the real value once near the editor's root, where the rail is docked (see
- * `MainActivity`); the default assumes no rail.
+ * The strips of the screen the two rails currently occupy: the tool rail ([toolWidth], on the brush hand's side,
+ * [dockedOnLeft]) and the layers rail ([layersWidth], opposite it). Docked panels and popovers keep clear of
+ * them; a surface that opens between the rails keeps clear of each at its own width. Provide the real values
+ * once near the editor's root, where the rails are docked (see `MainActivity`); the default assumes no rail.
  */
-data class RailInset(val dockedOnLeft: Boolean, val width: Dp)
+data class RailInset(val dockedOnLeft: Boolean, val toolWidth: Dp, val layersWidth: Dp = toolWidth) {
+    /**
+     * The strip the rail at the start edge takes: the tool rail when it is [dockedOnLeft], else the layers rail.
+     * The rails are placed at the start and end edges, so these are start and end, not physical left and right.
+     */
+    val start: Dp get() = if (dockedOnLeft) toolWidth else layersWidth
 
-val LocalRailInset = compositionLocalOf { RailInset(dockedOnLeft = false, width = 0.dp) }
+    /** The strip the rail at the end edge takes. */
+    val end: Dp get() = if (dockedOnLeft) layersWidth else toolWidth
+}
+
+val LocalRailInset = compositionLocalOf { RailInset(dockedOnLeft = false, toolWidth = 0.dp) }
 
 /** Width below which the screen is a phone (Material's compact window width class). */
 const val COMPACT_WIDTH_DP = 600
@@ -150,6 +162,7 @@ fun containerFor(kind: SurfaceKind, compact: Boolean): SurfaceContainer = when (
  * close button, a tap on the scrim and system Back alike, so a dialog that applies on close still
  * applies however it closes.
  */
+@Suppress("LongParameterList")
 @Composable
 fun ToolSurface(
     kind: SurfaceKind,
@@ -353,6 +366,7 @@ private fun Modifier.blockTouchThrough(): Modifier = pointerInput(Unit) { detect
  * there is room, above it otherwise, kept onscreen and clear of the rail. A tap outside closes it.
  * [wide] gives a list picker more width than a single slider.
  */
+@Suppress("LongParameterList")
 @Composable
 fun AnchoredValuePopover(
     title: String,
@@ -368,6 +382,7 @@ fun AnchoredValuePopover(
     val anchor = remember { anchorHolder.lastPress?.minus(anchorHolder.origin) }
     val rail = LocalRailInset.current
     val density = LocalDensity.current
+    val safe = WindowInsets.safeDrawing
     val colors = MaterialTheme.colorScheme
     Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }.testTag("surface.popover.host")) {
         Scrim(onDismiss)
@@ -389,10 +404,14 @@ fun AnchoredValuePopover(
         ) { measurables, constraints ->
             val margin = with(density) { EdgeMargin.roundToPx() }
             val gap = with(density) { PopoverGap.roundToPx() }
-            val railPx = with(density) { rail.width.roundToPx() }
-            // Both rails when asked: the tool rail on one side, the layers rail on the other.
-            val left = margin + if (rail.dockedOnLeft || clearOfRails) railPx else 0
-            val right = constraints.maxWidth - margin - if (!rail.dockedOnLeft || clearOfRails) railPx else 0
+            // Both rails when asked: the tool rail on one side, the layers rail on the other, each at its own
+            // width. Always the horizontal safe area too, so a display cutout never sits under the card.
+            val rtl = layoutDirection == LayoutDirection.Rtl
+            val toolOnLeft = rail.dockedOnLeft != rtl
+            val rails = railStrip(if (rtl) rail.end else rail.start, toolOnLeft, clearOfRails, density) to
+                railStrip(if (rtl) rail.start else rail.end, !toolOnLeft, clearOfRails, density)
+            val insets = safe.getLeft(this, layoutDirection) to safe.getRight(this, layoutDirection)
+            val (left, right) = popoverSpan(constraints.maxWidth, margin, rails, insets)
             val usableW = (right - left).coerceAtLeast(0)
             val usableH = (constraints.maxHeight - margin * 2).coerceAtLeast(0)
             val placeable = measurables.first().measure(Constraints(maxWidth = usableW, maxHeight = usableH))
@@ -406,6 +425,24 @@ fun AnchoredValuePopover(
         }
     }
 }
+
+/** Pixels a rail of [width] takes at one physical edge: its strip when it is that edge's rail or [bothRails]. */
+private fun railStrip(width: Dp, onThisEdge: Boolean, bothRails: Boolean, density: Density): Int =
+    if (onThisEdge || bothRails) with(density) { width.roundToPx() } else 0
+
+/**
+ * The horizontal span (left, right) a popover may use in a window [maxWidth] wide: inside [margin], the rail
+ * strips ([rails], left and right, in pixels) and the safe-area insets ([insets], left and right: a display
+ * cutout or system bar on that side). The two sides are independent, so rails of different widths are each
+ * cleared exactly. Pure, so it is tested directly.
+ */
+fun popoverSpan(
+    maxWidth: Int,
+    margin: Int,
+    rails: Pair<Int, Int>,
+    insets: Pair<Int, Int>,
+): Pair<Int, Int> =
+    (margin + insets.first + rails.first) to (maxWidth - margin - insets.second - rails.second)
 
 /**
  * Top-left of a popover of [size] near [anchor], inside [bounds] (left, top, right, bottom): centred
@@ -440,6 +477,7 @@ internal fun popoverPosition(anchor: Offset?, size: Pair<Int, Int>, bounds: IntA
  * A sheet up from the bottom edge, at most 85% of the screen tall, over a scrim that closes it.
  * [largeTargets] raises the minimum touch target to 56dp for forms filled in with a thumb.
  */
+@Suppress("LongParameterList")
 @Composable
 fun AppBottomSheet(
     title: String,
@@ -465,7 +503,7 @@ fun AppBottomSheet(
                     if (clearOfRails) {
                         Modifier
                             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                            .padding(horizontal = rail.width)
+                            .padding(start = rail.start, end = rail.end)
                     } else {
                         Modifier
                     },
@@ -587,8 +625,8 @@ fun DockedPanel(
             DockEdge.BOTTOM -> Modifier
                 .align(Alignment.BottomCenter)
                 .padding(
-                    start = if (rail.dockedOnLeft) rail.width else 0.dp,
-                    end = if (rail.dockedOnLeft) 0.dp else rail.width,
+                    start = if (rail.dockedOnLeft) rail.toolWidth else 0.dp,
+                    end = if (rail.dockedOnLeft) 0.dp else rail.toolWidth,
                 )
                 .fillMaxWidth()
                 .heightIn(max = maxHeight * 0.4f)
