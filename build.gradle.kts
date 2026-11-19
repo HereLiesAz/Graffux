@@ -23,7 +23,7 @@ buildscript {
         // these without checking the others (and the target version itself) exist on Maven
         // Central breaks buildscript classpath resolution outright, exactly like this did.
         "org.bouncycastle:bcprov-jdk18on:1.86",
-        "org.bouncycastle:bcpkix-jdk18on:1.86",
+        "org.bouncycastle:bcpkix-jdk18on:1.87",
         "org.bouncycastle:bcutil-jdk18on:1.86",
         // Kotlin 2.4.x emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a
         // kotlin-metadata-jvm that only reads up to 2.3.0 — its KSP processor fails the build with
@@ -86,7 +86,7 @@ plugins {
     alias(libs.plugins.jetbrains.compose) apply false
     alias(libs.plugins.compose.hot.reload) apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
-    id("com.google.gms.google-services") version "4.5.0" apply false
+    id("com.google.gms.google-services") version "4.6.0" apply false
 }
 
 allprojects {

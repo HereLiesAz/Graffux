@@ -1324,6 +1324,8 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                 val sheetWheel = carouselUi.brushSheetUp(carouselOnScreen, uiState.activeTool) &&
                     !(chrome.hidden && !chrome.forcedOnly) && !strokeGate.strokeActive
                 LaunchedEffect(sheetWheel) { packWheel.pinTo(sheetWheel) }
+                // Get More hides the wheel but leaves it pinned; it comes back when the store closes.
+                LaunchedEffect(showStore) { if (!showStore && sheetWheel) packWheel.open = true }
                 if (packWheel.open) {
                     val packInputs = CarouselInputs(
                         activeTool = uiState.activeTool,
@@ -1358,6 +1360,7 @@ private fun GraffuxApp(sharedImageUri: Uri?, azphaltInstallUrl: String? = null) 
                             heroExpansion.collapse()
                             carouselUi = carouselUi.copy(sheetOpen = true, photo = false).withSet(group)
                         },
+                        onGetMore = openAzphaltStore,
                         closeWhen = { strokeGate.strokeActive },
                     )
                 }

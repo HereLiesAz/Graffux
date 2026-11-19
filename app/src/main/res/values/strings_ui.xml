@@ -23,6 +23,9 @@
     <string name="photo_levels">Levels</string>
     <string name="pack_wheel_description">Brush packs</string>
     <string name="wheel_select_action">Select</string>
+    <string name="wheel_get_more">Get More</string>
+    <string name="wheel_get_more_description">Get more brushes</string>
+    <string name="wheel_get_more_action">Open the store</string>
     <string name="wheel_sets_description">Sets</string>
     <string name="design_style_tag">style</string>
     <string name="design_none">None</string>
