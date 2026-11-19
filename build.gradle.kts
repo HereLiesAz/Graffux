@@ -22,7 +22,7 @@ buildscript {
         // every build — confirmed against Maven Central directly before fixing. Bumping any of
         // these without checking the others (and the target version itself) exist on Maven
         // Central breaks buildscript classpath resolution outright, exactly like this did.
-        "org.bouncycastle:bcprov-jdk18on:1.86",
+        "org.bouncycastle:bcprov-jdk18on:1.87",
         "org.bouncycastle:bcpkix-jdk18on:1.87",
         "org.bouncycastle:bcutil-jdk18on:1.86",
         // Kotlin 2.4.x emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a

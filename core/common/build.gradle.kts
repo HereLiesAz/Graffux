@@ -72,7 +72,7 @@ dependencies {
     // Op/BrushStroke CBOR round-trip tests, and Ed25519 keys for the .azp signature tests (the
     // signing code itself lives in core:engine, which carries Bouncy Castle).
     testImplementation(libs.kotlinx.serialization.cbor)
-    testImplementation("org.bouncycastle:bcprov-jdk18on:1.86")
+    testImplementation("org.bouncycastle:bcprov-jdk18on:1.87")
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)

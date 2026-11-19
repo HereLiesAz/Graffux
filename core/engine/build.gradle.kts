@@ -42,7 +42,7 @@ kotlin {
             implementation(libs.kotlinx.serialization.cbor)
             // Ed25519 signature verification (spec/package-format.md § Signing). Pure-Java, so it
             // resolves identically on both JVM-flavored targets (androidLibrary and jvm("desktop")).
-            implementation("org.bouncycastle:bcprov-jdk18on:1.86")
+            implementation("org.bouncycastle:bcprov-jdk18on:1.87")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
