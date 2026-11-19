@@ -66,7 +66,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation("androidx.input:input-motionprediction:1.0.0") // TEMPORARY: ranked predictor
+    implementation("androidx.input:input-motionprediction:1.0.1") // TEMPORARY: ranked predictor
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.coil.compose)

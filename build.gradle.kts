@@ -4,12 +4,12 @@ buildscript {
     val commonForcedDependencies = listOf(
         "commons-beanutils:commons-beanutils:1.11.0",
         "org.jdom:jdom2:2.0.6.1",
-        "io.netty:netty-codec:4.2.20.Final",
-        "io.netty:netty-codec-http2:4.2.20.Final",
-        "io.netty:netty-handler:4.2.20.Final",
-        "io.netty:netty-handler-proxy:4.2.20.Final",
+        "io.netty:netty-codec:4.2.21.Final",
+        "io.netty:netty-codec-http2:4.2.21.Final",
+        "io.netty:netty-handler:4.2.21.Final",
+        "io.netty:netty-handler-proxy:4.2.21.Final",
         "org.bitbucket.b_c:jose4j:0.9.7",
-        "org.apache.commons:commons-lang3:3.21.0",
+        "org.apache.commons:commons-lang3:3.22.0",
         "org.apache.httpcomponents:httpclient:4.5.14",
         "com.google.guava:guava:33.8.0-jre",
         "com.google.android.gms:play-services-basement:18.12.0",
@@ -24,7 +24,7 @@ buildscript {
         // Central breaks buildscript classpath resolution outright, exactly like this did.
         "org.bouncycastle:bcprov-jdk18on:1.87",
         "org.bouncycastle:bcpkix-jdk18on:1.87",
-        "org.bouncycastle:bcutil-jdk18on:1.86",
+        "org.bouncycastle:bcutil-jdk18on:1.87",
         // Kotlin 2.4.x emits class metadata version 2.4.0, but Hilt/Dagger 2.59.2 bundles a
         // kotlin-metadata-jvm that only reads up to 2.3.0 — its KSP processor fails the build with
         // "Provided Metadata instance has version 2.4.0, while maximum supported version is 2.3.0".
