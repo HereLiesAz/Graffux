@@ -15,12 +15,14 @@ use std::time::Duration;
 /// off the UI and input threads (nothing calls the standalone entries from the app yet).
 pub const READBACK_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long the FIRST wait on a freshly created device may take. The wait covers every queued piece of GPU work,
-/// and a cold device compiles its compute pipelines lazily in the driver on the first dispatch (seconds on a
-/// phone GPU with a cold shader cache), so the steady-state [`READBACK_TIMEOUT`] would turn a slow-but-healthy
-/// first dispatch into a "hang". Still bounded: a device that has not answered in this long is not warming up. It
-/// stays under Android's input-dispatch ANR window only because the editor keeps this wait off the UI thread.
-pub const FIRST_READBACK_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long the FIRST real readback on a freshly created device may take. The wait covers every queued piece of GPU
+/// work, and a cold device compiles its compute pipelines lazily in the driver on the first dispatch, so the
+/// steady-state [`READBACK_TIMEOUT`] could turn a slow-but-healthy first dispatch into a "hang". 15 s is a judgement,
+/// not a measurement: three times the steady-state bound, comfortably above the few seconds a cold shader cache costs
+/// on a phone GPU, and short enough that a device which has not answered by then is not warming up. It is NOT proven
+/// off the UI thread: the waits run on the thread of whoever called the engine (normally the GPU render thread via
+/// `GpuStampEngine.onGpu`), which blocks that caller; see the editor's main-thread audit in the PR.
+pub const FIRST_READBACK_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// A wait slower than this is logged with its elapsed time (the tag the owner greps is `graffux-wgpu`).
 pub const SLOW_WAIT_LOG: Duration = Duration::from_secs(1);

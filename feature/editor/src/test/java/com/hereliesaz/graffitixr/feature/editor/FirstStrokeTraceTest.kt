@@ -30,7 +30,7 @@ class FirstStrokeTraceTest {
         assertTrue(lines.toString(), lines.any { "layer landed 2000 ms" in it && "2 touches swallowed" in it })
         assertTrue(lines.toString(), lines.any { "first dab presented 40 ms after the layer landed" in it })
         assertEquals(1, lines.count { "first dab" in it })
-        assertEquals(2, lines.count { "touch swallowed" in it })
+        assertEquals("one line per milestone, none per touch", 3, lines.size)
     }
 
     @Test

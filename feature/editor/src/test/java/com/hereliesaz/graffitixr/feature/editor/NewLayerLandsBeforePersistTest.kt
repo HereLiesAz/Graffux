@@ -45,6 +45,10 @@ class NewLayerLandsBeforePersistTest {
     private val events = mutableListOf<String>()
     private lateinit var projects: ProjectRepository
     private var savedBytes: ByteArray? = null
+    private var failBlank = false
+    private val emitter = mockk<com.hereliesaz.graffitixr.common.coop.OpEmitter>(relaxed = true)
+    private var vmRef: EditorViewModel? = null
+    private var saveOnEmit = false
 
     @Before fun setUp() {
         Dispatchers.setMain(dispatcher)
@@ -75,6 +79,7 @@ class NewLayerLandsBeforePersistTest {
                 // saveProject also saves a thumbnail through here: only the layer's blank PNG is the one under test.
                 val isBlankLayer = secondArg<String>().startsWith("layer_")
                 if (isBlankLayer) events += "blank save started"
+                if (isBlankLayer && failBlank) throw java.io.IOException("disk full")
                 if (isBlankLayer) savedBytes = thirdArg()
                 if (isBlankLayer) gate.await()
                 if (isBlankLayer) events += "blank save finished"
@@ -91,15 +96,19 @@ class NewLayerLandsBeforePersistTest {
         val figma = mockk<FigmaRepository>(relaxed = true) {
             every { isAuthenticated } returns MutableStateFlow(false)
         }
+        every { emitter.isActive } returns true
+        every { emitter.emit(any()) } answers { if (saveOnEmit) vmRef?.saveProject() }
         return EditorViewModel(
             projectRepository = projects, settingsRepository = settings,
             projectManager = mockk(relaxed = true), exportManager = mockk(relaxed = true),
             context = RuntimeEnvironment.getApplication(), liquifyEngine = mockk(relaxed = true),
-            dispatchers = EditorViewModelFixture.dispatchers(dispatcher), opEmitter = mockk(relaxed = true),
+            dispatchers = EditorViewModelFixture.dispatchers(dispatcher), opEmitter = emitter,
             extensionRepository = extensions, repositoryApiClient = mockk(relaxed = true),
             customBrushRepository = brushes, figmaRepository = figma, projectFileScanner = mockk(relaxed = true),
         )
     }
+
+    private fun built(): EditorViewModel = build().also { vmRef = it }
 
     private fun settle() {
         repeat(ROUNDS) {
@@ -219,6 +228,65 @@ class NewLayerLandsBeforePersistTest {
 
         assertTrue("a PNG was still written", (savedBytes?.size ?: 0) > 0)
         assertEquals(listOf(vm.uiState.value.layers.single().id), current.value?.layers?.map { it.id })
+    }
+
+    @Test
+    fun `a save fired at the exact moment the layer lands still does not name its file`() {
+        val vm = built()
+        settle()
+        // emitMembership runs right after the layer reaches uiState and before the blank write is started.
+        saveOnEmit = true
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        assertFalse(gate.isCompleted)
+        assertEquals(1, vm.uiState.value.layers.size)
+        assertTrue("manifest: ${current.value?.layers}", current.value?.layers.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun `a failed blank write leaves no manifest entry until a stroke writes the file`() {
+        failBlank = true
+        val vm = built()
+        settle()
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        vm.saveProject()
+        vm.onGestureEnd()
+        settle()
+        assertEquals("the layer is still usable", 1, vm.uiState.value.layers.size)
+        assertTrue("no dangling entry: ${current.value?.layers}", current.value?.layers.orEmpty().isEmpty())
+
+        // A real pixel write creates the file; from then on the manifest may name the layer.
+        val layer = vm.uiState.value.layers.single()
+        val file = java.io.File.createTempFile("layer", ".png")
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        kotlinx.coroutines.CoroutineScope(dispatcher).launch {
+            assertTrue(vm.writeLayerBitmapForTest(layer.id, file.path, bitmap))
+        }
+        settle()
+        vm.saveProject()
+        settle()
+        assertEquals(listOf(layer.id), current.value?.layers?.map { it.id })
+        file.delete()
+    }
+
+    @Test
+    fun `when no memory is left for the blank bitmap the layer is likewise kept out of the manifest`() {
+        io.mockk.mockkObject(com.hereliesaz.graffitixr.common.util.SafeBitmap)
+        try {
+            every { com.hereliesaz.graffitixr.common.util.SafeBitmap.create(any(), any(), any()) } returns null
+            val vm = built()
+            settle()
+            vm.setActiveTool(Tool.BRUSH)
+            settle()
+            gate.complete(Unit)
+            vm.saveProject()
+            settle()
+            assertEquals(1, vm.uiState.value.layers.size)
+            assertTrue("manifest: ${current.value?.layers}", current.value?.layers.orEmpty().isEmpty())
+        } finally {
+            io.mockk.unmockkObject(com.hereliesaz.graffitixr.common.util.SafeBitmap)
+        }
     }
 
     private companion object {

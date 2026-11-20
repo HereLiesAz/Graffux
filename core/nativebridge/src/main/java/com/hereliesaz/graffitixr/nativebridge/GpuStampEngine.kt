@@ -55,8 +55,8 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
          */
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
-        private val mainThreadWarned = java.util.concurrent.atomic.AtomicBoolean(false)
         private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
+        private val mainThreadWarned = java.util.concurrent.atomic.AtomicBoolean(false)
 
         /**
          * Most wgpu native handles (document, pooled and checked-out) alive at once. Each holds
@@ -420,6 +420,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     // (issues #434, #438). Now destroy() waits for the in-flight call, and any call after it sees a
     // zero handle and returns false, which the batch already treats as "fall back to the CPU".
     @Volatile private var nativeHandle: Long = 0L
+    private val teardown = MainSafeRunner()
     /** This instance holds the document engine's lease ([initDocument]); destroy() returns it. */
     private var documentLeased = false
     private var poolKey: PoolKey? = null
@@ -442,7 +443,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      */
     @Synchronized
     fun init(width: Int, height: Int): Boolean {
-        destroy()
+        destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
         if (width <= 0 || height <= 0) return false
@@ -458,7 +459,7 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      */
     @Synchronized
     fun initDocument(width: Int, height: Int): Boolean {
-        destroy()
+        destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
         // A holder that never gave the lease back must not hang every later stroke: past the bound
@@ -667,6 +668,10 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
     /**
      * Starts a new stroke on the layer as it is: stroke-max state restarts from these pixels, as
      * after [upload], without replacing them. False when the library lacks it (re-upload instead).
+     *
+     * A false return does NOT mark the engine unhealthy (deliberately): it is also the answer of a library without
+     * this entry, and treating that as a failure would discard a good engine at every stroke. A genuinely failed
+     * engine fails the stroke's next stamp or readback, which does mark it.
      */
     @Synchronized
     fun beginStroke(): Boolean {
@@ -1061,8 +1066,21 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         }
     }
 
-    @Synchronized
+    /**
+     * Releases this engine (returns the document lease, or pools / frees the handle). Never blocks the main thread:
+     * a main-thread call is handed to a teardown thread, because this takes the engine's monitor, which a stroke
+     * worker holds for the whole of a readback wait. The state change then lands a moment later; every other call
+     * on this instance already treats a zero handle as "fall back", and the next stroke's [initDocument] waits for
+     * the lease this gives back.
+     */
     fun destroy() {
+        if (teardown.run { destroyLocked() }) {
+            android.util.Log.d(TAG, "destroy() handed off the main thread")
+        }
+    }
+
+    @Synchronized
+    private fun destroyLocked() {
         val handle = nativeHandle
         substrateHeightUploaded = false
         paintHeightUploaded = false

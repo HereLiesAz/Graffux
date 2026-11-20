@@ -25,12 +25,12 @@ internal class FirstStrokeTrace(
         log("first stroke: tool $tool picked, waiting for a layer")
     }
 
-    /** A touch was read as a gesture (or ignored) instead of a stroke. Counted only while a layer is awaited. */
+    /** A touch was read as a gesture (or ignored) instead of a stroke. Counted only while a layer is awaited; a plain
+     *  counter bump (no log, no allocation) - the total is reported once, when the layer lands. */
     @Synchronized
-    fun touchSwallowed(why: String) {
+    fun touchSwallowed(@Suppress("UNUSED_PARAMETER") why: String) {
         if (pickedAt == NONE || landedAt != NONE) return
         swallowed++
-        log("first stroke: touch swallowed ($why), $swallowed so far, ${sincePicked()} ms after the tool was picked")
     }
 
     /** The new layer reached the editor state (and with it the tool). */

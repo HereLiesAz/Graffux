@@ -1756,7 +1756,7 @@ impl Engine {
             let t0 = Instant::now();
             let encoder = self.device.create_command_encoder(&Default::default());
             self.queue.submit([encoder.finish()]);
-            self.wait_gpu();
+            self.wait_gpu_trivial();
             *s = t0.elapsed().as_secs_f64() * 1000.0;
         }
         samples.sort_by(|a, b| a.partial_cmp(b).unwrap());

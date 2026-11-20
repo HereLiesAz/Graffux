@@ -1375,11 +1375,10 @@ impl Engine {
         self.readback_watch.get_mut().set_timeouts(timeout, timeout);
     }
 
-    /// The bound for the next wait on the GPU (the first one after creation gets the long allowance).
-    pub(crate) fn readback_budget(&self) -> Duration {
-        self.readback_watch.borrow().budget()
-    }
-
+    /// NOTE: in production this is mostly unreachable as a recovery. The Kotlin `GpuStampEngine` marks the engine
+    /// unhealthy on a failed readback and drops it at `destroy()`, so a stalled engine rarely sees a second stroke; it
+    /// matters for callers that keep an engine across strokes (direct display, tests, the desktop build).
+    ///
     /// A new stroke starts: if an earlier wait stalled, give the engine a fresh chance when the device drains
     /// within a short probe (it was slow, not hung). A hung device stays failed and the caller recreates it.
     pub(crate) fn recover_from_stall(&mut self) {
@@ -2288,11 +2287,20 @@ impl Engine {
         self.simulated_stall = true;
     }
 
-    /// Waits for the submitted work with the readback bound (the multipass frame timers). A GPU that does not
-    /// finish in time stalls the engine for this stroke, as a timed-out readback does.
+    /// Waits for the submitted work with the readback bound (the multipass frame timers, which cover real compute). A
+    /// GPU that does not finish in time stalls the engine for this stroke, as a timed-out readback does.
     pub(crate) fn wait_gpu(&self) {
-        // Not "real work": a frame-timer wait may be an empty submission, so it must not end the first-use allowance.
-        self.watched_wait(false, |budget| {
+        self.gpu_wait_flagged(true);
+    }
+
+    /// [`Engine::wait_gpu`] for a wait on an EMPTY submission (the submit-overhead probe): it says nothing about the
+    /// cold pipeline compile still to come, so it must not end the first-use allowance.
+    pub(crate) fn wait_gpu_trivial(&self) {
+        self.gpu_wait_flagged(false);
+    }
+
+    fn gpu_wait_flagged(&self, real_work: bool) {
+        self.watched_wait(real_work, |budget| {
             if wait_bounded(&self.device, budget) { Ok(()) } else { Err(ReadFailure::TimedOut) }
         });
     }
