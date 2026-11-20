@@ -425,8 +425,16 @@ internal class PlaneStrokeFeed<S>(
     private val sampleOk: (raw: S, mapped: S) -> Boolean,
     /** Whether the stroke between the previous accepted sample and this one stays on the surface; false cuts the stroke there. Required, like [sampleOk]. */
     private val joinOk: (prevRaw: S, prevMapped: S, raw: S, mapped: S) -> Boolean,
+    /**
+     * Told once when a stroke ends with no sample ever landing, with how many touches missed the plane or
+     * surface and how many it mapped but the finger guard or visibility check dropped. The view-model was never
+     * told of such a stroke, so this is the only trace of why nothing was painted (diagnostics only).
+     */
+    private val refused: (missed: Int, guarded: Int) -> Unit = { _, _ -> },
 ) {
     private var started = false
+    private var missed = 0
+    private var guarded = 0
     private var lastRaw: S? = null
     private var lastMapped: S? = null
 
@@ -436,6 +444,8 @@ internal class PlaneStrokeFeed<S>(
     fun onStart(sample: S) {
         started = false
         gap = false
+        missed = 0
+        guarded = 0
         feed(sample)
     }
 
@@ -448,6 +458,7 @@ internal class PlaneStrokeFeed<S>(
     private fun feed(sample: S) {
         val mapped = toLayer(sample)
         if (mapped == null || !sampleOk(sample, mapped)) {
+            if (mapped == null) missed++ else guarded++
             gap = started
             return
         }
@@ -470,7 +481,12 @@ internal class PlaneStrokeFeed<S>(
     }
 
     private fun finish(then: () -> Unit) {
-        if (started) then() else cancel()
+        if (started) {
+            then()
+        } else {
+            if (missed + guarded > 0) refused(missed, guarded)
+            cancel()
+        }
         started = false
         gap = false
         lastRaw = null

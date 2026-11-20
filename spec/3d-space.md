@@ -5,6 +5,8 @@ Status: implemented on Android (project format 12; the multi-view surface below 
 
 Posing groups like puppets (joints, rigidity, soft bodies, keyframes) is designed in `spec/3d-puppetry.md`; nothing there is implemented.
 
+Giving a stroke on a plane volume (a per-pixel thickness channel, a brush z-depth, extrusion at render time), and the rule that the next stroke after a rotation goes on a new plane facing the camera, are designed in `spec/3d-thickness.md`; nothing there is implemented, and its section 10.2 lists the text in "Painting on a tilted plane", "Adopting the view plane" and "Draw plane depth" that it will change.
+
 ## What the user sees
 
 The canvas is one 3D space. Every layer is a flat plane. A layer that was never moved in 3D sits
@@ -1366,7 +1368,7 @@ orbited camera puts the paint where it is drawn rather than on the far-off pictu
   that plane in the scene.
 - "Empty" means no source image, text, shapes, adjustment or 3D ink, no recorded stroke, and no
   set pixel (checked once, only when everything else already says empty and the camera has moved).
-  A layer with paint keeps its plane. So does a layer already placed in 3D by hand.
+  A layer with paint keeps its plane while it faces the camera (within `PlaneSnap.ORBIT_CAPTURE_DEGREES`) or when the user chose it after the last rotation; after a rotation (orbit, triangle, steps, a layer's own X/Y turn) that leaves it not facing the camera, the next stroke goes on a new layer on the view plane directly above it, in the same group, riding the stroke's undo entry; the earlier layer keeps its pose. A layer on a group surface does so only when the surface is seen more than 60 degrees off face-on. A rotation arms this; choosing a layer on the rail, or a stroke taking its plane, clears it (`EditorViewModel.adoptViewPlaneForStroke`, `chosenView`). An empty layer that does not face the camera is moved onto the view plane, as before.
 - At the default view nothing changes: the adopted pose would be the identity, so the layer stays
   on the 2D fast path.
 - It happens as the stroke starts, before the first point is mapped, and joins that stroke's undo

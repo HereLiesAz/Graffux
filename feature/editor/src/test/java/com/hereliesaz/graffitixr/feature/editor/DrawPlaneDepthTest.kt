@@ -417,12 +417,73 @@ class DrawPlaneDepthTest {
         assertNull(ui().drawPlane)
         assertFalse(vm.adoptViewPlaneForStroke())
         vm.onSceneOrbit(0.4f, 0f)
-        // The art layer is not empty, so it keeps its plane; no layer is made.
-        assertFalse(vm.adoptViewPlaneForStroke())
-        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+        // The view turned, so the stroke gets a plane facing it on a new layer (see the view-plane tests below).
+        assertTrue(vm.adoptViewPlaneForStroke())
+        assertEquals(3, ui().layers.size)
         val u = ui().undoCount
         stroke()
         assertEquals(u + 1, ui().undoCount)
+    }
+
+    @Test
+    fun `drawing again after the layer or the view was turned takes a new plane facing the view, the old one keeps its pose`() =
+        runTest(dispatcher) {
+            setup()
+            val old = ui().layers.first { it.id == "L" }
+            // The layer itself was rotated in 3D, the view at home: it used to take paint on its edge-on plane or none.
+            vm.dispatchForTest(
+                EditorIntent.SetLayers(ui().layers.map { if (it.id == "L") it.copy(rotationY = 80f) else it }),
+            )
+            assertTrue(vm.adoptViewPlaneForStroke())
+            val made = ui().layers.first { it.id == ui().activeLayerId }
+            assertNotEquals("L", made.id)
+            assertEquals(0f, made.rotationY, 0.01f)
+            val kept = ui().layers.first { it.id == "L" }
+            assertEquals(80f, kept.rotationY, 0f)
+            assertEquals(old.offset, kept.offset)
+            // The same plane takes the next stroke: no second layer.
+            vm.onStrokeCancel()
+        }
+
+    @Test
+    fun `paint on a surface seen at a grazing angle goes onto a new plane facing the view, outside the group`() =
+        runTest(dispatcher) {
+            setup(withSurfacePaint = true)
+            vm.onLayerActivated("W")
+            // Face-on enough: the surface keeps taking the stroke.
+            vm.onSceneOrbit(0.2f, 0f)
+            assertFalse(vm.adoptViewPlaneForStroke())
+            vm.onSceneOrbit((Math.PI / 2).toFloat(), 0f)
+            val before = ui().layers.first { it.id == "W" }
+            assertTrue(vm.adoptViewPlaneForStroke())
+            val made = ui().layers.first { it.id == ui().activeLayerId }
+            assertNull("beside the group, not on its surface", made.parentId)
+            assertEquals(before, ui().layers.first { it.id == "W" })
+            assertEquals("after the group and its paint", ui().layers.size - 1, ui().layers.indexOf(made))
+            // On that plane the touches map to distinct points (the old plane collapsed them to one line).
+            val plane = ActivePlaneMapping.of(ui())
+            val a = plane.toFlat(Offset(10f, 10f))!!
+            val b = plane.toFlat(Offset(30f, 30f))!!
+            assertTrue(kotlin.math.abs(a.x - b.x) > 1f && kotlin.math.abs(a.y - b.y) > 1f)
+        }
+
+    @Test
+    fun `a layer the user chooses after rotating is painted where it stands`() = runTest(dispatcher) {
+        setup()
+        vm.onSceneOrbit(0.4f, 0f)
+        vm.onLayerActivated("L")
+        assertFalse(vm.adoptViewPlaneForStroke())
+        assertEquals(listOf("G", "L"), ui().layers.map { it.id })
+    }
+
+    @Test
+    fun `a plane that already faces the view takes the next stroke, no second layer`() = runTest(dispatcher) {
+        setup()
+        vm.onSceneOrbit(0.4f, 0f)
+        assertTrue(vm.adoptViewPlaneForStroke())
+        // Asked again for the same stroke (the commit asks too): no second layer.
+        assertFalse(vm.adoptViewPlaneForStroke())
+        assertEquals(3, ui().layers.size)
     }
 
     @Test
