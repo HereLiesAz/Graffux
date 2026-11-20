@@ -37,6 +37,19 @@ object GpuUndoSnapshots {
             nativeDocSnapshot(ref.handle, SWAP, longArrayOf(ref.id, expected, generation), IntArray(RECT_INTS)) != 0L
     }
 
+    /**
+     * [swap] without waiting: queued on the render thread (so it keeps its order with every other GPU call: a stroke,
+     * another undo or redo), [onFailed] runs there if nothing was swapped. The caller has already shown the CPU result,
+     * so nothing is shown before the pixels are swapped; a later bind compares the layer's generation, which a failed
+     * swap leaves at the old value, so it re-uploads instead of trusting the retag.
+     */
+    fun swapAsync(ref: Ref, expected: Long, generation: Long, onFailed: () -> Unit) {
+        GpuRenderThread.post {
+            val ok = runCatching { swap(ref, expected, generation) }.getOrDefault(false)
+            if (!ok) onFailed()
+        }
+    }
+
     /** Frees [ref] (queued). */
     fun drop(ref: Ref) {
         GpuRenderThread.post {

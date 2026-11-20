@@ -17,13 +17,13 @@ class FirstStrokeTraceTest {
     fun `counts the touches swallowed before the layer landed and times the milestones`() {
         trace.toolPicked("BRUSH")
         ms(300)
-        trace.touchSwallowed("canvas gesture")
+        trace.touchSwallowed()
         ms(200)
-        trace.touchSwallowed("stroke start with no tool")
+        trace.touchSwallowed()
         ms(1500)
         trace.layerLanded()
         ms(40)
-        trace.touchSwallowed("canvas gesture") // after the layer landed: an ordinary gesture, not counted
+        trace.touchSwallowed() // after the layer landed: an ordinary gesture, not counted
         trace.firstDabPresented()
         trace.firstDabPresented() // once only
 
@@ -35,7 +35,7 @@ class FirstStrokeTraceTest {
 
     @Test
     fun `is silent when no tool pick is awaiting a layer`() {
-        trace.touchSwallowed("canvas gesture")
+        trace.touchSwallowed()
         trace.layerLanded()
         trace.firstDabPresented()
         assertTrue(lines.isEmpty())

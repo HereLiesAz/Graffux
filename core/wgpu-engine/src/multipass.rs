@@ -1725,7 +1725,8 @@ impl Engine {
             let t0 = Instant::now();
             let units = self.mp_exec_final(mp, pass, chunk);
             if timed {
-                self.wait_gpu();
+                // A chunk-less final pass (empty footprint) submits nothing: that wait is not real work.
+                self.wait_gpu_if(chunk_is_real_work(units));
             }
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
             if timed && units > 0.0 {
@@ -2668,5 +2669,22 @@ mod tests {
             MultipassConfig::from_floats(&[1.0, 2.0, 0.9]).edge_fraction,
             0.5
         );
+    }
+}
+
+/// Whether a final-pass chunk of `units` submitted GPU work (an empty-footprint pass runs no chunk and submits
+/// nothing, so waiting for it must not end the cold-pipeline first-use allowance).
+pub(crate) fn chunk_is_real_work(units: f64) -> bool {
+    units > 0.0
+}
+
+#[cfg(test)]
+mod real_work_tests {
+    use super::chunk_is_real_work;
+
+    #[test]
+    fn an_empty_final_pass_is_not_real_work() {
+        assert!(!chunk_is_real_work(0.0));
+        assert!(chunk_is_real_work(1.0));
     }
 }

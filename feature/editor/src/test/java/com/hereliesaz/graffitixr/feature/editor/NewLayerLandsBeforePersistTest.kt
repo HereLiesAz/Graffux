@@ -289,6 +289,28 @@ class NewLayerLandsBeforePersistTest {
         }
     }
 
+    @Test
+    fun `a save that snapshotted while the layer was pending still includes it if its file landed before the write`() {
+        failBlank = true
+        val vm = built()
+        settle()
+        vm.setActiveTool(Tool.BRUSH)
+        settle()
+        val layer = vm.uiState.value.layers.single()
+        val file = java.io.File.createTempFile("layer", ".png")
+        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        // The repository applies the transform at write time. Between the save's snapshot (layer pending) and that
+        // write, a real pixel write lands the file: the omission must be decided now, not at the snapshot.
+        coEvery { projects.updateProject(any<(GraffitiProject) -> GraffitiProject>()) } coAnswers {
+            assertTrue(vm.writeLayerBitmapForTest(layer.id, file.path, bitmap))
+            current.value?.let { current.value = firstArg<(GraffitiProject) -> GraffitiProject>()(it) }
+        }
+        vm.saveProject()
+        settle()
+        assertEquals(listOf(layer.id), current.value?.layers?.map { it.id })
+        file.delete()
+    }
+
     private companion object {
         const val ROUNDS = 20
         const val SLEEP_MS = 25L

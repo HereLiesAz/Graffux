@@ -1942,12 +1942,12 @@ class EditorViewModel @Inject constructor(
     private val blankPersistJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
     /**
-     * Layers whose file (a new layer's blank PNG) is not known to be on disk. [persistProject] omits them from the
+     * Layer id -> project id, for layers whose file (a new layer's blank PNG) is not known to be on disk. [persistProject] omits them from the
      * manifest. Added before the layer lands; removed when the blank write succeeds or a real pixel write creates the
      * file. A layer whose blank write failed stays here, so it is absent from the saved project until it is painted
      * (an empty layer that is lost on reload, never a manifest entry for a missing file).
      */
-    private val blankFilePending: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val blankFilePending = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     // Per-layer rebuild jobs: cancels stale compositing coroutines on rapid undo/redo so
     // only the most recent rebuild's result lands in the UI state.
@@ -4820,7 +4820,7 @@ class EditorViewModel @Inject constructor(
             // never overwritten by the blank. A blank layer has nothing to lose before its first stroke.
             val layerId = UUID.randomUUID().toString()
             val filename = "layer_${UUID.randomUUID()}.png"
-            blankFilePending += layerId
+            blankFilePending[layerId] = projectId
             val predictedPath = runCatching { java.io.File(context.filesDir, "projects/$projectId/$filename").path }
                 .getOrNull()
             // No usable app files directory to predict from (never in the app): keep the old foreground write.
@@ -4886,6 +4886,10 @@ class EditorViewModel @Inject constructor(
         if (!written) {
             // The layer stays out of the saved project (blankFilePending) until a stroke creates its file.
             android.util.Log.w("EditorViewModel", "Blank PNG for $layerId not written; layer unsaved until painted")
+            firstStrokeTrace.note("blank PNG for $layerId failed twice; the layer is unsaved until painted")
+            withContext(dispatchers.main) {
+                notify("Couldn't save the new layer yet — it will be saved once you paint on it", NoticeKind.WARNING)
+            }
             return
         }
         blankFilePending -= layerId
@@ -4893,6 +4897,17 @@ class EditorViewModel @Inject constructor(
         // The manifest may name it now. Only for the project this layer was made in: a project switch since then has
         // its own saves, and this one must not persist whatever is current.
         if (_uiState.value.projectId == projectId) saveProject()
+    }
+
+    /**
+     * Forgets pending blank files of other projects (a switch or close since the layer was made) and cancels their
+     * writes. Documented loss: an empty layer of a project that is no longer open and whose blank file never landed is
+     * not saved into it (nothing painted is lost: a painted layer clears its entry by writing its own file).
+     */
+    private fun pruneBlankFilePending(currentProjectId: String) {
+        blankFilePending.entries.removeAll { (layerId, owner) ->
+            (owner != currentProjectId).also { stale -> if (stale) blankPersistJobs.remove(layerId)?.cancel() }
+        }
     }
 
     /** The old synchronous write, for a build with no usable app files directory to predict the path from. */
@@ -5269,15 +5284,15 @@ class EditorViewModel @Inject constructor(
         // A new layer whose blank PNG is not on disk yet is left out of the manifest (see [blankFilePending]): no
         // manifest may name a file that does not exist. The id is registered before the layer can reach uiState, so a
         // snapshot that contains the layer always sees the registration.
-        val updatedLayers = _uiState.value.layers.filter { it.id !in blankFilePending }
-            .map { modelOverlay(it, it.toOverlayLayer(), projectId) }
+        val updatedLayers = _uiState.value.layers.map { modelOverlay(it, it.toOverlayLayer(), projectId) }
+        pruneBlankFilePending(projectId)
 
         val manifestToSave: GraffitiProject
         if (currentProject == null) {
             manifestToSave = GraffitiProject(
                 id = projectId,
                 name = name ?: "New Project",
-                layers = updatedLayers,
+                layers = updatedLayers.filter { !blankFilePending.containsKey(it.id) },
                 colorStyles = _uiState.value.colorStyles,
                 textStyles = _uiState.value.textStyles,
                 documentWidth = _uiState.value.documentWidth,
@@ -5294,7 +5309,9 @@ class EditorViewModel @Inject constructor(
             projectRepository.updateProject { current ->
                 current.copy(
                     name = name ?: current.name,
-                    layers = updatedLayers,
+                    // Evaluated now, at write time (modelOverlay did IO since the snapshot): a layer whose file landed
+                    // meanwhile is included, one still pending is left out.
+                    layers = updatedLayers.filter { !blankFilePending.containsKey(it.id) },
                     colorStyles = _uiState.value.colorStyles,
                     textStyles = _uiState.value.textStyles,
                     lastModified = System.currentTimeMillis(),
@@ -6167,7 +6184,7 @@ class EditorViewModel @Inject constructor(
     private var gestureStartLayers: List<Layer>? = null
 
     override fun onGestureStart() {
-        firstStrokeTrace.touchSwallowed("canvas gesture")
+        firstStrokeTrace.touchSwallowed()
         pushHistory()
         gestureStartLayers = _uiState.value.layers
         // The orbit pivot is measured once, here, so a handle or Move-tool turn cannot move it as the
@@ -7911,7 +7928,7 @@ class EditorViewModel @Inject constructor(
     fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
         val state = _uiState.value
         if (state.activeTool == Tool.NONE) {
-            firstStrokeTrace.touchSwallowed("stroke start with no tool")
+            firstStrokeTrace.touchSwallowed()
             ignoredNoToolStarts.incrementAndGet()
             return
         }
@@ -10174,8 +10191,17 @@ class EditorViewModel @Inject constructor(
     ): Boolean {
         val expected = layerResidency.currentGeneration(layerId)
         val generation = expected?.let { layerResidency.adoptCommit(layerId, it, current, patched) }
-        return expected != null && generation != null &&
-            runCatching { GpuUndoSnapshots.swap(ref, expected, generation) }.getOrDefault(false)
+        if (expected == null || generation == null) return false
+        // Queued on the render thread, not awaited: undo runs on the main thread, and the render thread may be inside a
+        // readback wait. The CPU result is shown at once and is what the user sees; the GPU copy follows in order
+        // behind everything already queued (a later stroke binds after it, a second undo swaps after it). If the swap
+        // finds nothing to swap, the resident copy is dropped (it keeps its old generation: a bind would miss)
+        // and the snapshot is freed from the main thread, where the history lives.
+        GpuUndoSnapshots.swapAsync(ref, expected, generation) {
+            invalidateResident(layerId)
+            viewModelScope.launch(dispatchers.main) { history.forgetGpuUndo(ref) }
+        }
+        return true
     }
 
     /** The live stroke's GPU engine and leftover dabs, taken over by its commit at the stroke's end. */

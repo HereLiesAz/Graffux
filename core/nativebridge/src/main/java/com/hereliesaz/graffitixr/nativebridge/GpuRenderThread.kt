@@ -69,10 +69,36 @@ object GpuRenderThread {
      */
     fun <T> call(block: () -> T): T {
         if (isCurrent) return block()
+        warnIfMainThread()
         return try {
             executor.submit(Callable { observed(block) }).get()
         } catch (e: ExecutionException) {
             throw e.cause ?: e
+        }
+    }
+
+    private val warnedSites: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * A blocking [call] on the main thread waits behind whatever the render thread is doing, including a readback wait
+     * of up to the first-use allowance on a cold device: an ANR. Logged once per call site, with the stack, so the
+     * offender is named in logcat. (A guard, not an assertion: a mis-threaded call must still work.)
+     */
+    private fun warnIfMainThread() {
+        val onMain = runCatching { android.os.Looper.getMainLooper() === android.os.Looper.myLooper() }
+            .getOrDefault(false)
+        if (!onMain) return
+        val trace = Throwable("main-thread GPU call")
+        val site = trace.stackTrace.firstOrNull {
+            !it.className.startsWith("com.hereliesaz.graffitixr.nativebridge.GpuRenderThread")
+        }?.let { "${it.className}.${it.methodName}:${it.lineNumber}" } ?: "unknown"
+        if (warnedSites.add(site)) {
+            android.util.Log.w(
+                "GpuRenderThread",
+                "BLOCKING GPU call on the MAIN thread at $site: it waits behind the render thread (a readback wait " +
+                    "can hold it for seconds)",
+                trace,
+            )
         }
     }
 

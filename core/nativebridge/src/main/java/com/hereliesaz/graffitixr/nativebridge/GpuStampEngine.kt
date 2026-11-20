@@ -56,7 +56,20 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         private val documentLease = java.util.concurrent.Semaphore(1)
         private const val DOCUMENT_LEASE_WAIT_MS = 2_000L
         private const val DOCUMENT_TRIM_WAIT_MS = 10_000L
-        private val mainThreadWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val teardownsPending = AtomicInteger(0)
+
+        /** Waits (bounded, never on the main thread) for main-thread teardowns already queued, so a stroke starting
+         *  right after one finds the handle it pooled instead of building a cold native engine. */
+        private fun awaitTeardowns() {
+            if (teardownsPending.get() == 0 || onMainThread()) return
+            val deadline = System.nanoTime() + TEARDOWN_AWAIT_MS * NANOS_PER_MS
+            while (teardownsPending.get() > 0 && System.nanoTime() < deadline) Thread.sleep(2)
+        }
+        private const val TEARDOWN_AWAIT_MS = 200L
+        private const val NANOS_PER_MS = 1_000_000L
+
+        private fun onMainThread(): Boolean =
+            runCatching { android.os.Looper.myLooper() === android.os.Looper.getMainLooper() }.getOrDefault(false)
 
         /**
          * Most wgpu native handles (document, pooled and checked-out) alive at once. Each holds
@@ -396,14 +409,25 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
 
         /**
          * The overlay SurfaceView's surface appeared or changed ([surface] non-null, [width]x[height]
-         * pixels) or is going away (null). Blocks until the render thread has applied it: when the
-         * surface goes, the wgpu swapchain on it must be gone before `surfaceDestroyed` returns.
+         * pixels) or is going away (null). A change is queued (latest wins) and never blocks; going away waits at
+         * most [SurfaceApplier.DESTROY_WAIT_MS] for the render thread (see [SurfaceApplier]).
          */
         @JvmStatic
         fun set(surface: Surface?, width: Int, height: Int) {
             available = surface != null && width > 0 && height > 0
-            runCatching { GpuRenderThread.call { directDisplay.setSurface(surface, width, height) } }
+            if (surface == null) {
+                if (!surfaceApplier.destroyed()) {
+                    android.util.Log.w(TAG, "surfaceDestroyed: render thread busy; the swapchain is released late")
+                }
+            } else {
+                surfaceApplier.changed(surface, width, height)
+            }
         }
+
+        private val surfaceApplier = SurfaceApplier<Surface>(
+            post = { GpuRenderThread.post(it) },
+            apply = { surface, width, height -> directDisplay.setSurface(surface, width, height) },
+        )
 
         /** Clears the wgpu direct-display surface (the committed stroke is on screen). Queued. */
         @JvmStatic
@@ -441,8 +465,13 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * here (no wgpu library, no adapter, no Vulkan) or a failed setup. There is no CPU renderer to fall
      * back to: the caller's stroke fails (StrokeRenderException).
      */
-    @Synchronized
     fun init(width: Int, height: Int): Boolean {
+        awaitTeardowns()
+        return initLocked(width, height)
+    }
+
+    @Synchronized
+    private fun initLocked(width: Int, height: Int): Boolean {
         destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
@@ -457,8 +486,13 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * cleared and the engine's resident layers persist; [destroy] gives the engine back rather than
      * pooling it. False = no usable GPU here.
      */
-    @Synchronized
     fun initDocument(width: Int, height: Int): Boolean {
+        awaitTeardowns()
+        return initDocumentLocked(width, height)
+    }
+
+    @Synchronized
+    private fun initDocumentLocked(width: Int, height: Int): Boolean {
         destroyLocked()
         substrateHeightUploaded = false
         paintHeightUploaded = false
@@ -1074,7 +1108,15 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * the lease this gives back.
      */
     fun destroy() {
-        if (teardown.run { destroyLocked() }) {
+        teardownsPending.incrementAndGet()
+        val handedOff = teardown.run {
+            try {
+                destroyLocked()
+            } finally {
+                teardownsPending.decrementAndGet()
+            }
+        }
+        if (handedOff) {
             android.util.Log.d(TAG, "destroy() handed off the main thread")
         }
     }
@@ -1125,9 +1167,11 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
         lastReadbackRect = null
         readbackPixels = 0L
         multipassEnabled = false
-        // Pooling is bookkeeping and happens now, so the next stroke's init() finds this handle
-        // even while its last batches are still queued: every call on it runs on
-        // GpuRenderThread in order, so the next user's clear() lands after them.
+        // Pooling is bookkeeping: it happens when this runs, which is now on a worker thread but LATE (after the
+        // teardown thread got the monitor) on the main-thread path. init()/initDocument() therefore wait, bounded
+        // (TEARDOWN_AWAIT_MS), for queued teardowns, so the next stroke finds this handle even while its last
+        // batches are still queued: every call on it runs on GpuRenderThread in order, so the next user's clear()
+        // lands after them.
         if (!mayPool) {
             destroyHandle(handle)
         } else {
@@ -1216,29 +1260,11 @@ class GpuStampEngine(private val collectTelemetry: Boolean = false) {
      * separates "the GPU call was slow" from "it waited behind other render-thread work".
      */
     private inline fun <T> onGpu(crossinline block: () -> T): T {
-        warnOnMainThreadOnce()
         val sink = passTimingSink.takeIf { collectTelemetry } ?: return GpuRenderThread.call { block() }
         val enqueued = System.nanoTime()
         return GpuRenderThread.call {
             sink.onPass(PassKind.RENDER_THREAD_WAIT.ordinal, System.nanoTime() - enqueued, false)
             block()
-        }
-    }
-
-    /**
-     * A GPU call blocks its caller until the render thread has run it, and a readback inside it may wait up to the
-     * first-use allowance (30 s) on a cold device. On the main thread that is an ANR: say so once, loudly, rather than
-     * leave it to be inferred from a freeze. (No assertion: a mis-threaded call must still work.)
-     */
-    private fun warnOnMainThreadOnce() {
-        val onMain = runCatching { android.os.Looper.getMainLooper() === android.os.Looper.myLooper() }
-            .getOrDefault(false)
-        if (onMain && mainThreadWarned.compareAndSet(false, true)) {
-            android.util.Log.w(
-                TAG,
-                "GPU call on the MAIN thread; a cold first readback can block it for tens of seconds",
-                Throwable("main-thread GPU call"),
-            )
         }
     }
 

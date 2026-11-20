@@ -2295,6 +2295,10 @@ impl Engine {
 
     /// [`Engine::wait_gpu`] for a wait on an EMPTY submission (the submit-overhead probe): it says nothing about the
     /// cold pipeline compile still to come, so it must not end the first-use allowance.
+    pub(crate) fn wait_gpu_if(&self, real_work: bool) {
+        self.gpu_wait_flagged(real_work);
+    }
+
     pub(crate) fn wait_gpu_trivial(&self) {
         self.gpu_wait_flagged(false);
     }
@@ -2307,7 +2311,10 @@ impl Engine {
 
     /// Every bounded wait of this engine goes through here (see [`gpu_wait::watched`]): the watch's current budget
     /// in, the outcome (slow, timed out, ok) recorded, and a timeout stalls the rest of this stroke only.
-    /// `real_work`: a readback of dispatched work (the only kind that ends the first-use allowance).
+    /// `real_work`: the wait covers dispatched work. Ends the first-use allowance: the real readbacks (engine, wet,
+    /// direct offscreen), the multipass draft / refine / compose timer waits (they follow real dispatches), and the
+    /// final-pass wait when a chunk was submitted. Does not: the empty-submission overhead probe and a chunk-less
+    /// final pass.
     pub(crate) fn watched_wait(
         &self,
         real_work: bool,

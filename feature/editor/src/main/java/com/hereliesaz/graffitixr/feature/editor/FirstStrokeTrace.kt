@@ -28,10 +28,13 @@ internal class FirstStrokeTrace(
     /** A touch was read as a gesture (or ignored) instead of a stroke. Counted only while a layer is awaited; a plain
      *  counter bump (no log, no allocation) - the total is reported once, when the layer lands. */
     @Synchronized
-    fun touchSwallowed(@Suppress("UNUSED_PARAMETER") why: String) {
+    fun touchSwallowed() {
         if (pickedAt == NONE || landedAt != NONE) return
         swallowed++
     }
+
+    /** A one-off event worth one line (a blank-layer write that failed twice, say). */
+    fun note(message: String) = log("first stroke: $message")
 
     /** The new layer reached the editor state (and with it the tool). */
     @Synchronized
