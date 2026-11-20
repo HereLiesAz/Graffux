@@ -12,7 +12,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::Engine;
-use crate::gpu_wait::map_read;
+use crate::gpu_wait::map_read_within;
 use crate::resident::Rect;
 
 pub const WET_WGSL: &str = include_str!("shaders/wet.wgsl");
@@ -821,10 +821,18 @@ impl Engine {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(src, offset, &self.staging, 0, len);
         self.queue.submit([encoder.finish()]);
-        let copied = map_read(&self.device, &self.staging, 0..len, self.readback_timeout, |mapped| {
-            out.copy_from_slice(&mapped[..len as usize]);
-        });
-        self.settle_readback(copied)
+        let budget = self.readback_budget();
+        let started = std::time::Instant::now();
+        let device = &self.device;
+        let copied = map_read_within(
+            device,
+            &self.staging,
+            0..len,
+            budget,
+            |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
+            |mapped| out.copy_from_slice(&mapped[..len as usize]),
+        );
+        self.settle_readback(copied, started.elapsed())
     }
 }
 

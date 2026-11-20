@@ -694,7 +694,7 @@ impl Engine {
             &self.device,
             &staging,
             0..padded as u64 * h as u64,
-            self.readback_timeout,
+            self.readback_budget(),
             |mapped| {
                 for y in 0..h as usize {
                     let src = &mapped[y * padded as usize..y * padded as usize + row as usize];

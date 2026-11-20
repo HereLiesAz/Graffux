@@ -15,7 +15,7 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
 use crate::diag;
-use crate::gpu_wait::{map_read, map_read_with, wait_bounded, ReadFailure, READBACK_TIMEOUT};
+use crate::gpu_wait::{map_read_with, map_read_within, wait_bounded, ReadFailure, ReadbackWatch};
 use crate::resident::{Rect, ResidentSet, Tag, DEFAULT_BUDGET_BYTES};
 use crate::timing::{GpuTimer, PassKind};
 
@@ -476,9 +476,10 @@ pub struct Engine {
     queue: wgpu::Queue,
     adapter_info: wgpu::AdapterInfo,
     error: Arc<AtomicBool>,
-    /// How long a readback waits for the GPU before it gives up and fails the engine
-    /// ([`gpu_wait::READBACK_TIMEOUT`] unless a test shortens it).
-    readback_timeout: Duration,
+    /// Bounds and state of the readback waits: the long first-use allowance, the steady-state timeout, and whether
+    /// the last wait stalled ([`gpu_wait::ReadbackWatch`]). A stall fails the rest of the stroke, not the engine
+    /// for good: the next stroke's `clear`/`upload`/`begin_stroke` probes the device again.
+    readback_watch: std::cell::RefCell<ReadbackWatch>,
     /// Tests: the next readback behaves as if the GPU never answered (see [`Engine::simulate_readback_stall`]).
     simulated_stall: bool,
     /// Set by the device-lost callback: the driver dropped the device (reset, background
@@ -1080,7 +1081,7 @@ impl Engine {
             queue,
             adapter_info,
             error,
-            readback_timeout: READBACK_TIMEOUT,
+            readback_watch: std::cell::RefCell::new(ReadbackWatch::new()),
             simulated_stall: false,
             lost,
             width,
@@ -1363,13 +1364,25 @@ impl Engine {
     }
 
     fn ok(&self) -> bool {
-        !self.error.load(Ordering::SeqCst)
+        !self.error.load(Ordering::SeqCst) && !self.readback_watch.borrow().is_stalled()
     }
 
-    /// Shortens or lengthens how long a readback waits for the GPU (tests; the default is
-    /// [`gpu_wait::READBACK_TIMEOUT`]).
+    /// Shortens or lengthens how long a readback waits for the GPU, first use included (tests; the defaults are
+    /// [`gpu_wait::READBACK_TIMEOUT`] and [`gpu_wait::FIRST_READBACK_TIMEOUT`]).
     pub fn set_readback_timeout(&mut self, timeout: Duration) {
-        self.readback_timeout = timeout;
+        self.readback_watch.get_mut().set_timeouts(timeout, timeout);
+    }
+
+    /// The bound for the next wait on the GPU (the first one after creation gets the long allowance).
+    pub(crate) fn readback_budget(&self) -> Duration {
+        self.readback_watch.borrow().budget()
+    }
+
+    /// A new stroke starts: if an earlier wait stalled, give the engine a fresh chance when the device drains
+    /// within a short probe (it was slow, not hung). A hung device stays failed and the caller recreates it.
+    fn recover_from_stall(&mut self) {
+        let device = self.device.clone();
+        self.readback_watch.get_mut().recover(|probe| crate::gpu_wait::wait_bounded(&device, probe));
     }
 
     /// Whether the device was lost (see `lost`). Polls first so a pending loss is reported.
@@ -1398,6 +1411,7 @@ impl Engine {
 
     /// `StampEngine::clear`: transparent layer, new stroke.
     pub fn clear(&mut self) -> bool {
+        self.recover_from_stall();
         self.mp_session_ending();
         self.detach();
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -1414,6 +1428,7 @@ impl Engine {
     /// pixels, as after [`Engine::upload`], without replacing them. Queued multipass work lands
     /// first. Lets one engine replay many recorded strokes back to back.
     pub fn begin_stroke(&mut self) -> bool {
+        self.recover_from_stall();
         self.mp_drain();
         self.mp_session_ending();
         self.stroke_state_dirty = true;
@@ -1429,6 +1444,7 @@ impl Engine {
         if rgba.len() < bytes {
             return false;
         }
+        self.recover_from_stall();
         self.mp_session_ending();
         self.detach();
         self.queue.write_buffer(&self.layer, 0, &rgba[..bytes]);
@@ -2245,6 +2261,8 @@ impl Engine {
                 out[dst..dst + copy].copy_from_slice(&mapped[src..src + copy]);
             }
         };
+        let budget = self.readback_budget();
+        let started = std::time::Instant::now();
         let copied = if std::mem::take(&mut self.simulated_stall) {
             map_read_with(
                 &self.device,
@@ -2254,9 +2272,17 @@ impl Engine {
                 copy_out,
             )
         } else {
-            map_read(&self.device, &self.staging, 0..length, self.readback_timeout, copy_out)
+            let device = &self.device;
+            map_read_within(
+                device,
+                &self.staging,
+                0..length,
+                budget,
+                |d| d.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(budget) }),
+                copy_out,
+            )
         };
-        self.settle_readback(copied)
+        self.settle_readback(copied, started.elapsed())
     }
 
     /// Makes the next readback behave as if the GPU never finished (for tests: a software rasteriser runs the work
@@ -2265,34 +2291,20 @@ impl Engine {
         self.simulated_stall = true;
     }
 
-    /// Waits for the submitted work with the readback timeout (the multipass frame timers). A GPU that does not
-    /// finish in time fails the engine, as a timed-out readback does.
+    /// Waits for the submitted work with the readback bound (the multipass frame timers). A GPU that does not
+    /// finish in time stalls the engine for this stroke, as a timed-out readback does.
     pub(crate) fn wait_gpu(&self) {
-        if !wait_bounded(&self.device, self.readback_timeout) {
-            log::error!(
-                "graffux-wgpu: the GPU did not finish within {:?}; marking the engine failed",
-                self.readback_timeout
-            );
-            self.error.store(true, Ordering::SeqCst);
-        }
+        let budget = self.readback_budget();
+        let started = std::time::Instant::now();
+        let waited = if wait_bounded(&self.device, budget) { Ok(()) } else { Err(ReadFailure::TimedOut) };
+        self.readback_watch.borrow_mut().settle(waited, started.elapsed());
     }
 
-    /// Turns a bounded readback's outcome into the call's result. A timeout means the GPU stopped answering: the
-    /// engine is marked failed (like an uncaptured device error) so every later call fails at once instead of each
-    /// one waiting out the timeout again, and the caller falls back to its CPU path.
-    fn settle_readback(&self, result: Result<(), ReadFailure>) -> bool {
-        match result {
-            Ok(()) => true,
-            Err(ReadFailure::TimedOut) => {
-                log::error!(
-                    "graffux-wgpu: readback timed out after {:?}; marking the engine failed",
-                    self.readback_timeout
-                );
-                self.error.store(true, Ordering::SeqCst);
-                false
-            }
-            Err(ReadFailure::Failed) => false,
-        }
+    /// Turns a bounded readback's outcome into the call's result. A timeout means the GPU stopped answering in
+    /// time: the rest of this stroke fails fast (so each call does not wait out the timeout again) and the next
+    /// stroke probes the device afresh. Slow waits and timeouts are logged with their elapsed time.
+    pub(crate) fn settle_readback(&self, result: Result<(), ReadFailure>, elapsed: Duration) -> bool {
+        self.readback_watch.borrow_mut().settle(result, elapsed)
     }
 
     /// Whole-layer readback regardless of the dirty rectangle (tests, desktop display refresh).

@@ -103,7 +103,7 @@ fn a_bounded_read_returns_the_bytes() {
 }
 
 #[test]
-fn a_stalled_readback_fails_the_engine_at_once_instead_of_every_call_waiting_again() {
+fn a_stalled_readback_fails_the_stroke_at_once_and_the_next_stroke_gets_a_fresh_chance() {
     for (name, b) in [("vulkan", Backends::VULKAN), ("gl", Backends::GL)] {
         let Some(mut e) = Engine::with_backends(64, 64, b) else {
             common::no_adapter(name);
@@ -114,12 +114,16 @@ fn a_stalled_readback_fails_the_engine_at_once_instead_of_every_call_waiting_aga
         e.simulate_readback_stall();
         let t = Instant::now();
         assert!(!e.readback(&mut out), "[{name}] a readback the GPU never answers must fail");
-        // The engine is failed now, like after an uncaptured device error: later calls fail fast.
+        // The rest of this stroke fails fast, like after an uncaptured device error.
         let t2 = Instant::now();
-        assert!(e.read_all().is_none(), "[{name}] a stalled engine must fail every later call");
-        assert!(!e.upload(&[0u8; 64 * 64 * 4]), "[{name}] writes fail too");
+        assert!(e.read_all().is_none(), "[{name}] a stalled stroke must fail every later call");
         assert!(t.elapsed() < Duration::from_secs(2), "[{name}] the failure must not wait");
         assert!(t2.elapsed() < Duration::from_millis(500), "[{name}] later calls answered slowly");
+        // The next stroke starts: the device is idle (it was only pretending), so the engine is usable again
+        // rather than failed for good.
+        assert!(e.upload(&[7u8; 64 * 64 * 4]), "[{name}] the next stroke must get a fresh chance");
+        let all = e.read_all().expect("[{name}] readback after recovery");
+        assert!(all.iter().all(|&v| v == 7), "[{name}]");
     }
 }
 

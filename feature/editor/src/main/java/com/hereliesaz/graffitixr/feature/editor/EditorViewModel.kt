@@ -1806,6 +1806,9 @@ class EditorViewModel @Inject constructor(
         runCatching { android.util.Log.i("GraffuxStroke", msg) }
     }
 
+    /** Time from picking a tool on an empty canvas to the layer, the swallowed touches and the first dab. */
+    private val firstStrokeTrace = FirstStrokeTrace(log = ::strokeLog)
+
     private fun refreshResidentAfterCommit(
         ticket: ResidentTicket?,
         layerId: String,
@@ -1874,6 +1877,7 @@ class EditorViewModel @Inject constructor(
         preview: Bitmap? = null,
     ) {
         android.util.Log.e("EditorViewModel", "Failed to commit $layerId's ${command.tool} stroke; dropping it", error)
+        strokeLog("stroke dropped on $layerId (${command.tool}): ${error.javaClass.simpleName}: ${error.message}")
         layerStore.removeStroke(layerId, command)
         // A lone stroke that made its layer (or moved an empty one onto a draw plane) never landed: take that back
         // too. A stroke that joined a chunk, or arrives after its entry was undone, only drops itself.
@@ -1929,6 +1933,9 @@ class EditorViewModel @Inject constructor(
     // scheduled for layer B cancel a still-pending save for layer A, silently dropping
     // A's strokes; per-layer jobs cancel only the same layer's superseded save.
     private val pendingSaveJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+
+    /** A new layer's background blank-PNG write, by layer id; every pixel write to that layer's file waits for it. */
+    private val blankPersistJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
     // Per-layer rebuild jobs: cancels stale compositing coroutines on rapid undo/redo so
     // only the most recent rebuild's result lands in the UI state.
@@ -4288,6 +4295,10 @@ class EditorViewModel @Inject constructor(
         ownPixelFile(layerId, bitmap, _uiState.value.layers.firstOrNull { it.id == layerId }?.uri)
 
     @androidx.annotation.VisibleForTesting
+    internal suspend fun writeLayerBitmapForTest(layerId: String, path: String, bitmap: Bitmap): Boolean =
+        writeLayerBitmap(layerId, path, bitmap)
+
+    @androidx.annotation.VisibleForTesting
     internal fun scheduleDiskSaveForTest(layerId: String, bitmap: Bitmap) =
         scheduleDiskSave(layerId, bitmap, _uiState.value.layers.firstOrNull { it.id == layerId }?.uri)
 
@@ -4326,6 +4337,9 @@ class EditorViewModel @Inject constructor(
             // Nothing is owed to the disk, so report success and let the pending entry go.
             return true
         }
+        // The layer's blank PNG may still be on its way (it is written after the layer lands): wait it out, so
+        // this write is the last one to the file and the blank cannot overwrite what a stroke painted.
+        blankPersistJobs[layerId]?.join()
         try {
             if (bitmap.isRecycled) {
                 // A recycled bitmap can never be written, now or on retry: reporting failure would
@@ -4775,17 +4789,28 @@ class EditorViewModel @Inject constructor(
      *  to none — see [setActiveTool], the only caller that needs it. */
     fun onAddBlankLayer(activeToolOverride: Tool? = null) {
         pushHistory()
+        if (activeToolOverride != null) firstStrokeTrace.toolPicked(activeToolOverride)
         viewModelScope.launch(dispatchers.io) {
+            val t0 = System.nanoTime()
             val projectId = ensureProjectId()
+            val tProject = System.nanoTime()
             val (blankBitmap, frame, baseBitmap) = createBlankPaintBitmap()
 
-            // Persisting the artifact can fail (storage full, a first-run I/O hiccup) — don't let
-            // that leave the layer (and, via activeToolOverride, the tool the user picked) stuck
-            // never landing. Fall back to an in-memory-only layer and warn, rather than fail silently.
-            val localUri = try {
-                val filename = "layer_${UUID.randomUUID()}.png"
-                val path = projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
-                "file://$path".toUri()
+            // The layer lands (and the tool with it) NOW; its blank PNG is written in the background, after the
+            // layer is already usable. Until it lands the tool is NONE and every touch reads as a pan or zoom, so
+            // the first strokes on a new layer were lost to the durable write (fsync, directory sync) of a file
+            // that holds nothing. Durability trade: the file a layer points at is the one saveArtifact would have
+            // returned (projects/<id>/<filename>), the project manifest that references it is saved only AFTER the
+            // blank PNG is on disk (a crash before then leaves no manifest entry, not a dangling one), and every
+            // later pixel write to that file first waits for this write (writeLayerBitmap), so a stroke's pixels are
+            // never overwritten by the blank. A blank layer has nothing to lose before its first stroke.
+            val layerId = UUID.randomUUID().toString()
+            val filename = "layer_${UUID.randomUUID()}.png"
+            val predictedPath = runCatching { java.io.File(context.filesDir, "projects/$projectId/$filename").path }
+                .getOrNull()
+            // No usable app files directory to predict from (never in the app): keep the old foreground write.
+            val foregroundPath = if (predictedPath != null) null else try {
+                projectRepository.saveArtifact(projectId, filename, ImageUtils.bitmapToByteArray(blankBitmap))
             } catch (e: Exception) {
                 android.util.Log.e("EditorViewModel", "Failed to persist new layer artifact", e)
                 withContext(dispatchers.main) {
@@ -4793,15 +4818,24 @@ class EditorViewModel @Inject constructor(
                 }
                 null
             }
+            val layerPath = predictedPath ?: foregroundPath
+            val persist = if (predictedPath == null) null else {
+                viewModelScope.launch(dispatchers.io, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                    persistBlankLayer(projectId, layerId, filename, predictedPath, blankBitmap)
+                }.also { job ->
+                    blankPersistJobs[layerId] = job
+                    job.invokeOnCompletion { blankPersistJobs.remove(layerId, job) }
+                }
+            }
 
             withContext(dispatchers.main) {
                 val sketchCount = _uiState.value.layers.count { it.isSketch }
                 val newLayer = Layer(
-                    id = UUID.randomUUID().toString(),
+                    id = layerId,
                     name = "Sketch ${sketchCount + 1}",
                     isSketch = true,
                     bitmap = blankBitmap,
-                    uri = localUri,
+                    uri = layerPath?.let { "file://$it".toUri() },
                     frameWidth = frame.width,
                     frameHeight = frame.height,
                     originX = frame.originX,
@@ -4814,7 +4848,47 @@ class EditorViewModel @Inject constructor(
 
                 dispatch(EditorIntent.AddLayer(newLayer, activeToolOverride = activeToolOverride))
                 emitMembership(Op.LayerAdd(newLayer))
-                saveProject()
+                firstStrokeTrace.layerLanded()
+                strokeLog(
+                    "new layer landed: project ${(tProject - t0) / NANOS_PER_MS} ms, " +
+                        "total ${(System.nanoTime() - t0) / NANOS_PER_MS} ms; blank PNG persists in the background",
+                )
+            }
+            persist?.start()
+        }
+    }
+
+    /**
+     * Writes a new layer's blank PNG (see [onAddBlankLayer]) and then saves the project manifest that references it.
+     * A failure is reported the way the foreground write used to be: a warning, the layer kept in memory, and its
+     * first pixel write creates the file.
+     */
+    private suspend fun persistBlankLayer(
+        projectId: String,
+        layerId: String,
+        filename: String,
+        predictedPath: String,
+        blank: Bitmap,
+    ) {
+        val started = System.nanoTime()
+        try {
+            val bytes = ImageUtils.bitmapToByteArray(blank)
+            val path = projectRepository.saveArtifact(projectId, filename, bytes)
+            if (path != predictedPath) {
+                // A read-only project keeps its session edits in a scratch copy: point the layer there instead.
+                val actual = "file://$path".toUri()
+                _uiState.update { state ->
+                    state.copy(layers = state.layers.map { if (it.id == layerId) it.copy(uri = actual) else it })
+                }
+            }
+            strokeLog("blank layer $layerId persisted in ${(System.nanoTime() - started) / NANOS_PER_MS} ms")
+            saveProject()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("EditorViewModel", "Failed to persist new layer artifact", e)
+            withContext(dispatchers.main) {
+                notify("Couldn't save the new layer — storage may be full", NoticeKind.WARNING)
             }
         }
     }
@@ -6042,6 +6116,7 @@ class EditorViewModel @Inject constructor(
     private var gestureStartLayers: List<Layer>? = null
 
     override fun onGestureStart() {
+        firstStrokeTrace.touchSwallowed("canvas gesture")
         pushHistory()
         gestureStartLayers = _uiState.value.layers
         // The orbit pivot is measured once, here, so a handle or Move-tool turn cannot move it as the
@@ -7784,7 +7859,10 @@ class EditorViewModel @Inject constructor(
      *  incremental real-time rendering (all tools except Liquify). */
     fun onStrokeStart(startPoint: Offset, canvasSize: IntSize, pressure: Float = 1f) {
         val state = _uiState.value
-        if (state.activeTool == Tool.NONE) return
+        if (state.activeTool == Tool.NONE) {
+            firstStrokeTrace.touchSwallowed("stroke start with no tool")
+            return strokeLog("start ignored: no tool is active (touch reads as a gesture)")
+        }
         if (state.activeTool == Tool.BRUSH) {
             strokeFeelMeter.onStrokeStart()
             // The first stroke painted with a colour records it (a no-op while it already leads the list).
@@ -7793,9 +7871,11 @@ class EditorViewModel @Inject constructor(
             feelFirstLatencyId = -1L
         }
         val layerId = (strokeViewTarget?.let { (primary, view) -> ensureViewImageLayer(primary, view) } ?: state.activeLayerId)
-            ?: return
+            ?: return strokeLog("start dropped: tool ${state.activeTool} but no active layer")
         // A 3D strokes layer has no pixels: it is drawn on with 3D on, never painted.
-        if (state.layers.any { it.id == layerId && (it.isSpatial || it.model != null) }) return
+        if (state.layers.any { it.id == layerId && (it.isSpatial || it.model != null) }) {
+            return strokeLog("start dropped: $layerId is a 3D layer, which has no pixels to paint")
+        }
         strokeLog("start tool=${state.activeTool} layer=$layerId canvas=$canvasSize")
         ensurePaintableBitmap(layerId) ?: return strokeLog("start: no paintable bitmap")
         // The layer reaches as far as the screen does: grown (once, before anything binds or copies
@@ -16856,7 +16936,14 @@ class EditorViewModel @Inject constructor(
      */
     private fun presentWgpuDirect(engine: GpuStampEngine?, overlayToLayerMatrix: FloatArray?, work: Bitmap): Boolean {
         // A null matrix: the overlay was ended meanwhile; stop presenting and catch up the same way.
-        if (engine != null && overlayToLayerMatrix != null && engine.presentDirect(overlayToLayerMatrix)) return true
+        if (engine != null && overlayToLayerMatrix != null && engine.presentDirect(overlayToLayerMatrix)) {
+            firstStrokeTrace.firstDabPresented()
+            return true
+        }
+        strokeLog(
+            "direct present failed (engine=${engine != null}, matrix=${overlayToLayerMatrix != null}); " +
+                "catching up by readback",
+        )
         val stillCurrent = synchronized(stampLiveLock) {
             (engine != null && stampGpuEngine === engine).also { if (it) stampGpuDirect = false }
         }
