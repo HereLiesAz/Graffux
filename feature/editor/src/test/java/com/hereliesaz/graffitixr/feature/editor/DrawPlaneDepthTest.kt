@@ -609,6 +609,41 @@ class DrawPlaneDepthTest {
     }
 
     @Test
+    fun `a layer type that takes no paint creates no plane, no layer and no op when it does not face the view`() =
+        runTest(dispatcher) {
+            setup()
+            vm.onSceneOrbit(0.4f, 0f)
+            val kinds = mapOf(
+                "text" to Layer(
+                    id = "X", name = "X", textParams = com.hereliesaz.graffitixr.common.model.TextLayerParams(text = "hi"),
+                ),
+                "adjustment" to Layer(
+                    id = "X", name = "X", adjustment = com.hereliesaz.graffitixr.common.photo.PhotoAdjustment(com.hereliesaz.graffitixr.common.photo.PhotoTool.LIGHT),
+                ),
+                "container" to Layer(
+                    id = "X", name = "X", type = com.hereliesaz.graffitixr.common.model.LayerType.GROUP,
+                ),
+                "shapes" to Layer(
+                    id = "X", name = "X",
+                    shapes = listOf(
+                        com.hereliesaz.graffitixr.common.model.VectorShape(
+                            kind = com.hereliesaz.graffitixr.common.model.ShapeKind.RECTANGLE, width = 10f, height = 10f,
+                        ),
+                    ),
+                ),
+            )
+            for ((kind, layer) in kinds) {
+                vm.dispatchForTest(EditorIntent.SetLayers(listOf(ui().layers.first(), layer)))
+                vm.onLayerActivated("X")
+                val before = ui().layers
+                assertFalse(kind, vm.adoptViewPlaneForStroke())
+                assertEquals(kind, before, ui().layers)
+                assertEquals(kind, "X", ui().activeLayerId)
+            }
+            io.mockk.verify(exactly = 0) { emitter.emit(match { it is Op.LayerAdd }) }
+        }
+
+    @Test
     fun `a plane that already faces the view takes the next stroke, no second layer`() = runTest(dispatcher) {
         setup()
         vm.onSceneOrbit(0.4f, 0f)
