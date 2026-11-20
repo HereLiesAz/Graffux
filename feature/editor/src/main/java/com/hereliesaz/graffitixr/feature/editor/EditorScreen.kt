@@ -805,9 +805,10 @@ fun EditorScreen(
                 activeBrushPreview = vm.activeBrushForPreview(),
                 modifier = Modifier.fillMaxSize(),
                 onStrokeStart = { sample, size ->
-                    // An empty layer under a moved camera takes the view plane first, so the very
-                    // first point already lands on it; the stroke's points then map through the
-                    // plane as it is now, not as of the last recomposition.
+                    // With the grid on, a layer that does not face the camera is replaced by a plane that does (a
+                    // new layer, or the empty layer moved onto it); with the grid off only an empty layer under a
+                    // moved camera takes the view plane. Done first so the very first point already lands on it;
+                    // the stroke's points then map through the plane as it is now, not as of the last recomposition.
                     val adopted = vm.adoptViewPlaneForStroke()
                     strokePlane.value = if (adopted) ActivePlaneMapping.of(vm.uiState.value) else null
                     strokeSize.value = size

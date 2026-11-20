@@ -14242,7 +14242,7 @@ class EditorViewModel @Inject constructor(
     fun adoptViewPlaneForStroke(): Boolean {
         val state = _uiState.value
         val id = state.activeLayerId ?: return false
-        // A plane already taken for this stroke (at its start) stays; the commit asks again.
+        // A plane already taken for this stroke (at its start) stays; an Ink stroke asks once, when it lifts.
         val layer = state.layers.firstOrNull { it.id == id }
         return when {
             pendingPlaneAdoption?.first == id -> false
@@ -14303,12 +14303,20 @@ class EditorViewModel @Inject constructor(
             applyPlane(layer.id, pose)
             return true
         }
-        val made = createPlaneLayer(layer, pose).takeIf { drawDepthRefusal(state, layer) == null } ?: return false
+        // Checked BEFORE a layer is made: a layer type that takes no paint keeps its stroke as before, and nothing is
+        // created for it.
+        if (!takesPaintPlane(layer)) return false
+        val made = createPlaneLayer(layer, pose) ?: return false
         pendingPlaneAdoption = made.layer.id to PlaneSwap(
             com.hereliesaz.graffitixr.common.scene.PlanePose(), pose, made,
         )
         return true
     }
+
+    /** A plain paint layer: text, vector, adjustment, group, 3D strokes and model layers never get a new plane. */
+    private fun takesPaintPlane(layer: Layer): Boolean =
+        !(layer.isSpatial || layer.model != null || layer.isAdjustment || layer.isContainer ||
+            layer.textParams != null || layer.shapes.isNotEmpty())
 
     /**
      * Paint on a group's surface follows the same rule (the caller has found it not facing the camera): the stroke
@@ -14321,7 +14329,7 @@ class EditorViewModel @Inject constructor(
         val w = state.canvasSize.width.toFloat()
         val h = state.canvasSize.height.toFloat()
         val pose = SceneMath.viewPlanePose(state.sceneCamera, w, h, emptyList(), orbitPivot(state))
-        if (pose == null) return false
+        if (pose == null || !takesPaintPlane(layer)) return false
         val root = generateSequence(layer) { l -> state.layers.firstOrNull { it.id == l.parentId } }.last()
         val after = state.layers.lastOrNull { it.id == root.id || it.id in descendantIds(state.layers, root.id) }
         val made = createPlaneLayer(layer, pose, parentId = null, placeAfter = after ?: root) ?: return false

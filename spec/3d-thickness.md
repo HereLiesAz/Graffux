@@ -241,7 +241,7 @@ Order: level 2, then level 1 (vertex texture fetch is core in GLES 3), then flat
 
 ### 10.1 Requirement
 
-**R1 (owner rule, absolute).** The user always draws on the surface that faces the camera, for any rotation. After the view is rotated, the next brush stroke is drawn on a **new plane that faces the camera**. The earlier plane keeps its pose unchanged. Drawing is never refused because something was rotated.
+**R1 (owner rule, absolute while the grid is on).** R1 applies only with the grid on (the rail's "#" toggle, `EditorUiState.surfaceGridVisible`, on by default); with the grid off nothing is adopted and attribution is `spec/smart-stroke.md`'s. The rail is hidden while a stroke is down, so the grid cannot change between a stroke's start and its lift. With the grid on the user always draws on the surface that faces the camera, for any rotation. After the view is rotated, the next brush stroke is drawn on a **new plane that faces the camera**. The earlier plane keeps its pose unchanged. Drawing is never refused because something was rotated.
 
 Precisely:
 
@@ -249,7 +249,7 @@ Precisely:
 - **Faces the camera** means the angle between the plane's normal and the view axis is at most `PlaneSnap.ORBIT_CAPTURE_DEGREES` (5 degrees; the same constant the orbit snap uses, so "face-on" is one idea everywhere).
 - **New plane** is the view plane through the orbit pivot at the automatic depth, with the pose `SceneMath.viewPlanePose` gives (the "Adopting the view plane" pose), created as `adoptDrawDepthPlane` already creates one: an empty paint layer directly above the active layer, in the same group, active from then on, riding the stroke's undo entry (`PlaneSwap.created`) so one undo removes stroke and plane, and a cancelled stroke removes it at once. For a surface-group layer that does not face the camera (tilted or edge-on), the new plane is a free plane **outside the group**, directly above it; the surface layer is untouched, and a once-per-stroke notice says the stroke went to a new plane.
 - **One plane per rotation, not per stroke.** Once the new plane is active and faces the camera, further strokes land on it until the view is rotated again.
-- **Armed by a rotation, cleared only by use or by facing.** The rule is armed when a rotation leaves the active layer not facing the camera. It is cleared when a stroke consumes it, or when the view returns to face the active layer. **Selecting a layer on the rail does not clear it**: a layer that does not face the camera is never painted on directly. (This is equivalent to testing "does the active layer face the camera" at stroke start.)
+- **Armed by a rotation, cleared only by use or by facing (grid on).** The rule is armed when a rotation leaves the active layer not facing the camera. It is cleared when a stroke consumes it, or when the view returns to face the active layer. **Selecting a layer on the rail does not clear it**: a layer that does not face the camera is never painted on directly. (This is equivalent to testing "does the active layer face the camera" at stroke start.)
 - **Never refused.** Because the new plane faces the camera, its ray always hits, so the edge-on case (no hit, nothing painted) cannot occur for a paint layer or a surface layer. A locked layer still refuses with its notice.
 
 ### 10.2 Existing spec text it must reconcile with
@@ -315,7 +315,7 @@ Builds: level 2 relief ray march with tile masks, cut faces and normals, the cre
 
 Acceptance: a CPU ray-caster reference of the same field; golden render of the phase 1 scenes at yaw 0, 30, 60, 80: SSIM at least 0.98 against the reference, silhouette error at most 1.5 px up to yaw 60; the cut-face scene shows a wall; device: the 4 ms / 8 ms targets measured on a BALANCED and a CONSTRAINED device, with the numbers recorded in `spec/painterly-device-matrix.md`'s way, or the targets revised; the fallback ladder tested with a fake that refuses level 2 and one that refuses all.
 
-R1 acceptance (whichever phase ships it): `FreshPlaneAfterRotationTest` (orbit 90 degrees then stroke: a new plane faces the camera, the old plane's pose is unchanged, one undo removes both; two strokes without a rotation share the plane; a triangle turn, a step button and a Move-tool X twist each arm it; pan, zoom and Z twist do not; selecting a layer on the rail does not disarm it (the stroke still goes to a new facing plane); the orbit snap onto an existing stroked plane does not arm it; an edge-on layer never refuses; a locked layer still refuses with its notice; a surface layer that is tilted or edge-on sends the stroke to a new free plane outside the group with one notice and the surface untouched; any rotation arms it for a surface layer too; redo; a cancelled stroke removes the plane).
+R1 acceptance (whichever phase ships it, grid on; with the grid off no plane is made and no notice shows): `FreshPlaneAfterRotationTest` (orbit 90 degrees then stroke: a new plane faces the camera, the old plane's pose is unchanged, one undo removes both; two strokes without a rotation share the plane; a triangle turn, a step button and a Move-tool X twist each arm it; pan, zoom and Z twist do not; selecting a layer on the rail does not disarm it (the stroke still goes to a new facing plane); the orbit snap onto an existing stroked plane does not arm it; an edge-on layer never refuses; a locked layer still refuses with its notice; a surface layer that is tilted or edge-on sends the stroke to a new free plane outside the group with one notice and the surface untouched; any rotation arms it for a surface layer too; redo; a cancelled stroke removes the plane).
 
 ### Later: thickness shading
 
@@ -338,7 +338,7 @@ Real extruded meshes with side walls from the channel (marching squares over `T 
 9. **Float parity**: CPU and GPU `sqrt` can differ by one quantisation step; tolerance stated; undo exact.
 10. **Thickness and a flatten/merge that goes through the view plane** loses the channel (baked into colour). Documented, not a bug.
 11. **Transport cost**: smudge and wet kernels gain thickness reads and writes (6.4); unmeasured, and the largest implementation item after the stamp pass.
-12. **No deliberate painting on a tilted plane**: R1 is absolute, so a user must rotate back to face a plane to paint on it (section 15, open question).
+12. **No deliberate painting on a tilted plane**: R1 is absolute while the grid is on, so a user must rotate back to face a plane to paint on it (section 15, open question).
 
 ## 15. Owner decisions and the open question
 
@@ -354,7 +354,7 @@ Real extruded meshes with side walls from the channel (marching squares over `T 
 | Smudge and wet transport | Move volume; thickness is advected with colour (6.4). Implementation cost flagged. |
 | Overlap rule | Max (union) by default, plus a per-brush additive Build up mode: `T' = min(Tcap, T0 + T_stroke)`, `Tcap` = 4095.94 px, accumulating across strokes and never within one (4). |
 | Per-view images on a surface group | No thickness in v1 (2.3). |
-| Rotation rule (R1) | Absolute: the user always draws on the surface facing the camera, for any rotation, surface layers included; selecting a layer does not clear it (10). |
+| Rotation rule (R1) | Absolute with the grid on (grid off: no adoption, `spec/smart-stroke.md`): the user always draws on the surface facing the camera, for any rotation, surface layers included; selecting a layer does not clear it (10). |
 | Surface group's edge-on case | New free plane outside the group, with a once-per-stroke notice (10.1). |
 | Facing tolerance and reuse | 5 degrees; always a new plane; the orbit snap is the way back onto an old plane (10.1). |
 | Silhouettes and phase 3 | A lens silhouette at grazing angles is acceptable in the first release; true geometry stays gated on seeing it in practice (13). |
@@ -363,4 +363,4 @@ Real extruded meshes with side walls from the channel (marching squares over `T 
 
 ### Open
 
-1. **Painting on an existing tilted plane.** Because R1 is absolute (any rotation arms it, no layer selection clears it), the user can no longer paint directly on an existing tilted plane except by rotating the view back to face it (the orbit snap, "Snap to stroked planes", is the way back). Should a deliberate gesture exist for it, for example a long-press on a plane or a "paint on this plane" toggle? *Recommended: none for now; watch real use.*
+1. **Painting on an existing tilted plane.** Because R1 is absolute with the grid on (any rotation arms it, no layer selection clears it; the grid-off state does not adopt), the user can no longer paint directly on an existing tilted plane except by rotating the view back to face it (the orbit snap, "Snap to stroked planes", is the way back). Should a deliberate gesture exist for it, for example a long-press on a plane or a "paint on this plane" toggle? *Recommended: none for now; watch real use.*

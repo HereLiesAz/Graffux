@@ -253,8 +253,8 @@ Built (the appearance only; the document boundary is a later slice).
     (a translucent colour would blend twice over the page; a transparent canvas has nothing to fill with). The
     owner said only "the canvas background colour".
 - **Mesh:** the grid colour, drawn only if a grid is on. It replaces the cyan wire mesh (no dark
-  under-line either). There is no user-chosen grid colour and no grid on/off setting today: the 2D
-  reference grid (`InfiniteGrid`) is always on in one fixed colour, `SurfaceLook.GRID_ARGB`, the one source for both. So the mesh
+  under-line either). There is no user-chosen grid colour and no on/off setting for the 2D reference grid: it
+  (`InfiniteGrid`) is always on in one fixed colour, `SurfaceLook.GRID_ARGB`, the one source for both. So the mesh
   uses that colour, and "a grid is on" is the wire-mesh flag (`surfaceGridVisible`). The mesh is a 1.5 px line at that colour's low alpha with no under-line; its legibility over artwork is unverified. Adding a grid colour
   and grid toggle to settings is a gap, listed in the open points.
 - **The wire-mesh button** ("#" on the rail, and the "Surface grid" menu check) is unchanged in
@@ -320,7 +320,9 @@ Built (the appearance only; the document boundary is a later slice).
    designed.
 4. (Settled: the pinch zooms about the fingers' midpoint.)
 5. Resolved above: canvas colour is `canvasBackground`; the button stays and toggles the mesh. Still
-   open: a user-chosen grid colour and a grid on/off setting do not exist.
+   open: a user-chosen grid colour and an on/off setting for the 2D reference grid do not exist (the wire-mesh toggle
+   `surfaceGridVisible` is a separate setting: with it on, "Adopting the view plane" applies; the rail is hidden while a
+   stroke is down, so it cannot change mid-stroke).
 6. Export framing: built (hidden while editing, shown as the export frame; see "Document boundary" above), unverified on a device and in the gaps listed there. Treat as open until it is.
 7. Whether the default surface is centred in the viewport (assumed; built that way).
 8. (Settled: built as an art-sized flat surface, not a windowed profile; see "The art-sized sheet" under "The default surface". Untested parts are listed there and in the PR.)
