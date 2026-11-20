@@ -31,6 +31,14 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
 
+
+/**
+ * The tools rail's height in a 2D project on the 844dp test screen: the mockup's 488 plus the Eraser, Adjust, Frame, Brush,
+ * Retouch and axis cycler (50 each), the history pill's 1, and the canvas grid "#" a project with no 3D group now has.
+ * That is more than the screen leaves (844 less the 16dp margin), so the rail stops at 828 and scrolls.
+ */
+internal const val RAIL_2D_HEIGHT = 828
+
 /**
  * The rails in the approved mockup's "Phone · sheet shut" state (390 × 844, a 24px brush, pink, four
  * layers with the third active and the second hidden), checked against the mockup's measurements.
@@ -111,7 +119,7 @@ class RailMockupShotTest {
         // the design boards' Frame circle before it (44 + 6).
         // Undo and Redo are their own pill now (8 apart, pinned on short screens): 1dp taller in all.
         // The Brush and the Retouch group, back on the rail, and the axis cycler in the old 3D slot (44 + 6 each).
-        assertEquals(listOf(12, 16, 56, 488 + 50 + 50 + 50 + 1 + 50 + 50 + 50), listOf(dp(tools.left), dp(tools.top), dp(tools.width), dp(tools.height)))
+        assertEquals(listOf(12, 16, 56, RAIL_2D_HEIGHT), listOf(dp(tools.left), dp(tools.top), dp(tools.width), dp(tools.height)))
         // 2 + 12 + 5 × 44 + 5 gaps × 6 + 9, exactly the mockup's, plus the trash at its foot (a
         // divider and one 48dp target, with their gaps): 65.
         assertEquals(listOf(390 - 12 - 56, 72, 56, 273 + 65), listOf(dp(layers.left), dp(layers.top), dp(layers.width), dp(layers.height)))

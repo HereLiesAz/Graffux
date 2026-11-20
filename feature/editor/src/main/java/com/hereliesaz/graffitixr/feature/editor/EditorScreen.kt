@@ -240,6 +240,8 @@ fun EditorScreen(
             val renderHeight = if (imageAspect > screenAspect) maxWidth.value / imageAspect else maxHeight.value
 
             val boundaryShown = showsDocumentBoundary(uiState.layers)
+            val gridShown = uiState.canvasGridVisible ||
+                com.hereliesaz.graffitixr.common.scene.hasThreeDGroup(uiState.layers)
             val tileIndices = if (uiState.wrapAroundMode) -1..1 else 0..0
 
             for (dx in tileIndices) {
@@ -264,7 +266,8 @@ fun EditorScreen(
                             ),
                         )
                         // 0b. Infinite reference grid
-                        if (dx == 0 && dy == 0) {
+                        // Always there in a project with a 3D group; elsewhere the rail's "#" hides it.
+                        if (dx == 0 && dy == 0 && gridShown) {
                             InfiniteGrid(
                                 zoom = uiState.viewportZoom,
                                 offset = uiState.viewportOffset,

@@ -559,6 +559,13 @@ data class EditorUiState(
      */
     val surfaceGridVisible: Boolean = true,
     /**
+     * The canvas's own reference grid (`InfiniteGrid`), the rail's "#" in a project with no 3D group. View
+     * state, never saved, like [surfaceGridVisible]. Separate from it on purpose: it only hides or shows the
+     * drawn grid, and no stroke rule reads it (the camera-facing rule is [surfaceGridVisible]'s). A project
+     * with a 3D group always shows the grid.
+     */
+    val canvasGridVisible: Boolean = true,
+    /**
      * The 3D button's chooser of the active surface group's views (front, side, top) is up. View
      * state, never saved; see EditorViewModel.onAxisSlotTapped.
      */

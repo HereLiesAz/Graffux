@@ -160,10 +160,65 @@ class Scene3DRailUiTest {
         rule.runOnIdle { vm.onLayerActivated("x") }
         rule.waitForIdle()
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertExists()
-        // With no 3D group at all there is nothing for it to do.
+        // With no 3D group at all the surface mesh button is gone: the canvas grid's "#" takes its place.
         rule.runOnIdle { vm.setLayers(listOf(Layer("x", "X"))); vm.onLayerActivated("x") }
         rule.waitForIdle()
         rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+        rule.onNodeWithTag("rail.$CANVAS_GRID_RAIL_ID").assertExists()
+    }
+
+    private fun twoDProject(): com.hereliesaz.graffitixr.feature.editor.EditorViewModel {
+        val vm = realViewModel()
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        vm.setLayers(listOf(Layer("x", "X")))
+        vm.onLayerActivated("x")
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        return vm
+    }
+
+    @Test
+    fun `a 2D-only project has the grid button, which toggles the canvas grid and not the surface grid`() {
+        val vm = twoDProject()
+        showRail(vm)
+        val surface = vm.uiState.value.surfaceGridVisible
+        rule.onNodeWithTag("rail.$CANVAS_GRID_RAIL_ID").assertExists()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").assertDoesNotExist()
+        assertEquals(true, vm.uiState.value.canvasGridVisible)
+        rule.onNodeWithTag("rail.$CANVAS_GRID_RAIL_ID").performClick()
+        rule.waitForIdle()
+        assertEquals(false, vm.uiState.value.canvasGridVisible)
+        assertEquals(surface, vm.uiState.value.surfaceGridVisible)
+        rule.onNodeWithTag("rail.$CANVAS_GRID_RAIL_ID").performClick()
+        rule.waitForIdle()
+        assertEquals(true, vm.uiState.value.canvasGridVisible)
+    }
+
+    @Test
+    fun `the 2D grid button reads as a toggle to TalkBack and has no draw-distance slider or menu`() {
+        val vm = twoDProject()
+        var menus = 0
+        showRail(vm) { menus++ }
+        val node = { rule.onNodeWithTag("rail.$CANVAS_GRID_RAIL_ID") }
+        node().assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Shown"))
+        node().assert(androidx.compose.ui.test.SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
+        rule.onNodeWithContentDescription("Canvas grid", useUnmergedTree = true).assertExists()
+        node().performClick()
+        rule.waitForIdle()
+        node().assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Hidden"))
+        node().performTouchInput { longClick() }
+        rule.waitForIdle()
+        assertEquals(0, menus)
+    }
+
+    @Test
+    fun `in a 3D project the button still toggles the surface grid and not the canvas grid`() {
+        val vm = threeDProject()
+        showRail(vm)
+        rule.onNodeWithTag("rail.$CANVAS_GRID_RAIL_ID").assertDoesNotExist()
+        rule.onNodeWithTag("rail.$SURFACE_MESH_RAIL_ID").performClick()
+        rule.waitForIdle()
+        assertEquals(false, vm.uiState.value.surfaceGridVisible)
+        assertEquals(true, vm.uiState.value.canvasGridVisible)
     }
 
     // ── The draw distance on the wire-mesh button (spec/3d-space.md, "Draw plane depth") ──
