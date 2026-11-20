@@ -558,7 +558,7 @@ codebase is deferred scope or a real gap in the install-report flow.
 
 ## One 3D space: layers as planes, a scene camera, 3D strokes layers (project format v7)
 
-Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. In short:
+Full design: `spec/3d-space.md`. Puppetry (joints, rigidity, soft bodies, keyframes; design only, project format 15 proposed (14 is the flat sheet's `reach`)): `spec/3d-puppetry.md`. Stroke thickness (a per-pixel thickness channel on a paint plane, a brush z-depth, render-time extrusion, and a fresh camera-facing plane for the first stroke after a rotation; design only, project format 16 proposed): `spec/3d-thickness.md`. In short:
 
 - **Model.** Scene coordinates are the canvas box's pixels (x right, y down, z away). A layer is a
   plane: its 2D transform plus `Layer.positionZ` and its X/Y rotation; groups compose. A layer is "in
