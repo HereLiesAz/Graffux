@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.platform.testTag
@@ -656,6 +657,14 @@ fun EditorScreen(
         }
         val canPaintActiveLayer = activeLayer != null && !activeLayerLocked &&
             activeLayer.spatial == null && activeLayer.model == null
+        // A touch never reaches the stroke path when nothing can be painted: say why once per change.
+        LaunchedEffect(canPaintActiveLayer, activeLayer?.id, uiState.activeTool) {
+            if (!canPaintActiveLayer && uiState.activeTool != Tool.NONE) {
+                vm.onPaintGateClosed(
+                    activeLayer == null, activeLayerLocked, activeLayer?.spatial != null, activeLayer?.model != null,
+                )
+            }
+        }
         if (canPaintActiveLayer && inkUtensil != null && vm.usesJetpackInk(uiState)) {
             com.hereliesaz.graffitixr.feature.editor.ink.InkBrushCanvas(
                 screenToWorld = com.hereliesaz.graffitixr.feature.editor.ink.InkAffine.screenToWorld(
@@ -746,6 +755,7 @@ fun EditorScreen(
                     segmentEnd = { vm.onStrokeSegmentEnd() },
                     sampleOk = { raw, mapped -> planeSampleOk.value(raw, mapped) },
                     joinOk = { pr, pm, r, m -> planeJoinOk.value(pr, pm, r, m) },
+                    refused = { missed, guarded -> vm.onStrokeRefused(missed, guarded) },
                 )
             }
             // A multi-view surface paints a stroke per view image (spec/3d-space.md, "Paint per view").
