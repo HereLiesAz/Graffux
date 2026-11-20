@@ -1,0 +1,275 @@
+# The Shape tool: the rail's Frame tool becomes a general shape tool, with framing as one option
+
+Status: design only. Nothing here is implemented. Written against `main` at 1.88.0.1 (`CURRENT_FORMAT_VERSION` = 14, `GraffitiProject.kt`). Every statement about existing code was read in the tree; anything unmeasured is marked "unmeasured".
+
+This document extends `spec/design-tools.md` ("The Frame tool", "Frames", "Saving", "Export"). It uses the vocabulary of `spec/3d-space.md` (plane, scene camera, view plane, depth pass) without redefining it.
+
+Owner brief, decided:
+
+- The rail's Frame tool (`Tool.FRAME`, `FrameOps`, `FrameToolCanvas`, `LayerType.FRAME`) becomes a general **Shape** tool with framing options.
+- Today's Frame behaviour stays available as the **Frame** option, with no regression and no format break: `Tool.FRAME`'s ordinal stays, tools are only ever appended, and an older `project.json` opens.
+- A cropping tool already exists elsewhere, so the icon is not a crop or corner-bracket glyph, and it is not "#" (the grid toggle's).
+- Undo and history code, and the docs outside `spec/`, are not touched.
+
+## 1. Goals and non-goals
+
+Goals
+
+- G1. Draw a rectangle, rounded rectangle, ellipse, line, polygon or star by dragging on the canvas, with fill, stroke and corner radius, as one undo step.
+- G2. Frame mode behaves exactly as it does today: the same gestures, the same properties, the same saved bytes, the same export.
+- G3. Shapes are the app's existing vector layers. No new layer type, no new persisted enum value, no new CPU render pass.
+- G4. Shapes take part in constraints, auto layout, the properties sheet and side panel, and PNG / SVG / PDF export the way any vector layer does today.
+- G5. No project-format change. A file written with shapes opens in the build before this one.
+
+Non-goals
+
+- N1. Boolean operations, shape masks, an ellipse-clipped frame, shapes that contain children. Only frames are containers.
+- N2. Replacing the Pen (`Tool.PEN`) or the node editor (`PathEditOverlay`). Freeform paths stay the Pen's.
+- N3. A cropping tool. Cropping is the artboard's and the Transform group's job; this tool never crops.
+- N4. Changing the existing Vector-group entry points `onAddShapeLayer` and `onAddPolygonLayer` (they stay; section 5.1 shares their defaults).
+
+### What exists today
+
+- `Tool.FRAME` is the last entry of `Tool` (`UiState.kt`); a stroke persists its tool by ordinal (`BrushStroke.blendModeOrdinal`), which is why it is last.
+- The rail's Frame circle is a `ModeButton` (`ToolRail.kt`) with `RailIcons.Frame`, a "#" (`M7 3v18M17 3v18M3 7h18M3 17h18`), tag `rail.tool.frame`, label string `rail_frame`. `TOOL_CATALOG` lists `Tool.FRAME` as id `tool.frame`, label "Frame", glyph `GraffuxIcons.Artboard`. The same "#" is the surface-mesh / canvas-grid toggle (`SurfaceMeshButton`), which is why it cannot be this tool's glyph.
+- `FrameToolCanvas` (`FrameCanvas.kt`) owns the gestures: tap selects (`actions.tap`), a drag on empty canvas draws a frame (`actions.commitFrame`), a drag on a layer moves it (`dragStart`, `move`, `dragEnd`), a drag on a selected frame's corner handle resizes it (`resize`), a second finger is the camera's. It draws the rubber band as one `drawRect` and one stroked `drawRect`.
+- `FrameOps` (`core/common`) is the pure geometry; `LayoutOps` applies a box change to the children (`applyResize`, `applyAutoLayout`, `hugContentsSize`, `resizeLayer`). **`LayoutOps` has no snapping**; section 7 says where snapping goes.
+- `ShapeKind { RECTANGLE, ELLIPSE, LINE, POLYGON, PATH }` and `VectorShape` (`VectorShape.kt`) already model every shape this tool needs. A rectangle has `cornerRadius`; a line is a horizontal run of `width` centred on the origin, drawn with the stroke; a polygon is a regular `sides`-gon inscribed in the box; a path is interleaved points, optionally closed (fillable), with optional bezier handles. The Vector group already creates them (`EditorViewModel.onAddShapeLayer`, `onAddPolygonLayer`) as `LayerType.VECTOR` layers with `shapes` set.
+- `VectorScene` (`export/`) already writes every `ShapeKind` to the display list that `SvgWriter` and `PdfExport` read, and the canvas draws them (`EditorScreen.drawVectorShape`). The existing Frame / Fill / Stroke / constraint panels already act on vector layers (`design-tools.md`, "Properties", "Constraints, styles and components").
+- `ProjectManager`'s `Json` has `ignoreUnknownKeys = true` and **no** `coerceInputValues`. An unknown field is ignored by an older build; an unknown enum value (a new `ShapeKind` or `LayerType`) makes it fail to decode the whole project. That asymmetry decides section 5.
+
+## 2. Naming and identity (nothing renamed that is persisted or tested)
+
+- The enum constant stays `Tool.FRAME`, at its current ordinal. No `Tool.SHAPE` is added: a second constant would give the rail two tools for one circle and would have to be appended, leaving `FRAME` as a dead ordinal. Tool `FRAME` is "the Shape tool"; its KDoc is rewritten, nothing else about it.
+- Tool id `tool.frame`, rail test tag `rail.tool.frame`, and the canvas tag `design.frameTool` are unchanged, so every existing UI test and the `activeRailClassifiers` mapping keep working.
+- The user-visible name changes from "Frame" to "Shape" (rail label, `TOOL_CATALOG` label). "Frame" becomes the name of the first mode. Strings are in section 10.
+- `LayerType.FRAME`, `Layer.isFrame`, `FrameOps`, `FrameToolCanvas`, `FrameOverlay` keep their names. Framing is a thing a shape tool can do, and renaming them buys nothing and risks the saved form (`isFrame` is a serialized key).
+
+## 3. The mode: Frame or a shape
+
+One state value, not a tool: `ShapeToolMode`.
+
+~~~
+enum class ShapeToolMode { FRAME, RECTANGLE, ELLIPSE, LINE, POLYGON, STAR }
+~~~
+
+- It lives in `EditorUiState.shapeToolMode` (default `FRAME`). It is a **preference**, not project data: `SettingsRepository.shapeToolMode`, key `shape_tool_mode`, stored as the enum's name and read with a fallback to `FRAME`, the way `properties_placement` is. Nothing about it is written to `project.json`, so it cannot affect a format.
+- Rounded rectangle is **not** a mode. It is Rectangle with a corner radius (the existing `VectorShape.cornerRadius`), set in the options row or the properties. Offering it twice would be two ways to make the same layer.
+- Because the default is `FRAME`, a user who never opens the selector sees the tool they had.
+
+### 3.1 The selector
+
+Two surfaces, one state, following rail conventions (`ToolRail.kt`; `spec/3d-space.md`, "Non-gesture alternatives": a long-press is never the only way).
+
+1. **Long-press on the rail circle** opens a small menu of the six modes, each a 48dp row with its glyph and name, the current one checked. This is the same convention as the Brush and Eraser's long-press (pack wheel), the size chip's long-press (brush menu) and the mesh button's long-press (`onMeshMenu`). A long-press on the circle while the tool is not in hand picks the tool up first, as the Brush's does. A tap is unchanged: pick up / put down (`setActiveTool(FRAME)` / `NONE`).
+2. **The tool's options row**, shown while the tool is in hand: the design sheet's first tab, "Shape", gets a segmented control of the six modes above the existing LAYOUT: Frame content (a horizontally scrolling chip row at phone width, 48dp targets). In the side panel it is the top section. This is the discoverable and TalkBack route; each chip is a radio (`Role.RadioButton`, `selected`), and the group has a content description.
+
+The rail circle's glyph does not change with the mode (open question 4); the mode shows in the options row and as the tool's label in the long-press menu.
+
+## 4. Gestures
+
+One handler (`FrameToolCanvas`) with the mode as an input. Everything that is not "a drag on empty canvas" is the same in every mode.
+
+| Gesture | Frame mode | Shape modes |
+|---|---|---|
+| Tap | selects the artwork under the finger, else the frame, else a frame by its label; nothing clears | the same |
+| Drag on empty canvas | draws a frame; artwork under it moves into it | draws the shape |
+| Drag on a layer | moves it, then drops it into or out of a frame | moves the **selected** layer if the drag starts on it; otherwise draws the shape (over artwork too) |
+| Drag a selected frame's corner handle | resizes it; children follow their constraints | the same; plus the corner handles of a selected shape (phase 2) |
+| Second finger | camera | camera |
+
+Why shape modes draw over artwork: the Frame rule ("a drag on a layer moves it") would make it impossible to draw a shape on top of a photo, which is the common case for a shape. The exception for the selected layer keeps "grab what I just drew". To move something else the user taps it first, or uses Frame mode or Transform. This is open question 2; the Frame column is today's behaviour verbatim and is pinned by tests (section 13).
+
+Drawing, per mode (screen points go through `CanvasHitTest.screenToWorld`, as `commitFrame` does):
+
+- **Rectangle, Ellipse, Polygon, Star**: the drag is the box's opposite corners. A drag shorter than the touch slop is a tap, not a shape.
+- **Line**: the drag is the segment from touch to lift.
+- **Proportions**: an options toggle "Keep proportions" (off by default) makes the box square (a circle for the ellipse, a regular figure for polygon and star). There is no second finger for a modifier (it is the camera's), so the toggle is a chip, not a gesture. Independently, the box snaps to square and a line to 15 degree steps when within 3 degrees / 4dp of them, with a guide drawn (the snap of section 7).
+- **Preview**: the rubber band is one Compose draw call on the tool's own `Canvas` (`drawRect`, `drawRoundRect`, `drawOval`, `drawLine`, `drawPath`), in the selection ink, per move event. Nothing is rasterised and nothing is added to the layer stack until the lift.
+- **Commit** is one `dispatch(AddLayer)` plus `emitMembership(Op.LayerAdd)` and `saveProject()` after `pushHistory()`, exactly the path `onAddShapeLayer` and `commitFrame` already use. One undo step per shape. The new layer is selected and active. Undo and history code is not modified; a shape is "add a layer", an operation they already handle.
+
+## 5. How each kind is stored
+
+Every shape is an ordinary `Layer(type = LayerType.VECTOR, shapes = [one VectorShape])`, the model the Vector group already creates. Geometry is in the layer's local space centred on its origin; the layer's `offset`, `scale` and `rotation` place it, like any layer. `FrameOps.worldTransform` and its inverse place it inside a parent frame.
+
+| Option | Stored as | Notes |
+|---|---|---|
+| Rectangle | `ShapeKind.RECTANGLE`, `width` x `height`, `cornerRadius` | rounded rectangle = radius > 0. Radius is clamped to half the shorter side when it is drawn (the existing clamp) |
+| Ellipse | `ShapeKind.ELLIPSE`, `width` x `height` | a circle with Keep proportions |
+| Line | `ShapeKind.LINE`, `width` = length, `strokeArgb`, `strokeWidth` > 0 | direction is the layer's `rotation` (atan2 of the drag); the layer's offset is the segment's midpoint. `hasFill` is false for lines already |
+| Polygon | `ShapeKind.POLYGON`, `sides` 3..12 | regular, vertex up, inscribed in the box (existing) |
+| Star | `ShapeKind.PATH`, `closed = true`, `points` = 2 x n vertices, no handles | built by a pure `ShapeOps.star(width, height, points, innerRatio)`; afterwards an ordinary closed path |
+| Frame | unchanged | `LayerType.FRAME` (saved as GROUP + `isFrame`), `layoutWidth` x `layoutHeight`, `frameFillArgb`, `frameRadius`, `clipsContent` |
+
+Why the star is a closed path and not a new kind:
+
+- A new `ShapeKind.STAR` (or a `starInnerRatio` field read by `POLYGON`) is the obvious data model, but a new enum value is a decode error in every older build (no `coerceInputValues`), so a project that used a star would not open there. A closed path uses only what every build since the pen tool reads, and it renders, exports (`VectorScene.pathOutline`) and node-edits (`PathEditOverlay`) with no new code.
+- The cost: a star is not re-parametrised after creation (its point count and inner ratio are chosen before drawing, in the options row). It can be resized (a path stretches with its box) and node-edited. A parametric star is open question 3.
+
+Defaults for a new shape (shared with the Vector group's, so both entry points agree):
+
+- Closed shapes: fill = the active colour (`EditorUiState.activeColor`), no stroke. Line: stroke = the active colour, width = 6 (the Vector group's line default; the options row can change it). Today's Vector group uses grey `0xFF888888`; the Shape tool uses the active colour because the user has just chosen it (open question 5).
+- Corner radius 0, sides 5 (polygon), star 5 points with inner ratio 0.4.
+- Names: "Rectangle 3", "Ellipse 2", ... counted the way `onAddShapeLayer` counts, "Star n" for stars.
+
+Editing after creation uses what exists: the Frame properties tab (X Y W H, rotation, opacity, radius), the Fill and Stroke sections (`StyleOps` colour styles apply), and the Vector group's shape controls. Nothing new is needed for a selected shape except the corner handles (section 9, phase 2): `DesignGeometry` already maps X Y W H onto a vector (a vector stretches).
+
+## 6. Frame, as the framing option
+
+Frame mode is the tool as it is today (`design-tools.md`, "The Frame tool", "Frames"): `FrameOps.create`, `nextPlacement`, `adoptContents`, `reparentAfterMove`, `resizeFromCorner`, `setBox`, `LayoutOps.applyResize`, clip, fill, radius, constraints, auto layout, export. The only code change for it is that the gesture handler reads the mode and takes the old branch unchanged. This is pinned by running the existing `FrameOpsTest` and `FrameResizeReducerTest` untouched and adding a mode-parametrised copy of the gesture tests (section 13).
+
+Shapes and frames compose, as in Figma: a shape drawn with its start inside a frame becomes that frame's child at the top of its stack (`FrameOps.frameAt` + `reparent`, the drop rule already used on release); a start outside any frame is top level. A frame never becomes a shape or the reverse; "Frame selection" (wrapping selected shapes in a new frame) is a later nicety, not in these phases.
+
+## 7. Constraints and snapping
+
+**Constraints.** A shape inside a frame is a vector layer inside a frame, so the existing Pin X / Pin Y (`Layer.constraints`: START, END, STRETCH, CENTER, SCALE) apply with no change, offered under the same rule (the parent is a frame that does not run auto layout). `LayoutOps.applyResize` and `ConstraintSolver.resized` already stretch or scale a vector child when its frame is resized. A new shape starts with the defaults (START, START), as any layer dropped into a frame does today.
+
+**Auto layout.** A shape child of an auto-layout frame is laid out by its box like any child (`LayoutOps.applyAutoLayout`, `hugContentsSize`). Drawing a shape into an auto-layout frame lets the frame place it on commit; there is no free placement there, matching Figma.
+
+**Snapping.** Verified: no snapping exists in `LayoutOps` or `FrameOps` today (`PlaneSnap` is the 3D plane's, unrelated). Snapping is new, and is a pure function beside `FrameOps` so it is unit-testable and has no UI dependence:
+
+- `ShapeOps.snap(layers, parentId, box, thresholdWorld): Snap` returns the nudged box and the guide lines to draw. Candidates: the parent frame's edges and centre lines; sibling layers' edges and centres (their world boxes from `FrameOps`/`DesignGeometry`); the canvas grid when `canvasGridVisible`; square / 15 degree line steps (section 4).
+- Threshold: 6dp in screen space, converted to world through the viewport zoom. Snapping never fires while the user holds a handle at a precise value typed in X / Y / W / H (typing is exact).
+- It is used by this tool's draw and resize, and is optional for Frame mode's existing drag (phase 3, behind the same function; Frame mode without it is the no-regression baseline).
+- Guides are drawn on the tool's overlay `Canvas` as hairlines in the selection ink, only during a drag, hidden at lift; with reduced motion nothing animates.
+- `LayoutOps` is called after the commit, not for snapping: it applies the constraint and auto-layout consequences of the final box.
+
+## 8. 3D behaviour
+
+Shapes are vector layers, which `spec/3d-space.md` already handles in 3D ("Group surfaces", "Rendering": a visible vector layer on the scene path is a depth-pass member drawn by `DepthCompositor`; "Export": a vector layer is rasterised by `drawVectorShape` onto a quad). So a shape needs no 3D code of its own; it needs only the right plane at creation.
+
+- **Default view (the camera not moved):** nothing changes. The shape is a 2D layer on the 2D fast path.
+- **Camera moved, grid on (the "#" toggle's on state, the default):** the new shape is created on the **view plane**, facing the camera through the orbit point, with the pose `SceneMath.viewPlanePose` gives (the same plane "Adopting the view plane" gives a first stroke), and the drag's screen points are mapped through that plane so the shape lands under the finger. This is "shapes on the facing plane": the user never draws a shape edge-on by accident. A shape is not a brush stroke, so `adoptViewPlaneForStroke`'s "empty layer" test does not apply; the shape layer is created already posed, in the same undo entry as its `AddLayer`.
+- **Camera moved, grid off:** the shape goes where the finger touches the active layer's plane, as strokes do with the grid off (unmeasured: the exact attribution rule is `spec/smart-stroke.md`, design only; until that lands the grid-off case uses the view plane as well, which is the safe choice).
+- **Inside a frame:** a shape is added to a frame only when the frame faces the camera within `PlaneSnap.ORBIT_CAPTURE_DEGREES` (5); otherwise it is created top level on the view plane. A frame's contents share its plane (`spec/3d-space.md`, "Export": a frame's fill and clip draw through the frame's own plane), so mixing planes inside one frame is avoided.
+- **Frame mode in 3D** is exactly what it does today.
+- 3D thickness (`spec/3d-thickness.md`, design only) applies to paint on a plane; a vector shape has no thickness channel and stays flat. Out of scope here.
+- The 3D strokes layer and 3D models are untouched.
+
+## 9. Fill, stroke, radius, clip, and the options row
+
+Options shown below the mode selector, per mode; each is a 48dp-target control from existing components (`DesignControls.kt`):
+
+| Mode | Options |
+|---|---|
+| Frame | none new (Clip, Fill, Radius stay in the Frame section as today) |
+| Rectangle | Fill, Stroke colour and width, Corner radius, Keep proportions |
+| Ellipse | Fill, Stroke colour and width, Keep proportions |
+| Line | Stroke colour and width |
+| Polygon | Fill, Stroke, Sides (3..12), Keep proportions |
+| Star | Fill, Stroke, Points (3..12), Inner ratio (0.1..0.9), Keep proportions |
+
+- With nothing selected the options set the **next shape's** values (`EditorUiState.shapeDefaults`, session-only, not saved). With a shape selected the same controls edit that layer through the existing paths (`StyleOps`, the Vector group's setters, one undo step per edit, as the Properties section already specifies); there is no new editing path.
+- Fill and stroke bind to colour styles exactly as today (`fillStyleId`, `strokeStyleId`).
+- Clip: only frames clip (`clipsContent`). A shape has none; a "Clip content" row is never shown for a shape. Corner radius: Rectangle only for shapes (`cornerRadius`), and the frame's own `frameRadius` for Frame mode.
+- Phase 2 adds corner handles on a selected shape (the same four handles `FrameOverlay` draws for a frame, 24dp hit tolerance, `resizeFromCorner`-style) so a drawn shape can be resized on canvas; a line gets two end handles. Until then X / Y / W / H do it.
+
+## 10. Accessibility and strings
+
+All text is a string resource; none is concatenated into a sentence at a call site. Names are in `core/design` `strings_chrome.xml` beside `rail_frame`; new ones:
+
+~~~
+rail_shape                  "Shape"            rail label and TOOL_CATALOG label
+shape_mode_group            "Shape type"       content description of the selector
+shape_mode_frame            "Frame"
+shape_mode_rectangle        "Rectangle"
+shape_mode_ellipse          "Ellipse"
+shape_mode_line             "Line"
+shape_mode_polygon          "Polygon"
+shape_mode_star             "Star"
+shape_mode_menu_label       "Choose shape type"   onLongClickLabel of the rail circle
+shape_option_keep_proportions "Keep proportions"
+shape_option_sides          "Sides"
+shape_option_points         "Points"
+shape_option_inner_ratio    "Inner size"
+shape_added                 "%1$s added"        live-region announcement after a commit
+shape_layer_name_*          "Rectangle %1$d" ... one per kind, for layer names
+~~~
+
+- `rail_frame` stays as the Frame mode's label. The rail circle's accessible name is "Shape" with `onLongClickLabel = shape_mode_menu_label`, so TalkBack announces that a long-press opens the type menu; the options chips are the long-press-free route.
+- Each chip and menu row is 48dp, a radio with `selected` state; the selected mode is also in the circle's `stateDescription` ("Frame", "Rectangle", ...).
+- Drawing by drag is not available to switch access or TalkBack; the non-gesture route is the existing "Add frame" / Add shape actions: the options row gets an **Add** button (adds the current mode's shape at the default size, 200 x 200, centred in view or placed by `nextPlacement` for a frame, selected), the same affordance the sheet's "Add frame (390 x 844)" gives today. Numbers are then set in X / Y / W / H, which are already accessible text fields.
+- The commit announces `shape_added` through a polite live region; names use `shape_layer_name_*` resources so they localise.
+- Colour is never the only cue: the selected mode chip also has a check, and guides are lines, not colour alone.
+
+## 11. Icon proposals
+
+Constraints (from `RailIcons`): 24 x 24 viewBox, stroke 1.8, white (tinted), no fill, butt caps and miter joins unless `round = true`, drawn at 22dp, written as one `stroked("rail.shape", ...)` entry. Not "#", not a crop corner bracket (`ic_gx_crop`), not the artboard glyph.
+
+**A (recommended): shapes cluster.** A circle overlapping a square.
+
+~~~
+val Shape: ImageVector by lazy {
+    stroked("rail.shape", "M3.5 15a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z", "M12 3.5h8.5V12H12z")
+}
+~~~
+
+Reads as "primitives" at 22dp, is unlike every existing rail glyph (Frame #, Vector curve, Select dashed box, Transform arrows), and does not suggest cropping or a grid.
+
+**B: star.** One closed star, `M12.0 3.1L14.4 9.4L21.0 9.7L15.8 13.8L17.6 20.3L12.0 16.6L6.4 20.3L8.2 13.8L3.0 9.7L9.6 9.4z`. Distinctive and a single path, but reads as "favourite" more than "shape".
+
+**C: triangle, circle, square trio.** Honest but busy at 22dp with a 1.8 stroke; not recommended.
+
+The mode menu and chips reuse small variants of the same family (a rectangle, an ellipse, a diagonal line, a hexagon, the star, and the frame's existing "#"-free artboard outline for Frame), drawn as `RailIcons.ShapeRect`, `ShapeEllipse`, `ShapeLine`, `ShapePolygon`, `ShapeStar` in the same style; the Frame chip uses `RailIcons.ShapeFrame`, a plain rectangle with a short name tick above its top-left corner (`M5 7h14v12H5z`, `M5 4h5`), which is neither "#" nor a corner bracket (the existing `GraffuxIcons.Artboard` carries corner marks and is not reused for that reason). The `RailIcons.Frame` "#" stays defined for the layer tile of a frame (`design-tools.md`) and is no longer the rail circle's. `TOOL_CATALOG` takes its glyph as a drawable resource, so the same drawing is added as `ic_gx_shape` for the catalog entry (replacing `GraffuxIcons.Artboard` there); the rail circle itself reads `RailIcons.Shape`. A unit test pins that the rail glyph is not equal to the grid toggle's path data and that the new `ImageVector`s have the 24 viewBox and 1.8 stroke.
+
+## 12. Export
+
+No new exporter. `VectorScene` already walks every `ShapeKind` and nested frames (`design-tools.md`, "Export: PNG, SVG, PDF"):
+
+- **SVG**: `<path>` per shape (`<rect>`-equivalent outline with its radius, ellipse, line, polygon, pen path with curves), inside the parent's `<g matrix(...)>`; a frame's `<clipPath>` clips shapes drawn into it. A star is a path.
+- **PDF**: `PdfExport` draws the same display list on the page canvas; shapes stay vector.
+- **PNG**: `ExportManager.drawNode` / `compositeFrame` draw the shape through the same transforms; a frame's PNG cuts to its box.
+- A line with stroke width 0 is invisible on canvas and in export alike (`hasStroke`); the tool never creates one.
+- 3D: a shape on a tilted plane exports through the existing scene path (`compositeLayers(..., camera)`; glTF rasterises a vector layer by `drawVectorShape`). Unchanged.
+- Parity: `VectorParityTest` and `VectorExportTest` gain a star and an angled line, so the canvas, SVG and PDF agree on the new cases.
+
+## 13. Migration and format version
+
+- **No format bump.** `CURRENT_FORMAT_VERSION` stays 14. No field, enum value, layer type or file is added: shapes are `VECTOR` layers with `VectorShape` (all present since the vector layers), stars are closed `PATH`s, and the mode is a settings preference. Numbers 15 (`spec/3d-puppetry.md` section 4) and the next free number after it are reserved elsewhere and are not consumed.
+- **Older files open.** Nothing about a project changes on open; `ProjectManager.migrateFormat` gains no step. A frame saves as it does now (GROUP + `isFrame` + fill, clip, radius), so a build before frames still shows it as a group.
+- **Newer files in an older build** (a project with shapes, opened by the build before this one): every shape is a layer type and kind that build already decodes and draws; nothing is lost and no read-only fallback (`isNewerFormat`) is involved.
+- **If the star later becomes parametric** (open question 3) it adds an optional field with a default (an older build ignores an unknown key) and would be the one format bump; it takes the next free version at that time, coordinated with `spec/3d-puppetry.md` and `spec/3d-thickness.md`.
+- `Tool` gains no entry. The pin: a test asserts `Tool.FRAME` is still the last constant and its ordinal is unchanged, so a future tool is appended after it.
+
+## 14. Phases
+
+Each phase ships and leaves the app working; the default mode is Frame throughout.
+
+1. **Relabel and glyph.** `rail_shape` string, the new rail glyph (section 11), `TOOL_CATALOG` label; `ShapeToolMode` state and preference with only Frame offered. No behaviour change. Tests: ordinal pin, tag unchanged, glyph tests.
+2. **Rectangle, Ellipse, Line.** The selector (long-press menu and options chips), draw gesture, commit as a vector layer, preview, options row, Add button, a11y strings, defaults. 2D only.
+3. **Polygon and Star, handles, snapping.** `ShapeOps.star`, sides / points / ratio options, corner and end handles for a selected shape, `ShapeOps.snap` with guides, Keep proportions.
+4. **3D and export polish.** View-plane creation under a moved camera, frame-facing rule, export parity cases, side panel layout, tablet checks, the optional snap for Frame mode's drag.
+
+## 15. Tests
+
+Pure (`core/common`, JVM):
+
+- `ShapeOpsTest`: star vertices for n = 3..12 and ratios (count, alternating radii, closed, inside the box); polygon sides clamp; line from two points (length, rotation, midpoint); box from a drag (any quadrant, Keep proportions); snap candidates, thresholds, no snap when exact; names and counting.
+- `FrameOpsTest`, `LayoutOps` tests: **unchanged** and passing (the no-regression pin).
+- `ToolOrdinalTest`: `Tool.FRAME.ordinal` equals its current value and `Tool.values().last() == Tool.FRAME`.
+- Format: a `project.json` written by this build with each shape kind and a frame round-trips; the fixtures of format 3, 4, 6 and 14 still open (`ProjectManager` migration tests); a file with a star decodes with `ignoreUnknownKeys` and no new key (assert the JSON of a star layer contains no key absent from a format-14 layer).
+
+Editor (`feature/editor`, Robolectric / unit):
+
+- `EditorViewModelTest`: commit in each mode adds one layer of the right kind, selected, one history entry; undo removes it; Frame mode commit equals the old `commitFrame` result byte for byte (same layer fields).
+- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in shape modes a drag over artwork draws, a drag on the selected layer moves it, a drag shorter than slop is a tap.
+- Defaults: closed shapes take `activeColor`, lines the stroke default; options with a shape selected edit it, with none edit `shapeDefaults`.
+- 3D: a shape under a moved camera, grid on, is created with the view-plane pose and lands under the finger; a frame that is not facing is not the parent.
+- Export: `VectorParityTest` / `VectorExportTest` with a star and an angled line (SVG and PDF displays equal the canvas outline); a frame clipping a shape.
+
+UI (`app`, Compose UI test):
+
+- Long-press on `rail.tool.frame` opens the menu with six rows, 48dp, one selected; choosing one changes the options row and the preference; `onLongClickLabel` and `stateDescription` are set; tap still toggles the tool.
+- The Add button creates a shape with no pointer input; chips are radios.
+- Rail glyph differs from the grid toggle's; new vectors have viewBox 24 and stroke 1.8.
+
+Not run here: this change is a design document. Nothing was compiled or executed.
+
+## 16. Open questions for the owner
+
+1. **Keep the identifier `Tool.FRAME`, the id `tool.frame` and the tag `rail.tool.frame`, and relabel the tool "Shape"?** Recommended: yes (section 2). The alternative, a new `Tool.SHAPE`, would append a constant and strand `FRAME` for no gain.
+2. **In shape modes, does a drag that starts on artwork draw a shape (Figma, recommended) or move that artwork (today's Frame rule)?** Recommended: draw, except that a drag starting on the *selected* layer moves it; Frame mode keeps the old rule untouched.
+3. **Is a star a closed path (recommended) or a parametric shape?** Recommended: a closed path now (no format change, older builds open it, exports and node-edits for free), accepting that point count and inner ratio are fixed once drawn. Parametric means a new optional field and a format-version bump, coordinated with the puppetry and thickness specs.
+4. **Should the rail circle's glyph change with the mode?** Recommended: no, one fixed glyph (proposal A), with the mode shown in the options row and menu. A changing glyph makes the rail harder to learn and to test.
+5. **Default fill for a new closed shape: the active colour (recommended) or the Vector group's grey?** Recommended: the active colour for both entry points (a one-line change to the Vector group's default), so a shape drawn is the colour in hand.
+6. **Does the last-used mode persist across launches?** Recommended: yes, as the `shape_tool_mode` preference, defaulting to Frame on a fresh install, so nobody who relied on Frame sees a change until they choose one.
