@@ -34,9 +34,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.liveRegion
@@ -54,14 +54,36 @@ internal val GizmoWidth = 176.dp
 internal val GizmoHeight = 120.dp
 internal val GizmoBand = 48.dp
 
-/** How much of its full size the docked triangle's legs are drawn at (the 48dp touch bands never shrink). */
-internal const val GIZMO_DEFAULT_SCALE = 0.5f
+/** The docked triangle's scale before it was enlarged (it was drawn at half of [GizmoWidth] x [GizmoHeight]). */
+internal const val GIZMO_PREVIOUS_SCALE = 0.5f
+
+/** How much bigger the triangle was made than [GIZMO_PREVIOUS_SCALE], on the owner's request. */
+internal const val GIZMO_GROWTH = 1.6f
+
+/**
+ * How much of its full size the docked triangle's legs are drawn at (the 48dp touch bands never shrink): 0.8, so
+ * the legs are 141 x 96dp and the box 189 x 144dp. That is the largest that still leaves the 360dp-wide portrait
+ * phone's tool rail (68dp from the left edge) clear of the right-handed box (it starts near 163dp), and in landscape
+ * leaves the layers rail room above it.
+ *
+ * The drag gain follows the size: the full length of an edge is 180 degrees (spec/3d-space.md), so a longer edge
+ * turns fewer degrees per dp of finger travel, 1.6x finer than before (still two swipes for a full turn).
+ */
+internal const val GIZMO_DEFAULT_SCALE = GIZMO_PREVIOUS_SCALE * GIZMO_GROWTH
+
+/** The leg strokes' widths at scale 1 (they are drawn at 4dp and 7dp at the old half size, in proportion to the scale). */
+internal val GizmoStroke = 8.dp
+internal val GizmoStrokeActive = 14.dp
 
 /** The gap kept between the docked triangle's box and the screen edges and system gesture areas. */
 internal val GizmoEdgeMargin = 8.dp
 
-/** The spoken name of an edge's axis, "Rotate X". */
-internal fun TriangleEdge.label(): String = "Rotate ${axis.name}"
+/** The string resource naming where an edge is ("bottom leg"), spoken after its axis. */
+internal fun TriangleEdge.legRes(): Int = when (this) {
+    TriangleEdge.BOTTOM -> R.string.gizmo_leg_bottom
+    TriangleEdge.SIDE -> R.string.gizmo_leg_side
+    TriangleEdge.DIAGONAL -> R.string.gizmo_leg_diagonal
+}
 
 /**
  * Where the docked triangle's box goes: the bottom corner on the brush hand's side ([rightHanded]: bottom-right,
@@ -165,18 +187,13 @@ internal fun RotationGizmo(
                 }
                 drawLine(
                     color, ends.first, ends.second,
-                    strokeWidth = if (edge == activeEdge) 7.dp.toPx() else 4.dp.toPx(), cap = StrokeCap.Round,
+                    strokeWidth = (if (edge == activeEdge) GizmoStrokeActive else GizmoStroke).toPx() * scale,
+                    cap = StrokeCap.Round,
                 )
             }
         }
-        // The axis letters, inside the triangle beside their edges. Not read out: the edges say it.
-        val labelOffset = { x: Float, y: Float -> IntOffset((x + inset).toInt(), (y + inset).toInt()) }
         val w = triangle.width
         val h = triangle.height
-        val pad = with(density) { 22.dp.toPx() }
-        GizmoLetter("X", labelOffset(w / 2f - pad / 3f, h - pad - pad / 2f), TriangleEdge.BOTTOM)
-        GizmoLetter("Y", labelOffset(w - pad - pad / 2f, h / 2f - pad / 3f), TriangleEdge.SIDE)
-        GizmoLetter("Z", labelOffset(w / 2f - pad, h / 2f - pad / 2f), TriangleEdge.DIAGONAL)
         // The live readout, in the middle of the triangle.
         if (activeEdge != null) {
             Text(
@@ -189,9 +206,13 @@ internal fun RotationGizmo(
                     .semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
-        // One accessibility node per edge: named, with +/- 15 degree actions (what the slider's
+        // One accessibility node per edge: named (axis and leg, since there are no letters on it), with +/- 15 degree actions (what the slider's
         // semantics gave TalkBack). They draw nothing and take no pointer input.
         for (edge in TriangleEdge.entries) {
+            val axisName = edge.axis.name
+            val named = stringResource(R.string.gizmo_axis_leg, axisName, stringResource(edge.legRes()))
+            val plus = stringResource(R.string.gizmo_step_plus, axisName, RotationTriangle.ACCESSIBILITY_STEP_DEGREES.toInt())
+            val minus = stringResource(R.string.gizmo_step_minus, axisName, RotationTriangle.ACCESSIBILITY_STEP_DEGREES.toInt())
             val poly = triangle.bandOutline()[edge.ordinal]
             val left = poly.minOf { it.first } + inset
             val top = poly.minOf { it.second } + inset
@@ -204,12 +225,12 @@ internal fun RotationGizmo(
                     .size(with(density) { (right - left).toDp() }, with(density) { (bottom - top).toDp() })
                     .testTag("rotationGizmo.${edge.axis.name}")
                     .semantics {
-                        contentDescription = edge.label()
+                        contentDescription = named
                         customActions = listOf(
-                            CustomAccessibilityAction("${edge.label()} +${step.toInt()}°") {
+                            CustomAccessibilityAction(plus) {
                                 onStep(edge.axis, step); true
                             },
-                            CustomAccessibilityAction("${edge.label()} -${step.toInt()}°") {
+                            CustomAccessibilityAction(minus) {
                                 onStep(edge.axis, -step); true
                             },
                         )
@@ -253,20 +274,10 @@ internal fun RotationGizmo(
     }
 }
 
-@Composable
-private fun GizmoLetter(letter: String, at: IntOffset, edge: TriangleEdge) {
-    Text(
-        letter,
-        style = MaterialTheme.typography.labelMedium,
-        color = edge.axis.railColor(),
-        modifier = Modifier.offset { at }.clearAndSetSemantics { },
-    )
-}
-
 /**
  * Puts the triangle in the bottom corner on the brush hand's side, clear of the system gesture areas, the
- * navigation bar and any cutout, whatever the bottom sheet is doing: it does not follow the sheet. It is small
- * and tucked into the corner so it stays off the sheet's handle in the middle. The container takes no pointer
+ * navigation bar and any cutout, whatever the bottom sheet is doing: it does not follow the sheet. It is
+ * tucked into the corner, off the rails (the layers rail stops above it). The container takes no pointer
  * input; the triangle's three touch bands do.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)

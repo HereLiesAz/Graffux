@@ -41,4 +41,11 @@
     <string name="levels_black_point">Levels black point</string>
     <string name="levels_midpoint">Levels midpoint</string>
     <string name="levels_white_point">Levels white point</string>
+    <!-- The rotation triangle has no letters on it; each leg is named for TalkBack instead. -->
+    <string name="gizmo_axis_leg">Rotate %1$s, %2$s</string>
+    <string name="gizmo_leg_bottom">bottom leg</string>
+    <string name="gizmo_leg_side">side leg</string>
+    <string name="gizmo_leg_diagonal">diagonal leg</string>
+    <string name="gizmo_step_plus">Rotate %1$s +%2$d°</string>
+    <string name="gizmo_step_minus">Rotate %1$s -%2$d°</string>
 </resources>

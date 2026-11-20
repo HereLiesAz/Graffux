@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import com.hereliesaz.graffitixr.common.model.RotationAxis
 import androidx.compose.ui.unit.dp
@@ -130,7 +131,7 @@ class RotationGizmoUiTest {
     fun `each edge is a named node with plus and minus 15 degree actions`() {
         show()
         for (axis in RotationAxis.entries) {
-            val node = rule.onNodeWithContentDescription("Rotate ${axis.name}").fetchSemanticsNode()
+            val node = rule.onNodeWithContentDescription("Rotate ${axis.name}, ", substring = true).fetchSemanticsNode()
             val actions = node.config[SemanticsActions.CustomActions]
             assertEquals(2, actions.size)
             rule.runOnIdle { actions[0].action(); actions[1].action() }
@@ -145,9 +146,7 @@ class RotationGizmoUiTest {
         )
     }
 
-    // ---- docking: the small triangle in the bottom corner on the brush hand's side ----
-
-    private val handleHalfWidthDp = 32f // the sheet's centred handle/name pill is assumed no wider than 64dp
+    // ---- docking: the triangle in the bottom corner on the brush hand's side ----
 
     private fun dockInWindow(rightHanded: Boolean, sheetDowns: IntArray? = null) {
         rule.setContent {
@@ -165,34 +164,36 @@ class RotationGizmoUiTest {
     private fun box() = rule.onNodeWithTag("rotationGizmo").fetchSemanticsNode().boundsInRoot
 
     @Test
-    fun `right-handed, the small triangle is in the bottom-right corner`() {
+    fun `right-handed, the triangle is in the bottom-right corner`() {
         dockInWindow(rightHanded = true)
         val b = box()
         val w = 390f * 2f
         val h = 844f * 2f
         assertTrue("right edge ${b.right} in the right-hand corner", b.right > w - 40f && b.right <= w)
         assertTrue("bottom ${b.bottom} in the bottom corner", b.bottom > h - 40f && b.bottom <= h)
-        assertTrue("left ${b.left} is in the right half", b.left > w / 2f)
+        // the bigger box may cross the middle by its empty corner, a few dp at most
+        assertTrue("left ${b.left} is in the right half", b.left > w / 2f - 24f * 2f)
     }
 
     @Test
-    fun `left-handed, the small triangle is in the bottom-left corner`() {
+    fun `left-handed, the triangle is in the bottom-left corner`() {
         dockInWindow(rightHanded = false)
         val b = box()
         val w = 390f * 2f
         val h = 844f * 2f
         assertTrue("left edge ${b.left} in the left-hand corner", b.left >= 0f && b.left < 40f)
         assertTrue("bottom ${b.bottom} in the bottom corner", b.bottom > h - 40f && b.bottom <= h)
-        assertTrue("right ${b.right} is in the left half", b.right < w / 2f)
+        assertTrue("right ${b.right} is in the left half", b.right < w / 2f + 24f * 2f)
     }
 
     @Test
-    fun `it is noticeably smaller than before but its touch bands stay 48dp`() {
+    fun `it is 1_6 times bigger than before and its touch bands stay 48dp`() {
         dockInWindow(rightHanded = true)
         val b = box()
-        val fullBox = (GizmoWidth.value + GizmoBand.value) * 2f
-        assertTrue("narrower than the old ${fullBox}px: ${b.width}", b.width < fullBox * 0.85f)
+        val oldBox = (GizmoWidth.value * GIZMO_PREVIOUS_SCALE + GizmoBand.value) * 2f
+        assertEquals(0.8f, GIZMO_DEFAULT_SCALE, 1e-6f)
         assertEquals((GizmoWidth.value * GIZMO_DEFAULT_SCALE + GizmoBand.value) * 2f, b.width, 1f)
+        assertTrue("wider than the old ${oldBox}px: ${b.width}", b.width > oldBox * 1.3f)
         assertEquals(48f, GizmoBand.value, 0f)
         // a drag on the bottom band (96px thick at xhdpi) works, so the 48dp target is intact
         rule.onNodeWithTag("rotationGizmo").performTouchInput { down(Offset(width / 2f, height - 48f + 40f)); moveBy(Offset(20f, 0f)); up() }
@@ -201,17 +202,25 @@ class RotationGizmoUiTest {
     }
 
     @Test
-    fun `right-handed it keeps clear of the sheet's handle in the middle`() {
-        dockInWindow(rightHanded = true)
-        val centre = 390f // px, half of the 780px window
-        assertTrue("box starts at ${box().left}", box().left >= centre + handleHalfWidthDp * 2f)
+    fun `the drag gain follows the size, a full edge still being 180 degrees`() {
+        val edgePx = GizmoWidth.value * GIZMO_DEFAULT_SCALE * 2f
+        val oldEdgePx = GizmoWidth.value * GIZMO_PREVIOUS_SCALE * 2f
+        assertEquals(GIZMO_GROWTH, edgePx / oldEdgePx, 1e-4f)
+        // degrees per px fell by the same factor: documented on GIZMO_DEFAULT_SCALE, not compensated
+        assertEquals(180f / oldEdgePx / GIZMO_GROWTH, 180f / edgePx, 1e-4f)
     }
 
     @Test
-    fun `left-handed it keeps clear of the sheet's handle in the middle`() {
-        dockInWindow(rightHanded = false)
-        val centre = 390f
-        assertTrue("box ends at ${box().right}", box().right <= centre - handleHalfWidthDp * 2f)
+    fun `the legs carry no letters, only named accessibility nodes`() {
+        dockInWindow(rightHanded = true)
+        val node = rule.onNodeWithTag("rotationGizmo", useUnmergedTree = true).fetchSemanticsNode()
+        val all = generateSequence(listOf(node)) { level -> level.flatMap { it.children }.takeIf { it.isNotEmpty() } }
+            .flatten().drop(1).toList()
+        // every node under the gizmo is a tagged one (an edge node or the input), none carries text
+        assertTrue(all.isNotEmpty())
+        assertTrue(all.all { it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.TestTag) })
+        assertTrue(all.none { it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Text) })
+        for (letter in listOf("X", "Y", "Z")) rule.onNodeWithText(letter, useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test
