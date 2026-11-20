@@ -4688,9 +4688,15 @@ class EditorViewModelTest {
         viewModel.onCommitShape(ShapeToolMode.LINE, Offset(100f, 200f), Offset(300f, 200f), 400f, 400f)
         testDispatcher.scheduler.advanceUntilIdle()
         val id = viewModel.uiState.value.activeLayerId!!
-        assertEquals(id, viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 201f), 400f, 400f))
+        // A finger-sized strip: 3 to 20 units off the line still grabs it, well past the padding does not.
+        fun grab(x: Float, y: Float) = viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(x, y), 400f, 400f)
+        for (off in listOf(0f, 3f, 10f, 20f)) {
+            assertEquals("+$off", id, grab(200f, 200f + off))
+            assertEquals("-$off", id, grab(200f, 200f - off))
+        }
         assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 240f), 400f, 400f))
         assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(200f, 160f), 400f, 400f))
+        assertNull(viewModel.designDragTargetAt(ShapeToolMode.LINE, Offset(350f, 200f), 400f, 400f))
     }
 
     @Test

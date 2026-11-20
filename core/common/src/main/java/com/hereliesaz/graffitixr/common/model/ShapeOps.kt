@@ -127,6 +127,13 @@ object ShapeOps {
     }
 
     /**
+     * The base of a localised "name N" pattern: [formattedZero] (the pattern formatted with 0) without its
+     * trailing 0 as [locale] writes it (a digit set that is not ASCII included), and the space before it.
+     */
+    fun baseName(formattedZero: String, locale: java.util.Locale): String =
+        formattedZero.removeSuffix(String.format(locale, "%d", 0)).trimEnd()
+
+    /**
      * The number a new shape's name carries: one past the highest number already used after [base] (for
      * example "Rectangle 3" among [layers] makes 4 for base "Rectangle"). A deleted layer's number is not
      * reused until it is the highest.

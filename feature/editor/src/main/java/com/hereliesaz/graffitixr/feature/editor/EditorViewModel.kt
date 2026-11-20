@@ -16565,7 +16565,7 @@ class EditorViewModel @Inject constructor(
             com.hereliesaz.graffitixr.common.model.ShapeKind.LINE -> DesignR.string.shape_layer_name_line
             else -> DesignR.string.shape_layer_name_rectangle
         }
-        val base = context.getString(res, 0).removeSuffix("0").trimEnd()
+        val base = ShapeOps.baseName(context.getString(res, 0), java.util.Locale.getDefault())
         return context.getString(res, ShapeOps.nextNumber(_uiState.value.layers, base))
     }
 

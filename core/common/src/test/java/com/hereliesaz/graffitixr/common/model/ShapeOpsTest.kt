@@ -163,4 +163,15 @@ class ShapeOpsTest {
         val plain = keysOf(Layer(id = "p", name = "p"))
         assertEquals(plain, keys)
     }
+
+    @Test
+    fun `the base name is stripped with the locale's own zero, ASCII or not`() {
+        assertEquals("Rectangle", ShapeOps.baseName("Rectangle 0", java.util.Locale.ENGLISH))
+        val arabic = java.util.Locale.forLanguageTag("ar-EG-u-nu-arab")
+        val zero = String.format(arabic, "%d", 0)
+        assertEquals("Rectangle", ShapeOps.baseName("Rectangle $zero", arabic))
+        // A name written with those digits still counts: one past the highest.
+        val three = String.format(arabic, "%d", 3)
+        assertEquals(4, ShapeOps.nextNumber(listOf(Layer(id = "a", name = "Rectangle $three")), "Rectangle"))
+    }
 }

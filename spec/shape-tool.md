@@ -68,17 +68,17 @@ The rail circle's glyph is the selected mode's own glyph and changes when the mo
 
 ## 4. Gestures
 
-One handler (`FrameToolCanvas`) with the mode as an input. Everything that is not "a drag on empty canvas" is the same in every mode.
+One handler (`FrameToolCanvas`) with the mode as an input. Taps, handles and the second finger are the same in every mode; what a drag grabs differs.
 
 | Gesture | Frame mode | Shape modes |
 |---|---|---|
 | Tap | selects the artwork under the finger, else the frame, else a frame by its label; nothing clears | the same |
 | Drag on empty canvas | draws a frame; artwork under it moves into it | draws a new shape in the current mode |
-| Drag on a layer or frame (its middle) | moves it, then drops it into or out of a frame | the same |
+| Drag on a layer or frame (its middle) | moves it, then drops it into or out of a frame | only a visible, unlocked shape layer, or a frame (its box or name label), moves; a drag on a photo, raster, text or adjustment layer, or on a locked or hidden layer, draws a new shape instead |
 | Drag a selected frame's corner handle | resizes it; children follow their constraints | the same; plus the corner handles of a selected shape (phase 2) |
 | Second finger | camera | camera |
 
-Standard behaviour, decided: a drag from inside a shape or frame (its middle) moves it, a corner handle resizes it, and a drag on empty canvas draws a new one in the current mode. The same in every mode, so the Frame column is today's behaviour verbatim and is pinned by tests (section 13). To draw over a photo or other artwork, the user draws on empty canvas around it or, for a layer that fills the view, adds the shape with the options row's Add button and moves it.
+Standard behaviour, decided: in Frame mode a drag from inside a layer or frame (its middle) moves it, a corner handle resizes a selected frame, and a drag on empty canvas draws a frame; the Frame column is today's behaviour verbatim and is pinned by tests (section 13). In a shape mode a drag from inside a shape layer or a frame (its box or name label) moves it and a corner handle resizes a selected frame, but a photo, raster, text or adjustment layer, and any locked or hidden layer, is not a move target: a drag that starts on one draws a new shape. Drawing over a full-canvas photo is therefore a plain drag. A thin shape (a line) is padded to a finger-sized hit box (about 24dp on screen) so it can be grabbed.
 
 Drawing, per mode (screen points go through `CanvasHitTest.screenToWorld`, as `commitFrame` does):
 
@@ -259,7 +259,7 @@ Pure (`core/common`, JVM):
 Editor (`feature/editor`, Robolectric / unit):
 
 - `EditorViewModelTest`: commit in each mode adds one layer of the right kind, selected, one history entry; undo removes it; Frame mode commit equals the old `commitFrame` result byte for byte (same layer fields).
-- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in every mode a drag from a layer's middle moves it, a corner handle resizes it, a drag on empty canvas draws in the current mode, and a drag shorter than slop is a tap.
+- Gesture tests: `FrameToolCanvas` in Frame mode is parametrised over the existing cases (tap, draw, move + drop, handle resize, second finger) and passes with `shapeToolMode = FRAME`; in a shape mode a drag from a shape layer's or frame's middle moves it, a corner handle resizes a frame, a drag on empty canvas, a photo, a locked or a hidden layer draws in the current mode, a line is grabbable a few units off its stroke, and a drag shorter than slop is a tap; in Frame mode a drag from any layer moves it.
 - Defaults: closed shapes take `activeColor`, lines the stroke default; options with a shape selected edit it, with none edit `shapeDefaults`.
 - 3D: a shape under a moved camera, grid on, is created with the view-plane pose and lands under the finger; a frame that is not facing is not the parent.
 - Export: `VectorParityTest` / `VectorExportTest` with a star and an angled line (SVG and PDF displays equal the canvas outline); a frame clipping a shape.

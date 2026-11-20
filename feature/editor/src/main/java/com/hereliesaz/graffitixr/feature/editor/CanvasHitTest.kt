@@ -71,7 +71,7 @@ internal object CanvasHitTest {
         // Render order is bottom-to-top, so the topmost layer is last; test in reverse.
         for (layer in layers.asReversed()) {
             if (!layer.isVisible || layer.scale <= 0f) continue
-            val box = localBox(layer, canvasWidth, canvasHeight) ?: continue
+            val box = localBox(layer, canvasWidth, canvasHeight)?.grabbable(layer, viewportZoom) ?: continue
             if (box.isEmpty) continue
 
             // Invert the render transform: undo translation + centre, then rotation, then scale.
@@ -129,7 +129,7 @@ internal object CanvasHitTest {
                 }
                 continue
             }
-            val box = localBox(layer, canvasWidth, canvasHeight) ?: continue
+            val box = localBox(layer, canvasWidth, canvasHeight)?.grabbable(layer, viewportZoom) ?: continue
             if (box.isEmpty) continue
             val at = if (layer.id in sceneIds) {
                 val chain = com.hereliesaz.graffitixr.common.scene.planeChain(layers, layer.id)
@@ -499,6 +499,25 @@ internal object CanvasHitTest {
     }
 
     /** A box in a layer's local (pre-transform) space, the canvas centre at (0, 0). */
+    /**
+     * [MIN_GRAB_SCREEN_PX] is the least a vector shape's hit box measures on screen along either axis
+     * (about 24dp): a line's box is its stroke width, which a finger cannot land on. Only vector
+     * shapes are padded, each thin axis up to the minimum and about the centre; a raster layer and a
+     * shape already that big are untouched.
+     */
+    private fun LocalBox.grabbable(layer: Layer, viewportZoom: Float): LocalBox {
+        if (layer.shapes.isEmpty() || layer.model != null || isEmpty) return this
+        val minHalf = MIN_GRAB_SCREEN_PX / 2f / (viewportZoom * layer.scale)
+        val cx = (left + right) / 2f
+        val cy = (top + bottom) / 2f
+        val halfW = maxOf((right - left) / 2f, minHalf)
+        val halfH = maxOf((bottom - top) / 2f, minHalf)
+        return LocalBox(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+    }
+
+    /** The smallest a vector shape's hit box is on screen, in px (about 24dp): see [grabbable]. */
+    const val MIN_GRAB_SCREEN_PX = 48f
+
     private data class LocalBox(val left: Float, val top: Float, val right: Float, val bottom: Float) {
         val isEmpty: Boolean get() = right <= left || bottom <= top
         fun contains(x: Float, y: Float): Boolean = x in left..right && y in top..bottom
