@@ -477,7 +477,7 @@ private fun LayerThumb(
                 val bitmap = layer.bitmap
                 val adjustment = layer.adjustment
                 when {
-                    // A frame shows the mockup's # glyph; a plain group its stack glyph.
+                    // A frame shows the corner-bracket frame glyph; a plain group its stack glyph.
                     layer.isFrame -> RailGlyph(RailIcons.Frame)
                     isGroup -> RailGlyph(GraffuxIcons.LayerGroup)
                     // An adjustment layer shows its tool's glyph, not its render (the mockup).
