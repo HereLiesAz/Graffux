@@ -545,7 +545,7 @@ fun EditorScreen(
                             val startOnActiveLayer = active != null && !active.isImageLocked &&
                                 CanvasHitTest.topHit(
                                     st.layers, down.position, w, h,
-                                    st.viewportOffset, st.viewportZoom, st.viewportRotation, st.sceneCamera,
+                                    st.viewportOffset, st.viewportZoom, st.viewportRotation, st.sceneCamera, density,
                                 ) == st.activeLayerId
                             var movingObject = false
                             while (true) {
