@@ -89,6 +89,14 @@ internal suspend fun <E : Any> awaitSupersededEngine(
 }
 
 /**
+ * Whether a stroke's commit should expect a parked engine from its superseded live setup: only when it
+ * has NO live engine of its own (then its [startLiveFinish] owns and returns that engine; the two are
+ * never both set, so one engine never has two owners) and no Impasto-wet engine, and a setup ran.
+ */
+internal fun expectsSetupEngine(hasLiveEngine: Boolean, hasWetEngine: Boolean, hasSetup: Boolean): Boolean =
+    !hasLiveEngine && !hasWetEngine && hasSetup
+
+/**
  * Paints a stroke's commit on the engine a superseded live setup parked, when it can: [paint]
  * receives that engine (the one used), or null (a fresh engine is built, as without any setup), and
  * a `done` it must call before it builds any engine of its own (a failed attempt on the adopted
@@ -132,7 +140,7 @@ internal suspend fun <E : Any, T> paintOnSupersededEngine(
         }
     }
     try {
-        val reason = parked?.let { unusableReason(it, rebased, sizeChanged, refusal, reseed) }
+        val reason = parked?.let { unusableReason(it, rebased, sizeChanged, refusal, reseed, log) }
         when {
             parked == null -> Unit
             reason != null -> {
@@ -148,16 +156,20 @@ internal suspend fun <E : Any, T> paintOnSupersededEngine(
 }
 
 /** Why [parked] cannot paint the stroke, or null (re-seeding it first when [rebased]); a throw is a failure. */
+@Suppress("LongParameterList")
 private fun <E : Any> unusableReason(
     parked: E,
     rebased: Boolean,
     sizeChanged: Boolean,
     refusal: String?,
     reseed: (E) -> Boolean,
+    log: (String) -> Unit,
 ): String? = when {
     refusal != null -> refusal
     sizeChanged -> "resized"
-    rebased && !runCatching { reseed(parked) }.getOrDefault(false) -> "reseed failed"
+    rebased && !runCatching { reseed(parked) }
+        .onFailure { log("commit: re-seeding the adopted engine threw ${it.javaClass.simpleName}: ${it.message}") }
+        .getOrDefault(false) -> "reseed failed"
     else -> null
 }
 

@@ -187,16 +187,18 @@ internal class DrawingEngine(
             },
         ) { attempt ->
             if (command.tool == Tool.LIQUIFY) applyLiquify(base, command, frame)
-            else applyTool(
-                base, command, otherLayers = { otherLayers },
-                heightMap = heightMap, wetnessState = wetnessState,
-                impastoMaterialState = impastoMaterialState,
-                // The live engine is only good for the first attempt (it died with the device, or
-                // is the very engine that failed).
-                liveWet = if (attempt == 0) liveWet else null,
-                frame = frame,
-                adopted = if (attempt == 0) adopted else null,
-            )
+            else releasingAdoptedOnFailure(attempt == 0, adopted) {
+                applyTool(
+                    base, command, otherLayers = { otherLayers },
+                    heightMap = heightMap, wetnessState = wetnessState,
+                    impastoMaterialState = impastoMaterialState,
+                    // The live engine is only good for the first attempt (it died with the device, or
+                    // is the very engine that failed).
+                    liveWet = if (attempt == 0) liveWet else null,
+                    frame = frame,
+                    adopted = if (attempt == 0) adopted else null,
+                )
+            }
         }
         if (impastoMaterialState != null && !strokeUsesImpastoV2(command)) {
             impastoMaterialState.replaceRawColor(bitmapPixels(result))
@@ -353,13 +355,8 @@ internal class DrawingEngine(
                 replay != null -> return replay.paint(bitmap, stroke) {
                     GpuStampCommit.paintOnto(it, stroke, brush, mapped, brushScale, bitmap)
                 }
-                adopted != null && adoptable(stroke) -> try {
+                adopted != null && adoptable(stroke) ->
                     GpuStampCommit.paintAdopted(adopted.engine, bitmap, stroke, brush, mapped, brushScale)
-                } catch (e: StrokeRenderException) {
-                    // The retry builds a fresh engine: the adopted one (and its lease) goes first.
-                    adopted.release()
-                    throw e
-                }
                 else -> GpuStampCommit.paintStroke(bitmap, stroke, brush, mapped, brushScale)
             }
             return SelectionMask.feather(
@@ -528,6 +525,19 @@ internal class DrawingEngine(
 }
 
 /** A stroke the engine of its own live setup can paint as it is: no selection (confined on the GPU there). */
+/**
+ * [block] (the whole first attempt, so [AdoptedEngine]'s paint, its clip and its selection feather
+ * alike); if it throws [StrokeRenderException] the adopted engine is released BEFORE the retry builds
+ * a fresh one: two devices must not coexist.
+ */
+internal inline fun <T> releasingAdoptedOnFailure(first: Boolean, adopted: AdoptedEngine?, block: () -> T): T =
+    try {
+        block()
+    } catch (e: StrokeRenderException) {
+        if (first) adopted?.release()
+        throw e
+    }
+
 private fun adoptable(stroke: StrokeCommand) = stroke.selection == null
 
 /**

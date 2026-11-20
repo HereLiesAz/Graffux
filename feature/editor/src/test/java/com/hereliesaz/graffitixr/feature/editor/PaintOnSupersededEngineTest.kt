@@ -157,6 +157,10 @@ class PaintOnSupersededEngineTest {
             events.filter { it == "invalidate" || it.startsWith("release:") },
         )
         assertTrue(events.contains("log:commit: adopted engine discarded (reason: reseed failed)"))
+        assertTrue(
+            "the swallowed throw is logged with its cause",
+            events.any { it.startsWith("log:commit: re-seeding the adopted engine threw IllegalArgumentException") },
+        )
     }
 
     @Test
@@ -173,5 +177,32 @@ class PaintOnSupersededEngineTest {
         assertEquals(listOf("release:A", "fresh engine built"), order)
         assertEquals("released exactly once despite the exit path", 1, events.count { it.startsWith("release:") })
         assertEquals(1, events.count { it == "invalidate" })
+    }
+
+    @Test
+    fun `one engine has one owner, the live finish or the parked adoption, never both`() {
+        assertEquals(false, expectsSetupEngine(hasLiveEngine = true, hasWetEngine = false, hasSetup = true))
+        assertEquals(false, expectsSetupEngine(hasLiveEngine = false, hasWetEngine = true, hasSetup = true))
+        assertEquals(false, expectsSetupEngine(hasLiveEngine = false, hasWetEngine = false, hasSetup = false))
+        assertEquals(true, expectsSetupEngine(hasLiveEngine = false, hasWetEngine = false, hasSetup = true))
+    }
+
+    @Test
+    fun `any render failure of the first attempt releases the adopted engine before the retry`() {
+        val released = ArrayList<String>()
+        val adopted = AdoptedEngine(io.mockk.mockk(relaxed = true)) { released += "released" }
+        try {
+            releasingAdoptedOnFailure(true, adopted) { throw StrokeRenderException("keepInside: no memory") }
+            fail("expected a throw")
+        } catch (_: StrokeRenderException) {
+            assertEquals(listOf("released"), released)
+        }
+        try { // the retry's own failure must not release (it holds no adopted engine)
+            releasingAdoptedOnFailure(false, adopted) { throw StrokeRenderException("again") }
+        } catch (_: StrokeRenderException) {
+            assertEquals(listOf("released"), released)
+        }
+        assertEquals("ok", releasingAdoptedOnFailure(true, adopted) { "ok" })
+        assertEquals(listOf("released"), released)
     }
 }
